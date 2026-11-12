@@ -15,7 +15,35 @@ import Testing
 /// @Sendable block can call it. (A captured `var` can't be mutated there.)
 private final class SettingsChromeNotificationFlag: @unchecked Sendable {
     private(set) var isSet = false
+
+    /// Records that the observed Settings command notification was delivered.
     func set() { isSet = true }
+}
+
+@MainActor
+/// Waits for the Settings host root to report that its content is mounted.
+private final class SettingsChromeReadiness {
+    private var isReady = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Resolves all tests waiting for the first content appearance.
+    func signal() {
+        guard !isReady else { return }
+        isReady = true
+        let pendingWaiters = waiters
+        waiters.removeAll()
+        for waiter in pendingWaiters {
+            waiter.resume()
+        }
+    }
+
+    /// Suspends until the hosted Settings content has appeared.
+    func wait() async {
+        guard !isReady else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
 }
 
 extension SettingsWindowSharedStateSuites {
@@ -26,12 +54,17 @@ extension SettingsWindowSharedStateSuites {
     @MainActor
     @Suite(.serialized)
     struct SettingsWindowChromeTests {
-        @Test func presenterBuildsNativeSplitViewChrome() throws {
+        /// Verifies the AppKit-owned window preserves the native Settings chrome contract.
+        @Test func presenterBuildsNativeSplitViewChrome() async throws {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
 
-            let presenter = SettingsWindowPresenter()
-            #expect(presenter.show() == .presented)
+            let readiness = SettingsChromeReadiness()
+            let presenter = SettingsWindowPresenter { _ in
+                SettingsWindowFactory.makeSettingsWindow(onContentAppear: readiness.signal)
+            }
+            try #require(presenter.show() == .presented)
+            await readiness.wait()
             let window = try #require(
                 NSApp.windows.first {
                     $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
@@ -53,16 +86,12 @@ extension SettingsWindowSharedStateSuites {
             #expect(window.titleVisibility == .visible)
             #expect(window.titlebarSeparatorStyle == .automatic)
 
-            // Only the title is scene-bridged. `.toolbars` must stay off:
-            // the bridge never materializes NavigationSplitView's implicit
-            // sidebar toggle in an AppKit-hosted window (and bridged items
-            // don't materialize in the CI harness at all), so the factory
-            // owns the toolbar in AppKit, deterministically.
-            let hostingController = try #require(
-                window.contentViewController as? NSHostingController<SettingsWindowHostRoot>
-            )
-            #expect(hostingController.sceneBridgingOptions.contains(.title))
-            #expect(!hostingController.sceneBridgingOptions.contains(.toolbars))
+            // AppKit owns the Settings window's geometry and chrome. Keeping
+            // SwiftUI out of NSHostingController's scene/window bridge avoids
+            // the macOS 27 construction-time layout recursion that overflowed
+            // the main-thread stack (CMUXTERM-MACOS-27J7).
+            #expect(window.contentViewController == nil)
+            #expect(window.contentView is NSHostingView<SettingsWindowHostRoot>)
 
             // [flexible space, sidebar toggle, sidebar tracking separator]
             // is the exact item layout SwiftUI builds for its own
@@ -78,6 +107,7 @@ extension SettingsWindowSharedStateSuites {
             )
         }
 
+        /// Verifies the toolbar button routes through the shared sidebar command notification.
         @Test func toolbarToggleSharesTheMenuCommandNotificationPath() throws {
             closeSettingsWindows()
             defer { closeSettingsWindows() }
@@ -112,6 +142,7 @@ extension SettingsWindowSharedStateSuites {
             #expect(received.isSet)
         }
 
+        /// Closes all Settings windows and clears their saved frame for test isolation.
         private func closeSettingsWindows() {
             for window in NSApp.windows
             where window.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier {
@@ -121,6 +152,7 @@ extension SettingsWindowSharedStateSuites {
             }
             UserDefaults.standard.removeObject(forKey: "NSWindow Frame cmux.settings")
         }
+
     }
 }
 #endif

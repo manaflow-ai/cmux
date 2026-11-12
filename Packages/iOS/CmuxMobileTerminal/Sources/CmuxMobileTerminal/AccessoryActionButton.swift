@@ -18,9 +18,9 @@ final class AccessoryActionButton: UIButton {
     /// A sticky-locked modifier stays applied to every keystroke until the user
     /// taps it off, whereas an armed modifier is consumed by the next key. On
     /// iOS 26 both states share the same prominent-glass blue fill, so the lock
-    /// needs its own visual cue: a white capsule border drawn on the button's
-    /// layer, *over* the glass, mirroring the 2pt white stroke the pre-26 flat
-    /// style already used for the locked state. The border is drawn at the layer
+    /// needs its own visual cue: a contrasting capsule border drawn on the button's
+    /// layer, *over* the glass, mirroring the 2pt contrasting stroke the pre-26
+    /// flat style already used for the locked state. The border is drawn at the layer
     /// level (not via `UIButton.Configuration.background.strokeColor`) so it
     /// composites on top of Liquid Glass regardless of how the glass material
     /// renders its own background, and adds zero intrinsic width so it does not
@@ -32,7 +32,7 @@ final class AccessoryActionButton: UIButton {
         }
     }
 
-    /// Contrasting stroke used to distinguish the sticky modifier state.
+    /// Appearance-aware stroke used to distinguish the sticky modifier state.
     var stickyLockBorderColor: UIColor = .white {
         didSet { updateStickyLockBorder() }
     }
@@ -60,7 +60,18 @@ final class AccessoryActionButton: UIButton {
         updateStickyLockBorder()
     }
 
-    /// Sync the layer-level white capsule border to ``isStickyLocked``.
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection == nil
+            || previousTraitCollection?.hasDifferentColorAppearance(comparedTo: traitCollection) == true else {
+            return
+        }
+        // The border is drawn by CALayer, so resolve the dynamic foreground
+        // against the button's new appearance when Light/Dark Mode changes.
+        updateStickyLockBorder()
+    }
+
+    /// Sync the layer-level capsule border to ``isStickyLocked``.
     ///
     /// Always clears the border when not locked, so a button that transitions
     /// locked → armed → resting never keeps a stale border.
@@ -68,7 +79,7 @@ final class AccessoryActionButton: UIButton {
         if isStickyLocked {
             layer.cornerRadius = bounds.height / 2
             layer.cornerCurve = .continuous
-            layer.borderColor = stickyLockBorderColor.cgColor
+            layer.borderColor = stickyLockBorderColor.resolvedColor(with: traitCollection).cgColor
             layer.borderWidth = Self.stickyLockBorderWidth
         } else {
             layer.borderWidth = 0

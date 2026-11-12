@@ -5,6 +5,27 @@ public import Foundation
 /// Terminal-scoped artifact RPCs, extracted from `MobileChatEventSource.swift`,
 /// which sits at its file-length budget.
 extension MobileChatEventSource {
+    private func recordTerminalTrace(
+        operation: DiagnosticTerminalTraceOperation,
+        phase: DiagnosticTerminalTracePhase,
+        traceID: DiagnosticTerminalTraceID,
+        surfaceID: String,
+        startedAt: Date? = nil,
+        detail: Int? = nil
+    ) {
+        let elapsed = startedAt.map {
+            UInt32(clamping: Int(max(0, Date().timeIntervalSince($0)) * 1_000))
+        }
+        diagnosticLog?.recordTerminalTrace(
+            operation: operation,
+            phase: phase,
+            traceID: traceID,
+            surface: DiagnosticCorrelation().handle(for: surfaceID),
+            elapsedMilliseconds: elapsed,
+            detail: detail
+        )
+    }
+
     /// Scans file references rendered by one terminal surface.
     ///
     /// - Parameters:
@@ -24,10 +45,13 @@ extension MobileChatEventSource {
         includeMissing: Bool = true
     ) async throws -> TerminalArtifactScanResponse {
         let startedAt = Date()
+        let traceID = DiagnosticTerminalTraceID()
+        recordTerminalTrace(operation: .artifactScan, phase: .started, traceID: traceID, surfaceID: surfaceID)
         var params: [String: Any] = [
             "workspace_id": workspaceID,
             "surface_id": surfaceID,
             "include_missing": includeMissing,
+            "trace_id": traceID.stringValue,
         ]
         if visibleOnly {
             params["visible_only"] = true
@@ -38,6 +62,13 @@ extension MobileChatEventSource {
         if supportsTerminalArtifactList {
             params["include_directories"] = true
         }
+        recordTerminalTrace(
+            operation: .artifactScan,
+            phase: .requestSent,
+            traceID: traceID,
+            surfaceID: surfaceID,
+            startedAt: startedAt
+        )
         do {
             let response: TerminalArtifactScanResponse = try await artifactCall(
                 method: "mobile.terminal.artifact.scan",
@@ -49,6 +80,14 @@ extension MobileChatEventSource {
                 startedAt: startedAt,
                 count: response.artifacts.count
             )
+            recordTerminalTrace(
+                operation: .artifactScan,
+                phase: .applied,
+                traceID: traceID,
+                surfaceID: surfaceID,
+                startedAt: startedAt,
+                detail: response.artifacts.count
+            )
             return response
         } catch {
             recordAppEvent(
@@ -56,6 +95,13 @@ extension MobileChatEventSource {
                 correlationID: surfaceID,
                 startedAt: startedAt,
                 failure: DiagnosticFailureKind.classify(error)
+            )
+            recordTerminalTrace(
+                operation: .artifactScan,
+                phase: .failed,
+                traceID: traceID,
+                surfaceID: surfaceID,
+                startedAt: startedAt
             )
             throw error
         }
@@ -156,6 +202,8 @@ extension MobileChatEventSource {
         path: String
     ) async throws -> ChatArtifactDirectoryListing {
         let startedAt = Date()
+        let traceID = DiagnosticTerminalTraceID()
+        recordTerminalTrace(operation: .artifactList, phase: .started, traceID: traceID, surfaceID: surfaceID)
         recordAppEvent(.artifactListLoadStarted, correlationID: surfaceID)
         guard supportsTerminalArtifactList else {
             recordAppEvent(
@@ -163,6 +211,13 @@ extension MobileChatEventSource {
                 correlationID: surfaceID,
                 startedAt: startedAt,
                 failure: .policyUnavailable
+            )
+            recordTerminalTrace(
+                operation: .artifactList,
+                phase: .failed,
+                traceID: traceID,
+                surfaceID: surfaceID,
+                startedAt: startedAt
             )
             throw ChatArtifactError.unsupported
         }
@@ -173,6 +228,7 @@ extension MobileChatEventSource {
                     "workspace_id": workspaceID,
                     "surface_id": surfaceID,
                     "path": path,
+                    "trace_id": traceID.stringValue,
                 ]
             )
             recordAppEvent(
@@ -181,6 +237,14 @@ extension MobileChatEventSource {
                 startedAt: startedAt,
                 count: listing.entries.count
             )
+            recordTerminalTrace(
+                operation: .artifactList,
+                phase: .applied,
+                traceID: traceID,
+                surfaceID: surfaceID,
+                startedAt: startedAt,
+                detail: listing.entries.count
+            )
             return listing
         } catch {
             recordAppEvent(
@@ -188,6 +252,13 @@ extension MobileChatEventSource {
                 correlationID: surfaceID,
                 startedAt: startedAt,
                 failure: DiagnosticFailureKind.classify(error)
+            )
+            recordTerminalTrace(
+                operation: .artifactList,
+                phase: .failed,
+                traceID: traceID,
+                surfaceID: surfaceID,
+                startedAt: startedAt
             )
             throw error
         }

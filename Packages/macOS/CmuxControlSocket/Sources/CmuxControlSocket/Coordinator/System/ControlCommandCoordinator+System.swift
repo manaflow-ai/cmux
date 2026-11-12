@@ -1,7 +1,8 @@
 internal import Foundation
 
 /// The system/misc domain (`system.identify`, `system.tree`, `auth.login`,
-/// `session.restore_previous`, `settings.open`, `feedback.open`,
+/// `session.restore_previous`, `session.import`, `session.export`,
+/// `settings.open`, `feedback.open`,
 /// `extension.sidebar.snapshot`, `workspace.action`, `surface.action` /
 /// `tab.action`, `surface.drag_to_split` / `surface.split_off`, and the
 /// DEBUG-only `mobile.dev_stack_auth.configure`), lifted byte-faithfully from
@@ -30,6 +31,10 @@ extension ControlCommandCoordinator {
             return authLogin()
         case "session.restore_previous":
             return sessionRestorePrevious()
+        case "session.import":
+            return sessionImport(request.params)
+        case "session.export":
+            return sessionExport(request.params)
         case "settings.open":
             return settingsOpen(request.params)
         case "feedback.open":
@@ -353,7 +358,8 @@ extension ControlCommandCoordinator {
     }
 
     /// The `system.tree` surface node payload (browser surfaces emit their URL
-    /// string — empty when absent — and non-browsers emit JSON `null`).
+    /// string — empty when absent — and non-browsers emit JSON `null`; file
+    /// surfaces emit their `file_path`, other surfaces JSON `null`).
     private nonisolated func systemTreeSurfacePayload(
         _ node: ControlSystemTreeSurfaceNode,
         refs: SystemTreeSurfaceRefs
@@ -371,8 +377,10 @@ extension ControlCommandCoordinator {
             "pane_ref": refs.paneRef,
             "index_in_pane": node.indexInPane.map { JSONValue.int(Int64($0)) } ?? .null,
             "tty": orNull(node.tty),
+            "render_health": orNull(node.renderHealthRawValue),
         ]
         item["url"] = node.isBrowser ? .string(node.url ?? "") : .null
+        item["file_path"] = orNull(node.filePath)
         if let dockScope = node.dockScopeRawValue {
             item["dock_scope"] = .string(dockScope)
         }

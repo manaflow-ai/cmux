@@ -202,14 +202,14 @@ export class AgentModelCatalogStore {
     if (res.status === 304) {
       if (!this.state) throw new Error("model catalog returned 304 without a cached payload");
       this.state.fetchedAt = this.now();
-      await this.persist();
+      await this.persistBestEffort();
       return false;
     }
     if (!res.ok) throw new Error(`model catalog request failed (${res.status})`);
     const payload = validateAgentModelCatalog(await res.json());
     const changed = JSON.stringify(payload) !== JSON.stringify(this.state?.payload ?? null);
     this.state = { payload, etag: res.headers.get("etag") ?? undefined, fetchedAt: this.now() };
-    await this.persist();
+    await this.persistBestEffort();
     if (changed) for (const listener of this.listeners) listener(payload);
     return changed;
   }
@@ -232,6 +232,16 @@ export class AgentModelCatalogStore {
     const tmp = join(dir, `${basename(this.cacheFile)}.${process.pid}.tmp`);
     await writeFile(tmp, JSON.stringify(this.state) + "\n", "utf8");
     await rename(tmp, this.cacheFile);
+  }
+
+  private async persistBestEffort() {
+    try {
+      await this.persist();
+    } catch (err) {
+      // The cache is only an offline optimization. A local filesystem failure
+      // must not hide a valid in-memory refresh from open model pickers.
+      console.warn(`[agent-chat] model catalog cache write failed: ${String(err)}`);
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxSettings
 import Foundation
 import os
 import Security
@@ -164,6 +165,25 @@ extension AppDelegate {
         return true
     }
 
+    /// Starts or reuses the agent-chat sidecar and returns its page base URL,
+    /// or nil when Agent Chat is off or the sidecar is unreachable.
+    func agentChatBrowserBaseURL(tabManager: TabManager, preferredWindow: NSWindow?) async -> URL? {
+        guard CmuxFeatureFlags.shared.isAgentChatUIEnabled,
+              BrowserAvailabilitySettings.isEnabled(),
+              AgentChatActionInFlightGate.begin() else { return nil }
+        defer { AgentChatActionInFlightGate.end() }
+        let store = mainWindowContext(for: tabManager)?.cmuxConfigStore
+        let agentChat = store?.agentChat ?? .default
+        AgentChatThemeSync.start()
+        let availability = await ensureAgentChatServerAvailable(
+            agentChat,
+            globalConfigPath: store?.globalConfigPath,
+            preferredWindow: preferredWindow
+        )
+        AgentChatThemeSync.syncNow(agentChat: agentChat)
+        return availability.isReachable ? availability.browserURL : nil
+    }
+
     @discardableResult
     private func openAgentChatWorkspace(
         tabManager: TabManager,
@@ -320,6 +340,9 @@ extension AppDelegate {
                 "CMUX_AGENT_CHAT_PORT": "0",
                 "CMUX_AGENT_CHAT_STATE_FILE": stateFileURL.path,
                 "CMUX_AGENT_CHAT_LAUNCH_ID": launchId,
+                // Terminal chat views deliver prompts over this app's socket.
+                "CMUX_SOCKET_PATH": TerminalController.shared.activeSocketPath(preferredPath: SocketControlSettings.socketPath()),
+                "CMUX_BUNDLED_CLI_PATH": CLIForwardingLaunchRouter.bundledCLIURL()?.path ?? "",
             ]
         ) else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)

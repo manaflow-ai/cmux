@@ -184,10 +184,10 @@ import Testing
         // Engine-owned session commands stay out of the shared table; the
         // reviewer-facing showcase commands all live in it.
         for sessionCommand in ["cd", "ls", "pwd", "cat", "clear"] {
-            #expect(MobileDemoCommandCatalog.responders[sessionCommand] == nil)
+            #expect(MobileDemoCommandCatalog().responders[sessionCommand] == nil)
         }
         for showcaseCommand in ["echo", "git", "date", "whoami", "help"] {
-            #expect(MobileDemoCommandCatalog.responders[showcaseCommand] != nil)
+            #expect(MobileDemoCommandCatalog().responders[showcaseCommand] != nil)
         }
     }
 

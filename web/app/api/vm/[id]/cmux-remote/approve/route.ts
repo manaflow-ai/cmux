@@ -1,11 +1,11 @@
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
-  vmResourceErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../../services/telemetry";
-import { approveVmCmuxRemoteEnrollment, runVmWorkflow } from "../../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../../services/vms/routeWorkflow";
+import { approveVmCmuxRemoteEnrollment } from "../../../../../../services/vms/workflows";
 import { parseLenientObjectBody } from "../../../../../../services/vms/routeInput";
 
 /**
@@ -38,22 +38,18 @@ export async function POST(
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
-      try {
-        const result = await runVmWorkflow(approveVmCmuxRemoteEnrollment({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          invitationId,
-          callerPlanId: account.entitlements.planId,
-        }));
-        setSpanAttributes(span, { "cmux.vm.cmux_remote.approval_state": result.state });
-        return jsonResponse(result);
-      } catch (err) {
-        const response = vmResourceErrorResponse(err, id);
-        if (response) return response;
-        throw err;
-      }
+      const run = await runVmRoute(approveVmCmuxRemoteEnrollment({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        invitationId,
+        callerPlanId: account.entitlements.planId,
+      }), { request });
+      if (!run.ok) return run.response;
+      const result = run.value;
+      setSpanAttributes(span, { "cmux.vm.cmux_remote.approval_state": result.state });
+      return jsonResponse(result);
     },
   );
 }

@@ -27,6 +27,7 @@ cmux-remote-protocol.workspace = true
 cmux-tui-core.workspace = true
 cmux-wg = { workspace = true, optional = true }
 diffy.workspace = true
+flate2.workspace = true
 fs4.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
@@ -57,6 +58,7 @@ zeroize.workspace = true
 cmux-tui-source-watch = { path = "../.." }
 
 [dev-dependencies]
+cmux-test-exec.workspace = true
 cmux-relay = { path = "../cmux-relay" }
 cmux-wg.workspace = true
 rcgen = "0.14"

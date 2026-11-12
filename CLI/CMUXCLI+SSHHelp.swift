@@ -47,7 +47,7 @@ extension CMUXCLI {
               cmux ssh dev@my-host --command 'omp "investigate auth"'
             """
         )
-        return "\(help)\n\n\(initialCommandHelp)\n\n\(moshHelp)"
+        return "\(help)\n\n\(initialCommandHelp)\n\n\(moshHelp)\n\n\(openFocusFlagsHelp)"
     }
 
     static var moshCommandUsage: String {

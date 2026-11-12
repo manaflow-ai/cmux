@@ -45,7 +45,7 @@ const messagesByLocale = {
   uk: ukrainianMessages,
 } as const;
 
-const supportEmail = "founders@manaflow.com";
+const supportEmail = "founders@cmux.com";
 
 // Long-form sentences that any genuine translation must render differently
 // from the English catalog. Short labels ("Discord", "Support") may

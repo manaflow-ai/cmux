@@ -35,7 +35,7 @@ public enum CmuxDiffViewerSessionError: Int, Equatable, Error, LocalizedError, S
         case .invalidToken:
             String(
                 localized: "diffViewer.error.invalidToken",
-                defaultValue: "Invalid diff viewer token",
+                defaultValue: "Could not open the diff viewer. Try again.",
                 bundle: .module
             )
         case .emptyAllowlist:
@@ -71,13 +71,13 @@ public enum CmuxDiffViewerSessionError: Int, Equatable, Error, LocalizedError, S
         case .invalidManifest:
             String(
                 localized: "diffViewer.error.invalidManifest",
-                defaultValue: "Invalid diff viewer manifest",
+                defaultValue: "Could not load the diff viewer. Try again.",
                 bundle: .module
             )
         case .manifestTooLarge:
             String(
                 localized: "diffViewer.error.manifestTooLarge",
-                defaultValue: "Diff viewer manifest is too large",
+                defaultValue: "The diff is too large to display. Try opening fewer files.",
                 bundle: .module
             )
         case .unsafeTrustedRoot:

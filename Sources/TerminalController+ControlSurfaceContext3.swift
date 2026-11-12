@@ -7,7 +7,6 @@ import Foundation
 /// `TerminalController+ControlSurfaceContext` to keep the conformance readable; see
 /// that file's doc comment for the overview.
 extension TerminalController {
-
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
         ControlSurfaceResumeStrings(
             agentSessionEndedMustBeBoolean: String(
@@ -24,9 +23,7 @@ extension TerminalController {
             )
         )
     }
-
     // MARK: - move (bridge to still-app-side v2SurfaceMove)
-
     func controlSurfaceMove(params: [String: JSONValue]) -> ControlCallResult {
         if let surfaceID = remoteTmuxMirrorContainerID(in: params) {
             return .err(
@@ -213,6 +210,10 @@ extension TerminalController {
 
     nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(
+            initialInputRequiresTerminalType: String(
+                localized: "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType",
+                defaultValue: "Initial command input can only be used with terminal surfaces"
+            ),
             inputQueueFull: String(
                 localized: "socket.terminal.inputQueueFull",
                 defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
@@ -281,6 +282,9 @@ extension TerminalController {
             guard target.terminalPanel != nil else {
                 return .surfaceNotTerminal(surfaceId)
             }
+            guard remoteRelayDockTargetIsCurrent(routing: routing, dock: dock, surfaceID: surfaceId) else {
+                return .surfaceUnavailable(surfaceId)
+            }
             guard let terminalTarget = dock.controlSocketTerminalTarget(for: surfaceId) else {
                 return .surfaceUnavailable(surfaceId)
             }
@@ -317,6 +321,13 @@ extension TerminalController {
         ) {
         case .unresolved(let resolution): return resolution
         case .surface(let id): requestedSurfaceID = id
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: requestedSurfaceID
+        ) else {
+            return .surfaceNotFoundForID
         }
         guard ws.controlTerminalTarget(for: requestedSurfaceID) != nil else {
             return .surfaceNotTerminal(requestedSurfaceID)
@@ -417,6 +428,13 @@ extension TerminalController {
         ) {
         case .unresolved(let resolution): return resolution
         case .surface(let id): requestedSurfaceID = id
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: requestedSurfaceID
+        ) else {
+            return .surfaceNotFoundForID
         }
         guard ws.controlTerminalTarget(for: requestedSurfaceID) != nil else {
             return .surfaceNotTerminal(requestedSurfaceID)

@@ -5,6 +5,14 @@ import {
   captureBillingCheckoutStarted,
   captureStripeBillingEvent,
 } from "../services/analytics/stripeBilling";
+import {
+  checkoutAttributionFromRequest,
+} from "../services/analytics/checkoutAttribution";
+
+const WEB_ATTRIBUTION = checkoutAttributionFromRequest({
+  searchParams: new URLSearchParams("cmux_source=pricing_page&cmux_placement=hero"),
+  referer: "https://cmux.com/pricing?interval=year",
+});
 
 describe("Stripe billing analytics", () => {
   test("does not use the real transport in a test process", async () => {
@@ -20,6 +28,9 @@ describe("Stripe billing analytics", () => {
         subject: { scope: "user", stackUserId: "stack-user-test" },
         plan: "pro",
         billingInterval: "month",
+        attribution: WEB_ATTRIBUTION,
+        signedIn: false,
+        existingStripeCustomer: false,
       });
     } finally {
       globalThis.fetch = originalFetch;
@@ -155,6 +166,9 @@ describe("Stripe billing analytics", () => {
       subject: { scope: "user", stackUserId: "stack-user-1" },
       plan: "pro",
       billingInterval: "year",
+      attribution: WEB_ATTRIBUTION,
+      signedIn: true,
+      existingStripeCustomer: false,
     }, (async (_input, init) => {
       payload = JSON.parse(String(init?.body));
       return new Response(null, { status: 200 });
@@ -167,9 +181,120 @@ describe("Stripe billing analytics", () => {
         $insert_id: "checkout-started:cs_started",
         plan: "pro",
         billing_interval: "year",
+        signed_in: true,
+        existing_stripe_customer: false,
+        checkout_source: "pricing_page",
+        checkout_placement: "hero",
+        checkout_client: "web",
+        checkout_channel: null,
+        checkout_referrer_host: "cmux.com",
+        checkout_referrer_path: "/pricing",
       },
     });
     expect(JSON.stringify(payload)).not.toContain("email");
+  });
+
+  test("carries app attribution from Stripe metadata onto paid events", async () => {
+    let payload: Record<string, unknown> = {};
+    const event = {
+      id: "evt_checkout_mac",
+      type: "checkout.session.completed",
+      created: 1_800_000_600,
+      data: {
+        object: {
+          id: "cs_mac",
+          created: 1_800_000_000,
+          amount_total: 5000,
+          currency: "usd",
+          payment_status: "paid",
+          payment_method_types: ["card", "link"],
+          customer: "cus_mac",
+          subscription: "sub_mac",
+          customer_details: { address: { country: "US" } },
+          total_details: { amount_discount: 500 },
+          metadata: {
+            plan: "pro",
+            billingInterval: "year",
+            cmuxSource: "mac_sidebar_badge",
+            cmuxClient: "mac",
+            cmuxChannel: "nightly",
+            cmuxAppVersion: "0.65.1",
+            cmuxAppBuild: "2026090101",
+          },
+        },
+      },
+    } as unknown as Stripe.Event;
+
+    await captureStripeBillingEvent(
+      event,
+      { scope: "user", stackUserId: "stack-user-mac", isActive: true, status: "active" },
+      (async (_input, init) => {
+        payload = JSON.parse(String(init?.body));
+        return new Response(null, { status: 200 });
+      }) as typeof fetch,
+    );
+
+    expect(payload).toMatchObject({
+      event: "cmux_billing_checkout_completed",
+      properties: {
+        checkout_source: "mac_sidebar_badge",
+        checkout_client: "mac",
+        checkout_channel: "nightly",
+        checkout_app_version: "0.65.1",
+        checkout_app_build: "2026090101",
+        checkout_placement: null,
+        payment_method_types: ["card", "link"],
+        customer_country: "US",
+        amount_discount: 500,
+        promotion_applied: true,
+        checkout_duration_seconds: 600,
+        $set: { billing_plan: "pro", billing_customer_type: "user" },
+        $set_once: {
+          first_paid_checkout_source: "mac_sidebar_badge",
+          first_paid_checkout_client: "mac",
+          first_paid_checkout_channel: "nightly",
+          first_paid_checkout_at: new Date(1_800_000_600 * 1000).toISOString(),
+        },
+      },
+    });
+  });
+
+  test("reads pre-attribution sessions as unknown web checkouts", async () => {
+    let payload: Record<string, unknown> = {};
+    const event = {
+      id: "evt_expired",
+      type: "checkout.session.expired",
+      created: 1_800_000_600,
+      data: {
+        object: {
+          id: "cs_old",
+          amount_total: 5000,
+          currency: "usd",
+          customer: null,
+          metadata: { plan: "pro", billingInterval: "month", app: "cmux" },
+        },
+      },
+    } as unknown as Stripe.Event;
+
+    await captureStripeBillingEvent(
+      event,
+      { scope: "user", stackUserId: "stack-user-old", isActive: false, status: "expired" },
+      (async (_input, init) => {
+        payload = JSON.parse(String(init?.body));
+        return new Response(null, { status: 200 });
+      }) as typeof fetch,
+    );
+
+    expect(payload).toMatchObject({
+      event: "cmux_billing_checkout_expired",
+      properties: {
+        distinct_id: "stack-user-old",
+        checkout_source: "unknown",
+        checkout_client: "web",
+        checkout_channel: null,
+        stripe_checkout_session_id: "cs_old",
+      },
+    });
   });
 
   test("captures refunds without payment method details", async () => {

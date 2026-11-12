@@ -67,6 +67,14 @@ public struct SocketControlServerEvents: Sendable {
         _ delayMs: Int
     ) -> Void
 
+    /// The accept path could not hand an accepted, configured connection to
+    /// the ``SocketControlServer/connections`` consumer because its bounded
+    /// buffer was full. The host takes ownership of the descriptor and must
+    /// close it, ideally after answering the client (the app routes it to
+    /// its overload responder). Invoked on the listener queue. When `nil`,
+    /// the server closes the descriptor itself.
+    public let connectionDropped: (@Sendable (_ socket: Int32, _ generation: UInt64) -> Void)?
+
     /// Creates the event seam.
     /// - Parameters:
     ///   - breadcrumb: Non-fatal telemetry sink.
@@ -76,6 +84,8 @@ public struct SocketControlServerEvents: Sendable {
     ///   - cleanupDiscoveryState: Lock-owned marker/pointer cleanup hook.
     ///   - pathMissingDetected: Socket-path-deleted restart trigger.
     ///   - rearmRequested: Accept-failure rearm scheduler.
+    ///   - connectionDropped: Owner of connections the accept buffer could not
+    ///     hold; `nil` closes them in the server.
     public init(
         breadcrumb: @escaping @Sendable (String, [String: any Sendable]) -> Void,
         failure: @escaping @Sendable (String, String, Int32?, [String: any Sendable]) -> Void,
@@ -83,7 +93,8 @@ public struct SocketControlServerEvents: Sendable {
         recordLastSocketPath: @escaping @Sendable (String) -> Void,
         cleanupDiscoveryState: @escaping @MainActor @Sendable (String) -> Void = { _ in },
         pathMissingDetected: @escaping @Sendable (String, UInt64) -> Void,
-        rearmRequested: @escaping @Sendable (UInt64, Int32, Int, Int) -> Void
+        rearmRequested: @escaping @Sendable (UInt64, Int32, Int, Int) -> Void,
+        connectionDropped: (@Sendable (Int32, UInt64) -> Void)? = nil
     ) {
         self.breadcrumb = breadcrumb
         self.failure = failure
@@ -92,5 +103,6 @@ public struct SocketControlServerEvents: Sendable {
         self.cleanupDiscoveryState = cleanupDiscoveryState
         self.pathMissingDetected = pathMissingDetected
         self.rearmRequested = rearmRequested
+        self.connectionDropped = connectionDropped
     }
 }

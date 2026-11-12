@@ -1,3 +1,4 @@
+import CoreServices
 import Foundation
 import Testing
 @testable import CmuxSettings
@@ -24,6 +25,26 @@ struct DefaultsKeyDirectAccessTests {
 
         key.removeValue(in: defaults)
         #expect(key.value(in: defaults) == true)
+    }
+
+    @Test func warnBeforeClosingWorkspaceDefaultsToEnabled() {
+        let defaults = makeScratchDefaults()
+        let key = AppCatalogSection().warnBeforeClosingWorkspace
+        #expect(key.id == "app.warnBeforeClosingWorkspace")
+        #expect(key.value(in: defaults) == true)
+
+        defaults.set(false, forKey: "warnBeforeClosingWorkspace")
+        #expect(key.value(in: defaults) == false)
+    }
+
+    @Test func warnBeforeClosingWindowDefaultsToEnabled() {
+        let defaults = makeScratchDefaults()
+        let key = AppCatalogSection().warnBeforeClosingWindow
+        #expect(key.id == "app.warnBeforeClosingWindow")
+        #expect(key.value(in: defaults) == true)
+
+        defaults.set(false, forKey: "warnBeforeClosingWindow")
+        #expect(key.value(in: defaults) == false)
     }
 
     @Test func undecodableStoredValueReadsAsDefault() {
@@ -65,6 +86,22 @@ struct CloseTabWarningStoreTests {
         #expect(store.warnsBeforeClosingTab == false)
         #expect(store.warnsBeforeClosingTabXButton == true)
         #expect(store.hidesTabCloseButton == true)
+    }
+
+    @Test func windowCloseConfirmsOnlyWhenSomethingWouldBeLost() {
+        let store = CloseTabWarningStore(defaults: makeScratchDefaults())
+        #expect(store.warnsBeforeClosingWindow == true)
+        #expect(store.shouldConfirmWindowClose(anyPanelNeedsConfirmation: true) == true)
+        #expect(store.shouldConfirmWindowClose(anyPanelNeedsConfirmation: false) == false)
+    }
+
+    @Test func windowCloseNeverConfirmsWhenWindowWarningIsOff() {
+        let defaults = makeScratchDefaults()
+        defaults.set(false, forKey: "warnBeforeClosingWindow")
+        let store = CloseTabWarningStore(defaults: defaults)
+        #expect(store.warnsBeforeClosingWindow == false)
+        #expect(store.shouldConfirmWindowClose(anyPanelNeedsConfirmation: true) == false)
+        #expect(store.shouldConfirmWindowClose(anyPanelNeedsConfirmation: false) == false)
     }
 
     @Test func setWarnsBeforeClosingTabWritesLegacyKey() {
@@ -388,6 +425,7 @@ struct CloseTabConfirmationPolicyTests {
         var warnsBeforeClosingTab: Bool
         var warnsBeforeClosingTabXButton: Bool
         var hidesTabCloseButton: Bool = false
+        var warnsBeforeClosingAgentSession: Bool = true
     }
 
     @Test func shortcutWarnsOnlyForConfirmationRequiringTabsWithWarningOn() {
@@ -398,6 +436,60 @@ struct CloseTabConfirmationPolicyTests {
         #expect(!warningOn.shouldConfirmClose(requiresConfirmation: false, source: .shortcut))
         #expect(!warningOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
         #expect(!warningOff.shouldConfirmClose(requiresConfirmation: false, source: .shortcut))
+    }
+
+    @Test func activeAgentUsesOnlyItsOwnWarningToggle() {
+        let agentOn = FixedWarnings(
+            warnsBeforeClosingTab: false,
+            warnsBeforeClosingTabXButton: false,
+            warnsBeforeClosingAgentSession: true
+        )
+        let agentOff = FixedWarnings(
+            warnsBeforeClosingTab: true,
+            warnsBeforeClosingTabXButton: false,
+            warnsBeforeClosingAgentSession: false
+        )
+
+        #expect(agentOn.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
+        #expect(!agentOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
+        #expect(agentOff.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
+        #expect(agentOn.warningKindsIncludingSafety(requiresConfirmation: true, source: .shortcut, isAgentSession: true) == [.agentSession])
+    }
+
+    @Test func activeAgentUsesOnlyAgentWarningOnTabCloseButton() {
+        let warnings = FixedWarnings(
+            warnsBeforeClosingTab: true,
+            warnsBeforeClosingTabXButton: true,
+            warnsBeforeClosingAgentSession: true
+        )
+
+        #expect(
+            warnings.warningKindsIncludingSafety(
+                requiresConfirmation: true,
+                source: .tabCloseButton,
+                isAgentSession: true
+            ) == [.agentSession]
+        )
+        #expect(
+            warnings.warningKindsIncludingSafety(
+                requiresConfirmation: true,
+                source: .tabCloseButton,
+                isAgentSession: false
+            ) == [.tab, .tabCloseButton, .safety]
+        )
+    }
+
+    @Test func agentDontAskAgainDoesNotDisableOrdinaryTabWarning() {
+        let defaults = makeScratchDefaults()
+        let store = CloseTabWarningStore(defaults: defaults)
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+        store.disableWarnings([.agentSession, .tabCloseButton])
+
+        #expect(!store.warnsBeforeClosingAgentSession)
+        #expect(store.warnsBeforeClosingTab)
+        #expect(store.warnsBeforeClosingTabXButton)
+        #expect(store.shouldConfirmClose(requiresConfirmation: true, source: .shortcut))
+        #expect(!store.shouldConfirmClose(requiresConfirmation: true, source: .shortcut, isAgentSession: true))
     }
 
     @Test func xButtonWarnsUnconditionallyWhenItsToggleIsOn() {
@@ -414,6 +506,36 @@ struct CloseTabConfirmationPolicyTests {
         let bothOff = FixedWarnings(warnsBeforeClosingTab: false, warnsBeforeClosingTabXButton: false)
         #expect(!bothOff.shouldConfirmClose(requiresConfirmation: true, source: .tabCloseButton))
         #expect(!bothOff.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton))
+    }
+
+    @Test func warningKindsNameEveryToggleBehindAPrompt() {
+        let both = FixedWarnings(warnsBeforeClosingTab: true, warnsBeforeClosingTabXButton: true)
+        #expect(both.warningKinds(requiresConfirmation: true, source: .shortcut) == [.tab])
+        #expect(both.warningKinds(requiresConfirmation: false, source: .shortcut) == [])
+        #expect(both.warningKinds(requiresConfirmation: true, source: .tabCloseButton) == [.tab, .tabCloseButton])
+        #expect(both.warningKinds(requiresConfirmation: false, source: .tabCloseButton) == [.tabCloseButton])
+    }
+
+    @Test func disableWarningsTurnsOffOnlyTheGivenToggles() {
+        let defaults = makeScratchDefaults()
+        let store = CloseTabWarningStore(defaults: defaults)
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+
+        store.disableWarnings([.tabCloseButton, .workspace])
+
+        #expect(store.warnsBeforeClosingTab)
+        #expect(!store.warnsBeforeClosingTabXButton)
+        #expect(!store.warnsBeforeClosingWorkspace)
+        #expect(defaults.object(forKey: "warnBeforeClosingWorkspace") as? Bool == false)
+        #expect(store.warnsBeforeClosingWindow)
+
+        store.disableWarnings([.tab])
+        #expect(!store.warnsBeforeClosingTab)
+        #expect(defaults.object(forKey: "warnBeforeClosingTabShortcut") as? Bool == false)
+
+        store.disableWarnings([.window])
+        #expect(!store.warnsBeforeClosingWindow)
+        #expect(defaults.object(forKey: "warnBeforeClosingWindow") as? Bool == false)
     }
 
     @Test func liveStoreReadsTogglesFromDefaults() {
@@ -443,6 +565,17 @@ struct QuitConfirmationPolicyTests {
         ))
     }
 
+    /// The dev-build bypass short-circuits ahead of the mode switch, so it must
+    /// hold under a non-default mode too.
+    @Test func devBuildsNeverWarnUnderDirtyOnlyMode() {
+        let defaults = makeScratchDefaults()
+        defaults.set("dirty-only", forKey: "confirmQuit")
+        let store = QuitConfirmationStore(defaults: defaults)
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: true
+        ))
+    }
+
     @Test func alwaysModeWarnsRegardlessOfDirtyState() {
         let store = QuitConfirmationStore(defaults: makeScratchDefaults())
         #expect(store.shouldShowConfirmation(
@@ -464,6 +597,52 @@ struct QuitConfirmationPolicyTests {
         #expect(!store.shouldShowConfirmation(
             isQuitWarningConfirmed: false, hasDirtyWorkspaces: false, isDevBuild: false
         ))
+    }
+
+    /// A confirmation dialog during logout, restart, or shutdown blocks the
+    /// whole session change, so those quits skip it in every mode.
+    @Test(arguments: ["always", "dirty-only"])
+    func sessionEndNeverWarns(mode: String) {
+        let defaults = makeScratchDefaults()
+        defaults.set(mode, forKey: "confirmQuit")
+        let store = QuitConfirmationStore(defaults: defaults)
+
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false,
+            quitReason: .sessionEnd
+        ))
+        #expect(store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false,
+            quitReason: .user
+        ))
+    }
+
+    /// Install and Relaunch is the user's consent to quit. A confirmation shown
+    /// when Sparkle then terminates the app stalls the update behind a modal.
+    @Test(arguments: ["always", "dirty-only"])
+    func updateRelaunchNeverWarns(mode: String) {
+        let defaults = makeScratchDefaults()
+        defaults.set(mode, forKey: "confirmQuit")
+        let store = QuitConfirmationStore(defaults: defaults)
+
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: false,
+            quitReason: .updateRelaunch
+        ))
+    }
+
+    @Test func quitEventReasonMapsSessionChanges() {
+        let sessionCodes: [OSType] = [
+            kAELogOut, kAEReallyLogOut,
+            kAEShowRestartDialog, kAERestart,
+            kAEShowShutdownDialog, kAEShutDown,
+        ]
+        for code in sessionCodes {
+            #expect(QuitRequestReason(appleEventQuitReason: code) == .sessionEnd)
+        }
+        #expect(QuitRequestReason(appleEventQuitReason: nil) == .user)
+        #expect(QuitRequestReason(appleEventQuitReason: 0) == .user)
+        #expect(QuitRequestReason(appleEventQuitReason: kAEQuitApplication) == .user)
     }
 
     @Test func neverModeNeverWarns() {

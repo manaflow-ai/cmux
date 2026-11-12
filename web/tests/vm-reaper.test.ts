@@ -100,6 +100,11 @@ function vmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    networkPolicy: null,
+    networkPolicyStatus: null,
+    agentUpdates: null,
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-reaper",
+    coderouterPoolId: null,
     ...overrides,
   };
 }

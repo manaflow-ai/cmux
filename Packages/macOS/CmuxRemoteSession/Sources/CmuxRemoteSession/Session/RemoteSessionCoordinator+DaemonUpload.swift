@@ -50,11 +50,11 @@ extension RemoteSessionCoordinator {
 
         let mkdirScript = "mkdir -p \(remoteDirectory.shellSingleQuoted) && " +
             Self.remoteDaemonTemporaryCleanupScript(remotePath: remotePath)
-        let mkdirCommand = "sh -c \(mkdirScript.shellSingleQuoted)"
+        let mkdirCommand = RemotePOSIXShellCommand(script: mkdirScript).commandLine
         let mkdirResult: RemoteCommandResult
         do {
             mkdirResult = try sshExec(
-                arguments: daemonBootstrapSSHArguments() + [configuration.destination, mkdirCommand],
+                arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, mkdirCommand],
                 timeout: 12
             )
         } catch {
@@ -160,11 +160,11 @@ extension RemoteSessionCoordinator {
         trap - HUP INT TERM
         exit "$cat_status"
         """
-        let uploadCommand = "sh -c \(uploadScript.shellSingleQuoted)"
+        let uploadCommand = RemotePOSIXShellCommand(script: uploadScript).commandLine
         let uploadResult: RemoteCommandResult
         do {
             uploadResult = try sshExec(
-                arguments: daemonBootstrapSSHArguments() + [configuration.destination, uploadCommand],
+                arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, uploadCommand],
                 stdinFile: localBinary,
                 timeout: Self.daemonUploadTimeout(forByteCount: artifact.byteCount)
             )
@@ -206,11 +206,11 @@ extension RemoteSessionCoordinator {
             expectedByteCount: artifact.byteCount,
             expectedSHA256: artifact.sha256
         )
-        let finalizeCommand = "sh -c \(finalizeScript.shellSingleQuoted)"
+        let finalizeCommand = RemotePOSIXShellCommand(script: finalizeScript).commandLine
         let finalizeResult: RemoteCommandResult
         do {
             finalizeResult = try sshExec(
-                arguments: daemonBootstrapSSHArguments() + [configuration.destination, finalizeCommand],
+                arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, finalizeCommand],
                 timeout: 12
             )
         } catch {
@@ -365,10 +365,10 @@ extension RemoteSessionCoordinator {
             remotePath: remotePath,
             currentTemporaryPath: currentTemporaryPath
         )
-        let cleanupCommand = "sh -c \(cleanupScript.shellSingleQuoted)"
+        let cleanupCommand = RemotePOSIXShellCommand(script: cleanupScript).commandLine
         do {
             let result = try sshExec(
-                arguments: daemonBootstrapSSHArguments() + [configuration.destination, cleanupCommand],
+                arguments: daemonBootstrapSSHArguments() + ["--", configuration.destination, cleanupCommand],
                 timeout: 8
             )
             guard result.status == 0 else {

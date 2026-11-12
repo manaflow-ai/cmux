@@ -92,6 +92,9 @@ public enum ControlTabActionResolution: Sendable, Equatable {
     case fullWidthTabToggleFailed
     /// The anchor tab was not found in its pane (`close_left` / `close_right`).
     case tabNotFoundInPane
+    /// A non-forced close batch would terminate one or more active processes.
+    /// Carries the affected surface ids so callers can retry with `force`.
+    case confirmationRequired([UUID])
     /// Surface creation failed (`new_terminal_right` / `new_browser_right`).
     case createFailed
     /// Browser duplication failed.

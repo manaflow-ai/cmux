@@ -765,6 +765,12 @@ actor CmxConnectivityPeerSession {
         // ownership policy cannot be preempted by the path observer.
         guard !(await activeConnection.session.isClosed()),
               self.activeConnection?.id == id else { return }
+        diagnosticLog?.record(DiagnosticEvent(
+            .selectedPathChanged,
+            surface: peerAlias,
+            a: path.diagnosticPathKind.rawValue,
+            c: activeConnection.diagnosticID
+        ))
         guard path != .unavailable else {
             armAllPathsClosedEviction(for: id)
             return

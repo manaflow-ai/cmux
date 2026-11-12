@@ -431,9 +431,16 @@ extension CMUXCLI {
     ) {
         let payload: [String: Any] = [
             "id": record.id.uuidString,
+            // Keep the detached response aligned with the attach response:
+            // the logical session ID is stable across tmux recreation, while
+            // the tmux and cmux surface IDs describe the current attachment.
+            "session_id": record.id.uuidString,
             "session_name": record.name,
+            "tmux_session_id": record.tmuxBinding?.sessionID.rawValue ?? NSNull(),
             "socket_path": record.socketPath,
             "cwd": record.cwd,
+            "workspace_id": record.workspaceID ?? NSNull(),
+            "surface_id": record.surfaceID ?? NSNull(),
             "state": state,
             "live": true,
         ]

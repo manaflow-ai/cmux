@@ -2,7 +2,13 @@ import Darwin
 import Foundation
 import Testing
 
-@Suite struct SSHPTYAttachReconnectInputFilterTests {
+// Serialized: each stdin-pump test parks a Swift Testing cooperative thread in
+// a blocking wait while the pump under test is a detached task that needs one
+// of those same threads. Running the five pump tests concurrently can leave
+// no thread for any pump, and the suite then hangs until CI's idle timeout
+// (run 34414741413, shard 3, three attempts). Every wait below is also
+// bounded so a starved pump fails the test instead of the batch.
+@Suite(.serialized) struct SSHPTYAttachReconnectInputFilterTests {
     @Test func deadlineFlushesPendingAndStopsStripping() {
         var expired = false
         let filter = SSHPTYAttachReconnectInputFilter(
@@ -69,7 +75,7 @@ import Testing
         let lateProbeReply = Data("\u{1B}[1;1R".utf8)
         let forwardedInput = Data("printf keep\n".utf8)
         try writeAll(fd: inputPipe[1], data: lateProbeReply + forwardedInput)
-        control?.stopFiltering()
+        #expect(control?.stopFiltering(timeoutMilliseconds: Self.waitTimeoutMilliseconds) == true)
         Darwin.close(inputPipe[1])
         inputPipe[1] = -1
 
@@ -95,7 +101,7 @@ import Testing
         )
         #expect(control != nil)
 
-        control?.stopFiltering()
+        #expect(control?.stopFiltering(timeoutMilliseconds: Self.waitTimeoutMilliseconds) == true)
         let liveProbeReply = Data("\u{1B}[2;2R".utf8)
         try writeAll(fd: inputPipe[1], data: liveProbeReply)
         Darwin.close(inputPipe[1])
@@ -127,7 +133,7 @@ import Testing
         try writeAll(fd: inputPipe[1], data: normalInput)
         #expect(try readExactly(fd: bridgePair[1], count: normalInput.count) == normalInput)
 
-        control?.stopFiltering()
+        #expect(control?.stopFiltering(timeoutMilliseconds: Self.waitTimeoutMilliseconds) == true)
         let liveProbeReply = Data("\u{1B}[3;3R".utf8)
         try writeAll(fd: inputPipe[1], data: liveProbeReply)
         Darwin.close(inputPipe[1])
@@ -197,10 +203,35 @@ import Testing
         }
     }
 
+    /// Longer than the pump's reconnect probe deadline, which the EOF reads
+    /// below legitimately wait out, and short enough that a pump that never
+    /// got scheduled fails the test well inside CI's 300s idle timeout.
+    private static let waitTimeoutMilliseconds: Int32 = 30_000
+
+    private struct WaitTimedOut: Error {}
+
+    private func waitReadable(fd: Int32) throws {
+        let events = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
+        var pollFD = pollfd(fd: fd, events: events, revents: 0)
+        while true {
+            let result = Darwin.poll(&pollFD, 1, Self.waitTimeoutMilliseconds)
+            if result > 0 {
+                return
+            }
+            if result == 0 {
+                throw WaitTimedOut()
+            }
+            if errno != EINTR {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+    }
+
     private func readUntilEOF(fd: Int32) throws -> Data {
         var output = Data()
         var buffer = [UInt8](repeating: 0, count: 1024)
         while true {
+            try waitReadable(fd: fd)
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count > 0 {
                 output.append(contentsOf: buffer.prefix(count))
@@ -217,6 +248,7 @@ import Testing
         var buffer = [UInt8](repeating: 0, count: 1024)
         while output.count < expectedCount {
             let remaining = expectedCount - output.count
+            try waitReadable(fd: fd)
             let count = Darwin.read(fd, &buffer, min(buffer.count, remaining))
             if count > 0 {
                 output.append(contentsOf: buffer.prefix(count))

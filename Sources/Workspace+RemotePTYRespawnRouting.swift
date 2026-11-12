@@ -8,7 +8,9 @@ extension Workspace {
     /// Classifies a respawn target without treating a remote workspace's
     /// untracked/local panes as remote-owned.
     func remotePTYRespawnRouting(panelId: UUID) -> RemotePTYRespawnRouting {
-        RemotePTYRespawnPlanner().routing(
+        // Native projections have no legacy daemon slot. Never classify them as local.
+        if machineOwningSurface(panelId)?.isSSH == true { return .unsupportedRemote }
+        return RemotePTYRespawnPlanner().routing(
             isRemoteOwned: isRemotePTYOwnedSurface(panelId),
             configuration: remoteConfiguration
         )

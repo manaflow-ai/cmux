@@ -34,7 +34,7 @@ public struct AgentSemanticEventMapper: Sendable {
         toolName: String? = nil
     ) -> AgentJournalEventKind {
         let event = Self.semanticKey(nativeEvent)
-        if let toolName {
+        if ["pretooluse", "permissionrequest", "preapprovalrequest"].contains(event), let toolName {
             switch Self.semanticKey(toolName) {
             case "askuserquestion":
                 return .questionRequested

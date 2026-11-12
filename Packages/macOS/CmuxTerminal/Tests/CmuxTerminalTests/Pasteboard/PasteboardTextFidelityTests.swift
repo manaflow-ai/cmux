@@ -61,6 +61,24 @@ final class PasteboardTextFidelityTests: XCTestCase {
         XCTAssertTrue(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("\u{FFFD}~"))
         XCTAssertFalse(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("您好~"))
         XCTAssertFalse(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("Is this right?"))
+        XCTAssertTrue(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("?????? ???"))
+        XCTAssertTrue(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("name: ??? (id 4)"))
+    }
+
+    // #9998: isolated question marks are ordinary ASCII content, so they must
+    // not send the paste through rich-text parsing.
+    func testDoesNotInspectRichTextForIsolatedQuestionMarks() {
+        XCTAssertFalse(PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss("Is this right? Or that?"))
+        XCTAssertFalse(
+            PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss(
+                "See https://a.test/x?id=1 and https://b.test/y?q=2&r=3"
+            )
+        )
+        XCTAssertFalse(
+            PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss(
+                "echo ${1:?missing}; [ -z \"$x\" ] && echo why?\n" + String(repeating: "Why? ", count: 1_000)
+            )
+        )
     }
 
     func testPrefersRichTextWhenPlainTextReplacesNonASCIIWithQuestionMarks() {

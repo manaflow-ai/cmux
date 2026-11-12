@@ -20,6 +20,8 @@ const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_CAUSATION_DEPTH: u16 = 32;
 const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
+/// Result arrays are capped by the embedded resource-operation catalog.
+pub(crate) const JOURNAL_LIST_MAX_ITEMS: usize = 4096;
 
 fn ensure_journal_deadline(deadline: Option<Instant>) -> anyhow::Result<()> {
     anyhow::ensure!(
@@ -319,6 +321,7 @@ struct PreparedJournalSegment {
     metadata: JournalSegment,
     compressed: Vec<u8>,
     digest: [u8; 32],
+    kinds: Vec<String>,
 }
 
 pub(super) fn create_journal_extensions_schema(
@@ -409,6 +412,12 @@ pub(super) fn create_journal_extensions_schema(
            sha256 BLOB UNIQUE NOT NULL CHECK(length(sha256) = 32),
            sealed_at_ms INTEGER NOT NULL CHECK(sealed_at_ms >= 0)
          );
+         CREATE TABLE IF NOT EXISTS journal_segment_kinds (
+           segment_id TEXT NOT NULL,
+           kind TEXT NOT NULL,
+           PRIMARY KEY(segment_id, kind),
+           FOREIGN KEY(segment_id) REFERENCES journal_segments(segment_id)
+         ) WITHOUT ROWID;
          CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
            BEFORE UPDATE ON journal_segments
          BEGIN
@@ -486,16 +495,90 @@ fn ensure_built_in_agent_producer(transaction: &Transaction<'_>) -> anyhow::Resu
             i64::try_from(unix_epoch_ms()?)?,
         ],
     )?;
-    let installed = transaction.query_row(
-        "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+    let (installed_namespace, installed_version, installed_json) = transaction.query_row(
+        "SELECT namespace, manifest_version, manifest_json
+         FROM journal_producers
+         WHERE producer_id = ?1",
         [crate::AGENT_HOOK_PRODUCER_ID],
-        |row| row.get::<_, String>(0),
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?)),
     )?;
+    let installed = serde_json::from_str::<JournalProducerManifest>(&installed_json)?;
+    let installed_version = u32::try_from(installed_version)
+        .context("reserved cmux agent producer manifest version is invalid")?;
     anyhow::ensure!(
-        serde_json::from_str::<JournalProducerManifest>(&installed)? == manifest,
+        installed.namespace == installed_namespace
+            && installed.manifest_version == installed_version,
+        "reserved cmux agent producer manifest metadata does not match its row"
+    );
+    if installed == manifest {
+        return Ok(());
+    }
+
+    // The reserved producer stayed at manifest version 1 while these two
+    // additive changes shipped. Rewrite only those exact historical shapes.
+    // Unknown changes still fail closed, so a damaged or incompatible session
+    // cannot silently acquire the current producer contract.
+    let known_legacy = legacy_built_in_agent_producer_manifests(&manifest);
+    anyhow::ensure!(
+        known_legacy.iter().any(|legacy| legacy == &installed),
         "reserved cmux agent producer manifest does not match this binary"
     );
+    transaction.execute(
+        "UPDATE journal_producers
+         SET namespace = ?1, manifest_version = ?2, manifest_json = ?3
+         WHERE producer_id = ?4",
+        params![
+            manifest.namespace,
+            i64::from(manifest.manifest_version),
+            manifest_json,
+            manifest.producer_id,
+        ],
+    )?;
     Ok(())
+}
+
+fn legacy_built_in_agent_producer_manifests(
+    current: &JournalProducerManifest,
+) -> Vec<JournalProducerManifest> {
+    // Keep this allowlist tied to the shipped manifest shape. If the current
+    // contract changes again, an explicit migration must be added instead of
+    // deriving acceptance for an unshipped historical shape.
+    const CURRENT_EVENT_KINDS: [&str; 13] = [
+        "agent.session.started",
+        "agent.turn.started",
+        "agent.turn.completed",
+        "agent.child.spawned",
+        "agent.child.completed",
+        "agent.child.failed",
+        "agent.approval.requested",
+        "agent.question.requested",
+        "agent.plan_review.requested",
+        "agent.error.reported",
+        "agent.state.changed",
+        "agent.session.ended",
+        "agent.plugin.exited",
+    ];
+    if current.events.iter().map(|event| event.kind.as_str()).ne(CURRENT_EVENT_KINDS) {
+        return Vec::new();
+    }
+
+    let mut legacy = current.clone();
+    for event in &mut legacy.events {
+        let Some(pattern) = event
+            .payload_schema
+            .get_mut("properties")
+            .and_then(|value| value.get_mut("adapter"))
+            .and_then(|value| value.get_mut("properties"))
+            .and_then(|value| value.get_mut("id"))
+            .and_then(|value| value.get_mut("pattern"))
+        else {
+            return Vec::new();
+        };
+        *pattern = Value::String("^[a-z0-9_-]+$".into());
+    }
+    let with_legacy_pattern = legacy.clone();
+    legacy.events.retain(|event| event.kind != "agent.plugin.exited");
+    vec![legacy, with_legacy_pattern]
 }
 
 fn migrate_journal_receipt_origins(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -714,6 +797,27 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
 }
 
 impl WorkspaceRegistry {
+    /// Look up an exact ingress receipt before the caller validates against the
+    /// current producer manifest. A retry can carry an older manifest version
+    /// after a producer upgrade, but an ingress that has never committed must
+    /// still pass current admission below.
+    pub(crate) fn replay_journal_ingress(
+        &self,
+        ingress: &JournalIngress,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<Option<JournalAppendCommit>> {
+        validate_journal_ingress_shape(ingress, origin, idempotency_key)?;
+        let fingerprint = journal_ingress_fingerprint(ingress)?;
+        ingress_receipt(
+            &self.connection,
+            &ingress.producer_id,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn append_journal_ingress_events(
         &mut self,
@@ -1283,6 +1387,21 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    /// Return only manifests that a userland producer can register and use.
+    /// The reserved cmux hook manifest remains in the internal table because
+    /// the journal kernel and checkpoint code need it, but it uses the legacy
+    /// `agent` namespace and is not a userland `plugin.<id>` manifest.
+    pub(crate) fn userland_journal_producer_manifests(
+        &self,
+    ) -> anyhow::Result<Vec<JournalProducerManifest>> {
+        self.journal_producer_manifests().map(|manifests| {
+            manifests
+                .into_iter()
+                .filter(|manifest| manifest.producer_id != crate::AGENT_HOOK_PRODUCER_ID)
+                .collect()
+        })
+    }
+
     pub(crate) fn put_journal_producer(
         &mut self,
         manifest: &JournalProducerManifest,
@@ -1414,17 +1533,8 @@ fn append_journal_ingress_transaction(
     origin: &str,
     idempotency_key: &str,
 ) -> anyhow::Result<JournalAppendCommit> {
-    validate_identifier("journal ingress origin", origin)?;
-    validate_identifier("journal ingress idempotency key", idempotency_key)?;
-    validate_plugin_component("producer_id", &ingress.producer_id)?;
-    validate_dotted_kind(&ingress.kind)?;
-    anyhow::ensure!(ingress.schema_version > 0, "schema_version must be positive");
-    anyhow::ensure!(
-        serde_json::to_vec(&ingress.payload)?.len() <= MAX_EVENT_PAYLOAD_BYTES,
-        "journal event payload exceeds {MAX_EVENT_PAYLOAD_BYTES} bytes"
-    );
-    let ingress_value = serde_json::to_value(ingress)?;
-    let fingerprint = Sha256::digest(canonical_json(&ingress_value)?.as_bytes());
+    validate_journal_ingress_shape(ingress, origin, idempotency_key)?;
+    let fingerprint = journal_ingress_fingerprint(ingress)?;
     if let Some(commit) =
         ingress_receipt(tx, &ingress.producer_id, origin, idempotency_key, fingerprint.as_slice())?
     {
@@ -1769,6 +1879,21 @@ impl WorkspaceRegistry {
         };
         tx.commit()?;
         Ok(applied)
+    }
+
+    /// The earliest `next_attempt_at_ms` of a scheduled delivery of an
+    /// enabled hook: the dispatcher's next retry deadline.
+    pub(crate) fn next_journal_hook_attempt_at_ms(&self) -> anyhow::Result<Option<u64>> {
+        let next: Option<i64> = self.connection.query_row(
+            "SELECT MIN(d.next_attempt_at_ms)
+             FROM journal_hook_deliveries d
+             JOIN journal_hooks h
+               ON h.hook_id = d.hook_id AND h.manifest_version = d.manifest_version
+             WHERE h.enabled = 1 AND d.state = 'scheduled'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(next.map(|value| u64::try_from(value).unwrap_or(0)))
     }
 
     pub(crate) fn pending_journal_hook_deliveries(
@@ -2275,10 +2400,11 @@ impl WorkspaceRegistry {
             "SELECT checkpoint_id, source_sequence, reducer_version, content_refs_json,
                     sha256, created_at_ms
              FROM journal_checkpoints
-             ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC",
+             ORDER BY source_sequence DESC, created_at_ms DESC, checkpoint_id DESC
+             LIMIT ?1",
         )?;
         let rows = statement
-            .query_map([], |row| {
+            .query_map([JOURNAL_LIST_MAX_ITEMS as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
@@ -2343,14 +2469,26 @@ impl WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    pub(crate) fn migrate_journal_auto_vacuum(&self) -> anyhow::Result<bool> {
+        migrate_journal_auto_vacuum(&self.connection)
+    }
+
+    pub(crate) fn incremental_journal_vacuum(&self) -> anyhow::Result<()> {
+        // Fresh registries opt into SQLite's incremental auto-vacuum. This is
+        // intentionally a small step: journal sealing must release the
+        // registry writer quickly even when a busy VM has many free pages.
+        self.connection.execute_batch("PRAGMA incremental_vacuum(256);")?;
+        Ok(())
+    }
+
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<JournalSegment>> {
         let mut statement = self.connection.prepare(
             "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                     uncompressed_bytes, sha256, sealed_at_ms
-             FROM journal_segments ORDER BY start_sequence ASC",
+             FROM journal_segments ORDER BY start_sequence ASC LIMIT ?1",
         )?;
         statement
-            .query_map([], |row| {
+            .query_map([JOURNAL_LIST_MAX_ITEMS as i64], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, i64>(1)?,
@@ -2376,6 +2514,15 @@ impl WorkspaceRegistry {
                 })
             })
             .collect()
+    }
+
+    pub(crate) fn journal_segments_end(&self) -> anyhow::Result<u64> {
+        let end = self.connection.query_row(
+            "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(u64::try_from(end)?)
     }
 
     pub(crate) fn begin_journal_segment_seal(
@@ -2411,7 +2558,7 @@ impl WorkspaceRegistry {
             requested_through <= head,
             "segment through sequence is ahead of the journal"
         );
-        let through_sequence = tx
+        let checkpoint_sequence = tx
             .query_row(
                 "SELECT MAX(source_sequence) FROM journal_checkpoints
                  WHERE source_sequence <= ?1",
@@ -2428,9 +2575,15 @@ impl WorkspaceRegistry {
         )?;
         let archived_end = u64::try_from(archived_end)?;
         anyhow::ensure!(
-            through_sequence > archived_end,
+            checkpoint_sequence > archived_end,
             "requested journal range is already sealed"
         );
+        // A checkpoint can cover a very large prefix. Prepare and commit at
+        // most one storage segment per call so terminal writers only wait for
+        // a bounded delete/insert transaction; the caller can continue with
+        // the same checkpoint on its next maintenance tick.
+        let through_sequence = checkpoint_sequence
+            .min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64));
         tx.commit()?;
         Ok(JournalSegmentSealStart::Prepare(JournalSegmentSealPlan {
             requested_through,
@@ -2457,7 +2610,7 @@ impl WorkspaceRegistry {
         )? {
             return Ok(Some(journal_segment_receipt(&tx, origin, idempotency_key, journal)?));
         }
-        let through_sequence = tx
+        let checkpoint_sequence = tx
             .query_row(
                 "SELECT MAX(source_sequence) FROM journal_checkpoints
                  WHERE source_sequence <= ?1",
@@ -2471,6 +2624,9 @@ impl WorkspaceRegistry {
             [],
             |row| row.get::<_, i64>(0),
         )?)?;
+        let through_sequence = checkpoint_sequence.map(|checkpoint| {
+            checkpoint.min(archived_end.saturating_add(JOURNAL_SEGMENT_RECORD_LIMIT as u64))
+        });
         if through_sequence != Some(plan.through_sequence) || archived_end != plan.archived_end {
             return Ok(None);
         }
@@ -2478,6 +2634,7 @@ impl WorkspaceRegistry {
         let segments =
             prepared_segments.iter().map(|segment| segment.metadata.clone()).collect::<Vec<_>>();
         for segment in prepared_segments {
+            let kinds = segment.kinds.clone();
             tx.execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -2494,6 +2651,12 @@ impl WorkspaceRegistry {
                     i64::try_from(segment.metadata.sealed_at_ms)?,
                 ],
             )?;
+            for kind in kinds {
+                tx.execute(
+                    "INSERT INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                    params![segment.metadata.segment_id, kind],
+                )?;
+            }
         }
         tx.execute_batch("DROP TRIGGER IF EXISTS session_journal_reject_delete;")?;
         let deleted = tx.execute(
@@ -2578,6 +2741,7 @@ impl JournalSegmentSealPlan {
             uncompressed.push(b'[');
             let mut start_sequence = None;
             let mut record_count = 0_u64;
+            let mut kinds = BTreeSet::new();
             'segment: while cursor < self.through_sequence
                 && record_count < u64::try_from(JOURNAL_SEGMENT_RECORD_LIMIT)?
             {
@@ -2594,6 +2758,7 @@ impl JournalSegmentSealPlan {
                         record.sequence
                     );
                     let sequence = record.sequence;
+                    let kind = record.kind.clone();
                     let record = session_journal::journal_record_for_archive(&record);
                     let record_bytes = serde_json::to_vec(&record)?;
                     anyhow::ensure!(
@@ -2611,6 +2776,7 @@ impl JournalSegmentSealPlan {
                     {
                         break 'segment;
                     }
+                    kinds.insert(kind);
                     if separator != 0 {
                         uncompressed.push(b',');
                     }
@@ -2651,6 +2817,7 @@ impl JournalSegmentSealPlan {
                 },
                 compressed,
                 digest,
+                kinds: kinds.into_iter().collect(),
             });
         }
         validate_prepared_journal_segments(&self, &segments)?;
@@ -2967,14 +3134,21 @@ fn verify_journal_content_blob(blob: &JournalContentBlob) -> anyhow::Result<()> 
         expected_bytes <= MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES,
         "checkpoint content exceeds the uncompressed size limit"
     );
-    let decoder = flate2::read::GzDecoder::new(blob.compressed.as_slice());
+    // Preserve the exact unread compressed suffix, as with archived journal
+    // segments: read::GzDecoder may consume bytes after the first member.
+    let mut decoder = flate2::bufread::GzDecoder::new(blob.compressed.as_slice());
     let mut uncompressed = Vec::new();
     decoder
+        .by_ref()
         .take(u64::try_from(expected_bytes)?.saturating_add(1))
         .read_to_end(&mut uncompressed)?;
     anyhow::ensure!(
         uncompressed.len() == expected_bytes,
         "checkpoint content length does not match its reference"
+    );
+    anyhow::ensure!(
+        decoder.into_inner().is_empty(),
+        "checkpoint content contains trailing compressed data"
     );
     anyhow::ensure!(
         Sha256::digest(&uncompressed).as_slice() == blob.digest.as_slice(),
@@ -3029,14 +3203,36 @@ fn insert_operation_receipt(
     Ok(())
 }
 
+fn validate_journal_ingress_shape(
+    ingress: &JournalIngress,
+    origin: &str,
+    idempotency_key: &str,
+) -> anyhow::Result<()> {
+    validate_identifier("journal ingress origin", origin)?;
+    validate_identifier("journal ingress idempotency key", idempotency_key)?;
+    validate_plugin_component("producer_id", &ingress.producer_id)?;
+    validate_dotted_kind(&ingress.kind)?;
+    anyhow::ensure!(ingress.schema_version > 0, "schema_version must be positive");
+    anyhow::ensure!(
+        serde_json::to_vec(&ingress.payload)?.len() <= MAX_EVENT_PAYLOAD_BYTES,
+        "journal event payload exceeds {MAX_EVENT_PAYLOAD_BYTES} bytes"
+    );
+    Ok(())
+}
+
+fn journal_ingress_fingerprint(ingress: &JournalIngress) -> anyhow::Result<[u8; 32]> {
+    let ingress_value = serde_json::to_value(ingress)?;
+    Ok(Sha256::digest(canonical_json(&ingress_value)?.as_bytes()).into())
+}
+
 fn ingress_receipt(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     producer_id: &str,
     origin: &str,
     idempotency_key: &str,
     fingerprint: &[u8],
 ) -> anyhow::Result<Option<JournalAppendCommit>> {
-    let stored = transaction
+    let stored = connection
         .query_row(
             "SELECT fingerprint, event_id, journal_sequence
              FROM journal_ingress_receipts
@@ -3057,10 +3253,11 @@ fn validate_plugin_component(label: &str, value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !value.is_empty()
             && value.len() <= 64
-            && value
-                .bytes()
-                .all(|byte| { byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' }),
-        "{label} must contain 1 to 64 lowercase ASCII letters, digits, or underscores"
+            && value.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
+            && value.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_' || byte == b'-'
+            }),
+        "{label} must match [a-z0-9][a-z0-9_-]* and contain at most 64 bytes"
     );
     Ok(())
 }
@@ -3071,11 +3268,15 @@ fn validate_dotted_kind(value: &str) -> anyhow::Result<()> {
             && value.len() <= 128
             && value.split('.').all(|component| {
                 !component.is_empty()
+                    && component.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
                     && component.bytes().all(|byte| {
-                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                        byte.is_ascii_lowercase()
+                            || byte.is_ascii_digit()
+                            || byte == b'_'
+                            || byte == b'-'
                     })
             }),
-        "journal event kind must be a dotted lowercase ASCII name"
+        "journal event kind must match dotted [a-z0-9][a-z0-9_-]* components"
     );
     Ok(())
 }
@@ -3125,6 +3326,115 @@ mod tests {
         assert_eq!(states.len(), 1);
         assert_eq!(states[0].manifest.manifest_version, 2);
         assert!(states[0].enabled);
+    }
+
+    #[test]
+    fn userland_producer_list_excludes_reserved_hook_manifest() {
+        let mut registry = WorkspaceRegistry::in_memory("userland-producers").unwrap();
+        let manifest = JournalProducerManifest {
+            producer_id: "screen_detector".into(),
+            namespace: "plugin.screen_detector".into(),
+            manifest_version: 1,
+            max_sensitivity: JournalSensitivity::Metadata,
+            permissions: vec!["journal.append.plugin.screen_detector".into()],
+            events: vec![JournalEventSchema {
+                kind: "plugin.screen_detector.agent.state.changed".into(),
+                schema_version: 1,
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                sensitivity: JournalSensitivity::Metadata,
+                payload_schema: json!({"type":"object"}),
+            }],
+        };
+        registry.put_journal_producer(&manifest, "client_test", "producer_1").unwrap();
+
+        let all = registry.journal_producer_manifests().unwrap();
+        assert!(all.iter().any(|item| item.producer_id == crate::AGENT_HOOK_PRODUCER_ID));
+        assert!(all.iter().any(|item| item.producer_id == "screen_detector"));
+
+        let userland = registry.userland_journal_producer_manifests().unwrap();
+        assert_eq!(userland.len(), 1);
+        assert_eq!(userland[0], manifest);
+    }
+
+    #[test]
+    fn legacy_built_in_agent_manifest_is_migrated() {
+        let mut registry = WorkspaceRegistry::in_memory("legacy-agent-manifest").unwrap();
+        let current = crate::agent_hooks::built_in_agent_producer_manifest();
+        let mut legacy = current.clone();
+        legacy.events.retain(|event| event.kind != "agent.plugin.exited");
+        for event in &mut legacy.events {
+            event.payload_schema["properties"]["adapter"]["properties"]["id"]["pattern"] =
+                Value::String("^[a-z0-9_-]+$".into());
+        }
+        let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![legacy_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        ensure_built_in_agent_producer(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let installed = registry
+            .connection
+            .query_row(
+                "SELECT manifest_json FROM journal_producers WHERE producer_id = ?1",
+                [crate::AGENT_HOOK_PRODUCER_ID],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert_eq!(serde_json::from_str::<JournalProducerManifest>(&installed).unwrap(), current);
+    }
+
+    #[test]
+    fn legacy_agent_manifest_with_plugin_exit_is_migrated() {
+        let mut registry = WorkspaceRegistry::in_memory("legacy-agent-plugin-exit").unwrap();
+        let current = crate::agent_hooks::built_in_agent_producer_manifest();
+        let legacy = legacy_built_in_agent_producer_manifests(&current).into_iter().nth(1).unwrap();
+        let legacy_json = canonical_json(&serde_json::to_value(&legacy).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![legacy_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        ensure_built_in_agent_producer(&transaction).unwrap();
+        transaction.commit().unwrap();
+
+        let installed = registry
+            .journal_producer_manifests()
+            .unwrap()
+            .into_iter()
+            .find(|manifest| manifest.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+            .unwrap();
+        assert_eq!(installed, current);
+    }
+
+    #[test]
+    fn unknown_built_in_agent_manifest_still_fails_closed() {
+        let mut registry = WorkspaceRegistry::in_memory("unknown-agent-manifest").unwrap();
+        let mut tampered = crate::agent_hooks::built_in_agent_producer_manifest();
+        tampered.events[0].kind = "agent.untrusted".into();
+        let tampered_json = canonical_json(&serde_json::to_value(&tampered).unwrap()).unwrap();
+        registry
+            .connection
+            .execute(
+                "UPDATE journal_producers SET manifest_json = ?1 WHERE producer_id = ?2",
+                params![tampered_json, crate::AGENT_HOOK_PRODUCER_ID],
+            )
+            .unwrap();
+
+        let transaction = registry.connection.transaction().unwrap();
+        let error = ensure_built_in_agent_producer(&transaction).unwrap_err();
+        assert!(error.to_string().contains("does not match this binary"));
     }
 
     #[test]

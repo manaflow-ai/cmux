@@ -38,7 +38,7 @@ export async function captureSentryException(
   distinctId: string,
   error: unknown,
   context: Record<string, string | number | boolean | undefined>,
-  sentryFetch: typeof fetch = fetch,
+  sentryFetch: (url: string, init: RequestInit) => Promise<Response> = fetch,
 ): Promise<void> {
   const dsn = env.SENTRY_DSN ? parseDsn(env.SENTRY_DSN) : null;
   if (!dsn) return;

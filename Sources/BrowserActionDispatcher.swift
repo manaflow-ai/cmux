@@ -28,6 +28,9 @@ struct BrowserActionDispatcher {
         case .reload:
             panel.reload()
             return true
+        case .hardReload:
+            appDelegate.hardReloadBrowserPanelForShortcut(panel)
+            return true
         case .openInDefaultBrowser:
             return openInDefaultBrowser(panel)
         case .focusAddressBar:
@@ -53,6 +56,9 @@ struct BrowserActionDispatcher {
             Task { @MainActor [weak panel] in
                 _ = await panel?.toggleDesignMode(reason: reason)
             }
+            return true
+        case .toggleKeepPageActive:
+            panel.keepsPageActiveWhileHidden.toggle()
             return true
         case .zoomIn:
             return panel.zoomIn()

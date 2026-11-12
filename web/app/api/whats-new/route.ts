@@ -98,6 +98,8 @@ function validateAnnouncement(announcement: WhatsNewAnnouncement, path: string):
     channelList(announcement.channels, `${path}.channels`);
   }
 
+  validateLocalizations(announcement, path);
+
   const hasNative = announcement.nativeEntryId !== undefined;
   const hasWeb = announcement.webUrl !== undefined;
   const hasFeatures = (announcement.features?.length ?? 0) > 0;
@@ -127,6 +129,23 @@ function validateAnnouncement(announcement: WhatsNewAnnouncement, path: string):
   }
   if (announcement.title !== undefined) {
     nonemptyString(announcement.title, `${path}.title`);
+  }
+}
+
+function validateLocalizations(announcement: WhatsNewAnnouncement, path: string): void {
+  for (const [locale, content] of Object.entries(announcement.localizations ?? {})) {
+    const localizedPath = `${path}.localizations[${locale}]`;
+    nonemptyString(locale, `${path}.localizations locale`);
+    nonemptyString(content.title, `${localizedPath}.title`);
+    if (content.releaseLabel !== undefined) {
+      nonemptyString(content.releaseLabel, `${localizedPath}.releaseLabel`);
+    }
+    if (!content.features?.length) {
+      throw new Error(`${localizedPath}.features must not be empty`);
+    }
+    for (const [index, feature] of content.features.entries()) {
+      validateFeature(feature, `${localizedPath}.features[${index}]`);
+    }
   }
 }
 

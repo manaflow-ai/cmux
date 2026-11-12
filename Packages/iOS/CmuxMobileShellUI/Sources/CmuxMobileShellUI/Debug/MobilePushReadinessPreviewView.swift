@@ -136,7 +136,7 @@ struct MobilePushReadinessPreviewView: View {
             return await mutateMac(.mode(.always))
         case .openSystemSettings, .signInAgain, .finishAccountDeletion,
              .disablePushOnAnotherDevice, .signIntoMatchingAccount,
-             .rebuildMatchingApps, .waitForDeviceToken:
+             .rebuildMatchingApps, .waitForDeviceToken, .retrySecurePushSetup:
             return true
         }
     }

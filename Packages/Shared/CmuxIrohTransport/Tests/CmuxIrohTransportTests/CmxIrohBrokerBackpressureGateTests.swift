@@ -6,6 +6,16 @@ import Testing
 struct CmxIrohBrokerBackpressureGateTests {
     private let start = Date(timeIntervalSince1970: 1_782_000_000)
 
+    @Test func oversizedPersistedCooldownDoesNotOverflow() async throws {
+        let (defaults, suiteName) = try makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        let gate = CmxIrohBrokerBackpressureGate(store: store, now: { start })
+        await recordRateLimit(gate: gate, accountID: "account-a", operation: .discovery, seconds: Int.max)
+        let restored = CmxIrohBrokerBackpressureGate(store: store, now: { start })
+        #expect(await restored.remainingSeconds(accountID: "account-a", operation: .discovery) == Int.max)
+    }
+
     @Test
     func persistedDeadlineSurvivesGateRecreation() async throws {
         let (defaults, suiteName) = try makeDefaults()

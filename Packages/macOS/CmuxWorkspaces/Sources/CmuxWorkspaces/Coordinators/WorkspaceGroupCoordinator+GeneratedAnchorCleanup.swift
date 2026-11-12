@@ -6,7 +6,8 @@ extension WorkspaceGroupCoordinator {
     func removeGeneratedAnchorWorkspace(
         group: WorkspaceGroup,
         groupId: UUID,
-        memberIds: [UUID]
+        memberIds: [UUID],
+        additionalMovedWorkspaceIds: [UUID] = []
     ) -> WorkspaceGroupUngroupResult {
         guard group.anchorWorkspaceProvenance == .generated,
               let liveAnchorID = group.liveAnchorWorkspaceId else {
@@ -54,7 +55,9 @@ extension WorkspaceGroupCoordinator {
         guard !model.workspaceGroups.contains(where: { $0.id == groupId }) else {
             return .generatedAnchorRemovalFailed
         }
-        host.workspaceOrderDidChange(movedWorkspaceIds: [anchor.id])
+        host.workspaceOrderDidChange(
+            movedWorkspaceIds: [anchor.id] + additionalMovedWorkspaceIds.filter { $0 != anchor.id }
+        )
         return .removedGeneratedAnchor(workspaceID: anchor.id)
     }
 }

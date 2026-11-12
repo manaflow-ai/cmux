@@ -253,7 +253,8 @@ extension MobileShellComposite {
             macDeviceID: snapshot.macDeviceID,
             instanceTag: snapshot.macInstanceTag
         )
-        taskTemplateStore.setLastMacDeviceID(pairingID)
+        taskTemplateStore.setLastMacDeviceID(snapshot.macDeviceID)
+        taskTemplateStore.setLastMacPairingID(pairingID)
         taskTemplateStore.setLastDirectory(
             snapshot.trimmedDirectory.isEmpty ? nil : snapshot.trimmedDirectory,
             macDeviceID: pairingID

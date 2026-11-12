@@ -38,20 +38,14 @@ struct CmxConnectivityPeerSessionTests {
         let peerID = try CmxConnectivityPeerID(request: request)
         let log = DiagnosticLog(capacity: 32, role: .mobileClient)
         let admitted = TestConnectivitySession(continuityID: 17)
-        let builder = GatedConnectivitySessionBuilder(session: admitted)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [admitted])
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
             buildSession: { request in try await builder.build(request) },
             diagnosticLog: log
         )
 
-        // The gated builder parks every dial until released. Awaiting the
-        // dial before releasing the gate deadlocked this test (and the
-        // package CI job) permanently.
-        let dial = Task { try await peer.connectedSession(for: request) }
-        try await Self.waitUntil { await builder.callCount() == 1 }
-        await builder.release()
-        _ = try await dial.value
+        _ = try await peer.connectedSession(for: request)
         await peer.releaseControl(ownerID: UUID())
         await peer.invalidate()
         #expect(await waitForDiagnosticProcessedCount(log, atLeast: 3))
@@ -62,6 +56,42 @@ struct CmxConnectivityPeerSessionTests {
         }.count == 1)
         #expect(lifecycle.compactMap(\.surface).count == lifecycle.count)
         #expect(Set(lifecycle.compactMap(\.surface)).count == 1)
+    }
+
+    @Test
+    func selectedPathSnapshotsRecordInitialAndMigratedRouteClasses() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let log = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let session = TestConnectivitySession(
+            continuityID: 18,
+            keepsSelectedPathStreamOpen: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in try await builder.build(request) },
+            diagnosticLog: log
+        )
+
+        _ = try await peer.connectedSession(for: request)
+        try await Self.waitUntil { await session.hasSelectedPathObserver() }
+        // The selected-path stream buffers only the newest value, so publish
+        // each change only after the observer recorded the previous one.
+        #expect(await Self.waitForSelectedPathEvents(log, atLeast: 1))
+        await session.publishSelectedPath(.relay(url: "https://relay.example"))
+        #expect(await Self.waitForSelectedPathEvents(log, atLeast: 2))
+        await session.publishSelectedPath(.privateNetwork)
+        #expect(await Self.waitForSelectedPathEvents(log, atLeast: 3))
+
+        let report = await log.snapshot()
+        let pathEvents = report.events.filter { $0.code == .selectedPathChanged }
+        #expect(pathEvents.compactMap(\.diagnosticPathKind) == [
+            .direct,
+            .relay,
+            .privateNetwork,
+        ])
+        #expect(pathEvents.allSatisfy { $0.diagnosticSessionID != nil })
     }
 
     @Test
@@ -736,6 +766,25 @@ struct CmxConnectivityPeerSessionTests {
             expectedPeerDeviceID: deviceID,
             authorizationMode: .transportAdmission
         )
+    }
+
+    /// Deadline-bounded poll of the retained selected-path events. The log
+    /// drains on its own task, so a fixed yield budget can expire before it runs.
+    private static func waitForSelectedPathEvents(
+        _ log: DiagnosticLog,
+        atLeast expectedCount: Int,
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        func count() async -> Int {
+            await log.snapshot().events.filter { $0.code == .selectedPathChanged }.count
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if await count() >= expectedCount { return true }
+            await Task.yield()
+        }
+        return await count() >= expectedCount
     }
 
     private static func waitUntil(

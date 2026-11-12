@@ -8,6 +8,9 @@ extension CMUXCLI {
         /// The surface ID of the bottom-most pane in the right column.
         /// Subsequent teammate splits target this pane with direction "down".
         var lastColumnSurfaceId: String?
+        /// The last leader width chosen by the user or by the Claude Teams
+        /// default. A repeated fixed-width request must not undo a later drag.
+        var mainPaneWidthFraction: Double? = nil
     }
 
     struct TmuxCompatStore: Codable {
@@ -225,11 +228,21 @@ extension CMUXCLI {
         _ body: (TmuxCompatStoreDirectory) throws -> T
     ) throws -> T {
         let directory = try TmuxCompatStoreDirectory(storeURL: storeURL, createIfMissing: true)
-        let lockDescriptor = try directory.open(
-            directory.lockName,
-            flags: O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
-            mode: mode_t(S_IRUSR | S_IWUSR)
-        )
+        let lockDescriptor: Int32
+        do {
+            // Concurrent first-use O_CREAT opens can fail with ENOENT on APFS.
+            // Elect one creator, then open the stable lock without creation.
+            lockDescriptor = try directory.open(
+                directory.lockName,
+                flags: O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
+                mode: mode_t(S_IRUSR | S_IWUSR)
+            )
+        } catch let error as POSIXError where error.code == .EEXIST {
+            lockDescriptor = try directory.open(
+                directory.lockName,
+                flags: O_RDWR | O_CLOEXEC | O_NOFOLLOW
+            )
+        }
         defer { Darwin.close(lockDescriptor) }
         guard Darwin.fchmod(lockDescriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)

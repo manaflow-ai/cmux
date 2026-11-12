@@ -7,4 +7,8 @@ describe("iOS billing recovery analytics", () => {
     expect(isAllowedAnalyticsEvent("ios_billing_recovery_attempted")).toBe(true);
     expect(isAllowedAnalyticsEvent("ios_billing_recovery_failed")).toBe(true);
   });
+
+  test("allows initial connection completion events", () => {
+    expect(isAllowedAnalyticsEvent("ios_initial_connection")).toBe(true);
+  });
 });

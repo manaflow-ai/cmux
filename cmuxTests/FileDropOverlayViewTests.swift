@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import ObjectiveC.runtime
 import SwiftUI
 import Testing
@@ -214,7 +215,7 @@ struct FileDropOverlayViewTests {
         let anchor = NSView(frame: NSRect(x: 40, y: 36, width: 220, height: 150))
         contentView.addSubview(anchor)
 
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         BrowserWindowPortalRegistry.bind(webView: webView, to: anchor, visibleInUI: true)
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         defer { BrowserWindowPortalRegistry.detach(webView: webView) }

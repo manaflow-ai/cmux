@@ -13,6 +13,7 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
     private var _eventQueue: DispatchQueue?
     var attachError: (any Error)?
     var supportsInputSeqAck = false
+    let daemonVersion: String? = "0.64.22"
     var replayByteCount = 0
 
     var writes: [Data] {
@@ -218,6 +219,7 @@ struct RemotePTYBridgeServerTests {
         let server = makeServer(client: RecordingPTYBridgeRPCClient())
         defer { server.stop() }
         let endpoint = try server.start()
+        #expect(endpoint.daemonVersion == "0.64.22")
         #expect(endpoint.host == "127.0.0.1")
         #expect(endpoint.port > 0)
         #expect(!endpoint.token.isEmpty)
@@ -388,6 +390,35 @@ struct RemotePTYBridgeServerTests {
         let client = BridgeTestClient(endpoint: endpoint)
         defer { client.cancel() }
         client.send(Data("{\"token\":\"wrong\"}\n".utf8))
+
+        #expect(client.waitForReceived { data, closed in
+            closed && data.isEmpty
+        })
+    }
+
+    @Test(
+        "a near-miss handshake token closes the connection without attaching",
+        arguments: ["lastByte", "prefix", "extended"]
+    )
+    func nearMissTokenCloses(variant: String) throws {
+        let rpc = RecordingPTYBridgeRPCClient()
+        let server = makeServer(client: rpc)
+        defer { server.stop() }
+        let endpoint = try server.start()
+        let token = endpoint.token
+        let offered: String
+        switch variant {
+        case "lastByte":
+            offered = String(token.dropLast()) + (token.hasSuffix("0") ? "1" : "0")
+        case "prefix":
+            offered = String(token.dropLast())
+        default:
+            offered = token + "0"
+        }
+
+        let client = BridgeTestClient(endpoint: endpoint)
+        defer { client.cancel() }
+        client.send(Data("{\"token\":\"\(offered)\",\"cols\":120,\"rows\":40}\n".utf8))
 
         #expect(client.waitForReceived { data, closed in
             closed && data.isEmpty

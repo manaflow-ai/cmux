@@ -40,7 +40,7 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
             TerminalManagedGhosttySettings.ghosttyConfigContents(
                 defaults: defaults,
                 emitsCopyOnSelectFalse: false
-            ) == nil
+            ) == "term = \(TerminalSurface.managedTerminalType)"
         )
 
         for ghosttyValue in ["true", "false", "clipboard"] {
@@ -123,11 +123,12 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
             emitsCopyOnSelectFalse: false
         )
 
-        #expect(Self.ghosttyTerm(afterLoading: managedConfig) == TerminalSurface.managedTerminalType)
+        #expect(try Self.ghosttyTerm(afterLoading: managedConfig) == TerminalSurface.managedTerminalType)
     }
 
-    private static func ghosttyTerm(afterLoading configContents: String?) -> String? {
-        guard let configContents, let config = ghostty_config_new() else { return nil }
+    private static func ghosttyTerm(afterLoading configContents: String?) throws -> String? {
+        let configContents = try #require(configContents)
+        let config = try #require(ghostty_config_new())
         defer { ghostty_config_free(config) }
 
         let syntheticPath = "/__cmux_test__/managed-terminal-settings.conf"
@@ -143,13 +144,14 @@ struct TerminalCopyOnSelectManagedConfigLayeringTests {
         }
         ghostty_config_finalize(config)
 
-        guard ghostty_config_diagnostics_count(config) == 0 else { return nil }
-        var value: UnsafePointer<Int8>?
-        let key = "term"
-        guard ghostty_config_get(config, &value, key, UInt(key.utf8.count)), let value else {
-            return nil
-        }
-        return String(cString: value)
+        #expect(ghostty_config_diagnostics_count(config) == 0)
+        // `term` is a Zig byte slice, which ghostty_config_get does not expose.
+        // Read the effective value from the real parser's serialized result.
+        let exported = ghostty_config_serialize(config)
+        defer { ghostty_string_free(exported) }
+        let pointer = try #require(exported.ptr)
+        let contents = String(decoding: Data(bytes: pointer, count: Int(exported.len)), as: UTF8.self)
+        return effectiveGhosttyValues(afterLoading: [contents])["term"]
     }
 
     private static func effectiveGhosttyValues(afterLoading configs: [String?]) -> [String: String] {

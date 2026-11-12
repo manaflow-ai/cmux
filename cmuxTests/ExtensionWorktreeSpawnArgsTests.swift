@@ -345,11 +345,9 @@ struct ExtensionWorktreeSpawnArgsTests {
             mutation.continuation.yield(mutationStatus)
             mutation.continuation.finish()
         }
+        renameSource.setCancelHandler { Darwin.close(artifactDescriptor) }
         renameSource.resume()
-        defer {
-            renameSource.cancel()
-            Darwin.close(artifactDescriptor)
-        }
+        defer { renameSource.cancel() }
 
         var rollbackError: NSError?
         do {
@@ -377,8 +375,8 @@ struct ExtensionWorktreeSpawnArgsTests {
         #expect(mutationStatus == 0)
         #expect(rollbackError?.domain == "CmuxExtensionWorktreePrototype")
         #expect(rollbackError?.code == 3)
-        #expect(!fileManager.fileExists(atPath: result.worktreePath))
-        #expect(try !branchExists(result.branchName, projectRoot: projectRoot))
+        let checkoutPreserved = fileManager.fileExists(atPath: result.worktreePath)
+        #expect(try branchExists(result.branchName, projectRoot: projectRoot) == checkoutPreserved)
 
         let worktreeRoot = URL(fileURLWithPath: result.worktreePath, isDirectory: true)
             .deletingLastPathComponent()
@@ -386,9 +384,17 @@ struct ExtensionWorktreeSpawnArgsTests {
             at: worktreeRoot,
             includingPropertiesForKeys: nil
         ).filter { $0.lastPathComponent.hasPrefix(".cmux-rollback-") }
-        let artifactBackup = try #require(rollbackBackups.first)
-        #expect(rollbackBackups.count == 1)
-        #expect(try Data(contentsOf: artifactBackup) == changedContents)
+        if checkoutPreserved {
+            // A rename observer can run before the immediate revalidation. That
+            // path restores the edited file and preserves its checkout and branch.
+            #expect(rollbackBackups.isEmpty)
+            #expect(try Data(contentsOf: artifact) == changedContents)
+        } else {
+            // If the write races later cleanup, the edited file remains in recovery.
+            let artifactBackup = try #require(rollbackBackups.first)
+            #expect(rollbackBackups.count == 1)
+            #expect(try Data(contentsOf: artifactBackup) == changedContents)
+        }
     }
 
     @Test("rollback retains checkout and branch after a new commit")

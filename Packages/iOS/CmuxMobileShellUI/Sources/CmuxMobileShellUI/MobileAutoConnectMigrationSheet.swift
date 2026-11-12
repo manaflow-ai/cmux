@@ -57,6 +57,16 @@ private struct MobileAutoConnectMigrationPresentationSizing: ViewModifier {
 
     @ViewBuilder
     func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            modernPresentation(content)
+        } else {
+            content.presentationDetents(usesPageSizing ? [.large] : [.height(contentHeight)])
+        }
+    }
+
+    @available(iOS 18.0, *)
+    @ViewBuilder
+    private func modernPresentation(_ content: Content) -> some View {
         if usesPageSizing {
             content
                 .presentationSizing(.page)

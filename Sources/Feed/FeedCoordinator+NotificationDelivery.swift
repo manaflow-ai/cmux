@@ -17,6 +17,7 @@ extension FeedCoordinator {
         // configure that resolver through ``AppFocusState`` itself rather than
         // coupling this production lane to Feed-only test hooks.
         let appFocused = AppFocusState.isAppFocused()
+        let soundWhenFocused = NotificationSoundSettings.soundWhenFocused()
 
         let resolved = await resolveAttentionTarget(event: event)
         guard let appDelegate = AppDelegate.shared else {
@@ -27,6 +28,7 @@ extension FeedCoordinator {
                 isActiveTab: appFocused,
                 isFocusedSurface: appFocused,
                 isMuted: false,
+                soundWhenFocused: soundWhenFocused,
                 effects: effects
             )
         }
@@ -39,11 +41,13 @@ extension FeedCoordinator {
                 isActiveTab: false,
                 isFocusedSurface: false,
                 isMuted: true,
+                soundWhenFocused: soundWhenFocused,
                 effects: effects
             )
         }
         let ownerID = target.ownerID
         let surfaceID = target.surfaceID
+        let suppressWhenAppFocused = TerminalNotificationStore.isSuppressWhenAppFocusedEnabled()
 
         if let dock = appDelegate.existingWindowDock(forWindowId: ownerID) {
             let context = appDelegate.mainWindowContexts.values.first {
@@ -56,7 +60,9 @@ extension FeedCoordinator {
                 isActiveTab: isKeyWindow,
                 isFocusedSurface: isFocusedSurface,
                 isMuted: false,
-                effects: effects
+                soundWhenFocused: soundWhenFocused,
+                effects: effects,
+                suppressWhenAppFocused: suppressWhenAppFocused
             )
         }
 
@@ -75,7 +81,9 @@ extension FeedCoordinator {
             isActiveTab: isActiveTab,
             isFocusedSurface: isFocusedSurface,
             isMuted: isMuted,
-            effects: effects
+            soundWhenFocused: soundWhenFocused,
+            effects: effects,
+            suppressWhenAppFocused: suppressWhenAppFocused
         )
     }
 

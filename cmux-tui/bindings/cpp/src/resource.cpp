@@ -11,6 +11,7 @@
 #include <limits>
 #include <mutex>
 #include <random>
+#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <utility>
@@ -23,6 +24,7 @@
 #endif
 
 #include "socket_path_internal.hpp"
+#include "journal_validation_internal.hpp"
 
 #if defined(__APPLE__)
 #include <stdlib.h>
@@ -88,6 +90,9 @@ struct OperationInfo {
     X(session_creation_resolve, "session.creation.resolve", read)                     \
     X(session_events, "session.events", stream_open)                                  \
     X(session_journal_subscribe, "session.journal.subscribe", stream_open)            \
+    X(session_journal_producer_list, "session.journal.producer.list", read)           \
+    X(session_journal_producer_put, "session.journal.producer.put", mutation)          \
+    X(session_journal_append, "session.journal.append", mutation)                      \
     X(session_ping, "session.ping", read)                                             \
     X(session_shutdown, "session.shutdown", mutation)                                 \
     X(session_reload_config, "session.reload_config", mutation)                       \
@@ -609,6 +614,160 @@ void inject_routing(
     });
 }
 
+[[nodiscard]] const char* journal_class_wire(JournalClass value) noexcept {
+    switch (value) {
+        case JournalClass::state: return "state";
+        case JournalClass::observation: return "observation";
+        case JournalClass::effect: return "effect";
+        case JournalClass::checkpoint: return "checkpoint";
+    }
+    return "state";
+}
+
+[[nodiscard]] const char* journal_replay_wire(JournalReplayPolicy value) noexcept {
+    switch (value) {
+        case JournalReplayPolicy::required: return "required";
+        case JournalReplayPolicy::advisory: return "advisory";
+        case JournalReplayPolicy::never: return "never";
+    }
+    return "required";
+}
+
+[[nodiscard]] const char* journal_sensitivity_wire(
+    JournalSensitivity value) noexcept {
+    switch (value) {
+        case JournalSensitivity::public_: return "public";
+        case JournalSensitivity::metadata: return "metadata";
+        case JournalSensitivity::sensitive: return "sensitive";
+        case JournalSensitivity::secret: return "secret";
+    }
+    return "sensitive";
+}
+
+[[nodiscard]] Result<void> validate_journal_manifest(
+    const JournalProducerManifest& manifest) {
+    if (!journal_detail::valid_component(manifest.producer_id)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "producer_id must match [a-z0-9][a-z0-9_-]* and contain at most 64 bytes");
+    }
+    if (manifest.namespace_ != "plugin." + manifest.producer_id) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal producer namespace must be plugin.<producer_id>");
+    }
+    if (manifest.manifest_version == 0 || manifest.events.empty() ||
+        manifest.events.size() > 64 || manifest.permissions.empty() ||
+        manifest.permissions.size() > 32) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "manifest_version must be positive, permissions must contain 1 to 32 entries, and events must contain 1 to 64 entries");
+    }
+    if (!journal_detail::valid_journal_sensitivity(manifest.max_sensitivity)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal producer manifest has an invalid max_sensitivity");
+    }
+    if (manifest.max_sensitivity == JournalSensitivity::secret) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "secret journal payload storage is unavailable");
+    }
+    const auto required_permission = "journal.append." + manifest.namespace_;
+    bool has_valid_permission = false;
+    for (const auto& permission : manifest.permissions) {
+        if (permission.empty() || permission.size() > 128) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal producer permissions must contain 1 to 128 bytes");
+        }
+        if (permission == required_permission) has_valid_permission = true;
+    }
+    if (!has_valid_permission) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal producer manifest requires its journal append permission");
+    }
+    std::set<std::pair<std::string, std::uint32_t>> identities;
+    const auto prefix = manifest.namespace_ + ".";
+    for (const auto& event : manifest.events) {
+        if (!journal_detail::valid_kind(event.kind) ||
+            !event.kind.starts_with(prefix)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event kind must be a dotted lowercase name inside the producer namespace");
+        }
+        if (event.schema_version == 0) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event schema_version must be positive");
+        }
+        if (!journal_detail::valid_journal_class(event.class_) ||
+            !journal_detail::valid_journal_replay(event.replay) ||
+            !journal_detail::valid_journal_sensitivity(event.sensitivity)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event schema contains an invalid enum value");
+        }
+        if (event.sensitivity == JournalSensitivity::secret ||
+            journal_detail::sensitivity_rank(event.sensitivity) >
+                journal_detail::sensitivity_rank(manifest.max_sensitivity)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event sensitivity exceeds producer authority");
+        }
+        if (!identities.emplace(event.kind, event.schema_version).second) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal producer declares a duplicate event schema");
+        }
+    }
+    return {};
+}
+
+[[nodiscard]] Result<void> validate_journal_ingress(const JournalIngress& event) {
+    if (!journal_detail::valid_component(event.producer_id) ||
+        event.manifest_version == 0 || event.schema_version == 0 ||
+        !journal_detail::valid_kind(event.kind) ||
+        !event.kind.starts_with("plugin." + event.producer_id + ".")) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal event envelope is invalid");
+    }
+    if (event.subjects.size() > 64) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal event subjects must contain at most 64 entries");
+    }
+    for (const auto& subject : event.subjects) {
+        if (!journal_detail::valid_component(subject.kind) || subject.id.empty() ||
+            subject.id.size() > 512) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal event subject is invalid");
+        }
+    }
+    for (const auto& identifier : {event.causation_id, event.correlation_id}) {
+        if (identifier && (identifier->empty() || identifier->size() > 128)) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "journal correlation identifiers must contain 1 to 128 bytes");
+        }
+    }
+    if (event.sensitivity &&
+        !journal_detail::valid_journal_sensitivity(*event.sensitivity)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal event sensitivity is invalid");
+    }
+    if (event.sensitivity == JournalSensitivity::secret) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "secret journal payload storage is unavailable");
+    }
+    return {};
+}
+
 [[nodiscard]] Result<void> put_correlation_key(
     Json::Object& params,
     const std::optional<std::string>& correlation_key) {
@@ -1030,6 +1189,18 @@ Result<Json::Object> SessionJournalOptions::to_params() const {
             ErrorCode::invalid_argument,
             "journal cursor and start are mutually exclusive");
     }
+    if (start && *start != JournalStart::tail &&
+        *start != JournalStart::beginning) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal start is invalid");
+    }
+    if (filter.max_sensitivity &&
+        !journal_detail::valid_journal_sensitivity(*filter.max_sensitivity)) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal max_sensitivity is invalid");
+    }
     if (filter.max_sensitivity == JournalSensitivity::secret) {
         return make_error(
             ErrorCode::invalid_argument,
@@ -1056,6 +1227,11 @@ Result<Json::Object> SessionJournalOptions::to_params() const {
     if (!filter.classes.empty()) {
         Json::Array values;
         for (const auto value : filter.classes) {
+            if (!journal_detail::valid_journal_class(value)) {
+                return make_error(
+                    ErrorCode::invalid_argument,
+                    "journal class filter contains an invalid enum value");
+            }
             switch (value) {
                 case JournalClass::state: values.emplace_back("state"); break;
                 case JournalClass::observation: values.emplace_back("observation"); break;
@@ -1117,6 +1293,80 @@ Result<Json::Object> SessionJournalOptions::to_params() const {
         params.emplace("filter", Json(std::move(encoded_filter)));
     }
     return params;
+}
+
+Result<Json> JournalProducerManifest::to_json() const {
+    auto valid = validate_journal_manifest(*this);
+    if (!valid) return std::move(valid).error();
+
+    Json::Array permissions;
+    permissions.reserve(this->permissions.size());
+    for (const auto& permission : this->permissions) {
+        permissions.emplace_back(permission);
+    }
+    Json::Array events;
+    events.reserve(this->events.size());
+    for (const auto& event : this->events) {
+        events.emplace_back(Json::Object{
+            {"kind", Json(event.kind)},
+            {"schema_version", Json(static_cast<std::uint64_t>(event.schema_version))},
+            {"class", Json(journal_class_wire(event.class_))},
+            {"replay", Json(journal_replay_wire(event.replay))},
+            {"sensitivity", Json(journal_sensitivity_wire(event.sensitivity))},
+            {"payload_schema", event.payload_schema},
+        });
+    }
+    Json result(Json::Object{
+        {"producer_id", Json(producer_id)},
+        {"namespace", Json(namespace_)},
+        {"manifest_version", Json(static_cast<std::uint64_t>(manifest_version))},
+        {"max_sensitivity", Json(journal_sensitivity_wire(max_sensitivity))},
+        {"permissions", Json(std::move(permissions))},
+        {"events", Json(std::move(events))},
+    });
+    auto encoded = result.encode();
+    if (!encoded) return std::move(encoded).error();
+    if (encoded.value().size() > 1024U * 1024U) {
+        return make_error(
+            ErrorCode::invalid_argument,
+            "journal producer manifest exceeds 1048576 bytes");
+    }
+    return result;
+}
+
+Result<Json> JournalIngress::to_json() const {
+    auto valid = validate_journal_ingress(*this);
+    if (!valid) return std::move(valid).error();
+
+    Json::Array subjects;
+    subjects.reserve(this->subjects.size());
+    for (const auto& subject : this->subjects) {
+        subjects.emplace_back(Json::Object{
+            {"kind", Json(subject.kind)},
+            {"id", Json(subject.id)},
+        });
+    }
+    Json::Object result{
+        {"producer_id", Json(producer_id)},
+        {"manifest_version", Json(static_cast<std::uint64_t>(manifest_version))},
+        {"kind", Json(kind)},
+        {"schema_version", Json(static_cast<std::uint64_t>(schema_version))},
+        {"payload", payload},
+    };
+    if (!this->subjects.empty()) {
+        result.emplace("subjects", Json(std::move(subjects)));
+    }
+    if (occurred_at_ms) {
+        result.emplace("occurred_at_ms", Json(std::to_string(*occurred_at_ms)));
+    }
+    if (sensitivity) {
+        result.emplace(
+            "sensitivity",
+            Json(journal_sensitivity_wire(*sensitivity)));
+    }
+    if (causation_id) result.emplace("causation_id", Json(*causation_id));
+    if (correlation_id) result.emplace("correlation_id", Json(*correlation_id));
+    return Json(std::move(result));
 }
 
 Result<Json::Object> TerminalAttachOptions::to_params() const {
@@ -2171,6 +2421,51 @@ Result<SessionJournalStream> Session::journal(
         return std::move(stream).error();
     }
     return SessionJournalStream(std::move(stream).value());
+}
+
+Result<JournalProducerListResult> Session::journal_producers() const {
+    return read(Operation::session_journal_producer_list);
+}
+
+Result<std::vector<JournalProducerManifest>> Session::list_journal_producers() const {
+    auto result = journal_producers();
+    if (!result) return std::move(result).error();
+    return std::move(result).value().producers;
+}
+
+Result<MutationResult<JournalProducerPutResult>> Session::put_journal_producer(
+    JournalProducerManifest manifest,
+    MutationOptions mutation) const {
+    auto encoded = manifest.to_json();
+    if (!encoded) return std::move(encoded).error();
+    return mutate(
+        Operation::session_journal_producer_put,
+        Json::Object{{"manifest", std::move(encoded).value()}},
+        std::move(mutation));
+}
+
+Result<MutationResult<JournalProducerPutResult>>
+Session::put_journal_producer_manifest(
+    JournalProducerManifest manifest,
+    MutationOptions mutation) const {
+    return put_journal_producer(std::move(manifest), std::move(mutation));
+}
+
+Result<MutationResult<JournalAppendResult>> Session::append_journal(
+    JournalIngress event,
+    MutationOptions mutation) const {
+    auto encoded = event.to_json();
+    if (!encoded) return std::move(encoded).error();
+    return mutate(
+        Operation::session_journal_append,
+        Json::Object{{"event", std::move(encoded).value()}},
+        std::move(mutation));
+}
+
+Result<MutationResult<JournalAppendResult>> Session::append_journal_event(
+    JournalIngress event,
+    MutationOptions mutation) const {
+    return append_journal(std::move(event), std::move(mutation));
 }
 
 Result<MutationResult<ShutdownResult>> Session::shutdown(MutationOptions options) const {

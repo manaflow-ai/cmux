@@ -1,5 +1,19 @@
 extension CMUXCLI {
     static let piExtensionSourceDispatch = #"""
+interface PiFeedCommand {
+  readonly args: string[];
+  readonly cwd: string;
+  readonly payload: Record<string, unknown>;
+  readonly context: PiExtensionContextSnapshot;
+  readonly terminal: boolean;
+  readonly onFailure?: () => void;
+}
+
+interface PiCommandCancellation {
+  cancelled: boolean;
+  cancel?: () => void;
+}
+
 function piFeedValueSummary(value: unknown): Record<string, unknown> {
   if (value === null) return { kind: "null" };
   if (typeof value === "string") return { kind: "text", length: value.length };

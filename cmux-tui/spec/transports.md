@@ -12,6 +12,17 @@ The current server reports `protocol:12` from `identify` and `ping`. Clients mus
 
 There is no transport-level version preamble. Omitting `attach-surface.mode` selects `"bytes"`, and omitting `subscribe.tree_events` selects `"coarse"`; those defaults preserve the exact protocol-v6 attach and tree-event behavior. Unix socket paths, WebSocket upgrade/authentication, request ids, response envelopes, and message framing do not change in protocol 7.
 
+Byte viewers that keep their own theme advertise `terminal-color-overrides-v1`
+using `set-client-info` before `attach-surface`. Supporting servers then add
+application-authored special-color provenance to that attachment's color
+sidecars (see `events.md`); unadvertised attachments keep the legacy wire shape.
+
+Byte viewers that write their own sequences after a replay (color sidecars)
+advertise `terminal-pending-sequence-v1` the same way. Their `vt-state` and
+`resized` replays then end at a parser boundary and carry the incomplete
+sequence separately as `pending`; unadvertised attachments receive those bytes
+at the end of the replay instead.
+
 ## Unix Socket
 
 | Field | Value |
@@ -348,7 +359,7 @@ GET /api/v1/events
 Optional query parameters mirror proposed `subscribe` filters:
 
 ```text
-GET /api/v1/events?events=bell,agent-state-changed&surfaces=1,a8f3k2
+GET /api/v1/events?events=bell,agent-changed&surfaces=1,a8f3k2
 ```
 
 Each event is sent as:

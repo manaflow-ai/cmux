@@ -20,6 +20,22 @@ struct CmuxCLIArgumentParserTests {
         #expect(result.remaining == ["run", "--command", "--json"])
     }
 
+    @Test("bare focus does not consume a following presentation flag")
+    func extractsJSONAfterBareFocus() throws {
+        let result = try parser.parse(
+            ["new-display", "--focus", "--json"], optionsWithOptionalValues: ["--focus"]
+        )
+        #expect(result.jsonOutput)
+        #expect(result.remaining == ["new-display", "--focus"])
+    }
+
+    @Test("required focus values stay with the command parser")
+    func preservesRequiredFocusValue() throws {
+        let result = try parser.parse(["--focus", "--json"])
+        #expect(!result.jsonOutput)
+        #expect(result.remaining == ["--focus", "--json"])
+    }
+
     @Test("terminator stops presentation parsing")
     func honorsTerminator() throws {
         let result = try parser.parse(["run", "--", "--json"])
@@ -31,6 +47,24 @@ struct CmuxCLIArgumentParserTests {
     func rejectsMissingIDFormatValue() {
         #expect(throws: CmuxCLIArgumentParser.ParseError.missingIDFormatValue) {
             _ = try parser.parse(["list", "--id-format"])
+        }
+    }
+
+    @Test("auth subcommands accept only their documented arguments")
+    func parsesAuthSubcommands() {
+        #expect(parser.parseAuthSubcommand([]) == "status")
+        #expect(parser.parseAuthSubcommand(["status"]) == "status")
+        #expect(parser.parseAuthSubcommand(["login"]) == "login")
+        #expect(parser.parseAuthSubcommand(["logout"]) == "logout")
+        #expect(parser.parseAuthSubcommand(["team", "use", "team-id"]) == "team")
+
+        for args in [
+            ["status", "--typo"],
+            ["login", "--typo"],
+            ["logout", "--typo"],
+            ["team", "list", "--typo"],
+        ] {
+            #expect(parser.parseAuthSubcommand(args) == nil)
         }
     }
 }

@@ -14,8 +14,29 @@ extension MobileShellComposite {
     /// the Mac scroll RPC in `scrollTerminal` and routes the local mirror's
     /// pixel-precise scroll path.
     public func ownsLocalPrimaryScreenScroll(surfaceID: String) -> Bool {
-        usesScreenAnchoredRenderGrid
+        // A locally served terminal (an external host's surface, demo
+        // content) IS the terminal: its scrollback lives in the phone's own
+        // emulator and no Mac ever repaints it, so the phone owns its
+        // scrolling unconditionally. No screen confirmation is needed the
+        // way the Mac mirror requires: libghostty resolves the screen per
+        // gesture batch, and on the alternate screen the pixel offset is
+        // forced to zero with rows clamped to the active area, so a TUI's
+        // screen is never torn by the local path.
+        if terminalIsServedLocally(surfaceID: surfaceID) { return true }
+        return usesScreenAnchoredRenderGrid
             && terminalActiveScreenBySurfaceID[surfaceID] == .primary
+    }
+
+    /// Whether a scroll gesture on this surface may mutate the local mirror
+    /// immediately, or must wait for the Mac's ordered render-grid frame
+    /// (the UI maps this to `TerminalScrollPresentationAuthority`). A locally
+    /// served surface has no Mac frame to wait for — whatever transport the
+    /// foreground Mac negotiated — so it always keeps the low-latency local
+    /// authority. Screen-anchored Mac sessions keep it too: the Mac never
+    /// repaints for a primary-screen scroll.
+    public func terminalScrollPresentationAppliesLocally(surfaceID: String) -> Bool {
+        if terminalIsServedLocally(surfaceID: surfaceID) { return true }
+        return !usesVerifiedTerminalReplay || usesScreenAnchoredRenderGrid
     }
 
     /// Forward a scroll gesture to the Mac's real surface. libghostty does the
@@ -29,6 +50,7 @@ extension MobileShellComposite {
     /// in flight, newer deltas are summed into the next request instead of
     /// piling up stale scroll packets.
     public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
+        guard terminalAllowsTraffic(surfaceID: surfaceID) else { return }
         // Screen-anchored sessions own primary-screen scrolling: the gesture
         // already moved the local mirror's viewport over locally accumulated
         // scrollback, the Mac's viewport is not shared, and no prefetch window

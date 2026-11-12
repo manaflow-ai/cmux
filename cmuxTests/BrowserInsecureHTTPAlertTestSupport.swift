@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import Foundation
 

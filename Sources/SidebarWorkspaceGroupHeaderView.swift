@@ -21,6 +21,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isAnchorActive == rhs.isAnchorActive &&
             lhs.isMultiSelected == rhs.isMultiSelected &&
             lhs.multiSelectionBackgroundStyle == rhs.multiSelectionBackgroundStyle &&
+            lhs.anchorActiveEdgeColor == rhs.anchorActiveEdgeColor &&
             lhs.memberCount == rhs.memberCount &&
             lhs.anchorUnreadCount == rhs.anchorUnreadCount &&
             lhs.canMarkRead == rhs.canMarkRead &&
@@ -28,6 +29,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.hasLatestNotifications == rhs.hasLatestNotifications &&
             lhs.canMarkAllRead == rhs.canMarkAllRead &&
             lhs.canMarkAllUnread == rhs.canMarkAllUnread &&
+            lhs.statusGlyph == rhs.statusGlyph &&
+            lhs.compactsAgentStatus == rhs.compactsAgentStatus &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -41,7 +44,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
             lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
-            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible
+            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
+            lhs.notificationBadgeColorHex == rhs.notificationBadgeColorHex
     }
 
     let groupId: UUID
@@ -54,6 +58,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isAnchorActive: Bool
     let isMultiSelected: Bool
     let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
+    /// Hairline painted while this header is anchor-active; nil when subtle
+    /// selection is off.
+    var anchorActiveEdgeColor: NSColor? = nil
     let memberCount: Int
     let anchorUnreadCount: Int
     let canMarkRead: Bool
@@ -61,6 +68,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let hasLatestNotifications: Bool
     let canMarkAllRead: Bool
     let canMarkAllUnread: Bool
+    let statusGlyph: SidebarCompactStatusGlyph?
+    /// Whether `sidebar.compactAgentStatus` is on; see the AppKit row model.
+    var compactsAgentStatus = false
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -75,6 +85,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
+    /// Notification Badge color setting; nil falls back to the cmux accent.
+    let notificationBadgeColorHex: String?
     /// Shared group-header actions used by both the lazy SwiftUI row and the
     /// retained AppKit table cell.
     let actions: SidebarGroupHeaderRowActions
@@ -82,6 +94,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onContextMenuDisappear: () -> Void
 
     @State private var contextMenuVisible = false
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.cmuxAccentColor) private var accentColor
+
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontMagnificationPercent
 
 #if DEBUG
     // Plain-value environment probe set only by SidebarLazyLayoutScaleTests;
@@ -122,6 +138,17 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return Color(nsColor: color).opacity(multiSelectionBackgroundStyle.opacity)
     }
 
+    /// Subtle-selection hairline, matching selected workspace rows.
+    private var selectionEdgeColor: NSColor? {
+        if isAnchorActive { return anchorActiveEdgeColor }
+        if isMultiSelected { return multiSelectionBackgroundStyle.edgeColor }
+        return nil
+    }
+
+    private var selectionCornerRadius: CGFloat {
+        isMultiSelected && !isAnchorActive ? 6 : 4
+    }
+
     var body: some View {
 #if DEBUG
         let _ = { sidebarLazyContractProbe.groupHeaderRowBody?() }()
@@ -131,9 +158,9 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 CmuxSystemSymbolImage(
                     magnified: "pin.fill",
                     pointSize: metrics.pinnedIconFontSize,
-                    weight: .semibold
+                    weight: .semibold,
+                    tint: .secondary
                 )
-                .foregroundStyle(.secondary)
                 .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                 .safeHelp(pinnedGroupTooltip)
                 .accessibilityLabel(Text(pinnedGroupTooltip))
@@ -142,9 +169,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 systemName: isCollapsed ? "chevron.right" : "chevron.down",
                 pointSize: metrics.chevronFontSize,
                 weight: .semibold,
-                appliesGlobalFontMagnification: true
-            )
-                .foregroundStyle(.secondary)
+                tint: .secondary,
+                appliesGlobalFontMagnification: true)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
                 .onTapGesture { actions.onToggleCollapsed() }
@@ -162,9 +188,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     systemName: displayedIconSymbol,
                     pointSize: metrics.iconFontSize,
                     weight: .semibold,
-                    appliesGlobalFontMagnification: true
-                )
-                    .foregroundStyle(iconColor)
+                    tint: iconColor,
+                    appliesGlobalFontMagnification: true)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
@@ -172,13 +197,23 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if anchorUnreadCount > 0 {
+                // Compact status mode: unread folds into the glyph (blue).
+                if let statusGlyph {
+                    SidebarCompactStatusGlyphView(
+                        glyph: statusGlyph,
+                        pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: globalFontMagnificationPercent),
+                        color: statusGlyph.color(isActive: false, selected: .labelColor, secondary: .secondaryLabelColor)
+                    )
+                } else if anchorUnreadCount > 0, !compactsAgentStatus {
                     Text("\(anchorUnreadCount)")
                         .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(Color.accentColor))
+                        .background(Capsule().fill(Color(nsColor: cmuxNotificationBadgeNSColor(
+                            hex: notificationBadgeColorHex,
+                            fallback: accentColor.nsColor(for: colorScheme)
+                        ))))
                         .accessibilityLabel(Text(String.localizedStringWithFormat(
                             String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
                             anchorUnreadCount
@@ -203,9 +238,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     systemName: "plus",
                     pointSize: metrics.plusFontSize,
                     weight: .medium,
-                    appliesGlobalFontMagnification: true
-                )
-                    .foregroundStyle(.secondary)
+                    tint: .secondary,
+                    appliesGlobalFontMagnification: true)
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())
                     .opacity(plusVisible ? 1 : 0)
@@ -275,9 +309,15 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     : Color.clear
         )
         .clipShape(RoundedRectangle(
-            cornerRadius: isMultiSelected && !isAnchorActive ? 6 : 4,
+            cornerRadius: selectionCornerRadius,
             style: .continuous
         ))
+        .overlay {
+            if let selectionEdgeColor {
+                RoundedRectangle(cornerRadius: selectionCornerRadius, style: .continuous)
+                    .strokeBorder(Color(nsColor: selectionEdgeColor), lineWidth: 1)
+            }
+        }
         .sidebarShortcutHintOverlay(
             text: shortcutHintPillText,
             emphasis: isAnchorActive ? 1.0 : 0.9,

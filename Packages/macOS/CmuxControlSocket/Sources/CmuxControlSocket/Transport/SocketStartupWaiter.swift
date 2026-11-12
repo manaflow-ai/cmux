@@ -265,3 +265,35 @@ public struct SocketStartupWaiter {
         }
     }
 }
+
+extension SocketStartupWaiter {
+    /// Window a command-line client gives a launching cmux app to bind its
+    /// control socket before reporting that the app is still opening.
+    public static let appStartupTimeoutDefaultSeconds: TimeInterval = 45
+
+    /// Environment key that replaces ``appStartupTimeoutDefaultSeconds``.
+    ///
+    /// A caller that already knows how long the app may take — a supervised
+    /// relaunch, a harness that never launches the app at all — bounds the
+    /// wait here instead of holding the terminal for the full default window.
+    public static let appStartupTimeoutEnvironmentKey = "CMUX_APP_STARTUP_WAIT_TIMEOUT_SECONDS"
+
+    /// Resolves the app-startup wait budget for `environment`.
+    ///
+    /// - Parameter environment: Process environment to read the override from.
+    /// - Returns: The override when it parses to a finite positive number of
+    ///   seconds no greater than the default window, otherwise
+    ///   ``appStartupTimeoutDefaultSeconds``.
+    public static func appStartupTimeoutSeconds(
+        environment: [String: String]
+    ) -> TimeInterval {
+        guard let raw = environment[appStartupTimeoutEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let value = TimeInterval(raw),
+            value.isFinite,
+            value > 0 else {
+            return appStartupTimeoutDefaultSeconds
+        }
+        return min(value, appStartupTimeoutDefaultSeconds)
+    }
+}

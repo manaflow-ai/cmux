@@ -6,7 +6,7 @@ import Foundation
 /// Once a credential-like header is present, the request must remain on HTTPS
 /// and sensitive headers are removed before a cross-origin redirect is
 /// followed. URL user information is rejected rather than sent to a webhook.
-nonisolated struct AutomationWebhookPolicy: Sendable {
+struct AutomationWebhookPolicy: Sendable {
     private let sensitiveFragments = [
         "authorization", "proxyauthorization", "token", "secret", "password",
         "apikey", "credential", "cookie", "privatekey", "session"

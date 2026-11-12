@@ -110,3 +110,19 @@ struct FeedJumpResolverTests {
         )
     }
 }
+
+@Suite("Feed permission button edges")
+struct FeedButtonSolidBorderTests {
+    /// Deny (.dark) and Allow Once (.light) use fixed-tone fills that match the
+    /// panel in one appearance each, so the solid style must give them an edge.
+    @Test func fixedTonePillsDrawAnEdgeInEveryAppearance() {
+        #expect(FeedButton.solidBorderOpacity(for: .dark) > 0)
+        #expect(FeedButton.solidBorderOpacity(for: .light) > 0)
+    }
+
+    @Test func saturatedPillsStayBorderless() {
+        for kind in [FeedButton.Kind.primary, .success, .warning, .destructive, .ghost, .soft] {
+            #expect(FeedButton.solidBorderOpacity(for: kind) == 0)
+        }
+    }
+}

@@ -36,6 +36,9 @@
          <TestPlanReference
             reference = "container:cmux/cmux-ui.xctestplan">
          </TestPlanReference>
+         <TestPlanReference
+            reference = "container:cmux/iroh-soak.xctestplan">
+         </TestPlanReference>
       </TestPlans>
       <Testables>
          <TestableReference
@@ -70,6 +73,9 @@
             ReferencedContainer = "container:cmux-ios.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <StoreKitConfigurationFileReference
+         identifier = "../../Config/cmux-dev.storekit">
+      </StoreKitConfigurationFileReference>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

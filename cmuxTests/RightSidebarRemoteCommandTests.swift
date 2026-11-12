@@ -93,6 +93,8 @@ extension TerminalControllerSocketSecurityTests {
                 fileExplorerState: fileExplorerState
             )
             defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+            fileExplorerState.setVisible(false)
+            fileExplorerState.mode = .files
 
             #expect(TerminalController.shared.handleSocketLine("right_sidebar set \(name) --no-focus").hasPrefix("ERROR:"))
             #expect(!fileExplorerState.isVisible)
@@ -114,39 +116,39 @@ extension TerminalControllerSocketSecurityTests {
         let cases: [(String, RightSidebarRemoteRequest)] = [
             (
                 "right_sidebar toggle",
-                RightSidebarRemoteRequest(command: .toggle, target: RightSidebarRemoteTarget())
+                RightSidebarRemoteRequest(command: .toggle, target: SidebarRemoteTarget())
             ),
             (
                 "right_sidebar show --window=\(windowId.uuidString)",
-                RightSidebarRemoteRequest(command: .show, target: RightSidebarRemoteTarget(windowId: windowId, workspaceId: nil))
+                RightSidebarRemoteRequest(command: .show, target: SidebarRemoteTarget(windowId: windowId, workspaceId: nil))
             ),
             (
                 "right_sidebar hide --tab=\(workspaceId.uuidString)",
-                RightSidebarRemoteRequest(command: .hide, target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceId))
+                RightSidebarRemoteRequest(command: .hide, target: SidebarRemoteTarget(windowId: nil, workspaceId: workspaceId))
             ),
             (
                 "right_sidebar focus",
-                RightSidebarRemoteRequest(command: .focus, target: RightSidebarRemoteTarget())
+                RightSidebarRemoteRequest(command: .focus, target: SidebarRemoteTarget())
             ),
             (
                 "right_sidebar set find",
-                RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
+                RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: SidebarRemoteTarget())
             ),
             (
                 "right_sidebar set vault --no-focus",
-                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
+                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: SidebarRemoteTarget())
             ),
             (
                 "right_sidebar sessions",
-                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
+                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: SidebarRemoteTarget())
             ),
             (
                 "right_sidebar mode",
-                RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget())
+                RightSidebarRemoteRequest(command: .getState, target: SidebarRemoteTarget())
             ),
             (
                 "right_sidebar state --workspace \(workspaceId.uuidString) --window \(windowId.uuidString)",
-                RightSidebarRemoteRequest(command: .getState, target: RightSidebarRemoteTarget(windowId: windowId, workspaceId: workspaceId))
+                RightSidebarRemoteRequest(command: .getState, target: SidebarRemoteTarget(windowId: windowId, workspaceId: workspaceId))
             ),
         ]
 
@@ -249,7 +251,7 @@ extension TerminalControllerSocketSecurityTests {
 
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .setMode(.find, focus: false),
-            target: RightSidebarRemoteTarget(windowId: windowAId, workspaceId: nil)
+            target: SidebarRemoteTarget(windowId: windowAId, workspaceId: nil)
         ) == .ok)
         #expect(stateA.isVisible)
         #expect(stateA.mode == .find)
@@ -258,7 +260,7 @@ extension TerminalControllerSocketSecurityTests {
 
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .setMode(.sessions, focus: false),
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            target: SidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
         ) == .ok)
         #expect(stateB.isVisible)
         #expect(stateB.mode == .sessions)
@@ -266,14 +268,14 @@ extension TerminalControllerSocketSecurityTests {
 
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .hide,
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            target: SidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
         ) == .ok)
         #expect(!stateB.isVisible)
         #expect(stateA.isVisible)
 
         switch appDelegate.applyRightSidebarRemoteCommand(
             .toggle,
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            target: SidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
         ) {
         case .failure(let message):
             #expect(message.contains("target not found"), Comment(rawValue: message))
@@ -284,12 +286,12 @@ extension TerminalControllerSocketSecurityTests {
 
         #expect(appDelegate.applyRightSidebarRemoteCommand(
             .getState,
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            target: SidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
         ) == .state(.init(visible: false, modeRawValue: "sessions")))
 
         switch appDelegate.applyRightSidebarRemoteCommand(
             .getState,
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceC.id)
+            target: SidebarRemoteTarget(windowId: nil, workspaceId: workspaceC.id)
         ) {
         case .failure(let message):
             #expect(message.contains("state not available"), Comment(rawValue: message))
@@ -299,7 +301,7 @@ extension TerminalControllerSocketSecurityTests {
 
         switch appDelegate.applyRightSidebarRemoteCommand(
             .hide,
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: UUID())
+            target: SidebarRemoteTarget(windowId: nil, workspaceId: UUID())
         ) {
         case .failure(let message):
             #expect(message.contains("target not found"), Comment(rawValue: message))

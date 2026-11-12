@@ -136,6 +136,10 @@ public final class TransportSentryReporter: Sendable {
     /// as ``CMUXMobileCore/DiagnosticLog/setEventTap(_:)``'s observer.
     public func ingest(_ event: DiagnosticEvent) {
         guard delivery.isEnabled() else { return }
+        if let breadcrumb = TerminalWorkSentryBreadcrumb().make(event, role: roleCode) {
+            delivery.addBreadcrumb(breadcrumb)
+            return
+        }
 
         let described = DiagnosticEventPresentation().describe(event)
         let level = telemetryLevel(for: event)
@@ -175,7 +179,7 @@ public final class TransportSentryReporter: Sendable {
         for field in described.fields {
             data[field.key] = field.value
         }
-        crumb.data = data
+        crumb.replaceData(data)
         delivery.addBreadcrumb(crumb)
     }
 

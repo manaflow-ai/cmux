@@ -1,87 +1,34 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
-import { createNextNavigationMock } from "./helpers/next-navigation-mock";
+import { describe, expect, test } from "bun:test";
+import { legacyTeamHashRedirect } from "../dashboard-app/routes/legacy-team-hash";
 
-let signedIn = true;
-let stackConfigured = true;
-let redirectedTo: string | null = null;
+// `/dashboard/team` is the legacy Hexclave account settings URL. Stack emails
+// and old bookmarks still link there with a hash. The route-level redirect
+// (history replace, locale basepath) is covered in dashboard-router.test.tsx.
+type Case = readonly [hash: string, to: string, params: { teamId: string } | undefined];
 
-mock.module("@stackframe/stack", () => ({
-  AccountSettings: () => (
-    <section data-testid="stack-account-settings">
-      profile, security, sessions, teams, and invitations
-    </section>
-  ),
-  useUser: () => null,
-  UserAvatar: () => <span data-testid="avatar" />,
-  TeamSwitcher: () => <span data-testid="team-switcher" />,
-}));
-
-mock.module("next/navigation", () => {
-  const navigation = createNextNavigationMock((target: unknown) => {
-    redirectedTo = String(target);
-    throw new Error(`redirect:${target}`);
-  });
-  return navigation;
-});
-
-mock.module("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: undefined, isPending: true, isError: false }),
-  useQueryClient: () => ({
-    setQueryData: () => undefined,
-    invalidateQueries: async () => undefined,
-  }),
-}));
-
-mock.module("../app/lib/stack", () => ({
-  isStackConfigured: () => stackConfigured,
-  getStackServerApp: () => ({
-    getUser: async () => signedIn ? { id: "user-1" } : null,
-  }),
-}));
-
-mock.module("../app/lib/vault-auth", () => ({
-  localizedVaultPath: (_locale: string, path: string) => path,
-  vaultSignInHref: (path: string) => `/handler/sign-in?after_auth_return_to=${path}`,
-}));
-
-const { default: DashboardTeamPage } = await import(
-  "../app/[locale]/dashboard/team/page"
-);
-
-describe("dashboard team settings", () => {
-  beforeEach(() => {
-    signedIn = true;
-    stackConfigured = true;
-    redirectedTo = null;
-  });
-
-  test("renders Stack's complete account and team settings", async () => {
-    const page = await DashboardTeamPage({
-      params: Promise.resolve({ locale: "en" }),
-    });
-    const html = renderToStaticMarkup(page);
-
-    expect(html).toContain('data-testid="stack-account-settings"');
-    expect(html).toContain("teams, and invitations");
-    expect(redirectedTo).toBeNull();
-  });
-
-  test("preserves the team settings return path when signed out", async () => {
-    signedIn = false;
-
-    await expect(DashboardTeamPage({
-      params: Promise.resolve({ locale: "en" }),
-    })).rejects.toThrow("redirect:/handler/sign-in");
-    expect(redirectedTo).toContain("/dashboard/team");
-  });
-
-  test("preserves the active locale when Stack is unavailable", async () => {
-    stackConfigured = false;
-
-    await expect(DashboardTeamPage({
-      params: Promise.resolve({ locale: "ja" }),
-    })).rejects.toThrow("redirect:/ja");
-    expect(redirectedTo).toBe("/ja");
+describe("legacyTeamHashRedirect", () => {
+  test.each<Case>([
+    ["#team-team_123", "/dashboard/teams/$teamId", { teamId: "team_123" }],
+    ["#team-a%2Fb", "/dashboard/teams/$teamId", { teamId: "a/b" }],
+    ["team-abc", "/dashboard/teams/$teamId", { teamId: "abc" }],
+    ["#team-creation", "/dashboard/teams/new", undefined],
+    ["#profile", "/dashboard/settings", undefined],
+    ["#auth", "/dashboard/settings/auth", undefined],
+    ["#notifications", "/dashboard/settings/notifications", undefined],
+    ["#sessions", "/dashboard/settings/sessions", undefined],
+    ["#api-keys", "/dashboard/settings/api-keys", undefined],
+    ["#settings", "/dashboard/settings/account", undefined],
+    ["#payments", "/dashboard/billing", undefined],
+    ["", "/dashboard/settings", undefined],
+    ["#", "/dashboard/settings", undefined],
+    ["#team-", "/dashboard/settings", undefined],
+    ["#unknown", "/dashboard/settings", undefined],
+    ["#constructor", "/dashboard/settings", undefined],
+    ["#%E0%A4%A", "/dashboard/settings", undefined],
+  ])("maps %p to %p", (hash, to, params) => {
+    const { options } = legacyTeamHashRedirect(hash);
+    expect(options.to as string).toBe(to);
+    expect(options.params as unknown).toEqual(params);
+    expect(options.replace).toBe(true);
   });
 });

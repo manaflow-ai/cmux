@@ -115,26 +115,14 @@ struct CustomSidebarPanelView: View {
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        let groups = tabManager.workspaceGroups.map { group in
-            CustomSidebarGroupSnapshot(
-                id: group.id,
-                name: group.name,
-                isCollapsed: group.isCollapsed,
-                isPinned: group.isPinned,
-                anchorWorkspaceId: group.anchorWorkspaceId,
-                customColor: group.customColor,
-                iconSymbol: group.iconSymbol
-            )
-        }
-        let snapshot = CustomSidebarContextSnapshot(
+        return ContentView.customSidebarDataContext(
             workspaces: workspaces,
-            groups: groups,
+            workspaceGroups: tabManager.workspaceGroups,
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
             totalUnreadCount: sidebarUnread.totalUnreadCount,
             now: now
         )
-        return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
     }
 
     private func requestPanelFocusIfNeeded() {
@@ -147,10 +135,10 @@ struct CustomSidebarPanelView: View {
         if shouldAnimateFocusFlash, let focusFlashStartedAt {
             TimelineView(TmuxWorkspacePaneFlashTimelineSchedule(startDate: focusFlashStartedAt)) { timeline in
                 WorkspaceAttentionFlashRingView(
-                    opacity: FocusFlashPattern.opacity(at: timeline.date.timeIntervalSince(focusFlashStartedAt))
+                    opacity: FocusFlashPattern.current.opacity(at: timeline.date.timeIntervalSince(focusFlashStartedAt))
                 )
                 .onChange(of: timeline.date) { _, date in
-                    if date.timeIntervalSince(focusFlashStartedAt) >= FocusFlashPattern.duration {
+                    if date.timeIntervalSince(focusFlashStartedAt) >= FocusFlashPattern.current.duration {
                         completedFocusFlashStartedAt = focusFlashStartedAt
                     }
                 }
@@ -163,6 +151,6 @@ struct CustomSidebarPanelView: View {
     private var shouldAnimateFocusFlash: Bool {
         guard let focusFlashStartedAt else { return false }
         guard completedFocusFlashStartedAt != focusFlashStartedAt else { return false }
-        return Date() <= focusFlashStartedAt.addingTimeInterval(FocusFlashPattern.duration)
+        return Date() <= focusFlashStartedAt.addingTimeInterval(FocusFlashPattern.current.duration)
     }
 }

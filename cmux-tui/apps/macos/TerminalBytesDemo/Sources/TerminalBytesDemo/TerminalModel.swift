@@ -24,11 +24,11 @@ struct TerminalResizeAcknowledgement: Equatable, Sendable {
     let canonicalChanged: Bool
 }
 
-nonisolated protocol TerminalClock: Sendable {
+protocol TerminalClock: Sendable {
     func sleep(for duration: Duration) async throws
 }
 
-nonisolated struct ContinuousTerminalClock: TerminalClock {
+struct ContinuousTerminalClock: TerminalClock {
     private let clock = ContinuousClock()
 
     func sleep(for duration: Duration) async throws {

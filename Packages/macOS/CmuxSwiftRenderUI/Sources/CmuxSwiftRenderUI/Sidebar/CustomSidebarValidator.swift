@@ -174,6 +174,7 @@ public struct CustomSidebarValidator {
                 "ports": .array([.int(3000)]),
                 "portCount": .int(1),
                 "unread": .int(0),
+                "status": .string("working"),
                 "tabs": .array([]),
                 "tabCount": .int(0),
                 "description": .string(""),

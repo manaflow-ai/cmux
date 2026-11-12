@@ -23,6 +23,7 @@ import {
   type CtlStorage,
 } from "./controlPlane";
 import { captureSentryException, type SentryEnv } from "./sentry";
+import { parseRetryAfterSeconds, rateLimitedJson } from "./retryAfterResponse";
 
 export interface ControlPlaneEnv extends SentryEnv {
   /** Vercel web API origin the DO proxies (dev/prod), e.g. https://cmux.com.
@@ -122,7 +123,17 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
           failure: "http",
         });
       }
-      return { status: response.status, json };
+      return {
+        status: response.status,
+        json,
+        ...(response.status === 429
+          ? {
+            retryAfterSeconds: parseRetryAfterSeconds(
+              response.headers.get("retry-after"),
+            ),
+          }
+          : {}),
+      };
     },
     scheduleAlarmAt: (atMs) => this.ensureAlarmAt(atMs),
     sockets: () => this.ctx.getWebSockets().map(wrapSocket),
@@ -181,7 +192,7 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
       return attachment !== null;
     }).length;
     if (connected >= MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT) {
-      return json({ error: "too_many_subscribers" }, 429);
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
 
     const pair = new WebSocketPair();

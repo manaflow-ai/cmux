@@ -21,6 +21,7 @@ struct TitlebarInteractiveControlTests {
         }
     }
 
+    /// Creates a deterministic left-button event for titlebar hit-testing fixtures.
     private static func makeLeftMouseDownEvent(location: NSPoint, window: NSWindow, clickCount: Int = 1) -> NSEvent {
         guard let event = NSEvent.mouseEvent(
             with: .leftMouseDown,
@@ -244,5 +245,68 @@ struct TitlebarInteractiveControlTests {
             !hitView.mouseDownCanMoveWindow,
             "Registered SwiftUI titlebar controls must not degrade into hosting-view drag hits."
         )
+    }
+
+    /// A click in the transparent portion of the primary segment must invoke
+    /// the same action as a click on the painted plus glyph.
+    @Test(arguments: TitlebarControlsStyle.allCases)
+    func primarySegmentUsesWholeFrameAsHitTarget(style: TitlebarControlsStyle) {
+        _ = NSApplication.shared
+
+        let config = style.config
+        let primaryWidth = TitlebarNewWorkspaceSplitButtonMetrics.primaryWidth(config: config)
+        let totalWidth = TitlebarNewWorkspaceSplitButtonMetrics.totalWidth(config: config)
+        var actionCount = 0
+        let root = TitlebarNewWorkspaceSplitButton(
+            config: config,
+            foregroundColor: .primary,
+            onNewTab: { actionCount += 1 }
+        )
+        let hostingView = NSHostingView(rootView: root)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: totalWidth, height: config.buttonSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+        }
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        hostingView.frame = NSRect(x: 0, y: 0, width: totalWidth, height: config.buttonSize)
+        hostingView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        // Cover the transparent corners and edges as well as the painted center.
+        for x in [1, primaryWidth / 2, primaryWidth - 1] {
+            for y in [1, config.buttonSize / 2, config.buttonSize - 1] {
+                let point = NSPoint(x: x, y: y)
+                let locationInWindow = hostingView.convert(point, to: nil)
+                let previousActionCount = actionCount
+                let down = Self.makeLeftMouseDownEvent(location: locationInWindow, window: window)
+                guard let up = NSEvent.mouseEvent(
+                    with: .leftMouseUp,
+                    location: locationInWindow,
+                    modifierFlags: [],
+                    timestamp: down.timestamp,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 2,
+                    clickCount: 1,
+                    pressure: 0
+                ) else {
+                    Issue.record("Expected to create a primary-segment mouse-up event")
+                    return
+                }
+                window.sendEvent(down)
+                window.sendEvent(up)
+                #expect(
+                    actionCount == previousActionCount + 1,
+                    "A click at \(point) in the primary frame must create exactly one workspace."
+                )
+            }
+        }
     }
 }

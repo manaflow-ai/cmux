@@ -151,6 +151,68 @@ struct SidebarWorkspaceRowRetirementTests {
         #expect(applies > 0, "A retired menu must not suppress hover on replacement rows.")
     }
 
+    /// Closing one workspace must not rebuild the other rows: reloadData
+    /// retired every visible cell, committing rename/checklist drafts and
+    /// closing popovers on unrelated rows.
+    @Test
+    func closingOneWorkspaceKeepsSurvivingRowCells() async throws {
+        let models = (0..<3).map { _ in SidebarWorkspaceRowSuspensionTests.makeModel() }
+        let rows = models.map {
+            makeRowConfiguration(model: $0, actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: $0))
+        }
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let tableActions = makeTableActions()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 480),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        window.orderFront(nil)
+        defer { window.close() }
+
+        func apply(_ rows: [SidebarWorkspaceTableRowConfiguration]) async {
+            controller.apply(
+                rows: rows,
+                actions: tableActions,
+                workspaceIds: rows.compactMap { $0.appKitWorkspaceRowModel?.workspaceId },
+                selectedWorkspaceId: nil,
+                selectedScrollTargetWorkspaceId: nil
+            )
+            await flushStagedTableMutations()
+            container.layoutSubtreeIfNeeded()
+            container.tableView.layoutSubtreeIfNeeded()
+        }
+        func cell(at row: Int) -> NSView? {
+            container.tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+        }
+
+        await apply(rows)
+        let first = try #require(cell(at: 0))
+        let third = try #require(cell(at: 2))
+
+        await apply([rows[0], rows[2]])
+
+        #expect(container.tableView.numberOfRows == 2)
+        #expect(cell(at: 0) === first)
+        #expect(cell(at: 1) === third)
+    }
+
+    @Test
+    func rowEditClassifiesOnlyOrderPreservingDropsAndAdds() {
+        #expect(SidebarWorkspaceTableRowEdit(from: [1, 2, 3], to: [1, 3]) == .remove([1]))
+        #expect(SidebarWorkspaceTableRowEdit(from: [1, 2, 3, 4], to: [2, 4]) == .remove([0, 2]))
+        #expect(SidebarWorkspaceTableRowEdit(from: [1, 3], to: [1, 2, 3, 4]) == .insert([1, 3]))
+        #expect(SidebarWorkspaceTableRowEdit(from: [1, 2], to: []) == .remove([0, 1]))
+        // Reorders, mixed edits, no-ops, and duplicate ids keep the reload path.
+        #expect(SidebarWorkspaceTableRowEdit(from: [1, 2, 3], to: [3, 1]) == nil)
+        #expect(SidebarWorkspaceTableRowEdit(from: [1, 2, 3], to: [1, 4]) == nil)
+        #expect(SidebarWorkspaceTableRowEdit(from: [1, 2], to: [1, 2]) == nil)
+        #expect(SidebarWorkspaceTableRowEdit(from: [1, 1, 2], to: [1, 2]) == nil)
+    }
+
     private func mount(
         model: SidebarWorkspaceRowModel,
         actions: SidebarAppKitRowActions

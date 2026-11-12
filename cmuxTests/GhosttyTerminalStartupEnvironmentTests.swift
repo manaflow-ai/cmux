@@ -61,14 +61,14 @@ struct GhosttyTerminalStartupEnvironmentTests {
         defer {
             if originalNeedsTeardown {
                 GhosttyApp.terminalSurfaceRegistry.unregister(original)
-                original.teardownSurface()
+                original.teardownHostedSurfaceForTesting()
             }
         }
         let originalLifecycleID = try #require(
             original.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID")
         )
         GhosttyApp.terminalSurfaceRegistry.unregister(original)
-        original.teardownSurface()
+        original.teardownHostedSurfaceForTesting()
         originalNeedsTeardown = false
 
         let replacement = TerminalSurface(
@@ -79,7 +79,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
         )
         defer {
             GhosttyApp.terminalSurfaceRegistry.unregister(replacement)
-            replacement.teardownSurface()
+            replacement.teardownHostedSurfaceForTesting()
         }
         let replacementLifecycleID = try #require(
             replacement.startupEnvironmentValue("CMUX_TERMINAL_LIFECYCLE_ID")
@@ -111,6 +111,27 @@ struct GhosttyTerminalStartupEnvironmentTests {
         expectTrue(protectedKeys.contains("TERM"))
         expectTrue(protectedKeys.contains("COLORTERM"))
         expectTrue(protectedKeys.contains("TERM_PROGRAM"))
+    }
+
+    @Test
+    func testManagedTerminalIdentityBlanksEmbeddedGhosttyVersion() {
+        // Ghostty exports its own TERM_PROGRAM_VERSION before applying cmux's
+        // environment, so cmux must override it with an empty value; omitting
+        // the key would leave the embedded version in the child environment.
+        var environment = [
+            "TERM_PROGRAM": "Apple_Terminal",
+            "TERM_PROGRAM_VERSION": "1.3.2-HEAD-+324c027",
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        expectEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        expectEqual(environment["TERM_PROGRAM_VERSION"], "")
+        expectTrue(protectedKeys.contains("TERM_PROGRAM_VERSION"))
     }
 
     @Test
@@ -228,6 +249,55 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
+    func testLiveAgentCommandShimSurvivesTemporaryDirectoryReaping() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LiveCommandShimTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let temporary = root.appendingPathComponent("tmp", isDirectory: true)
+        let wrappers = root.appendingPathComponent("wrappers", isDirectory: true)
+        let userBin = root.appendingPathComponent("user-bin", isDirectory: true)
+        for directory in [home, temporary, wrappers, userBin] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        let wrapper = wrappers.appendingPathComponent("cmux-claude-wrapper")
+        let realClaude = userBin.appendingPathComponent("claude")
+        try "#!/bin/sh\nprintf 'wrapped:%s\\n' \"$*\"\n".write(
+            to: wrapper, atomically: true, encoding: .utf8
+        )
+        try "#!/bin/sh\necho UNWRAPPED\n".write(to: realClaude, atomically: true, encoding: .utf8)
+        for executable in [wrapper, realClaude] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+
+        let filesystem = TerminalSurfaceRuntimeFilesystem.live(homeDirectory: home)
+        let installed = await filesystem.installAgentCommandShims(
+            wrappers, UUID(), filesystem.agentCommandShimRootDirectory, [.claude]
+        )
+        let shims = try #require(installed)
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["--noprofile", "--norc", "-c", """
+        command claude before "two words"
+        /bin/rm -rf -- "$TMPDIR/cmux-cli-shims"
+        command claude after "two words"
+        """]
+        process.environment = [
+            "HOME": home.path,
+            "TMPDIR": temporary.path,
+            "PATH": "\(shims.directoryPath):\(userBin.path):/usr/bin:/bin"
+        ]
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        #expect(String(decoding: data, as: UTF8.self) == "wrapped:before two words\nwrapped:after two words\n")
+        #expect(shims.directoryPath.hasPrefix(home.appendingPathComponent(".cmuxterm/").path))
+    }
+
+    @Test
     func testInstallAgentCommandShimsCreatesAmpHermesAndClaudeExecutablesOutsideBundleBin() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
@@ -271,7 +341,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: bundleBin,
                 surfaceId: surfaceId,
-                temporaryDirectory: tempRoot
+                rootDirectory: tempRoot
             ))
         let shim = try #require(shims.shim(named: "claude"))
         let hermesShim = try #require(shims.shim(named: "hermes"))
@@ -356,7 +426,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: oldBundleBin,
                 surfaceId: UUID(),
-                temporaryDirectory: tempRoot
+                rootDirectory: tempRoot
             ))
         let shim = try #require(shims.shim(named: "claude"))
         try FileManager.default.removeItem(at: staleWrapperURL)
@@ -423,7 +493,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: bundleBin,
                 surfaceId: UUID(),
-                temporaryDirectory: tempRoot
+                rootDirectory: tempRoot
             ))
         let shim = try #require(shims.shim(named: "claude"))
         try FileManager.default.removeItem(at: wrapperURL)
@@ -510,12 +580,14 @@ struct GhosttyTerminalStartupEnvironmentTests {
                 "TERM": "screen-256color",
                 "COLORTERM": "false",
                 "TERM_PROGRAM": "WarpTerminal",
+                "TERM_PROGRAM_VERSION": "9.9.9",
             ]
         )
 
         expectEqual(merged["TERM"], TerminalSurface.managedTerminalType)
         expectEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
         expectEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        expectEqual(merged["TERM_PROGRAM_VERSION"], "")
     }
 
     @Test

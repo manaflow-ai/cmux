@@ -14,6 +14,16 @@ struct ChatArtifactSyntaxHighlightPolicyTests {
         ) == .highlight(language: "swift"))
     }
 
+    @Test("purescript artifacts highlight through the haskell grammar")
+    func highlightsPureScriptThroughHaskell() {
+        #expect(policy.inferredLanguage(path: "/tmp/Main.purs") == "haskell")
+    }
+
+    @Test("haskell artifacts highlight directly")
+    func highlightsHaskell() {
+        #expect(policy.inferredLanguage(path: "/tmp/Main.hs") == "haskell")
+    }
+
     @Test("files over the limit skip for size and show the pill")
     func skipsOverThreshold() {
         let decision = policy.decision(

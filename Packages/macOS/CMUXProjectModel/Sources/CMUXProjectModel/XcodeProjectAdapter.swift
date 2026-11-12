@@ -1,8 +1,6 @@
 import Foundation
-import PathKit
-import XcodeProj
 
-/// ``ProjectAdapter`` implementation backed by tuist/XcodeProj.
+/// ``ProjectAdapter`` implementation that reads Xcode project bundles with Foundation.
 ///
 /// Parses a `.xcworkspace` or `.xcodeproj` URL into a ``ProjectModel`` whose
 /// modules, navigator groups, files, target memberships, and target summaries
@@ -49,17 +47,13 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
     // MARK: - Workspace and project loading
 
     private func loadWorkspace(at workspaceURL: URL) throws -> ProjectModel {
-        let workspace: XCWorkspace
+        let workspace: XcodeWorkspaceFile
         do {
-            workspace = try XCWorkspace(path: Path(workspaceURL.path))
+            workspace = try XcodeWorkspaceFile(workspaceURL: workspaceURL)
         } catch {
             throw ProjectLoadError.parseFailure(workspaceURL, reason: String(describing: error))
         }
-        let workspaceDir = workspaceURL.deletingLastPathComponent()
-        let projectURLs = Self.collectProjectURLs(
-            from: workspace.data.children,
-            workspaceDir: workspaceDir
-        )
+        let projectURLs = workspace.fileURLs.filter { $0.pathExtension.lowercased() == "xcodeproj" }
         var modules: [ProjectModule] = []
         modules.reserveCapacity(projectURLs.count)
         for projectURL in projectURLs {
@@ -88,36 +82,38 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
     }
 
     private func loadModule(at projectURL: URL) throws -> ProjectModule {
-        let xcodeProj: XcodeProj
+        let document: PBXProjDocument
         do {
-            xcodeProj = try XcodeProj(path: Path(projectURL.path))
+            document = try PBXProjDocument(contentsOf: projectURL.appendingPathComponent("project.pbxproj"))
         } catch {
             throw ProjectLoadError.parseFailure(projectURL, reason: String(describing: error))
         }
-        let pbxproj = xcodeProj.pbxproj
-        guard let rootObject = pbxproj.rootObject else {
-            throw ProjectLoadError.parseFailure(projectURL, reason: "missing rootObject")
+        let projectID = document.rootObjectID
+        guard let mainGroup = document.reference("mainGroup", of: projectID) else {
+            throw ProjectLoadError.parseFailure(projectURL, reason: "missing mainGroup")
         }
-        let sourceRoot = Path(projectURL.deletingLastPathComponent().path)
-        let targets = Self.collectTargets(from: rootObject, sourceRoot: sourceRoot)
-        let memberships = Self.buildMembershipIndex(targets: rootObject.targets)
+        let sourceRoot = projectURL.deletingLastPathComponent().path
+        let targetIDs = document.references("targets", of: projectID)
+        let targets = Self.collectTargets(in: document, targetIDs: targetIDs, sourceRoot: sourceRoot)
+        let memberships = Self.buildMembershipIndex(in: document, targetIDs: targetIDs)
         let moduleID = ProjectModuleID(rawValue: projectURL.standardizedFileURL.path)
-        let rootGroup = try Self.buildGroup(
-            from: rootObject.mainGroup,
+        let rootGroup = Self.buildGroup(
+            from: mainGroup,
+            in: document,
             moduleID: moduleID,
-            parentPath: nil,
             displayPath: "",
             sourceRoot: sourceRoot,
             memberships: memberships
         )
         let configurations = Self.collectBuildConfigurations(
-            from: rootObject,
+            in: document,
+            targetIDs: targetIDs,
             sourceRoot: sourceRoot
         )
         let schemes = Self.collectSchemes(
-            xcodeProj: xcodeProj,
             projectURL: projectURL,
-            targets: rootObject.targets
+            in: document,
+            targetIDs: targetIDs
         )
         return ProjectModule(
             id: moduleID,
@@ -131,50 +127,36 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
     }
 
     private static func collectBuildConfigurations(
-        from project: PBXProject,
-        sourceRoot: Path
+        in document: PBXProjDocument,
+        targetIDs: [String],
+        sourceRoot: String
     ) -> [BuildConfigSummary] {
-        var out: [BuildConfigSummary] = []
-        if let projectList = project.buildConfigurationList {
-            for config in projectList.buildConfigurations {
-                let base = config.baseConfiguration.flatMap { ref -> URL? in
-                    guard let path = (try? ref.fullPath(sourceRoot: sourceRoot)).flatMap({ $0 }) else {
-                        return nil
-                    }
-                    return URL(fileURLWithPath: path.string)
-                }
-                let raw = normalizeRawSettings(config.buildSettings)
-                out.append(BuildConfigSummary(
-                    id: BuildConfigID(rawValue: config.uuid),
-                    name: config.name,
-                    scope: .project,
-                    baseConfigurationPath: base,
-                    rawSettings: raw
-                ))
+        func summaries(of ownerID: String, scope: BuildConfigScope) -> [BuildConfigSummary] {
+            document.buildConfigurations(of: ownerID).map { config in
+                BuildConfigSummary(
+                    id: BuildConfigID(rawValue: config),
+                    name: document.string("name", of: config) ?? "",
+                    scope: scope,
+                    baseConfigurationPath: baseConfigurationURL(of: config, in: document, sourceRoot: sourceRoot),
+                    rawSettings: normalizeRawSettings(document.buildSettings(of: config))
+                )
             }
         }
-        for target in project.targets {
-            guard let native = target as? PBXNativeTarget,
-                  let configList = native.buildConfigurationList else { continue }
-            let targetID = TargetID(rawValue: native.uuid)
-            for config in configList.buildConfigurations {
-                let base = config.baseConfiguration.flatMap { ref -> URL? in
-                    guard let path = (try? ref.fullPath(sourceRoot: sourceRoot)).flatMap({ $0 }) else {
-                        return nil
-                    }
-                    return URL(fileURLWithPath: path.string)
-                }
-                let raw = normalizeRawSettings(config.buildSettings)
-                out.append(BuildConfigSummary(
-                    id: BuildConfigID(rawValue: config.uuid),
-                    name: config.name,
-                    scope: .target(targetID),
-                    baseConfigurationPath: base,
-                    rawSettings: raw
-                ))
-            }
+        var out = summaries(of: document.rootObjectID, scope: .project)
+        for target in targetIDs where document.isa(target) == "PBXNativeTarget" {
+            out.append(contentsOf: summaries(of: target, scope: .target(TargetID(rawValue: target))))
         }
         return out
+    }
+
+    private static func baseConfigurationURL(
+        of configurationID: String,
+        in document: PBXProjDocument,
+        sourceRoot: String
+    ) -> URL? {
+        document.reference("baseConfigurationReference", of: configurationID)
+            .flatMap { document.fullPath(of: $0, sourceRoot: sourceRoot) }
+            .map { URL(fileURLWithPath: $0) }
     }
 
     private static func normalizeRawSettings(_ source: [String: Any]) -> [String: String] {
@@ -193,38 +175,47 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
     }
 
     private static func collectSchemes(
-        xcodeProj: XcodeProj,
         projectURL: URL,
-        targets: [PBXTarget]
+        in document: PBXProjDocument,
+        targetIDs: [String]
     ) -> [SchemeSummary] {
+        var targetNameToID: [String: TargetID] = [:]
+        for target in targetIDs {
+            guard let name = document.string("name", of: target), targetNameToID[name] == nil else { continue }
+            targetNameToID[name] = TargetID(rawValue: target)
+        }
         var seen: Set<String> = []
         var out: [SchemeSummary] = []
-        let targetNameToID: [String: TargetID] = Dictionary(uniqueKeysWithValues: targets.map {
-            ($0.name, TargetID(rawValue: $0.uuid))
-        })
-        for scheme in xcodeProj.sharedData?.schemes ?? [] {
-            if seen.insert(scheme.name).inserted {
-                out.append(schemeSummary(from: scheme, shared: true, targetNameToID: targetNameToID))
+        func append(_ schemes: [XcodeSchemeFile], shared: Bool) {
+            for scheme in schemes where seen.insert(scheme.name).inserted {
+                out.append(schemeSummary(from: scheme, shared: shared, targetNameToID: targetNameToID))
             }
         }
-        for userData in xcodeProj.userData {
-            for scheme in userData.schemes {
-                if seen.insert(scheme.name).inserted {
-                    out.append(schemeSummary(from: scheme, shared: false, targetNameToID: targetNameToID))
-                }
-            }
+        append(
+            XcodeSchemeFile.schemes(in: projectURL.appendingPathComponent("xcshareddata/xcschemes")),
+            shared: true
+        )
+        let userDataRoot = projectURL.appendingPathComponent("xcuserdata")
+        let userDirectories = ((try? FileManager.default.contentsOfDirectory(
+            at: userDataRoot,
+            includingPropertiesForKeys: nil
+        )) ?? [])
+            .filter { $0.pathExtension == "xcuserdatad" }
+            .sorted { $0.lastPathComponent.utf8.lexicographicallyPrecedes($1.lastPathComponent.utf8) }
+        for directory in userDirectories {
+            append(XcodeSchemeFile.schemes(in: directory.appendingPathComponent("xcschemes")), shared: false)
         }
         return out
     }
 
     private static func schemeSummary(
-        from scheme: XCScheme,
+        from scheme: XcodeSchemeFile,
         shared: Bool,
         targetNameToID: [String: TargetID]
     ) -> SchemeSummary {
         let knownTargetIDValues = Set(targetNameToID.values.map(\.rawValue))
-        func resolve(_ ref: XCScheme.BuildableReference) -> TargetID? {
-            if let direct = targetNameToID[ref.blueprintName] {
+        func resolve(_ ref: XcodeSchemeFile.TargetReference) -> TargetID? {
+            if let name = ref.blueprintName, let direct = targetNameToID[name] {
                 return direct
             }
             if let blueprintUUID = ref.blueprintIdentifier,
@@ -233,87 +224,63 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
             }
             return nil
         }
-        let runTargets = scheme.launchAction
-            .flatMap { $0.runnable?.buildableReference }
-            .flatMap(resolve)
-            .map { [$0] } ?? []
-        let testTargets: [TargetID] = scheme.testAction?.testables.compactMap { entry in
-            resolve(entry.buildableReference)
-        } ?? []
-        let profileTarget = scheme.profileAction
-            .flatMap { $0.buildableProductRunnable?.buildableReference }
-            .flatMap(resolve)
-        let archiveTarget = scheme.archiveAction
-            .flatMap { $0.buildConfiguration }
-            .flatMap { _ in
-                scheme.buildAction?.buildActionEntries.first?.buildableReference
-            }
-            .flatMap(resolve)
-        let args = scheme.launchAction?.commandlineArguments?.arguments
-            .filter(\.enabled)
-            .map(\.name) ?? []
-        var env: [String: String] = [:]
-        for variable in scheme.launchAction?.environmentVariables ?? [] where variable.enabled {
-            env[variable.variable] = variable.value
-        }
         return SchemeSummary(
             id: SchemeID(rawValue: scheme.name),
             name: scheme.name,
             isShared: shared,
-            runTargetIDs: runTargets,
-            testTargetIDs: testTargets,
-            profileTargetID: profileTarget,
-            archiveTargetID: archiveTarget,
-            launchArguments: args,
-            environmentVariables: env
+            runTargetIDs: scheme.runTarget.flatMap(resolve).map { [$0] } ?? [],
+            testTargetIDs: scheme.testTargets.compactMap(resolve),
+            profileTargetID: scheme.profileTarget.flatMap(resolve),
+            archiveTargetID: scheme.archiveTarget.flatMap(resolve),
+            launchArguments: scheme.launchArguments,
+            environmentVariables: scheme.environmentVariables
         )
     }
 
     // MARK: - Group tree walk
 
     private static func buildGroup(
-        from group: PBXGroup,
+        from group: String,
+        in document: PBXProjDocument,
         moduleID: ProjectModuleID,
-        parentPath: Path?,
         displayPath: String,
-        sourceRoot: Path,
+        sourceRoot: String,
         memberships: MembershipIndex
-    ) throws -> ProjectGroup {
-        let resolvedPath = (try? group.fullPath(sourceRoot: sourceRoot)).flatMap { $0 }
-        let groupName = group.name ?? group.path ?? "(group)"
+    ) -> ProjectGroup {
+        let resolvedPath = document.fullPath(of: group, sourceRoot: sourceRoot)
+        let groupName = document.string("name", of: group) ?? document.string("path", of: group) ?? "(group)"
         let childDisplayPath = displayPath.isEmpty ? groupName : "\(displayPath)/\(groupName)"
-        let style = groupStyle(for: group)
         var children: [ProjectNodeKind] = []
-        children.reserveCapacity(group.children.count)
-        for child in group.children {
-            if let subgroup = child as? PBXGroup {
-                let built = try buildGroup(
-                    from: subgroup,
+        for child in document.references("children", of: group) {
+            switch document.isa(child) {
+            case "PBXGroup", "PBXVariantGroup", "XCVersionGroup":
+                children.append(.group(buildGroup(
+                    from: child,
+                    in: document,
                     moduleID: moduleID,
-                    parentPath: resolvedPath,
                     displayPath: childDisplayPath,
                     sourceRoot: sourceRoot,
                     memberships: memberships
-                )
-                children.append(.group(built))
-            } else if let synchronized = child as? PBXFileSystemSynchronizedRootGroup {
-                let built = buildSynchronizedGroup(
-                    from: synchronized,
+                )))
+            case "PBXFileSystemSynchronizedRootGroup":
+                children.append(.group(buildSynchronizedGroup(
+                    from: child,
+                    in: document,
                     moduleID: moduleID,
-                    parentPath: resolvedPath,
                     displayPath: childDisplayPath,
                     sourceRoot: sourceRoot
-                )
-                children.append(.group(built))
-            } else if let fileRef = child as? PBXFileReference {
-                let file = buildFileNode(
-                    from: fileRef,
+                )))
+            case "PBXFileReference":
+                children.append(.file(buildFileNode(
+                    from: child,
+                    in: document,
                     moduleID: moduleID,
                     displayPath: childDisplayPath,
                     sourceRoot: sourceRoot,
                     memberships: memberships
-                )
-                children.append(.file(file))
+                )))
+            default:
+                continue
             }
         }
         let nodeID = ProjectNodeID(rawValue: nodeIdentifier(
@@ -324,23 +291,22 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
         return ProjectGroup(
             id: nodeID,
             displayName: groupName,
-            resolvedPath: (resolvedPath?.string).flatMap { URL(fileURLWithPath: $0) },
-            style: style,
+            resolvedPath: resolvedPath.map { URL(fileURLWithPath: $0) },
+            style: document.isa(group) == "PBXVariantGroup" ? .variant : .logical,
             children: children
         )
     }
 
     private static func buildSynchronizedGroup(
-        from group: PBXFileSystemSynchronizedRootGroup,
+        from group: String,
+        in document: PBXProjDocument,
         moduleID: ProjectModuleID,
-        parentPath: Path?,
         displayPath: String,
-        sourceRoot: Path
+        sourceRoot: String
     ) -> ProjectGroup {
-        let resolved = (try? group.fullPath(sourceRoot: sourceRoot)).flatMap { $0 }
-        let name = group.name ?? group.path ?? "(synchronized)"
+        let name = document.string("name", of: group) ?? document.string("path", of: group) ?? "(synchronized)"
         let childDisplayPath = displayPath.isEmpty ? name : "\(displayPath)/\(name)"
-        let resolvedURL = (resolved?.string).flatMap { URL(fileURLWithPath: $0) }
+        let resolvedURL = document.fullPath(of: group, sourceRoot: sourceRoot).map { URL(fileURLWithPath: $0) }
         var children: [ProjectNodeKind] = []
         if let resolvedURL,
            let walker = try? FileManager.default.contentsOfDirectory(
@@ -439,16 +405,16 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
     }
 
     private static func buildFileNode(
-        from ref: PBXFileReference,
+        from ref: String,
+        in document: PBXProjDocument,
         moduleID: ProjectModuleID,
         displayPath: String,
-        sourceRoot: Path,
+        sourceRoot: String,
         memberships: MembershipIndex
     ) -> ProjectFileNode {
-        let resolvedPath = (try? ref.fullPath(sourceRoot: sourceRoot)).flatMap { $0 }
-        let name = ref.name ?? ref.path ?? "(file)"
+        let name = document.string("name", of: ref) ?? document.string("path", of: ref) ?? "(file)"
         let childDisplayPath = displayPath.isEmpty ? name : "\(displayPath)/\(name)"
-        let url = (resolvedPath?.string).flatMap { URL(fileURLWithPath: $0) }
+        let url = document.fullPath(of: ref, sourceRoot: sourceRoot).map { URL(fileURLWithPath: $0) }
         let exists: Bool = {
             guard let url else { return false }
             return FileManager.default.fileExists(atPath: url.path)
@@ -458,50 +424,52 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
             displayPath: childDisplayPath,
             kind: "file"
         ))
-        let fileMemberships = memberships.memberships(forFileUUID: ref.uuid)
+        let fileMemberships = memberships.memberships(forFileUUID: ref)
         return ProjectFileNode(
             id: nodeID,
             displayName: name,
             resolvedPath: url,
-            fileType: ref.lastKnownFileType ?? ref.explicitFileType,
+            fileType: document.string("lastKnownFileType", of: ref) ?? document.string("explicitFileType", of: ref),
             existsOnDisk: exists,
             memberships: fileMemberships
         )
     }
 
-    private static func groupStyle(for group: PBXGroup) -> ProjectGroupStyle {
-        if group is PBXVariantGroup { return .variant }
-        return .logical
-    }
-
     // MARK: - Target summaries
 
     private static func collectTargets(
-        from project: PBXProject,
-        sourceRoot: Path
+        in document: PBXProjDocument,
+        targetIDs: [String],
+        sourceRoot: String
     ) -> [TargetSummary] {
-        let projectXcconfigSettings = mergedXcconfigSettings(from: project.buildConfigurationList, sourceRoot: sourceRoot)
-        return project.targets.compactMap { target -> TargetSummary? in
-            guard let native = target as? PBXNativeTarget else { return nil }
-            let productType = native.productType.flatMap { TargetProductType.fromXcodeProductType($0.rawValue) } ?? .other
-            let targetXcconfig = mergedXcconfigSettings(from: native.buildConfigurationList, sourceRoot: sourceRoot)
+        let projectXcconfigSettings = mergedXcconfigSettings(
+            of: document.rootObjectID,
+            in: document,
+            sourceRoot: sourceRoot
+        )
+        return targetIDs.compactMap { target -> TargetSummary? in
+            guard document.isa(target) == "PBXNativeTarget" else { return nil }
+            let productType = document.string("productType", of: target)
+                .map(TargetProductType.fromXcodeProductType) ?? .other
             let resolved = resolveTargetMetadata(
-                native: native,
+                target: target,
+                in: document,
                 projectXcconfig: projectXcconfigSettings,
-                targetXcconfig: targetXcconfig
+                targetXcconfig: mergedXcconfigSettings(of: target, in: document, sourceRoot: sourceRoot)
             )
-            let deps = native.dependencies.compactMap { dep -> TargetID? in
-                if let resolved = dep.target?.uuid {
+            let deps = document.references("dependencies", of: target).compactMap { dep -> TargetID? in
+                if let resolved = document.reference("target", of: dep) {
                     return TargetID(rawValue: resolved)
                 }
-                if let info = dep.targetProxy?.remoteInfo {
+                if let proxy = document.reference("targetProxy", of: dep),
+                   let info = document.string("remoteInfo", of: proxy) {
                     return TargetID(rawValue: "remote:\(info)")
                 }
                 return nil
             }
             return TargetSummary(
-                id: TargetID(rawValue: native.uuid),
-                displayName: native.name,
+                id: TargetID(rawValue: target),
+                displayName: document.string("name", of: target) ?? "",
                 productType: productType,
                 platforms: resolved.platforms,
                 bundleIdentifier: resolved.bundleIdentifier,
@@ -512,18 +480,14 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
     }
 
     private static func mergedXcconfigSettings(
-        from configList: XCConfigurationList?,
-        sourceRoot: Path
+        of ownerID: String,
+        in document: PBXProjDocument,
+        sourceRoot: String
     ) -> [String: String] {
-        guard let configs = configList?.buildConfigurations else { return [:] }
         var merged: [String: String] = [:]
-        for config in configs {
-            guard let ref = config.baseConfiguration,
-                  let path = (try? ref.fullPath(sourceRoot: sourceRoot)).flatMap({ $0 }) else {
-                continue
-            }
-            let url = URL(fileURLWithPath: path.string)
-            guard let parsed = try? XcconfigParser.parse(at: url) else { continue }
+        for config in document.buildConfigurations(of: ownerID) {
+            guard let url = baseConfigurationURL(of: config, in: document, sourceRoot: sourceRoot),
+                  let parsed = try? XcconfigParser.parse(at: url) else { continue }
             for (key, value) in parsed {
                 merged[key] = value
             }
@@ -538,13 +502,15 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
     }
 
     private static func resolveTargetMetadata(
-        native: PBXNativeTarget,
+        target: String,
+        in document: PBXProjDocument,
         projectXcconfig: [String: String],
         targetXcconfig: [String: String]
     ) -> ResolvedTargetMetadata {
         let bundle = resolveSetting(
             key: "PRODUCT_BUNDLE_IDENTIFIER",
-            native: native,
+            target: target,
+            in: document,
             projectXcconfig: projectXcconfig,
             targetXcconfig: targetXcconfig
         )
@@ -559,7 +525,8 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
         for key in deploymentKeys {
             if let value = resolveSetting(
                 key: key,
-                native: native,
+                target: target,
+            in: document,
                 projectXcconfig: projectXcconfig,
                 targetXcconfig: targetXcconfig
             ), !value.isEmpty {
@@ -570,7 +537,8 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
         var platforms: Set<String> = []
         if let supported = resolveSetting(
             key: "SUPPORTED_PLATFORMS",
-            native: native,
+            target: target,
+            in: document,
             projectXcconfig: projectXcconfig,
             targetXcconfig: targetXcconfig
         ) {
@@ -580,7 +548,8 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
         }
         if let sdk = resolveSetting(
             key: "SDKROOT",
-            native: native,
+            target: target,
+            in: document,
             projectXcconfig: projectXcconfig,
             targetXcconfig: targetXcconfig
         ) {
@@ -595,15 +564,14 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
 
     private static func resolveSetting(
         key: String,
-        native: PBXNativeTarget,
+        target: String,
+        in document: PBXProjDocument,
         projectXcconfig: [String: String],
         targetXcconfig: [String: String]
     ) -> String? {
-        if let configs = native.buildConfigurationList?.buildConfigurations {
-            for config in configs {
-                if let raw = config.buildSettings[key], let value = stringFromAny(raw), !value.isEmpty {
-                    return value
-                }
+        for config in document.buildConfigurations(of: target) {
+            if let raw = document.buildSettings(of: config)[key], let value = stringFromAny(raw), !value.isEmpty {
+                return value
             }
         }
         if let value = targetXcconfig[key], !value.isEmpty { return value }
@@ -631,15 +599,16 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
         }
     }
 
-    private static func buildMembershipIndex(targets: [PBXTarget]) -> MembershipIndex {
+    private static func buildMembershipIndex(in document: PBXProjDocument, targetIDs: [String]) -> MembershipIndex {
         var table: [String: [TargetMembership]] = [:]
-        for target in targets {
-            let targetID = TargetID(rawValue: target.uuid)
-            for phase in target.buildPhases {
-                let role = role(for: phase)
-                for buildFile in phase.files ?? [] {
-                    guard let fileUUID = buildFile.file?.uuid else { continue }
-                    let flags = (buildFile.settings?["COMPILER_FLAGS"] as? String)
+        for target in targetIDs {
+            let targetID = TargetID(rawValue: target)
+            for phase in document.references("buildPhases", of: target) {
+                let role = role(forPhaseKind: document.isa(phase))
+                for buildFile in document.references("files", of: phase) {
+                    guard let fileUUID = document.reference("fileRef", of: buildFile) else { continue }
+                    let settings = document.objects[buildFile]?["settings"] as? [String: Any]
+                    let flags = (settings?["COMPILER_FLAGS"] as? String)
                         .map { $0.split(separator: " ").map(String.init) }
                         ?? []
                     table[fileUUID, default: []].append(
@@ -651,16 +620,14 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
         return MembershipIndex(table: table)
     }
 
-    private static func role(for phase: PBXBuildPhase) -> TargetMembershipRole {
-        switch phase.buildPhase {
-        case .sources: return .compile
-        case .resources: return .resource
-        case .frameworks: return .framework
-        case .headers: return .header
-        case .copyFiles: return .copy
-        case .runScript: return .script
-        case .carbonResources: return .resource
-        @unknown default: return .resource
+    private static func role(forPhaseKind isa: String?) -> TargetMembershipRole {
+        switch isa {
+        case "PBXSourcesBuildPhase": return .compile
+        case "PBXFrameworksBuildPhase": return .framework
+        case "PBXHeadersBuildPhase": return .header
+        case "PBXCopyFilesBuildPhase": return .copy
+        case "PBXShellScriptBuildPhase": return .script
+        default: return .resource
         }
     }
 
@@ -695,37 +662,6 @@ public struct XcodeProjectAdapter: ProjectAdapter, Sendable {
             return ws
         }
         return contents.first(where: { $0.pathExtension.lowercased() == "xcodeproj" })
-    }
-
-    private static func collectProjectURLs(
-        from elements: [XCWorkspaceDataElement],
-        workspaceDir: URL
-    ) -> [URL] {
-        var out: [URL] = []
-        for element in elements {
-            switch element {
-            case let .file(ref):
-                let resolved = resolveWorkspaceLocation(ref.location, workspaceDir: workspaceDir)
-                if resolved.pathExtension.lowercased() == "xcodeproj" {
-                    out.append(resolved)
-                }
-            case let .group(group), let .fileSystemSynchronizedGroup(group):
-                let nested = collectProjectURLs(from: group.children, workspaceDir: workspaceDir)
-                out.append(contentsOf: nested)
-            }
-        }
-        return out
-    }
-
-    private static func resolveWorkspaceLocation(
-        _ location: XCWorkspaceDataElementLocationType,
-        workspaceDir: URL
-    ) -> URL {
-        let raw = location.path
-        if raw.hasPrefix("/") {
-            return URL(fileURLWithPath: raw)
-        }
-        return URL(fileURLWithPath: raw, relativeTo: workspaceDir).standardizedFileURL
     }
 
     private static func nodeIdentifier(

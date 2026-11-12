@@ -14,15 +14,16 @@ extension SimulatorRemoteSurfaceView {
     func installStagePointerMonitor(for window: NSWindow) {
         guard isPointerInputEnabled else { return }
         removeStagePointerMonitor()
+        let windowIdentifier = ObjectIdentifier(window)
         stagePointerMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]
-        ) { [weak self, weak window] event in
+        ) { [weak self] event in
             guard let self,
-                  let window,
-                  self.window === window,
-                  event.window === window,
+                  let eventWindow = event.window,
+                  ObjectIdentifier(eventWindow) == windowIdentifier,
+                  self.window === eventWindow,
                   self.isPointerInputEnabled,
-                  window.isVisible,
+                  eventWindow.isVisible,
                   !self.isHiddenOrHasHiddenAncestor,
                   !self.visibleRect.isEmpty
             else { return event }

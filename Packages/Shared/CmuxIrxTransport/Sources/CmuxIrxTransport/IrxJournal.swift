@@ -25,6 +25,17 @@ public struct IrxJournalEvent: Sendable {
         self.event = event
         self.attributes = attributes
     }
+
+    /// Returns the event representation safe for diagnostic retention and output.
+    func redacted() -> Self {
+        var result = self
+        // Also catches keys embedded in native error descriptions, not just named fields.
+        result.attributes = attributes.mapValues {
+            $0.replacingOccurrences(of: "(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])",
+                with: "<redacted-endpoint>", options: .regularExpression)
+        }
+        return result
+    }
 }
 
 /// Structured transport journal: every event goes to os.Logger at NOTICE
@@ -34,12 +45,18 @@ public struct IrxJournalEvent: Sendable {
 public final class IrxJournal: @unchecked Sendable {
     public static let ringCapacity = 512
 
+    /// The append-only JSONL file this journal writes, when one was configured.
+    public let fileURL: URL?
     private let logger: Logger
     private let lock = NSLock()
     private let startedAt = DispatchTime.now()
     private var fileHandle: FileHandle?
     private var ring: [IrxJournalEvent] = []
     private var counters: [String: Int] = [:]
+    private var terminalTraceWindowInitialized = false
+    private var terminalTraceWindowStartMs: UInt64 = 0
+    private var terminalTraceEventsInWindow = 0
+    private static let terminalTraceEventsPerMinute = 120
     private static func isoTimestamp(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -48,6 +65,7 @@ public final class IrxJournal: @unchecked Sendable {
 
     public init(subsystem: String, category: String, journalFileURL: URL? = nil) {
         logger = Logger(subsystem: subsystem, category: category)
+        fileURL = journalFileURL
         if let journalFileURL {
             let manager = FileManager.default
             try? manager.createDirectory(
@@ -67,7 +85,8 @@ public final class IrxJournal: @unchecked Sendable {
     }
 
     /// Records one event. `attributes` values must already be privacy-safe:
-    /// identifiers and codes, never payload content.
+    /// identifiers and codes, never payload content. Full endpoint keys are
+    /// redacted before reaching the diagnostic ring, system log or journal file.
     public func record(
         _ component: String,
         _ event: String,
@@ -75,13 +94,30 @@ public final class IrxJournal: @unchecked Sendable {
     ) {
         let monotonicMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
+        if component == "terminal-trace" {
+            lock.lock()
+            if !terminalTraceWindowInitialized
+                || monotonicMs < terminalTraceWindowStartMs
+                || monotonicMs - terminalTraceWindowStartMs >= 60_000 {
+                terminalTraceWindowInitialized = true
+                terminalTraceWindowStartMs = monotonicMs
+                terminalTraceEventsInWindow = 0
+            }
+            guard terminalTraceEventsInWindow < Self.terminalTraceEventsPerMinute else {
+                counters["terminal_trace_dropped"] = counters["terminal_trace_dropped", default: 0] + 1
+                lock.unlock()
+                return
+            }
+            terminalTraceEventsInWindow += 1
+            lock.unlock()
+        }
         let entry = IrxJournalEvent(
             wallTime: Date(),
             monotonicMs: monotonicMs,
             component: component,
             event: event,
             attributes: attributes
-        )
+        ).redacted()
         let rendered = Self.render(entry)
         logger.notice("irx \(rendered, privacy: .public)")
         lock.lock()
@@ -118,7 +154,7 @@ public final class IrxJournal: @unchecked Sendable {
             "component": entry.component,
             "event": entry.event,
         ]
-        for (key, value) in entry.attributes {
+        for (key, value) in entry.redacted().attributes {
             object["a_" + key] = value
         }
         guard
@@ -130,4 +166,5 @@ public final class IrxJournal: @unchecked Sendable {
         }
         return text
     }
+
 }

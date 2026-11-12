@@ -12,6 +12,7 @@
  * (`CmuxTuiSnapshotParser.desktopPort`, CLI `cloudVMDesktopPort`), so these
  * values are a contract with shipped clients, not tunables.
  */
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "./workUser";
 
 /** The X display the desktop session owns. */
 export const DEVBOX_DESKTOP_DISPLAY = ":1";
@@ -22,9 +23,14 @@ export const DEVBOX_DESKTOP_RFB_PORT = 5901;
 /** noVNC (web client + websocket proxy), the port clients open. */
 export const DEVBOX_DESKTOP_NOVNC_PORT = 6901;
 
-/** The account the desktop session runs as: the base's uid-1000 work user. */
-export const DEVBOX_DESKTOP_USER = "ubuntu";
-export const DEVBOX_DESKTOP_HOME = `/home/${DEVBOX_DESKTOP_USER}`;
+/**
+ * The account the desktop session runs as: the machine's one work user
+ * (services/vms/images/workUser.ts), the same account the cmux-tui daemon
+ * opens terminals as, so an app a person starts from a pane joins the session
+ * bus of the screen they are watching.
+ */
+export const DEVBOX_DESKTOP_USER = DEVBOX_WORK_USER;
+export const DEVBOX_DESKTOP_HOME = DEVBOX_WORK_HOME;
 
 /** The systemd unit that supervises the desktop on a Freestyle machine. */
 export const DEVBOX_DESKTOP_UNIT = "cmux-desktop";

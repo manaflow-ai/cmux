@@ -2,25 +2,34 @@
 
 import {
   PricingCheckoutButton,
-  type ProCheckoutHrefs,
-} from "../../components/pricing-interval-selector";
+} from "../../components/pricing-checkout";
 import type { PricingActionSize } from "../../components/pricing-shared";
+import type { BillingInterval } from "../../../services/billing/plans";
 
 export function ProCtaLink({
-  checkoutHrefs,
+  checkoutHref,
+  requiresSignIn,
   children,
   size = "default",
   location = "pricing_page",
+  interval = "month",
+  plan = "pro",
 }: {
-  checkoutHrefs: ProCheckoutHrefs;
+  checkoutHref: string;
+  requiresSignIn?: boolean;
   children: React.ReactNode;
   size?: PricingActionSize;
   location?: string;
+  interval?: BillingInterval;
+  plan?: "pro" | "max";
 }) {
   return (
     <PricingCheckoutButton
-      hrefs={checkoutHrefs}
+      href={checkoutHref}
+      requiresSignIn={requiresSignIn}
       location={location}
+      interval={interval}
+      plan={plan}
       size={size}
     >
       {children}

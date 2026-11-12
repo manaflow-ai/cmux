@@ -1,5 +1,5 @@
 /// How the Mac produced a task provider's model list.
-public enum MobileTaskModelListSource: String, Equatable, Sendable {
+public nonisolated enum MobileTaskModelListSource: String, Equatable, Sendable {
     /// A provider command returned an authoritative dynamic list.
     case discovered
     /// The over-the-air cmux catalog supplied the list.

@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import CmuxControlSocket
+import CmuxFoundation
 import CmuxNotifications
 import CmuxTerminal
 import Foundation
@@ -26,6 +27,7 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
 
     private(set) var flashReasons: [WorkspaceAttentionFlashReason] = []
     private(set) var closeCount = 0
+    private(set) var focusCount = 0
 
     init(id: UUID = UUID(), title: String) {
         self.id = id
@@ -35,7 +37,9 @@ private final class DockRuntimeParityPanel: Panel, ObservableObject {
     func close() {
         closeCount += 1
     }
-    func focus() {}
+    func focus() {
+        focusCount += 1
+    }
     func unfocus() {}
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -75,6 +79,53 @@ private extension DockSplitStore {
 struct DockRuntimeParityTests {
     private static let socketWorker = DispatchQueue(label: "DockRuntimeParityTests.socketWorker")
 
+    @Test("Conversations reuses a live Dock terminal", arguments: [false, true])
+    func conversationReusesLiveDockTerminal(windowDock: Bool) async throws {
+        try await withAppContext { app, manager, workspace, windowID in
+            let dock = windowDock
+                ? app.windowDock(forWindowId: windowID)
+                : try #require(workspace.dockSplit)
+            let terminal = TerminalPanel(
+                workspaceId: dock.workspaceId,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            try dock.seedRuntimeParityPanel(terminal)
+            let other = DockRuntimeParityPanel(title: "Other terminal")
+            try dock.seedRuntimeParityPanel(other)
+            dock.focusPanel(other.id)
+            let sessionID = UUID().uuidString
+            dock.restoredAgentLifecycle.setSnapshot(
+                SessionRestorableAgentSnapshot(
+                    kind: .claude, sessionId: sessionID, workingDirectory: "/tmp", launchCommand: nil
+                ),
+                panelId: terminal.id
+            )
+            terminal.updateShellActivityState(.commandRunning)
+            let entry = SessionEntry(
+                id: "claude:\(sessionID)", agent: .claude, sessionId: sessionID,
+                title: "Dock conversation", cwd: "/tmp", gitBranch: nil,
+                pullRequest: nil, modified: Date(), fileURL: nil,
+                specifics: .claude(model: nil, permissionMode: nil, configDirectoryForResume: nil)
+            )
+            let workspaceCount = manager.tabs.count
+            let mainPanelCount = workspace.panels.count
+            let dockPanelCount = dock.panels.count
+            let target = try #require(SessionEntryResumeCoordinator.activeTarget(
+                for: entry, tabManager: manager, schedulingIndexRefresh: false
+            ))
+            guard case .dock(let panelID) = target else {
+                Issue.record("Dock session was routed to the workspace split tree")
+                return
+            }
+            #expect(panelID == terminal.id)
+            #expect(SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: manager))
+            #expect(dock.focusedPanelId == terminal.id)
+            #expect(manager.tabs.count == workspaceCount)
+            #expect(workspace.panels.count == mainPanelCount)
+            #expect(dock.panels.count == dockPanelCount)
+        }
+    }
+
     @Test("Reconciling a stale tab alias preserves the live panel owner")
     func reconcilingStaleTabAliasPreservesLivePanelOwner() throws {
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
@@ -106,6 +157,10 @@ struct DockRuntimeParityTests {
     func dockPaneOwnershipFollowsBonsplitLifecycle() throws {
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         let otherDock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        // Every split below supplies its own tabs. Interactive split repair
+        // would seed a terminal in the root and prevent its final empty close.
+        dock.isProgrammaticDockSplit = true
+        defer { dock.isProgrammaticDockSplit = false }
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
 
         #expect(dock.containsPane(rootPane.id))
@@ -224,12 +279,8 @@ struct DockRuntimeParityTests {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
-            let defaults = UserDefaults.standard
-            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
-            let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
             let appDelegate = AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
-            defaults.set(true, forKey: dockEnabledKey)
             AppDelegate.shared = appDelegate
             appDelegate.tabManager = manager
             TerminalController.shared.setActiveTabManager(manager)
@@ -258,11 +309,6 @@ struct DockRuntimeParityTests {
                 window.orderOut(nil)
                 window.close()
                 AppDelegate.shared = previousAppDelegate
-                if let previousDockEnabled {
-                    defaults.set(previousDockEnabled, forKey: dockEnabledKey)
-                } else {
-                    defaults.removeObject(forKey: dockEnabledKey)
-                }
             }
 
             let workspace = try #require(manager.tabs.first)
@@ -345,11 +391,6 @@ struct DockRuntimeParityTests {
             #expect(manager.selectedTabId == selectedWorkspace.id)
             #expect(targetDock.focusedPanelId == initiallyFocusedPanel.id)
             #expect(!window.isVisible)
-
-            let defaults = UserDefaults.standard
-            let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
-            defaults.set(false, forKey: dockEnabledKey)
-            defer { defaults.set(true, forKey: dockEnabledKey) }
 
             let envelope = try socketEnvelope(method: "surface.focus", params: [
                 "workspace_id": targetWorkspace.id.uuidString,
@@ -714,8 +755,8 @@ struct DockRuntimeParityTests {
         }
     }
 
-    @Test("Focusing a window Dock panel dismisses its unread notification")
-    func focusingWindowDockPanelDismissesUnreadNotification() async throws {
+    @Test("Keyboard entry into a window Dock dismisses its unread notification")
+    func keyboardEntryIntoWindowDockDismissesUnreadNotification() async throws {
         try await withAppContext { appDelegate, _, _, windowID in
             let notificationStore = TerminalNotificationStore.shared
             let previousNotificationStore = appDelegate.notificationStore
@@ -759,7 +800,8 @@ struct DockRuntimeParityTests {
                 isEnabled: true
             ) == "1")
 
-            dock.focusPanelFromDockInteraction(panel.id, window: nil)
+            #expect(dock.focusFirstControl())
+            #expect(panel.focusCount == 1)
 
             #expect(!notificationStore.hasUnreadNotification(
                 forTabId: dock.workspaceId,
@@ -785,7 +827,7 @@ struct DockRuntimeParityTests {
                 workspaceId: windowID,
                 runtimeSpawnPolicy: .pacedSessionRestore
             )
-            defer { terminal.surface.releaseSurfaceForTesting() }
+            defer { terminal.surface.releaseHostedSurfaceForTesting() }
             try dock.seedRuntimeParityPanel(terminal)
 
             let scrollPosition = TerminalNotificationScrollPosition(

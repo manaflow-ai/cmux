@@ -39,3 +39,10 @@ test("includes every dynamically read Open Graph asset in traced route output", 
     nextConfig.outputFileTracingIncludes?.["**/browser-opengraph-image"],
   ).toEqual(["./public/logo.png"]);
 });
+
+test("includes Cloud VM prompt templates in traced server output", () => {
+  expect(nextConfig.outputFileTracingIncludes?.["/*"]).toEqual([
+    "./services/vms/images/devbox/cmux-bashrc",
+    "./services/vms/images/devbox/cmux-prompt.bash",
+  ]);
+});

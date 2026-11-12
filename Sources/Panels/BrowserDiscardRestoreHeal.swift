@@ -9,6 +9,7 @@ extension BrowserPanel {
     }
 
     func noteDiscardedWebViewRestoreNavigationStarted() {
+        pageRestoration.noteNavigationStarted()
         if hiddenWebViewDiscardManager.isDiscardedForMemory {
             // Each restore attempt tracks its own commit. Without this reset, a
             // previous attempt's error-page commit would satisfy the stall
@@ -32,6 +33,7 @@ extension BrowserPanel {
     func noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: String) {
         hiddenWebViewDiscardManager.noteRestoreNavigationDidNotCommit(reason: reason)
         pendingDiscardRestoreNavigation = nil
+        pageRestoration.dismissOverlay()
         refreshWebViewLifecycleState()
     }
 
@@ -47,12 +49,23 @@ extension BrowserPanel {
         return navigation === tracked
     }
 
+    /// What asked for a discarded page to come back.
+    enum DiscardRestoreTrigger {
+        /// The pane became visible. With automatic restore off, the page
+        /// waits for the user instead.
+        case paneShown
+        /// The user or an automation needs the page now.
+        case explicitRequest
+    }
+
     /// Restore touch for a possibly-discarded pane: detects stalled restore
     /// attempts, honors an explicit user Stop, restores through the discard
-    /// manager, and falls back to blank-shell healing.
+    /// manager (a pane whose process died while hidden restores the same
+    /// way), and falls back to blank-shell healing.
     @discardableResult
     func restoreDiscardedWebViewIfNeeded(
         reason: String,
+        trigger: DiscardRestoreTrigger = .explicitRequest,
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
         allowBlankShellHeal: Bool = true,
         forceRestartPendingRestore: Bool = false
@@ -70,6 +83,9 @@ extension BrowserPanel {
         if forceRestartPendingRestore {
             userStoppedLoadSinceWebViewReplacement = false
         }
+        // A process that died while hidden left no live page for Stop to
+        // keep; dropping its web view clears Stop.
+        discardWebViewTerminatedWhileHidden()
         // Stop is sticky for discarded restores too: routine visibility touches
         // must not restart a stopped load; explicit reload is the override.
         guard !userStoppedLoadSinceWebViewReplacement else { return false }
@@ -86,15 +102,12 @@ extension BrowserPanel {
         guard let restoreURL, !Self.isAboutBlankURL(restoreURL) else {
             return reactivateDiscardedPaneWithoutRestorableURL(reason: reason)
         }
+        if trigger == .paneShown, hiddenWebViewDiscardManager.waitsForManualRestore {
+            return false
+        }
 
         if hiddenWebViewDiscardManager.restoreIfNeeded(reason: reason, force: forceRestartPendingRestore, performRestore: {
-            shouldRenderWebView = true
-            navigateWithoutInsecureHTTPPrompt(
-                to: restoreURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true,
-                cachePolicy: cachePolicy
-            )
+            performDiscardRestore(to: restoreURL, cachePolicy: cachePolicy, isExplicitReload: forceRestartPendingRestore)
         }) {
             return true
         }
@@ -316,3 +329,23 @@ extension BrowserPanel {
         )
     }
 }
+
+#if DEBUG
+extension BrowserPanel {
+    /// The `browser_discard` debug socket command: unloads the page the way
+    /// hidden-tab hibernation does, so tests can check what wakes it.
+    /// Without `force` every discard blocker applies; with it a visible or
+    /// REPL-driven tab is unloaded too.
+    func debugDiscardForTesting(force: Bool) -> String {
+        if hiddenWebViewDiscardManager.isDiscardedForMemory { return "OK already_discarded" }
+        if force {
+            dropWebViewForDiscard(reason: "debug_browser_discard", now: Date())
+            return "OK discarded"
+        }
+        let blockers = hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
+        guard blockers.isEmpty else { return "ERROR: blocked by \(blockers.joined(separator: ","))" }
+        dropWebViewForDiscard(reason: "debug_browser_discard", now: Date())
+        return "OK discarded"
+    }
+}
+#endif

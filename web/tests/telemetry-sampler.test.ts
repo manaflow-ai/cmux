@@ -282,3 +282,26 @@ describe("withApiRouteSpan re-rooting under head sampling", () => {
     expect(child?.links.length ?? 0).toBe(0);
   });
 });
+
+describe("always-kept operational routes", () => {
+  test("cron, internal, and Stripe webhook routes are priority paths", async () => {
+    const { isPriorityPath } = await import("../services/observability/sampler");
+    expect(isPriorityPath("/api/cron/vm-alerts")).toBe(true);
+    expect(isPriorityPath("/api/internal/iroh/retention")).toBe(true);
+    expect(isPriorityPath("/api/stripe/webhook")).toBe(true);
+    expect(isPriorityPath("/api/stripe/webhooks-other")).toBe(false);
+    expect(isPriorityPath("/api/devices/iroh/register")).toBe(false);
+  });
+
+  test("account deletion and its resume cron are always kept", () => {
+    const neverSample = buildCmuxTraceSampler({ CMUX_OTEL_BASE_SAMPLE_RATIO: "0" });
+    const decide = (name: string, attributes: Record<string, string>) =>
+      neverSample.shouldSample(otelContext.active(), "0af7651916cd43dd8448eb211c80319c", name, 1, attributes, [])
+        .decision;
+    expect(decide("DELETE /api/account", { "http.route": "/api/account" })).toBe(
+      SamplingDecision.RECORD_AND_SAMPLED,
+    );
+    expect(decide("GET /api/account", {})).toBe(SamplingDecision.RECORD_AND_SAMPLED);
+    expect(isPriorityPath("/api/accounts")).toBe(false);
+  });
+});

@@ -1,3 +1,5 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import Foundation
 import Testing
 
@@ -26,7 +28,10 @@ struct CloudTunnelCoordinatorTests {
         let clock: SidebarTestManualClock
         let timing: CloudTunnelTiming
 
-        init(backend: CloudTunnelBackend = CloudTunnelCoordinatorTests.networkExtension) {
+        init(
+            backend: CloudTunnelBackend = CloudTunnelCoordinatorTests.networkExtension,
+            isDisabledByPolicy: @escaping @Sendable () -> Bool = { false }
+        ) {
             let controller = FakeTunnelController()
             let enroller = FakeTunnelEnroller()
             let consumers = FakeTunnelConsumers()
@@ -49,7 +54,8 @@ struct CloudTunnelCoordinatorTests {
                 enroller: enroller,
                 consumers: consumers,
                 clock: clock,
-                timing: timing
+                timing: timing,
+                isDisabledByPolicy: isDisabledByPolicy
             )
         }
 
@@ -89,6 +95,50 @@ struct CloudTunnelCoordinatorTests {
             }
             return await predicate()
         }
+    }
+
+    @Test("revocation cleans an install that completes after approval and orders a replacement start")
+    func revocationDuringInstall() async throws {
+        let harness = Harness()
+        harness.controller.holdInstallForApproval = true
+        await harness.coordinator.beginUp(pin: true)
+        try #require(await harness.awaitState(.awaitingApproval) == .awaitingApproval)
+        try await harness.coordinator.revoke()
+        #expect(harness.controller.installedConfigurations.isEmpty)
+
+        harness.controller.holdInstallForApproval = false
+        await harness.coordinator.beginUp(pin: true)
+        harness.controller.approve()
+        try #require(await harness.awaitState(.up) == .up)
+        #expect(harness.controller.installedConfigurations.count == 1)
+        let calls = harness.controller.calls
+        let secondInstall = try #require(calls.lastIndex(of: "install"))
+        let lastRemoval = try #require(calls.lastIndex(of: "remove"))
+        #expect(lastRemoval < secondInstall)
+        #expect(calls.filter { $0 == "remove" }.count == 2)
+        await harness.coordinator.requestDown()
+    }
+
+    @Test("an up queued at revocation's first suspension starts after the revoked install is cleaned")
+    func queuedUpDuringRevocationOwnsAReplacementStart() async throws {
+        let harness = Harness()
+        harness.controller.holdInstallForApproval = true
+        await harness.coordinator.beginUp(pin: true)
+        try #require(await harness.awaitState(.awaitingApproval) == .awaitingApproval)
+
+        harness.controller.holdInstallForApproval = false
+        try await harness.coordinator.revokeWithNextUpAlreadyQueued()
+        harness.controller.approve()
+        let becameUp = await harness.waitUntil {
+            await harness.coordinator.state == .up
+        }
+        #expect(becameUp)
+        #expect(harness.controller.installedConfigurations.count == 1)
+        let calls = harness.controller.calls
+        let replacementInstall = try #require(calls.lastIndex(of: "install"))
+        let finalRemoval = try #require(calls.lastIndex(of: "remove"))
+        #expect(finalRemoval < replacementInstall)
+        await harness.coordinator.requestDown()
     }
 
     @Test("the first Cloud use enrolls, installs, starts, and waits for the link")
@@ -345,6 +395,32 @@ struct CloudTunnelCoordinatorTests {
         #expect(harness.enroller.enrollCount == 1)
     }
 
+    @Test("a disconnect during a connected status snapshot is not adopted as up")
+    func staleConnectedSnapshotDoesNotAdoptAfterDisconnect() async {
+        let harness = Harness()
+        harness.controller.currentStatusValue = .connected
+        let controller = harness.controller
+        let (hookEntered, hookEnteredContinuation) = AsyncStream<Void>.makeStream()
+        let (hookRelease, hookReleaseContinuation) = AsyncStream<Void>.makeStream()
+        controller.onCurrentStatus = { _ in
+            controller.onCurrentStatus = nil
+            controller.emit(.disconnected)
+            hookEnteredContinuation.yield(())
+            var iterator = hookRelease.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        let use = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
+        #expect(await harness.awaitState(.starting) == .starting)
+        var enteredIterator = hookEntered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        hookReleaseContinuation.yield(())
+        await use.value
+        controller.onCurrentStatus = nil
+
+        #expect(await harness.coordinator.state == .up)
+        #expect(harness.controller.calls == ["install", "start"])
+    }
+
     @Test("a superseded start that fails late does not stop the newer start's tunnel")
     func supersededStartFailureLeavesNewerTunnelAlone() async {
         let harness = Harness()
@@ -395,10 +471,23 @@ struct CloudTunnelCoordinatorTests {
         let harness = Harness()
         harness.controller.currentStatusValue = .connecting
         harness.controller.connectsOnStart = false
+        let controller = harness.controller
+        let (hookEntered, hookEnteredContinuation) = AsyncStream<Void>.makeStream()
+        let (hookRelease, hookReleaseContinuation) = AsyncStream<Void>.makeStream()
+        controller.onCurrentStatus = { _ in
+            controller.onCurrentStatus = nil
+            controller.emit(.disconnected)
+            hookEnteredContinuation.yield(())
+            var iterator = hookRelease.makeAsyncIterator()
+            _ = await iterator.next()
+        }
         let use = Task { await harness.coordinator.prepareForPrivateNetworkUse(Self.use) }
         #expect(await harness.awaitState(.starting) == .starting)
-        harness.controller.emit(.disconnected)
+        var enteredIterator = hookEntered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        hookReleaseContinuation.yield(())
         await use.value
+        controller.onCurrentStatus = nil
         // No clock advance happened: the failure came from the drop, not the timeout.
         #expect(await harness.coordinator.state.failureMessage?.isEmpty == false)
         #expect(harness.controller.calls == ["install", "stop"])
@@ -413,6 +502,69 @@ struct CloudTunnelCoordinatorTests {
         #expect(await harness.coordinator.isPinned == false)
         #expect(harness.controller.calls == ["install", "start", "stop"])
 
+        try await harness.coordinator.revoke()
+        #expect(harness.controller.calls == ["install", "start", "stop", "remove"])
+    }
+
+    @Test("`DisableCloud` refuses every start path without touching NetworkExtension")
+    func managedPolicyRefusesEveryStart() async {
+        let harness = Harness(isDisabledByPolicy: { true })
+
+        await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
+        #expect(await harness.coordinator.state == .off)
+
+        await #expect(throws: CloudTunnelError.disabledByPolicy) {
+            try await harness.coordinator.requirePrivateNetworkUse(Self.use)
+        }
+        await #expect(throws: CloudTunnelError.disabledByPolicy) {
+            try await harness.coordinator.requestUp(pin: true)
+        }
+        await harness.coordinator.beginUp(pin: true)
+
+        #expect(await harness.coordinator.state == .off)
+        #expect(await harness.coordinator.isPinned == false)
+        #expect(harness.controller.calls.isEmpty)
+        #expect(harness.enroller.enrollCount == 0)
+    }
+
+    @Test("a `DisableCloud` push mid-session: revoke removes the configuration and nothing reconnects")
+    func managedPolicyActivationRevokesAndBlocksReconnect() async throws {
+        let policy = ManagedPolicyFlag()
+        let harness = Harness(isDisabledByPolicy: { policy.isEnforced })
+        try await harness.coordinator.requestUp(pin: true)
+        #expect(await harness.coordinator.state == .up)
+        #expect(harness.enroller.enrollCount == 1)
+
+        // The profile lands; the app's enforcement path revokes.
+        policy.isEnforced = true
+        try await harness.coordinator.revoke()
+        #expect(await harness.coordinator.state == .off)
+        #expect(harness.controller.calls == ["install", "start", "stop", "remove"])
+
+        // Later Cloud uses (a restored pane, a browser navigation, `vpn up`)
+        // must not re-enroll or re-install.
+        await harness.coordinator.prepareForPrivateNetworkUse(Self.use)
+        await #expect(throws: CloudTunnelError.disabledByPolicy) {
+            try await harness.coordinator.requirePrivateNetworkUse(Self.use)
+        }
+        await #expect(throws: CloudTunnelError.disabledByPolicy) {
+            try await harness.coordinator.requestUp(pin: true)
+        }
+        #expect(await harness.coordinator.state == .off)
+        #expect(harness.controller.calls == ["install", "start", "stop", "remove"])
+        #expect(harness.enroller.enrollCount == 1)
+    }
+
+    @Test("`vpn down` and `vpn revoke` stay available for cleanup under `DisableCloud`")
+    func managedPolicyKeepsCleanupAvailable() async throws {
+        let policy = ManagedPolicyFlag()
+        let harness = Harness(isDisabledByPolicy: { policy.isEnforced })
+        try await harness.coordinator.requestUp(pin: true)
+
+        policy.isEnforced = true
+        await harness.coordinator.requestDown()
+        #expect(await harness.coordinator.state == .off)
+        #expect(await harness.coordinator.isPinned == false)
         try await harness.coordinator.revoke()
         #expect(harness.controller.calls == ["install", "start", "stop", "remove"])
     }
@@ -436,5 +588,27 @@ struct CloudTunnelCoordinatorTests {
         await harness.clock.waitUntilSleeping(for: .seconds(600))
         harness.controller.emit(.connected)
         #expect(await waiter.value == .up)
+    }
+}
+
+private extension CloudTunnelCoordinator {
+    /// Queue the replacement on this actor before revoke can enqueue teardown.
+    /// It becomes eligible exactly when revoke first yields the actor.
+    func revokeWithNextUpAlreadyQueued() async throws {
+        let nextUp = Task { await self.beginUp(pin: true) }
+        try await revoke()
+        _ = await nextUp.value
+    }
+}
+
+/// A managed-policy switch the tests flip mid-scenario, standing in for an
+/// MDM profile pushed while the app runs.
+private final class ManagedPolicyFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var enforced = false
+
+    var isEnforced: Bool {
+        get { lock.withLock { enforced } }
+        set { lock.withLock { enforced = newValue } }
     }
 }

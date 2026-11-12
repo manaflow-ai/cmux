@@ -14,8 +14,10 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
     )
     private var selectedTemplateID: MobileTaskTemplate.ID?
     private var selectedMacDeviceID: String?
+    private var selectedMacPairingID: String?
     private var directoriesByMacDeviceID: [String: String] = [:]
     private var recentsByMacDeviceID: [String: [MobileTaskRecentDirectory]] = [:]
+    private var pickerPreferences: [String: MobileTaskComposerPickerPreferences] = [:]
     private var drafts: [MobileTaskComposerSavedDraft] = []
 
     func listTemplates() -> [MobileTaskTemplate] {
@@ -61,6 +63,22 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
 
     func setLastMacDeviceID(_ id: String?) {
         selectedMacDeviceID = id
+    }
+
+    func lastMacPairingID() -> String? {
+        selectedMacPairingID
+    }
+
+    func setLastMacPairingID(_ id: String?) {
+        selectedMacPairingID = id
+    }
+
+    func composerPickerPreferences(macPairingID: String) -> MobileTaskComposerPickerPreferences? {
+        pickerPreferences[macPairingID]
+    }
+
+    func setComposerPickerPreferences(_ preferences: MobileTaskComposerPickerPreferences, macPairingID: String) {
+        pickerPreferences[macPairingID] = preferences
     }
 
     func lastDirectory(macDeviceID: String) -> String? {
@@ -141,8 +159,10 @@ final class TaskComposerAccessibilityTemplateStore: MobileTaskTemplateStoring {
 
     func clearAllUserData() {
         templates.removeAll()
+        pickerPreferences.removeAll()
         selectedTemplateID = nil
         selectedMacDeviceID = nil
+        selectedMacPairingID = nil
         directoriesByMacDeviceID.removeAll()
         recentsByMacDeviceID.removeAll()
         drafts.removeAll()

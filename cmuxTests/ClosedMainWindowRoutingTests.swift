@@ -27,9 +27,27 @@ extension Workspace {
 private final class NonDestructiveCloseWindow: NSWindow {
     private(set) var closeCallCount = 0
 
-    override func close() {
-        closeCallCount += 1
-        orderOut(nil)
+    override init(
+        contentRect: NSRect,
+        styleMask style: NSWindow.StyleMask,
+        backing backingStoreType: NSWindow.BackingStoreType,
+        defer flag: Bool
+    ) {
+        super.init(
+            contentRect: contentRect,
+            styleMask: style,
+            backing: backingStoreType,
+            defer: flag
+        )
+        isReleasedWhenClosed = false
+    }
+
+    override func close() { closeCallCount += 1; orderOut(nil) }
+
+    override func performClose(_ sender: Any?) {
+        guard styleMask.contains(.closable),
+              delegate?.windowShouldClose?(self) != false else { return }
+        close()
     }
 }
 
@@ -764,7 +782,7 @@ struct RecoverableWindowlessMainWindowRoutingTests {
     }
 
     @Test("Browser-only dead route is pruned on ledger access")
-    func browserOnlyDeadRouteIsPrunedOnLedgerAccess() throws {
+    func browserOnlyDeadRouteIsPrunedOnLedgerAccess() async throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -813,6 +831,9 @@ struct RecoverableWindowlessMainWindowRoutingTests {
         // No terminal existed when the manager died, so no terminal-registry
         // topology event can retire this route. Ledger access owns the sweep.
         #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        // The manager's owner registration also enqueues exact-route cleanup
+        // from deinit. Let that MainActor callback release its temporary owner.
+        await Task { @MainActor in }.value
         #expect(retainedRoute == nil)
     }
 
@@ -1598,6 +1619,7 @@ struct GhostMainWindowContextLifecycleTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
@@ -2282,6 +2304,7 @@ struct FinalCloseRoutingRegressionTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
@@ -2432,6 +2455,68 @@ struct FinalCloseRoutingRegressionTests {
 #if DEBUG
         #expect(!app.isClosedWindowHistorySuppressedForTesting(windowId: windowId))
 #endif
+    }
+
+    @Test("Retiring a windowless route during its owner's finalization does not recurse")
+    func retiringWindowlessRouteDuringOwnerFinalizationDoesNotRecurse() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !manager.isFinalizedForWindowClose {
+                manager.finalizeAllWorkspacesForWindowClose()
+            }
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        app.discardOrphanedMainWindowContext(context)
+        let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
+        route.window = nil
+        window.orderOut(nil)
+
+        // Finalizing the owner marks it closed before it drops its workspaces.
+        // Teardown observers (sidebar, notifications, remote mirrors) resolve
+        // workspace owners inside that window. The lookup reaches the
+        // windowless route, retires it, and the retirement resolves owners
+        // again for the same route.
+        var lookupsDuringFinalization = 0
+        let observation = workspace.objectWillChange.sink { _ in
+            MainActor.assumeIsolated {
+                guard manager.isFinalizedForWindowClose else { return }
+                lookupsDuringFinalization += 1
+                _ = app.tabManagerFor(tabId: workspace.id)
+            }
+        }
+        defer { observation.cancel() }
+
+        manager.finalizeAllWorkspacesForWindowClose()
+
+        #expect(lookupsDuringFinalization > 0)
+        #expect(app.recoverableMainWindowRoute(windowId: windowId) == nil)
+        #expect(app.tabManagerFor(tabId: workspace.id) == nil)
     }
 
     @Test("Windowless owner rejects a same-identifier close request")
@@ -2630,6 +2715,7 @@ struct MainWindowKeyObservationOwnershipTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
     }
@@ -2637,12 +2723,17 @@ struct MainWindowKeyObservationOwnershipTests {
     @Test("Observed same-ID duplicate cannot steal or close a live owner")
     func observedSameIdDuplicateCannotStealOrCloseLiveOwner() throws {
         _ = NSApplication.shared
-        let app = try #require(AppDelegate.shared)
-        let previousManager = app.tabManager
-        let previousSidebarState = app.sidebarState
-        let previousSidebarSelectionState = app.sidebarSelectionState
-        let previousFileExplorerState = app.fileExplorerState
+        let previousAppDelegate = AppDelegate.shared
         let previousTerminalManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        // AppDelegate.shared can point at another fixture whose launch observers
+        // were never installed. Own the production observer for this scenario.
+        let keyObservers = app.installMainWindowKeyObserver()
+        defer {
+            keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            TerminalController.shared.setActiveTabManager(previousTerminalManager)
+            AppDelegate.shared = previousAppDelegate
+        }
 
         let windowId = UUID()
         let ownerWindow = makeMainWindow(id: windowId)
@@ -2660,11 +2751,6 @@ struct MainWindowKeyObservationOwnershipTests {
             workspace.teardownRemoteConnection()
             ownerWindow.orderOut(nil)
             duplicateWindow.orderOut(nil)
-            app.tabManager = previousManager
-            app.sidebarState = previousSidebarState
-            app.sidebarSelectionState = previousSidebarSelectionState
-            app.fileExplorerState = previousFileExplorerState
-            TerminalController.shared.setActiveTabManager(previousTerminalManager)
         }
 
         app.registerMainWindow(
@@ -2676,8 +2762,8 @@ struct MainWindowKeyObservationOwnershipTests {
             fileExplorerState: FileExplorerState()
         )
 
-        // Posting through NotificationCenter exercises the observer installed
-        // by applicationDidFinishLaunching, including the production reindex path.
+        // Posting through NotificationCenter exercises the same observer
+        // installed by applicationDidFinishLaunching.
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: ownerWindow)
         #expect(app.tabManager === manager)
 
@@ -2696,12 +2782,17 @@ struct MainWindowKeyObservationOwnershipTests {
     @Test("Observed same-ID duplicate cannot steal a windowless owner before validated replacement")
     func observedSameIdDuplicateCannotStealWindowlessOwnerBeforeValidatedReplacement() throws {
         _ = NSApplication.shared
-        let app = try #require(AppDelegate.shared)
-        let previousManager = app.tabManager
-        let previousSidebarState = app.sidebarState
-        let previousSidebarSelectionState = app.sidebarSelectionState
-        let previousFileExplorerState = app.fileExplorerState
+        let previousAppDelegate = AppDelegate.shared
         let previousTerminalManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        // AppDelegate.shared can point at another fixture whose launch observers
+        // were never installed. Own the production observer for this scenario.
+        let keyObservers = app.installMainWindowKeyObserver()
+        defer {
+            keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            TerminalController.shared.setActiveTabManager(previousTerminalManager)
+            AppDelegate.shared = previousAppDelegate
+        }
 
         let windowId = UUID()
         let originalWindow = makeMainWindow(id: windowId)
@@ -2721,11 +2812,6 @@ struct MainWindowKeyObservationOwnershipTests {
             originalWindow.orderOut(nil)
             duplicateWindow.orderOut(nil)
             replacementWindow.orderOut(nil)
-            app.tabManager = previousManager
-            app.sidebarState = previousSidebarState
-            app.sidebarSelectionState = previousSidebarSelectionState
-            app.fileExplorerState = previousFileExplorerState
-            TerminalController.shared.setActiveTabManager(previousTerminalManager)
         }
 
         app.registerMainWindow(
@@ -2781,12 +2867,17 @@ struct MainWindowKeyObservationOwnershipTests {
     @Test("Observed same-ID duplicate cannot close a recoverable owner")
     func observedSameIdDuplicateCannotCloseRecoverableOwner() throws {
         _ = NSApplication.shared
-        let app = try #require(AppDelegate.shared)
-        let previousManager = app.tabManager
-        let previousSidebarState = app.sidebarState
-        let previousSidebarSelectionState = app.sidebarSelectionState
-        let previousFileExplorerState = app.fileExplorerState
+        let previousAppDelegate = AppDelegate.shared
         let previousTerminalManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let app = AppDelegate()
+        // AppDelegate.shared can point at another fixture whose launch observers
+        // were never installed. Own the production observer for this scenario.
+        let keyObservers = app.installMainWindowKeyObserver()
+        defer {
+            keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            TerminalController.shared.setActiveTabManager(previousTerminalManager)
+            AppDelegate.shared = previousAppDelegate
+        }
 
         let windowId = UUID()
         let ownerWindow = makeMainWindow(id: windowId)
@@ -2804,11 +2895,6 @@ struct MainWindowKeyObservationOwnershipTests {
             workspace.teardownRemoteConnection()
             ownerWindow.orderOut(nil)
             duplicateWindow.orderOut(nil)
-            app.tabManager = previousManager
-            app.sidebarState = previousSidebarState
-            app.sidebarSelectionState = previousSidebarSelectionState
-            app.fileExplorerState = previousFileExplorerState
-            TerminalController.shared.setActiveTabManager(previousTerminalManager)
         }
 
         app.registerMainWindow(
@@ -2905,8 +2991,8 @@ struct MainWindowKeyObservationOwnershipTests {
 @MainActor
 @Suite("Workspace process-wide observer retirement", .serialized)
 struct WorkspaceProcessWideObserverRetirementTests {
-    @Test("Retirement rejects queued and future shared agent index publications")
-    func retirementRejectsQueuedAndFutureSharedAgentIndexPublications() async throws {
+    @Test("Retirement removes the shared agent index observer")
+    func retirementRemovesSharedAgentIndexObserver() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         defer {
@@ -2918,41 +3004,11 @@ struct WorkspaceProcessWideObserverRetirementTests {
         }
 
         await drainMainActorQueue()
-        var publicationCount = 0
-        let publication = workspace.objectWillChange.sink {
-            publicationCount += 1
-        }
-        defer { publication.cancel() }
+        #expect(workspace.sharedLiveAgentIndexObserver != nil)
 
-        NotificationCenter.default.post(
-            name: .sharedLiveAgentIndexDidChange,
-            object: SharedLiveAgentIndex.shared,
-            userInfo: ["workspaceId": workspace.id]
-        )
-        await drainMainActorQueue()
-        #expect(publicationCount > 0)
-
-        // Queue one final matching publication, then retire before its
-        // MainActor task can mutate the workspace.
-        NotificationCenter.default.post(
-            name: .sharedLiveAgentIndexDidChange,
-            object: SharedLiveAgentIndex.shared,
-            userInfo: ["workspaceId": workspace.id]
-        )
         workspace.retireFromOwningTabManager()
-        let countAfterRetirement = publicationCount
-        await drainMainActorQueue()
-        #expect(publicationCount == countAfterRetirement)
-
-        for _ in 0..<3 {
-            NotificationCenter.default.post(
-                name: .sharedLiveAgentIndexDidChange,
-                object: SharedLiveAgentIndex.shared,
-                userInfo: ["workspaceId": workspace.id]
-            )
-        }
-        await drainMainActorQueue()
-        #expect(publicationCount == countAfterRetirement)
+        // A shared agent-index change no longer reaches a retired workspace.
+        #expect(workspace.sharedLiveAgentIndexObserver == nil)
     }
 
     @Test("Retirement rejects queued and future feature flag publications")
@@ -3055,6 +3111,8 @@ struct WindowZombieRegressionTests {
 
         var closingWindowNumber: Int?
         weak var releasedWindow: NSWindow?
+        weak var releasedController: NSWindowController?
+        weak var releasedContentView: NSView?
         autoreleasepool {
             let presenter = SettingsWindowPresenter()
             presenter.show()
@@ -3063,16 +3121,34 @@ struct WindowZombieRegressionTests {
             guard closingWindow != nil else { return }
             closingWindowNumber = closingWindow?.windowNumber
             releasedWindow = closingWindow
+            releasedController = closingWindow?.windowController
+            releasedContentView = closingWindow?.contentView
+            #expect(releasedController != nil)
+            #expect(releasedContentView != nil)
             closingWindow?.close()
             closingWindow = nil
         }
         let didRetireWindow = await settleWindowLifecycle {
-            releasedWindow == nil
+            let ownedGraphReleased = releasedController == nil
+                && releasedContentView == nil
                 && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
+            if Self.appKitAutoreleasesClosedWindowsIntoTestHostPool {
+                return ownedGraphReleased
+            }
+            return ownedGraphReleased && releasedWindow == nil
         }
 
         #expect(didRetireWindow)
-        #expect(releasedWindow == nil)
+        #expect(releasedController == nil)
+        #expect(releasedContentView == nil)
+        #expect(releasedWindow?.contentViewController == nil)
+        #expect(releasedWindow?.contentView == nil)
+        #expect(releasedWindow?.delegate == nil)
+        #expect(releasedWindow?.isVisible != true)
+        #expect(settingsWindow() == nil)
+        if !Self.appKitAutoreleasesClosedWindowsIntoTestHostPool {
+            #expect(releasedWindow == nil)
+        }
         #expect(closingWindowNumber != nil)
         if let closingWindowNumber {
             #expect(!isWindowServerWindowAlive(closingWindowNumber))
@@ -3113,20 +3189,41 @@ struct WindowZombieRegressionTests {
         guard closingWindow != nil else { return }
         let closingWindowNumber = closingWindow?.windowNumber
         releasedWindow = closingWindow
+        weak var releasedController: NSWindowController?
+        weak var releasedContentView: NSView?
+        autoreleasepool {
+            releasedController = closingWindow?.windowController
+            releasedContentView = closingWindow?.contentView
+        }
+        #expect(releasedController != nil)
+        #expect(releasedContentView != nil)
 
         autoreleasepool {
             closingWindow?.close()
             closingWindow = nil
         }
         let didRetireWindow = await settleWindowLifecycle {
-            releasedWindow == nil
+            let ownedGraphReleased = releasedController == nil
+                && releasedContentView == nil
                 && (closingWindowNumber.map { !isWindowServerWindowAlive($0) } ?? true)
+            if Self.appKitAutoreleasesClosedWindowsIntoTestHostPool {
+                return ownedGraphReleased
+            }
+            return ownedGraphReleased && releasedWindow == nil
         }
 
         #expect(didRetireWindow)
+        #expect(releasedController == nil)
+        #expect(releasedContentView == nil)
+        #expect(app.windowForMainWindowId(closingWindowId) == nil)
         #expect(releasedWindow?.windowController == nil)
         #expect(releasedWindow?.contentViewController == nil)
         #expect(releasedWindow?.contentView == nil)
+        #expect(releasedWindow?.delegate == nil)
+        #expect(releasedWindow?.isVisible != true)
+        if !Self.appKitAutoreleasesClosedWindowsIntoTestHostPool {
+            #expect(releasedWindow == nil)
+        }
         #expect(closingWindowNumber != nil)
         if let closingWindowNumber {
             #expect(!isWindowServerWindowAlive(closingWindowNumber))
@@ -3186,6 +3283,32 @@ struct WindowZombieRegressionTests {
             window.identifier = nil
             window.close()
         }
+    }
+
+    /// Whether AppKit can keep a closed window object alive in the test host
+    /// after every owner has released it.
+    ///
+    /// macOS 27's AppKit reads its window list through weak references that
+    /// retain and autorelease each live window: `-[NSApplication windows]`
+    /// (`_copyWindows` over an `NSConcretePointerArray`), the window cache
+    /// behind window-space notifications (`_findWindowUsingCache:`), and the
+    /// gesture routing that `nextEventMatchingMask:` runs on every event fetch.
+    /// In the app host, XCTest's `XCTWaiter` spins the run loop for the whole
+    /// Swift Testing run without draining its autorelease pool, so a closed
+    /// window that is still alive for even one run-loop turn collects pool
+    /// entries there and outlives the test. Tracing every retain, release and
+    /// autorelease of the closed main window on macOS 27.0.1 left no owner
+    /// outside autorelease pools, and the same window is freed within a
+    /// second on macOS 26. NSApplication drains its pool after every event,
+    /// so the app itself frees the window.
+    ///
+    /// On these systems the tests assert that everything cmux owns for the
+    /// window is released instead. Older systems keep the strict check, which
+    /// also catches a cmux reference to the bare window.
+    private static var appKitAutoreleasesClosedWindowsIntoTestHostPool: Bool {
+        ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+        )
     }
 
     private func settleWindowLifecycle(

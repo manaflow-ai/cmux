@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxControlSocket
 import Foundation
 
@@ -13,7 +14,6 @@ extension TerminalController {
             tabManager: tabManager,
             panelType: panelType,
             unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
-            dockUnavailable: { .dockUnavailable(message: $0) },
             workspaceNotFound: .workspaceNotFound,
             conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
         )
@@ -29,10 +29,18 @@ extension TerminalController {
             tabManager: tabManager,
             panelType: panelType,
             unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
-            dockUnavailable: { .dockUnavailable(message: $0) },
             workspaceNotFound: .workspaceNotFound,
             conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
         )
+    }
+
+    /// Surface types a Dock create accepts: terminal and browser, plus Chief
+    /// while Chief is on.
+    static func dockAcceptsSurfaceType(
+        _ panelType: PanelType,
+        chiefEnabled: Bool = ChiefSettings.isEnabled
+    ) -> Bool {
+        panelType == .terminal || panelType == .browser || (panelType == .chief && chiefEnabled)
     }
 
     func validateDockCreateRouting<Resolution>(
@@ -40,15 +48,12 @@ extension TerminalController {
         tabManager: TabManager,
         panelType: PanelType,
         unsupportedType: (String, String) -> Resolution,
-        dockUnavailable: (String) -> Resolution,
         workspaceNotFound: Resolution,
         conflictingSelectors: (String) -> Resolution
     ) -> Resolution? {
-        guard panelType == .terminal || panelType == .browser else {
+        // Refused here, before any Dock reveal, while Chief is off.
+        guard Self.dockAcceptsSurfaceType(panelType) else {
             return unsupportedType(panelType.rawValue, dockUnsupportedSurfaceTypeMessage())
-        }
-        guard RightSidebarMode.dock.isAvailable() else {
-            return dockUnavailable(dockUnavailableMessage())
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
             return workspaceNotFound
@@ -83,11 +88,18 @@ extension TerminalController {
     }
 
     func dockUnsupportedSurfaceTypeMessage() -> String {
-        String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports only terminal and browser surfaces")
+        // Name Chief only while it's on.
+        guard ChiefSettings.isEnabled else {
+            return String(
+                localized: "dock.error.unsupportedSurfaceType.terminalBrowser",
+                defaultValue: "Dock placement supports terminal and browser surfaces"
+            )
+        }
+        return String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports terminal, browser, and Chief surfaces")
     }
 
     func dockUnavailableMessage() -> String {
-        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
+        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is unavailable")
     }
 
     func dockFocusUnavailableMessage() -> String {
@@ -105,6 +117,7 @@ extension TerminalController {
         tabManager: TabManager,
         panelType: PanelType,
         url: URL?,
+        preferredProfileID: UUID? = nil,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
         if let invalid = validateDockSurfaceCreateRouting(routing: routing, tabManager: tabManager, panelType: panelType) {
@@ -120,7 +133,7 @@ extension TerminalController {
             return .paneNotFound
         }
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
-        let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        let kind: DockSurfaceKind = panelType == .browser ? .browser : (panelType == .chief ? .chief : .terminal)
         if focus {
             // Creation is authoritative; revealing its secondary focus request
             // is best-effort when the Dock host is still mounting.
@@ -134,8 +147,11 @@ extension TerminalController {
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
+            initialInput: kind == .terminal ? inputs.initialInput : nil,
             focus: false,
-            preloadInitialNavigationInBackground: kind == .browser
+            preferredProfileID: kind == .browser ? preferredProfileID : nil,
+            preloadInitialNavigationInBackground: kind == .browser,
+            conversationID: nil
         )
         guard let newPanelId else {
             return .createFailed
@@ -355,7 +371,8 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        tabManager: TabManager
+        tabManager: TabManager,
+        force: Bool
     ) -> ControlSurfaceCloseResolution? {
         guard let windowDock = windowDockForRouting(routing, tabManager: tabManager) else { return nil }
         let resolved = resolvedWindowDockSurfaceId(
@@ -373,7 +390,15 @@ extension TerminalController {
         guard windowDock.containsPanel(surfaceId) else {
             return .closeFailed(surfaceId)
         }
-        guard windowDock.closePanel(surfaceId, force: true) else {
+        if let message = browserReplTabRefusalMessage(surfaceId) {
+            return .denied(surfaceId, message: message)
+        }
+        if !force,
+           let panel = windowDock.panel(for: TabID(uuid: surfaceId)),
+           windowDock.dockPanelNeedsConfirmClose(panel) {
+            return .confirmationRequired(surfaceId)
+        }
+        guard windowDock.closePanel(surfaceId, force: force) else {
             return .closeFailed(surfaceId)
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(

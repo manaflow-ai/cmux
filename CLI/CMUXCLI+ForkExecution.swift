@@ -188,9 +188,10 @@ extension CMUXCLI {
         }
         let executionError = withCStringArray(invocation.arguments) { argv in
             withEnvironmentCStringArray(invocationEnvironment) { environment in
-                executable.withCString {
-                    _ = execve($0, argv, environment)
-                    return errno
+                executable.withCString { path in
+                    cliExecFailureErrno {
+                        _ = execve(path, argv, environment)
+                    }
                 }
             }
         }
@@ -220,9 +221,10 @@ extension CMUXCLI {
         let arguments = [shell, "-lc", command]
         let executionError = withCStringArray(arguments) { argv in
             withEnvironmentCStringArray(legacyEnvironment) { childEnvironment in
-                shell.withCString {
-                    _ = execve($0, argv, childEnvironment)
-                    return errno
+                shell.withCString { path in
+                    cliExecFailureErrno {
+                        _ = execve(path, argv, childEnvironment)
+                    }
                 }
             }
         }

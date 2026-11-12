@@ -22,9 +22,15 @@ public enum ControlSurfaceCloseResolution: Sendable, Equatable {
     /// The workspace has only one surface left (legacy `invalid_state` / "Cannot
     /// close the last surface").
     case lastSurface
+    /// The surface has a live foreground process and requires `force`.
+    case confirmationRequired(UUID)
     /// The close call failed (legacy `internal_error` / "Failed to close surface",
     /// `data: {"surface_id": …}`). Carries the surface id.
     case closeFailed(UUID)
+    /// The surface is a browser tab a browser REPL session drives or typed a
+    /// secret into, which other socket clients may not close, move or
+    /// reload (legacy `denied`). Carries the surface id and the message.
+    case denied(UUID, message: String)
     /// The surface was closed. Carries the echoed identity.
     case closed(windowID: UUID?, workspaceID: UUID, surfaceID: UUID)
 }

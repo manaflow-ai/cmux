@@ -12,6 +12,8 @@ final class ShortcutListModel {
 
     var bindings: [String: StoredShortcut] = [:]
     var managedBindingActionIDs: Set<String> = []
+    /// True once the first `shortcuts.bindings` value has arrived from the store.
+    private(set) var hasLoadedBindings = false
     var legacyBindings: [String: StoredShortcut]
     private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
     private(set) var whenOverrideRawStrings: [String: String] = [:]
@@ -105,6 +107,7 @@ final class ShortcutListModel {
             .filter { bindings[$0] != dictionary[$0] }
         bindings = dictionary
         managedBindingActionIDs = snapshot.managedActionIDs
+        hasLoadedBindings = true
         pruneRestoreShortcuts()
         pruneConflictRejections(changedActionIds: Set(changedActionIds))
         pruneNumberedDigitRejections(changedActionIds: Set(changedActionIds))
@@ -199,7 +202,8 @@ final class ShortcutListModel {
     /// priority-routed clauses coexist, matching the app target's check.
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
-        for other in ShortcutAction.allCases where other != action {
+        let unavailable = ShortcutAction.hostUnavailableActions
+        for other in ShortcutAction.allCases where other != action && !unavailable.contains(other) {
             guard ShortcutWhenClause.bindingsCollide(
                 proposedClause,
                 lhsHasPriority: action.hasPriorityShortcutRouting,

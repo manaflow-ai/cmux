@@ -27,6 +27,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GUARD = os.path.join(ROOT_DIR, "scripts", "check-package-resolved-policy.py")

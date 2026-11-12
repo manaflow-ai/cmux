@@ -3,9 +3,12 @@ import CoreGraphics
 
 struct TerminalViewportInputs {
     let bounds: CGSize
-    /// Live keyboard overlap in points. Seats the dock's bottom constraint
-    /// only; the grid container and render placement never consume it.
+    /// Live keyboard overlap in points. Seats the dock's bottom constraint.
     let keyboardHeight: CGFloat
+    /// Keyboard overlap committed at the announced transition target. Only
+    /// alternate-screen sizing consumes this value for the grid; primary-screen
+    /// terminals keep the keyboard-independent legacy behavior.
+    let gridKeyboardHeight: CGFloat
     let composerBandHeight: CGFloat
     let reservedToolbarHeight: CGFloat
     let toolbarFrameHeight: CGFloat

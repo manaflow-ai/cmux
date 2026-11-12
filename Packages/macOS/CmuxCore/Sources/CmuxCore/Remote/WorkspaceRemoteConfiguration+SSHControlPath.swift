@@ -14,7 +14,7 @@ extension WorkspaceRemoteConfiguration {
             sshOptions.filter {
                 resolver.optionKey($0) != "controlpath"
             }
-        return WorkspaceRemoteConfiguration(
+        var copy = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
@@ -22,6 +22,7 @@ extension WorkspaceRemoteConfiguration {
             port: port,
             identityFile: identityFile,
             sshOptions: resolvedOptions,
+            routeSensitivity: routeSensitivity,
             localProxyPort: localProxyPort,
             relayPort: relayPort,
             relayID: relayID,
@@ -32,6 +33,7 @@ extension WorkspaceRemoteConfiguration {
             terminalStartupCommand: terminalStartupCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
+            agentSocketPathOverrideIsSet: agentSocketPathOverrideIsSet,
             daemonWebSocketEndpoint: daemonWebSocketEndpoint,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
@@ -39,5 +41,7 @@ extension WorkspaceRemoteConfiguration {
             sshControlMasterLeaseGeneration:
                 sshControlMasterLeaseGeneration
         )
+        copy.restoredSSHSession = restoredSSHSession
+        return copy
     }
 }

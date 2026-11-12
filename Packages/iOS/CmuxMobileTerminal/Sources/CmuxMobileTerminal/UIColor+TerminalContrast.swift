@@ -2,6 +2,13 @@
 import UIKit
 
 extension UIColor {
+    /// Foreground for the blue active state in the terminal accessory bar.
+    ///
+    /// `label` is a dynamic system color: it resolves to white in Dark Mode
+    /// and black in Light Mode, keeping the active glyph and sticky-lock
+    /// border aligned with the surrounding appearance.
+    static var terminalAccessoryActiveForeground: UIColor { .label }
+
     var terminalReadableForeground: UIColor {
         terminalPrefersDarkForeground ? .black : .white
     }

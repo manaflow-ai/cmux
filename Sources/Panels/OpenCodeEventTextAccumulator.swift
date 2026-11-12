@@ -56,13 +56,19 @@ struct OpenCodeEventTextAccumulator {
             guard firstString(info["role"], properties["role"]) == "assistant" else {
                 return false
             }
-            return messageInfoHasCompletedTime(info) ||
-                firstString(info["finish"], info["finishedReason"], properties["finish"]) != nil ||
-                info["error"] != nil
+            if info["error"] != nil { return true }
+            let finish = firstString(info["finish"], info["finishedReason"], properties["finish"])
+            // A step that ends in tool calls is not the turn's end: the agent goes on
+            // with the tool results in a new assistant message.
+            if let finish, toolCallFinishReasons.contains(finish) { return false }
+            return messageInfoHasCompletedTime(info) || finish != nil
         default:
             return false
         }
     }
+
+    /// Finish reasons of an assistant step that called tools (`tool-calls` in OpenCode).
+    private static let toolCallFinishReasons: Set<String> = ["tool-calls", "tool_calls", "tool_use", "tool-call"]
 
     private static func eventSessionID(_ properties: [String: Any]) -> String? {
         firstString(

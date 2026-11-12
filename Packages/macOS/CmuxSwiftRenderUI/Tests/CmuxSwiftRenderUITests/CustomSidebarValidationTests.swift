@@ -98,10 +98,12 @@ struct CustomSidebarValidationTests {
     func downloadableCustomSidebarExamplesValidate() throws {
         let directory = examplesDirectory()
         let report = validator.validate(directory: directory, dataContext: Self.richSidebarContext)
+        // manifest.json is the built-in template catalog's index, not a sidebar.
+        let sidebars = report.entries.filter { $0.name != "manifest" }
 
-        #expect(report.names.sorted() == ["activity", "agents-board", "agents-cards", "agents-dense", "agents-focus", "agents-timeline", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info", "panel-sessions", "panel-subagents", "panel-todo", "ports", "status-board", "workspaces"])
-        #expect(report.validCount == 18)
-        #expect(report.errorCount == 0)
+        #expect(sidebars.map(\.name).sorted() == ["activity", "agents-board", "agents-cards", "agents-dense", "agents-focus", "agents-timeline", "btop-agents", "clock", "compact", "finder", "focus", "kitchen-sink", "panel-info", "panel-sessions", "panel-subagents", "panel-todo", "ports", "status-board", "workspaces"])
+        #expect(sidebars.filter(\.isValid).count == 19)
+        #expect(sidebars.filter { !$0.isValid }.map(\.name) == [])
     }
 
     @MainActor
@@ -183,6 +185,7 @@ struct CustomSidebarValidationTests {
                 "ports": .array([.int(3801), .int(5173)]),
                 "portCount": .int(2),
                 "unread": .int(2),
+                "status": .string("needs-attention"),
                 "tabCount": .int(2),
                 "description": .string("Crash fix"),
                 "color": .string("#0A84FF"),
@@ -290,6 +293,7 @@ struct CustomSidebarValidationTests {
                 "ports": .array([]),
                 "portCount": .int(0),
                 "unread": .int(2),
+                "status": .string("review"),
                 "tabCount": .int(1),
                 "description": .string("Review branch"),
                 "branch": .string("main"),
@@ -331,6 +335,7 @@ struct CustomSidebarValidationTests {
                 "ports": .array([]),
                 "portCount": .int(0),
                 "unread": .int(0),
+                "status": .string("todo"),
                 "tabCount": .int(0),
                 "description": .string(""),
                 "branch": .string("main"),

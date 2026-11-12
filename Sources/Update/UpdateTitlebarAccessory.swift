@@ -180,11 +180,7 @@ final class TitlebarControlsLayoutModel {
         )
 
         observers.append(
-            notificationCenter.addObserver(
-                forName: UserDefaults.didChangeNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
+            notificationCenter.addUserDefaultsObserver(object: nil) { [weak self] in
                 MainActor.assumeIsolated {
                     self?.refreshStyleIfNeeded()
                 }
@@ -656,7 +652,8 @@ enum TitlebarControlsLayoutMetrics {
         guard let range = TitlebarControlsHitRegions.buttonXRange(for: actionSlot, config: config) else {
             return config.groupPadding.leading + (config.buttonSize / 2.0)
         }
-        return (range.lowerBound + range.upperBound) / 2.0
+        // Hit regions are accessory-relative; hints are inside the padded controls group.
+        return (range.lowerBound + range.upperBound) / 2.0 - outerLeadingPadding
     }
 
     static func hintInterval(
@@ -836,6 +833,7 @@ struct TitlebarControlButton<Content: View>: View {
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(accessibilityIdentifier)
         .accessibilityLabel(accessibilityLabel)
+        .windowHintTarget(accessibilityLabel, isEnabled: isEnabled)
         .overlay {
             if let rightClickAction {
                 TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
@@ -890,6 +888,11 @@ private struct TitlebarControlButtonStyleBody: View {
         configuration.label
             .frame(width: config.buttonSize, height: config.buttonSize)
             .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
+            // Hosted symbols bake their tint into the bitmap, so they read the
+            // same dimming from the environment (`TitlebarControlSymbol`)
+            // while other label content (the notification badge) keeps its
+            // own colors.
+            .environment(\.titlebarControlForegroundOpacity, foregroundOpacity)
             .background {
                 if backgroundOpacity > 0 {
                     RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
@@ -985,6 +988,7 @@ private struct TitlebarNotificationBadge: View {
     let unreadModel: SidebarUnreadModel
     let config: TitlebarControlsStyleConfig
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     var body: some View {
         let unreadCount = unreadModel.totalUnreadCount
@@ -997,7 +1001,7 @@ private struct TitlebarNotificationBadge: View {
                 )
                 .foregroundColor(.white)
                 .frame(width: config.badgeSize, height: config.badgeSize)
-                .background(Circle().fill(cmuxAccentColor()))
+                .background(Circle().fill(cmuxAccent.color))
                 .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
         }
     }
@@ -1098,10 +1102,10 @@ struct TitlebarControlsView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
                 focusHistoryAvailabilityRevision &+= 1
             }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
                 appearanceRefreshTick &+= 1
             }
-            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
                 appearanceRefreshTick &+= 1
             }
             .onAppear {
@@ -1164,6 +1168,7 @@ struct TitlebarControlsView: View {
                     iconLabel(
                         systemName: "bell",
                         config: config,
+                        foregroundColor: foregroundColor,
                         iconGeometryKeyPrefix: "titlebarControl_showNotificationsIcon"
                     )
 
@@ -1196,7 +1201,7 @@ struct TitlebarControlsView: View {
                     _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .back)
                 }
             ) {
-                iconLabel(systemName: "arrow.left", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
+                iconLabel(systemName: "arrow.left", config: config, foregroundColor: foregroundColor, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip(String(localized: "menu.history.focusBack", defaultValue: "Focus Back")))
 
@@ -1211,7 +1216,7 @@ struct TitlebarControlsView: View {
                     _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .forward)
                 }
             ) {
-                iconLabel(systemName: "arrow.right", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
+                iconLabel(systemName: "arrow.right", config: config, foregroundColor: foregroundColor, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
 
@@ -1345,10 +1350,15 @@ struct TitlebarControlsView: View {
     private func iconLabel(
         systemName: String,
         config: TitlebarControlsStyleConfig,
+        foregroundColor: Color,
         iconGeometryKeyPrefix: String? = nil
     ) -> some View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
-            CmuxSystemSymbolImage(systemName: systemName, pointSize: config.iconSize, weight: TitlebarControlIconStyle.weight)
+            TitlebarControlSymbol(
+                systemName: systemName,
+                config: config,
+                foregroundColor: foregroundColor
+            )
         }
     }
 
@@ -1374,6 +1384,39 @@ struct TitlebarControlsView: View {
                 height: TitlebarControlIconStyle.iconFrameSize(for: config)
             )
             .background(TitlebarChromeGeometryReporter(keyPrefix: iconGeometryKeyPrefix ?? ""))
+    }
+}
+
+/// Hover/pressed dimming for hosted symbols inside `TitlebarControlButtonStyle`.
+///
+/// The style fades its label with `.foregroundStyle(color.opacity(...))`,
+/// which SwiftUI text and shapes pick up but a hosted AppKit bitmap cannot.
+/// The style publishes the same opacity here so the symbol bakes it into its
+/// tint, and non-symbol label content (the notification badge) is untouched.
+private struct TitlebarControlForegroundOpacityKey: EnvironmentKey {
+    static let defaultValue: Double = 1
+}
+
+extension EnvironmentValues {
+    fileprivate var titlebarControlForegroundOpacity: Double {
+        get { self[TitlebarControlForegroundOpacityKey.self] }
+        set { self[TitlebarControlForegroundOpacityKey.self] = newValue }
+    }
+}
+
+private struct TitlebarControlSymbol: View {
+    let systemName: String
+    let config: TitlebarControlsStyleConfig
+    let foregroundColor: Color
+    @Environment(\.titlebarControlForegroundOpacity) private var foregroundOpacity
+
+    var body: some View {
+        CmuxSystemSymbolImage(
+            systemName: systemName,
+            pointSize: config.iconSize,
+            weight: TitlebarControlIconStyle.weight,
+            tint: foregroundColor.opacity(foregroundOpacity)
+        )
     }
 }
 
@@ -1912,13 +1955,20 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var cachedContentSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
-    private weak var observedWindow: NSWindow?
+    // An identity, not a weak reference: `view.window` can still return a
+    // window that is deallocating, and a weak store to it aborts the process.
+    private var observedWindowIdentifier: ObjectIdentifier?
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
     private var lastShowsWorkspaceTitlebar = !WorkspacePresentationModeSettings.isMinimal()
     private var lastTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
+    /// The rows the shown popover numbered. Each opening gets its own, so a closing popover's
+    /// teardown can't clear the rows of the one that replaced it.
+    private var notificationsPopoverRows = NotificationsPopoverDrawnRows()
+    /// Handed to the popover's root so its `@LiveSetting`s read the user's values, not defaults.
+    private let settingsRuntime: SettingsRuntime?
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(
@@ -1929,6 +1979,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
+        self.settingsRuntime = settingsRuntime
         self.layoutModel = layoutModel
         let prepareOriginatingAction: () -> AppDelegate.MainWindowContext? = { [weak containerView] in
             guard let appDelegate = AppDelegate.shared,
@@ -1949,7 +2000,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                   let context = prepareOriginatingAction() else { return }
             _ = appDelegate.performNewWorkspaceAction(
                 tabManager: context.tabManager,
-                debugSource: "titlebar.accessoryNewWorkspace"
+                debugSource: "titlebar.accessoryNewWorkspace",
+                localOnly: true
             )
         }
         let focusHistoryBack = {
@@ -1971,13 +2023,18 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
         hostingView = NonDraggableHostingView(
             rootView: AnyView(
-                rootView.environment(\.settingsRuntime, settingsRuntime)
+                rootView
+                    .environment(\.settingsRuntime, settingsRuntime)
+                    .cmuxAccentColorEnvironment()
             )
         )
 
         super.init(nibName: nil, bundle: nil)
 
         view = containerView
+        containerView.onWindowChange = { [weak self] window in
+            self?.setObservedWindow(window)
+        }
         containerView.translatesAutoresizingMaskIntoConstraints = true
         // The shortcut-hint pills (and button backgrounds) sit below the button
         // row and overflow the accessory's titlebar-height content frame on
@@ -1996,11 +2053,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         hostingView.layer?.masksToBounds = false
         containerView.addSubview(hostingView)
 
-        userDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             guard let self else { return }
             let shouldShow = self.showsWorkspaceTitlebar
             let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
@@ -2072,10 +2125,15 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     @discardableResult
     private func updateObservedWindowIfNeeded() -> Bool {
-        let currentWindow = view.window
-        guard currentWindow !== observedWindow else { return false }
+        setObservedWindow(view.window)
+    }
+
+    @discardableResult
+    private func setObservedWindow(_ currentWindow: NSWindow?) -> Bool {
+        let currentWindowIdentifier = currentWindow.map(ObjectIdentifier.init)
+        guard currentWindowIdentifier != observedWindowIdentifier else { return false }
         removeWindowGeometryObservers()
-        observedWindow = currentWindow
+        observedWindowIdentifier = currentWindowIdentifier
         guard let currentWindow else { return true }
         let center = NotificationCenter.default
         windowGeometryObservers = TitlebarWindowGeometryNotifications.names.map { name in
@@ -2206,18 +2264,24 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
               let contentView = window.contentView else {
             return
         }
+        let windowIdentifier = ObjectIdentifier(window)
+        let drawnRows = NotificationsPopoverDrawnRows()
+        notificationsPopoverRows = drawnRows
         // Recreate content view each time to avoid stale observers when popover is hidden
         let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
                 notificationStore: notificationStore,
+                drawnRows: drawnRows,
                 onDismiss: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak notificationsPopover, weak window] in
+                onOpenPhoneForwarding: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
-                    openPhoneForwardingSettings(in: window)
+                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .environment(\.settingsRuntime, settingsRuntime)
+            .cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
         hostingController.view.layer?.backgroundColor = .clear
@@ -2238,6 +2302,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             let anchorRect = anchorView.convert(anchorView.bounds, to: anchorContentView)
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
+                drawnRows.anchorWindowNumber = anchorContentView.window?.windowNumber
                 notificationsPopover.show(relativeTo: anchorRect, of: anchorContentView, preferredEdge: .maxY)
                 postNotificationsPopoverVisibilityDidChange(
                     isShown: true,
@@ -2253,6 +2318,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
+                drawnRows.anchorWindowNumber = window.windowNumber
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
                 postNotificationsPopoverVisibilityDidChange(
                     isShown: true,
@@ -2267,11 +2333,21 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let bounds = contentView.bounds
         let anchorRect = NSRect(x: 12, y: bounds.maxY - 8, width: 1, height: 1)
         notificationsPopover.animates = animated
+        drawnRows.anchorWindowNumber = window.windowNumber
         notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
         postNotificationsPopoverVisibilityDidChange(
             isShown: true,
             source: notificationsPopover,
             windowNumber: window.windowNumber
+        )
+    }
+
+    /// The rows this controller's popover numbered, when it is shown over the window numbered
+    /// `windowNumber` (or that window is the popover's own); nil otherwise.
+    func shownNotificationsPopoverRowIds(forWindowNumber windowNumber: Int) -> [UUID]? {
+        notificationsPopoverRows.idsIfShown(
+            by: notificationsPopover,
+            forWindowNumber: windowNumber
         )
     }
 
@@ -2314,390 +2390,6 @@ private func openPhoneForwardingSettings(in window: NSWindow?) {
     _ = workspace.openOrFocusNotificationsSurface(inPane: paneId)
 }
 
-private struct NotificationsPopoverView: View {
-    @ObservedObject var notificationStore: TerminalNotificationStore
-    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    let onDismiss: () -> Void
-    let onOpenPhoneForwarding: () -> Void
-
-    @AppStorage("cmux.notifications.popover.width")
-    private var savedWidth: Double = Double(NotificationsPopoverMetrics.defaultWidth)
-    @AppStorage("cmux.notifications.popover.height")
-    private var savedHeight: Double = Double(NotificationsPopoverMetrics.defaultHeight)
-
-    // Live size while the user drags the resize handle. We avoid writing through @AppStorage
-    // on every mouseDragged event because each write hits UserDefaults and posts
-    // UserDefaults.didChangeNotification, which wakes up every observer in the app.
-    @State private var liveWidth: CGFloat?
-    @State private var liveHeight: CGFloat?
-    @State private var loadedWorkspaceTitles: [UUID: String]?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header
-            Divider()
-            phoneForwardingEntry
-            Divider()
-            content
-        }
-        .frame(width: clampedWidth, height: clampedHeight)
-        .animation(nil, value: clampedWidth)
-        .animation(nil, value: clampedHeight)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottomTrailing) {
-            resizeHandle
-        }
-        .onAppear { refreshWorkspaceTitles() }
-        .onChange(of: notificationStore.notifications.map(\.tabId)) { _, _ in
-            refreshWorkspaceTitles()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange)) { notification in
-            refreshWorkspaceTitles(ifRelevantTo: notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceGroupNameDidChange)) { notification in
-            refreshWorkspaceTitles(ifRelevantTo: notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .workspaceOrderDidChange)) { notification in
-            refreshWorkspaceTitles(ifRelevantTo: notification)
-        }
-    }
-
-    // Cap against the current screen so the popover (and especially the bottom-right resize
-    // handle) stays reachable on small displays even if saved defaults came from a larger one.
-    private static let screenMargin: CGFloat = 80
-
-    // The popover doesn't take key, so its host (anchor) window remains key. Use that window's
-    // screen so multi-monitor setups clamp against the display where the popover actually
-    // appears, not whatever NSScreen.main happens to point at.
-    private var popoverScreen: NSScreen? {
-        NSApp.keyWindow?.screen ?? NSScreen.main
-    }
-
-    private var screenMaxWidth: CGFloat {
-        let screenWidth = popoverScreen?.visibleFrame.width ?? NotificationsPopoverMetrics.maxWidth
-        return max(NotificationsPopoverMetrics.minWidth, screenWidth - Self.screenMargin)
-    }
-
-    private var screenMaxHeight: CGFloat {
-        let screenHeight = popoverScreen?.visibleFrame.height ?? NotificationsPopoverMetrics.maxHeight
-        return max(NotificationsPopoverMetrics.minHeight, screenHeight - Self.screenMargin)
-    }
-
-    private var clampedWidth: CGFloat {
-        let raw = liveWidth ?? CGFloat(savedWidth)
-        let upper = min(NotificationsPopoverMetrics.maxWidth, screenMaxWidth)
-        return min(upper, max(NotificationsPopoverMetrics.minWidth, raw))
-    }
-
-    private var clampedHeight: CGFloat {
-        let raw = liveHeight ?? CGFloat(savedHeight)
-        let upper = min(NotificationsPopoverMetrics.maxHeight, screenMaxHeight)
-        return min(upper, max(NotificationsPopoverMetrics.minHeight, raw))
-    }
-
-    // Invisible bottom-right corner resize region. NSPopover has no native resize chrome and
-    // there's no first-class SwiftUI resize API for it. SwiftUI's `DragGesture` reports
-    // translations in a local coordinate space that is literally being resized under the
-    // cursor as the user drags, which produces dimension oscillation. We use an AppKit
-    // representable that tracks `NSEvent.mouseLocation` in stable global screen coordinates.
-    private var resizeHandle: some View {
-        ResizeGripperRepresentable(
-            onBegin: {
-                // Always start from the currently displayed (clamped) size so a drag begins
-                // at the visible corner even if stored defaults fall outside the bounds.
-                (clampedWidth, clampedHeight)
-            },
-            onDrag: { startW, startH, dx, dy in
-                let upperW = min(NotificationsPopoverMetrics.maxWidth, screenMaxWidth)
-                let upperH = min(NotificationsPopoverMetrics.maxHeight, screenMaxHeight)
-                let newW = min(upperW, max(NotificationsPopoverMetrics.minWidth, startW + dx))
-                let newH = min(upperH, max(NotificationsPopoverMetrics.minHeight, startH + dy))
-                liveWidth = newW
-                liveHeight = newH
-            },
-            onEnd: {
-                // Persist exactly once on mouseUp instead of hammering UserDefaults during drag.
-                if let w = liveWidth {
-                    savedWidth = Double(w)
-                    liveWidth = nil
-                }
-                if let h = liveHeight {
-                    savedHeight = Double(h)
-                    liveHeight = nil
-                }
-            }
-        )
-        .frame(width: 16, height: 16)
-        .accessibilityLabel(Text(String(localized: "notifications.resize", defaultValue: "Resize notifications")))
-        .accessibilityHint(Text(String(localized: "notifications.resize.hint", defaultValue: "Drag to resize the notifications popover")))
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                .cmuxFont(size: 14, weight: .semibold)
-            if unreadCount > 0 {
-                Text("\(unreadCount)")
-                    .cmuxFont(size: 11, weight: .semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(cmuxAccentColor()))
-            }
-            Spacer()
-            Button(action: jumpToLatestUnread) {
-                HStack(spacing: 5) {
-                    CmuxSystemSymbolImage(systemName: "arrow.down.to.line", pointSize: 10, weight: .semibold)
-                    Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
-                        .cmuxFont(size: 11)
-                    if !jumpToUnreadShortcut.displayString.isEmpty {
-                        Text(jumpToUnreadShortcut.displayString)
-                            .cmuxFont(size: 10.5, weight: .medium)
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(Color.secondary.opacity(0.15))
-                            )
-                            // The button already exposes the shortcut via .accessibilityValue;
-                            // hide this visual chip from VoiceOver so it isn't announced twice.
-                            .accessibilityHidden(true)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-            }
-            .buttonStyle(.plain)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.secondary.opacity(hasUnreadNotifications ? 0.12 : 0.05))
-            )
-            .foregroundColor(hasUnreadNotifications ? .primary : .secondary)
-            .accessibilityIdentifier("notificationsPopover.jumpToLatest")
-            .accessibilityValue(jumpToUnreadShortcut.displayString)
-            .safeHelp(
-                KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
-                    String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest")
-                )
-            )
-            .disabled(!hasUnreadNotifications)
-
-            Button(action: { notificationStore.clearAll() }) {
-                Text(String(localized: "notifications.clearAll", defaultValue: "Clear All"))
-                    .cmuxFont(size: 11)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-            }
-            .buttonStyle(.plain)
-            .background(
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(Color.secondary.opacity(notificationStore.notificationMenuSnapshot.hasNotifications ? 0.12 : 0.05))
-            )
-            .foregroundColor(notificationStore.notificationMenuSnapshot.hasNotifications ? .primary : .secondary)
-            .accessibilityIdentifier("notificationsPopover.clearAll")
-            .disabled(notificationStore.notificationMenuSnapshot.hasNotifications == false)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-    }
-
-    private var phoneForwardingEntry: some View {
-        Button(action: onOpenPhoneForwarding) {
-            HStack(spacing: 8) {
-                CmuxSystemSymbolImage(systemName: "iphone", pointSize: 12, weight: .medium)
-                    .foregroundColor(.secondary)
-                Text(
-                    String(
-                        localized: "notifications.forwardToPhone.title",
-                        defaultValue: "Forward notifications to my iPhone"
-                    )
-                )
-                .cmuxFont(size: 12, weight: .medium)
-                Spacer()
-                CmuxSystemSymbolImage(systemName: "chevron.right", pointSize: 9, weight: .semibold)
-                    .foregroundColor(.secondary)
-            }
-            .contentShape(Rectangle())
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("notificationsPopover.phoneForwarding")
-        .safeHelp(
-            String(
-                localized: "notifications.forwardToPhone.subtitle",
-                defaultValue: "Send local agent notifications to cmux on your iPhone. Enabled by default; turn this off to stop this Mac from forwarding them."
-            )
-        )
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if !notificationStore.notificationMenuSnapshot.hasNotifications {
-            emptyState(
-                systemImage: "bell.slash",
-                title: String(localized: "notifications.empty.title", defaultValue: "No notifications yet"),
-                subtitle: String(localized: "notifications.empty.subtitle", defaultValue: "Desktop notifications will appear here.")
-            )
-        } else if notificationStore.notifications.isEmpty {
-            emptyState(
-                systemImage: "bell.badge",
-                title: notificationStore.notificationMenuSnapshot.stateHintTitle,
-                subtitle: nil
-            )
-        } else {
-            // Snapshot the notifications array as an immutable value before the LazyVStack
-            // so the row closures don't reach back into the ObservableObject. Reading the
-            // store from inside the ForEach builder reintroduces a store dependency below
-            // the list boundary, which is the same anti-pattern CLAUDE.md flags for the
-            // sidebar/sessions panel (https://github.com/manaflow-ai/cmux/issues/2586).
-            let snapshot = notificationStore.notifications
-            let lastIndex = snapshot.count - 1
-            // One tabId -> title index per render, not an O(tabs) scan per row (#5794).
-            let titleSnapshot = loadedWorkspaceTitles ?? currentWorkspaceTitles()
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(Array(snapshot.enumerated()), id: \.element.id) { index, notification in
-                        NotificationPopoverRow(
-                            notification: notification,
-                            workspaceTitle: titleSnapshot[notification.tabId],
-                            onOpen: { open(notification) },
-                            onClear: {
-                                withAnimation(.easeOut(duration: 0.18)) {
-                                    notificationStore.remove(id: notification.id)
-                                }
-                            },
-                            onToggleRead: {
-                                if notification.isRead {
-                                    notificationStore.markUnread(id: notification.id)
-                                } else {
-                                    notificationStore.markRead(id: notification.id)
-                                    // A user-initiated "Mark as Read" on a pane-scoped
-                                    // notification should also clear the pane's focused-read
-                                    // indicator so the pane badge disappears. For
-                                    // workspace-level notifications (surfaceId == nil), do not
-                                    // call clearFocusedReadIndicator — it treats nil as
-                                    // "clear any pane indicator on this tab" and would wipe
-                                    // an unrelated pane badge.
-                                    if let surfaceId = notification.surfaceId {
-                                        notificationStore.clearFocusedReadIndicator(
-                                            forTabId: notification.tabId,
-                                            surfaceId: surfaceId
-                                        )
-                                    }
-                                }
-                            }
-                        )
-                        .equatable()  // snapshot-boundary: skip unchanged rows (#5794)
-                        if index < lastIndex {
-                            Divider()
-                                .opacity(0.4)
-                                .padding(.leading, 18)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func currentWorkspaceTitles() -> [UUID: String] {
-        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
-        return AppDelegate.shared?.tabTitlesByTabId(for: notificationWorkspaceIds) ?? [:]
-    }
-
-    private func refreshWorkspaceTitles(ifRelevantTo notification: Notification? = nil) {
-        let notificationWorkspaceIds = Set(notificationStore.notifications.map(\.tabId))
-        guard let notification else {
-            let nextTitles = currentWorkspaceTitles()
-            guard loadedWorkspaceTitles != nextTitles else { return }
-            loadedWorkspaceTitles = nextTitles
-            return
-        }
-
-        guard let manager = notification.object as? TabManager else { return }
-        let changedWorkspaceIds: Set<UUID>
-        let changedTitles: [UUID: String]
-        switch notification.name {
-        case .workspaceTitleDidChange:
-            guard let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
-            changedWorkspaceIds = [workspaceId]
-            changedTitles = manager.resolvedWorkspaceDisplayTitle(forWorkspaceId: workspaceId)
-                .map { [workspaceId: $0] } ?? [:]
-        case .workspaceGroupNameDidChange:
-            changedTitles = manager.resolvedWorkspaceDisplayTitles(for: notificationWorkspaceIds)
-            changedWorkspaceIds = Set(changedTitles.keys)
-        case .workspaceOrderDidChange:
-            changedWorkspaceIds = Set(
-                notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
-            )
-            changedTitles = manager.resolvedWorkspaceDisplayTitles(for: changedWorkspaceIds)
-        default:
-            return
-        }
-
-        let relevantIds = changedWorkspaceIds.intersection(notificationWorkspaceIds)
-        guard !relevantIds.isEmpty else { return }
-        var nextTitles = loadedWorkspaceTitles ?? currentWorkspaceTitles()
-        for workspaceId in relevantIds {
-            if let title = changedTitles[workspaceId] {
-                nextTitles[workspaceId] = title
-            } else {
-                nextTitles.removeValue(forKey: workspaceId)
-            }
-        }
-        guard loadedWorkspaceTitles != nextTitles else { return }
-        loadedWorkspaceTitles = nextTitles
-    }
-
-    private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
-        VStack(spacing: 10) {
-            CmuxSystemSymbolImage(systemName: systemImage, pointSize: 30, weight: .light)
-                .foregroundColor(.secondary.opacity(0.7))
-            Text(title)
-                .cmuxFont(size: 14, weight: .medium)
-                .foregroundColor(.primary)
-            if let subtitle {
-                Text(subtitle)
-                    .cmuxFont(size: 12)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24)
-    }
-
-
-    private var jumpToUnreadShortcut: StoredShortcut {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
-    }
-
-    private var hasUnreadNotifications: Bool {
-        notificationStore.notificationMenuSnapshot.hasUnreadNotifications
-    }
-
-    private var unreadCount: Int {
-        notificationStore.notificationMenuSnapshot.unreadCount
-    }
-
-    private func jumpToLatestUnread() {
-        DispatchQueue.main.async {
-            AppDelegate.shared?.jumpToLatestUnread()
-            onDismiss()
-        }
-    }
-
-    private func open(_ notification: TerminalNotification) {
-        // SwiftUI action closures are not guaranteed to run on the main actor.
-        // Ensure window focus + tab selection happens on the main thread.
-        DispatchQueue.main.async {
-            _ = AppDelegate.shared?.openTerminalNotification(notification)
-            onDismiss()
-        }
-    }
-}
 
 @MainActor
 final class UpdateTitlebarAccessoryController {
@@ -2714,6 +2406,8 @@ final class UpdateTitlebarAccessoryController {
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
+    /// The rows the detached popover numbered; each controls controller keeps its own.
+    private var detachedNotificationsPopoverRows = NotificationsPopoverDrawnRows()
 
     init(
         updateLog: UpdateLogStore,
@@ -2799,9 +2493,10 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
-                self?.attachIfNeeded(to: window)
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+                self.attachIfNeeded(to: window)
             }
         })
 
@@ -2811,19 +2506,16 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            Task { @MainActor [weak self, weak window] in
-                guard let window else { return }
-                self?.attachIfNeeded(to: window)
+            let windowIdentifier = ObjectIdentifier(window)
+            Task { @MainActor [weak self] in
+                guard let self, let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
+                self.attachIfNeeded(to: window)
             }
         })
 
         // Re-evaluate all windows when the presentation mode changes so that
         // accessories are removed in minimal mode and re-attached in standard mode.
-        observers.append(center.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        observers.append(center.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.reattachIfPresentationModeChanged()
             }
@@ -2851,6 +2543,10 @@ final class UpdateTitlebarAccessoryController {
         for window in NSApp.windows {
             attachIfNeeded(to: window)
         }
+    }
+
+    private func liveWindow(withIdentifier identifier: ObjectIdentifier) -> NSWindow? {
+        NSApp.windows.first { ObjectIdentifier($0) == identifier }
     }
 
     private func scheduleStartupWindowScans() {
@@ -2892,9 +2588,9 @@ final class UpdateTitlebarAccessoryController {
             let attempts = pendingAttachRetries[key, default: 0]
             if attempts < 40 {
                 pendingAttachRetries[key] = attempts + 1
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
-                    Task { @MainActor [weak self, weak window] in
-                        guard let self, let window else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                    Task { @MainActor [weak self] in
+                        guard let self, let window = self.liveWindow(withIdentifier: key) else { return }
                         self.attachIfNeeded(to: window)
                     }
                 }
@@ -2975,8 +2671,10 @@ final class UpdateTitlebarAccessoryController {
 
         attachedWindows.remove(window)
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
-        DispatchQueue.main.async { [weak window] in
-            guard let window else { return }
+        let windowIdentifier = ObjectIdentifier(window)
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let window = self.liveWindow(withIdentifier: windowIdentifier) else { return }
             window.contentView?.needsLayout = true
             window.contentView?.superview?.needsLayout = true
             window.contentView?.layoutSubtreeIfNeeded()
@@ -3067,6 +2765,7 @@ final class UpdateTitlebarAccessoryController {
               let contentView = window.contentView else {
             return
         }
+        let windowIdentifier = ObjectIdentifier(window)
 
         let popover = NSPopover()
         let delegate = DetachedNotificationsPopoverDelegate { [weak self, weak popover] in
@@ -3083,17 +2782,23 @@ final class UpdateTitlebarAccessoryController {
         popover.behavior = .semitransient
         popover.animates = animated
         popover.delegate = delegate
+        let drawnRows = NotificationsPopoverDrawnRows()
+        drawnRows.anchorWindowNumber = window.windowNumber
+        detachedNotificationsPopoverRows = drawnRows
         popover.contentViewController = NSHostingController(
             rootView: NotificationsPopoverView(
                 notificationStore: TerminalNotificationStore.shared,
+                drawnRows: drawnRows,
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
                 },
-                onOpenPhoneForwarding: { [weak popover, weak window] in
+                onOpenPhoneForwarding: { [weak popover] in
                     popover?.performClose(nil)
-                    openPhoneForwardingSettings(in: window)
+                    openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .environment(\.settingsRuntime, settingsRuntime)
+            .cmuxAccentColorEnvironment()
         )
 
         contentView.layoutSubtreeIfNeeded()
@@ -3109,6 +2814,21 @@ final class UpdateTitlebarAccessoryController {
             source: popover,
             windowNumber: window.windowNumber
         )
+    }
+
+    /// The rows the notifications popover shown over the window numbered `windowNumber`
+    /// numbered, in order, or nil when no popover is shown there.
+    func shownNotificationsPopoverRowIds(forWindowNumber windowNumber: Int) -> [UUID]? {
+        if let popover = detachedNotificationsPopover,
+           let ids = detachedNotificationsPopoverRows.idsIfShown(by: popover, forWindowNumber: windowNumber) {
+            return ids
+        }
+        for controller in controlsControllers.allObjects {
+            if let ids = controller.shownNotificationsPopoverRowIds(forWindowNumber: windowNumber) {
+                return ids
+            }
+        }
+        return nil
     }
 
     func isNotificationsPopoverShown() -> Bool {

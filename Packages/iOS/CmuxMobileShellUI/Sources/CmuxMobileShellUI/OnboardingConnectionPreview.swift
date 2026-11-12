@@ -43,7 +43,10 @@ struct OnboardingConnectionPreview: View {
 
     private func deviceIcon(systemImage: String, tint: Color) -> some View {
         Circle()
-            .fill(tint.gradient)
+            // Keep the device nodes quiet while the connection state carries
+            // the meaning. The previous gradients made the card feel louder
+            // than the surrounding onboarding copy.
+            .fill(tint)
             .frame(width: density.previewDeviceSize, height: density.previewDeviceSize)
             .overlay {
                 Image(systemName: systemImage)
@@ -93,16 +96,13 @@ struct OnboardingConnectionPreview: View {
             .foregroundStyle(.secondary)
             .accessibilityIdentifier("MobileOnboardingConnectionIdle")
         case .searching:
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(L10n.string(
+            ProgressView()
+                .controlSize(.small)
+                .tint(.secondary)
+                .accessibilityLabel(L10n.string(
                     "mobile.onboarding.connect.searching",
                     defaultValue: "Looking for your Mac…"
                 ))
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
             .accessibilityIdentifier("MobileOnboardingConnectionSearching")
         case .fallback:
             Label(

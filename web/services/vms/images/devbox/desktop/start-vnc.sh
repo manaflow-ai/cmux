@@ -8,7 +8,7 @@
 #     owner's private network; a VNC password would be a second prompt
 #     noVNC's autoconnect cannot answer).
 #   - noVNC web client via websockify on 6901, at `/`.
-# It runs as the work user `ubuntu` with HOME=/home/ubuntu and DISPLAY=:1
+# It runs as the work user `cmux` with HOME=/home/cmux and DISPLAY=:1
 # (cmux-desktop-boot under the cmux-desktop systemd unit on Freestyle, or
 # under cmux-devbox-boot in a container; a driver heal runs exactly the same
 # invocation), so the desktop session is the same account terminals and SSH
@@ -188,9 +188,9 @@ if ! mine -f cmux-desktop-resize-watch; then
   ' cmux-desktop-resize-watch >>"$LOG_DIR/resize-watch.log" 2>&1 &
 fi
 
-# noVNC web client + websocket proxy on 6901 (the app's desktop port).
+# noVNC uses a dual-stack listener so either private address can reach the desktop.
 if ! listening 6901; then
-  websockify --web /usr/share/novnc --heartbeat 30 0.0.0.0:6901 127.0.0.1:5901 \
+  websockify --web /usr/share/novnc --heartbeat 30 '[::]:6901' 127.0.0.1:5901 \
     >>"$LOG_DIR/websockify.log" 2>&1 &
 fi
 

@@ -38,6 +38,16 @@ final class TerminalArrowNubView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isAccessibilityElement = true
+        accessibilityIdentifier = "terminal.inputAccessory.arrowPad"
+        accessibilityLabel = String(
+            localized: "mobile.terminal.arrowPad.label",
+            defaultValue: "Arrow pad"
+        )
+        accessibilityHint = String(
+            localized: "mobile.terminal.arrowPad.hint",
+            defaultValue: "Drag in a direction to send arrow keys."
+        )
         if #available(iOS 26.0, *) {
             // Liquid Glass circle under the pad, constraint-pinned to the
             // nub's edges — the docked bar fixes the nub at nubSize², so

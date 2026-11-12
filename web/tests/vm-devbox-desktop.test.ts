@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { runChild } from "./helpers/run-child";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   DEVBOX_DESKTOP_FILES,
@@ -45,6 +46,47 @@ const freestyleBake = readFileSync(path.join(import.meta.dirname, "../scripts/bu
 const verify = readFileSync(path.join(import.meta.dirname, "../scripts/verify-devbox-image.ts"), "utf8");
 const driver = readFileSync(path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"), "utf8");
 
+/** Runs start-vnc.sh with stub binaries and returns the arguments websockify received. */
+async function launchedWebsockifyArguments(): Promise<string[]> {
+  const root = mkdtempSync(path.join(tmpdir(), "cmux-desktop-launch-"));
+  const bin = path.join(root, "bin");
+  mkdirSync(bin);
+  try {
+    // Existing desktop processes are healthy. Only noVNC needs starting;
+    // record that executable's argv on a pipe instead of opening a listener.
+    const commands: Record<string, string> = {
+      Xvnc: "exit 0",
+      ss: "printf 'LISTEN 127.0.0.1:5901 \\n'",
+      pgrep: "exit 0",
+      feh: "exit 0",
+      xsetroot: "exit 0",
+      websockify: 'printf "%s\\n" "$@" >&3',
+    };
+    for (const [name, command] of Object.entries(commands)) {
+      writeFileSync(path.join(bin, name), `#!/bin/sh\n${command}\n`, { mode: 0o755 });
+    }
+    const result = await runChild("bash", [
+      "-c", 'exec 3>&1; trap wait EXIT; . "$1"', "--",
+      path.join(devboxDesktopDir, "start-vnc.sh"),
+    ], {
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        HOME: root,
+        CMUX_DESKTOP_RUNTIME_DIR: path.join(root, "absent-runtime"),
+        DBUS_SESSION_BUS_PID: String(process.pid),
+        DBUS_SESSION_BUS_ADDRESS: "test-session",
+        NOTIFY_SOCKET: "",
+      },
+      timeout: 5_000,
+    });
+    expect({ status: result.status, stderr: result.stderr }).toEqual({ status: 0, stderr: "" });
+    return result.stdout.trim().split("\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 describe("devbox desktop contract (services/vms/images/desktop.ts)", () => {
   test("the values shipped clients hardcode", () => {
     // CmuxTuiSnapshotParser.desktopPort / CLI cloudVMDesktopPort open 6901;
@@ -52,8 +94,8 @@ describe("devbox desktop contract (services/vms/images/desktop.ts)", () => {
     expect(DEVBOX_DESKTOP_NOVNC_PORT).toBe(6901);
     expect(DEVBOX_DESKTOP_RFB_PORT).toBe(5901);
     expect(DEVBOX_DESKTOP_DISPLAY).toBe(":1");
-    expect(DEVBOX_DESKTOP_USER).toBe("ubuntu");
-    expect(DEVBOX_DESKTOP_HOME).toBe("/home/ubuntu");
+    expect(DEVBOX_DESKTOP_USER).toBe("cmux");
+    expect(DEVBOX_DESKTOP_HOME).toBe("/home/cmux");
     expect(DEVBOX_DESKTOP_UNIT).toBe("cmux-desktop");
     expect(DEVBOX_DESKTOP_RUNTIME_DIR).toBe("/run/cmux-desktop");
     expect(DEVBOX_DESKTOP_ENV_FILE).toBe("/run/cmux-desktop/env");
@@ -76,10 +118,10 @@ describe("devbox desktop layer", () => {
     expect(readdirSync(devboxDesktopDir).sort()).toEqual([...DEVBOX_DESKTOP_FILES].sort());
   });
 
-  test("every shell file parses", () => {
-    expect(spawnSync("bash", ["-n", path.join(devboxDesktopDir, "start-vnc.sh")]).status).toBe(0);
-    expect(spawnSync("sh", ["-n", path.join(devboxDesktopDir, "cmux-desktop-boot")]).status).toBe(0);
-    expect(spawnSync("sh", ["-n", path.join(devboxDesktopDir, "desktop-env.sh")]).status).toBe(0);
+  test("every shell file parses", async () => {
+    expect((await runChild("bash", ["-n", path.join(devboxDesktopDir, "start-vnc.sh")])).status).toBe(0);
+    expect((await runChild("sh", ["-n", path.join(devboxDesktopDir, "cmux-desktop-boot")])).status).toBe(0);
+    expect((await runChild("sh", ["-n", path.join(devboxDesktopDir, "desktop-env.sh")])).status).toBe(0);
   });
 
   test("one install map: every desktop file lands where the Dockerfile COPYs it, in both bakes and the verifier", () => {
@@ -137,12 +179,15 @@ describe("devbox desktop layer", () => {
     expect(freestyleBake).toContain("echo '${devboxGhosttyDebSha256()}  /tmp/ghostty.deb' | sha256sum -c - && apt-get update -q && apt-get install -y --no-install-recommends /tmp/ghostty.deb");
   });
 
-  test("keeps the desktop port contract: RFB 5901 loopback-only, noVNC on 6901", () => {
+  test("keeps the desktop port contract: RFB 5901 loopback-only, noVNC on 6901", async () => {
     expect(startVnc).toContain(`-rfbport ${DEVBOX_DESKTOP_RFB_PORT}`);
     expect(startVnc).toContain("-SecurityTypes None");
     expect(startVnc).toContain("-localhost");
     // The app's desktop port: the noVNC web client must answer on 6901.
-    expect(startVnc).toContain(`websockify --web /usr/share/novnc --heartbeat 30 0.0.0.0:${DEVBOX_DESKTOP_NOVNC_PORT} 127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}`);
+    expect(await launchedWebsockifyArguments()).toEqual([
+      "--web", "/usr/share/novnc", "--heartbeat", "30",
+      `[::]:${DEVBOX_DESKTOP_NOVNC_PORT}`, `127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}`,
+    ]);
     expect(dockerfile).toContain("ln -s vnc.html /usr/share/novnc/index.html");
     expect(freestyleBake).toContain("ln -s vnc.html /usr/share/novnc/index.html");
     // The verifier proves both ports from inside the VM (/proc/net/tcp, hex
@@ -202,7 +247,10 @@ describe("devbox desktop layer", () => {
     expect(devboxBoot).toContain("[ -d /run/systemd/system ] && return 0");
     expect(devboxBoot).toContain("desktop_user=$(getent passwd 1000 | cut -d: -f1)");
     expect(devboxBoot).toContain('runuser -u "$desktop_user" -- env HOME="$desktop_home" USER="$desktop_user" DISPLAY="$DESKTOP_DISPLAY"');
-    expect(devboxBoot).toContain("start_desktop\n  if [ -x \"$BIN\" ]");
+    // The desktop is started at the top of every supervisor tick, before the
+    // daemon branch, so one never gates the other.
+    expect(devboxBoot).toContain('start_desktop\n  # A driver can install the binary after boot');
+    expect(devboxBoot).toContain('[ -x "$BIN" ] || cmux_tui_layout\n  if [ -x "$BIN" ]');
     expect(freestyleBake).toContain('[ "$(pgrep -u ${WORK_USER} -f ${DEVBOX_DESKTOP_SUPERVISOR} | wc -l)" = 1 ]');
     expect(verify).toContain("single-desktop-supervisor");
     // The Dockerfile proves the container path at build time through the

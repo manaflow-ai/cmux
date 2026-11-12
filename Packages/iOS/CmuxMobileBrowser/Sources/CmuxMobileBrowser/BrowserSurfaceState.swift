@@ -79,6 +79,11 @@ public final class BrowserSurfaceState: Identifiable {
     /// `nil` when the last navigation succeeded or none has occurred.
     public var lastErrorMessage: String?
 
+    /// The address that failed to open before any page from it showed, so
+    /// the pane can offer to try it again. `nil` when the failure left a
+    /// page on screen or nothing failed.
+    public var failedURL: URL?
+
     /// A pending URL the representable should load, set by ``load(_:)``. The
     /// view consumes it via ``consumeLoadRequest()`` and clears it so the same
     /// request is not replayed on re-render.
@@ -88,6 +93,11 @@ public final class BrowserSurfaceState: Identifiable {
     /// the `WKWebView` (back, forward, reload, stop). The view consumes it via
     /// ``consumeCommand()`` and clears it so the same command runs once.
     public private(set) var pendingCommand: NavigationCommand?
+
+    /// The streamed browser tab this browser was switched from ("On
+    /// iPhone"), so switching back returns to it. `nil` for a browser
+    /// opened with New Browser.
+    public var linkedStreamPanelID: String?
 
     /// Creates a browser surface state.
     ///
@@ -106,6 +116,7 @@ public final class BrowserSurfaceState: Identifiable {
         self.canGoBack = false
         self.canGoForward = false
         self.lastErrorMessage = nil
+        self.failedURL = nil
         self.loadRequest = initialURL
     }
 
@@ -117,6 +128,7 @@ public final class BrowserSurfaceState: Identifiable {
         loadRequest = url
         addressText = url.absoluteString
         lastErrorMessage = nil
+        failedURL = nil
     }
 
     /// Resolve and load whatever is currently in the address bar, returning
@@ -174,6 +186,7 @@ public final class BrowserSurfaceState: Identifiable {
         isLoading = true
         estimatedProgress = 0
         lastErrorMessage = nil
+        failedURL = nil
     }
 
     /// Mark a successful navigation finish: loading ends and progress completes.
@@ -184,10 +197,13 @@ public final class BrowserSurfaceState: Identifiable {
 
     /// Mark a navigation failure with a user-facing message.
     ///
-    /// - Parameter message: The error description to surface in the chrome.
-    public func navigationDidFail(message: String) {
+    /// - Parameters:
+    ///   - message: The error description to surface in the pane.
+    ///   - url: The address that failed before any of it showed, if so.
+    public func navigationDidFail(message: String, url: URL? = nil) {
         isLoading = false
         estimatedProgress = 0
         lastErrorMessage = message
+        failedURL = url
     }
 }

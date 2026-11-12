@@ -150,6 +150,43 @@ struct WindowTerminalHostViewTitlebarHitTests {
         )
     }
 
+    @Test func terminalCursorRectLeavesMainWindowResizeBorderAvailable() throws {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView, "Expected window content view")
+        let terminal = CursorRectRecordingGhosttyNSView(frame: contentView.bounds)
+        terminal.autoresizingMask = [.width, .height]
+        contentView.addSubview(terminal)
+
+        terminal.resetCursorRects()
+        let claimedRect = try #require(
+            terminal.recordedCursorRects.max { lhs, rhs in
+                lhs.width * lhs.height < rhs.width * rhs.height
+            },
+            "Expected GhosttyNSView to claim a cursor rect"
+        )
+
+        let windowFrame = window.frame
+        let terminalFrame = window.convertToScreen(terminal.convert(terminal.bounds, to: nil))
+        let claimedFrame = window.convertToScreen(terminal.convert(claimedRect, to: nil))
+        let edgeTolerance: CGFloat = 1
+
+        #expect(abs(terminalFrame.minX - windowFrame.minX) < edgeTolerance)
+        #expect(abs(terminalFrame.maxX - windowFrame.maxX) < edgeTolerance)
+        #expect(abs(terminalFrame.minY - windowFrame.minY) < edgeTolerance)
+        #expect(abs(terminalFrame.maxY - windowFrame.maxY) < edgeTolerance)
+        #expect(claimedFrame.minX > windowFrame.minX + edgeTolerance)
+        #expect(claimedFrame.maxX < windowFrame.maxX - edgeTolerance)
+        #expect(claimedFrame.minY > windowFrame.minY + edgeTolerance)
+        #expect(claimedFrame.maxY < windowFrame.maxY - edgeTolerance)
+    }
+
     private func makeHostedTerminalView(frame: NSRect) -> GhosttySurfaceScrollView {
         let surfaceView = GhosttyNSView(frame: frame)
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
@@ -186,5 +223,13 @@ struct WindowTerminalHostViewTitlebarHitTests {
             return
         }
         #expect(hitView === hostedView || hitView.isDescendant(of: hostedView), Comment(rawValue: message))
+    }
+}
+
+private final class CursorRectRecordingGhosttyNSView: GhosttyNSView {
+    var recordedCursorRects: [NSRect] = []
+
+    override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
+        recordedCursorRects.append(rect)
     }
 }

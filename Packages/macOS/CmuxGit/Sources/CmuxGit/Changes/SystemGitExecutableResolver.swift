@@ -5,7 +5,7 @@ import Foundation
 /// A repository may have been created by a newer Git installed by a package
 /// manager while the system Git is older. The caller can try the returned
 /// candidates in order and keep the first command that succeeds.
-nonisolated struct SystemGitExecutableResolver: Sendable {
+struct SystemGitExecutableResolver: Sendable {
     private static let maximumCandidateCount = 8
     /// Keeps PATH discovery bounded while leaving room for both system fallbacks.
     private static let maximumReferenceCandidateCount = 64

@@ -3,6 +3,7 @@
 
 import Foundation
 import NetworkExtension
+import WireGuardTunnelDevice
 
 #if SWIFT_PACKAGE
 import WireGuardKitGo
@@ -56,39 +57,6 @@ public class WireGuardAdapter {
     /// Adapter state.
     private var state: State = .stopped
 
-    /// Tunnel device file descriptor.
-    private var tunnelFileDescriptor: Int32? {
-        var ctlInfo = ctl_info()
-        withUnsafeMutablePointer(to: &ctlInfo.ctl_name) {
-            $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: $0.pointee)) {
-                _ = strcpy($0, "com.apple.net.utun_control")
-            }
-        }
-        for fd: Int32 in 0...1024 {
-            var addr = sockaddr_ctl()
-            var ret: Int32 = -1
-            var len = socklen_t(MemoryLayout.size(ofValue: addr))
-            withUnsafeMutablePointer(to: &addr) {
-                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                    ret = getpeername(fd, $0, &len)
-                }
-            }
-            if ret != 0 || addr.sc_family != AF_SYSTEM {
-                continue
-            }
-            if ctlInfo.ctl_id == 0 {
-                ret = ioctl(fd, CTLIOCGINFO, &ctlInfo)
-                if ret != 0 {
-                    continue
-                }
-            }
-            if addr.sc_id == ctlInfo.ctl_id {
-                return fd
-            }
-        }
-        return nil
-    }
-
     /// Returns a WireGuard version.
     class var backendVersion: String {
         guard let ver = wgVersion() else { return "unknown" }
@@ -100,27 +68,7 @@ public class WireGuardAdapter {
     /// Returns the tunnel device interface name, or nil on error.
     /// - Returns: String.
     public var interfaceName: String? {
-        guard let tunnelFileDescriptor = self.tunnelFileDescriptor else { return nil }
-
-        var buffer = [UInt8](repeating: 0, count: Int(IFNAMSIZ))
-
-        return buffer.withUnsafeMutableBufferPointer { mutableBufferPointer in
-            guard let baseAddress = mutableBufferPointer.baseAddress else { return nil }
-
-            var ifnameSize = socklen_t(IFNAMSIZ)
-            let result = getsockopt(
-                tunnelFileDescriptor,
-                2 /* SYSPROTO_CONTROL */,
-                2 /* UTUN_OPT_IFNAME */,
-                baseAddress,
-                &ifnameSize)
-
-            if result == 0 {
-                return String(cString: baseAddress)
-            } else {
-                return nil
-            }
-        }
+        TunnelFileDescriptor.find()?.interfaceName
     }
 
     // MARK: - Initialization
@@ -195,7 +143,7 @@ public class WireGuardAdapter {
                 self.logEndpointResolutionResults(resolutionResults)
 
                 self.state = .started(
-                    try self.startWireGuardBackend(wgConfig: wgConfig),
+                    try self.startWireGuardBackend(wgConfig: wgConfig, settingsGenerator: settingsGenerator),
                     settingsGenerator
                 )
                 self.networkMonitor = networkMonitor
@@ -368,12 +316,13 @@ public class WireGuardAdapter {
     /// - Parameter wgConfig: WireGuard configuration
     /// - Throws: an error of type `WireGuardAdapterError`
     /// - Returns: tunnel handle
-    private func startWireGuardBackend(wgConfig: String) throws -> Int32 {
-        guard let tunnelFileDescriptor = self.tunnelFileDescriptor else {
+    private func startWireGuardBackend(wgConfig: String, settingsGenerator: PacketTunnelSettingsGenerator) throws -> Int32 {
+        let expected = Set(settingsGenerator.tunnelConfiguration.interface.addresses.map { $0.address.rawValue })
+        guard let device = TunnelFileDescriptor.find(matching: expected) else {
             throw WireGuardAdapterError.cannotLocateTunnelFileDescriptor
         }
 
-        let handle = wgTurnOn(wgConfig, tunnelFileDescriptor)
+        let handle = wgTurnOn(wgConfig, device.descriptor)
         if handle < 0 {
             throw WireGuardAdapterError.startWireGuardBackend(handle)
         }
@@ -449,7 +398,7 @@ public class WireGuardAdapter {
                 self.logEndpointResolutionResults(resolutionResults)
 
                 self.state = .started(
-                    try self.startWireGuardBackend(wgConfig: wgConfig),
+                    try self.startWireGuardBackend(wgConfig: wgConfig, settingsGenerator: settingsGenerator),
                     settingsGenerator
                 )
             } catch {

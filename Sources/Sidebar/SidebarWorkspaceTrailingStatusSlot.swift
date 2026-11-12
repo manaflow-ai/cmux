@@ -39,13 +39,14 @@ struct SidebarWorkspaceTrailingStatusSlot: View {
             }
             if canCloseWorkspace {
                 Button(action: closeAction) {
-                    CmuxSystemSymbolImage(magnified: "xmark", pointSize: closeButtonFontSize, weight: .medium)
-                        .foregroundColor(closeButtonColor)
+                    CmuxSystemSymbolImage(magnified: "xmark", pointSize: closeButtonFontSize, weight: .medium, tint: closeButtonColor)
                         .frame(width: width, height: height, alignment: .center)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .safeHelp(closeButtonTooltip)
+                .accessibilityLabel(closeButtonTooltip)
+                .accessibilityIdentifier("sidebarWorkspaceCloseButton")
                 .opacity(showsCloseButton ? 1 : 0)
                 .allowsHitTesting(showsCloseButton)
                 .accessibilityHidden(!showsCloseButton)

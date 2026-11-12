@@ -4,8 +4,9 @@ public import Foundation
 /// The membership relation lives on `Workspace.groupId`; this struct stores
 /// the group's identity, display name, collapse/pin state, and the stable
 /// header anchor identity.
-/// A newly-created group starts with a live workspace anchor. Closing that
-/// anchor promotes the first remaining member in `tabs` order. A pinned group
+/// A group created from members uses the first member as its live anchor. An
+/// empty group starts with a generated live anchor. Closing that anchor
+/// promotes the first remaining member in `tabs` order. A pinned group
 /// with no remaining members transitions to an empty anchor and keeps its
 /// header until an explicit Delete Group action removes it. The anchor is
 /// rendered implicitly as the group header (there is no separate workspace

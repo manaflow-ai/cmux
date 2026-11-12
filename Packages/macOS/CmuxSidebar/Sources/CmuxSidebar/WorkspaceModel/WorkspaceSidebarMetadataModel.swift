@@ -61,10 +61,74 @@ public final class WorkspaceSidebarMetadataModel {
         didSet { panelGitBranchesSubject.send(panelGitBranches) }
     }
 
+    /// Per-panel prompt state keyed by panel id. Lets a workspace report which
+    /// of its surfaces last received a prompt, rather than only the newest one
+    /// across the whole workspace.
+    public var panelPrompts: [UUID: SidebarPanelPromptState] = [:] {
+        didSet { panelPromptsSubject.send(panelPrompts) }
+    }
+
     /// The workspace-level pull-request state shown in the sidebar (legacy
     /// `Workspace.pullRequest`).
     public var pullRequest: SidebarPullRequestState? {
         didSet { pullRequestSubject.send(pullRequest) }
+    }
+
+    /// A pull request explicitly attached by a CLI handoff. This value is
+    /// independent of watcher-owned panel state so branch refreshes cannot
+    /// erase a deliberate script-to-sidebar association.
+    public var manualPullRequest: SidebarPullRequestState? {
+        get { manualPullRequestStore.state }
+        set { updateManualPullRequest { $0.replace(newValue) } }
+    }
+
+    /// Applies an explicit CLI handoff and emits the existing sidebar snapshot
+    /// pulse only when the value actually changes.
+    @discardableResult
+    public func attachManualPullRequest(
+        number: Int,
+        label: String,
+        url: URL,
+        status: SidebarPullRequestStatus,
+        branch: String?
+    ) -> Bool {
+        updateManualPullRequest {
+            $0.attach(
+                number: number,
+                label: label,
+                url: url,
+                status: status,
+                branch: branch
+            )
+        }
+    }
+
+    /// Reconciles a matching watcher result with the explicit CLI state.
+    @discardableResult
+    public func reconcileManualPullRequest(with watcherState: SidebarPullRequestState) -> Bool {
+        updateManualPullRequest { $0.reconcile(with: watcherState) }
+    }
+
+    /// Clears the explicit CLI association and emits the existing sidebar
+    /// snapshot pulse when it was present.
+    @discardableResult
+    public func clearManualPullRequest() -> Bool {
+        updateManualPullRequest { $0.clear() }
+    }
+
+    /// Runs one store transition on a copy and writes it back only when it
+    /// changed, so Observation (the Todo pane's inferred status) and the
+    /// sidebar snapshot pulse fire for real changes and not for every
+    /// watcher poll that reconciles to the same value.
+    @discardableResult
+    private func updateManualPullRequest(
+        _ transition: (inout SidebarManualPullRequestStore) -> Bool
+    ) -> Bool {
+        var store = manualPullRequestStore
+        guard transition(&store) else { return false }
+        manualPullRequestStore = store
+        statusEntriesSubject.send(statusEntries)
+        return true
     }
 
     /// Per-panel pull-request state keyed by panel id (legacy
@@ -79,6 +143,13 @@ public final class WorkspaceSidebarMetadataModel {
     /// filesystem path owned by `Workspace.panelDirectories`.
     public var panelDirectoryDisplayLabels: [UUID: String] = [:] {
         didSet { panelDirectoryDisplayLabelsSubject.send(panelDirectoryDisplayLabels) }
+    }
+
+    /// Coding-agent usage keyed by the agent's sidebar status key
+    /// (`claude_code`, `codex`). Rendered next to the matching status entry
+    /// only while `sidebar.showAgentUsage` is on.
+    public var agentUsageByStatusKey: [String: SidebarAgentUsage] = [:] {
+        didSet { agentUsageSubject.send(agentUsageByStatusKey) }
     }
 
     @ObservationIgnored
@@ -97,11 +168,16 @@ public final class WorkspaceSidebarMetadataModel {
     @ObservationIgnored
     private lazy var panelGitBranchesSubject = CurrentValueSubject<[UUID: SidebarGitBranchState], Never>(panelGitBranches)
     @ObservationIgnored
+    private lazy var panelPromptsSubject = CurrentValueSubject<[UUID: SidebarPanelPromptState], Never>(panelPrompts)
+    @ObservationIgnored
     private lazy var pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(pullRequest)
     @ObservationIgnored
     private lazy var panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>(panelPullRequests)
     @ObservationIgnored
+    private lazy var agentUsageSubject = CurrentValueSubject<[String: SidebarAgentUsage], Never>(agentUsageByStatusKey)
+    @ObservationIgnored
     private lazy var panelDirectoryDisplayLabelsSubject = CurrentValueSubject<[UUID: String], Never>(panelDirectoryDisplayLabels)
+    private var manualPullRequestStore = SidebarManualPullRequestStore()
 
     /// Creates an empty sidebar-metadata model.
     /// - Parameter limitProvider: Supplies the configured maximum number of log
@@ -147,6 +223,12 @@ public final class WorkspaceSidebarMetadataModel {
         panelGitBranchesSubject.eraseToAnyPublisher()
     }
 
+    /// Emits the current per-panel prompt state on subscription, then on every
+    /// change.
+    public var panelPromptsPublisher: AnyPublisher<[UUID: SidebarPanelPromptState], Never> {
+        panelPromptsSubject.eraseToAnyPublisher()
+    }
+
     /// Emits the current workspace pull-request state on subscription, then on
     /// every change (replaces the legacy `Workspace.$pullRequest`).
     public var pullRequestPublisher: AnyPublisher<SidebarPullRequestState?, Never> {
@@ -165,6 +247,20 @@ public final class WorkspaceSidebarMetadataModel {
     /// workspace-wide invalidation).
     public var panelDirectoryDisplayLabelsPublisher: AnyPublisher<[UUID: String], Never> {
         panelDirectoryDisplayLabelsSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current agent usage on subscription, then on every change.
+    public var agentUsagePublisher: AnyPublisher<[String: SidebarAgentUsage], Never> {
+        agentUsageSubject.eraseToAnyPublisher()
+    }
+
+    /// Sets or clears the usage shown next to one agent status entry.
+    /// - Parameters:
+    ///   - usage: The new usage, or `nil` to clear it.
+    ///   - statusKey: The agent's sidebar status key.
+    public func updateAgentUsage(_ usage: SidebarAgentUsage?, forStatusKey statusKey: String) {
+        guard agentUsageByStatusKey[statusKey] != usage else { return }
+        agentUsageByStatusKey[statusKey] = usage
     }
 
     /// Emits a sidebar observation pulse without mutating metadata.

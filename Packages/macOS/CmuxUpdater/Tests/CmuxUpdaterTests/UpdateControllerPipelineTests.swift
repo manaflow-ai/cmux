@@ -486,4 +486,50 @@ import Testing
         }
         #expect(laterPrompt.choice == nil)
     }
+
+    /// A found-update callback can arrive while the minimum checking display delay is pending.
+    /// Cancelling that still-visible checking state must answer the buffered Sparkle prompt before
+    /// the transition is discarded, so the finished cycle permits a retry.
+    @Test func cancellingDelayedUpdateFoundDismissesPromptAndAllowsRetry() async {
+        let harness = Harness()
+        let prompt = PromptReplyChoiceBox()
+
+        harness.controller.checkForUpdates()
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {
+            harness.updater.sessionInProgress = false
+        })
+        let item = SUAppcastItem(dictionary: [
+            "title": "cmux 0.64.17",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": [
+                "url": "https://example.com/cmux.zip",
+                "length": "1024",
+                "sparkle:version": "0.64.17",
+                "sparkle:shortVersionString": "0.64.17",
+            ],
+        ])!
+
+        // Sparkle owns this state, but UpdateDriver only needs the appcast item and reply here.
+        let sparkleState = unsafeBitCast(NSNull(), to: SPUUserUpdateState.self)
+        harness.controller.driver.showUpdateFound(
+            with: item,
+            state: sparkleState,
+            reply: { choice in
+                MainActor.assumeIsolated { prompt.append(choice) }
+            }
+        )
+        guard case .checking(let checking) = harness.model.state else {
+            Issue.record("found update should remain behind the minimum checking delay")
+            return
+        }
+
+        checking.cancel()
+        checking.cancel()
+        #expect(prompt.choices == [.dismiss], "the buffered Sparkle reply must be consumed once")
+
+        harness.finishSparkleCycle()
+        harness.controller.checkForUpdates()
+        await waitUntil("replacement check to start") { harness.updater.checkForUpdatesCallCount == 2 }
+        #expect(harness.updater.sessionInProgress)
+    }
 }

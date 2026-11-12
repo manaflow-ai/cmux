@@ -3,6 +3,16 @@ import Foundation
 import Testing
 @testable import CmuxMobileRPC
 
+/// Named rather than resolved. `CmxPairingURLSchemeResolver` reads
+/// `Bundle.main`, which in an xctest process is the test runner and not a cmux
+/// build, so `encodedURL()` throws `invalidURL` whenever this target runs in an
+/// iOS Simulator without a host app. This is the untagged development scheme,
+/// the same value the host fallback produced.
+private let pairingScheme = CmxPairingURLScheme(
+    rawValue: "cmux-ios-dev.cmux.ios"
+)
+
+
 /// URL-level coverage for ``CmxAttachTicketInput`` across the two attach
 /// payload grammars: the compact short-key form newer Macs put in the
 /// pairing QR, and the legacy full-key form older Macs and stored fixtures
@@ -164,7 +174,7 @@ import Testing
         // payload blob) routes through the same input decoder as everything
         // else the scanner or a deep link can hand us.
         let decoded = try CmxAttachTicketInput.decode(
-            "cmux-ios://attach?v=2&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=lawrences-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
+            "cmux-ios://attach?v=2&ub=user_mac_123&pc=1&av=0.64.15&ab=42&r=my-mac.tail1234.ts.net:58465&r=100.64.0.5:58465"
         )
         #expect(decoded.workspaceID == "")
         #expect(decoded.macDeviceID == "")
@@ -202,7 +212,10 @@ import Testing
             expiresAt: Date(timeIntervalSince1970: 4_000_000_000),
             transport: .tailscale
         )
-        let decoded = try CmxAttachTicketInput.decode(payload.encodedURL().absoluteString)
+        let decoded = try CmxAttachTicketInput.decode(
+            payload.encodedURL(pairingURLScheme: pairingScheme)
+                .absoluteString
+        )
 
         #expect(decoded.macPairingCompatibilityVersion == 0)
     }

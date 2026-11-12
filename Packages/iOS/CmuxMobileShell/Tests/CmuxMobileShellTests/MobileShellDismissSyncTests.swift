@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -92,7 +93,11 @@ import UserNotifications
     @Test func dismissRoutesToOwningSecondaryMac() async throws {
         let foregroundRouter = RoutingHostRouter()
         let secondaryRouter = RoutingHostRouter()
-        let store = try await makeRoutingConnectedStore(router: foregroundRouter)
+        let store = try await makeRoutingConnectedStore(
+            router: foregroundRouter,
+            pairedMacStore: legacySecondaryPairingStore()
+        )
+        await store.loadPairedMacs()
         try installSecondaryClient(on: store, macDeviceID: "mac-secondary", router: secondaryRouter)
 
         await store.dismissNotification(ids: [" n-secondary "], macDeviceID: "mac-secondary")
@@ -142,8 +147,10 @@ import UserNotifications
         )
         let store = try await makeRoutingConnectedStore(
             router: foregroundRouter,
-            pendingDismissQueue: queue
+            pendingDismissQueue: queue,
+            pairedMacStore: legacySecondaryPairingStore()
         )
+        await store.loadPairedMacs()
         queue.enqueue([
             PendingNotificationDismiss(
                 id: "n-secondary",
@@ -319,4 +326,20 @@ import UserNotifications
 
         #expect(event?.unreadCount == 12)
     }
+    // Device-only dismissals require exactly one remembered, untagged owner.
+    private func legacySecondaryPairingStore() -> DelayedTeamPairedMacStore {
+        DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [MobilePairedMac(
+                macDeviceID: "mac-secondary",
+                displayName: "Secondary Mac",
+                routes: [],
+                createdAt: Date(),
+                lastSeenAt: Date(),
+                isActive: false,
+                stackUserID: "routing-user"
+            )]],
+            blockedTeams: []
+        )
+    }
+
 }

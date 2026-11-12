@@ -1,14 +1,18 @@
 import Foundation
 
+// The shell's own stderr goes to /dev/null and the command gets the original
+// on fd 4: /bin/sh is bash, which reports the killed watchdog ("line 7: …
+// Killed: 9") on the shell's stderr whenever it reaps it, and that line would
+// land in the command's captured output.
 private let simulatorParentLifetimeSupervisorScript = #"""
-    exec 3<&0
-    (IFS= read -r _ <&3 || kill -KILL 0) &
+    exec 3<&0 4>&2 2>/dev/null
+    (IFS= read -r _ <&3 || kill -KILL 0) 4>&- &
     watchdog=$!
     exec 3<&-
-    "$@" </dev/null
+    "$@" </dev/null 2>&4 4>&-
     status=$?
-    kill -KILL "$watchdog" 2>/dev/null
-    wait "$watchdog" 2>/dev/null
+    kill -KILL "$watchdog"
+    wait "$watchdog"
     exit "$status"
     """#
 

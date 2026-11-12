@@ -184,7 +184,10 @@ import Testing
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
         #expect(!message.localizedCaseInsensitiveContains("security software"))
         #expect(message.localizedCaseInsensitiveContains("Applications"))
-        #expect(UpdateManualDownloadRecovery().url(for: err)?.absoluteString.hasSuffix("cmux-macos.dmg") == true)
+        #expect(UpdateManualDownloadRecovery(hostArchitecture: .arm64).url(for: err)?.absoluteString
+            == "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos-arm64.dmg")
+        #expect(UpdateManualDownloadRecovery(hostArchitecture: .x86_64).url(for: err)?.absoluteString
+            == "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos-x86_64.dmg")
     }
 
     @Test func agentInvalidationErrorIsTreatedAsAgentFailure() {

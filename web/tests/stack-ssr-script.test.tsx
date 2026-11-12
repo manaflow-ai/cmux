@@ -17,7 +17,7 @@ mock.module("next/navigation", () => ({
 
 const ssrLayoutEffectPath = fileURLToPath(
   new URL(
-    "../node_modules/@stackframe/stack/dist/esm/components/elements/ssr-layout-effect.js",
+    "../node_modules/@hexclave/next/dist/esm/components/elements/ssr-layout-effect.js",
     import.meta.url,
   ),
 );

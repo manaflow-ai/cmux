@@ -55,6 +55,31 @@ struct WorkspaceCustomizationStoreTests {
         )
     }
 
+    @Test("title provenance survives color writes and reloads")
+    func titleProvenanceSurvivesColorWritesAndReloads() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let stableId = UUID()
+        fixture.store.setCustomTitle("User", for: stableId)
+        fixture.store.setCustomTitle(nil, for: stableId)
+        fixture.store.setCustomTitle("Auto", source: .auto, for: stableId)
+        fixture.store.setCustomColor("#ABCDEF", for: stableId)
+        let reloaded = WorkspaceCustomizationStore(
+            defaults: fixture.defaults,
+            storageKey: fixture.storageKey,
+            legacyStorageKey: fixture.legacyStorageKey
+        )
+        #expect(reloaded.customization(for: stableId) == WorkspaceCustomization(
+            customTitle: .value("Auto"),
+            customTitleSource: .auto,
+            customColor: .value("#ABCDEF")
+        ))
+        reloaded.setCustomTitle("Remote", source: .remote, for: stableId)
+        #expect(fixture.store.customization(for: stableId)?.customTitleSource == .remote)
+        reloaded.removeCustomization(for: stableId)
+        #expect(fixture.store.customization(for: stableId) == nil)
+    }
+
     @Test("retention is bounded by stable workspace identity")
     func boundedRetention() throws {
         let fixture = try makeFixture(capacity: 2)
@@ -94,6 +119,7 @@ struct WorkspaceCustomizationStoreTests {
             fixture.store.customization(for: stableId) ==
                 WorkspaceCustomization(
                     customTitle: .value("Unique"),
+                    customTitleSource: nil,
                     customColor: .value("#123456")
                 )
         )

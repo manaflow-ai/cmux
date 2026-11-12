@@ -45,24 +45,59 @@ enum RightSidebarChromeMetrics {
         return max(baseHeight, scaledContentHeight)
     }
     static let controlHorizontalPadding: CGFloat = 8
-    static var controlCornerRadius: CGFloat {
-        min(10, max(5, controlHeight * 0.25))
+    static let contentIconLeadingPadding: CGFloat = 12
+    static let contentIconFrameSize: CGFloat = 14
+    static let contentIconTextSpacing: CGFloat = 4
+    static var contentTextLeadingPadding: CGFloat {
+        contentIconLeadingPadding + contentIconFrameSize + contentIconTextSpacing
     }
+    static var contentIconCenter: CGFloat {
+        contentIconLeadingPadding + contentIconFrameSize / 2
+    }
+    /// Corner radius for every right-sidebar button: header icon buttons,
+    /// mode and grouping pills, panel action buttons, and system bordered
+    /// buttons (via `rightSidebarButtonBorderShape()`).
+    static let buttonCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
     static let headerControlSize: CGFloat = HeaderChromeControlMetrics.buttonSize
     static let headerIconSize: CGFloat = 10
     static let headerIconFrameSize: CGFloat = headerIconSize
     static let headerControlSpacing: CGFloat = 4
-    static let headerControlCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
+    /// Outer insets of the right-sidebar chrome bars. The mode bar, the Vault
+    /// grouping pills, and the Vault search row all use these, so their
+    /// controls share one leading column and one trailing column.
+    static let headerLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding
+    static let headerTrailingPadding: CGFloat = 6
+    static let headerControlCornerRadius: CGFloat = buttonCornerRadius
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }
 
 enum SidebarWorkspaceListMetrics {
+    /// Top of the pinned Chief Home row, just below the titlebar band.
+    static let homeRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
+    /// One-line navigation row height (the macOS medium sidebar row).
+    static let homeRowHeight: CGFloat = 28
+    /// Space between the Home row and the first workspace row; the list's
+    /// top fade runs through it, and the Home row's hairline sits in its middle.
+    static let homeRowBottomGap: CGFloat = 12
+    /// The Home row's hairline, this far under the row (v2 eval P1-2).
+    static let homeRowHairlineGap: CGFloat = 6
+    /// While Home is selected: the "Workspaces" back row under the Home row
+    /// (a medium sidebar row) and the gap above Chief's conversation list.
+    static let homeBackRowHeight: CGFloat = 28
+    static let homeBackRowBottomGap: CGFloat = 4
+
+    /// Home uses the ordinary workspace list; no overlay band is reserved.
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
+    static let topScrimClearHeight: CGFloat = 0
     static let rowVerticalPadding: CGFloat = 8
     static let rowOuterHorizontalPadding: CGFloat = 6
     static let rowContentHorizontalPadding: CGFloat = 10
-    static let topScrimHeight: CGFloat = firstRowTopOffset + 20
-    static let bottomScrimHeight: CGFloat = topScrimHeight
+    /// The top fade ends where the first row rests, so rows fade only while
+    /// scrolled under the titlebar. It used to reach 20 pt into the list,
+    /// which left the first row partly transparent at rest; over a light
+    /// terminal-matched backdrop that washed out the selected row's top.
+    static var topScrimHeight: CGFloat { firstRowTopOffset }
+    static let bottomScrimHeight: CGFloat = homeRowTopOffset + 20
 
     static var trailingAccessoryRightEdgeOffset: CGFloat {
         rowOuterHorizontalPadding + rowContentHorizontalPadding
@@ -78,10 +113,13 @@ enum SidebarWorkspaceListMetrics {
 }
 
 struct SidebarWorkspaceScrollInsets: Equatable {
-    static let workspaceList = SidebarWorkspaceScrollInsets(
-        top: SidebarWorkspaceListMetrics.scrollTopInset,
-        bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
-    )
+    /// The workspace list's insets; the top follows the Chief Home band.
+    static var workspaceList: SidebarWorkspaceScrollInsets {
+        SidebarWorkspaceScrollInsets(
+            top: SidebarWorkspaceListMetrics.scrollTopInset,
+            bottom: SidebarWorkspaceListMetrics.bottomScrimHeight
+        )
+    }
 
     let top: CGFloat
     let bottom: CGFloat

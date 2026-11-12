@@ -62,15 +62,20 @@ test("release gate rejects Mac and iOS artifacts configured for different author
   const macApp = path.join(directory, "cmux DEV gate.app");
   const iosApp = path.join(directory, "cmux.app");
   const expected = "https://gate.example";
+  const expectedV2 = "https://cmux-v2-staging.debussy.workers.dev";
   const presence = "https://presence.example";
 
   writeGateAppPlist(macApp, {}, {
     CMUX_API_BASE_URL: "https://stale.example",
     CMUX_IROH_BROKER_BASE_URL: "https://stale.example",
+    CMUX_IROH_V2_BASE_URL: "https://stale.example",
+    CMUX_IROH_V2_ENVIRONMENT: "development",
   }, "macOS");
   writeGateAppPlist(iosApp, {
     CMUXApiBaseURL: expected,
     CMUXIrohBrokerBaseURL: expected,
+    CMUX_IROH_V2_BASE_URL: expectedV2,
+    CMUX_IROH_V2_ENVIRONMENT: "staging",
     CMUXPresenceBaseURL: presence,
   });
 
@@ -79,6 +84,8 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     "--mac-app", macApp,
     "--ios-app", iosApp,
     "--backend-base-url", expected,
+    "--v2-base-url", expectedV2,
+    "--v2-environment", "staging",
     "--presence-base-url", presence,
   ]);
   assert.notEqual(mismatch.status, 0);
@@ -88,12 +95,16 @@ test("release gate rejects Mac and iOS artifacts configured for different author
   writeGateAppPlist(macApp, {}, {
     CMUX_API_BASE_URL: expected,
     CMUX_IROH_BROKER_BASE_URL: expected,
+    CMUX_IROH_V2_BASE_URL: expectedV2,
+    CMUX_IROH_V2_ENVIRONMENT: "staging",
   }, "macOS");
   const presenceMismatch = run("bash", [
     "scripts/lib/verify-iroh-release-gate-builds.sh",
     "--mac-app", macApp,
     "--ios-app", iosApp,
     "--backend-base-url", expected,
+    "--v2-base-url", expectedV2,
+    "--v2-environment", "staging",
     "--presence-base-url", presence,
   ]);
   assert.notEqual(presenceMismatch.status, 0);
@@ -102,6 +113,8 @@ test("release gate rejects Mac and iOS artifacts configured for different author
   writeGateAppPlist(macApp, {}, {
     CMUX_API_BASE_URL: expected,
     CMUX_IROH_BROKER_BASE_URL: expected,
+    CMUX_IROH_V2_BASE_URL: expectedV2,
+    CMUX_IROH_V2_ENVIRONMENT: "staging",
     CMUX_PRESENCE_BASE_URL: presence,
   }, "macOS");
   const matched = run("bash", [
@@ -109,6 +122,8 @@ test("release gate rejects Mac and iOS artifacts configured for different author
     "--mac-app", macApp,
     "--ios-app", iosApp,
     "--backend-base-url", expected,
+    "--v2-base-url", expectedV2,
+    "--v2-environment", "staging",
     "--presence-base-url", presence,
   ]);
   assert.equal(matched.status, 0, matched.stderr);
@@ -138,7 +153,7 @@ test("explicit credentials file is exclusive and accepts either supported key pa
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, [
-    "==> dev sign-in account: [redacted]",
+    "==> dev sign-in profile: agent ([redacted])",
     "temporary@example.com",
     "temporary-password",
     "",

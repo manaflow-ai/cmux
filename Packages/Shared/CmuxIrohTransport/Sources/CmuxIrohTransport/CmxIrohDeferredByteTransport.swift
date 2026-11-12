@@ -7,7 +7,9 @@ actor CmxIrohDeferredByteTransport:
     CmxByteTransportClosureObserving,
     CmxByteTransportClosureObservationReadiness,
     CmxByteTransportContinuityIdentifying,
-    CmxByteTransportLivenessObserving
+    CmxByteTransportConnectionInspecting,
+    CmxByteTransportLivenessObserving,
+    CmxByteTransportControlStreamRepairing
 {
     private let request: CmxByteTransportRequest
     private let provider: any CmxIrohDeferredTransportProviding
@@ -96,6 +98,13 @@ actor CmxIrohDeferredByteTransport:
         return await identifying.transportContinuityID()
     }
 
+    func transportConnectionObservation() async -> CmxTransportConnectionObservation? {
+        guard !closed, let inspecting = transport as? any CmxByteTransportConnectionInspecting else {
+            return nil
+        }
+        return await inspecting.transportConnectionObservation()
+    }
+
     func transportClosureObservation() async -> CmxTransportClosureObservation? {
         guard let observing = transport as? any CmxByteTransportClosureObserving else {
             return nil
@@ -129,6 +138,29 @@ actor CmxIrohDeferredByteTransport:
         for waiter in waiters {
             waiter.resume()
         }
+    }
+
+    /// Forwards to the activated transport. One that cannot replace its
+    /// control stream reports `unavailable`, which keeps the RPC session on its
+    /// conservative thresholds.
+    func repairControlStream(
+        silentSince: ContinuousClock.Instant
+    ) async -> CmxControlStreamRepairOutcome {
+        guard !closed,
+              let repairing = transport as? any CmxByteTransportControlStreamRepairing else {
+            return .unavailable
+        }
+        return await repairing.repairControlStream(silentSince: silentSince)
+    }
+
+    func sendReportingControlStreamGeneration(_ data: Data) async throws -> UInt64 {
+        guard !closed else { throw CmxIrohByteTransportError.alreadyClosed }
+        guard let transport else { throw CmxIrohByteTransportError.notConnected }
+        if let repairing = transport as? any CmxByteTransportControlStreamRepairing {
+            return try await repairing.sendReportingControlStreamGeneration(data)
+        }
+        try await transport.send(data)
+        return 0
     }
 
     func isTransportClosed() async -> Bool {

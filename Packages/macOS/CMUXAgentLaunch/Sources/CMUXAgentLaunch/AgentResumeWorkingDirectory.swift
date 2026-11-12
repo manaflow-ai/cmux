@@ -41,18 +41,21 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
     ///
     /// Directory-namespaced agents prefer the launch working directory: it is captured once at launch,
     /// matches the session store's namespace, and does not drift when the agent `cd`s into a
-    /// subdirectory (e.g. a worktree) mid-session. Id-keyed agents keep the runtime cwd so they reopen
+    /// subdirectory (e.g. a worktree) mid-session. Claude first selects a candidate whose project
+    /// slug matches the transcript's directory, when available. Id-keyed agents keep the runtime cwd so they reopen
     /// where the agent was working. Inputs are trimmed and empty values are treated as absent.
     ///
     /// - Parameters:
     ///   - kind: the agent's raw kind identifier.
     ///   - runtimeCwd: the agent's last-reported runtime cwd (may have drifted).
     ///   - launchWorkingDirectory: the directory the agent was launched in.
+    ///   - transcriptPath: The hook-reported transcript path, when available.
     /// - Returns: the directory to `cd` into, or `nil` when neither input is usable.
     public func resolve(
         kind: String,
         runtimeCwd: String?,
-        launchWorkingDirectory: String?
+        launchWorkingDirectory: String?,
+        transcriptPath: String? = nil
     ) -> String? {
         let runtime = normalized(runtimeCwd)
         let launch = normalized(launchWorkingDirectory)
@@ -60,8 +63,34 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
         case .cwdInFile:
             return runtime ?? launch
         case .byDirectory:
+            if kind == "claude",
+               let transcriptProject = transcriptProjectDirectoryName(transcriptPath),
+               let transcriptCwd = [launch, runtime].compactMap({ $0 }).first(where: {
+                   encodedProjectDirectoryName(forPath: $0) == transcriptProject
+               }) {
+                return transcriptCwd
+            }
             return launch ?? runtime
         }
+    }
+
+    /// Returns the Claude project-directory component from a transcript path.
+    /// Claude stores transcripts below `<config>/projects/<encoded-cwd>/`; the
+    /// session file may be either directly in that directory or nested below it.
+    private func transcriptProjectDirectoryName(_ transcriptPath: String?) -> String? {
+        guard let rawPath = normalized(transcriptPath) else { return nil }
+        let components = (rawPath as NSString).expandingTildeInPath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        guard let projectsIndex = components.lastIndex(of: "projects"),
+              projectsIndex + 1 < components.count else {
+            return nil
+        }
+        return components[projectsIndex + 1]
+    }
+
+    private func encodedProjectDirectoryName(forPath path: String) -> String {
+        ClaudeProjectSlug().slug(forWorkingDirectory: path)
     }
 
     private func normalized(_ value: String?) -> String? {

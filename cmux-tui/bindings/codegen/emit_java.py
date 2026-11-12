@@ -34,6 +34,13 @@ _JAVA_PACKAGE_MANIFEST = (
 )
 _SDK_VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
+# Requests carrying clipboard bytes or transport credentials must never render
+# their wire map in logs. Keep this list at the emitter boundary so `toWire()`
+# remains complete for transport while `toString()` is always metadata-only.
+_SENSITIVE_REQUEST_FIELDS: dict[str, frozenset[str]] = {
+    "PasteImageRequest": frozenset({"data", "lease"}),
+}
+
 
 def _read_sdk_version(manifest: Path) -> str:
     try:
@@ -586,9 +593,25 @@ class JavaEmitter:
         )
         lines.append("")
         lines.append("    @Override")
-        lines.append(
-            f"    public String toString() {{ return {_java_string(name)} + toWire(); }}"
-        )
+        sensitive_fields = _SENSITIVE_REQUEST_FIELDS.get(name)
+        if sensitive_fields is None:
+            lines.append(
+                f"    public String toString() {{ return {_java_string(name)} + toWire(); }}"
+            )
+        else:
+            parts = [_java_string(name + "{")]
+            for wire_name in fields:
+                java_name = _camel(wire_name)
+                if len(parts) > 1:
+                    parts.append(_java_string(", "))
+                if wire_name in sensitive_fields:
+                    parts.append(_java_string(f"{wire_name}=[redacted]"))
+                else:
+                    parts.append(_java_string(f"{wire_name}=")
+                                 + " + String.valueOf(" + java_name + ")")
+            parts.append(_java_string("}"))
+            expression = " + ".join(parts)
+            lines.append(f"    public String toString() {{ return {expression}; }}")
         lines.append("")
         lines.append("    public static final class Builder {")
         for wire_name, field in normal_fields.items():

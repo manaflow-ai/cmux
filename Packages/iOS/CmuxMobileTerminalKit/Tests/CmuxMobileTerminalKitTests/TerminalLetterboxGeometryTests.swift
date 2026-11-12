@@ -241,10 +241,39 @@ struct TerminalLetterboxGeometryTests {
         // and let the grid extend under the home indicator, then snap back. The
         // resolver must take the window value instead.
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 34) == 34)
-        // When the view inset is present it wins (it is the most specific).
+        // Matching values agree; the local inset remains a pre-window fallback.
         #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: 34) == 34)
+        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: nil) == 34)
         // Both zero (pre-window-attach) => 0.
-        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: 0) == 0)
+        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 0, windowInset: nil) == 0)
+        // A reported zero is authoritative and must not fall through to the
+        // moving local inset.
+        #expect(TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(viewInset: 34, windowInset: 0) == 0)
+    }
+
+    @Test("keyboard content movement cannot resize the terminal grid", arguments: [CGFloat(34), 9, 0, 59])
+    func movingSurfaceKeepsOuterSafeArea(viewInset: CGFloat) {
+        // The first Codex response moved the full-height surface by 25pt.
+        // Its local inset became 9pt, then 34pt after the resulting resize,
+        // alternating the grid between 60 and 62 rows on every frame.
+        for windowInset: CGFloat in [34, 0] {
+            let inset = TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
+                viewInset: viewInset,
+                windowInset: windowInset > 0 ? windowInset : nil,
+                capturedInset: 34,
+                ancestorInsets: [9, 34]
+            )
+            let container = TerminalLetterboxGeometry.terminalContainerSize(
+                bounds: CGSize(width: 440, height: 956),
+                composerBandHeight: 52,
+                toolbarHeight: 36,
+                bottomSafeAreaInset: inset,
+                chromeHidden: false,
+                topContentInset: 120
+            )
+            #expect(inset == 34)
+            #expect(container == CGSize(width: 440, height: 706))
+        }
     }
 
     @Test("resolved safe-area inset recovers the smallest positive ancestor")
@@ -256,14 +285,14 @@ struct TerminalLetterboxGeometryTests {
         #expect(
             TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
                 viewInset: 0,
-                windowInset: 0,
+                windowInset: nil,
                 ancestorInsets: [83, 34]
             ) == 34
         )
         #expect(
             TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
                 viewInset: 0,
-                windowInset: 0,
+                windowInset: nil,
                 ancestorInsets: [0, -4]
             ) == 0
         )
@@ -274,7 +303,7 @@ struct TerminalLetterboxGeometryTests {
         #expect(
             TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
                 viewInset: 0,
-                windowInset: 0,
+                windowInset: nil,
                 capturedInset: 34,
                 ancestorInsets: [83]
             ) == 34

@@ -59,6 +59,8 @@ public final class UpdateController {
     let readyRetryCount = 20
 
     private var didStartUpdater = false
+    /// `DisableAutoUpdate` (MDM), read on every start and check request.
+    let isDisabledByPolicy: () -> Bool
 
     /// The observable model the UI renders from.
     public var model: UpdateStateModel { driver.model }
@@ -76,13 +78,18 @@ public final class UpdateController {
     ///   - isDevLikeBundle: Overrides whether this is a DEV/staging build. Defaults to `nil`,
     ///     which derives it from `hostBundle.bundleIdentifier` via ``isDevLikeBundleIdentifier(_:)``.
     ///     Injectable because a `Bundle` with an arbitrary identifier cannot be constructed in tests.
+    /// - Parameter isDisabledByPolicy: The host's `DisableAutoUpdate` managed
+    ///   policy. While it returns true the updater is never started and manual
+    ///   checks are suppressed; the package stays free of the settings
+    ///   dependency, so the app injects the resolver.
     public convenience init(log: any UpdateLogging,
                             clock: any UpdateClock = SystemUpdateClock(),
                             settings: UpdateSettings = UpdateSettings(),
                             hostBundle: Bundle = .main,
                             defaults: UserDefaults = .standard,
                             fileManager: FileManager = .default,
-                            isDevLikeBundle: Bool? = nil) {
+                            isDevLikeBundle: Bool? = nil,
+                            isDisabledByPolicy: @escaping () -> Bool = { false }) {
         self.init(log: log,
                   clock: clock,
                   settings: settings,
@@ -90,6 +97,7 @@ public final class UpdateController {
                   defaults: defaults,
                   fileManager: fileManager,
                   isDevLikeBundle: isDevLikeBundle,
+                  isDisabledByPolicy: isDisabledByPolicy,
                   updaterFactory: { driver, hostBundle in
                       SPUUpdater(
                           hostBundle: hostBundle,
@@ -113,8 +121,10 @@ public final class UpdateController {
          defaults: UserDefaults = .standard,
          fileManager: FileManager = .default,
          isDevLikeBundle: Bool? = nil,
+         isDisabledByPolicy: @escaping () -> Bool = { false },
          updaterFactory: (UpdateDriver, Bundle) -> any UpdaterHandle) {
         self.log = log
+        self.isDisabledByPolicy = isDisabledByPolicy
         self.clock = clock
         self.defaults = defaults
         self.fileManager = fileManager
@@ -249,6 +259,12 @@ public final class UpdateController {
     @discardableResult
     func startUpdaterIfNeeded(retryAfterFailure: @escaping () -> Void) -> Bool {
         guard !didStartUpdater else { return true }
+        if isDisabledByPolicy() {
+            // Never start Sparkle: no scheduled checks, no launch probe, no
+            // downloads. Manual checks are suppressed in `requestUpdateCheck`.
+            log.append("updater not started (automatic updates disabled by managed policy)")
+            return false
+        }
         ensureSparkleInstallationCache()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the

@@ -90,9 +90,9 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
         searchField.typeText("open cmux json")
 
         let predicate = NSPredicate(
-            format: "identifier BEGINSWITH %@ AND value == %@",
+            format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
             "CommandPaletteResultRow.",
-            "palette.openCmuxSettingsFile"
+            ".palette.openCmuxSettingsFile"
         )
         let row = app.descendants(matching: .any)
             .matching(predicate)
@@ -499,9 +499,9 @@ final class CommandPaletteIdentifierClipboardUITests: XCTestCase {
         searchField.typeText(query)
 
         let predicate = NSPredicate(
-            format: "identifier BEGINSWITH %@ AND value == %@",
+            format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
             "CommandPaletteResultRow.",
-            commandId
+            ".\(commandId)"
         )
         let row = app.descendants(matching: .any)
             .matching(predicate)

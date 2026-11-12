@@ -46,6 +46,14 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
     /// The 1...14 line growth window mirrored from the replaced `TextField`.
     private static let maximumLineCount: CGFloat = 14
 
+    static func configureTextInputTraits(_ textView: UITextView) {
+        textView.autocapitalizationType = .none
+        textView.autocorrectionType = .no
+        textView.spellCheckingType = .no
+        textView.smartQuotesType = .no
+        textView.smartDashesType = .no
+    }
+
     func makeCoordinator() -> TaskComposerPromptEditorCoordinator {
         TaskComposerPromptEditorCoordinator(text: $text, isFocused: $isFocused)
     }
@@ -61,11 +69,7 @@ struct TerminalComposerPromptEditor: UIViewRepresentable {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.isScrollEnabled = false
-        // Natural-language input to an agent: the same text assistance the
-        // replaced TextField enabled (the raw terminal field keeps these off).
-        textView.autocapitalizationType = .sentences
-        textView.autocorrectionType = .yes
-        textView.spellCheckingType = .yes
+        Self.configureTextInputTraits(textView)
         textView.accessibilityIdentifier = "MobileComposerField"
         textView.pasteAttachments = pasteAttachments
 

@@ -1,19 +1,18 @@
 "use client";
 
-import { StackProvider } from "@stackframe/stack";
 import { ThemeProvider } from "next-themes";
-import { stackClientApp } from "../lib/stack-client";
 import { PostHogProvider } from "./posthog";
 
+/**
+ * Providers for every localized page. Hexclave is deliberately absent: it is
+ * mounted only where a page reads the session (`StackProviders` in the
+ * dashboard layout; the join page and `/handler` mount their own), so
+ * marketing pages never download it and a Hexclave outage cannot reach them.
+ */
 export function Providers({ children }: { children: React.ReactNode }) {
-  const content = (observesStackAuth: boolean) => (
+  return (
     <ThemeProvider attribute="class" defaultTheme="dark" disableTransitionOnChange>
-      <PostHogProvider observesStackAuth={observesStackAuth}>
-        {children}
-      </PostHogProvider>
+      <PostHogProvider>{children}</PostHogProvider>
     </ThemeProvider>
   );
-  return stackClientApp
-    ? <StackProvider app={stackClientApp}>{content(true)}</StackProvider>
-    : content(false);
 }

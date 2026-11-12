@@ -322,11 +322,11 @@ enum FeedButtonDebugSettings {
     }
 
     static var compactCornerRadius: Double {
-        double(forKey: compactCornerRadiusKey, defaultValue: 5)
+        double(forKey: compactCornerRadiusKey, defaultValue: Double(RightSidebarChromeMetrics.buttonCornerRadius))
     }
 
     static var mediumCornerRadius: Double {
-        double(forKey: mediumCornerRadiusKey, defaultValue: 6)
+        double(forKey: mediumCornerRadiusKey, defaultValue: Double(RightSidebarChromeMetrics.buttonCornerRadius))
     }
 
     static var compactHorizontalPadding: Double {
@@ -608,7 +608,7 @@ enum FeedButtonDebugPreset: String, CaseIterable, Identifiable {
 
     var compactCornerRadius: Double {
         switch self {
-        case .solidClassic, .minimalFlat: return 5.0
+        case .solidClassic, .minimalFlat: return 6.0
         case .raycastGlass, .frostedOutline: return 7.0
         case .standardLiquidGlass, .tintedLiquidGlass: return 8.0
         case .nativeGlass: return 9.0
@@ -862,7 +862,7 @@ private struct FeedButtonStyleDebugView: View {
     @AppStorage(FeedButtonDebugSettings.paletteKey)
     private var paletteRaw = FeedButtonDebugPalettePreset.system.rawValue
     @AppStorage(FeedButtonDebugSettings.compactCornerRadiusKey)
-    private var compactCornerRadius = 5.0
+    private var compactCornerRadius = 6.0
     @AppStorage(FeedButtonDebugSettings.mediumCornerRadiusKey)
     private var mediumCornerRadius = 6.0
     @AppStorage(FeedButtonDebugSettings.compactHorizontalPaddingKey)
@@ -925,7 +925,7 @@ private struct FeedButtonStyleDebugView: View {
                 FeedButtonDebugSettings.reset()
                 styleRaw = FeedButtonDebugVisualStyle.solid.rawValue
                 paletteRaw = FeedButtonDebugPalettePreset.system.rawValue
-                compactCornerRadius = 5.0
+                compactCornerRadius = 6.0
                 mediumCornerRadius = 6.0
                 compactHorizontalPadding = 8.0
                 mediumHorizontalPadding = 12.0

@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxTerminal
 import Foundation
 
@@ -7,4 +8,5 @@ struct CloudManualMirrorMaterialization {
     let panelID: UUID
     let surface: TerminalSurface
     let session: CloudTuiManualMirrorSession
+    var remotePlacement: SurfaceRemotePlacement? = nil
 }

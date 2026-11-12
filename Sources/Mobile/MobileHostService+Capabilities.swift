@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrxTransport
 import Foundation
 
 extension MobileHostService {
@@ -11,6 +12,11 @@ extension MobileHostService {
     /// its own required-method inventory before exercising representative RPCs.
     nonisolated static let irohReleaseGateRPCMethods: [String] = [
         "dogfood.feedback.submit",
+        "feed.exit_plan.reply",
+        "feed.list",
+        "feed.text",
+        "feed.permission.reply",
+        "feed.question.reply",
         "mobile.attach_ticket.create",
         "mobile.browser.back",
         "mobile.browser.create",
@@ -27,6 +33,16 @@ extension MobileHostService {
         "mobile.browser.stream.start",
         "mobile.browser.stream.stop",
         "mobile.browser.viewport",
+        "chief.answer",
+        "chief.approve",
+        "chief.conversations",
+        "chief.debug",
+        "chief.mark_read",
+        "chief.open",
+        "chief.read",
+        "chief.send",
+        "chief.status",
+        "chief.stop",
         "mobile.chat.answer",
         "mobile.chat.artifact.fetch",
         "mobile.chat.artifact.gallery",
@@ -44,14 +60,17 @@ extension MobileHostService {
         "mobile.events.subscribe",
         "mobile.events.unsubscribe",
         "mobile.host.status",
+        "mobile.panel.artifact.fetch",
+        "mobile.panel.artifact.stat",
+        "mobile.panel.artifact.thumbnail",
         "mobile.rpc.methods",
         "mobile.simulator.device.select",
         "mobile.simulator.devices.list",
-        "mobile.simulator.recover",
         "mobile.simulator.input.button",
         "mobile.simulator.input.pointer",
         "mobile.simulator.input.text",
         "mobile.simulator.list",
+        "mobile.simulator.recover",
         "mobile.simulator.stream.start",
         "mobile.simulator.stream.stop",
         "mobile.sync.fetch",
@@ -66,9 +85,12 @@ extension MobileHostService {
         "mobile.terminal.input",
         "mobile.terminal.mouse",
         "mobile.terminal.paste",
+        "mobile.terminal.participant.disconnect",
         "mobile.terminal.paste_image",
+        "mobile.terminal.reattach",
         "mobile.terminal.replay",
         "mobile.terminal.scroll",
+        "mobile.terminal.size_policy.set",
         "mobile.terminal.viewport",
         "mobile.workspace.changes.file_diff",
         "mobile.workspace.changes.file_fetch",
@@ -102,10 +124,27 @@ extension MobileHostService {
         "workspace.group.expand",
         "workspace.list",
         "workspace.move",
-    ]
+    ].sorted()
 #endif
+    /// Mobile RPC methods that move file bytes between the phone and this
+    /// Mac (attachment upload, artifact and changed-file fetch, image paste).
+    /// `DisableFileTransfer` refuses them before dispatch on every lane.
+    nonisolated static func methodTransfersFiles(_ method: String) -> Bool {
+        switch method {
+        case "mobile.task.attachment.upload",
+             "mobile.workspace.changes.file_fetch",
+             "mobile.terminal.paste_image",
+             "terminal.paste_image":
+            return true
+        default:
+            return method.hasPrefix("mobile.terminal.artifact.")
+                || method.hasPrefix("mobile.panel.artifact.")
+        }
+    }
+
     nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
+    nonisolated static let terminalSharedSizingCapability = "terminal.shared_sizing.v1"
     nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
     /// Authenticated status includes the Mac's independent phone-forwarding
     /// gate, presence mode, account proof, and API endpoint identity.
@@ -177,6 +216,9 @@ extension MobileHostService {
             MobileBrowserStreamCapability.viewportIdentifier,
             MobileBrowserStreamCapability.dialogIdentifier,
             MobileBrowserStreamCapability.createIdentifier,
+            // The phone's "On iPhone" browser tunnel (irx `tcpConnect` and
+            // `listeningPorts` lanes, served by `MobileHostBrowserTunnel`).
+            IrxTunnelCapability.current.identifier,
             MobileSimulatorStreamCapability.current.identifier,
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
@@ -185,10 +227,15 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.devicesIdentifier,
             MobileSimulatorStreamCapability.current.recoverIdentifier,
             "events.v1",
+            // The agent workstream feed: `feed.list` + the three reply verbs,
+            // with `feed.changed` revision invalidations. iOS shows the Feed
+            // tab's live content only against hosts that advertise this.
+            "feed.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
             "notification.feed.v1",
             "notification.reconcile.v1",
+            "phone_push.keys.exchange.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.render_grid.verified_replay.v1",
@@ -199,7 +246,17 @@ extension MobileHostService {
             "terminal.render_grid.screen_anchor.v1",
             "terminal.replay.v1",
             Self.terminalInputOrderedCapability,
+            MobileTerminalInputFrame.capability,
+            // Terminal input units carry a per-terminal stream id and
+            // sequence; the host writes each once, in order, only to the
+            // terminal it names, and acknowledges it on the lane or the RPC.
+            MobileTerminalInputDelivery.capability,
             "terminal.viewport.v1",
+            // Shared terminal sizing (docs/shared-terminal-sizing.md): replay
+            // carries size_state, the host pushes mobile.terminal.size_state
+            // and mobile.terminal.detached, and accepts size_policy.set,
+            // participant.disconnect and reattach.
+            Self.terminalSharedSizingCapability,
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
             "panel.artifact.v1",
@@ -237,7 +294,27 @@ extension MobileHostService {
             // workspace.group.collapse/expand from mobile. iOS feature-detects
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
+            // Chief is a Mac-owned conversation surface. These names are
+            // intentionally the exact RPC methods so older iOS clients can
+            // feature-detect the compact Chief adapter from host status.
+            "chief.open",
+            "chief.send",
+            "chief.status",
+            "chief.conversations",
+            "chief.read",
+            "chief.mark_read",
+            "chief.stop",
+            "chief.approve",
+            "chief.answer",
         ]
+#if DEBUG
+        capabilities.append("chief.debug")
+#endif
+        // Chief is a user-disabled Mac surface, not merely an optional RPC
+        // family. Do not advertise stale Home entry points while it is off.
+        if !ChiefSettings.isEnabled {
+            capabilities.removeAll { $0.hasPrefix("chief.") }
+        }
         if !includingWorkspaceChanges {
             capabilities.removeAll { $0 == Self.workspaceChangesCapability }
         }
@@ -273,6 +350,7 @@ extension MobileHostService {
                 MobileBrowserStreamCapability.viewportIdentifier,
                 MobileBrowserStreamCapability.dialogIdentifier,
                 MobileBrowserStreamCapability.createIdentifier,
+                IrxTunnelCapability.current.identifier,
             ]
             capabilities.removeAll { browserCapabilities.contains($0) }
         }

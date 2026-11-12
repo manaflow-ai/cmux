@@ -31,6 +31,11 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    networkPolicy: null,
+    networkPolicyStatus: null,
+    agentUpdates: null,
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-limit-refresh",
+    coderouterPoolId: null,
     ...overrides,
   };
 }
@@ -60,7 +65,7 @@ describe("lazy active-limit provider refresh", () => {
       markBillingGrantApplied: () => Effect.void,
       deleteBillingGrant: () => Effect.void,
       markCreateRunning: () => Effect.succeed(running),
-      markCreateFailed: () => Effect.void,
+      markCreateFailed: () => Effect.succeed(true),
       recordUsageEvent: () => Effect.void,
       recordUsageEvents: () => Effect.void,
       findNetwork: () => Effect.succeed(null),
@@ -106,7 +111,7 @@ describe("lazy active-limit provider refresh", () => {
         userId: requested.userId,
         billingCustomerType: "team",
         billingTeamId: requested.billingTeamId!,
-        billingPlanId: "pro",
+        billingPlanId: "max",
         maxActiveVms: 50,
         provider: "freestyle",
         image: "snapshot-test",
@@ -139,7 +144,7 @@ describe("lazy active-limit provider refresh", () => {
       markBillingGrantApplied: () => Effect.void,
       deleteBillingGrant: () => Effect.void,
       markCreateRunning: () => Effect.succeed(running),
-      markCreateFailed: () => Effect.void,
+      markCreateFailed: () => Effect.succeed(true),
       recordUsageEvent: () => Effect.void,
       recordUsageEvents: () => Effect.void,
       findNetwork: () => Effect.succeed(null),
@@ -176,7 +181,7 @@ describe("lazy active-limit provider refresh", () => {
         userId: requested.userId,
         billingCustomerType: "team",
         billingTeamId: requested.billingTeamId!,
-        billingPlanId: "pro",
+        billingPlanId: "max",
         maxActiveVms: 50,
         provider: "freestyle",
         image: "snapshot-test",
@@ -190,7 +195,7 @@ describe("lazy active-limit provider refresh", () => {
     );
 
     expect(beginReservation).toEqual({
-      vcpus: 4,
+      vcpus: 8,
       memoryMb: 16 * 1024,
       diskMb: 128 * 1024,
     });
@@ -252,7 +257,7 @@ describe("lazy active-limit provider refresh", () => {
       markBillingGrantApplied: () => Effect.void,
       deleteBillingGrant: () => Effect.void,
       markCreateRunning: () => Effect.succeed(running),
-      markCreateFailed: () => Effect.void,
+      markCreateFailed: () => Effect.succeed(true),
       recordUsageEvent: () => Effect.void,
       recordUsageEvents: () => Effect.void,
       findNetwork: () => Effect.succeed(null),

@@ -1,5 +1,5 @@
 internal import Dispatch
-public import Foundation
+internal import Foundation
 internal import Darwin
 internal import os
 
@@ -46,9 +46,20 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     private var iterator: AsyncStream<Data>.Iterator
     private let source: any DispatchSourceRead
     private let revocationSource: (any DispatchSourceRead)?
+    /// Dispatch source cancellation is asynchronous. The connection owner
+    /// awaits this barrier before closing the borrowed descriptor.
+    private let sourceCancellationBarrier: DispatchSourceCancellationBarrier
     /// One-shot idle deadline carried over from SO_RCVTIMEO. DispatchSource
     /// is the low-level descriptor/timer bridge; it never blocks the task.
     private let idleReadTimer: (any DispatchSourceTimer)?
+    private let codeRouterHandshakeMaximumBytes: Int?
+    private var didCompleteCodeRouterHandshake = false
+    private var awaitsCodeRouterHandoffCompletion = false
+    private var codeRouterCompletionDeadlineUptimeNanoseconds: UInt64?
+    private var codeRouterCompletionDeadlineTask: Task<Void, Never>?
+    private var currentLineMethodIsCodeRouter: Bool?
+    private var lateRouteScanState = ControlClientLineReader.LateRouteScanState()
+    private var lateRouteScanIndex = 0
     private var pendingBytes: [UInt8] = []
     private var pendingStartIndex = 0
     private var newlineSearchIndex = 0
@@ -85,15 +96,19 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         initialLimits: ControlClientLineReadLimits? = nil,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal? = nil,
         maximumBufferedBytes: Int = 16 * 1024 * 1024,
-        monotonicNowNanoseconds: (@Sendable () -> UInt64)? = nil
+        monotonicNowNanoseconds: (@Sendable () -> UInt64)? = nil,
+        codeRouterHandshakeMaximumBytes: Int? = nil
     ) {
         self.socket = socket
+        self.codeRouterHandshakeMaximumBytes = codeRouterHandshakeMaximumBytes
         self.maximumBufferedBytes = max(1, maximumBufferedBytes)
         let bufferedByteAccounting = OSAllocatedUnfairLock(
             initialState: BufferedByteAccounting()
         )
         self.bufferedByteAccounting = bufferedByteAccounting
         self.limitsActive = OSAllocatedUnfairLock(initialState: initialLimits != nil)
+        let sourceCancellationBarrier = DispatchSourceCancellationBarrier()
+        self.sourceCancellationBarrier = sourceCancellationBarrier
         self.monotonicNowNanoseconds = monotonicNowNanoseconds ?? {
             DispatchTime.now().uptimeNanoseconds
         }
@@ -117,6 +132,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             fileDescriptor: socket,
             queue: DispatchQueue.global(qos: .utility)
         )
+        sourceCancellationBarrier.register()
         let byteCapForDrain = self.maximumBufferedBytes
         readSource.setEventHandler { [streamContinuation, sourceBox, bufferedByteAccounting] in
             Self.drain(
@@ -127,9 +143,10 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
                 maximumBufferedBytes: byteCapForDrain
             )
         }
-        readSource.setCancelHandler { [streamContinuation, sourceBox] in
+        readSource.setCancelHandler { [streamContinuation, sourceBox, sourceCancellationBarrier] in
             sourceBox.source = nil
             streamContinuation.finish()
+            sourceCancellationBarrier.complete()
         }
         sourceBox.source = readSource
         source = readSource
@@ -152,13 +169,15 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
                     fileDescriptor: duplicate,
                     queue: DispatchQueue.global(qos: .utility)
                 )
+                sourceCancellationBarrier.register()
                 revocation.setEventHandler { [streamContinuation, revocationBox] in
                     streamContinuation.finish()
                     revocationBox.source?.cancel()
                 }
-                revocation.setCancelHandler { [revocationBox] in
+                revocation.setCancelHandler { [revocationBox, sourceCancellationBarrier] in
                     revocationBox.source = nil
                     close(duplicate)
+                    sourceCancellationBarrier.complete()
                 }
                 revocationBox.source = revocation
                 revocationSource = revocation
@@ -194,8 +213,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
 
     deinit {
         deadlineTask?.cancel()
-        source.cancel()
-        revocationSource?.cancel()
+        cancelSources()
         idleReadTimer?.cancel()
         continuation.finish()
     }
@@ -216,10 +234,14 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     public func nextLine(
         shouldContinueReading: @Sendable @escaping () -> Bool
     ) async -> String? {
+        guard !didCompleteCodeRouterHandshake else { return nil }
         while !Task.isCancelled {
-            guard deadlineHasNotExpired, shouldContinueReading() else { return nil }
+            guard deadlineHasNotExpired, shouldContinueReading(),
+                  currentLineIsWithinCodeRouterHandshakeLimit else { return nil }
 
             if let newlineIndex = nextBareNewlineIndex() {
+                let completedHandshake = currentLineMethodIsCodeRouter == true
+                let wasAwaitingCompletion = awaitsCodeRouterHandoffCompletion
                 let consumedByteCount = newlineIndex + 1 - pendingStartIndex
                 let decoded = String(
                     bytes: pendingBytes[pendingStartIndex..<newlineIndex],
@@ -229,6 +251,17 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
                 newlineSearchIndex = pendingStartIndex
                 releasePendingBytes(consumedByteCount)
                 compactPendingBytesIfNeeded()
+                currentLineMethodIsCodeRouter = nil
+                lateRouteScanState = ControlClientLineReader.LateRouteScanState()
+                lateRouteScanIndex = pendingStartIndex
+                didCompleteCodeRouterHandshake = wasAwaitingCompletion || completedHandshake
+                if wasAwaitingCompletion {
+                    awaitsCodeRouterHandoffCompletion = false
+                    codeRouterCompletionDeadlineUptimeNanoseconds = nil
+                    codeRouterCompletionDeadlineTask?.cancel()
+                    codeRouterCompletionDeadlineTask = nil
+                }
+                if decoded == nil, didCompleteCodeRouterHandshake { return nil }
                 // Invalid UTF-8 lines are dropped exactly like the blocking
                 // reader, without discarding subsequent framed lines.
                 if let decoded { return decoded }
@@ -239,8 +272,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             let nextChunk = await withTaskCancellationHandler {
                 await iterator.next()
             } onCancel: {
-                source.cancel()
-                revocationSource?.cancel()
+                cancelSources()
                 idleReadTimer?.cancel()
                 continuation.finish()
             }
@@ -264,17 +296,72 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         return nil
     }
 
-    /// Explicitly terminates the reader's event sources.
-    public func cancel() {
+    /// Cancels the reader's event sources without waiting for their handlers.
+    private func cancelSources() {
+        codeRouterCompletionDeadlineTask?.cancel()
         source.cancel()
         revocationSource?.cancel()
         idleReadTimer?.cancel()
         continuation.finish()
     }
 
+    /// Terminates the reader and waits for libdispatch to unregister every
+    /// descriptor source before returning to the connection owner.
+    ///
+    /// Callers that own ``socket`` must use this method before shutting down
+    /// or closing that descriptor. The cancellation handlers are responsible
+    /// for completing the wait; the descriptor itself remains owned by the
+    /// caller.
+    public func cancelAndWait() async {
+        cancelSources()
+        await sourceCancellationBarrier.wait()
+    }
+
+    /// Begins the second and final signed frame, with a bounded wait even if
+    /// the peer stays connected without sending another byte.
+    public func allowCodeRouterHandoffCompletion(timeoutMilliseconds: Int) {
+        guard didCompleteCodeRouterHandshake, !awaitsCodeRouterHandoffCompletion else { return }
+        let milliseconds = UInt64(clamping: max(0, timeoutMilliseconds))
+        let (duration, overflowed) = milliseconds.multipliedReportingOverflow(by: 1_000_000)
+        let (deadline, additionOverflowed) = monotonicNowNanoseconds().addingReportingOverflow(duration)
+        codeRouterCompletionDeadlineUptimeNanoseconds = overflowed || additionOverflowed ? .max : deadline
+        awaitsCodeRouterHandoffCompletion = true
+        didCompleteCodeRouterHandshake = false
+        let completion = continuation
+        codeRouterCompletionDeadlineTask = Task {
+            do { try await Task.sleep(nanoseconds: overflowed ? .max : duration) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            completion.finish()
+        }
+    }
+
+    /// Share the blocking reader's pre-JSON route classification. A large
+    /// ordinary request stays allowed; late duplicate/escaped route keys fail
+    /// closed before any JSON decoding, and handoff frames remain 4 KiB.
+    private var currentLineIsWithinCodeRouterHandshakeLimit: Bool {
+        guard let maximum = codeRouterHandshakeMaximumBytes else { return true }
+        let newline = pendingBytes[pendingStartIndex...].firstIndex(of: 0x0A)
+        let end = newline ?? pendingBytes.endIndex
+        let prefix = Array(pendingBytes[pendingStartIndex..<end].prefix(maximum + 1))
+        currentLineMethodIsCodeRouter = ControlClientLineReader.classifyTopLevelMethod(in: prefix)
+        let rawCount = end - pendingStartIndex + (newline == nil ? 0 : 1)
+        guard rawCount > maximum else { return true }
+        guard !awaitsCodeRouterHandoffCompletion, currentLineMethodIsCodeRouter == false else { return false }
+        while lateRouteScanIndex < end {
+            let byte = pendingBytes[lateRouteScanIndex]
+            lateRouteScanIndex += 1
+            if lateRouteScanState.consume(byte) { return false }
+        }
+        return true
+    }
+
     private var deadlineHasNotExpired: Bool {
-        guard let deadlineUptimeNanoseconds else { return true }
-        return monotonicNowNanoseconds() < deadlineUptimeNanoseconds
+        let now = monotonicNowNanoseconds()
+        if let deadlineUptimeNanoseconds, now >= deadlineUptimeNanoseconds { return false }
+        if let codeRouterCompletionDeadlineUptimeNanoseconds,
+           now >= codeRouterCompletionDeadlineUptimeNanoseconds { return false }
+        return true
     }
 
     private func nextBareNewlineIndex() -> Int? {
@@ -428,92 +515,5 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
             sourceBox.source?.cancel()
             return
         }
-    }
-}
-
-/// Asynchronously writes one connection's responses without parking a thread
-/// when a client applies backpressure. One writer task owns the instance.
-// @unchecked Sendable is safe because one connection task performs all writes;
-// the one-shot writable source communicates only through its continuation.
-public final class ControlClientAsyncWriter: @unchecked Sendable {
-    private final class SourceBox: @unchecked Sendable {
-        var source: (any DispatchSourceWrite)?
-    }
-
-    private let socket: Int32
-
-    /// Creates a writer over a non-blocking descriptor.
-    public init(socket: Int32) {
-        self.socket = socket
-        _ = Self.makeNonBlocking(socket)
-    }
-
-    /// Writes all bytes, suspending on `EAGAIN`; returns false after EOF,
-    /// cancellation, or a non-retryable write error.
-    public func writeAll(_ data: Data) async -> Bool {
-        var offset = 0
-        while offset < data.count, !Task.isCancelled {
-            let written = data.withUnsafeBytes { rawBuffer -> Int in
-                guard let baseAddress = rawBuffer.baseAddress else { return 0 }
-                return Darwin.write(
-                    socket,
-                    baseAddress.advanced(by: offset),
-                    rawBuffer.count - offset
-                )
-            }
-            if written > 0 {
-                offset += written
-                continue
-            }
-            if written < 0, errno == EINTR { continue }
-            if written < 0, errno == EAGAIN || errno == EWOULDBLOCK {
-                guard await waitForWritable() else { return false }
-                continue
-            }
-            return false
-        }
-        return offset == data.count
-    }
-
-    /// Cancels future write notifications.
-    public func cancel() {
-        // Each would-block wait owns a one-shot source and observes task
-        // cancellation. There is no persistent writable source to suspend.
-    }
-
-    private static func makeNonBlocking(_ socket: Int32) -> Int32? {
-        let flags = fcntl(socket, F_GETFL, 0)
-        guard flags >= 0 else { return errno }
-        guard fcntl(socket, F_SETFL, flags | O_NONBLOCK) >= 0 else { return errno }
-        return nil
-    }
-
-    private func waitForWritable() async -> Bool {
-        let stream = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let streamContinuation = stream.continuation
-        let sourceBox = SourceBox()
-        let writeSource = DispatchSource.makeWriteSource(
-            fileDescriptor: socket,
-            queue: DispatchQueue.global(qos: .utility)
-        )
-        writeSource.setEventHandler { [streamContinuation, sourceBox] in
-            streamContinuation.yield(())
-            streamContinuation.finish()
-            sourceBox.source?.cancel()
-        }
-        writeSource.setCancelHandler {
-            streamContinuation.finish()
-        }
-        sourceBox.source = writeSource
-        writeSource.activate()
-
-        var iterator = stream.stream.makeAsyncIterator()
-        let writable: Void? = await withTaskCancellationHandler {
-            await iterator.next()
-        } onCancel: {
-            writeSource.cancel()
-            streamContinuation.finish()
-        }
-        return writable != nil
     }
 }

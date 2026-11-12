@@ -2,10 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "../../../i18n/navigation";
-import {
-  fallbackContentLocales,
-  jobsContentLocales,
-} from "../../../i18n/locale-availability";
+import { fallbackContentLocales } from "../../../i18n/locale-availability";
 import { NavLinks } from "./nav-links";
 import { DownloadButton } from "./download-button";
 import { ThemeToggle } from "../theme";
@@ -16,15 +13,17 @@ import {
   MobileDrawerToggle,
 } from "./mobile-drawer";
 import { BrandLogoLink } from "./brand-logo-link";
-import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 import { ContentLocaleLink } from "./content-locale-link";
 
 export function SiteHeader({
   section,
   hideLogo,
+  wide,
 }: {
   section?: string;
   hideLogo?: boolean;
+  /** Full-width header with a bottom border, for the three-column docs layout. */
+  wide?: boolean;
 }) {
   const t = useTranslations("nav");
   const tc = useTranslations("common");
@@ -33,8 +32,12 @@ export function SiteHeader({
 
   return (
     <>
-      <header className="sticky top-0 z-30 w-full bg-background">
-        <div className="w-full max-w-6xl mx-auto flex h-12 items-center px-6 min-[940px]:grid min-[940px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] min-[940px]:gap-4">
+      <header
+        className={`sticky top-0 z-30 w-full bg-background ${
+          wide ? "border-b border-border/70 bg-background/90 backdrop-blur" : ""
+        }`}
+      >
+        <div className={`w-full ${wide ? "" : "max-w-6xl"} mx-auto flex h-12 items-center px-6 min-[940px]:grid min-[940px]:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] min-[940px]:gap-4`}>
           {/* Left: logo + section */}
           <div className="flex min-w-0 items-center gap-3">
             {!hideLogo && (
@@ -145,25 +148,14 @@ export function SiteHeader({
             {t("community")}
           </Link>
           <ContentLocaleLink
-            href="/jobs"
+            href="/pricing"
             currentLocale={locale}
-            contentLocales={jobsContentLocales}
+            contentLocales={fallbackContentLocales}
             onClick={close}
             className="hover:text-foreground transition-colors py-1"
           >
-            {t("jobs")}
+            {t("pricing")}
           </ContentLocaleLink>
-          <ProUpgradeVisibility>
-            <ContentLocaleLink
-              href="/pricing"
-              currentLocale={locale}
-              contentLocales={fallbackContentLocales}
-              onClick={close}
-              className="hover:text-foreground transition-colors py-1"
-            >
-              {t("pricing")}
-            </ContentLocaleLink>
-          </ProUpgradeVisibility>
           <GitHubStarsBadge location="mobile_drawer" />
           <div className="pt-2">
             <DownloadButton size="sm" location="mobile_drawer" />

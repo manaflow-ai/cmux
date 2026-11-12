@@ -113,7 +113,7 @@ public struct IrxDeviceListSnapshot: Equatable, Sendable {
 
 /// The synchronously readable CURRENT snapshot the accept path judges against.
 /// Admission must be O(1) with no actor hop (the judge closure runs inside
-/// `IrxAdmission.performServer`), so this is a lock-guarded box the runtime
+/// `IrxAdmission().performServer`), so this is a lock-guarded box the runtime
 /// swaps atomically on every directory apply and clears on sign-out.
 public final class IrxDeviceListCurrent: @unchecked Sendable {
     private let lock = NSLock()

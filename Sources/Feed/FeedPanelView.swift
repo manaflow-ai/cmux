@@ -273,48 +273,42 @@ private struct FeedListView: View {
         actions: FeedRowActions,
         showsLoadMore: Bool
     ) -> some View {
-        List {
-            ForEach(Array(groups.stable.enumerated()), id: \.element.id) { idx, snapshot in
-                rowSurface(
-                    snapshot: snapshot,
-                    actions: actions,
-                    showsDivider: idx < groups.stable.count - 1
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+        // List creates an AppKit-backed row host for every activity update. The
+        // activity feed can receive several updates per second while an agent is
+        // running, which makes List repeatedly rebuild attributed-string and
+        // selection overlays even though most rows are off-screen. Keep the
+        // same lazy behavior as the actionable feed and use the shared scroll
+        // surface so only visible rows are materialized.
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(groups.stable.enumerated()), id: \.element.id) { idx, snapshot in
+                    rowSurface(
+                        snapshot: snapshot,
+                        actions: actions,
+                        showsDivider: idx < groups.stable.count - 1
+                    )
+                }
+                if !groups.stable.isEmpty && (!groups.history.isEmpty || showsLoadMore) {
+                    rowSeparator
+                        .id("feed.activity.separator")
+                }
+                ForEach(Array(groups.history.enumerated()), id: \.element.id) { idx, snapshot in
+                    rowSurface(
+                        snapshot: snapshot,
+                        actions: actions,
+                        showsDivider: idx < groups.history.count - 1
+                    )
+                }
+                if showsLoadMore {
+                    FeedHistoryLoadMoreRow(
+                        isLoading: isLoadingOlderItems,
+                        action: onLoadOlderItems
+                    )
+                }
             }
-            if !groups.stable.isEmpty && (!groups.history.isEmpty || showsLoadMore) {
-                rowSeparator
-                    .id("feed.activity.separator")
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            }
-            ForEach(Array(groups.history.enumerated()), id: \.element.id) { idx, snapshot in
-                rowSurface(
-                    snapshot: snapshot,
-                    actions: actions,
-                    showsDivider: idx < groups.history.count - 1
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
-            if showsLoadMore {
-                FeedHistoryLoadMoreRow(
-                    isLoading: isLoadingOlderItems,
-                    action: onLoadOlderItems
-                )
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
         .feedZeroScrollContentMargins()
-        .environment(\.defaultMinListRowHeight, 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -655,13 +649,14 @@ private struct FeedRowSurface: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackgroundFill)
-        .animation(.easeOut(duration: 0.14), value: isHovered)
-        .animation(.easeOut(duration: 0.14), value: isSelected)
+        // Only the hover fill fades. Selection moves with j/k and lands in
+        // the next frame, and the row content never animates.
+        .background {
+            rowBackgroundFill
+                .animation(.easeOut(duration: 0.14), value: isHovered)
+        }
         .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.14)) {
-                isHovered = hovering
-            }
+            isHovered = hovering
         }
     }
 
@@ -1603,6 +1598,7 @@ private struct PermissionInputPreview {
 /// Replaces the old PermissionCTAButton / PlanCTAButton /
 /// FeedPillButton trio so styling is defined in exactly one place.
 struct FeedButton: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     enum Kind: String {
         /// Transparent pill that lights up on hover/selection. Used
         /// for filter bar pills and single-select option pills.
@@ -1846,7 +1842,7 @@ struct FeedButton: View {
             ? CGFloat(FeedButtonDebugSettings.compactCornerRadius)
             : CGFloat(FeedButtonDebugSettings.mediumCornerRadius)
 #else
-        return size == .compact ? 5 : 6
+        return RightSidebarChromeMetrics.buttonCornerRadius
 #endif
     }
     private var horizontalPadding: CGFloat {
@@ -1917,9 +1913,9 @@ struct FeedButton: View {
         case .light:
             return isHovered ? Color.white.opacity(0.96) : Color.white.opacity(0.88)
         case .primary:
-            return isHovered
-                ? Color(red: 0.28, green: 0.55, blue: 0.95)
-                : Color(red: 0.24, green: 0.48, blue: 0.88)
+            guard isHovered else { return cmuxAccent.color }
+            let accent = cmuxAccent.nsColor(isDark: colorScheme == .dark)
+            return Color(nsColor: accent.blended(withFraction: 0.15, of: .white) ?? accent)
         case .success:
             return isHovered
                 ? Color(red: 0.22, green: 0.72, blue: 0.42)
@@ -1951,7 +1947,7 @@ struct FeedButton: View {
         case .soft: return Color.gray
         case .dark: return Color.black
         case .light: return Color.white
-        case .primary: return Color(red: 0.24, green: 0.48, blue: 0.88)
+        case .primary: return cmuxAccent.color
         case .success: return Color(red: 0.18, green: 0.62, blue: 0.35)
         case .warning: return Color(red: 0.92, green: 0.54, blue: 0.29)
         case .destructive: return Color(red: 0.75, green: 0.22, blue: 0.22)
@@ -2116,6 +2112,22 @@ struct FeedButton: View {
 #endif
     }
 
+    /// Edge for solid pills. The white Allow Once pill sits on a white panel in
+    /// light mode and the black Deny pill on a dark panel in dark mode, so both
+    /// get a hairline in `Color.primary`, which flips with the appearance and
+    /// shows exactly where the fill matches the panel.
+    static func solidBorderOpacity(for kind: Kind) -> Double {
+        switch kind {
+        case .dark, .light: return 0.18
+        case .ghost, .soft, .primary, .success, .warning, .destructive: return 0
+        }
+    }
+
+    private var solidBorder: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(Color.primary.opacity(Self.solidBorderOpacity(for: kind)), lineWidth: 1)
+    }
+
     @ViewBuilder
     private var buttonBorder: some View {
 #if DEBUG
@@ -2123,7 +2135,7 @@ struct FeedButton: View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         switch generation >= 0 ? FeedButtonDebugSettings.visualStyle : .solid {
         case .solid:
-            EmptyView()
+            solidBorder
         case .standardGlass:
             shape.stroke(Color.white.opacity(0.12), lineWidth: FeedButtonDebugSettings.borderWidth)
         case .standardTintedGlass:
@@ -2162,7 +2174,7 @@ struct FeedButton: View {
             EmptyView()
         }
 #else
-        EmptyView()
+        solidBorder
 #endif
     }
 
@@ -2460,6 +2472,7 @@ private struct FeedMarkdownInlineText: View {
 /// Claude markdown inside each line gets parsed tastefully. Heading text
 /// intentionally stays at body scale.
 private struct PlanBodyView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let plan: String
     let rendersMarkdown: Bool
 
@@ -2492,7 +2505,7 @@ private struct PlanBodyView: View {
                         ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                             HStack(alignment: .top, spacing: 8) {
                                 Circle()
-                                    .fill(Color.blue.opacity(0.85))
+                                    .fill(cmuxAccent.color.opacity(0.85))
                                     .frame(width: 3.5, height: 3.5)
                                     .padding(.top, 5.5)
                                     .frame(width: 10, alignment: .center)

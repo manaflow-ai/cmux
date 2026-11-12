@@ -372,7 +372,9 @@ extension SavingTextView {
     /// File Preview opens files up to `FilePreviewPanel.maximumLoadedTextBytes` (16 MB), which can
     /// be hundreds of thousands of lines. Selection responsiveness on that content is the reason
     /// this configuration is centralized; see `manaflow-ai/cmux#4576`.
-    static func makeFilePreviewTextView() -> SavingTextView {
+    static func makeFilePreviewTextView(
+        wordWrapSettings: FilePreviewWordWrapSettings = FilePreviewWordWrapSettings(defaults: .standard)
+    ) -> SavingTextView {
         // Build an EXPLICIT TextKit 1 stack so this view is never TextKit 2.
         //
         // A default `NSTextView()` is TextKit 2: selection/hit-testing then runs through
@@ -399,13 +401,14 @@ extension SavingTextView {
         textContainer.widthTracksTextView = false
         layoutManager.addTextContainer(textContainer)
 
-        let textView = SavingTextView(frame: .zero, textContainer: textContainer)
+        let textView = SavingTextView(frame: .zero, textContainer: textContainer, wordWrapSettings: wordWrapSettings)
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
         textView.isRichText = false
         textView.importsGraphics = false
         textView.usesFindPanel = true
+        textView.usesFindBar = true
         textView.usesFontPanel = false
         textView.applyCurrentPreviewFont()
         textView.minSize = NSSize(width: 0, height: 0)
@@ -418,47 +421,6 @@ extension SavingTextView {
     }
 }
 
-extension NSTextView {
-    /// Configures the text view and its scroll view for soft line wrapping
-    /// (`wrap == true`) or the no-wrap baseline with a horizontal scroller
-    /// (`wrap == false`). Idempotent, so it is safe to call on every SwiftUI
-    /// update; toggling the `fileEditor.wordWrap` setting reflows open editors.
-    func applyFilePreviewWordWrap(_ wrap: Bool, scrollView: NSScrollView) {
-        guard let textContainer else { return }
-        scrollView.hasHorizontalScroller = !wrap
-        isHorizontallyResizable = !wrap
-        if wrap {
-            textContainer.widthTracksTextView = true
-            // `widthTracksTextView` keeps the container pinned to the text view
-            // width, so wrapping is correct even before the scroll view is laid
-            // out. Only snap the frame/container to a real measured width to
-            // avoid collapsing to a zero-width container during `makeNSView`,
-            // before the clip view has a size; `updateNSView` re-runs once laid
-            // out and reflows.
-            let visibleWidth = scrollView.contentSize.width
-            if visibleWidth > 0 {
-                textContainer.size = NSSize(width: visibleWidth, height: .greatestFiniteMagnitude)
-                setFrameSize(NSSize(width: visibleWidth, height: frame.height))
-            }
-        } else {
-            textContainer.widthTracksTextView = false
-            textContainer.size = NSSize(
-                width: CGFloat.greatestFiniteMagnitude,
-                height: CGFloat.greatestFiniteMagnitude
-            )
-        }
-    }
-
-    func applyFilePreviewTextEditorInsets() {
-        let targetInset = FilePreviewTextEditorLayout.textContainerInset
-        if textContainerInset.width != targetInset.width || textContainerInset.height != targetInset.height {
-            textContainerInset = targetInset
-        }
-        if textContainer?.lineFragmentPadding != FilePreviewTextEditorLayout.lineFragmentPadding {
-            textContainer?.lineFragmentPadding = FilePreviewTextEditorLayout.lineFragmentPadding
-        }
-    }
-}
 
 final class SavingTextView: NSTextView {
     private static let defaultPreviewFontSize: CGFloat = 13
@@ -470,6 +432,7 @@ final class SavingTextView: NSTextView {
         .browserZoomReset,
     ]
 
+    let wordWrapSettings: FilePreviewWordWrapSettings
     weak var panel: (any FilePreviewTextEditingPanel)?
     /// Fired after the preview font size changes so highlighting can
     /// re-apply token weights at the new size. Zoom writes a uniform
@@ -481,17 +444,26 @@ final class SavingTextView: NSTextView {
     private var previewFontSize: CGFloat = 13
     private var pendingEditorShortcutChordPrefix: ShortcutStroke?
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
-
+    /// Creates a default editor backed by the app’s preference domain.
     convenience init() {
         self.init(frame: .zero, textContainer: nil)
     }
 
-    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+    /// Creates an editor using the app’s persisted word-wrap preference.
+    override convenience init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        self.init(frame: frameRect, textContainer: container, wordWrapSettings: FilePreviewWordWrapSettings(defaults: .standard))
+    }
+
+    /// Creates an editor with an explicitly supplied word-wrap preference store.
+    init(frame frameRect: NSRect, textContainer container: NSTextContainer?, wordWrapSettings: FilePreviewWordWrapSettings) {
+        self.wordWrapSettings = wordWrapSettings
         super.init(frame: frameRect, textContainer: container)
         installFontMagnificationObserver()
     }
 
+    /// Restores an archived editor using the app’s preference domain.
     required init?(coder: NSCoder) {
+        wordWrapSettings = FilePreviewWordWrapSettings(defaults: .standard)
         super.init(coder: coder)
         installFontMagnificationObserver()
     }
@@ -636,6 +608,7 @@ final class SavingTextView: NSTextView {
         return false
     }
 
+    /// Combines save, zoom, and wrap actions for single-stroke and chord routing.
     private func editorShortcutCandidates() -> [
         (shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)
     ] {
@@ -655,7 +628,7 @@ final class SavingTextView: NSTextView {
                 { [weak self] in self?.performPreviewFontZoomShortcutAction(action) }
             ))
         }
-        return candidates
+        return candidates + filePreviewWordWrapShortcutCandidates()
     }
 
     private func previewFontZoomShortcutWhenClauseAllows(
@@ -669,7 +642,8 @@ final class SavingTextView: NSTextView {
             .evaluate(Self.filePreviewTextEditorShortcutContext)
     }
 
-    private static var filePreviewTextEditorShortcutContext: ShortcutContext {
+    /// Focus snapshot used by an editor that has not been attached to a window.
+    static var filePreviewTextEditorShortcutContext: ShortcutContext {
         ShortcutFocusState(
             browser: false,
             markdown: false,
@@ -717,5 +691,88 @@ extension FilePreviewPanel {
         guard previewMode == .text,
               let textView = textView as? SavingTextView else { return false }
         return textView.resetPreviewFontSize()
+    }
+}
+
+// MARK: - Find in the plain-text preview
+
+extension FilePreviewPanel {
+    /// Whether the text preview's native find bar is currently showing.
+    ///
+    /// Read live from the find bar's AppKit container so window-level find
+    /// visibility (the Find menu's "Hide Find Bar" enablement) tracks real UI
+    /// state, including the bar being dismissed with Escape or its Done
+    /// button rather than through `hideFind()`.
+    var isTextFindBarVisible: Bool {
+        guard previewMode == .text else { return false }
+        return textView?.enclosingScrollView?.isFindBarVisible ?? false
+    }
+
+    /// Whether the text preview has a selection that "Use Selection for Find"
+    /// can adopt as the search string.
+    var canUseSelectionForFind: Bool {
+        guard previewMode == .text, let textView else { return false }
+        return textView.selectedRange().length > 0
+    }
+
+    /// Shows the native find bar and focuses its search field. A freshly
+    /// opened bar is prefilled from the current selection; an already-visible
+    /// bar keeps its in-progress query and only retakes focus.
+    @discardableResult
+    func startFind() -> Bool {
+        guard previewMode == .text, let textView else { return false }
+        let barAlreadyVisible = textView.enclosingScrollView?.isFindBarVisible ?? false
+        if !barAlreadyVisible, textView.selectedRange().length > 0 {
+            Self.performTextFindAction(.setSearchString, on: textView)
+        }
+        Self.performTextFindAction(.showFindInterface, on: textView)
+        return true
+    }
+
+    func findNext() {
+        guard previewMode == .text, let textView else { return }
+        Self.performTextFindAction(.nextMatch, on: textView)
+    }
+
+    func findPrevious() {
+        guard previewMode == .text, let textView else { return }
+        Self.performTextFindAction(.previousMatch, on: textView)
+    }
+
+    /// Adopts the current selection as the find string without opening the bar.
+    @discardableResult
+    func useSelectionForFind() -> Bool {
+        guard canUseSelectionForFind, let textView else { return false }
+        Self.performTextFindAction(.setSearchString, on: textView)
+        return true
+    }
+
+    /// Hides the find bar. When the bar's search field owned keyboard focus,
+    /// focus returns to the document so the shortcut never leaves input
+    /// stranded in a hidden control.
+    func hideFind() {
+        guard previewMode == .text,
+              let textView,
+              let scrollView = textView.enclosingScrollView,
+              scrollView.isFindBarVisible else { return }
+        let window = textView.window
+        let findBarOwnedFocus: Bool = {
+            guard let window,
+                  let barView = scrollView.findBarView,
+                  let responder = window.firstResponder as? NSView else { return false }
+            return responder === barView || responder.isDescendant(of: barView)
+        }()
+        Self.performTextFindAction(.hideFindInterface, on: textView)
+        if findBarOwnedFocus {
+            window?.makeFirstResponder(textView)
+        }
+    }
+
+    /// Dispatches an NSTextFinder action through the text view; the action
+    /// travels as the sender tag, the same encoding menu items use.
+    private static func performTextFindAction(_ action: NSTextFinder.Action, on textView: NSTextView) {
+        let sender = NSMenuItem()
+        sender.tag = action.rawValue
+        textView.performFindPanelAction(sender)
     }
 }

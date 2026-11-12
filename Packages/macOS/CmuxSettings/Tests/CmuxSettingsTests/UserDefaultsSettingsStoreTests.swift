@@ -47,6 +47,21 @@ struct UserDefaultsSettingsStoreTests {
         #expect(reset == false)
     }
 
+    @Test func agentAutoResumeDefaultsOnAndRoundTrips() async {
+        let (store, catalog) = makeStore()
+        #expect(catalog.automation.agentAutoResume.id == "automation.agentAutoResume")
+        #expect(catalog.automation.agentAutoResume.userDefaultsKey == "agentAutoResumeEnabled")
+        // Auto-resume is on by default: a fresh store must read true.
+        let unset = await store.value(for: catalog.automation.agentAutoResume)
+        #expect(unset == true)
+        await store.set(false, for: catalog.automation.agentAutoResume)
+        let disabled = await store.value(for: catalog.automation.agentAutoResume)
+        #expect(disabled == false)
+        await store.reset(catalog.automation.agentAutoResume)
+        let reset = await store.value(for: catalog.automation.agentAutoResume)
+        #expect(reset == true)
+    }
+
     @Test func autoNamingAgentDefaultsToAutoAndRoundTrips() async {
         let (store, catalog) = makeStore()
         // Default is "auto" (each session named by its own agent).

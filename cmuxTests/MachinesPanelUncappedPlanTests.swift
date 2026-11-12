@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Testing
 
@@ -31,7 +32,7 @@ struct MachinesPanelUncappedPlanTests {
         (7, "7 machines"), (1, "1 machine"), (0, "0 machines"),
     ])
     func meterReadsPlainCount(activeCount: Int, expected: String) {
-        #expect(snapshot(activeCount: activeCount)?.countLabel == expected)
+        #expect(snapshot(activeCount: activeCount)?.usage.countLabel == expected)
     }
 
     @Test("A capped plan still reads 'N of M'")
@@ -40,7 +41,7 @@ struct MachinesPanelUncappedPlanTests {
             activeCount: 2,
             limits: VMPlanLimits(maxActiveVms: 5, planId: "pro", freeAccessWindowDays: 0)
         )
-        #expect(plan?.countLabel == "2 of 5 machines")
+        #expect(plan?.usage.countLabel == "2 of 5 machines")
         #expect(plan?.isAtLimit == false)
     }
 
@@ -58,7 +59,7 @@ struct MachinesPanelUncappedPlanTests {
         let unlabeled = MachineSnapshotBuilder.snapshot(from: summary)
         #expect(unlabeled.label == nil)
         #expect(unlabeled.displayName == "sleepy-teal-otter")
-        #expect(CloudTreeMachineRowContent.subtitle(unlabeled).contains(summary.id))
+        #expect(CloudTreeMachineRowContent(machine: unlabeled).subtitle.contains(summary.id))
 
         summary.displayName = "dev box"
         #expect(MachineSnapshotBuilder.snapshot(from: summary).displayName == "dev box")

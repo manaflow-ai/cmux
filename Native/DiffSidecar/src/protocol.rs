@@ -198,6 +198,10 @@ pub struct SessionOpened {
     pub session_id: String,
     pub patch: DiffResourceRef,
     pub source: DiffSource,
+    /// Changed paths the repository marks generated (`.gitattributes`
+    /// `linguist-generated` or `-diff`); the viewer collapses them by default.
+    #[serde(default)]
+    pub generated_paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, TS)]

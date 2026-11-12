@@ -56,6 +56,8 @@ export interface ApnsNotificationInput {
   readonly badgeCount?: number | null;
   /** When true, replace real terminal text with generic APNs localization keys. */
   readonly hideContent?: boolean;
+  readonly encryptedPayloads?: readonly Record<string, unknown>[];
+  readonly macPushPublicKey?: string | null;
 }
 
 /**
@@ -78,6 +80,23 @@ export const CMUX_APNS_REPLY_CATEGORY = "cmux.terminal.reply";
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
   if (input.kind === "dismiss") return buildDismissPayload(input);
+  if (input.encryptedPayloads?.length) return buildEncryptedNotifyPayload(input);
+  return buildVisibleNotifyPayload(input);
+}
+
+function buildEncryptedNotifyPayload(input: ApnsNotificationInput): Record<string, unknown> {
+  const aps: Record<string, unknown> = {
+    alert: { "title-loc-key": "push.generic.title", "loc-key": "push.generic.body" },
+    "mutable-content": 1,
+    "interruption-level": "time-sensitive",
+    sound: "default",
+    category: CMUX_APNS_CATEGORY,
+  };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+  return { aps, cmux: encryptedRouting(input) };
+}
+
+function buildVisibleNotifyPayload(input: ApnsNotificationInput): Record<string, unknown> {
   const hidden = input.hideContent === true;
   const title = input.title.trim() || "cmux";
   const body = input.body;
@@ -126,15 +145,32 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
  * `background` push, and a `background` push may not carry `badge` at all.
  */
 function buildDismissPayload(input: ApnsNotificationInput): Record<string, unknown> {
-  const aps: Record<string, unknown> = { "content-available": 1 };
-  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
-  const cmux: Record<string, unknown> = {
-    dismissedIds: [...(input.dismissedIds ?? [])],
+  const encrypted = Boolean(input.encryptedPayloads?.length);
+  const aps: Record<string, unknown> = {
+    "content-available": 1,
+    ...(encrypted ? { "mutable-content": 1 } : {}),
+    // A notification service extension is only invoked for mutable pushes
+    // that carry an alert. Empty strings keep this dismiss push invisible while
+    // allowing the extension to decrypt and apply the dismissal.
+    ...(encrypted ? { alert: { title: "", body: "" } } : {}),
   };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+  const cmux: Record<string, unknown> = encrypted
+    ? encryptedRouting(input)
+    : { dismissedIds: [...(input.dismissedIds ?? [])] };
   if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
   if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
   if (input.correlationId) cmux.correlationId = input.correlationId;
   return { aps, cmux };
+}
+
+function encryptedRouting(input: ApnsNotificationInput): Record<string, unknown> {
+  return {
+    encryptedPayloads: input.encryptedPayloads,
+    ...(input.macDeviceId ? { macDeviceId: input.macDeviceId } : {}),
+    ...(input.macInstanceTag ? { macInstanceTag: input.macInstanceTag } : {}),
+    ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+  };
 }
 
 /**

@@ -15,6 +15,7 @@ import { getStackServerApp } from "../../app/lib/stack";
 import { withStackAuthSpan } from "../auth/stackTelemetry";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
+  PERSONAL_PLAN_IDS,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
   isPaidPlanId,
@@ -28,6 +29,7 @@ import {
   type AdminStackTeam,
   type AdminStackUser,
 } from "./proGrants";
+import { teamEntitlementsView, type AdminTeamEntitlementsView } from "./teamEntitlements";
 
 export const PRO_LIST_SCAN_PAGE_SIZE = 100;
 export const PRO_LIST_MAX_ROWS = 5000;
@@ -169,7 +171,7 @@ export async function listStripeProSubscribers(
       and(
         isNull(stripeSubscriptions.stackTeamId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
       ),
     )
@@ -405,6 +407,24 @@ export async function scanManualTeamGrants(
       lastGrant: grantRecordFromServerMetadata(team.serverMetadata),
     });
   }
+  return { rows, scanned: teams.length, nextCursor: teams.nextCursor ?? null };
+}
+
+/**
+ * One page of the Stack team directory, keeping only teams with a custom
+ * deal (enterprise): limits in client metadata, or a label or price in server
+ * metadata. Each row is the same view the deal editor shows.
+ */
+export async function scanTeamDeals(
+  cursor: string | null,
+  options: { readonly app?: ProListStackApp; readonly pageSize?: number } = {},
+): Promise<ProListScanPage<AdminTeamEntitlementsView>> {
+  const app = options.app ?? defaultProListStackApp();
+  const teams = await app.listTeams({
+    cursor: cursor ?? undefined,
+    limit: options.pageSize ?? PRO_LIST_SCAN_PAGE_SIZE,
+  });
+  const rows = teams.map(teamEntitlementsView).filter((view) => view.override !== null);
   return { rows, scanned: teams.length, nextCursor: teams.nextCursor ?? null };
 }
 

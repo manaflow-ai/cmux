@@ -3,6 +3,7 @@ name = "cmux-iroh-relay-minter"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
+license = "BUSL-1.1"
 publish = false
 autobins = false
 

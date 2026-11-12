@@ -48,8 +48,10 @@ extension RemoteSessionCoordinator {
             relayToken: relayToken,
             persistentDaemonSlot: configuration.persistentDaemonSlot
         )
-        let metadataProbeCommand =
-            "sh -c \(probeScript.shellSingleQuoted)"
+        // Keep the relay token out of SSH argv and process/debug logs. The
+        // ownership probe receives its script over stdin instead.
+        let metadataProbeCommand = "sh -s"
+        let metadataProbeStdin = Data(probeScript.utf8)
         let token = UUID()
         let configuration = self.configuration
         let connectionBroker = self.connectionBroker
@@ -108,7 +110,8 @@ extension RemoteSessionCoordinator {
                 await connectionBroker.reapInheritedControlMaster(
                     for: configuration,
                     resolvedControlPath: effectiveControlPath,
-                    metadataProbeCommand: metadataProbeCommand
+                    metadataProbeCommand: metadataProbeCommand,
+                    metadataProbeStdin: metadataProbeStdin
                 )
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in
@@ -188,7 +191,10 @@ extension RemoteSessionCoordinator {
             "remote.relay.inheritedMaster.reapObserved " +
                 debugConfigSummary()
         )
-        guard !isStopping else { return }
+        // A parked session has no retry scheduled, so `.reconnecting` would
+        // strand it without its verdict. Whatever ends the park (Reconnect,
+        // wake) resets the transport itself.
+        guard !isStopping, parkedState == nil else { return }
         resetTransportForReconnectLocked(
             preservePersistentRelayMetadata: true
         )
@@ -238,6 +244,30 @@ extension RemoteSessionCoordinator {
         controlMasterReapState.observationTask?.cancel()
         controlMasterReapState.observationTask = nil
         controlMasterReapState.observedControlPath = nil
+    }
+
+    /// Returns whether OpenSSH reported that this relay's remote listener is
+    /// already bound.
+    static func isReverseRelayPortBindingFailure(_ detail: String, relayPort: Int) -> Bool {
+        reverseRelayPortBindingFailureLine(in: detail, relayPort: relayPort) != nil
+    }
+
+    /// Extracts the exact bind diagnostic from standalone or multiplexed
+    /// OpenSSH stderr. Multiplexing adds a prefix and may append a later
+    /// summary line, so classification must inspect every line.
+    static func reverseRelayPortBindingFailureLine(
+        in detail: String,
+        relayPort: Int
+    ) -> String? {
+        let expected = "remote port forwarding failed for listen port \(relayPort)"
+        return detail
+            .split(whereSeparator: \.isNewline)
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .first(where: {
+                $0 == expected || $0.hasSuffix(": \(expected)")
+            })
     }
 
     private func publishReverseRelayPortUnavailableLocked() {

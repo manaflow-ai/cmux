@@ -33,7 +33,7 @@ Auto-naming currently has source adapters and summarizer runners for:
 - Claude Code: reads the Claude transcript JSONL and summarizes with `claude -p`.
 - Codex: reads the Codex rollout JSONL and summarizes with `codex exec --output-last-message`.
 - Grok: reads Grok's `chat_history.jsonl` for the active session and summarizes with `grok --prompt-file` with tools and web search disabled.
-- OpenCode: caches recent prompt/assistant text from the cmux OpenCode session plugin and summarizes with `opencode run --pure` from an isolated temporary directory.
+- OpenCode: caches recent prompt/assistant text from the cmux OpenCode session plugin and summarizes with `opencode run --pure` from an isolated temporary directory. The pass removes project/config overrides, denies every OpenCode permission (including file, shell, MCP, and web tools), and preserves only the provider environment needed for the model request; that model request still needs its configured provider network.
 - Pi and OMP: cache prompt/assistant text from their cmux hooks and summarize with their own non-interactive CLIs (`pi --print --no-tools` and `omp --print --no-tools`).
 
 The other hook integrations are intentionally skipped for now:

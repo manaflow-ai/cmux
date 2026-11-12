@@ -52,6 +52,10 @@ import Testing
 
     @Test func doesNotClassifyPublicOrNightlyOrNilAsDevLike() {
         #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app"))
+        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.nightly"))
+        // RC is on the public release train: it must keep auto-update on.
+        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.rc"))
+        #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.rc.candidate1"))
         #expect(!UpdateController.isDevLikeBundleIdentifier(nil))
         // A look-alike that is neither the exact base id nor a dotted suffix must not match.
         #expect(!UpdateController.isDevLikeBundleIdentifier("com.cmuxterm.app.debugger"))
@@ -78,6 +82,29 @@ import Testing
         // No query / no checking state — the manual check resolves to notFound synchronously.
         guard case .notFound = controller.model.state else {
             Issue.record("dev/staging manual check should surface .notFound, got \(controller.model.state)")
+            return
+        }
+    }
+
+    /// `DisableAutoUpdate` (MDM): the updater never starts and a manual check is a no-op that
+    /// leaves the model idle, whichever build is running.
+    @Test func managedPolicyKeepsTheUpdaterOffAndSuppressesManualChecks() throws {
+        let suiteName = "com.cmuxterm.updatertests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let controller = UpdateController(
+            log: NoopUpdateLog(),
+            clock: SystemUpdateClock(),
+            hostBundle: .main,
+            defaults: defaults,
+            isDevLikeBundle: false,
+            isDisabledByPolicy: { true }
+        )
+        #expect(!controller.startUpdaterIfNeeded())
+        controller.checkForUpdates()
+        guard case .idle = controller.model.state else {
+            Issue.record("managed-policy manual check should leave the model idle, got \(controller.model.state)")
             return
         }
     }

@@ -7,6 +7,8 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import yaml
+
 from check_ghostty_zig_workflows import workflow_failures
 
 
@@ -92,6 +94,29 @@ def test_initialized_consumer_passes() -> None:
     assert failures == [], failures
 
 
+
+def test_release_architecture_selection_remains_analyzed() -> None:
+    workflow = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
+    )
+    step = next(
+        step for step in workflow["jobs"]["swift-package-tests"]["steps"]
+        if step.get("name") == "Build Release Ghostty CLI helper"
+    )
+    # Exercise the real shell body: unsupported syntax must not hide a helper
+    # invocation, and changing its target must not bypass the submodule guard.
+    fixture = {"jobs": {"build": {"steps": [step]}}}
+    failures = failures_for(yaml.safe_dump(fixture))
+    assert len(failures) == 1, failures
+    assert "before Ghostty submodule init" in failures[0], failures
+    assert "build-ghostty-cli-helper.sh" in failures[0], failures
+
+    fixture["jobs"]["build"]["steps"].insert(0, {
+        "uses": "actions/checkout@v6", "with": {"submodules": "recursive"},
+    })
+    assert failures_for(yaml.safe_dump(fixture)) == []
+
+
 def test_wrapped_and_prefixed_consumer_execution_fails() -> None:
     failures = failures_for(
         """\
@@ -141,6 +166,41 @@ def test_submodule_update_without_init_does_not_satisfy_guard() -> None:
 
     assert len(failures) == 1, failures
     assert "install-zig-ci.sh" in failures[0], failures
+
+
+def test_retrying_init_script_satisfies_guard() -> None:
+    failures = failures_for(
+        """\
+        name: fixture
+        on: workflow_dispatch
+        jobs:
+          through-bash:
+            runs-on: ubuntu-latest
+            steps:
+              - run: bash scripts/ci/init-submodule.sh ghostty
+              - run: ./scripts/install-zig-ci.sh
+          direct:
+            runs-on: ubuntu-latest
+            steps:
+              - run: |
+                  ./scripts/ci/init-submodule.sh ghostty
+                  ./scripts/install-zig-ci.sh
+          other-submodule:
+            runs-on: ubuntu-latest
+            steps:
+              - run: bash scripts/ci/init-submodule.sh vendor/bonsplit ghostty
+              - run: ./scripts/install-zig-ci.sh
+          other-script:
+            runs-on: ubuntu-latest
+            steps:
+              - run: bash tools/init-submodule.sh ghostty
+              - run: ./scripts/install-zig-ci.sh
+        """
+    )
+
+    assert len(failures) == 2, failures
+    assert any("other-submodule" in failure for failure in failures), failures
+    assert any("other-script" in failure for failure in failures), failures
 
 
 def test_function_body_runs_at_invocation_not_definition() -> None:
@@ -330,8 +390,10 @@ if __name__ == "__main__":
     test_non_executing_mentions_do_not_require_ghostty()
     test_executing_consumer_before_init_fails()
     test_initialized_consumer_passes()
+    test_release_architecture_selection_remains_analyzed()
     test_wrapped_and_prefixed_consumer_execution_fails()
     test_submodule_update_without_init_does_not_satisfy_guard()
+    test_retrying_init_script_satisfies_guard()
     test_function_body_runs_at_invocation_not_definition()
     test_bash_conditional_path_check_is_not_execution()
     test_setup_zig_ignores_non_run_mentions()

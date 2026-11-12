@@ -72,10 +72,12 @@ impl AttachBuilder {
                 (Optional::Value(cols), Optional::Value(rows))
             });
         client.attach_surface(AttachSurfaceRequest {
-            surface: self.surface,
+            surface: Optional::Value(self.surface),
             mode: Optional::Value(self.mode),
             cols,
             rows,
+            expected_generation: Optional::Missing,
+            expected_terminal_id: Optional::Missing,
         })
     }
 }

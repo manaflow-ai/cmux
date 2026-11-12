@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowser
 
 extension BrowserPanel {
     func configureMoveTabToNewWorkspaceContextMenu(for webView: CmuxWebView) {

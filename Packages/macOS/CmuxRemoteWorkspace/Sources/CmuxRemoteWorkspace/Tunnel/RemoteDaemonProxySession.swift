@@ -9,6 +9,11 @@ import Network
 /// stream, then shuttles bytes both ways (rewriting loopback-alias HTTP
 /// headers when the target is the alias host).
 ///
+/// The listener is reachable by every local account, so both handshakes must
+/// present the tunnel's ``BrowserProxyCredential`` before any daemon stream
+/// opens: SOCKS5 through username/password authentication (RFC 1929), HTTP
+/// CONNECT through `Proxy-Authorization: Basic`.
+///
 /// Isolation design (faithful lift of the legacy nested `ProxySession`): all
 /// mutable state is confined to the tunnel's serial `queue`. Mutators are the
 /// `NWConnection` receive/state callbacks (started on `queue`), the RPC
@@ -30,6 +35,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
 
     private enum SocksStage {
         case greeting
+        case authentication
         case request
     }
 
@@ -43,11 +49,15 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
     let id = UUID()
 
     private let connection: NWConnection
+    private let credential: BrowserProxyCredential
     private let rpcClient: any RemoteDaemonTunnelRPCClient
     private let queue: DispatchQueue
     private let onClose: (UUID) -> Void
 
     private var isClosed = false
+    /// Set once a final response is queued; later handshake bytes are ignored
+    /// so a refused client cannot retry on the same connection.
+    private var isClosingAfterResponse = false
     private var protocolKind: HandshakeProtocol = .undecided
     private var socksStage: SocksStage = .greeting
     private var handshakeBuffer = Data()
@@ -60,11 +70,13 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
 
     init(
         connection: NWConnection,
+        credential: BrowserProxyCredential,
         rpcClient: any RemoteDaemonTunnelRPCClient,
         queue: DispatchQueue,
         onClose: @escaping (UUID) -> Void
     ) {
         self.connection = connection
+        self.credential = credential
         self.rpcClient = rpcClient
         self.queue = queue
         self.onClose = onClose
@@ -131,7 +143,7 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
     }
 
     private func processHandshakeBuffer() {
-        guard !isClosed else { return }
+        guard !isClosed, !isClosingAfterResponse else { return }
         while streamID == nil {
             switch protocolKind {
             case .undecided:
@@ -159,13 +171,35 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
 
             let methods = [UInt8](handshakeBuffer[2..<total])
             handshakeBuffer = Data(handshakeBuffer.dropFirst(total))
-            socksStage = .request
 
-            if !methods.contains(0x00) {
+            // Only username/password (0x02) is acceptable; "no authentication"
+            // (0x00) is refused even when it is the only method offered.
+            guard methods.contains(0x02) else {
                 sendAndClose(Data([0x05, 0xFF]))
                 return false
             }
-            sendLocal(Data([0x05, 0x00]))
+            socksStage = .authentication
+            sendLocal(Data([0x05, 0x02]))
+            return true
+
+        case .authentication:
+            let bytes = [UInt8](handshakeBuffer)
+            guard bytes.count >= 2 else { return false }
+            let usernameLength = Int(bytes[1])
+            guard bytes.count >= 3 + usernameLength else { return false }
+            let passwordLength = Int(bytes[2 + usernameLength])
+            let total = 3 + usernameLength + passwordLength
+            guard bytes.count >= total else { return false }
+
+            let username = Array(bytes[2..<(2 + usernameLength)])
+            let password = Array(bytes[(3 + usernameLength)..<total])
+            guard bytes[0] == 0x01, credential.matches(username: username, password: password) else {
+                sendAndClose(Data([0x01, 0x01]))
+                return false
+            }
+            handshakeBuffer = Data(handshakeBuffer.dropFirst(total))
+            socksStage = .request
+            sendLocal(Data([0x01, 0x00]))
             return true
 
         case .request:
@@ -275,7 +309,16 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
             return false
         }
 
-        let firstLine = headerText.components(separatedBy: "\r\n").first ?? ""
+        let headerLines = headerText.components(separatedBy: "\r\n")
+        guard hasValidProxyAuthorization(headerLines: headerLines.dropFirst()) else {
+            sendAndClose(Self.httpResponse(
+                status: "407 Proxy Authentication Required",
+                extraHeaders: ["Proxy-Authenticate: Basic realm=\"cmux\"", "Content-Length: 0"]
+            ))
+            return false
+        }
+
+        let firstLine = headerLines.first ?? ""
         let parts = firstLine.split(whereSeparator: \.isWhitespace).map(String.init)
         guard parts.count >= 2, parts[0].uppercased() == "CONNECT" else {
             sendAndClose(Self.httpResponse(status: "400 Bad Request"))
@@ -295,6 +338,28 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
             pendingPayload: pending
         )
         return false
+    }
+
+    /// Returns whether the first `Proxy-Authorization` header carries this
+    /// tunnel's credential as HTTP Basic.
+    private func hasValidProxyAuthorization(headerLines: ArraySlice<String>) -> Bool {
+        let prefix = "proxy-authorization:"
+        guard let line = headerLines.first(where: { $0.lowercased().hasPrefix(prefix) }) else {
+            return false
+        }
+        let value = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+        let parts = value.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard parts.count == 2,
+              parts[0].lowercased() == "basic",
+              let decoded = Data(base64Encoded: parts[1].trimmingCharacters(in: .whitespaces)) else {
+            return false
+        }
+        let bytes = [UInt8](decoded)
+        guard let colon = bytes.firstIndex(of: UInt8(ascii: ":")) else { return false }
+        return credential.matches(
+            username: Array(bytes[..<colon]),
+            password: Array(bytes[(colon + 1)...])
+        )
     }
 
     private func openRemoteStream(
@@ -445,6 +510,8 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
 
     private func sendAndClose(_ data: Data) {
         guard !isClosed else { return }
+        isClosingAfterResponse = true
+        handshakeBuffer = Data()
         connection.send(content: data, completion: .contentProcessed { [weak self] _ in
             self?.close(reason: nil)
         })
@@ -488,8 +555,15 @@ final class RemoteDaemonProxySession: @unchecked Sendable {
         return host
     }
 
-    private static func httpResponse(status: String, closeAfterResponse: Bool = true) -> Data {
+    private static func httpResponse(
+        status: String,
+        closeAfterResponse: Bool = true,
+        extraHeaders: [String] = []
+    ) -> Data {
         var text = "HTTP/1.1 \(status)\r\nProxy-Agent: cmux\r\n"
+        for header in extraHeaders {
+            text += "\(header)\r\n"
+        }
         if closeAfterResponse {
             text += "Connection: close\r\n"
         }

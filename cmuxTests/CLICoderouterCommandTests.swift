@@ -9,6 +9,190 @@ import Testing
 @testable import cmux
 #endif
 
+@Suite struct AgentAliasArgumentTests {
+    final class BundleProbe {}
+
+    @Test(arguments: ["claude", "codex", "opencode", "pi"], ["--help", "-h"])
+    func helpKeepsTheProviderArgumentBoundary(agent: String, help: String) {
+        #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, help]) == ["--agent", agent, help])
+        #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--", help]) == ["--agent", agent, "--", help])
+        #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "prompt", help]) == ["--agent", agent, "--", "prompt", help])
+        #expect(CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, help]))
+        #expect(!CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--", help]))
+        #expect(!CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "prompt", help]))
+        #expect(!CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--name", help]))
+        #expect(!CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--machine", "--", help]))
+    }
+
+    @Test func agentSubcommandMatchingIgnoresCase() {
+        #expect(CmuxTuiRemoteRouting.isAgentSubcommand("agent"))
+        #expect(CmuxTuiRemoteRouting.isAgentSubcommand("Agent"))
+        #expect(CmuxTuiRemoteRouting.isAgentSubcommand("AGENT"))
+        #expect(!CmuxTuiRemoteRouting.isAgentSubcommand("agents"))
+    }
+
+    @Test(arguments: ["claude", "codex", "opencode", "pi"], ["--help", "-h"])
+    func providerHelpDoesNotBypassWrapperValidation(agent: String, help: String) throws {
+        for command in [["vm", "agent", "--agent", agent], ["agent", agent], ["coderouter", "agent", agent]] {
+            let result = try runWithoutMutationRequests(command + ["--machine", "--", help])
+            #expect(result.status != 0, "\(command): \(result.text)")
+            #expect(result.text.contains("--machine requires a value"), "\(command): \(result.text)")
+        }
+    }
+
+    @Test(arguments: ["open", "project"], ["--left", "--right", "--up", "--down"])
+    func surfaceOpenRejectsTabAndSideBeforeMutation(subcommand: String, side: String) throws {
+        let result = try runWithoutMutationRequests(["surface", subcommand, "vm/terminal/test", "--pane", "pane:1", "--tab", side])
+        #expect(result.status != 0, "\(result.text)")
+        #expect(result.text.contains("--tab and a pane side"), "\(result.text)")
+    }
+
+    @Test func browserLayoutRequiresURLBeforeMutation() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-browser-layout-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let surfaces: [[String: Any]] = [["type": "browser"], ["type": "browser", "url": ""], ["type": "browser", "url": NSNull()]]
+        for surface in surfaces {
+            try JSONSerialization.data(withJSONObject: ["pane": ["surfaces": [surface]]]).write(to: file)
+            let result = try runWithoutMutationRequests(["vm", "layout", "apply", "test-machine", file.path])
+            #expect(result.status != 0, "\(result.text)")
+            #expect(result.text.contains(".pane.surfaces[0].url"), "\(result.text)")
+            #expect(result.text.contains("browser surface needs url"), "\(result.text)")
+        }
+    }
+
+    @Test(arguments: [["--json"], ["--sync"], ["--no-open"], ["--wait"], ["--output"], ["--timeout", "30"], ["--machine", "vm-agent-test"]])
+    func aliasesAcceptLeadingCanonicalOptions(options: [String]) throws {
+        for command in [["vm", "agent"], ["agent"], ["coderouter", "agent"]] {
+            let result = try runWithoutMutationRequests(command + options + ["--agent", "claude", "--size", "1", "--", "reply pong"])
+            #expect(result.status != 0, "\(command): \(result.text)")
+            #expect(result.text.contains("vm agent: unknown size '1'"), "\(command): \(result.text)")
+        }
+    }
+
+    @Test
+    func topLevelAgentAliasReachesCanonicalValidation() throws {
+        let result = try runWithoutMutationRequests(["agent", "claude", "--size", "1", "reply pong"])
+        #expect(result.status != 0, "\(result.text)")
+        #expect(result.text.contains("vm agent: unknown size '1'"), "\(result.text)")
+    }
+
+    @Test(arguments: ["--help", "-h"])
+    func topLevelAgentHelpDoesNotConnect(help: String) throws {
+        for command in [["agent", help], ["agent", "claude", help], ["agent", "--agent", "claude", help]] {
+            let result = try runWithoutMutationRequests(command)
+            #expect(result.status == 0, "\(result.text)")
+            #expect(result.text.contains("Usage:") && result.text.contains("cmux agent"), "\(result.text)")
+            #expect(!result.connected, "Help unexpectedly connected to the app socket")
+        }
+    }
+
+    private func runWithoutMutationRequests(_ arguments: [String]) throws -> (status: Int32, text: String, connected: Bool) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-agent-help-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let binary = try BundledCLITestSupport.bundledCLIURL(for: BundleProbe.self)
+        let socketPath = "/tmp/cmux-args-\(UUID().uuidString).sock"
+        let listener = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        try #require(listener >= 0)
+        defer { Darwin.close(listener); unlink(socketPath) }
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { bytes in
+            bytes.copyBytes(from: socketPath.utf8CString.map { UInt8(bitPattern: $0) })
+        }
+        let bound = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        try #require(bound == 0)
+        try #require(Darwin.listen(listener, 1) == 0)
+        try #require(fcntl(listener, F_SETFL, O_NONBLOCK) == 0)
+        do {
+            let output = directory.appendingPathComponent("output")
+            try Data().write(to: output)
+            let handle = try FileHandle(forWritingTo: output)
+            defer { try? handle.close() }
+            let process = Process()
+            process.executableURL = binary
+            process.arguments = ["--socket", socketPath] + arguments
+            var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CMUX_") }
+            environment["HOME"] = directory.path
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            process.environment = environment
+            process.standardOutput = handle
+            process.standardError = handle
+            let ended = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in ended.signal() }
+            try process.run()
+            let finished = ended.wait(timeout: .now() + 10) == .success
+            if !finished { Darwin.kill(process.processIdentifier, SIGKILL) }
+            process.waitUntilExit()
+            let text = try String(contentsOf: output, encoding: .utf8)
+            #expect(finished, "\(arguments): \(text)")
+            let connection = Darwin.accept(listener, nil, nil)
+            if connection >= 0 {
+                defer { Darwin.close(connection) }
+                var buffer = [UInt8](repeating: 0, count: 4096)
+                let received = buffer.withUnsafeMutableBytes { bytes in
+                    Darwin.recv(connection, bytes.baseAddress, bytes.count, MSG_DONTWAIT)
+                }
+                #expect(received == 0, "Unexpected socket request: \(String(decoding: buffer.prefix(max(received, 0)), as: UTF8.self))")
+            }
+            return (process.terminationStatus, text, connection >= 0)
+        }
+    }
+
+    @Test(arguments: ["claude", "codex", "opencode", "pi"], ["--machine", "--size", "--cwd", "--name", "--remote-workspace", "--timeout"])
+    func incompleteVMOptionRemainsAnOption(agent: String, option: String) {
+        #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, option]) == ["--agent", agent, option])
+        #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--no-open", option]) == ["--agent", agent, "--no-open", option])
+        #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--", option]) == ["--agent", agent, "--", option])
+        #expect(CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "prompt", option]) == ["--agent", agent, "--", "prompt", option])
+    }
+
+    /// The until-done flags belong to `cmux vm agent`, not to the agent: the
+    /// short forms must keep them in front of `--`, and a `--timeout` value
+    /// must not hide a later `--help`.
+    @Test(arguments: ["claude", "codex", "opencode", "pi"])
+    func untilDoneOptionsStayVMOptions(agent: String) {
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--wait", "--output", "--timeout", "30", "fix the tests"])
+                == ["--agent", agent, "--wait", "--output", "--timeout", "30", "--", "fix the tests"]
+        )
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--timeout", "30", "--", "--wait"])
+                == ["--agent", agent, "--timeout", "30", "--", "--wait"]
+        )
+        #expect(CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--timeout", "30", "--help"]))
+        #expect(CmuxTuiRemoteRouting.vmAgentRequestsHelp([agent, "--wait", "-h"]))
+    }
+
+    /// `--focus` takes an optional value only when the next token is exactly a
+    /// boolean word, so a prompt after a bare `--focus` stays the prompt.
+    @Test(arguments: ["claude", "codex", "opencode", "pi"])
+    func focusFlagsStayVMOptions(agent: String) {
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--focus", "true", "fix it"])
+                == ["--agent", agent, "--focus", "true", "--", "fix it"]
+        )
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--focus", "fix it"])
+                == ["--agent", agent, "--focus", "--", "fix it"]
+        )
+        #expect(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs([agent, "--focus=no", "--no-focus", "fix it"])
+                == ["--agent", agent, "--focus=no", "--no-focus", "--", "fix it"]
+        )
+    }
+
+    @Test func focusFlagValueAcceptsOnlyBooleanWords() {
+        for token in ["true", "TRUE", "1", "yes"] { #expect(CmuxTuiRemoteRouting.focusFlagValue(token) == true) }
+        for token in ["false", "0", "No"] { #expect(CmuxTuiRemoteRouting.focusFlagValue(token) == false) }
+        for token in ["", "fix", "truely", "on"] { #expect(CmuxTuiRemoteRouting.focusFlagValue(token) == nil) }
+    }
+}
+
 // `cmux coderouter <status|machines|claude>` drives the app's `coderouter.*`
 // socket methods; every other `cmux coderouter` verb still execs the installed
 // CodeRouter CLI. These run the bundled CLI against a mock socket server and
@@ -52,6 +236,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         socketName: String,
         standardInput: String? = nil,
         extraEnvironment: [String: String] = [:],
+        underTerminal: Bool = false,
         waitForSocket: Bool = true,
         handler: @escaping (String, [String: Any]) -> String?
     ) throws -> (result: ProcessRunResult, state: MockSocketServerState) {
@@ -65,7 +250,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             unlink(socketPath)
         }
 
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+        let serverHandler: @Sendable (String) -> String = { [self] line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String else {
@@ -81,6 +266,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 error: ["code": "unexpected", "message": "Unexpected method \(method)"]
             )
         }
+        // A test that expects the CLI to stay off the socket must not hold a
+        // case-bound expectation it never waits on: the detached accept loop
+        // records any unexpected request without turning cleanup into a test
+        // failure.
+        let serverHandled: XCTestExpectation?
+        if waitForSocket {
+            serverHandled = startMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                handler: serverHandler
+            )
+        } else {
+            startDetachedMockServer(
+                listenerFD: listenerFD,
+                state: state,
+                handler: serverHandler
+            )
+            serverHandled = nil
+        }
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -91,18 +295,36 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment[key] = value
         }
 
+        // `underTerminal` runs the CLI on a pseudo-terminal, the only way to reach
+        // its interactive prompts. `script` turns a closed stdin into an EOF that
+        // can overtake typed input, so the shell keeps the pipe open until the
+        // CLI exits and `standardInput` is typed through it.
+        let doneSignal = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-terminal-\(UUID().uuidString)").path
+        defer { unlink(doneSignal) }
+        if underTerminal {
+            environment["CMUX_TEST_TERMINAL_INPUT"] = standardInput ?? ""
+        }
         let result = runProcess(
-            executablePath: cliPath,
-            arguments: arguments,
+            executablePath: underTerminal ? "/bin/sh" : cliPath,
+            arguments: underTerminal ? ["-c", Self.terminalRunner, "sh", doneSignal, cliPath] + arguments : arguments,
             environment: environment,
-            standardInput: standardInput,
+            standardInput: underTerminal ? nil : standardInput,
             timeout: 5
         )
-        if waitForSocket {
+        if let serverHandled {
             wait(for: [serverHandled], timeout: 5)
         }
         return (result, state)
     }
+
+    /// `sh -c` body: `$1` is a path for the done signal, the rest is the command.
+    private static let terminalRunner = #"""
+        done="$1"; shift
+        mkfifo "$done" || exit 125
+        { printf '%s' "$CMUX_TEST_TERMINAL_INPUT"; read _ < "$done"; } |
+            { /usr/bin/script -q /dev/null "$@"; status=$?; echo > "$done"; exit "$status"; }
+        """#
 
     /// The mock responds with `__ID__` so the handler closure does not need the
     /// request id; `runCoderouterCLI` substitutes it.
@@ -174,6 +396,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(receivedParams["kind"] as? String, "anthropic_oauth")
         XCTAssertEqual(receivedParams["token"] as? String, Self.sampleOAuthToken)
         XCTAssertEqual(receivedParams["label"] as? String, "work")
+        XCTAssertEqual(receivedParams["visibility"] as? String, "team")
         XCTAssertEqual(receivedParams["teamId"] as? String, "team_explicit")
         XCTAssertEqual(
             result.stdout,
@@ -188,6 +411,78 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.stdout.contains(Self.sampleOAuthToken), "the secret must never be printed")
         XCTAssertFalse(result.stderr.contains(Self.sampleOAuthToken), "the secret must never be printed")
         XCTAssertEqual(state.commands.filter { $0.contains(#""method":"coderouter.claude_upstream.add""#) }.count, 1)
+    }
+
+    /// Runs `claude add oauth-token` on a terminal with no `--label`, the token
+    /// in the environment, and `claudeJSON` as the Claude Code config, typing
+    /// `typed` at any prompt. Returns the label CodeRouter received.
+    private func addOAuthTokenInteractively(
+        claudeJSON: String?,
+        typed: String,
+        socketName: String
+    ) throws -> (result: ProcessRunResult, label: String?) {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-label-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        if let claudeJSON {
+            try claudeJSON.write(to: home.appendingPathComponent(".claude.json"), atomically: true, encoding: .utf8)
+        }
+
+        nonisolated(unsafe) var receivedLabel: String?
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "claude", "add", "oauth-token"],
+            socketName: socketName,
+            standardInput: typed,
+            extraEnvironment: [
+                "HOME": home.path,
+                "CLAUDE_CONFIG_DIR": "",
+                "CLAUDE_CODE_OAUTH_TOKEN": Self.sampleOAuthToken,
+            ],
+            underTerminal: true
+        ) { method, params in
+            guard method == "coderouter.claude_upstream.add" else { return nil }
+            receivedLabel = params["label"] as? String
+            return self.okResponse([
+                "teamId": "team_local",
+                "account": Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ"),
+                "accountsTotal": 1,
+            ])
+        }
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        return (result, receivedLabel)
+    }
+
+    private static let loggedInClaudeJSON = #"{"oauthAccount":{"emailAddress":"dev@example.com","organizationName":"Example"}}"#
+
+    func testCoderouterClaudeAddOAuthTokenOffersTheClaudeCodeLoginEmailAsLabel() throws {
+        let (result, label) = try addOAuthTokenInteractively(
+            claudeJSON: Self.loggedInClaudeJSON,
+            typed: "\n",
+            socketName: "coderouter-add-label-default"
+        )
+        XCTAssertTrue(result.stdout.contains("Label (Enter for dev@example.com): "), result.stdout)
+        XCTAssertEqual(label, "dev@example.com")
+    }
+
+    func testCoderouterClaudeAddOAuthTokenKeepsATypedLabelOverTheLoginEmail() throws {
+        let (_, label) = try addOAuthTokenInteractively(
+            claudeJSON: Self.loggedInClaudeJSON,
+            typed: "personal\n",
+            socketName: "coderouter-add-label-typed"
+        )
+        XCTAssertEqual(label, "personal")
+    }
+
+    func testCoderouterClaudeAddOAuthTokenSkipsTheLabelPromptWithoutAClaudeCodeLogin() throws {
+        let (result, label) = try addOAuthTokenInteractively(
+            claudeJSON: nil,
+            typed: "",
+            socketName: "coderouter-add-label-none"
+        )
+        XCTAssertFalse(result.stdout.contains("Label"), result.stdout)
+        XCTAssertNil(label)
     }
 
     func testCoderouterClaudeSetIsAnAliasForAddAndReadsTheEnvironment() throws {
@@ -402,6 +697,81 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testCoderouterAgentUsesTheSharedVMAgentPath() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-coderouter-agent-home-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let agentDirectory = home.appendingPathComponent(".local/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: agentDirectory, withIntermediateDirectories: true)
+        let agentPath = agentDirectory.appendingPathComponent("claude").path
+        try """
+        #!/bin/sh
+        printf '%s\\n' "$@"
+        """.write(toFile: agentPath, atomically: true, encoding: .utf8)
+        chmod(agentPath, 0o755)
+
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "agent", "claude", "--machine", "vm-agent-test", "--no-open", "--json", "--", "reply exactly pong"],
+            socketName: "coderouter-agent",
+            extraEnvironment: ["HOME": home.path]
+        ) { method, params in
+            guard method == "surface.new_terminal" else { return nil }
+            XCTAssertEqual(params["machine"] as? String, "vm-agent-test")
+            let command = params["command"] as? [String] ?? []
+            XCTAssertEqual(Array(command.prefix(2)), ["bash", "-lc"])
+            return self.okResponse([
+                "machine": "vm-agent-test",
+                "terminal_id": "term_agent_test",
+                "remote_workspace_id": "ws_agent_test",
+            ])
+        }
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let payload = try XCTUnwrap(jsonObject(result.stdout))
+        XCTAssertEqual(payload["agent"] as? String, "claude")
+        XCTAssertEqual(payload["terminal_id"] as? String, "term_agent_test")
+        XCTAssertEqual(payload["workspace_id"] as? String, "ws_agent_test")
+        XCTAssertEqual(payload["command"] as? [String], ["claude", "-p", "reply exactly pong"])
+        let terminalRequest = try XCTUnwrap(state.commands.compactMap(jsonObject).first {
+            $0["method"] as? String == "surface.new_terminal"
+        })
+        let params = try XCTUnwrap(terminalRequest["params"] as? [String: Any])
+        let command = try XCTUnwrap(params["command"] as? [String])
+        let environment = [
+            "HOME": home.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        ]
+        // Execute the returned shell command against a local agent fixture, so
+        // equivalent quoting still has to preserve the exact provider argv.
+        let launch = runProcess(
+            executablePath: "/bin/bash",
+            arguments: Array(command.dropFirst()),
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(launch.timedOut, launch.stderr)
+        XCTAssertEqual(launch.status, 0, launch.stderr)
+        XCTAssertEqual(launch.stdout, "-p\nreply exactly pong\n")
+    }
+
+    func testProviderFirstAgentAliasAddsTheCanonicalSeparator() {
+        XCTAssertEqual(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs(["claude", "--machine", "vm-agent-test", "reply exactly pong"]),
+            ["--agent", "claude", "--machine", "vm-agent-test", "--", "reply exactly pong"]
+        )
+        XCTAssertEqual(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs(["codex", "--", "exec", "summarize"]),
+            ["--agent", "codex", "--", "exec", "summarize"]
+        )
+        // Focus flags belong to `vm agent`, not to the agent's prompt.
+        XCTAssertEqual(
+            CmuxTuiRemoteRouting.vmAgentAliasArgs(["claude", "--no-focus", "reply exactly pong"]),
+            ["--agent", "claude", "--no-focus", "--", "reply exactly pong"]
+        )
+    }
+
     func testCoderouterStatusCombinesAuthAndAccounts() throws {
         let (result, state) = try runCoderouterCLI(
             ["coderouter", "status"],
@@ -438,8 +808,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testCoderouterUnknownVerbStillPassesThroughToTheInstalledCLI() throws {
-        // With an empty PATH the passthrough cannot find `coderouter`/`cr`; the
-        // point is that the socket is never consulted for a non-cmux verb.
+        // With an empty PATH and an empty HOME (the passthrough also looks in
+        // the installer's ~/.coderouter/bin) there is no `coderouter`/`cr` to
+        // run; the point is that the socket is never consulted for a non-cmux
+        // verb.
         let emptyPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-empty-path-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: emptyPath, withIntermediateDirectories: true)
@@ -448,7 +820,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (result, state) = try runCoderouterCLI(
             ["coderouter", "accounts"],
             socketName: "coderouter-passthrough",
-            extraEnvironment: ["PATH": emptyPath.path],
+            extraEnvironment: [
+                "PATH": emptyPath.path,
+                "HOME": emptyPath.path,
+                "CFFIXED_USER_HOME": emptyPath.path,
+            ],
             waitForSocket: false
         ) { _, _ in nil }
 

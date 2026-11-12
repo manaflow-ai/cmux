@@ -561,6 +561,9 @@ final class MainWindowFocusController {
     ) -> Bool {
         switch focusToggleDestination() {
         case .terminal:
+            // The focus shortcut is a dock-style toggle: once the sidebar owns
+            // focus, hide it before restoring the previously focused panel.
+            fileExplorerState?.setVisible(false)
             return restoreFocusedPanelFocusFromRightSidebarIfNeeded(currentResponder: window?.firstResponder)
         case .rightSidebar:
             return focusRightSidebar(mode: requestedMode, focusFirstItem: focusFirstItem)

@@ -1,28 +1,20 @@
 #if os(iOS) && DEBUG
 
-/// DEBUG-only observation of which route a coordinator's most recent
-/// configuration update took. The coordinator owns the state directly, so
-/// each test instance is isolated without a process-global registry.
+/// DEBUG-only observation of how a coordinator's most recent reconcile reached
+/// the table. The coordinator owns the state directly, so each test instance
+/// is isolated without a process-global registry.
 extension WorkspaceListTableCoordinator {
-    /// How one configuration update reached the table.
     enum PayloadApplyRoute: Equatable {
         /// No row renders differently; the table was not touched.
         case noChange
-        /// Payload-only changes with stable heights; the visible changed
-        /// cells were re-configured in place, listed here by item id.
-        case reconfiguredInPlace([String])
-        /// A visible row changed height; its existing cell was reconfigured
-        /// and the table remeasured rows without replacing cells.
-        case tableRelayout
-        /// Native swipe actions changed on the row UIKit is still editing.
-        /// The listed cells stay untouched until the swipe closes.
-        case deferredNativeActionReload([String])
-        /// Structure or a row height changed; a snapshot was applied.
-        case tableReload
-    }
-
-    func recordPayloadApplyRoute(_ route: PayloadApplyRoute) {
-        lastPayloadApplyRoute = route
+        /// Content changes that keep every row's height, written into the
+        /// listed rows' live cells without table layout.
+        case contentInPlace([String])
+        /// Geometry changed while the user was moving the list. The listed
+        /// rows' content reached their cells; geometry waits for the gesture.
+        case geometryDeferred(contentUpdatedIDs: [String])
+        /// Identities, order, heights and native actions were committed.
+        case geometryCommitted
     }
 }
 #endif

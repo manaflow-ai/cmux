@@ -11,6 +11,21 @@ internal import OSLog
 // spawn assembly and exercised directly by environment tests.
 
 extension TerminalSurface {
+    /// Stable per-surface history storage used by interactive POSIX shells.
+    /// The surface UUID survives session restoration, so history remains
+    /// available after quitting while separate terminals never share entries.
+    public static func terminalHistoryFileURL(
+        surfaceID: UUID,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("terminal-history", isDirectory: true)
+            .appendingPathComponent("surface-\(surfaceID.uuidString).history", isDirectory: false)
+    }
+
     /// The managed `TERM` value exported to spawned shells.
     public static let managedTerminalType = "xterm-256color"
 
@@ -42,7 +57,13 @@ extension TerminalSurface {
     ]
 
     /// Applies the managed terminal identity (`TERM`, `COLORTERM`,
-    /// `TERM_PROGRAM`) and protects those keys.
+    /// `TERM_PROGRAM`, an empty `TERM_PROGRAM_VERSION`) and protects those keys.
+    ///
+    /// Codex treats Ghostty 1.2.0 or later as providing native selection while
+    /// a TUI owns the mouse, and turns off its own copy-on-select. cmux forwards
+    /// those drags to the TUI, so advertising the embedded Ghostty version
+    /// leaves nothing for Command-C. Ghostty exports its version before applying
+    /// these values, so the key is blanked rather than removed.
     public static func applyManagedTerminalIdentityEnvironment(
         to environment: inout [String: String],
         protectedKeys: inout Set<String>
@@ -53,6 +74,8 @@ extension TerminalSurface {
         protectedKeys.insert("COLORTERM")
         environment["TERM_PROGRAM"] = managedTerminalProgram
         protectedKeys.insert("TERM_PROGRAM")
+        environment["TERM_PROGRAM_VERSION"] = ""
+        protectedKeys.insert("TERM_PROGRAM_VERSION")
     }
 
     /// Applies the managed cmux context identity keys and protects them.
@@ -74,6 +97,15 @@ extension TerminalSurface {
             environment[key] = value
             protectedKeys.insert(key)
         }
+
+        let historyURL = terminalHistoryFileURL(surfaceID: context.surfaceId)
+        try? FileManager.default.createDirectory(
+            at: historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        environment["CMUX_HISTORY_FILE"] = historyURL.path
+        protectedKeys.insert("CMUX_HISTORY_FILE")
     }
 
     /// Applies the sidebar git/PR watch flags and protects them.
@@ -89,9 +121,30 @@ extension TerminalSurface {
         protectedKeys.insert("CMUX_NO_PR_WATCH")
     }
 
+    /// The Claude integration flag and per-surface agent shim keys exported to a spawn.
+    ///
+    /// `cmux claude-teams` installs its tmux shim in a directory named from this
+    /// contract: the Claude wrapper root when the integration is on, otherwise
+    /// `CMUX_AGENT_COMMAND_SHIM_ROOT` with `CMUX_CLAUDE_INTEGRATION_DISABLED=1`.
+    /// The flag is always exported so an inherited value cannot stand in for it
+    /// (#17571).
+    public static func agentCommandShimEnvironment(
+        claudeIntegrationEnabled: Bool,
+        agentCommandShims: AgentCommandShimSet?
+    ) -> [String: String] {
+        var environment = ["CMUX_CLAUDE_INTEGRATION_DISABLED": claudeIntegrationEnabled ? "0" : "1"]
+        guard let agentCommandShims else { return environment }
+        environment["CMUX_AGENT_COMMAND_SHIM_ROOT"] = agentCommandShims.directoryPath
+        for shim in agentCommandShims.shims {
+            environment[shim.wrapperShimEnvironmentKey] = shim.executablePath
+            environment[shim.wrapperShimRootEnvironmentKey] = shim.directoryPath
+        }
+        return environment
+    }
+
     /// Prepends `directory` to a `PATH`-style string exactly once.
     public static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
-        CmuxPathEnvironment.prependingUniqueDirectory(directory, to: path)
+        CmuxPathEnvironment().prependingUniqueDirectory(directory, to: path)
     }
 
     /// Merges base, additional, and override environments with key
@@ -225,6 +278,23 @@ extension TerminalSurface {
         protectedKeys: inout Set<String>,
         readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
     ) -> String? {
+        applyManagedShellStartupPlan(
+            shell: shell, integrationDir: integrationDir,
+            userGhosttyShellIntegrationMode: userGhosttyShellIntegrationMode,
+            to: &environment, protectedKeys: &protectedKeys, readFile: readFile
+        ).command
+    }
+
+    /// Installs the command and its readiness capability from the same integration payload.
+    public static func applyManagedShellStartupPlan(
+        shell: String,
+        integrationDir: String,
+        userGhosttyShellIntegrationMode: String,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>,
+        readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> TerminalManagedShellStartupPlan {
+        let unavailable = TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: false)
         let shellName = URL(fileURLWithPath: shell).lastPathComponent
         func setManagedEnvironmentValue(_ key: String, _ value: String) {
             environment[key] = value
@@ -248,7 +318,7 @@ extension TerminalSurface {
         }
         switch shellName {
         case "zsh":
-            guard bundledBootstrapIsReadable(".zshenv") else { return nil }
+            guard bundledBootstrapIsReadable(".zshenv") else { return unavailable }
             if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION", "1") }
             let candidateZdotdir = (environment["ZDOTDIR"]?.isEmpty == false ? environment["ZDOTDIR"] : nil)
                 ?? getenv("ZDOTDIR").map { String(cString: $0) }
@@ -261,6 +331,7 @@ extension TerminalSurface {
                 if candidateZdotdir != ghosttyZdotdir { setManagedEnvironmentValue("CMUX_ZSH_ZDOTDIR", candidateZdotdir) }
             }
             setManagedEnvironmentValue("ZDOTDIR", integrationDir)
+            return TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: true)
         case "bash":
             if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1") }
             let bashBootstrapPath = (integrationDir as NSString).appendingPathComponent("cmux-bash-bootstrap.bash")
@@ -272,35 +343,44 @@ extension TerminalSurface {
                         return !trimmed.isEmpty && !trimmed.hasPrefix("#")
                     }
                     .joined(separator: "\n")
-                if !bootstrap.isEmpty { setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap) }
+                if !bootstrap.isEmpty {
+                    setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap)
+                    return TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: true)
+                }
             } catch {
                 Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                     .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
             }
         case "fish":
-            guard bundledBootstrapIsReadable("fish/config.fish") else { return nil }
+            guard bundledBootstrapIsReadable("fish/config.fish") else { return unavailable }
             applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &environment, protectedKeys: &protectedKeys)
-            return managedFishShellCommand(shell: shell)
+            return TerminalManagedShellStartupPlan(command: managedFishShellCommand(shell: shell), reportsPromptReadiness: true)
         case "nu":
-            guard bundledBootstrapIsReadable("nushell/cmux-nushell-bootstrap.nu") else { return nil }
+            guard bundledBootstrapIsReadable("nushell/cmux-nushell-bootstrap.nu") else { return unavailable }
             let bootstrapPath = (integrationDir as NSString)
                 .appendingPathComponent("nushell/cmux-nushell-bootstrap.nu")
             do {
+                let integrationPath = (integrationDir as NSString).appendingPathComponent("nushell/cmux-nushell-integration.nu")
+                let integrationSourced = FileManager.default.isReadableFile(atPath: integrationPath)
                 let payload = nushellStartupPayload(
                     bootstrapContents: try readFile(bootstrapPath),
-                    integrationDir: integrationDir
+                    integrationDir: integrationDir,
+                    integrationFileIsReadable: { _ in integrationSourced }
                 )
-                guard !payload.isEmpty else { return nil }
-                return managedNushellShellCommand(shell: shell, startupPayload: payload)
+                guard !payload.isEmpty else { return unavailable }
+                return TerminalManagedShellStartupPlan(
+                    command: managedNushellShellCommand(shell: shell, startupPayload: payload),
+                    reportsPromptReadiness: integrationSourced
+                )
             } catch {
                 Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                     .error("cmux nushell bootstrap unreadable at \(bootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); nushell shell integration will not load")
-                return nil
+                return unavailable
             }
         default:
             break
         }
-        return nil
+        return unavailable
     }
 
     /// Builds the nushell `-e` payload: the bootstrap squashed to one line

@@ -402,13 +402,17 @@ fn execute_sidebar_input(mux: &Arc<Mux>, prepared: PreparedEffect) -> Result<Val
         Ok(snapshot) => snapshot,
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
-    if surface.write_bytes(&data).is_err() {
-        return Err(effects::mark_indeterminate(mux, prepared));
+    if let Err(error) = surface.write_bytes(&data) {
+        let cause = format!("sidebar input write failed: {:?}", error.kind());
+        return Err(effects::mark_indeterminate(mux, prepared, &cause));
     }
     let value = json!({});
     let after = match current_sidebar_snapshot(mux, &sidebar_id, &session_id) {
         Ok(snapshot) => snapshot,
-        Err(_) => return Err(effects::mark_indeterminate(mux, prepared)),
+        Err(error) => {
+            let cause = format!("the sidebar snapshot after input failed: {}", error.code);
+            return Err(effects::mark_indeterminate(mux, prepared, &cause));
+        }
     };
     match sidebar_input_lifecycle_delta(&sidebar_id, &before, &after) {
         Some(changes) => effects::commit_success(mux, prepared, value, changes),
@@ -718,9 +722,18 @@ mod tests {
         let replay = dispatch(&mux, report_request("agent-report-once")).unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(replay["value"], first["value"]);
+        let revision_after_first = first["revision"].as_str().unwrap().parse::<u64>().unwrap();
+        let epoch_after_first = mux.resource_event_epoch();
         let repeated = dispatch(&mux, report_request("agent-report-twice")).unwrap();
-        assert_eq!(repeated["replayed"], false);
-        assert_eq!(repeated["value"]["id"], first["value"]["id"]);
+        assert_eq!(repeated["replayed"], true);
+        assert_eq!(repeated["revision"], revision_after_first.to_string());
+        assert_eq!(repeated["value"], first["value"]);
+        assert_eq!(mux.resource_event_epoch(), epoch_after_first);
+        assert_eq!(
+            mux.with_state(|state| state.resource_revision),
+            revision_after_first,
+            "a same-state socket report must not advance the shared revision"
+        );
         assert!(
             !first["value"]["id"]
                 .as_str()
@@ -741,6 +754,18 @@ mod tests {
         .unwrap();
         assert_eq!(listed.as_array().unwrap().len(), 1);
         assert_eq!(listed[0]["id"], first["value"]["id"]);
+    }
+
+    #[test]
+    fn public_agent_report_rejects_internal_plugin_and_detected_sources() {
+        for source in ["plugin", "detected"] {
+            assert!(
+                parse_agent_source(source).is_err(),
+                "{source} is an internal projection source"
+            );
+        }
+        assert!(parse_agent_source("hook").is_ok());
+        assert!(parse_agent_source("socket").is_ok());
     }
 
     #[test]

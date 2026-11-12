@@ -315,6 +315,11 @@ final class SidebarRowChecklistItemLine: NSView {
             y: vertical.lineCenter - metrics.attach.height / 2,
             width: metrics.attach.width, height: metrics.attach.height
         )
+        // A pooled line can be laid out underneath a stationary pointer. In
+        // that case AppKit has no new mouse-enter event to reveal the button.
+        // Reconcile after the frame is final so the affordance reflects the
+        // pointer's current location immediately.
+        updateRemoveButtonVisibilityFromCurrentPointer()
     }
 
     override func updateTrackingAreas() {
@@ -324,7 +329,7 @@ final class SidebarRowChecklistItemLine: NSView {
         }
         let next = NSTrackingArea(
             rect: bounds,
-            options: [.activeInKeyWindow, .inVisibleRect, .mouseEnteredAndExited],
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited, .mouseMoved],
             owner: self,
             userInfo: nil
         )
@@ -332,12 +337,33 @@ final class SidebarRowChecklistItemLine: NSView {
         trackingArea = next
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        updateTrackingAreas()
+        updateRemoveButtonVisibilityFromCurrentPointer()
+    }
+
     override func mouseEntered(with event: NSEvent) {
-        removeButton.isHidden = false
+        updateRemoveButtonVisibility(atWindowPoint: event.locationInWindow)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateRemoveButtonVisibility(atWindowPoint: event.locationInWindow)
     }
 
     override func mouseExited(with event: NSEvent) {
         removeButton.isHidden = true
+    }
+
+    private func updateRemoveButtonVisibilityFromCurrentPointer() {
+        guard let window else { return }
+        let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        updateRemoveButtonVisibility(atWindowPoint: windowPoint)
+    }
+
+    private func updateRemoveButtonVisibility(atWindowPoint point: NSPoint) {
+        removeButton.isHidden = !bounds.contains(convert(point, from: nil))
     }
 
     /// Reuse teardown: drop the item, action bundle, editor, and click

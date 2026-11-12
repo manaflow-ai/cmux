@@ -1,10 +1,10 @@
 /// Resolves the Ghostty action used by native terminal Copy commands.
-public nonisolated struct GhosttyCopyActionResolver: Sendable {
+public struct GhosttyCopyActionResolver: Sendable {
     /// Creates a resolver with no mutable state.
     public init() {}
 
     /// The formats accepted by Ghostty's `copy_to_clipboard` action.
-    public nonisolated enum Flavor: String, CaseIterable, Sendable {
+    public enum Flavor: String, CaseIterable, Sendable {
         case plain
         case vt
         case html
@@ -24,7 +24,7 @@ public nonisolated struct GhosttyCopyActionResolver: Sendable {
     }
 
     /// A copy flavor and the trigger Ghostty associates with that action.
-    public nonisolated struct Binding: Equatable, Sendable {
+    public struct Binding: Equatable, Sendable {
         /// The configured clipboard flavor.
         public let flavor: Flavor
         /// The configured trigger for the flavor-specific action.

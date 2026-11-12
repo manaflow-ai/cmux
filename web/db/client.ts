@@ -7,6 +7,8 @@ import { Client, Pool, Query as PgQuery } from "pg";
 import postgres, { type Sql } from "postgres";
 import { cloudDbConfig, cloudDbConfigKey, type CloudDbAwsRdsIamConfig } from "./config";
 import { currentCloudDbQuerySignal } from "./queryScope";
+import { tagCloudDbQuery } from "./queryTags";
+import { observePostgresJsQueryTiming, onPostgresJsQuerySent } from "./queryTiming";
 import * as schema from "./schema";
 
 function createPostgresJsDb(sql: Sql) {
@@ -18,6 +20,8 @@ type CloudDb = ReturnType<typeof createPostgresJsDb>;
 type CloudDbState = {
   db: CloudDb;
   close: () => Promise<void>;
+  /** Opens one pooled connection ahead of the first query; see preconnectCloudDb. */
+  warm: () => Promise<void>;
   key: string;
 };
 
@@ -46,7 +50,12 @@ function installPostgresJsQueryCancellation(sql: Sql): void {
   const originalUnsafe = sql.unsafe;
   let currentUnsafe = originalUnsafe;
   const wrappedUnsafe = (...args: Parameters<typeof originalUnsafe>) => {
-    const query = currentUnsafe(...args) as unknown as CancellablePostgresQuery;
+    // Every statement carries the SQLCommenter tags for its request or job,
+    // so Insights attributes load to a route instead of to `postgres.js`.
+    const [statement, ...rest] = args;
+    const tagged = [tagCloudDbQuery(statement), ...rest] as Parameters<typeof originalUnsafe>;
+    const query = currentUnsafe(...tagged) as unknown as CancellablePostgresQuery;
+    observePostgresJsQueryTiming(query);
     const signal = currentCloudDbQuerySignal();
     if (signal) watchPostgresJsQuery(query, signal);
     return query;
@@ -63,17 +72,25 @@ function installPostgresJsQueryCancellation(sql: Sql): void {
   });
 }
 
+/**
+ * Cancels a query when its signal aborts. postgres.js wedges the pooled
+ * connection when a query is cancelled before it is sent (every later query
+ * on that connection hangs), so an abort that arrives first is held until
+ * postgres.js sends the query, and only then cancels it.
+ */
 function watchPostgresJsQuery(
   query: CancellablePostgresQuery,
   signal: AbortSignal,
 ): void {
   let settled = false;
+  let sent = false;
+  let abortPending = false;
   const cleanup = () => {
     if (settled) return;
     settled = true;
     signal.removeEventListener("abort", abort);
   };
-  const abort = () => {
+  const cancel = () => {
     if (settled) return;
     try {
       void Promise.resolve(query.cancel()).catch(() => undefined);
@@ -81,9 +98,26 @@ function watchPostgresJsQuery(
       // The query may settle between the abort and cancellation call.
     }
   };
+  const abort = () => {
+    if (settled) return;
+    if (!sent) {
+      abortPending = true;
+      return;
+    }
+    cancel();
+  };
+  const observable = onPostgresJsQuerySent(query, () => {
+    sent = true;
+    // Cancelled from inside the send it would still be unsent: cancel on
+    // the next turn, once postgres.js has written it.
+    if (abortPending) setImmediate(cancel);
+  });
+  // Without a send signal there is no safe moment to cancel: the query runs.
+  if (!observable) return;
   signal.addEventListener("abort", abort, { once: true });
-  if (signal.aborted) abort();
+  // `then` hands the query to postgres.js, which sends it.
   void query.then(cleanup, cleanup);
+  if (signal.aborted) abort();
 }
 
 class CancellableRdsClient extends Client {}
@@ -239,7 +273,15 @@ export function cloudDb(): CloudDb {
     const pool = createAwsRdsIamPool(config);
     attachDatabasePool(pool);
     const db = drizzleNodePg({ client: pool, schema }) as unknown as CloudDb;
-    globalForDb.__cmuxCloudDb = { db, close: () => pool.end(), key };
+    globalForDb.__cmuxCloudDb = {
+      db,
+      close: () => pool.end(),
+      warm: coalesceWarm(async () => {
+        const client = await pool.connect();
+        client.release();
+      }),
+      key,
+    };
     return db;
   }
 
@@ -248,8 +290,51 @@ export function cloudDb(): CloudDb {
     prepare: false,
   });
   const db = createPostgresJsDb(sql);
-  globalForDb.__cmuxCloudDb = { db, close: () => sql.end(), key };
+  globalForDb.__cmuxCloudDb = {
+    db,
+    close: () => sql.end(),
+    warm: coalesceWarm(async () => {
+      await sql`select 1`;
+    }),
+    key,
+  };
   return db;
+}
+
+/**
+ * Runs the warm-up once per process: every caller shares the first attempt's
+ * promise, and a failed attempt is forgotten so the next call can retry. A
+ * burst of requests, authenticated or not, therefore costs one connection,
+ * and a warm process never re-runs the probe query.
+ */
+function coalesceWarm(run: () => Promise<void>): () => Promise<void> {
+  let inFlight: Promise<void> | null = null;
+  return () => {
+    inFlight ??= run().catch((error: unknown) => {
+      inFlight = null;
+      throw error;
+    });
+    return inFlight;
+  };
+}
+
+/**
+ * Open a database connection before a route needs one. A cold invocation
+ * paid ~95 ms of TCP+TLS plus an STS round trip for the RDS IAM token inside
+ * the first query (`pg-pool.connect` on the create span); a route fires this
+ * while it is still verifying the caller so that cost overlaps auth instead
+ * of following it. Best effort, never awaited for correctness, and after the
+ * first success a no-op for the life of the process, so calling it ahead of
+ * auth cannot amplify an unauthenticated burst beyond one pooled connection.
+ */
+export function preconnectCloudDb(): Promise<void> {
+  try {
+    cloudDb();
+    return globalForDb.__cmuxCloudDb?.warm().catch(() => undefined) ?? Promise.resolve();
+  } catch {
+    // No database configured (tests, offline builds): the first query reports it.
+    return Promise.resolve();
+  }
 }
 
 /**
@@ -273,9 +358,17 @@ export async function pingCloudDb(
       prepare: false,
       connect_timeout: Math.max(1, Math.ceil(timeoutMs / 1_000)),
       idle_timeout: 1,
-      connection: { statement_timeout: Math.max(1, Math.floor(timeoutMs)) },
     });
-    const query = sql.unsafe("select 1");
+    // The deadline is set with `set local` inside an explicit transaction
+    // rather than as a startup parameter: PgBouncer in transaction pooling
+    // mode (the production pooled URL) rejects `statement_timeout` in the
+    // startup options with "unsupported startup parameter", and a plain
+    // session-level `set` would leak onto the shared server connection.
+    // One simple-protocol query keeps `query.cancel()` available for aborts.
+    const statementTimeoutMs = Math.max(1, Math.floor(timeoutMs));
+    const query = sql.unsafe(
+      `begin; set local statement_timeout = ${statementTimeoutMs}; select 1; commit`,
+    );
     const cancel = () => {
       try {
         query.cancel();

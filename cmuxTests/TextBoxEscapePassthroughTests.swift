@@ -246,7 +246,7 @@ struct TextBoxEscapePassthroughTests {
             let panel = try #require(workspace.terminalPanel(for: panelID))
 
             panel.showTextBoxInputWhenAvailable()
-            panel.surface.releaseSurfaceForTesting()
+            panel.surface.releaseHostedSurfaceForTesting()
             return (windowID, workspace, panel)
         } catch {
             closeWindow(windowID)
@@ -265,7 +265,7 @@ struct TextBoxEscapePassthroughTests {
         )
         dock.panels[panel.id] = panel
         panel.showTextBoxInputWhenAvailable()
-        panel.surface.releaseSurfaceForTesting()
+        panel.surface.releaseHostedSurfaceForTesting()
         return (dock, panel)
     }
 

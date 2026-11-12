@@ -2,7 +2,8 @@ import Image from "next/image";
 import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 import type { ChangelogVersion } from "@/app/lib/changelog";
 import { pngDimensions } from "./png-dimensions";
-import type { VersionMedia } from "./changelog-media";
+import type { FeatureHighlight, VersionMedia } from "./changelog-media";
+import { ChangelogVideo } from "./changelog-video";
 
 export interface ChangelogSectionLabels {
   added: string;
@@ -10,6 +11,8 @@ export interface ChangelogSectionLabels {
   fixed: string;
   removed: string;
   contributors: string;
+  /** Label for a feature card's "Try it" row. */
+  tryIt: string;
 }
 
 export function ChangelogRelease({
@@ -123,7 +126,9 @@ export function ChangelogRelease({
         />
       )}
 
-      {media && <FeatureList media={media} />}
+      {media && (
+        <FeatureList media={media} tryItLabel={sectionLabels.tryIt} />
+      )}
 
       {release.intro && !media && (
         <div
@@ -268,43 +273,130 @@ function HeroImage({
 function FeatureImage({ src, alt }: { src: string; alt: string }) {
   const { width, height } = pngDimensions(src);
   return (
-    <div style={{ paddingTop: 12 }}>
-      <div className="overflow-hidden rounded-lg">
-        <Image
-          src={src}
-          alt={alt}
-          width={width}
-          height={height}
-          sizes="(max-width: 640px) 100vw, 640px"
-          className="block w-full max-w-full h-auto"
-        />
-      </div>
+    <Image
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      sizes="(max-width: 640px) 100vw, 640px"
+      className="block w-full max-w-full h-auto"
+    />
+  );
+}
+
+function FeatureMedia({ feature }: { feature: FeatureHighlight }) {
+  if (feature.video) {
+    const poster = feature.video.poster;
+    const size = poster?.endsWith(".png") ? pngDimensions(poster) : undefined;
+    return (
+      <ChangelogVideo
+        video={feature.video}
+        label={feature.title}
+        width={size?.width}
+        height={size?.height}
+      />
+    );
+  }
+  if (feature.image) {
+    return <FeatureImage src={feature.image} alt={feature.title} />;
+  }
+  return null;
+}
+
+function hasFeatureMedia(feature: FeatureHighlight): boolean {
+  return Boolean(feature.video || feature.image);
+}
+
+/**
+ * Cards with media span the full row so screenshots stay legible. Text-only
+ * cards pair up in two columns; one left without a partner spans the row.
+ */
+function featureSpansRow(features: FeatureHighlight[], index: number): boolean {
+  if (hasFeatureMedia(features[index])) return true;
+  let column = 0;
+  for (let i = 0; i < index; i += 1) {
+    column = hasFeatureMedia(features[i]) ? 0 : (column + 1) % 2;
+  }
+  const next = features[index + 1];
+  return column === 0 && (!next || hasFeatureMedia(next));
+}
+
+function TryIt({ label, text }: { label: string; text: string }) {
+  return (
+    <div
+      data-changelog-try-it=""
+      className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-[13px]"
+      style={{ paddingTop: 10 }}
+    >
+      <span className="font-medium text-foreground">{label}</span>
+      <span className="min-w-0 text-muted">
+        <InlineMarkdown text={text} />
+      </span>
     </div>
   );
 }
 
-function FeatureList({ media }: { media: VersionMedia }) {
-  if (!media.features?.length) return null;
+function FeatureCard({
+  feature,
+  spansRow,
+  tryItLabel,
+}: {
+  feature: FeatureHighlight;
+  spansRow: boolean;
+  tryItLabel: string;
+}) {
+  const hasMedia = hasFeatureMedia(feature);
+  return (
+    <section
+      data-changelog-feature=""
+      className={`flex min-w-0 flex-col overflow-hidden rounded-lg border border-border${spansRow ? " sm:col-span-2" : ""}`}
+    >
+      {hasMedia && (
+        <div className="border-b border-border">
+          <FeatureMedia feature={feature} />
+        </div>
+      )}
+      <div style={{ padding: "12px 16px 14px" }}>
+        <h3
+          className="text-[15px] font-semibold text-foreground"
+          style={{ margin: 0, padding: 0, lineHeight: 1.4 }}
+        >
+          {feature.title}
+        </h3>
+        <p
+          className="text-[14px] text-muted"
+          style={{ margin: 0, paddingTop: 4, lineHeight: 1.6 }}
+        >
+          {feature.description}
+        </p>
+        {feature.tryIt && <TryIt label={tryItLabel} text={feature.tryIt} />}
+      </div>
+    </section>
+  );
+}
+
+function FeatureList({
+  media,
+  tryItLabel,
+}: {
+  media: VersionMedia;
+  tryItLabel: string;
+}) {
+  const features = media.features;
+  if (!features?.length) return null;
 
   return (
     <div
-      style={{
-        paddingTop: 20,
-        display: "flex",
-        flexDirection: "column",
-        gap: 24,
-      }}
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+      style={{ paddingTop: 20 }}
     >
-      {media.features.map((feature, index) => (
-        <div key={index}>
-          <p style={{ margin: 0, padding: 0 }}>
-            <strong>{feature.title}.</strong>{" "}
-            <span className="text-muted">{feature.description}</span>
-          </p>
-          {feature.image && (
-            <FeatureImage src={feature.image} alt={feature.title} />
-          )}
-        </div>
+      {features.map((feature, index) => (
+        <FeatureCard
+          key={index}
+          feature={feature}
+          spansRow={featureSpansRow(features, index)}
+          tryItLabel={tryItLabel}
+        />
       ))}
     </div>
   );

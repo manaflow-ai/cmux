@@ -1,4 +1,6 @@
+import CmuxComputerUse
 import Foundation
+import CmuxFoundation
 
 /// Immutable display and action data for one live agent session in the computer-use menu.
 struct ComputerUseMenuBarRow: Equatable, Identifiable, Sendable {

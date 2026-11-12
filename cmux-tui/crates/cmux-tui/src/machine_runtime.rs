@@ -881,11 +881,15 @@ fn managed_ssh_options(
         (None, None) => host,
     };
 
+    // These runs never become a ControlMaster, so turning forwarding off
+    // can't reach an interactive session to the same host.
     let mut ssh_args = vec![
         "-o".into(),
         "BatchMode=yes".into(),
         "-o".into(),
         "StrictHostKeyChecking=yes".into(),
+        "-o".into(),
+        "ControlMaster=no".into(),
         "-o".into(),
         "ForwardAgent=no".into(),
         "-o".into(),
@@ -919,8 +923,8 @@ mod tests {
     #[test]
     fn connected_target_is_deduplicated() {
         let mut runtime = MachineRuntime::new(PathBuf::from("/tmp/current.sock"), Vec::new());
-        let first = runtime.connect_machine("lawrence@mini.local").unwrap();
-        let second = runtime.connect_machine("lawrence@mini.local").unwrap();
+        let first = runtime.connect_machine("dev@mini.local").unwrap();
+        let second = runtime.connect_machine("dev@mini.local").unwrap();
         assert_eq!(first, second);
         assert_eq!(runtime.snapshot(runtime.initial_key()).machines.len(), 2);
     }
@@ -928,11 +932,11 @@ mod tests {
     #[test]
     fn typed_ssh_command_prefix_adds_the_same_host_alias() {
         let mut runtime = MachineRuntime::new(PathBuf::from("/tmp/current.sock"), Vec::new());
-        let command = runtime.connect_machine("ssh cmux-lawrence").unwrap();
-        let alias = runtime.connect_machine("cmux-lawrence").unwrap();
+        let command = runtime.connect_machine("ssh build-host").unwrap();
+        let alias = runtime.connect_machine("build-host").unwrap();
 
         assert_eq!(command, alias);
-        assert_eq!(runtime.name(command), Some("cmux-lawrence"));
+        assert_eq!(runtime.name(command), Some("build-host"));
     }
 
     #[test]
@@ -1062,7 +1066,7 @@ mod tests {
     fn ssh_machine_connection_uses_managed_bootstrap_and_fail_closed_policy() {
         let options = managed_ssh_options(
             "mini.local",
-            Some("lawrence"),
+            Some("dev"),
             Some(2200),
             Some(Path::new("/tmp/cloud key")),
             "agents",
@@ -1070,7 +1074,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(options.destination, "lawrence@mini.local:2200");
+        assert_eq!(options.destination, "dev@mini.local:2200");
         assert_eq!(options.session, "agents");
         assert_eq!(options.remote_binary, "/opt/cmux-tui");
         for option in [
@@ -1086,5 +1090,16 @@ mod tests {
         assert!(
             managed_ssh_options("mini.local", None, None, None, "agents", "/opt/cmux tui").is_err()
         );
+    }
+
+    /// These runs turn forwarding off, so they must never become the shared
+    /// ControlMaster that an interactive session to the same host reuses.
+    #[cfg(unix)]
+    #[test]
+    fn managed_machine_connection_uses_hardened_ssh_argv() {
+        let options =
+            managed_ssh_options("mini.local", None, None, None, "agents", "/opt/cmux-tui").unwrap();
+
+        assert!(options.ssh_args.windows(2).any(|pair| pair == ["-o", "ControlMaster=no"]));
     }
 }

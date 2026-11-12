@@ -6,6 +6,9 @@ import Foundation
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
+    /// Hidden because the window was too narrow (SidePanelWidthFit), not by the
+    /// person; session snapshots save it as visible.
+    var isAutoCollapsed = false
     private var visibilityWillChangeOwnerId: UUID?
     private var visibilityWillChange: ((Bool) -> Void)?
 

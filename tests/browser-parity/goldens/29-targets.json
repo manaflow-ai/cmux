@@ -1,0 +1,7 @@
+{
+  "oracle": {},
+  "cmux": {
+    "full": "title: Targets Fixture\nurl: PRIMARY/targets.html\n- main:\n  - heading \"Targets\" [level=1]\n  - text: \"Cited claim and more text.\"\n  - link \"★\" [ref=e1]\n  - link \"main content\" [ref=e2]\n  - link \"Docs elsewhere\" [ref=e3] [url=example.org/docs/…]\n  - link \"Example net\" [ref=e4] [url=example.net]\n  - link \"Local page\" [ref=e5]\n  - button \"Guides\" [ref=e6] [expanded=false]:\n    - link \"Guides\" [ref=e7]\n  - text: \"A commit message long enough to run past the edge of its cell\"\n  - textbox \"Email\" [ref=e8]\n  - button \"Send\" [ref=e9]\n  - text: \"Waiting\"",
+    "output:2": "title: Targets Fixture\nurl: PRIMARY/targets.html\n# changes since the previous snapshot (+ added, - removed, ~ changed):\n  - main:\n~   - textbox \"Email\" [ref=e8]: \"me@x.com\"\n~   - button \"Send\" [ref=e9] [focused]\n+   - text: \"Submitted me@x.com\""
+  }
+}

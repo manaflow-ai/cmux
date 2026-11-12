@@ -33,7 +33,7 @@ extension TerminalController {
             return .noSourceSurface
         }
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
-        let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
+        let kind: DockSurfaceKind = panelType == .browser ? .browser : (panelType == .chief ? .chief : .terminal)
         if focus {
             // Creation is authoritative; revealing its secondary focus request
             // is best-effort when the Dock host is still mounting.
@@ -49,10 +49,12 @@ extension TerminalController {
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
+            initialInput: kind == .terminal ? inputs.initialInput : nil,
             initialDividerPosition: initialDividerPosition,
             preferredProfileID: preferredProfileID,
             preloadInitialNavigationInBackground: kind == .browser,
-            focus: false
+            focus: false,
+            conversationID: nil
         )
         guard let newPanelId else {
             return .createFailed

@@ -10,11 +10,13 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
+from browser_dialog_test_support import run_with_dialogs
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
@@ -83,12 +85,13 @@ def _wait_function(c: cmux, surface_id: str, expression: str, timeout_s: float =
 
 
 @contextmanager
-def _local_test_server() -> str:
+def _local_test_server(download_filename: str) -> str:
     with tempfile.TemporaryDirectory(prefix="cmux-browser-ext-") as root:
         root_path = Path(root)
 
         pixel = base64.b64decode("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==")
         (root_path / "tiny.gif").write_bytes(pixel)
+        (root_path / "download.bin").write_bytes(b"cmux browser download history\n")
 
         (root_path / "frame.html").write_text(
             """<!doctype html>
@@ -117,8 +120,7 @@ def _local_test_server() -> str:
             encoding="utf-8",
         )
 
-        (root_path / "index.html").write_text(
-            """<!doctype html>
+        index_html = """<!doctype html>
 <html>
   <head>
     <title>cmux-browser-extended</title>
@@ -132,6 +134,7 @@ def _local_test_server() -> str:
     <img id="hero" alt="hero image" src="/tiny.gif" />
     <button id="action-btn" role="button" onclick="window.actionCount = (window.actionCount || 0) + 1; document.querySelector('#status').textContent = 'clicked';">Submit Action</button>
     <div id="status">ready</div>
+    <a id="download-link" href="/download.bin">Download fixture</a>
 
     <ul id="rows">
       <li class="row">row-1</li>
@@ -162,13 +165,24 @@ def _local_test_server() -> str:
     </script>
   </body>
 </html>
-""".strip(),
-            encoding="utf-8",
-        )
+""".strip()
+        (root_path / "index.html").write_text(index_html, encoding="utf-8")
 
         class Handler(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, directory=root, **kwargs)
+
+            def do_GET(self) -> None:  # noqa: N802
+                if self.path.split("?", 1)[0] == "/download.bin":
+                    body = (root_path / "download.bin").read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Disposition", f'attachment; filename="{download_filename}"')
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
+                super().do_GET()
 
             def log_message(self, format: str, *args) -> None:  # noqa: A003
                 return
@@ -189,7 +203,8 @@ def _local_test_server() -> str:
 
 
 def main() -> int:
-    with _local_test_server() as base_url:
+    download_filename = f"cmux-browser-history-{uuid.uuid4().hex}.bin"
+    with _local_test_server(download_filename) as base_url:
         index_url = f"{base_url}/index.html"
         second_url = f"{base_url}/second.html"
 
@@ -207,6 +222,54 @@ def main() -> int:
             c._call("browser.click", {"surface_id": sid, "selector": role_ref})
             status = c._call("browser.get.text", {"surface_id": sid, "selector": "#status"}) or {}
             _must(str(status.get("value") or "") == "clicked", f"Expected clicked status via element ref: {status}")
+
+            c._call("browser.click", {"surface_id": sid, "selector": "#download-link"})
+            actual_download_path = ""
+            listed_before_wait: dict = {}
+            deadline = time.time() + 10.0
+            while time.time() < deadline:
+                listed_before_wait = c._call(
+                    "browser.download.list",
+                    {"surface_id": sid, "limit": 25},
+                ) or {}
+                rows = listed_before_wait.get("downloads") or []
+                if any(
+                    str(row.get("filename") or "") == download_filename
+                    and str(row.get("status") or "") == "saved"
+                    for row in rows
+                ):
+                    break
+                time.sleep(0.05)
+            rows_before_wait = listed_before_wait.get("downloads") or []
+            downloaded_before_wait = next(
+                (row for row in rows_before_wait if str(row.get("filename") or "") == download_filename),
+                None,
+            )
+            _must(downloaded_before_wait is not None, f"Download was not discoverable without a waiter: {listed_before_wait}")
+            _must(str(downloaded_before_wait.get("status") or "") == "saved", f"Download did not finish: {downloaded_before_wait}")
+            actual_download_path = str(downloaded_before_wait.get("path") or "")
+            _must(bool(actual_download_path) and Path(actual_download_path).is_file(), f"Download path was not real: {downloaded_before_wait}")
+
+            waited = c._call("browser.download.wait", {"surface_id": sid, "timeout_ms": 10000}) or {}
+            waited_event = waited.get("download") or {}
+            _must(str(waited_event.get("download_id") or "") == str(downloaded_before_wait.get("download_id") or ""), f"Wait consumed a different download: {waited}")
+            listed_after_wait = c._call("browser.download.list", {"surface_id": sid}) or {}
+            listed_again = c._call("browser.download.list", {"surface_id": sid}) or {}
+            _must(listed_after_wait == listed_again, f"Repeated download listings changed history: {listed_after_wait} vs {listed_again}")
+            _must(any(str(row.get("path") or "") == actual_download_path for row in (listed_after_wait.get("downloads") or [])), f"Wait consumption lost download history: {listed_after_wait}")
+            os.unlink(actual_download_path)
+            listed_after_delete = c._call("browser.download.list", {"surface_id": sid}) or {}
+            deleted_row = next(
+                (row for row in (listed_after_delete.get("downloads") or []) if str(row.get("path") or "") == actual_download_path),
+                None,
+            )
+            _must(deleted_row is not None and deleted_row.get("path_exists") is False, f"Deleted download path was not reported explicitly: {listed_after_delete}")
+
+            second_opened = c._call("browser.open_split", {"url": "about:blank", "focus": False}) or {}
+            second_sid = str(second_opened.get("surface_id") or "")
+            _must(bool(second_sid), f"Second browser surface did not open: {second_opened}")
+            second_history = c._call("browser.download.list", {"surface_id": second_sid}) or {}
+            _must(not (second_history.get("downloads") or []), f"Download history leaked across surfaces: {second_history}")
 
             find_cases = [
                 ("browser.find.text", {"text": "row-2"}),
@@ -236,10 +299,11 @@ def main() -> int:
             _must(int(frame_clicks.get("value") or 0) >= 1, f"Expected frame click count >= 1: {frame_clicks}")
 
             c._call("browser.console.list", {"surface_id": sid})
-            c._call("browser.addscript", {"surface_id": sid, "script": "window.triggerDialogs(); true;"})
-            d1 = c._call("browser.dialog.accept", {"surface_id": sid, "text": "agent-text"}) or {}
-            d2 = c._call("browser.dialog.dismiss", {"surface_id": sid}) or {}
-            d3 = c._call("browser.dialog.accept", {"surface_id": sid}) or {}
+            _, (d1, d2, d3) = run_with_dialogs(
+                SOCKET_PATH, "browser.eval",
+                {"surface_id": sid, "script": "window.triggerDialogs(); true;"},
+                [(True, "agent-text"), (False, None), (True, None)],
+            )
             _must(bool(d1.get("accepted")) is True, f"Expected first dialog accepted: {d1}")
             _must(bool(d2.get("accepted")) is False, f"Expected second dialog dismissed: {d2}")
             _must(bool(d3.get("accepted")) is True, f"Expected third dialog accepted: {d3}")
@@ -262,6 +326,11 @@ def main() -> int:
             _must(bool(dl.get("downloaded")) is True, f"Expected download wait success: {dl}")
             try:
                 os.unlink(download_path)
+            except Exception:
+                pass
+            try:
+                if actual_download_path.startswith(str(Path.home() / "Downloads")):
+                    os.unlink(actual_download_path)
             except Exception:
                 pass
 

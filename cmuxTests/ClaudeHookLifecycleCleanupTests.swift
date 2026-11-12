@@ -69,7 +69,6 @@ struct ClaudeHookLifecycleCleanupTests {
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
-
         let commands = context.state.snapshot()
         #expect(
             commands.contains {
@@ -194,8 +193,9 @@ struct ClaudeHookLifecycleCleanupTests {
         #expect(commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"))
         #expect(!commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId)"))
     }
-
-    @Test func promptSubmitClearFollowsMovedPaneWithoutClearingSiblings() throws {
+    /// Since #11976, the CLI records the new turn in the journal for the resolved pane
+    /// instead of sending `clear_notifications`; the app reconciles attention from that event.
+    @Test func promptSubmitTurnStartFollowsMovedPaneWithoutTouchingSiblings() throws {
         let context = try Harness.makeContext(name: "prompt-submit-pane-clear")
         defer { context.cleanup() }
         let sessionId = "prompt-submit-pane-clear-session"
@@ -228,8 +228,19 @@ struct ClaudeHookLifecycleCleanupTests {
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
         let commands = context.state.snapshot()
-        #expect(commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"))
-        #expect(!commands.contains("clear_notifications --tab=\(newWorkspaceId)"))
+        let turnStarted = AgentJournalAppendCapture.first(
+            in: commands, kind: "agent.turn.started", agentKey: "claude_code", sessionId: sessionId
+        )
+        #expect(turnStarted?.workspaceId == newWorkspaceId, "turn start must follow the moved pane; saw \(commands)")
+        #expect(turnStarted?.surfaceId == Self.liveSurfaceId)
+        #expect(
+            !commands.contains { $0.contains("--panel=\(Self.otherSurfaceId)") },
+            "a new turn must not touch sibling panes; saw \(commands)"
+        )
+        #expect(
+            !commands.contains { $0.hasPrefix("clear_notifications --tab=\(newWorkspaceId)") && !$0.contains("--panel=") },
+            "attention effects are pane-scoped, never workspace-wide; saw \(commands)"
+        )
     }
 
     /// A pane moves mid-turn: the next PreToolUse (which skips the pid/tty
@@ -287,8 +298,15 @@ struct ClaudeHookLifecycleCleanupTests {
             !commands.contains { $0.contains("--panel=\(Self.fallbackSurfaceId)") },
             "PreToolUse must not mutate the old workspace's focused pane; saw \(commands)"
         )
-        #expect(commands.contains("clear_notifications --tab=\(newWorkspaceId) --panel=\(Self.liveSurfaceId)"))
-        #expect(!commands.contains("clear_notifications --tab=\(newWorkspaceId)"))
+        let stateChanged = AgentJournalAppendCapture.first(
+            in: commands, kind: "agent.state.changed", agentKey: "claude_code", sessionId: sessionId
+        )
+        #expect(stateChanged?.workspaceId == newWorkspaceId, "PreToolUse journal event must follow the moved pane; saw \(commands)")
+        #expect(stateChanged?.surfaceId == Self.liveSurfaceId)
+        #expect(
+            !commands.contains { $0.hasPrefix("clear_notifications --tab=\(newWorkspaceId)") && !$0.contains("--panel=") },
+            "attention effects are pane-scoped, never workspace-wide; saw \(commands)"
+        )
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["workspaceId"] as? String == newWorkspaceId, "Session record must re-home, not re-pollute")
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
@@ -433,7 +451,6 @@ struct ClaudeHookLifecycleCleanupTests {
         let commands = context.state.snapshot()
         #expect(!commands.contains { $0.hasPrefix("set_status ") || $0.hasPrefix("clear_notifications ") })
     }
-
     private func assertSuccessfulHook(_ result: ClaudeHookLiveDeliveryHarness.ProcessRunResult) {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))

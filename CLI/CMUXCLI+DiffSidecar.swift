@@ -151,6 +151,8 @@ extension CMUXCLI {
         }
     }
 
+    /// The built webviews bundle (`Resources/markdown-viewer/webviews-app`):
+    /// `main.mjs` plus the chunks, including the highlight worker entry.
     func diffViewerBundledAssetDirectory(runtime: URL? = nil) throws -> URL {
         if let directory = diffViewerBundledAssetDirectoryCandidates(runtime: runtime).first {
             return directory
@@ -172,8 +174,7 @@ extension CMUXCLI {
                   isDirectory.boolValue else {
                 return
             }
-            guard (try? diffViewerBundledAssetFileURL(relativePath: "diffs.mjs", in: standardized)) != nil,
-                  (try? diffViewerBundledAssetFileURL(relativePath: "trees.mjs", in: standardized)) != nil else {
+            guard (try? diffViewerBundledAssetFileURL(relativePath: "main.mjs", in: standardized)) != nil else {
                 return
             }
             candidates.append(standardized)
@@ -182,10 +183,10 @@ extension CMUXCLI {
         if let executableURL = diffViewerExecutableURL(for: runtime) {
             let execDir = executableURL.deletingLastPathComponent().standardizedFileURL
             for relativePath in [
-                "markdown-viewer/diff-viewer",
-                "../markdown-viewer/diff-viewer",
-                "../../Resources/markdown-viewer/diff-viewer",
-                "../../../Contents/Resources/markdown-viewer/diff-viewer"
+                "markdown-viewer/webviews-app",
+                "../markdown-viewer/webviews-app",
+                "../../Resources/markdown-viewer/webviews-app",
+                "../../../Contents/Resources/markdown-viewer/webviews-app"
             ] {
                 appendIfExisting(execDir.appendingPathComponent(relativePath, isDirectory: true).standardizedFileURL)
             }
@@ -198,7 +199,7 @@ extension CMUXCLI {
                             .appendingPathComponent("Contents", isDirectory: true)
                             .appendingPathComponent("Resources", isDirectory: true)
                             .appendingPathComponent("markdown-viewer", isDirectory: true)
-                            .appendingPathComponent("diff-viewer", isDirectory: true)
+                            .appendingPathComponent("webviews-app", isDirectory: true)
                     )
                     break
                 }
@@ -206,7 +207,7 @@ extension CMUXCLI {
                 let repoAssetDirectory = current
                     .appendingPathComponent("Resources", isDirectory: true)
                     .appendingPathComponent("markdown-viewer", isDirectory: true)
-                    .appendingPathComponent("diff-viewer", isDirectory: true)
+                    .appendingPathComponent("webviews-app", isDirectory: true)
                 if fileManager.fileExists(atPath: projectMarker.path) {
                     appendIfExisting(repoAssetDirectory)
                     break
@@ -218,7 +219,7 @@ extension CMUXCLI {
         appendIfExisting(
             Bundle.main.resourceURL?
                 .appendingPathComponent("markdown-viewer", isDirectory: true)
-                .appendingPathComponent("diff-viewer", isDirectory: true)
+                .appendingPathComponent("webviews-app", isDirectory: true)
         )
 
         let devRelative = URL(fileURLWithPath: #filePath)
@@ -226,7 +227,7 @@ extension CMUXCLI {
             .deletingLastPathComponent()
             .appendingPathComponent("Resources", isDirectory: true)
             .appendingPathComponent("markdown-viewer", isDirectory: true)
-            .appendingPathComponent("diff-viewer", isDirectory: true)
+            .appendingPathComponent("webviews-app", isDirectory: true)
         appendIfExisting(devRelative)
         return candidates
     }

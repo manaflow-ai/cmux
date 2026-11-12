@@ -29,6 +29,12 @@ extension MacComputerSnapshot {
                 for: mac.macDeviceID,
                 instanceTag: mac.instanceTag
             )
+            let aliasPairingIDs = aliases.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: $0,
+                    instanceTag: mac.instanceTag
+                )
+            }
             let summary = store.presenceSummary(
                 for: mac.macDeviceID,
                 instanceTag: mac.instanceTag
@@ -55,13 +61,11 @@ extension MacComputerSnapshot {
                 instanceTag: mac.instanceTag,
                 title: buildScope?.computerDisplayName(mac.resolvedName) ?? mac.resolvedName,
                 platform: "mac",
-                colorIndex: colorIndex[mac.id]
-                    ?? aliases.compactMap {
-                        colorIndex[MobilePairedMac.pairingID(
-                            macDeviceID: $0,
-                            instanceTag: mac.instanceTag
-                        )]
-                    }.first,
+                colorIndex: store.liveMachineColorIndex(
+                    for: [mac.id] + aliasPairingIDs
+                )
+                    ?? colorIndex[mac.id]
+                    ?? aliasPairingIDs.compactMap { colorIndex[$0] }.first,
                 customColor: mac.customColor,
                 customIcon: mac.customIcon,
                 connectionStatus: exactConnectionStatus,

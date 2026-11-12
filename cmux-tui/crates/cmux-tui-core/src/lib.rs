@@ -9,26 +9,50 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+mod agent_status;
+pub mod backoff;
 mod browser;
 mod browser_provider;
 pub mod diagnostics;
 mod event_bus;
+#[cfg(unix)]
+mod image_paste;
+#[cfg(unix)]
+mod image_paste_file;
+#[cfg(unix)]
+mod image_paste_ownership;
+#[cfg(unix)]
+mod image_paste_recovery;
+#[cfg(unix)]
+mod image_paste_storage;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
 mod journal_kernel;
+mod journal_plugin;
+mod journal_reducers;
 mod model;
 mod mux;
 mod pairing;
 pub mod provider_management;
+#[cfg(unix)]
+mod pty_write;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
+pub mod resource_name;
 mod resource_router;
+mod resource_screen;
 mod resource_selector;
+mod resource_tab;
+mod shell_integration;
 mod short_id;
 mod sidebar_resource;
+pub mod sizing_policy;
+mod stream_interrupt;
 mod surface;
+mod terminal_command;
+mod terminal_metadata;
 mod workspace_registry;
 
 pub mod layout;
@@ -39,13 +63,17 @@ pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
 #[cfg(unix)]
 pub mod unix_process_scope;
+pub mod wait_pattern;
 
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
+    stamp_agent_hook_observed_at,
 };
+pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};
+pub use journal_plugin::{JournalPluginOptions, JournalPluginRuntime};
 pub use layout::{
     DEFAULT_VIEWPORT_PANE_WIDTH, ExactSplitResize, ExactViewportSplitResize, LayoutResult,
     MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Rect, SplitEdge, SplitResize,
@@ -64,11 +92,16 @@ pub use mux::{
     SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
     WorkspacePlacement, ZoomMode, ZoomState,
 };
+pub use mux::{
+    DEFAULT_TERMINAL_REAP_GRACE, HeldTerminalReaper, MAX_TERMINAL_REAP_GRACE, TerminalReaper,
+    prepare_terminal_reaper, start_terminal_reaper, validate_terminal_reap_grace,
+};
+pub use mux::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+pub use shell_integration::AGENT_SHIMS_ENV;
 pub use short_id::assign_short_ids;
-pub use surface::apply_terminal_color_overrides;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
@@ -79,6 +112,7 @@ pub use surface::{
     SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
     TerminalPointerSnapshot,
 };
+pub use surface::{apply_terminal_color_overrides, default_child_term};
 pub use workspace_registry::{
     FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,
     JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,

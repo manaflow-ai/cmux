@@ -255,7 +255,7 @@ public struct MobileHideComputersVerifier {
     }
 
     private func evidenceURL() throws -> URL {
-        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fileManager.temporaryDirectory
         try fileManager.createDirectory(at: caches, withIntermediateDirectories: true)
         return caches.appendingPathComponent(evidenceFileName)
     }

@@ -1,3 +1,4 @@
+import CmuxTerminal
 import Foundation
 
 /// One C callback fans raw PTY output out to every opt-in cmux consumer.
@@ -9,7 +10,12 @@ let cmuxTerminalOutputTeeCallback: @convention(c) (
     let count = Int(length)
     bytes.withMemoryRebound(to: UInt8.self, capacity: count) { rebound in
         let buffer = UnsafeBufferPointer(start: rebound, count: count)
+        TerminalScrollbackCheckpointActivity.recordOutput(context.scrollbackCheckpointFlags)
         MobileTerminalByteTee.shared.append(surfaceID: context.surfaceID, bytes: buffer)
+        TerminalPredictionCenter.shared.consumeOutput(
+            surfaceID: context.surfaceID,
+            bytes: buffer
+        )
         context.consume(buffer)
     }
 }

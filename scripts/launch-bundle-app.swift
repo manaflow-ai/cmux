@@ -61,6 +61,11 @@ private let secretEnvironmentKeys = [
     "CMUX_UITEST_STACK_PASSWORD",
 ]
 
+// LaunchServices can retain environment values from a different tagged app.
+// Remove every cmux/ghostty runtime override before applying this bundle's
+// LSEnvironment, so a launch for tag B cannot inherit tag A's socket or account.
+private let runtimeEnvironmentPrefixes = ["CMUX_", "GHOSTTY_"]
+
 private func launchEnvironment(
     for appURL: URL,
     authProfile: String?,
@@ -70,6 +75,10 @@ private func launchEnvironment(
     for key in secretEnvironmentKeys {
         environment.removeValue(forKey: key)
     }
+    for key in environment.keys where runtimeEnvironmentPrefixes.contains(where: key.hasPrefix) {
+        environment.removeValue(forKey: key)
+    }
+    environment.removeValue(forKey: "CMUXD_UNIX_PATH")
 
     if let bundle = Bundle(url: appURL),
        let launchEnvironment = bundle.infoDictionary?["LSEnvironment"] as? [String: Any] {

@@ -58,11 +58,17 @@ extension CMUXCLI {
         record: ClaudeHookSessionRecord
     ) -> AgentHookLaunchCommandRecord? {
         guard let launchCommand = record.launchCommand,
+              (agent == "claude" || !sessionsListLaunchCommandIsRejected(launchCommand)),
               AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: agent),
               !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
             return nil
         }
         return launchCommand
+    }
+
+    /// Treats an explicitly rejected capture as unusable fork evidence.
+    func sessionsListLaunchCommandIsRejected(_ launchCommand: AgentHookLaunchCommandRecord?) -> Bool {
+        launchCommand?.isRejectedCapture == true
     }
 
     func sessionsListWorkingDirectoryPrefixed(_ command: String, workingDirectory: String?) -> String {

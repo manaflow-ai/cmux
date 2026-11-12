@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build libwg-go.a, the wireguard-go engine as a C archive, for the cmux Cloud
-# tunnel system extension (TunnelExtension/, target cmuxTunnelExtension).
+# tunnel extensions: the macOS system extension (TunnelExtension/, target
+# cmuxTunnelExtension) and the iOS packet tunnel (ios/CloudVPN/, target
+# CloudVPN).
 #
 # Runs as that target's "Build wireguard-go" phase and standalone. The Swift
 # side (vendor/WireGuardKit) only declares `link "wg-go"`; this script is what
@@ -11,8 +13,10 @@
 #   BUILT_PRODUCTS_DIR                output directory for libwg-go.a
 #   CMUX_WIREGUARD_GO_OUTPUT          explicit output path (overrides the above)
 #   TARGET_TEMP_DIR                   per-arch intermediates
+#   PLATFORM_NAME                     macosx (default), iphoneos or iphonesimulator
 #   MACOSX_DEPLOYMENT_TARGET          minimum macOS (default 14.0)
-#   SDKROOT                           macOS SDK (default: xcrun --show-sdk-path)
+#   IPHONEOS_DEPLOYMENT_TARGET        minimum iOS (default 17.0)
+#   SDKROOT                           platform SDK (default: xcrun --show-sdk-path)
 #   CONFIGURATION                     Release always requires a real toolchain
 #   CMUX_WIREGUARD_GO_REQUIRE         1: fail when `go` is missing
 #                                     0: build a stub archive and warn
@@ -34,9 +38,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GO_SRC_DIR="${ROOT}/vendor/WireGuardKit/Sources/WireGuardKitGo"
 CONFIGURATION="${CONFIGURATION:-Debug}"
 MIN_MACOS="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+MIN_IOS="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
+PLATFORM="${PLATFORM_NAME:-macosx}"
 OUTPUT="${CMUX_WIREGUARD_GO_OUTPUT:-${BUILT_PRODUCTS_DIR:-${GO_SRC_DIR}/out}/libwg-go.a}"
 WORK_DIR="${TARGET_TEMP_DIR:-${GO_SRC_DIR}/.tmp}/wireguard-go"
 
+# shellcheck source=scripts/build-phase-caller-path.sh
+. "${ROOT}/scripts/build-phase-caller-path.sh"
 # Xcode build phases do not inherit a login-shell PATH.
 export PATH="/usr/local/go/bin:/opt/homebrew/bin:/usr/local/bin:${HOME}/go/bin:${PATH}"
 
@@ -56,7 +64,29 @@ case "${CMUX_WIREGUARD_GO_REQUIRE:-}" in
     ;;
 esac
 
+case "$PLATFORM" in
+  macosx) SDK_NAME=macosx GOOS_VALUE=darwin ;;
+  iphoneos) SDK_NAME=iphoneos GOOS_VALUE=ios ;;
+  iphonesimulator) SDK_NAME=iphonesimulator GOOS_VALUE=ios ;;
+  *)
+    echo "error: unsupported platform for wireguard-go: $PLATFORM" >&2
+    exit 1
+    ;;
+esac
+
+# Compiler flags selecting one architecture of the platform being built.
+platform_flags() {
+  case "$PLATFORM" in
+    macosx) echo "-arch $1 -mmacosx-version-min=${MIN_MACOS}" ;;
+    iphoneos) echo "-target $1-apple-ios${MIN_IOS}" ;;
+    iphonesimulator) echo "-target $1-apple-ios${MIN_IOS}-simulator" ;;
+  esac
+}
+
 requested_archs="${CMUX_WIREGUARD_GO_ARCHS:-${ARCHS:-}}"
+if [[ -z "$requested_archs" && "$PLATFORM" != macosx ]]; then
+  requested_archs="arm64"
+fi
 if [[ -z "$requested_archs" ]]; then
   case "$(uname -m)" in
     arm64|aarch64) requested_archs="arm64" ;;
@@ -73,7 +103,7 @@ go_arch_for() {
     arm64|arm64e) echo "arm64" ;;
     x86_64) echo "amd64" ;;
     *)
-      echo "error: unsupported macOS architecture for wireguard-go: $1" >&2
+      echo "error: unsupported ${PLATFORM} architecture for wireguard-go: $1" >&2
       return 1
       ;;
   esac
@@ -81,9 +111,9 @@ go_arch_for() {
 
 SDK="${SDKROOT:-}"
 if [[ -z "$SDK" || ! -d "$SDK" ]]; then
-  SDK="$(xcrun --sdk macosx --show-sdk-path)"
+  SDK="$(xcrun --sdk "$SDK_NAME" --show-sdk-path)"
 fi
-CLANG="$(xcrun --sdk macosx --find clang)"
+CLANG="$(xcrun --sdk "$SDK_NAME" --find clang)"
 
 mkdir -p "$WORK_DIR" "$(dirname "$OUTPUT")"
 
@@ -97,7 +127,7 @@ if [[ -n "$GO_BIN" && -x "$GO_BIN" ]]; then
     case " $seen " in *" $arch "*) continue ;; esac
     seen="$seen $arch"
     goarch="$(go_arch_for "$arch")"
-    flags="-isysroot ${SDK} -arch ${arch} -mmacosx-version-min=${MIN_MACOS}"
+    flags="-isysroot ${SDK} $(platform_flags "$arch")"
     archive="${WORK_DIR}/libwg-go-${arch}.a"
     # GOTOOLCHAIN=local: never auto-download a different Go; the installed one
     # must satisfy go.mod. -mod=readonly: the vendored go.mod/go.sum are the
@@ -106,7 +136,7 @@ if [[ -n "$GO_BIN" && -x "$GO_BIN" ]]; then
       cd "$GO_SRC_DIR"
       env \
         CGO_ENABLED=1 \
-        GOOS=darwin \
+        GOOS="$GOOS_VALUE" \
         GOARCH="$goarch" \
         GOTOOLCHAIN=local \
         GOFLAGS=-mod=readonly \
@@ -149,7 +179,8 @@ STUB
     seen="$seen $arch"
     object="${WORK_DIR}/stub-${arch}.o"
     archive="${WORK_DIR}/libwg-go-${arch}.a"
-    "$CLANG" -isysroot "$SDK" -arch "$arch" "-mmacosx-version-min=${MIN_MACOS}" -c "$stub_source" -o "$object"
+    # shellcheck disable=SC2046 # platform_flags is a flag list by design.
+    "$CLANG" -isysroot "$SDK" $(platform_flags "$arch") -c "$stub_source" -o "$object"
     rm -f "$archive"
     /usr/bin/libtool -static -o "$archive" "$object"
     archives+=("$archive")

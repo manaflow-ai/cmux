@@ -1,5 +1,6 @@
 public import Bonsplit
 import CoreGraphics
+public import Foundation
 
 /// Applies pure split-geometry plans (see `ExternalTreeNode` extensions in
 /// `Geometry/`) to a live `BonsplitController`, preserving the legacy
@@ -22,7 +23,40 @@ public struct PaneLayoutService {
         controller: BonsplitController,
         orientationFilter: String? = nil
     ) -> SplitEqualizeResult {
-        let plan = node.equalizeDividerPlan(orientationFilter: orientationFilter)
+        apply(node.equalizeDividerPlan(orientationFilter: orientationFilter), to: controller)
+    }
+
+    /// Equalizes only the run of same-orientation splits that directly
+    /// contains `paneId` (see
+    /// ``ExternalTreeNode/equalizeDividerPlan(forSplitRunContainingPaneId:)``),
+    /// so a new split rebalances its own row or column without resetting
+    /// dividers elsewhere in the tree.
+    @discardableResult
+    public func equalizeSplitRun(
+        containingPaneId paneId: String,
+        in node: ExternalTreeNode,
+        controller: BonsplitController
+    ) -> SplitEqualizeResult {
+        apply(node.equalizeDividerPlan(forSplitRunContainingPaneId: paneId), to: controller)
+    }
+
+    /// Equalizes the same-axis row or column containing the identified divider.
+    ///
+    /// - Parameters:
+    ///   - splitId: The clicked split UUID, independent of pane focus.
+    ///   - node: The current tree snapshot.
+    ///   - controller: The controller that owns the snapshot and divider.
+    /// - Returns: Whether a run was found and all divider mutations succeeded.
+    @discardableResult
+    public func equalizeSplitRun(
+        containingSplitId splitId: UUID,
+        in node: ExternalTreeNode,
+        controller: BonsplitController
+    ) -> SplitEqualizeResult {
+        apply(node.equalizeDividerPlan(forSplitRunContainingSplitId: splitId), to: controller)
+    }
+
+    private func apply(_ plan: SplitEqualizePlan, to controller: BonsplitController) -> SplitEqualizeResult {
         var allSucceeded = !plan.hadInvalidSplitIds
         for adjustment in plan.adjustments {
             if !controller.setDividerPosition(adjustment.position, forSplit: adjustment.splitId, fromExternal: true) {

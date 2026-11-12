@@ -8,11 +8,14 @@ import Testing
 @MainActor
 @Suite("Native SSH connection broker")
 struct NativeSSHConnectionBrokerTests {
-    private let sharingOptions = SSHConnectionSharingOptions(userID: 501)
+    private let sharingOptions = SSHConnectionSharingOptions(
+        userID: 501,
+        controlSocketDirectoryPath: "/Users/alice/.cmux/ssh"
+    )
     private let resolvedOwnedSSHOptions = [
         "ControlMaster=auto",
         "ControlPersist=600",
-        "ControlPath=/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567",
+        "ControlPath=/Users/alice/.cmux/ssh/0123456789abcdef0123456789abcdef01234567",
     ]
 
     @Test("Only the final workspace owner closes a shared master")
@@ -76,7 +79,7 @@ struct NativeSSHConnectionBrokerTests {
             controlMasterOwnershipRegistry: registry
         )
         let expectedPath =
-            "/tmp/cmux-ssh-501-" +
+            "/Users/alice/.cmux/ssh/" +
             "0123456789abcdef0123456789abcdef01234567"
 
         let lease = broker.retainWorkspace(configuration(
@@ -160,7 +163,7 @@ struct NativeSSHConnectionBrokerTests {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567",
+                "ControlPath=/Users/alice/.cmux/ssh/0123456789abcdef0123456789abcdef01234567",
             ]
         )
         let replacement = configuration(
@@ -169,7 +172,7 @@ struct NativeSSHConnectionBrokerTests {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-501-89abcdef0123456789abcdef0123456789abcdef",
+                "ControlPath=/Users/alice/.cmux/ssh/89abcdef0123456789abcdef0123456789abcdef",
             ]
         )
 
@@ -196,10 +199,10 @@ struct NativeSSHConnectionBrokerTests {
         let arguments = RemoteControlMasterCleanup().cleanupArguments(configuration: configuration)
 
         #expect(arguments.prefix(4) == ["-o", "BatchMode=yes", "-o", "ControlMaster=no"])
-        #expect(arguments.contains("ControlPath=/tmp/cmux-ssh-501-%C"))
+        #expect(arguments.contains("ControlPath=/Users/alice/.cmux/ssh/%C"))
         #expect(!arguments.contains("ControlMaster=auto"))
         #expect(!arguments.contains("ControlPersist=600"))
-        #expect(arguments.suffix(3) == ["-O", "exit", "alice@example.test"])
+        #expect(arguments.suffix(4) == ["-O", "exit", "--", "alice@example.test"])
     }
 
     @Test("Ownership-blocked cleanup exhausts its bounded retry budget")
@@ -295,7 +298,7 @@ struct NativeSSHConnectionBrokerTests {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-501-0123456789abcdef0123456789abcdef01234567",
+                "ControlPath=/Users/alice/.cmux/ssh/0123456789abcdef0123456789abcdef01234567",
             ]
         )
         let second = configuration(
@@ -304,7 +307,7 @@ struct NativeSSHConnectionBrokerTests {
             sshOptions: [
                 "ControlMaster=auto",
                 "ControlPersist=600",
-                "ControlPath=/tmp/cmux-ssh-501-89abcdef0123456789abcdef0123456789abcdef",
+                "ControlPath=/Users/alice/.cmux/ssh/89abcdef0123456789abcdef0123456789abcdef",
             ]
         )
 

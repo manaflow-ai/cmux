@@ -131,7 +131,6 @@ extension TerminalController {
             if AppDelegate.shared != nil,
                controlCommandCoordinator.needsHandleTopologyRefresh {
                 v2RefreshKnownRefs()
-                controlCommandCoordinator.markHandleTopologyRefreshCompleted()
             }
         }
         if let invalidSelector = selectorKeys.first(where: {
@@ -157,7 +156,9 @@ extension TerminalController {
             surfaceID: v2UUID(params, "surface_id")
                 ?? v2UUID(params, "terminal_id")
                 ?? v2UUID(params, "tab_id"),
-            paneID: v2UUID(params, "pane_id")
+            paneID: v2UUID(params, "pane_id"),
+            remoteRelayOwnerWorkspaceID: remoteOwnerWorkspaceID,
+            remoteRelayConnectionID: v2UUID(params, WorkspaceRemoteRelayCommandRewriter.connectionIDKey)
         )
         guard let tabManager = resolveTabManager(routing: routing) else {
             return failure(
@@ -181,9 +182,9 @@ extension TerminalController {
                 routing: ownershipRouting,
                 tabManager: tabManager
             ), workspace.id == ownerWorkspaceID {
-                return true
+                return remoteRelayTargetIsCurrent(routing: routing, workspace: workspace, surfaceID: surfaceID)
             }
-            return windowDockContainingPanel(surfaceID)?.workspaceId == ownerWorkspaceID
+            return false
         }
         if let groupID = routing.groupID,
            !tabManager.workspaceGroups.contains(where: { $0.id == groupID }) {

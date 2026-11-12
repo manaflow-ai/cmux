@@ -14,7 +14,7 @@ struct DockPortalReconcileTests {
     @MainActor
     func delayedWorkspaceHostCannotReclaimTerminalAfterDockHandoff() {
         let panel = TerminalPanel(workspaceId: UUID())
-        defer { panel.surface.teardownSurface() }
+        defer { panel.surface.teardownHostedSurfaceForTesting() }
         let sourceHost = NSView()
         let dockHost = NSView()
         let sourcePane = PaneID()
@@ -53,7 +53,7 @@ struct DockPortalReconcileTests {
     @MainActor
     func detachedReplacementCannotDisplaceRearmedDockPortalHost() {
         let panel = TerminalPanel(workspaceId: UUID())
-        defer { panel.surface.teardownSurface() }
+        defer { panel.surface.teardownHostedSurfaceForTesting() }
         let liveHost = NSView()
         let detachedReplacement = NSView()
         let pane = PaneID()
@@ -194,7 +194,7 @@ struct DockPortalReconcileTests {
     @MainActor
     func newerStaleWorkspaceHostIsRejectedByLiveDockOwnership() {
         let panel = TerminalPanel(workspaceId: UUID())
-        defer { panel.surface.teardownSurface() }
+        defer { panel.surface.teardownHostedSurfaceForTesting() }
         let dockHost = NSView()
         let staleWorkspaceHost = NSView()
         let dockPane = PaneID()
@@ -227,7 +227,7 @@ struct DockPortalReconcileTests {
     @MainActor
     func newModelOwnershipPermitsRollbackToEarlierHost() {
         let panel = TerminalPanel(workspaceId: UUID())
-        defer { panel.surface.teardownSurface() }
+        defer { panel.surface.teardownHostedSurfaceForTesting() }
         let workspaceHost = NSView()
         let dockHost = NSView()
         let workspacePane = PaneID()

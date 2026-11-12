@@ -5,12 +5,13 @@ import CmuxMobileSupport
 import SwiftUI
 
 /// A short product tour presented after sign-in, ending in same-account
-/// computer discovery, with pairing available for Tailscale.
+/// computer discovery with explicit Mac-side pairing opt-in.
 struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool
     let connectionPhase: OnboardingConnectionPhase
     let connectionMethod: MobileConnectionMethod
+    let offersConnectionMethodChoice: Bool
     let keepAwakeOffer: OnboardingKeepAwakeOffer?
     let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
     let onEnablePush: () async -> Bool
@@ -34,6 +35,7 @@ struct OnboardingFlowView: View {
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
         connectionMethod: MobileConnectionMethod = .automatic,
+        offersConnectionMethodChoice: Bool = true,
         keepAwakeOffer: OnboardingKeepAwakeOffer? = nil,
         onSelectConnectionMethod: @escaping (MobileConnectionMethod) -> Void = { _ in },
         onEnablePush: @escaping () async -> Bool,
@@ -48,6 +50,7 @@ struct OnboardingFlowView: View {
         self.isAuthenticated = isAuthenticated
         self.connectionPhase = connectionPhase
         self.connectionMethod = connectionMethod
+        self.offersConnectionMethodChoice = offersConnectionMethodChoice
         self.keepAwakeOffer = keepAwakeOffer
         self.onSelectConnectionMethod = onSelectConnectionMethod
         self.onEnablePush = onEnablePush
@@ -115,13 +118,16 @@ struct OnboardingFlowView: View {
             OnboardingNotificationsView()
         case .push:
             OnboardingPushView()
+        case .pairing:
+            OnboardingPairingView()
         case .connect:
             OnboardingConnectionView(
                 phase: connectionPhase,
                 connectionMethod: connectionMethod,
                 onSelectConnectionMethod: selectConnectionMethod,
                 keepAwakeOffer: keepAwakeOffer,
-                onSetKeepAwake: setKeepAwake
+                onSetKeepAwake: setKeepAwake,
+                offersConnectionMethodChoice: offersConnectionMethodChoice
             )
         }
     }
@@ -134,8 +140,10 @@ struct OnboardingFlowView: View {
             showAgents()
         case .push:
             showNotifications()
-        case .connect:
+        case .pairing:
             showPush()
+        case .connect:
+            showPairing()
         }
     }
 
@@ -147,6 +155,8 @@ struct OnboardingFlowView: View {
             showPush()
         case .push:
             enablePush()
+        case .pairing:
+            showConnection()
         case .connect:
             if isAuthenticated {
                 finishOrRetry()
@@ -168,12 +178,16 @@ struct OnboardingFlowView: View {
         navigate(to: .push)
     }
 
+    private func showPairing() {
+        navigate(to: .pairing)
+    }
+
     private func showConnection() {
         navigate(to: .connect)
     }
 
     /// The one place the app first asks the OS for notification permission.
-    /// Advances to Connect after the system alert resolves either way; the
+    /// Advances to Pairing after the system alert resolves either way; the
     /// grant/deny outcome is recorded by the push coordinator.
     private func enablePush() {
         guard !isPushEnableInFlight else { return }
@@ -185,14 +199,14 @@ struct OnboardingFlowView: View {
             _ = await onEnablePush()
             isPushEnableInFlight = false
             if stage == .push {
-                showConnection()
+                showPairing()
             }
         }
     }
 
     private func declinePush() {
         analytics.capture("ios_onboarding_push_declined", eventProperties)
-        showConnection()
+        showPairing()
     }
 
     private func reachConnectionIfNeeded() {
@@ -272,7 +286,17 @@ struct OnboardingFlowView: View {
         var properties = eventProperties
         properties["connection_method"] = .string(method.rawValue)
         analytics.capture("ios_onboarding_connection_method_selected", properties)
-        onSelectConnectionMethod(method)
+        let shouldStartTailscalePairing =
+            method == .tailscale && connectionPhase == .ready
+        withAnimation(.smooth(duration: 0.25)) {
+            onSelectConnectionMethod(method)
+        }
+        // A ready Iroh connection must not turn a Tailscale selection into an
+        // accidental onboarding completion. Pair the newly selected route now,
+        // while leaving the existing ready state untouched for other changes.
+        if shouldStartTailscalePairing {
+            startTailscalePairing()
+        }
     }
 
     private func startTailscalePairing() {

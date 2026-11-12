@@ -414,7 +414,9 @@ struct TerminalComposerView: View {
             isPresented: $isPickerPresented,
             selection: $pickerSelection,
             maxSelectionCount: Self.maxAttachmentCount,
-            matching: .images
+            // Leave the filter unset so every supported Photos library asset
+            // remains selectable, including videos and future media types.
+            matching: nil
         )
         .onChange(of: pickerSelection) { _, items in
             guard !items.isEmpty else { return }
@@ -845,16 +847,13 @@ struct TerminalComposerView: View {
                     )
                     break
                 }
-                // Load the asset file-backed: PhotosUI copies the imported image to
-                // a temp file on disk and hands back only its URL, so the FULL
-                // original (a ProRAW/DNG/panorama can be hundreds of MB) is never
-                // slurped into memory as `Data` the way `loadTransferable(Data)`
-                // would. ImageIO then downsamples straight from the file below.
-                let imported: ImportedImageFile
+                // Load the asset file-backed: PhotosUI copies the library item to
+                // a temp file on disk and hands back only its URL, so a video or
+                // full-resolution photo is never slurped into memory as `Data`
+                // before we choose its staging path.
+                let imported: ImportedPhotoLibraryFile
                 do {
-                    guard let loaded = try await item.loadTransferable(
-                        type: ImportedImageFile.self
-                    ) else {
+                    guard let loaded = try await ImportedPhotoLibraryFile.load(item) else {
                         store.recordAppEvent(
                             .attachmentPreparationFailed,
                             correlationID: terminalID,
@@ -869,6 +868,9 @@ struct TerminalComposerView: View {
                         correlationID: terminalID,
                         failure: DiagnosticFailureKind.classify(error)
                     )
+                    if !Task.isCancelled {
+                        attachmentAlertMessage = Self.attachmentUnreadableMessage
+                    }
                     continue
                 }
                 if Task.isCancelled {
@@ -883,6 +885,19 @@ struct TerminalComposerView: View {
                 let fileURL = imported.url
                 // Always release the temp file, on every exit from this iteration.
                 defer { try? FileManager.default.removeItem(at: fileURL) }
+                guard imported.kind == .image else {
+                    await stagePastedFile(
+                        MobilePastedAttachment(
+                            kind: .file,
+                            url: fileURL,
+                            displayName: imported.originalFileName
+                        ),
+                        sessionGeneration: sessionGeneration
+                    )
+                    continue
+                }
+                // Images are downsampled from the temp file, so a ProRAW, DNG,
+                // or panorama never becomes a full-resolution in-memory raster.
                 // Reject an absurdly large source BEFORE reading any bytes. A
                 // compressed HEIC can decode larger than its file size, so the
                 // bound is a generous multiple of the per-image cap, not the cap
@@ -1222,41 +1237,6 @@ struct TerminalComposerView: View {
         )
     }
 
-}
-
-/// A file-backed `Transferable` for loading a `PhotosPickerItem` as an on-disk
-/// file rather than in-memory `Data`. `FileRepresentation` hands PhotosUI a temp
-/// destination and copies the imported image there, so loading this type yields a
-/// file URL WITHOUT reading the (possibly hundreds-of-MB ProRAW/panorama) image
-/// into memory. The composer then size-gates on disk and downsamples straight
-/// from the URL via ImageIO, never materializing the full-resolution raster.
-///
-/// The framework deletes the import staging area, so we copy the file into our
-/// own temp location we control and delete after encoding (the composer's
-/// `defer` cleanup). `url` is `Sendable`, so the value crosses task boundaries.
-struct ImportedImageFile: Transferable, Sendable {
-    let url: URL
-    let originalFileName: String
-
-    static var transferRepresentation: some TransferRepresentation {
-        FileRepresentation(contentType: .image) { imported in
-            SentTransferredFile(imported.url)
-        } importing: { received in
-            // Copy out of the framework-owned staging area into our own uniquely
-            // named temp file, which the composer deletes after encoding. Keep the
-            // source extension so ImageIO can identify the format from the URL.
-            let ext = received.file.pathExtension
-            let name = UUID().uuidString + (ext.isEmpty ? "" : ".\(ext)")
-            let destination = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-composer-import-" + name)
-            try? FileManager.default.removeItem(at: destination)
-            try FileManager.default.copyItem(at: received.file, to: destination)
-            return ImportedImageFile(
-                url: destination,
-                originalFileName: received.file.lastPathComponent
-            )
-        }
-    }
 }
 
 /// Holds the in-flight photo-staging `Task` so a new picker batch can cancel the

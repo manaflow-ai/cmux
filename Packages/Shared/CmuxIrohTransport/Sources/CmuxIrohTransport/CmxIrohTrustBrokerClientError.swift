@@ -66,6 +66,7 @@ public enum CmxIrohTrustBrokerClientError:
     /// The broker rejected a request and supplied a bounded retry floor.
     case rateLimited(code: String?, retryAfterSeconds: Int)
     case rejected(statusCode: Int, code: String?)
+    case rejectedWithRetryAfter(statusCode: Int, code: String?, retryAfterSeconds: Int)
     case invalidResponse
 
     /// Whether an inconclusive refresh may preserve already-verified state.
@@ -92,6 +93,12 @@ public enum CmxIrohTrustBrokerClientError:
             // endpoint or session rebuild. A genuinely dead session clears
             // auth state through the coordinator, which stops the runtime
             // through the lifecycle owner instead.
+            return statusCode == 401
+                || statusCode == 408
+                || statusCode == 425
+                || statusCode == 429
+                || (500...599).contains(statusCode)
+        case let .rejectedWithRetryAfter(statusCode, _, _):
             return statusCode == 401
                 || statusCode == 408
                 || statusCode == 425
@@ -124,6 +131,11 @@ public enum CmxIrohTrustBrokerClientError:
                 || statusCode == 425
                 || statusCode == 429
                 || (500...599).contains(statusCode)
+        case let .rejectedWithRetryAfter(statusCode, _, _):
+            return statusCode == 408
+                || statusCode == 425
+                || statusCode == 429
+                || (500...599).contains(statusCode)
         case .invalidBaseURL,
              .missingAuthentication,
              .invalidAuthentication,
@@ -135,8 +147,13 @@ public enum CmxIrohTrustBrokerClientError:
 
     /// The validated server retry floor, when present.
     public var retryAfterSeconds: Int? {
-        guard case let .rateLimited(_, retryAfterSeconds) = self else { return nil }
-        return retryAfterSeconds
+        switch self {
+        case let .rateLimited(_, retryAfterSeconds),
+             let .rejectedWithRetryAfter(_, _, retryAfterSeconds):
+            return retryAfterSeconds
+        default:
+            return nil
+        }
     }
 
     /// Whether this is any connectivity-class failure, regardless of the
@@ -173,6 +190,9 @@ extension CmxIrohTrustBrokerClientError: CustomStringConvertible {
                 + "retryAfterSeconds: \(retryAfterSeconds))"
         case let .rejected(statusCode, code):
             "rejected(statusCode: \(statusCode), code: \(String(describing: code)))"
+        case let .rejectedWithRetryAfter(statusCode, code, retryAfterSeconds):
+            "rejected(statusCode: \(statusCode), code: \(String(describing: code)), "
+                + "retryAfterSeconds: \(retryAfterSeconds))"
         case .invalidResponse:
             "invalidResponse"
         }

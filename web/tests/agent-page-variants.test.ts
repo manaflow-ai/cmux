@@ -4,7 +4,7 @@ import {
   resolveAgentPageVariant,
   variantPathForPage,
 } from "../app/lib/agent-page-paths";
-import sitemap from "../app/sitemap";
+import { sitemapEntries as sitemap } from "../app/sitemap";
 import {
   featureWorkflowContentLocales,
   featureWorkflowDocPathForRequest,
@@ -13,6 +13,7 @@ import { buildAlternateLinkHeader } from "../i18n/seo";
 import {
   extractReadableHtml,
   headersForAgentPage,
+  canonicalUrlFromHtml,
   markdownFromHtml,
   plainTextFromMarkdown,
 } from "../app/lib/agent-page-markdown";
@@ -23,6 +24,41 @@ import {
 import { sameOriginRedirectUrl } from "../app/lib/agent-page-redirects";
 
 describe("agent page variants", () => {
+  test("drops docs chrome and uses the public canonical host", () => {
+    const html = `
+      <html>
+        <head>
+          <title>Getting Started \u2014 cmux docs</title>
+          <link rel="canonical" href="https://cmux.com/docs/getting-started"/>
+        </head>
+        <body>
+          <main>
+            <div data-pagefind-ignore="all"><button>Copy page</button></div>
+            <div data-docs-page-body>
+              <h1 class="docs-heading" id="title"><a data-pagefind-ignore="all" href="#title"><svg></svg></a>Getting Started</h1>
+              <p>Read the <a href="/docs/api">API docs</a>.</p>
+              <h2 id="install"><a data-pagefind-ignore="all" href="#install">#</a>Install</h2>
+            </div>
+            <div data-pagefind-ignore="all"><p>Was this page helpful?</p></div>
+            <div data-pagefind-ignore="all"><footer>Product Blog</footer></div>
+          </main>
+        </body>
+      </html>`;
+    const sourceUrl = canonicalUrlFromHtml(html);
+    expect(sourceUrl).toBe("https://cmux.com/docs/getting-started");
+    const markdown = markdownFromHtml({ html, sourceUrl: sourceUrl! });
+    expect(markdown).toBe(
+      "# Getting Started\n\nRead the [API docs](https://cmux.com/docs/api).\n\n## Install\n\n" +
+        "Canonical: https://cmux.com/docs/getting-started\n\n" +
+        "Documentation index: https://cmux.com/llms.txt\n",
+    );
+  });
+
+  test("ignores non-http canonical links", () => {
+    expect(canonicalUrlFromHtml(`<link rel="canonical" href="javascript:alert(1)">`)).toBeNull();
+    expect(canonicalUrlFromHtml(`<link rel="alternate" href="https://x.test/">`)).toBeNull();
+  });
+
   test("maps Markdown and text extension paths to canonical HTML pages", () => {
     expect(resolveAgentPageVariant("/docs/getting-started.md")).toEqual({
       kind: "page",

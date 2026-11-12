@@ -884,6 +884,14 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        // `createMainWindow` inherits the current main window's size. Earlier
+        // app-host tests can leave a 320-point window behind, which is too
+        // narrow for the minimum-width split admission check.
+        window.setContentSize(NSSize(width: 1_000, height: 700))
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: 1_000, height: 1_000)
+        )
         let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal, focus: false))
         let leftTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(leftPanelId))
         let rightTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(rightPanel.id))
@@ -2473,11 +2481,9 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
-
     func testNilRequestedWindowFallsBackToKeyWindow() {
         let key = makeWindow()
         let other = makeWindow()
-
         XCTAssertTrue(
             ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: key,
@@ -2495,11 +2501,9 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
-
     func testNilRequestedAndKeyFallsBackToMainWindow() {
         let main = makeWindow()
         let other = makeWindow()
-
         XCTAssertTrue(
             ContentView.shouldHandleCommandPaletteRequest(
                 observedWindow: main,
@@ -2517,7 +2521,6 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
             )
         )
     }
-
     func testNoObservedWindowNeverHandlesRequest() {
         XCTAssertFalse(
             ContentView.shouldHandleCommandPaletteRequest(
@@ -2529,7 +2532,6 @@ final class CommandPaletteRequestRoutingTests: XCTestCase {
         )
     }
 }
-
 final class CommandPaletteBackNavigationTests: XCTestCase {
     func testBackspaceOnEmptyRenameInputReturnsToCommandList() {
         XCTAssertTrue(
@@ -2539,7 +2541,6 @@ final class CommandPaletteBackNavigationTests: XCTestCase {
             )
         )
     }
-
     func testBackspaceWithRenameTextDoesNotReturnToCommandList() {
         XCTAssertFalse(
             ContentView.commandPaletteShouldPopRenameInputOnDelete(
@@ -2548,7 +2549,6 @@ final class CommandPaletteBackNavigationTests: XCTestCase {
             )
         )
     }
-
     func testModifiedBackspaceDoesNotReturnToCommandList() {
         XCTAssertFalse(
             ContentView.commandPaletteShouldPopRenameInputOnDelete(

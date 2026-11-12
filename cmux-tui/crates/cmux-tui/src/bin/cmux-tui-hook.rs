@@ -37,6 +37,15 @@ const HANDOFF_WAIT: Duration = Duration::from_secs(5);
 /// process must report an unconfirmed handoff before that instead of being
 /// killed; the detached child keeps trying to deliver the event regardless.
 const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_secs(2);
+/// Claude Code kills a command hook at its `timeout` (5 s,
+/// agent_hook_install.rs `COMMAND_HOOK_TIMEOUT_SECONDS`). A `SessionStart`
+/// hook sends the event and then writes the terminal claim, whose roster read
+/// (terminal_agent.rs) must end inside this budget from the hook's start.
+const CLAUDE_HOOK_BUDGET: Duration = Duration::from_millis(4500);
+/// The wait for a Claude `SessionStart` handoff: past the child's own
+/// `SOCKET_TIMEOUT`, so its deadline stays authoritative, and inside
+/// `CLAUDE_HOOK_BUDGET`, so the claim is still written.
+const CLAUDE_SESSION_START_HANDOFF_WAIT: Duration = Duration::from_millis(4250);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
@@ -47,8 +56,16 @@ struct Args {
     native_event: String,
 }
 
+// cmux-tui embeds this file as a module and enters through `run_cli`.
+#[allow(dead_code)]
 fn main() -> ExitCode {
-    let arguments = env::args().skip(1).collect::<Vec<_>>();
+    run_cli(env::args().skip(1).collect(), &[])
+}
+
+/// Runs the helper with `arguments` (argv without the program name).
+/// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
+/// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
+pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
     if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
         return match detached_child_from_stdin() {
             Ok(()) => ExitCode::SUCCESS,
@@ -62,7 +79,7 @@ fn main() -> ExitCode {
         println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
-    match parse_args(arguments).and_then(run) {
+    match parse_args(arguments).and_then(|args| run(args, exe_prefix)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-tui-hook: {error:#}");
@@ -71,35 +88,316 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: Args) -> anyhow::Result<()> {
-    if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
-        drain_native_payload()?;
+fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
+    let started = Instant::now();
+    // Orders this agent's events in the daemon (cmux_tui_core::stamp_agent_hook_observed_at).
+    let started_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|since| u64::try_from(since.as_millis()).ok());
+    // Read once, before any decision: a Claude hook stands down by the
+    // payload's `session_id` (plugin_copy.rs).
+    let payload = read_payload_bytes(io::stdin().lock())?;
+    let session = if args.source == "claude" { payload_session_id(&payload) } else { None };
+    let session = session.as_deref();
+    let getenv = |name: &str| env::var_os(name);
+    if plugin_copy::stands_down(&args.source, &args.native_event, session, getenv) {
         return Ok(());
     }
-    let socket = match env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
-        Some(socket) => PathBuf::from(socket),
-        None => {
-            drain_native_payload()?;
-            return Ok(());
-        }
-    };
-    let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
-    let native = read_native_payload(io::stdin().lock())?;
-    let ingress = cmux_tui_core::agent_hook_journal_ingress(
+    let context = session_context::applies(&args.source, &args.native_event, getenv);
+    let route = deliver(&args, exe_prefix, &payload, session, started, started_at_ms)?;
+    if context {
+        // After the handoff: the read connects from a helper thread, which
+        // must not exist when the detached child forks.
+        let (socket, terminal) = route.unzip();
+        // Inside cmux-tui (`exe_prefix` re-enters it) this executable is the
+        // build's CLI; the standalone helper is not.
+        let cli = (!exe_prefix.is_empty())
+            .then(env::current_exe)
+            .and_then(Result::ok)
+            .map(|path| path.canonicalize().unwrap_or(path));
+        session_context::print(socket.as_deref(), terminal.flatten().as_deref(), cli.as_deref());
+    }
+    Ok(())
+}
+
+/// Hands the event to the session journal; the route it used, `None` when
+/// this hook posts nothing.
+fn deliver(
+    args: &Args,
+    exe_prefix: &[&str],
+    payload: &[u8],
+    session: Option<&str>,
+    started: Instant,
+    started_at_ms: Option<u64>,
+) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
+    if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
+        return Ok(None);
+    }
+    if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
+        return Ok(None);
+    }
+    let Some((socket, terminal)) = session_route() else { return Ok(None) };
+    // The route's terminal: also a tmux route, whose environment names none
+    // (plugin_copy.rs).
+    if plugin_copy::claimed_elsewhere(&args.source, terminal.as_deref(), session, |name| {
+        env::var_os(name)
+    }) {
+        return Ok(None);
+    }
+    let native = read_native_payload(payload)?;
+    let start_source = native.get("source").and_then(Value::as_str).map(str::to_owned);
+    let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
         &args.source,
         &args.native_event,
         terminal.as_deref(),
         native,
     )?;
+    if let Some(observed_at_ms) = started_at_ms {
+        cmux_tui_core::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    }
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;
-    let handoff = handoff_wait(&args.source, &args.native_event);
-    match detach::append_detached(&socket, &request_id, &encoded, handoff)? {
-        Handoff::Sent => Ok(()),
+    let budget_end = started + CLAUDE_HOOK_BUDGET;
+    let handoff = if args.source == "claude" && args.native_event == "SessionStart" {
+        claude_start_handoff_wait(budget_end, Instant::now())
+    } else {
+        handoff_wait(&args.source, &args.native_event)
+    };
+    let sent = detach::append_detached(&socket, &request_id, &encoded, handoff, exe_prefix);
+    // Whatever the send did: a Claude that starts while the daemon is down
+    // still claims its terminal (its roster read then fails, so it counts as
+    // the terminal's agent).
+    claim_unless_nested(args, &socket, terminal.as_deref(), session, start_source, budget_end);
+    match sent? {
+        Handoff::Sent => Ok(Some((socket, terminal))),
         Handoff::ChildExited => bail!("hook child gave up before writing the journal request"),
         Handoff::TimedOut => {
             bail!("journal request handoff was not confirmed within {} ms", handoff.as_millis())
         }
+    }
+}
+
+/// After a Claude `SessionStart` handoff, sent or not: claims the route's
+/// terminal for this session (plugin_copy.rs), unless the terminal already
+/// has another agent (terminal_agent.rs). Runs after the handoff, so it never
+/// delays the event, and its read starts no thread before the detached child
+/// forks. The read ends by `budget_end`.
+fn claim_unless_nested(
+    args: &Args,
+    socket: &Path,
+    terminal: Option<&str>,
+    session: Option<&str>,
+    start_source: Option<String>,
+    budget_end: Instant,
+) {
+    if args.source != "claude" || args.native_event != "SessionStart" {
+        return;
+    }
+    let start_source = start_source.as_deref();
+    if (terminal_agent::Run { socket, terminal, session, start_source, budget_end }).is_nested() {
+        return;
+    }
+    plugin_copy::claim_terminal(&args.source, &args.native_event, terminal, session, |name| {
+        env::var_os(name)
+    });
+}
+
+/// Whether a Claude in `terminal` with `session` (its `SessionStart` from
+/// `start_source`) is not the terminal's agent but one it started: its
+/// environment claims the terminal for another session (plugin_copy.rs), or
+/// the terminal has another agent (terminal_agent.rs). The
+/// `agent session-context` hook then adds no context.
+#[allow(
+    dead_code,
+    reason = "only cmux-tui's `agent session-context` calls it; the standalone helper builds this file too"
+)]
+pub(crate) fn claude_is_nested(
+    socket: &Path,
+    terminal: Option<&str>,
+    session: Option<&str>,
+    start_source: Option<&str>,
+) -> bool {
+    plugin_copy::claimed_elsewhere("claude", terminal, session, |name| env::var_os(name))
+        || terminal_agent::Run {
+            socket,
+            terminal,
+            session,
+            start_source,
+            budget_end: Instant::now() + terminal_agent::DEADLINE,
+        }
+        .is_nested()
+}
+
+/// Set to `launch` by a hook command that carries its own route (the Codex
+/// wrapper's per-launch hooks), as opposed to one inherited from a process
+/// environment.
+pub(crate) const HOOK_ROUTE_ENV: &str = "CMUX_TUI_HOOK_ROUTE";
+
+/// Codex 0.162 runs hooks in a shared app-server daemon that keeps the
+/// environment of whichever shell started it. An installed hook there would
+/// read that shell's `CMUX_TUI_*` (or `TMUX`) values and post every Codex
+/// session's events, from any terminal or none, to that one cmux terminal, so
+/// it posts nothing. The wrapper's hooks name their own terminal and still
+/// route.
+fn inherited_route_is_untrusted(
+    source: &str,
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> bool {
+    source == "codex"
+        && getenv(HOOK_ROUTE_ENV).is_none_or(|value| value != "launch")
+        && cmux_tui_core::platform::descends_from_codex_app_server_daemon()
+}
+
+/// The session socket and terminal that receive this event: the terminal's
+/// own `CMUX_TUI_*` values, or, for an agent in a tmux session started
+/// outside cmux-tui (which has none), the cmux-tui terminal attached to the
+/// pane's tmux session.
+pub(crate) fn session_route() -> Option<(PathBuf, Option<String>)> {
+    if let Some(socket) = env::var_os("CMUX_TUI_SOCKET").filter(|value| !value.is_empty()) {
+        let terminal = env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|value| !value.is_empty());
+        return Some((PathBuf::from(socket), terminal));
+    }
+    let route = tmux_route::attached_terminal()?;
+    Some((route.socket, Some(route.terminal)))
+}
+
+/// Finds the cmux-tui terminal whose tmux client shows the hook's pane.
+///
+/// An agent in a tmux session started outside cmux-tui (by a launcher over
+/// SSH, say) has no `CMUX_TUI_*` variables, but the `tmux attach` running in
+/// a cmux-tui terminal does. Clients of the pane's session, or of a session
+/// grouped with it, are candidates: one whose current window holds the pane
+/// first, then the most recently active. The first whose environment names a
+/// session socket and terminal wins. Client environments are read from
+/// `/proc`, so this is Linux only.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod tmux_route {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    #[cfg(target_os = "linux")]
+    use std::time::{Duration, Instant};
+
+    /// Bound on both tmux queries together. It comes out of the provider's
+    /// hook budget, and codex kills SessionEnd hooks at 3s.
+    #[cfg(target_os = "linux")]
+    const TMUX_BUDGET: Duration = Duration::from_millis(500);
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub(super) struct Route {
+        pub(super) socket: PathBuf,
+        pub(super) terminal: String,
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(super) fn attached_terminal() -> Option<Route> {
+        std::env::var_os("TMUX").filter(|value| !value.is_empty())?;
+        let deadline = Instant::now() + TMUX_BUDGET;
+        let pane = std::env::var("TMUX_PANE").ok().filter(|value| !value.is_empty());
+        let mut display = vec!["display-message", "-p"];
+        if let Some(pane) = pane.as_deref() {
+            display.extend(["-t", pane]);
+        }
+        display.push(PANE_FORMAT);
+        let pane_line = run_tmux(&display, deadline)?;
+        let clients = run_tmux(&["list-clients", "-F", CLIENT_FORMAT], deadline)?;
+        select(&pane_line, &clients, proc_environ)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    pub(super) fn attached_terminal() -> Option<Route> {
+        None
+    }
+
+    pub(super) const PANE_FORMAT: &str = "#{session_id}\t#{session_group}\t#{window_id}";
+    pub(super) const CLIENT_FORMAT: &str =
+        "#{client_pid}\t#{client_activity}\t#{session_id}\t#{session_group}\t#{window_id}";
+
+    /// Picks the route from `display-message` output for the pane and
+    /// `list-clients` output, reading each candidate's environment.
+    pub(super) fn select(
+        pane_line: &str,
+        clients: &str,
+        environ: impl Fn(u32) -> Option<HashMap<String, String>>,
+    ) -> Option<Route> {
+        let pane_line = pane_line.strip_suffix('\n').unwrap_or(pane_line);
+        let pane: Vec<&str> = pane_line.split('\t').collect();
+        let [session, group, window] = pane[..] else { return None };
+        if session.is_empty() {
+            return None;
+        }
+        let mut candidates: Vec<(bool, i64, u32)> = clients
+            .lines()
+            .filter_map(|line| {
+                let fields: Vec<&str> = line.split('\t').collect();
+                let [pid, activity, client_session, client_group, client_window] = fields[..]
+                else {
+                    return None;
+                };
+                let same_session =
+                    client_session == session || (!group.is_empty() && client_group == group);
+                let pid = pid.parse::<u32>().ok().filter(|pid| *pid > 1)?;
+                same_session.then(|| {
+                    let shows_pane = !window.is_empty() && client_window == window;
+                    (shows_pane, activity.parse().unwrap_or(0), pid)
+                })
+            })
+            .collect();
+        candidates.sort_by(|left, right| right.0.cmp(&left.0).then(right.1.cmp(&left.1)));
+        candidates.into_iter().find_map(|(_, _, pid)| {
+            let environment = environ(pid)?;
+            let value = |key: &str| environment.get(key).filter(|value| !value.is_empty()).cloned();
+            Some(Route {
+                socket: value("CMUX_TUI_SOCKET")?.into(),
+                terminal: value("CMUX_TUI_TERMINAL_ID")?,
+            })
+        })
+    }
+
+    /// A same-user process environment; other users' are unreadable.
+    #[cfg(target_os = "linux")]
+    fn proc_environ(pid: u32) -> Option<HashMap<String, String>> {
+        let data = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+        Some(
+            data.split(|byte| *byte == 0)
+                .filter_map(|entry| {
+                    let entry = std::str::from_utf8(entry).ok()?;
+                    let (key, value) = entry.split_once('=')?;
+                    (!key.is_empty()).then(|| (key.to_owned(), value.to_owned()))
+                })
+                .collect(),
+        )
+    }
+
+    /// Runs tmux against the server named by `$TMUX`, killed at `deadline`.
+    #[cfg(target_os = "linux")]
+    fn run_tmux(args: &[&str], deadline: Instant) -> Option<String> {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new("tmux")
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) if status.success() => break,
+                Ok(None) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+            }
+        }
+        let mut output = String::new();
+        child.stdout.take()?.read_to_string(&mut output).ok()?;
+        Some(output)
     }
 }
 
@@ -185,9 +483,34 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
     }
 }
 
+/// Where the agent runs, for the model at session start.
+#[path = "cmux-tui-hook/session_context.rs"]
+pub(crate) mod session_context;
+
+/// The Claude Code plugin's copy of the hooks, beside an installed copy.
+#[path = "cmux-tui-hook/plugin_copy.rs"]
+pub(crate) mod plugin_copy;
+
+/// Which Claude in a terminal is the terminal's agent.
+#[path = "cmux-tui-hook/terminal_agent.rs"]
+mod terminal_agent;
+
+/// The wait for a Claude `SessionStart` handoff made at `now`, for a hook
+/// whose time budget ends at `budget_end`: `CLAUDE_SESSION_START_HANDOFF_WAIT`,
+/// cut to the time left, so a slow start (payload read, tmux route) never
+/// pushes the hook past its budget. The child keeps its own deadline.
+fn claude_start_handoff_wait(budget_end: Instant, now: Instant) -> Duration {
+    CLAUDE_SESSION_START_HANDOFF_WAIT.min(budget_end.saturating_duration_since(now))
+}
+
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
-    if source == "codex" && native_event == "SessionEnd" {
+    // Codex SessionStart also reads the session context after the handoff
+    // (session_context.rs, 1.5 s), all inside the 5 s hook timeout. Claude
+    // SessionStart then writes the claim (`CLAUDE_HOOK_BUDGET`).
+    if source == "codex" && matches!(native_event, "SessionEnd" | "SessionStart") {
         CODEX_SESSION_END_HANDOFF_WAIT
+    } else if source == "claude" && native_event == "SessionStart" {
+        CLAUDE_SESSION_START_HANDOFF_WAIT
     } else {
         HANDOFF_WAIT
     }
@@ -251,8 +574,19 @@ fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> 
     matches!(source, "claude" | "cursor") && grok_hook_event.is_some_and(|value| !value.is_empty())
 }
 
-fn drain_native_payload() -> io::Result<()> {
-    io::copy(&mut io::stdin().take(MAX_NATIVE_PAYLOAD_BYTES + 1), &mut io::sink()).map(|_| ())
+/// The hook's stdin, up to one byte past the payload bound (so
+/// [`read_native_payload`] can refuse an oversized payload). Reading it all
+/// also keeps the provider's write from failing on a closed pipe.
+fn read_payload_bytes(reader: impl Read) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader.take(MAX_NATIVE_PAYLOAD_BYTES + 1).read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+/// The `session_id` of a JSON hook payload, if it names one.
+fn payload_session_id(payload: &[u8]) -> Option<String> {
+    let value: Value = serde_json::from_slice(payload).ok()?;
+    value.get("session_id").and_then(Value::as_str).map(str::to_owned)
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {
@@ -359,6 +693,12 @@ fn append_once(
     on_sent: &dyn Fn(),
 ) -> Result<(), AppendAttemptError> {
     let mut stream = connect_before(socket, deadline)?;
+    // Bound the receipt read now, while the peer is surely still connected:
+    // once a server has answered and closed, macOS refuses SO_RCVTIMEO with
+    // EINVAL although the answer is still readable.
+    stream
+        .set_read_timeout(Some(remaining_before(deadline)?))
+        .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
     write_before(&mut *stream, encoded, deadline)?;
     on_sent();
     let response = read_before(stream, deadline)?;
@@ -479,9 +819,10 @@ fn write_before(
         }
     }
     loop {
-        stream
-            .set_write_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // The request is fully written. A fast server may already have
+        // answered and closed, which makes macOS refuse the option; the
+        // timeout set for the writes still bounds the flush.
+        let _ = stream.set_write_timeout(Some(remaining_before(deadline)?));
         match stream.flush() {
             Ok(()) => return Ok(()),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
@@ -497,10 +838,10 @@ fn read_before(
     let mut reader = BufReader::new(stream);
     let mut response = Vec::new();
     loop {
-        reader
-            .get_ref()
-            .set_read_timeout(Some(remaining_before(deadline)?))
-            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
+        // Shrink the bound toward the deadline. A refusal means the server
+        // already closed (macOS EINVAL), so the read cannot block; the
+        // timeout set before the request was written still applies.
+        let _ = reader.get_ref().set_read_timeout(Some(remaining_before(deadline)?));
         let available =
             reader.fill_buf().map_err(|error| AppendAttemptError::Retryable(error.into()))?;
         if available.is_empty() {
@@ -547,6 +888,7 @@ mod detach {
         request_id: &str,
         encoded: &[u8],
         handoff_wait: std::time::Duration,
+        _exe_prefix: &[&str],
     ) -> anyhow::Result<Handoff> {
         let mut fds = [0_i32; 2];
         // SAFETY: `fds` is a valid two-element array for pipe(2) to fill.
@@ -662,11 +1004,13 @@ mod detach {
         request_id: &str,
         encoded: &[u8],
         handoff_wait: Duration,
+        exe_prefix: &[&str],
     ) -> anyhow::Result<Handoff> {
         use std::os::unix::process::CommandExt;
         let exe = std::env::current_exe().context("locate hook helper")?;
         let mut command = Command::new(exe);
         command
+            .args(exe_prefix)
             .arg(DETACHED_MODE_ARG)
             .env("CMUX_TUI_SOCKET", socket)
             .stdin(Stdio::piped())
@@ -738,10 +1082,12 @@ mod detach {
         request_id: &str,
         encoded: &[u8],
         handoff_wait: Duration,
+        exe_prefix: &[&str],
     ) -> anyhow::Result<Handoff> {
         let exe = std::env::current_exe().context("locate hook helper")?;
         let mut command = Command::new(exe);
         command
+            .args(exe_prefix)
             .arg(DETACHED_MODE_ARG)
             .env("CMUX_TUI_SOCKET", socket)
             .stdin(Stdio::piped())
@@ -804,11 +1150,90 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
 mod tests {
     use super::*;
 
+    /// A server may answer and close before the hook child reads. macOS then
+    /// refuses `setsockopt(SO_RCVTIMEO)` with EINVAL although the receipt is
+    /// still readable; treating that as a failed attempt re-sent the event,
+    /// so the journal received it twice and out of order.
+    #[cfg(unix)]
+    #[test]
+    fn codex_hook_receipt_from_a_server_that_already_closed_is_still_read() {
+        let (client, mut server) = std::os::unix::net::UnixStream::pair().unwrap();
+        server.write_all(b"{\"type\":\"response\"}\n").unwrap();
+        drop(server);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        match read_before(Box::new(client), deadline) {
+            Ok(response) => assert_eq!(response, b"{\"type\":\"response\"}\n"),
+            Err(AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error)) => {
+                panic!("the written receipt was not read: {error:#}")
+            }
+        }
+    }
+
+    fn cmux_environ(pid: u32) -> Option<std::collections::HashMap<String, String>> {
+        let environment = |terminal: &str| {
+            Some(
+                [("CMUX_TUI_SOCKET", "/run/cmux.sock"), ("CMUX_TUI_TERMINAL_ID", terminal)]
+                    .map(|(key, value)| (key.to_owned(), value.to_owned()))
+                    .into(),
+            )
+        };
+        match pid {
+            10 => environment("term_other_window"),
+            11 => environment("term_shows_pane"),
+            12 => environment("term_recent"),
+            // A plain SSH client: no cmux-tui terminal.
+            13 => Some([("SSH_TTY".to_owned(), "/dev/pts/3".to_owned())].into()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn tmux_route_prefers_the_client_showing_the_pane() {
+        let clients = "10\t500\t$1\t\t@2\n11\t100\t$1\t\t@1\n12\t900\t$7\t\t@9\n";
+        let route = tmux_route::select("$1\t\t@1\n", clients, cmux_environ).unwrap();
+        assert_eq!(route.terminal, "term_shows_pane");
+        assert_eq!(route.socket, PathBuf::from("/run/cmux.sock"));
+    }
+
+    #[test]
+    fn tmux_route_falls_back_to_the_most_recent_client_of_the_session_group() {
+        // Client 13 shows the pane but is a plain SSH client; 12 attaches a
+        // grouped session and is newer than 10.
+        let clients = "13\t999\t$1\tgrp\t@1\n10\t500\t$1\tgrp\t@2\n12\t900\t$7\tgrp\t@9\n";
+        let route = tmux_route::select("$1\tgrp\t@1", clients, cmux_environ).unwrap();
+        assert_eq!(route.terminal, "term_recent");
+    }
+
+    #[test]
+    fn tmux_route_ignores_other_sessions_and_non_cmux_clients() {
+        let clients = "12\t900\t$7\t\t@9\n13\t999\t$1\t\t@1\n";
+        assert_eq!(tmux_route::select("$1\t\t@1", clients, cmux_environ), None);
+        assert_eq!(tmux_route::select("", clients, cmux_environ), None);
+        assert_eq!(tmux_route::select("$1\t\t@1", "garbage\n1\t0\t$1\t\t@1\n", cmux_environ), None);
+    }
+
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
         assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
+        // The session context read (session_context.rs) still fits in 5 s.
+        assert!(handoff_wait("codex", "SessionStart") < Duration::from_secs(3));
         assert!(handoff_wait("codex", "Stop") > SOCKET_TIMEOUT);
         assert!(handoff_wait("claude", "SessionEnd") > SOCKET_TIMEOUT);
+        // The Claude claim (terminal_agent.rs) is still written inside 5 s.
+        assert!(handoff_wait("claude", "SessionStart") > SOCKET_TIMEOUT);
+        assert!(handoff_wait("claude", "SessionStart") < CLAUDE_HOOK_BUDGET);
+    }
+
+    #[test]
+    fn any_launcher_w5n3_cap_start_handoff_ends_inside_the_hook_budget() {
+        let now = Instant::now();
+        // A fresh hook: the full wait, past the child's own deadline.
+        let fresh = claude_start_handoff_wait(now + CLAUDE_HOOK_BUDGET, now);
+        assert_eq!(fresh, CLAUDE_SESSION_START_HANDOFF_WAIT);
+        // A slow start (payload, tmux route): the wait ends with the budget.
+        let late = claude_start_handoff_wait(now + Duration::from_secs(1), now);
+        assert_eq!(late, Duration::from_secs(1));
+        assert_eq!(claude_start_handoff_wait(now, now), Duration::ZERO);
     }
 
     #[test]

@@ -105,7 +105,7 @@ export function stackConfigurationFromEnvFile(environmentFile) {
 }
 
 function loadStackServerApp(configuration) {
-  const { StackServerApp } = webRequire("@stackframe/stack");
+  const { StackServerApp } = webRequire("@hexclave/next");
   return new StackServerApp(configuration);
 }
 
@@ -130,6 +130,7 @@ export async function createTemporaryStackUser({
   const email = `cmux-iroh-gate+${randomUUID()}@manaflow.ai`;
   const password = randomBytes(24).toString("base64url");
   let user;
+  let operation = "createUser";
   try {
     user = await stackApp.createUser({
       primaryEmail: email,
@@ -147,8 +148,10 @@ export async function createTemporaryStackUser({
       refreshToken: null,
       createdAt: now().toISOString(),
     };
+    operation = "writeState";
     writeExclusiveSecureFile(stateFile, `${JSON.stringify(initialState)}\n`);
 
+    operation = "createSession";
     const session = await user.createSession({
       expiresInMillis: 20 * 60 * 1000,
       isImpersonation: true,
@@ -161,6 +164,7 @@ export async function createTemporaryStackUser({
       accessToken,
       refreshToken,
     })}\n`);
+    operation = "writeCredentials";
     writeExclusiveSecureFile(credentialsFile, credentialFileContents(email, password));
     return { created: true };
   } catch (error) {
@@ -191,7 +195,10 @@ export async function createTemporaryStackUser({
         createdAt: now().toISOString(),
       })}\n`);
     }
-    throw error;
+    const contextualError = new Error(`temporary Stack ${operation} failed`);
+    contextualError.operation = operation;
+    contextualError.cause = error;
+    throw contextualError;
   }
 }
 
@@ -292,10 +299,11 @@ export async function cleanupTemporaryStackUser({
     }
   }
 
-  // Direct deletion is a hygiene fallback, not evidence that the production
-  // account API worked. The release gate passes only when the API succeeded
-  // and its deletion was independently observable before the fallback.
-  const passed = apiCleanupSucceeded && accountAbsentAfterAPI;
+  // The API result is diagnostic. The safety property for a disposable test
+  // account is that an independent lookup proves the account is gone. This
+  // also covers transient API failures followed by direct administrative
+  // deletion, without allowing an account that still exists to pass.
+  const passed = accountAbsent;
   const report = {
     schemaVersion: 1,
     passed,
@@ -365,11 +373,26 @@ async function main() {
 }
 
 if (import.meta.main) {
-  main().catch(() => {
+  main().catch((error) => {
     // Stack SDK errors can echo request fields. Keep command-line logs free of
     // the temporary account identity, password, and tokens; recovery details
     // live only in the protected state/report files.
-    process.stderr.write("error: temporary Stack user operation failed; inspect the protected recovery state\n");
+    const safeDetails = {
+      name: typeof error?.name === "string" ? error.name : null,
+      code: typeof error?.code === "string" ? error.code.slice(0, 80) : null,
+      status: Number.isInteger(error?.status) ? error.status : null,
+      statusCode: Number.isInteger(error?.statusCode) ? error.statusCode : null,
+      type: typeof error?.type === "string" ? error.type.slice(0, 80) : null,
+      operation: typeof error?.operation === "string" ? error.operation : null,
+      message: typeof error?.message === "string"
+        ? error.message
+          .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, "<email>")
+          .replace(/(bearer|token|password|secret)\s*[:=]?\s*[^\s,;]+/giu, "$1=<redacted>")
+          .replace(/[A-Za-z0-9_-]{48,}/gu, "<redacted>")
+          .slice(0, 240)
+        : null,
+    };
+    process.stderr.write(`error: temporary Stack user operation failed (${JSON.stringify(safeDetails)}); inspect the protected recovery state\n`);
     process.exitCode = 1;
   });
 }

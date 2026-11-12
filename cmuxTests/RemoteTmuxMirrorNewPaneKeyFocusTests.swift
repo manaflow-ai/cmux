@@ -51,6 +51,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
 
     @MainActor
     private final class Harness {
+        let portalWorkspace: TerminalPortalTestWorkspace
         let workspace: Workspace
         let mirror: RemoteTmuxWindowMirror
         let containerPanelId: UUID
@@ -59,8 +60,8 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         let pipe: Pipe
 
         init() throws {
-            let manager = TabManager()
-            let workspace = try #require(manager.selectedWorkspace)
+            let portalWorkspace = TerminalPortalTestWorkspace()
+            let workspace = portalWorkspace.workspace
             let containerPanelId = try #require(workspace.focusedPanelId)
             let connection = RemoteTmuxControlConnection(
                 host: RemoteTmuxHost(destination: "user@newpanefocus"),
@@ -86,6 +87,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
                 makePanel: { _ in workspace.makeRemoteTmuxPanePanel(onInput: { _ in }) }
             )
             workspace.setRemoteTmuxWindowMirror(mirror, forPanelId: containerPanelId)
+            self.portalWorkspace = portalWorkspace
             self.workspace = workspace
             self.mirror = mirror
             self.containerPanelId = containerPanelId
@@ -135,6 +137,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
             mirror.teardown()
             writer.close()
             try? pipe.fileHandleForReading.close()
+            portalWorkspace.tearDown()
         }
     }
 
@@ -171,6 +174,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         defer { harness.tearDown() }
         let paneFour = try #require(harness.mirror.panel(forPane: 4))
         let mountedPortal = try RemoteTmuxPanePortalTestHarness()
+        harness.portalWorkspace.bind(to: mountedPortal.window)
         defer { mountedPortal.tearDown() }
         mountedPortal.mount(paneFour, frame: NSRect(x: 0, y: 0, width: 395, height: 500))
         paneFour.hostedView.setVisibleInUI(true)
@@ -207,6 +211,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         defer { harness.tearDown() }
         let paneFour = try #require(harness.mirror.panel(forPane: 4))
         let mountedPortal = try RemoteTmuxPanePortalTestHarness()
+        harness.portalWorkspace.bind(to: mountedPortal.window)
         defer { mountedPortal.tearDown() }
         mountedPortal.mount(paneFour, frame: NSRect(x: 0, y: 0, width: 395, height: 500))
         paneFour.hostedView.setVisibleInUI(true)
@@ -245,6 +250,7 @@ struct RemoteTmuxMirrorNewPaneKeyFocusTests {
         defer { harness.tearDown() }
         let paneFour = try #require(harness.mirror.panel(forPane: 4))
         let mountedPortal = try RemoteTmuxPanePortalTestHarness()
+        harness.portalWorkspace.bind(to: mountedPortal.window)
         defer { mountedPortal.tearDown() }
         mountedPortal.mount(paneFour, frame: NSRect(x: 0, y: 0, width: 390, height: 500))
         paneFour.hostedView.setVisibleInUI(true)

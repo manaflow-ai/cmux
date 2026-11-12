@@ -1,6 +1,6 @@
 #if canImport(UIKit)
 public import SwiftUI
-import CmuxMobileSupport
+public import CmuxMobileSupport
 
 /// Complete iOS chrome and interaction surface for one streamed Mac browser panel.
 ///
@@ -13,31 +13,27 @@ import CmuxMobileSupport
 /// content) and rides up with the keyboard.
 public struct BrowserStreamPane: View {
     @State private var state: BrowserStreamSurfaceState
-    @State private var addressText: String
-    @State private var isEditingAddress = false
-    @FocusState private var addressFocused: Bool
-    /// Real soft-keyboard visibility; the keyboard button binds to this rather
-    /// than the input proxy's focus intent because the address field or a
-    /// dialog's text field can raise the keyboard without the proxy knowing.
-    @State private var keyboardVisibility = MobileKeyboardVisibilityObserver()
 
     private let actions: BrowserStreamSurfaceActions
     private let reconnect: () -> Void
+    private let modePicker: MobileBrowserModePicker?
 
     /// Creates a full browser streaming pane.
     /// - Parameters:
     ///   - state: Observable state for the selected Mac browser panel.
     ///   - actions: RPC actions for browser input and chrome.
     ///   - reconnect: Requests connection recovery for the selected Mac.
+    ///   - modePicker: The Streamed / On iPhone switch, when offered.
     public init(
         state: BrowserStreamSurfaceState,
         actions: BrowserStreamSurfaceActions,
-        reconnect: @escaping () -> Void
+        reconnect: @escaping () -> Void,
+        modePicker: MobileBrowserModePicker? = nil
     ) {
         _state = State(initialValue: state)
-        _addressText = State(initialValue: state.url ?? "")
         self.actions = actions
         self.reconnect = reconnect
+        self.modePicker = modePicker
     }
 
     /// Renders the mirrored frame surface, lifecycle overlays, and bottom chrome.
@@ -47,110 +43,37 @@ public struct BrowserStreamPane: View {
             .overlay { paneOverlay }
             .background(Color(red: 0.055, green: 0.063, blue: 0.075))
             .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
-            .onChange(of: state.url) { _, url in
-                if !addressFocused { addressText = url ?? "" }
-            }
     }
 
     // MARK: - Bottom chrome
 
+    /// The shared phone browser chrome (also used by the native in-app
+    /// browser), with the keyboard toggle a pixel-streamed page needs.
     private var bottomBar: some View {
-        HStack(spacing: 10) {
-            chromeButton(
-                systemImage: "chevron.backward",
-                label: L10n.string("mobile.browserStream.back", defaultValue: "Back"),
-                identifier: "BrowserStreamBackButton",
-                disabled: !state.canGoBack
-            ) { state.request(.back) }
-            chromeButton(
-                systemImage: "chevron.forward",
-                label: L10n.string("mobile.browserStream.forward", defaultValue: "Forward"),
-                identifier: "BrowserStreamForwardButton",
-                disabled: !state.canGoForward
-            ) { state.request(.forward) }
-
-            addressField
-
-            chromeButton(
-                systemImage: "arrow.clockwise",
-                label: L10n.string("mobile.browserStream.reload", defaultValue: "Reload"),
-                identifier: "BrowserStreamReloadButton"
-            ) { state.request(.reload) }
-            chromeButton(
-                systemImage: keyboardVisibility.isVisible ? "keyboard.chevron.compact.down" : "keyboard",
-                label: keyboardVisibility.isVisible
-                    ? L10n.string("mobile.browserStream.hideKeyboard", defaultValue: "Hide Keyboard")
-                    : L10n.string("mobile.browserStream.keyboard", defaultValue: "Show Keyboard"),
-                identifier: "BrowserStreamKeyboardButton"
-            ) {
-                if keyboardVisibility.isVisible {
-                    // Hide means hide, whichever responder raised the keyboard.
-                    addressFocused = false
-                    state.hideKeyboardForChrome()
-                    UIApplication.shared.dismissMobileKeyboard()
-                } else {
-                    state.toggleManualKeyboard()
+        MobileBrowserChromeBar(
+            page: .init(
+                url: state.url,
+                canGoBack: state.canGoBack,
+                canGoForward: state.canGoForward,
+                isLoading: state.isLoading,
+                progress: state.progress
+            ),
+            actions: .init(
+                back: { state.request(.back) },
+                forward: { state.request(.forward) },
+                reload: { state.request(.reload) },
+                submit: { address in
+                    state.request(.navigate(address))
+                    return true
                 }
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .mobileGlassPill()
-        .overlay(alignment: .bottom) { pillProgress }
-        .clipShape(Capsule())
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
-    }
-
-    private var addressField: some View {
-        HStack(spacing: 6) {
-            if !isEditingAddress {
-                Image(systemName: isSecure ? "lock.fill" : "globe")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            TextField(
-                L10n.string("mobile.browserStream.addressPlaceholder", defaultValue: "Search or enter address"),
-                text: $addressText
-            )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled(true)
-            .keyboardType(.webSearch)
-            .submitLabel(.go)
-            .multilineTextAlignment(isEditingAddress ? .leading : .center)
-            .focused($addressFocused)
-            .onSubmit { submitAddress() }
-            .font(.footnote)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(.quaternary.opacity(0.5), in: Capsule())
-        .onChange(of: addressFocused) { _, focused in
-            isEditingAddress = focused
-            // Show the full URL for editing, collapse back to the host on blur.
-            if focused {
-                addressText = state.url ?? addressText
-            } else {
-                addressText = state.url ?? ""
-            }
-        }
-        .accessibilityIdentifier("BrowserStreamAddressField")
-    }
-
-    @ViewBuilder
-    private var pillProgress: some View {
-        if state.isLoading {
-            ProgressView(value: state.progress)
-                .progressViewStyle(.linear)
-                .frame(height: 2)
-                .padding(.horizontal, 18)
-                .accessibilityLabel(L10n.string("mobile.browserStream.loading", defaultValue: "Loading"))
-                .accessibilityIdentifier("BrowserStreamProgress")
-        }
-    }
-
-    private var isSecure: Bool {
-        state.url?.hasPrefix("https://") == true
+            ),
+            keyboard: .init(
+                show: { state.toggleManualKeyboard() },
+                hide: { state.hideKeyboardForChrome() }
+            ),
+            modePicker: modePicker,
+            identifiers: .init(prefix: "BrowserStream")
+        )
     }
 
     // MARK: - Overlays
@@ -268,27 +191,6 @@ public struct BrowserStreamPane: View {
             .foregroundStyle(.white)
             .padding(28)
         }
-    }
-
-    private func chromeButton(
-        systemImage: String,
-        label: String,
-        identifier: String,
-        disabled: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) { Image(systemName: systemImage).frame(width: 24, height: 24) }
-            .buttonStyle(.plain)
-            .disabled(disabled)
-            .accessibilityLabel(label)
-            .accessibilityIdentifier(identifier)
-    }
-
-    private func submitAddress() {
-        let trimmed = addressText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        state.request(.navigate(trimmed))
-        addressFocused = false
     }
 }
 #endif

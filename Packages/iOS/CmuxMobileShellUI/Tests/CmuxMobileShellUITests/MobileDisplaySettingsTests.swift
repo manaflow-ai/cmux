@@ -42,6 +42,33 @@ import Testing
         #expect(MobileDisplaySettings(defaults: defaults).showAltScreenNotice)
     }
 
+    @Test func feedBubbleQuotesDefaultsToEnabledWithoutAWrite() throws {
+        let defaults = try makeDefaults("feedBubbleQuotesDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        #expect(settings.feedBubbleQuotes)
+        #expect(defaults.object(forKey: "cmux.mobile.feedBubbleQuotes.v1") == nil)
+    }
+
+    @Test func feedBubbleQuotesPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("feedBubbleQuotesPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        settings.feedBubbleQuotes = false
+        #expect(defaults.object(forKey: "cmux.mobile.feedBubbleQuotes.v1") as? Bool == false)
+        #expect(!MobileDisplaySettings(defaults: defaults).feedBubbleQuotes)
+
+        settings.feedBubbleQuotes = true
+        #expect(MobileDisplaySettings(defaults: defaults).feedBubbleQuotes)
+    }
+
+    @Test func feedBubbleQuotesReadsLegacyDebugPreference() throws {
+        let defaults = try makeDefaults("feedBubbleQuotesLegacy")
+        defaults.set(false, forKey: "cmux.mobile.debug.feedBubbleQuotes.v1")
+
+        #expect(!MobileDisplaySettings(defaults: defaults).feedBubbleQuotes)
+    }
+
     @Test func showMissingFilesDefaultsToFalseWithoutAWrite() throws {
         let defaults = try makeDefaults("showMissingFilesDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)
@@ -70,6 +97,38 @@ import Testing
         let settings = MobileDisplaySettings(defaults: defaults)
         settings.terminalFolderTapEnabled = false
         #expect(defaults.object(forKey: "cmux.mobile.terminalFolderTapEnabled") as? Bool == false)
+    }
+
+    @Test func legacyTerminalSizingDefaultsToOffWithoutAWrite() throws {
+        let defaults = try makeDefaults("legacyTerminalSizingDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.useLegacyTerminalSizing)
+        #expect(defaults.object(forKey: "cmux.mobile.useLegacyTerminalSizing") == nil)
+    }
+
+    @Test func legacyTerminalSizingPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("legacyTerminalSizingPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.useLegacyTerminalSizing = true
+        #expect(MobileDisplaySettings(defaults: defaults).useLegacyTerminalSizing)
+        settings.useLegacyTerminalSizing = false
+        #expect(!MobileDisplaySettings(defaults: defaults).useLegacyTerminalSizing)
+    }
+
+    @Test func handoffTerminalSizingDefaultsToOffWithoutAWrite() throws {
+        let defaults = try makeDefaults("handoffTerminalSizingDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(!settings.handoffTerminalSizingWhenInactive)
+        #expect(defaults.object(forKey: "cmux.mobile.handoffTerminalSizingWhenInactive") == nil)
+    }
+
+    @Test func handoffTerminalSizingPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("handoffTerminalSizingPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.handoffTerminalSizingWhenInactive = true
+        #expect(MobileDisplaySettings(defaults: defaults).handoffTerminalSizingWhenInactive)
+        settings.handoffTerminalSizingWhenInactive = false
+        #expect(!MobileDisplaySettings(defaults: defaults).handoffTerminalSizingWhenInactive)
     }
 
     @Test func hapticFeedbackDefaultsToEnabledWithoutAWrite() throws {

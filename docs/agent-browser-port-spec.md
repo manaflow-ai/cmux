@@ -225,7 +225,7 @@ P1 (important but not blocking initial parity):
 2. `browser.frame.select`
 3. `browser.frame.main`
 4. `browser.dialog.respond`
-5. `browser.download.wait`
+5. `browser.download.wait|list`
 6. `browser.tab.*` compatibility aliases mapped to cmux surfaces
 7. `browser.console.list`
 8. `browser.errors.list`
@@ -331,7 +331,7 @@ Hard invariant:
 - [x] Implement `browser.find.nth|first|last`.
 - [x] Implement frame context switching (`frame.select`, `frame.main`).
 - [x] Implement dialog handling (`accept`, `dismiss`, optional prompt text).
-- [x] Implement download waiting.
+- [x] Implement download waiting and newest-first history listing.
 - [x] Implement console/error buffers and retrieval.
 - [x] Implement highlight helper.
 - [x] Implement browser state save/load format.

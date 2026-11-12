@@ -84,6 +84,50 @@ struct BrowserInstalledBrowserDetectorTests {
         #expect(dia.profiles.map(\.rootURL.lastPathComponent) == ["Default", "Profile 1"])
     }
 
+    @Test("detects Aside Chromium profiles")
+    func detectsAsideProfiles() throws {
+        let home = try makeTempHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let asideRoot = home
+            .appendingPathComponent("Library/Application Support/Aside", isDirectory: true)
+        let defaultProfile = asideRoot.appendingPathComponent("Default", isDirectory: true)
+        try FileManager.default.createDirectory(at: defaultProfile, withIntermediateDirectories: true)
+        try Data().write(to: defaultProfile.appendingPathComponent("History"))
+        try Data().write(to: defaultProfile.appendingPathComponent("Cookies"))
+        try Data(
+            """
+            {
+              "profile": {
+                "info_cache": {
+                  "Default": {
+                    "name": "Personal"
+                  }
+                }
+              }
+            }
+            """.utf8
+        ).write(to: asideRoot.appendingPathComponent("Local State"))
+
+        let fakeApp = home.appendingPathComponent("Aside.app", isDirectory: true)
+        let detector = BrowserInstalledBrowserDetector(
+            homeDirectoryURL: home,
+            bundleLookup: { bundleID in
+                bundleID == "at.studio.AsideBrowser" ? fakeApp : nil
+            },
+            applicationSearchDirectories: [],
+            fileManager: .default
+        )
+
+        let aside = try #require(detector.detectInstalledBrowsers().first { $0.id == "aside" })
+        #expect(aside.displayName == "Aside")
+        #expect(aside.family == .chromium)
+        #expect(aside.appURL == fakeApp)
+        #expect(aside.dataRootURL == asideRoot)
+        #expect(aside.profiles.map(\.displayName) == ["Personal"])
+        #expect(aside.profiles.first?.isDefault == true)
+    }
+
     @Test("detects Arc Chromium profiles and Network cookie stores under User Data")
     func detectsArcProfilesUnderUserData() throws {
         let home = try makeTempHome()

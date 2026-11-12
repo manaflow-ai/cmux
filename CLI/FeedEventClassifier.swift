@@ -363,6 +363,8 @@ struct FeedEventClassifier {
     /// Feed telemetry classification, but none can create a blocking request.
     private static let telemetryOnlyFeedEventSemantics: [String: FeedEventSemantic] = [
         "PreToolUse": .toolStart,
+        // Copilot CLI's spelling of the same event.
+        "preToolUse": .toolStart,
         "beforeShellExecution": .toolStart,
         "PermissionRequest": .toolStart,
         "PostToolUse": .toolEnd,
@@ -380,7 +382,7 @@ struct FeedEventClassifier {
     /// Tools that mutate state and deserve a user-visible approve/
     /// deny prompt in Feed. Keyed on the canonical tool names Claude,
     /// Codex, and similar agents emit. Read-only tools (Read, Grep,
-    /// Glob, Task, WebFetch, WebSearch, LS, TodoWrite, …) are
+    /// Glob, Task/Agent, WebFetch, WebSearch, LS, TodoWrite, …) are
     /// intentionally excluded.
     private static let sideEffectingTools: Set<String> = [
         "Bash",

@@ -19,7 +19,7 @@ const getUser = mock(async () => ({
   id: requestIdentity.getStore()?.id ?? "missing-request-context",
 }));
 
-mock.module("@stackframe/stack", () => ({
+mock.module("@hexclave/next", () => ({
   StackServerApp: class {
     getUser = getUser;
   },

@@ -4,6 +4,11 @@ import Foundation
 
 /// Owns independent terminal lanes keyed by peer and mounted surface.
 actor MobileTerminalLaneCoordinator {
+    enum LaneMode: Equatable, Sendable {
+        case output
+        case inputOnly
+    }
+
     enum FrameDisposition: Sendable {
         case accepted(outputReady: Bool)
         case suspendUntilAuthoritativeOutput
@@ -26,9 +31,30 @@ actor MobileTerminalLaneCoordinator {
     struct Configuration: Sendable {
         let request: CmxByteTransportRequest
         let surfaceID: String
+        let mode: LaneMode
         let cursor: @Sendable () async -> UInt64?
         let consume: @Sendable (MobileTerminalLaneOutputFrame) async -> FrameDisposition
         let readinessChanged: @Sendable (Bool) async -> Void
+        /// The host's answers to identified input sent on this lane.
+        let acknowledged: @Sendable (MobileTerminalInputAcknowledgement) async -> Void
+
+        init(
+            request: CmxByteTransportRequest,
+            surfaceID: String,
+            mode: LaneMode = .output,
+            cursor: @escaping @Sendable () async -> UInt64?,
+            consume: @escaping @Sendable (MobileTerminalLaneOutputFrame) async -> FrameDisposition,
+            readinessChanged: @escaping @Sendable (Bool) async -> Void,
+            acknowledged: @escaping @Sendable (MobileTerminalInputAcknowledgement) async -> Void = { _ in }
+        ) {
+            self.request = request
+            self.surfaceID = surfaceID
+            self.mode = mode
+            self.cursor = cursor
+            self.consume = consume
+            self.readinessChanged = readinessChanged
+            self.acknowledged = acknowledged
+        }
     }
 
     private struct LaneKey: Hashable, Sendable {
@@ -75,12 +101,17 @@ actor MobileTerminalLaneCoordinator {
 
     private static let maximumOpenAttempts = 3
 
-    private let provider: MobileTerminalLaneProvider
+    private let provider: MobileTerminalLaneProvider?
+    private let inputOnlyProvider: MobileTerminalLaneProvider?
     private var entriesByKey: [LaneKey: Entry] = [:]
     private var focusedKeyBySurfaceID: [String: LaneKey] = [:]
 
-    init(provider: @escaping MobileTerminalLaneProvider) {
+    init(
+        provider: MobileTerminalLaneProvider?,
+        inputOnlyProvider: MobileTerminalLaneProvider? = nil
+    ) {
         self.provider = provider
+        self.inputOnlyProvider = inputOnlyProvider
     }
 
     func ensure(_ configuration: Configuration) async {
@@ -121,7 +152,12 @@ actor MobileTerminalLaneCoordinator {
         launch(key: key, id: entry.id)
     }
 
-    func sendInput(_ input: String, surfaceID: String) async -> InputResult {
+    func sendInput(
+        _ input: String,
+        surfaceID: String,
+        sequence: UInt64? = nil,
+        delivery: MobileTerminalInputDelivery? = nil
+    ) async -> InputResult {
         guard let key = focusedKeyBySurfaceID[surfaceID],
               let entry = entriesByKey[key],
               entry.phase == .active,
@@ -129,12 +165,22 @@ actor MobileTerminalLaneCoordinator {
               let lane = entry.lane else {
             return .unavailable
         }
+        if let delivery, delivery.surfaceID.uuidString.caseInsensitiveCompare(surfaceID) != .orderedSame {
+            // A unit only ever travels on its own terminal's lane.
+            return .unavailable
+        }
         do {
-            try await lane.sendInput(input)
+            if let delivery {
+                try await lane.sendInput(input, sequence: sequence, delivery: delivery)
+            } else {
+                try await lane.sendInput(input, sequence: sequence)
+            }
             guard let current = entriesByKey[key], current.id == entry.id else {
                 return .failed
             }
             return .sent
+        } catch is MobileTerminalLaneDeliveryUnsupported {
+            return .unavailable
         } catch {
             await fail(key: key, id: entry.id, lane: lane)
             return .failed
@@ -196,9 +242,27 @@ actor MobileTerminalLaneCoordinator {
         while openAttempt < Self.maximumOpenAttempts, !Task.isCancelled {
             guard let entry = entriesByKey[key], entry.id == id else { return }
             let configuration = entry.configuration
-            let requestedCursor = await configuration.cursor()
+            // Input-only lanes carry an empty replay baseline solely to gate
+            // readiness. Their host baseline is sampled independently from
+            // the output event stream, so validating it against the output
+            // cursor would reject a healthy lane whenever output advanced
+            // between those two operations.
+            let requestedCursor = configuration.mode == .inputOnly
+                ? nil
+                : await configuration.cursor()
             do {
-                let lane = try await provider(
+                let laneProvider: MobileTerminalLaneProvider?
+                switch configuration.mode {
+                case .output:
+                    laneProvider = provider
+                case .inputOnly:
+                    laneProvider = inputOnlyProvider ?? provider
+                }
+                guard let laneProvider else {
+                    await markFailed(key: key, id: id)
+                    return
+                }
+                let lane = try await laneProvider(
                     configuration.request,
                     configuration.surfaceID,
                     requestedCursor
@@ -209,6 +273,15 @@ actor MobileTerminalLaneCoordinator {
                 }
                 var isFirstFrame = true
                 while !Task.isCancelled, let frame = try await lane.receiveOutput() {
+                    if frame.kind == .inputAcknowledgement {
+                        guard let acknowledgement = frame.inputAcknowledgement else {
+                            throw CoordinatorError.invalidEnvelope
+                        }
+                        // Answers stay valid after the lane is retired; the
+                        // sender matches them to units by stream identity.
+                        await configuration.acknowledged(acknowledgement)
+                        continue
+                    }
                     try Self.validate(
                         frame,
                         isFirstFrame: isFirstFrame,
@@ -227,7 +300,17 @@ actor MobileTerminalLaneCoordinator {
                     }
                     switch disposition {
                     case let .accepted(outputReady):
-                        await setOutputReady(outputReady, key: key, id: id)
+                        if outputReady {
+                            await setOutputReady(true, key: key, id: id)
+                        } else {
+                            // A consumer can reject a frame temporarily while
+                            // an authoritative replay barrier owns the output
+                            // sink. Stop reading immediately. Draining the
+                            // next chunk would discard the replay baseline and
+                            // turn backpressure into a false sequence gap.
+                            await suspend(key: key, id: id, lane: lane)
+                            return
+                        }
                     case .suspendUntilAuthoritativeOutput:
                         await suspend(key: key, id: id, lane: lane)
                         return

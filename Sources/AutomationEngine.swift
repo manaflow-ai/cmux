@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// A bounded in-process bridge from ``CmuxEventBus`` to configured actions.
@@ -13,6 +14,8 @@ final class AutomationEngine {
     typealias RecoverySleeper = @Sendable (Duration) async throws -> Void
     typealias ProcessRunner = @Sendable (String, [String: String]) async -> AutomationActionExecutionResult
     typealias WebhookRunner = @Sendable (URL, [String: String], Data) async -> AutomationActionExecutionResult
+    /// `DisableAutomationWebhooks` (MDM), read per webhook action.
+    typealias PolicyCheck = @Sendable () -> Bool
     typealias WorkspaceTagsResolver = @MainActor (UUID) -> [String]
 
     private static let maximumLogRecords = 256
@@ -35,6 +38,7 @@ final class AutomationEngine {
     private let rpcRunner: RPCRunner
     private let processRunner: ProcessRunner?
     private let webhookRunner: WebhookRunner?
+    private let isWebhookDisabledByPolicy: PolicyCheck
     private let workspaceTagsResolver: WorkspaceTagsResolver
     private let payloadRedactor = AutomationPayloadRedactor()
     private let recoverySleeper: RecoverySleeper
@@ -83,6 +87,9 @@ final class AutomationEngine {
         },
         processRunner: ProcessRunner? = nil,
         webhookRunner: WebhookRunner? = nil,
+        isWebhookDisabledByPolicy: @escaping PolicyCheck = {
+            ManagedDevicePolicy().isEnforced(.disableAutomationWebhooks)
+        },
         workspaceTagsResolver: @escaping WorkspaceTagsResolver = { _ in [] },
         recoverySleeper: @escaping RecoverySleeper = { duration in
             try await ContinuousClock().sleep(for: duration)
@@ -94,6 +101,7 @@ final class AutomationEngine {
         self.rpcRunner = rpcRunner
         self.processRunner = processRunner
         self.webhookRunner = webhookRunner
+        self.isWebhookDisabledByPolicy = isWebhookDisabledByPolicy
         self.workspaceTagsResolver = workspaceTagsResolver
         self.recoverySleeper = recoverySleeper
     }
@@ -735,6 +743,12 @@ final class AutomationEngine {
         event: [String: Any],
         chain: [String]
     ) async -> AutomationActionExecutionResult {
+        // `DisableAutomationWebhooks` (MDM): the action posts event payloads with
+        // caller-supplied headers to any http(s) host, so it fails closed before
+        // the URL is even parsed.
+        if isWebhookDisabledByPolicy() {
+            return .failure("webhook actions are disabled by your organization's device policy (DisableAutomationWebhooks)")
+        }
         let configuredHeaders = action.object(for: "headers")?.reduce(into: [String: String]()) { result, entry in
             if let value = entry.value.stringValue { result[entry.key] = value }
         } ?? [:]

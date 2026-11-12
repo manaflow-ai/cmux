@@ -91,6 +91,14 @@ import Testing
         )
     }
 
+    @Test func browserAutomationPreservesExplicitLocalFileURL() throws {
+        let resolved = try #require(
+            TerminalController.browserAutomationURL(from: " file:///tmp/cmux-report.html ")
+        )
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/tmp/cmux-report.html")
+    }
+
     @Test func automationAllowlistKeepsArbitraryDataURLsBlocked() throws {
         let dataURL = try #require(URL(string: "data:text/html,not-a-cmux-document"))
         let policy = BrowserURLAllowlistPolicy(managedPatterns: [])

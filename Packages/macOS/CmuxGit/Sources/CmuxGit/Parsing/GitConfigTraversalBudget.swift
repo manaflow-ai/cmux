@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// Bounds one config include traversal by path count and decoded bytes.
-nonisolated struct GitConfigTraversalBudget: Sendable {
+struct GitConfigTraversalBudget: Sendable {
     var remainingPathCount: Int
     var remainingFileCount: Int
     var remainingByteCount: Int

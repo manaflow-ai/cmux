@@ -14,6 +14,9 @@ cd "$(dirname "$0")/.."
 DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests-v1"
 APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
 RUN_TAG="tests-v1"
+# CMUX_TAG gives the test app its own socket. Only ever touch that one so a
+# run cannot remove or drive another tagged app's socket.
+TEST_SOCK="/tmp/cmux-debug-${RUN_TAG}.sock"
 
 echo "== build =="
 # Work around stale explicit-module cache artifacts (notably Sentry headers) that can
@@ -33,38 +36,44 @@ if [ ! -d "$APP" ]; then
   exit 1
 fi
 
+APP_PID=""
 cleanup() {
-  pkill -x "cmux DEV" || true
-  pkill -x "cmux" || true
-  rm -f /tmp/cmux*.sock || true
+  # Stop only the app this run launched (its recorded PID), never by name;
+  # a name match also stopped other runs' and the person's DEV apps.
+  if [ -n "$APP_PID" ]; then
+    kill "$APP_PID" 2>/dev/null || true
+    for _ in {1..50}; do
+      kill -0 "$APP_PID" 2>/dev/null || break
+      sleep 0.1
+    done
+    APP_PID=""
+  fi
+  rm -f "$TEST_SOCK" || true
 }
 
 launch_and_wait() {
-  cleanup
-  # Wait briefly for the previous instance to fully terminate; LaunchServices can flake if we
+  # cleanup waits for the previous instance to exit; LaunchServices can flake if we
   # relaunch too quickly.
-  for _ in {1..50}; do
-    pgrep -x "cmux DEV" >/dev/null 2>&1 || break
-    sleep 0.1
-  done
+  cleanup
 
   # Force socket mode for deterministic automation runs, independent of prior user settings.
   defaults write com.cmuxterm.app.debug socketControlMode -string full >/dev/null 2>&1 || true
 
   # Launch directly with UI test mode enabled so startup follows deterministic test codepaths.
   CMUX_TAG="$RUN_TAG" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
+  APP_PID=$!
 
   SOCK=""
   for _ in {1..120}; do
-    SOCK=$(ls -t /tmp/cmux-debug*.sock /tmp/cmux*.sock 2>/dev/null | head -1 || true)
-    if [ -n "$SOCK" ] && [ -S "$SOCK" ]; then
+    if [ -S "$TEST_SOCK" ]; then
+      SOCK="$TEST_SOCK"
       break
     fi
     sleep 0.25
   done
 
   if [ -z "$SOCK" ] || [ ! -S "$SOCK" ]; then
-    echo "ERROR: Socket not ready (looked for /tmp/cmux*.sock)" >&2
+    echo "ERROR: Socket not ready (looked for $TEST_SOCK)" >&2
     exit 1
   fi
   export CMUX_SOCKET_PATH="$SOCK"

@@ -456,6 +456,47 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("removes the SSH fallback launcher when Mosh takes over")
+    func moshRemovesUnusedFallbackLauncher() throws {
+        try withFakeCommands(sshStatus: 0) { directory, environment in
+            let launcher = directory.appendingPathComponent("cmux-ssh-startup-fallback.sh")
+            try "exit 0\n".write(to: launcher, atomically: true, encoding: .utf8)
+
+            let result = try run(
+                builder(sshFallbackLauncherPaths: [launcher.path]),
+                environment: environment
+            )
+
+            #expect(result.status == 0, "stderr: \(result.stderr)")
+            #expect(FileManager.default.fileExists(
+                atPath: directory.appendingPathComponent("mosh.args").path
+            ))
+            // Mosh replaced the shell, so the fallback can never run the
+            // launcher and delete it itself.
+            #expect(!FileManager.default.fileExists(atPath: launcher.path))
+        }
+    }
+
+    @Test("keeps the SSH fallback launcher when the fallback runs it")
+    func fallbackKeepsItsLauncher() throws {
+        try withFakeCommands(sshStatus: 0, installMosh: false) { directory, environment in
+            let launcher = directory.appendingPathComponent("cmux-ssh-startup-fallback.sh")
+            try "exit 0\n".write(to: launcher, atomically: true, encoding: .utf8)
+
+            let result = try run(
+                builder(
+                    sshFallbackCommand: "test -f \(launcher.path.remoteCommandShellQuoted) && printf 'launcher present\\n'",
+                    localMoshExecutableName: "cmux-missing-mosh",
+                    sshFallbackLauncherPaths: [launcher.path]
+                ),
+                environment: environment
+            )
+
+            #expect(result.status == 0)
+            #expect(result.stdout == "launcher present\n")
+        }
+    }
+
     @Test("does not report connected before the Mosh transport establishes")
     func failedMoshDoesNotReportConnected() throws {
         try withFakeCommands(sshStatus: 0, moshStatus: 71) { directory, environment in
@@ -485,7 +526,8 @@ struct MoshTerminalCommandBuilderTests {
         remoteRelayPort: Int? = nil,
         remoteIPMode: MoshRemoteIPMode = .remote,
         localMoshExecutableName: String = "mosh",
-        remoteCommandArguments: [String] = ["command", "space arg", "quote'arg"]
+        remoteCommandArguments: [String] = ["command", "space arg", "quote'arg"],
+        sshFallbackLauncherPaths: [String] = []
     ) -> MoshTerminalCommandBuilder {
         MoshTerminalCommandBuilder(
             capabilityProbeSSHArguments: ["ssh", "-o", "RemoteCommand=none"],
@@ -498,6 +540,7 @@ struct MoshTerminalCommandBuilderTests {
             preparationShellScript: preparationShellScript,
             managementReadyShellScript: managementReadyShellScript,
             sshFallbackCommand: sshFallbackCommand,
+            sshFallbackLauncherPaths: sshFallbackLauncherPaths,
             localMoshMissingMessage: "local mosh missing",
             localMoshUnsupportedMessage: "local mosh unsupported",
             remoteMoshMissingMessage: "remote mosh missing",

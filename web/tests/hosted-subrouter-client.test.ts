@@ -200,4 +200,63 @@ describe("hosted Subrouter client", () => {
       ).rejects.toMatchObject({ status: 502 });
     }
   });
+
+  test("makes no request when no hosted Subrouter URL is configured", async () => {
+    const originalHostedUrl = process.env.SUBROUTER_HOSTED_URL;
+    delete process.env.SUBROUTER_HOSTED_URL;
+    try {
+      let requests = 0;
+      const client = createHostedSubrouterClient({
+        tenantDeleteToken: "0123456789abcdef0123456789abcdef-test",
+        fetch: (async () => {
+          requests += 1;
+          return Response.json({});
+        }) as unknown as typeof fetch,
+      });
+
+      expect(client.tenantControlConfigured).toBe(false);
+      expect(() => client.assertTenantDeletionConfigured()).toThrow(
+        "hosted Subrouter is not configured",
+      );
+      await expect(
+        client.exchangeTeam("stack-access", {
+          teamId: "team-1",
+          teamName: "Acme",
+          use: true,
+          manageAccounts: true,
+        }),
+      ).rejects.toMatchObject({ status: 503 });
+      await expect(
+        client.listAccounts("srt_0123456789abcdef0123456789abcdef"),
+      ).rejects.toMatchObject({ status: 503 });
+      await expect(
+        client.deleteTenant("stack-access", "team-1"),
+      ).rejects.toMatchObject({ status: 503 });
+      expect(requests).toBe(0);
+    } finally {
+      if (originalHostedUrl === undefined) {
+        delete process.env.SUBROUTER_HOSTED_URL;
+      } else {
+        process.env.SUBROUTER_HOSTED_URL = originalHostedUrl;
+      }
+    }
+  });
+
+  test("reads the hosted Subrouter URL from the environment at construction", () => {
+    const originalHostedUrl = process.env.SUBROUTER_HOSTED_URL;
+    process.env.SUBROUTER_HOSTED_URL = "https://sr.example";
+    try {
+      expect(
+        createHostedSubrouterClient({
+          tenantDeleteToken: "0123456789abcdef0123456789abcdef-test",
+        }).tenantControlConfigured,
+      ).toBe(true);
+    } finally {
+      if (originalHostedUrl === undefined) {
+        delete process.env.SUBROUTER_HOSTED_URL;
+      } else {
+        process.env.SUBROUTER_HOSTED_URL = originalHostedUrl;
+      }
+    }
+  });
 });

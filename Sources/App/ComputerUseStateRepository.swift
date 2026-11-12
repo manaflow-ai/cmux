@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import Foundation
 
 /// Reads and validates the computer-use driver's untrusted per-process state files.

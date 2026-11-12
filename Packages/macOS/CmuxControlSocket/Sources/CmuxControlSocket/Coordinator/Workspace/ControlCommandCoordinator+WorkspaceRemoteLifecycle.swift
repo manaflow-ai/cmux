@@ -31,6 +31,9 @@ extension ControlCommandCoordinator {
         }
 
         return context.controlResolveOnMain { seam in
+            if let error = seam.controlRemoteRelayDispatchError(method: "workspace.remote.terminal_session_launching", params: params) {
+                return error
+            }
             let resolution = seam.controlWorkspaceRemoteTerminalSessionLaunching(
                 workspaceID: workspaceID,
                 surfaceID: surfaceID,
@@ -47,16 +50,14 @@ extension ControlCommandCoordinator {
                     "attempt_id": .string(attemptID.uuidString),
                 ]))
             case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus):
-                return .ok(.object([
-                    "window_id": self.orNull(windowID?.uuidString),
-                    "window_ref": self.ref(.window, windowID),
+                return .ok(.object(self.addingLocalWindow(windowID, for: params, to: [
                     "workspace_id": self.orNull(resolvedWorkspaceID?.uuidString),
                     "workspace_ref": self.ref(.workspace, resolvedWorkspaceID),
                     "surface_id": .string(surfaceID.uuidString),
                     "surface_ref": self.ref(.surface, surfaceID),
                     "attempt_id": .string(attemptID.uuidString),
-                    "remote": remoteStatus,
-                ]))
+                    "remote": self.remoteStatus(remoteStatus, for: params),
+                ])))
             }
         }
     }
@@ -175,6 +176,9 @@ extension ControlCommandCoordinator {
         }
 
         let result: ControlCallResult = context.controlResolveOnMain { seam -> ControlCallResult in
+            if let error = seam.controlRemoteRelayDispatchError(method: "workspace.remote.terminal_session_connected", params: params) {
+                return error
+            }
             let resolution: ControlWorkspaceRemoteTerminalSessionConnectedResolution
             if let authority {
                 switch authority {
@@ -212,16 +216,14 @@ extension ControlCommandCoordinator {
                     "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
                 ]))
             case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus):
-                return .ok(.object([
-                    "window_id": self.orNull(windowID?.uuidString),
-                    "window_ref": self.ref(.window, windowID),
+                return .ok(.object(self.addingLocalWindow(windowID, for: params, to: [
                     "workspace_id": self.orNull(resolvedWorkspaceID?.uuidString),
                     "workspace_ref": self.ref(.workspace, resolvedWorkspaceID),
                     "surface_id": .string(surfaceID.uuidString),
                     "surface_ref": self.ref(.surface, surfaceID),
                     "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
-                    "remote": remoteStatus,
-                ]))
+                    "remote": self.remoteStatus(remoteStatus, for: params),
+                ])))
             }
         }
         if let persistentOwner {
@@ -284,16 +286,38 @@ extension ControlCommandCoordinator {
                 "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
             ]))
         case .resolved(let windowID, let resolvedWorkspaceID, let remoteStatus):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
+            return .ok(.object(addingLocalWindow(windowID, for: params, to: [
                 "workspace_id": orNull(resolvedWorkspaceID?.uuidString),
                 "workspace_ref": ref(.workspace, resolvedWorkspaceID),
                 "surface_id": .string(surfaceID.uuidString),
                 "surface_ref": ref(.surface, surfaceID),
                 "relay_port": relayPort.map { .int(Int64($0)) } ?? .null,
-                "remote": remoteStatus,
-            ]))
+                "remote": self.remoteStatus(remoteStatus, for: params),
+            ])))
         }
+    }
+
+    /// Adds the local window to a remote-status payload, except for a relay
+    /// caller: the remote host needs its workspace's connection state, not
+    /// which Mac window shows it. Matches `workspace.list`, which withholds
+    /// the window from relay callers.
+    func addingLocalWindow(
+        _ windowID: UUID?,
+        for params: [String: JSONValue],
+        to payload: [String: JSONValue]
+    ) -> [String: JSONValue] {
+        guard params["_cmux_remote_workspace_id"] == nil else { return payload }
+        var payload = payload
+        payload["window_id"] = orNull(windowID?.uuidString)
+        payload["window_ref"] = ref(.window, windowID)
+        return payload
+    }
+
+    /// The `remote` payload for a relay caller carries only connection state;
+    /// the destination, proxy, local ports and daemon details stay on the Mac.
+    nonisolated func remoteStatus(_ status: JSONValue, for params: [String: JSONValue]) -> JSONValue {
+        guard params["_cmux_remote_workspace_id"] != nil else { return status }
+        guard case .object(let fields) = status else { return .object([:]) }
+        return .object(fields.filter { ["enabled", "state", "connected"].contains($0.key) })
     }
 }

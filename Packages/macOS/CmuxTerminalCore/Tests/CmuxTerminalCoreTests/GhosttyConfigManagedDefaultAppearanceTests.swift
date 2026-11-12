@@ -7,8 +7,8 @@ import Testing
 /// and https://github.com/manaflow-ai/cmux/issues/10199.
 ///
 /// cmux's managed default terminal theme ("Apple System Colors") applies only
-/// when enabled and the user has no effective Ghostty settings. Any configured
-/// directive preserves Ghostty's own resolved base and user overrides.
+/// when enabled and the user has no authored theme or terminal colors. Other
+/// settings keep that base; explicit appearance preserves Ghostty's colors.
 @Suite(.serialized) struct GhosttyConfigManagedDefaultAppearanceTests {
     private func withTempConfigDir(
         body: (_ dir: URL) throws -> Void
@@ -106,9 +106,9 @@ import Testing
         }
     }
 
-    @Test func configFileDirectiveSuppressesManagedDefaultWhenIncludeIsMissing() throws {
+    @Test func missingIncludeDoesNotChooseATerminalPalette() throws {
         try withTempConfig("config-file = missing.conf\n") { path in
-            #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
+            #expect(GhosttyConfig.shouldApplyManagedDefaultAppearance(
                 configPaths: [path],
                 adaptiveDefaultThemeEnabled: true
             ))
@@ -133,9 +133,9 @@ import Testing
         }
     }
 
-    @Test func nonAppearanceConfigSuppressesManagedDefaultTheme() throws {
+    @Test func nonAppearanceConfigPreservesManagedDefaultTheme() throws {
         try withTempConfig("font-family = JetBrains Mono\nbackground-opacity = 0.92\n") { path in
-            #expect(!GhosttyConfig.shouldApplyManagedDefaultAppearance(
+            #expect(GhosttyConfig.shouldApplyManagedDefaultAppearance(
                 configPaths: [path],
                 adaptiveDefaultThemeEnabled: true
             ))
@@ -160,10 +160,10 @@ import Testing
         }
     }
 
-    @Test func summaryReportsNonAppearanceConfigAsIneligibleForManagedDefault() throws {
+    @Test func summaryReportsNonAppearanceConfigAsEligibleForManagedDefault() throws {
         try withTempConfig("font-family = JetBrains Mono\nbackground-opacity = 0.92\n") { path in
             let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: [path])
-            #expect(!summary.shouldApplyDefaultAppearance)
+            #expect(summary.shouldApplyDefaultAppearance)
             #expect(summary.hasConfigDirective)
             #expect(!summary.hasExplicitTerminalColorDirective)
         }

@@ -92,6 +92,12 @@ struct TerminalShellEscapingTests {
     }
 }
 
+// Pasteboard suites run on the main actor, like the app's pasteboard callers.
+// Every NSPasteboard call is a synchronous request to the pasteboard server.
+// On Swift Testing's cooperative pool (one thread per CPU), parallel suites
+// could block every pool thread in such a request at once; the replies then
+// never arrive and the whole test process deadlocks.
+@MainActor
 @Suite("Pasteboard text contents")
 struct PasteboardTextContentsTests {
     @Test func prefersUTF8PlainTextOverLossyTraditionalMacText() {
@@ -119,6 +125,29 @@ struct PasteboardTextContentsTests {
 
         let contents = try #require(service.stringContents(from: scratch.pasteboard))
         #expect(contents == "/tmp/with\\ space.png")
+    }
+
+    // A clipboard read the terminal program starts gets this flavor only, so
+    // it must never turn copied files into paths or images into saved files.
+    @Test func plainTextFlavorNeverReadsFilesOrImages() throws {
+        let scratchDir = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: scratchDir) }
+        let service = TerminalPasteboardService(temporaryDirectory: scratchDir)
+
+        let files = ScratchPasteboard()
+        #expect(files.pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/copied.png") as NSURL]))
+        #expect(service.fallbackPlainTextContents(from: files.pasteboard) == nil)
+
+        let image = ScratchPasteboard()
+        image.pasteboard.declareTypes([.png], owner: nil)
+        image.pasteboard.setData(try tinyPNGData(), forType: .png)
+        #expect(service.fallbackPlainTextContents(from: image.pasteboard) == nil)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratchDir.path).isEmpty)
+
+        let text = ScratchPasteboard()
+        text.pasteboard.declareTypes([.string], owner: nil)
+        text.pasteboard.setString("copied text", forType: .string)
+        #expect(service.fallbackPlainTextContents(from: text.pasteboard) == "copied text")
     }
 
     @Test func imageOnlyHTMLWithNoVisibleTextReturnsNil() throws {
@@ -186,6 +215,8 @@ struct PasteboardTextContentsTests {
     }
 }
 
+// On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
+@MainActor
 @Suite("Clipboard write capture", .serialized)
 struct ClipboardWriteCaptureTests {
     @Test func capturesStandardWriteWithoutTouchingPasteboard() {
@@ -283,6 +314,8 @@ struct ClipboardWriteCaptureTests {
     }
 }
 
+// On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
+@MainActor
 @Suite("Image materialization and temp-file ownership")
 struct ImageMaterializationTests {
     @Test func materializesPNGIntoOwnedTemporaryFile() throws {
@@ -315,12 +348,24 @@ struct ImageMaterializationTests {
         scratch.pasteboard.declareTypes([.png], owner: nil)
         scratch.pasteboard.setData(Data(count: 10 * 1024 * 1024 + 1), forType: .png)
 
+        // Oversized is reported separately from a failed write so a paste
+        // can say why nothing arrived.
         #expect(
             service.materializeImageFileURLIfNeeded(from: scratch.pasteboard)
-                == .rejectedImagePayload
+                == .rejectedOversizedImagePayload
+        )
+        #expect(
+            service.materializeImageFileURLsIfNeeded(from: scratch.pasteboard)
+                == .rejectedOversizedImagePayload
         )
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: scratchDir.path)
         #expect(leftovers.isEmpty)
+    }
+
+    /// The app's paste notice says "Image is larger than 10 MB". Changing the
+    /// cap must change that string too.
+    @Test func clipboardImageCapMatchesThePasteNoticeText() {
+        #expect(TerminalPasteboardService.maxClipboardImageSize == 10 * 1024 * 1024)
     }
 
     @Test func emptyPasteboardHasNoDecodableImagePayload() {
@@ -564,5 +609,87 @@ struct ImageMaterializationTests {
                 atPath: destinationTarget.path
             ).isEmpty
         )
+    }
+}
+
+// An OSC 52 write with an empty payload (`ESC ] 52 ; c ; BEL`) reaches the
+// write callback as one empty text/plain item. Programs on a remote host send
+// it (Leo hit it over ssh during `gh auth refresh`), and writing it would wipe
+// whatever the user had copied on this Mac.
+@MainActor
+@Suite("Empty clipboard writes", .serialized)
+struct EmptyClipboardWriteTests {
+    // The scratch boards are returned so the caller keeps them alive: their
+    // deinit releases the named pasteboards the service writes to.
+    private func makeService() -> (TerminalPasteboardService, ScratchPasteboard, ScratchPasteboard) {
+        let standard = ScratchPasteboard()
+        let selection = ScratchPasteboard()
+        let service = TerminalPasteboardService(
+            standardPasteboard: standard.pasteboard,
+            selectionPasteboard: selection.pasteboard
+        )
+        return (service, standard, selection)
+    }
+
+    /// Pasteboard writes go through a transaction lane and can land after
+    /// the call returns.
+    private func settle(_ board: NSPasteboard, until done: (NSPasteboard) -> Bool) async throws {
+        for _ in 0..<100 where !done(board) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    @Test(arguments: [GHOSTTY_CLIPBOARD_STANDARD.rawValue, GHOSTTY_CLIPBOARD_SELECTION.rawValue])
+    func emptyWriteKeepsWhatTheUserCopied(locationRawValue: UInt32) async throws {
+        let location = ghostty_clipboard_e(rawValue: locationRawValue)
+        let (service, standard, selection) = makeService()
+        let board = location == GHOSTTY_CLIPBOARD_STANDARD ? standard.pasteboard : selection.pasteboard
+        let copied = "copied-\(UUID().uuidString)"
+        service.writeString(copied, to: location)
+        try await settle(board) { $0.string(forType: .string) == copied }
+        #expect(board.string(forType: .string) == copied)
+
+        // How far one real write moves the change count.
+        let beforeProbe = board.changeCount
+        let probe = "probe-\(UUID().uuidString)"
+        service.writeString(probe, to: location)
+        try await settle(board) { $0.string(forType: .string) == probe }
+        let oneWrite = board.changeCount - beforeProbe
+
+        // The lane is FIFO, so once the trailing write lands, the empty writes
+        // queued before it have been applied or dropped.
+        let beforeEmpty = board.changeCount
+        service.writeRepresentations([.init(mimeType: "text/plain", string: "")], to: location)
+        service.writeString("", to: location)
+        #expect(board.string(forType: .string) == probe)
+        let barrier = "barrier-\(UUID().uuidString)"
+        service.writeString(barrier, to: location)
+        try await settle(board) { $0.string(forType: .string) == barrier }
+
+        #expect(board.string(forType: .string) == barrier)
+        #expect(board.changeCount - beforeEmpty == oneWrite)
+    }
+
+    @Test func emptyPlainTextIsDroppedFromAMixedWrite() async throws {
+        let (service, standard, _) = makeService()
+        let html = "<b>kept</b>"
+        service.writeRepresentations(
+            [
+                .init(mimeType: "text/plain", string: ""),
+                .init(mimeType: "text/html", string: html),
+            ],
+            to: GHOSTTY_CLIPBOARD_STANDARD
+        )
+        try await settle(standard.pasteboard) { $0.string(forType: .html) == html }
+        #expect(standard.pasteboard.string(forType: .html) == html)
+        #expect(standard.pasteboard.string(forType: .string) == nil)
+    }
+
+    @Test func nonEmptyWriteStillReplacesTheClipboard() async throws {
+        let (service, standard, _) = makeService()
+        service.writeString("first", to: GHOSTTY_CLIPBOARD_STANDARD)
+        service.writeString("XXXX-XXXX", to: GHOSTTY_CLIPBOARD_STANDARD)
+        try await settle(standard.pasteboard) { $0.string(forType: .string) == "XXXX-XXXX" }
+        #expect(standard.pasteboard.string(forType: .string) == "XXXX-XXXX")
     }
 }

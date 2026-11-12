@@ -4,8 +4,8 @@ import SwiftUI
 /// Horizontal pager for the onboarding tour. Swipes and the chrome buttons
 /// drive the same committed `stage`, so scene analytics and connection
 /// side effects fire identically for both. The track ends at the connect
-/// stage; completing onboarding (sign-in, permissions, pairing) stays on the
-/// footer buttons, so a swipe can never skip a gated step.
+/// stage; completion stays on the footer buttons while required setup guidance
+/// stays visible in the page sequence.
 struct OnboardingPageViewport<PageContent: View>: View {
     let stage: OnboardingStage
     let onNavigate: (OnboardingStage) -> Void

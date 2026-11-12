@@ -39,7 +39,7 @@ fi
 - Single stroke: `"cmd+b"`.
 - Chord: `["ctrl+b","c"]`. The first stroke needs a modifier unless the key is Space. The second stroke can be bare.
 - Unbind: prefer `null` for explicit unbinds. `""`, `"none"`, `"clear"`, `"unbound"`, and `"disabled"` are accepted aliases, but `null` is the clearest JSON value and matches the templates below.
-- `selectSurfaceByNumber` and `selectWorkspaceByNumber` must use a digit from 1 to 9. `cmd+1` means the full `cmd+1` through `cmd+9` family.
+- `selectSurfaceByNumber`, `selectWorkspaceByNumber` and `focusPaneByNumber` must use a digit from 1 to 9. `cmd+1` means the full `cmd+1` through `cmd+9` family.
 - `showHideAllWindows` is the only system-wide shortcut. It cannot be a chord, requires modifiers, and may be rejected by macOS if reserved.
 - `globalSearch` is application-scoped and only fires while cmux is active.
 - `showHideAllWindows` also requires Settings > Global Hotkey > Enable System-Wide Hotkey. The binding can validate in `cmux.json` while the feature is disabled, so warn the user to enable that setting before reporting the shortcut as usable.
@@ -80,6 +80,8 @@ fi
 6. Finish with the template name, changed actions, and exact revert commands from the snapshot.
 
 ## Preset templates
+
+Settings > Keyboard Shortcuts > Base Keymap (also "Base Keymap: ..." in the Command Palette) ships cmux, iTerm2, Terminal.app, and tmux-style presets. It previews the change, then writes only the overrides that differ from cmux defaults, keeps bindings the user set by hand (in `cmux.json` or legacy Settings UserDefaults), and lists macOS shortcut conflicts. Detection is stateless: a binding typed by hand that equals a preset's value for that action is treated as the preset's, so switching presets (including back to cmux) replaces or removes it. Point users there for those styles; use the templates below for the others.
 
 Apply action by action, never by overwriting the whole `shortcuts.bindings` object.
 
@@ -155,6 +157,19 @@ Workspaces and surfaces on distinct number and bracket lanes.
 "$CMUX_SETTINGS" set shortcuts.bindings.nextSurface 'cmd+shift+]'
 "$CMUX_SETTINGS" set shortcuts.bindings.prevSurface 'cmd+shift+['
 ```
+
+### Browser-Style Terminal Navigation
+
+For people who drive the terminal like a browser text field. Ctrl+W closes the surface at the shell prompt and still reaches vim, less, or tmux, because `terminalAlternateScreen` is true only while a full-screen app has the terminal. `terminalFocus` keeps Ctrl+W from closing a browser or sidebar surface, where `terminalAlternateScreen` reads false. Word and line motion come from two terminal settings rather than bindings.
+
+```bash
+"$CMUX_SETTINGS" set shortcuts.bindings.closeTab ctrl+w
+"$CMUX_SETTINGS" set shortcuts.when.closeTab '"terminalFocus && !terminalAlternateScreen"'
+"$CMUX_SETTINGS" set terminal.textEditingGestures true
+"$CMUX_SETTINGS" set terminal.textEditingCommandMovesByWord true
+```
+
+With both terminal settings on, Command and Option arrows move by word, Command and Option Delete delete by word, and Control+Left/Right move to line start and end. Warn that macOS reserves Control+Left/Right for switching Spaces until they are turned off in System Settings > Keyboard > Keyboard Shortcuts > Mission Control, that Ctrl+W no longer deletes a word at the prompt (Option+Delete still does), and that Cmd+Tab belongs to the macOS app switcher and cannot be rebound in cmux. Also warn that `textEditingCommandMovesByWord` gives up the line kill: Cmd+Delete becomes the word kill (Ctrl+W) and nothing is left bound to Ctrl+U, so `set terminal.textEditingCommandMovesByWord false` is the layout to use if deleting to the start of the line matters more than deleting by word. If the user works inside tmux, add `"$CMUX_SETTINGS" set terminal.textEditingGesturesInFullScreenApps true`, because tmux keeps the terminal on the alternate screen and gestures otherwise pass through; `!terminalAlternateScreen` likewise reads tmux as a full-screen app, so Ctrl+W reaches tmux instead of closing the surface.
 
 ### Browser Defaults Restore
 

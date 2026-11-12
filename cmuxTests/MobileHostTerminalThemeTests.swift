@@ -1,4 +1,5 @@
 import CMUXMobileCore
+@testable import CmuxMobileHost
 import CmuxTerminalCore
 import Foundation
 import Testing
@@ -186,6 +187,66 @@ import Testing
         )
 
         #expect(resolved?.boldColor == "#4e2a84")
+    }
+
+    @MainActor
+    @Test func replayBaselineClearsRemovedThemeCaches() throws {
+        let observer = MobileTerminalRenderObserver.shared
+        observer.stop()
+        defer { observer.stop() }
+        let surfaceID = UUID()
+        let seeded = try MobileTerminalRenderGridFrame(
+            surfaceID: surfaceID.uuidString,
+            stateSeq: 1,
+            columns: 2,
+            rows: 1,
+            rowSpans: [],
+            terminalTheme: .monokai,
+            terminalConfigTheme: .monokai,
+            anchor: .screen
+        )
+        observer.adoptReplayBaseline(seeded, surfaceID: surfaceID)
+        #expect(observer.terminalThemesBySurfaceID[surfaceID] != nil)
+        #expect(observer.terminalConfigThemesBySurfaceID[surfaceID] != nil)
+
+        let cleared = try MobileTerminalRenderGridFrame(
+            surfaceID: surfaceID.uuidString,
+            stateSeq: 2,
+            columns: 2,
+            rows: 1,
+            rowSpans: [],
+            anchor: .screen
+        )
+        observer.adoptReplayBaseline(cleared, surfaceID: surfaceID)
+
+        #expect(observer.terminalThemesBySurfaceID[surfaceID] == nil)
+        #expect(observer.terminalConfigThemesBySurfaceID[surfaceID] == nil)
+    }
+
+    @MainActor
+    @Test func viewportChangeClearsCachedRenderGridBaseline() throws {
+        let observer = MobileTerminalRenderObserver.shared
+        observer.stop()
+        defer { observer.stop() }
+        let surfaceID = UUID()
+        let seeded = try MobileTerminalRenderGridFrame(
+            surfaceID: surfaceID.uuidString,
+            stateSeq: 1,
+            columns: 80,
+            rows: 9,
+            rowSpans: [],
+            terminalTheme: .monokai,
+            terminalConfigTheme: .monokai,
+            anchor: .screen
+        )
+        observer.adoptReplayBaseline(seeded, surfaceID: surfaceID)
+        #expect(observer.terminalThemesBySurfaceID[surfaceID] != nil)
+        #expect(observer.terminalConfigThemesBySurfaceID[surfaceID] != nil)
+
+        observer.noteTerminalViewportChanged(surfaceID: surfaceID)
+
+        #expect(observer.terminalThemesBySurfaceID[surfaceID] == nil)
+        #expect(observer.terminalConfigThemesBySurfaceID[surfaceID] == nil)
     }
 }
 

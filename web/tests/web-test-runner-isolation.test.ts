@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import {
   copyFileSync,
   mkdirSync,
@@ -26,8 +26,8 @@ test("fixture stays ignored", () => {
 });
 `;
 
-test("shared web test runner isolates module mocks across files", () => {
-  const result = runChild(
+test("shared web test runner isolates module mocks across files", async () => {
+  const result = await runRunner(
     "/bin/bash",
     [
       "scripts/run-tests.sh",
@@ -49,7 +49,7 @@ test("shared web test runner isolates module mocks across files", () => {
   expect(result.output).toContain("0 fail");
 });
 
-test("shared web test runner preserves recursive discovery", () => {
+test("shared web test runner preserves recursive discovery", async () => {
   const fixtureRoot = createRunnerFixture();
   try {
     mkdirSync(join(fixtureRoot, ".hidden"));
@@ -82,7 +82,7 @@ test("shared web test runner preserves recursive discovery", () => {
       ignoredFixtureTestSource,
     );
 
-    const result = runChild(
+    const result = await runRunner(
       "/bin/bash",
       ["scripts/run-tests.sh"],
       fixtureRoot,
@@ -101,7 +101,7 @@ test("shared web test runner preserves recursive discovery", () => {
     expectHeadings(result.output, expectedHeadings);
     expect(result.output).not.toContain("ignored.test.ts:");
 
-    const optionedResult = runChild(
+    const optionedResult = await runRunner(
       "/bin/bash",
       ["scripts/run-tests.sh", "-t", "fixture runs"],
       fixtureRoot,
@@ -114,7 +114,7 @@ test("shared web test runner preserves recursive discovery", () => {
     expectHeadings(optionedResult.output, expectedHeadings);
     expect(optionedResult.output).not.toContain("ignored.test.ts:");
 
-    const scopedResult = runChild(
+    const scopedResult = await runRunner(
       "/bin/bash",
       ["scripts/run-tests.sh", "--bail", "tests/beta.test.ts"],
       fixtureRoot,
@@ -132,7 +132,7 @@ test("shared web test runner preserves recursive discovery", () => {
       join(fixtureRoot, "bunfig.toml"),
       '[test]\nroot = "tests"\n',
     );
-    const rootedResult = runChild(
+    const rootedResult = await runRunner(
       "/bin/bash",
       ["scripts/run-tests.sh"],
       fixtureRoot,
@@ -156,7 +156,7 @@ test("shared web test runner preserves recursive discovery", () => {
       join(fixtureRoot, "tests-only.bunfig.toml"),
       '[test]\nroot = "tests"\n',
     );
-    const configuredResult = runChild(
+    const configuredResult = await runRunner(
       "/bin/bash",
       ["scripts/run-tests.sh", "--config=tests-only.bunfig.toml"],
       fixtureRoot,
@@ -177,7 +177,7 @@ test("shared web test runner preserves recursive discovery", () => {
   }
 });
 
-test("shared web test runner handles discovery beyond a pipe buffer", () => {
+test("shared web test runner handles discovery beyond a pipe buffer", async () => {
   const fixtureRoot = createRunnerFixture();
   try {
     const bulkRoot = join(fixtureRoot, "tests", "bulk");
@@ -189,7 +189,7 @@ test("shared web test runner handles discovery beyond a pipe buffer", () => {
       expectedHeadings.push(`tests/bulk/${fileName}:`);
     }
 
-    const result = runChild(
+    const result = await runRunner(
       "bash",
       ["scripts/run-tests.sh"],
       fixtureRoot,
@@ -206,11 +206,11 @@ test("shared web test runner handles discovery beyond a pipe buffer", () => {
   }
 });
 
-test("shared web test runner fails when default discovery finds no tests", () => {
+test("shared web test runner fails when default discovery finds no tests", async () => {
   const fixtureRoot = createRunnerFixture();
   try {
     mkdirSync(join(fixtureRoot, "tests"));
-    const allowedResult = runChild(
+    const allowedResult = await runRunner(
       "/bin/bash",
       ["scripts/run-tests.sh", "--pass-with-no-tests"],
       fixtureRoot,
@@ -221,11 +221,12 @@ test("shared web test runner fails when default discovery finds no tests", () =>
       );
     }
 
-    const result = runChild(
+    const result = await runRunner(
       "/bin/bash",
       ["scripts/run-tests.sh"],
       fixtureRoot,
     );
+    expect(result.signal).toBeNull();
     expect(result.status).not.toBe(0);
     expect(result.output).toContain("No web test files found");
   } finally {
@@ -240,12 +241,13 @@ function createRunnerFixture(): string {
   return fixtureRoot;
 }
 
-function runChild(
+/** Runs the shared test runner without agent-reporter variables and returns its status and combined output. */
+async function runRunner(
   command: string,
   args: string[],
   cwd: string,
   timeoutMs = 300_000,
-): { status: number | null; output: string } {
+): Promise<{ status: number | null; signal: NodeJS.Signals | null; output: string }> {
   const environment = { ...process.env };
   // Bun's agent reporter hides passing-file headings, which these discovery
   // assertions intentionally inspect.
@@ -253,9 +255,8 @@ function runChild(
   delete environment.REPL_ID;
   delete environment.AGENT;
 
-  const result = spawnSync(command, args, {
+  const result = await runChild(command, args, {
     cwd,
-    encoding: "utf8",
     env: environment,
     // This bounds only a non-terminating child; normal completion is asserted
     // causally below rather than against elapsed time.
@@ -269,7 +270,7 @@ function runChild(
       `shared web test runner did not finish: ${result.error.message}\n${output}`,
     );
   }
-  return { status: result.status, output };
+  return { status: result.status, signal: result.signal, output };
 }
 
 function expectHeadings(output: string, headings: string[]): void {

@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
+use cmux_tui_core::sizing_policy::{TerminalSizingMode, TerminalSizingPolicy};
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
@@ -82,12 +83,12 @@ use crate::pty_input::{
 use crate::session::tree::{PaneView, ScreenView};
 use crate::session::{
     AgentInfo, AmbiguousCreation, CLEAR_HISTORY_UNSUPPORTED_ERROR, ClientInfo, CreationReceipt,
-    Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, TreeView,
+    Session, SidebarPluginSurface, SurfaceAttach, SurfaceHandle, SurfaceSizeState, TreeView,
     is_remote_surface_unavailable, is_remote_timeout, is_remote_transport_failure,
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::sidebar_projection::{
-    ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+    AgentOrderCache, ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
 };
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
@@ -101,6 +102,12 @@ use crate::ui::{
     ReusableRowBuffer, horizontal_drag_offset, horizontal_offset_at, horizontal_thumb_geometry,
     thumb_geometry, viewport_drag_offset, viewport_jump_offset, viewport_thumb_geometry,
 };
+
+mod attention_jump;
+pub(crate) mod copy_mode;
+mod host_notify_ops;
+#[cfg(test)]
+mod test_deadline;
 
 #[cfg(test)]
 thread_local! {
@@ -1406,6 +1413,7 @@ pub struct SessionCompletion {
 }
 
 enum SessionCompletionAction {
+    SurfaceMoved { surface: SurfaceId },
     SurfaceCreated { surface: SurfaceId },
     BrowserTabCreated { surface: SurfaceId },
     LayoutUndoConfirmation { pane: PaneId, revision: u64, closes_panes: Vec<PaneId> },
@@ -2241,6 +2249,10 @@ impl OrderedSession {
         }
     }
 
+    fn supports_tab_workspace_moves(&self) -> bool {
+        self.inner.supports_tab_workspace_moves()
+    }
+
     fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
         self.inner.supports_clear_history_key_fallback(surface)
     }
@@ -2295,6 +2307,10 @@ impl OrderedSession {
 
     fn agents(&self) -> Vec<AgentInfo> {
         self.inner.agents()
+    }
+
+    fn acknowledge_tab_notifications(&self, surface: SurfaceId) {
+        self.inner.acknowledge_tab_notifications(surface);
     }
 
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
@@ -2412,6 +2428,38 @@ impl OrderedSession {
             "use all client sizing",
             ("use all client sizing", surface, 0),
             move |session| session.use_all_client_sizing(surface),
+        );
+    }
+
+    fn size_state(&self, surface: SurfaceId) -> Option<SurfaceSizeState> {
+        self.inner.size_state(surface)
+    }
+
+    fn set_size_policy(&self, surface: SurfaceId, policy: TerminalSizingPolicy) {
+        self.enqueue_client_sizing_mutation(
+            "set size policy",
+            ("set size policy", surface, 0),
+            move |session| session.set_size_policy(surface, policy),
+        );
+    }
+
+    fn set_size_counts(&self, surface: SurfaceId, participant: String, counts: Option<bool>) {
+        self.enqueue_client_sizing_mutation(
+            "set size counts",
+            ("set size counts", surface, participant_key(&participant)),
+            move |session| session.set_size_counts(surface, &participant, counts),
+        );
+    }
+
+    fn disconnect_size_participant(&self, surface: SurfaceId, participant: String) {
+        self.enqueue_coalescing_pointer_mutation(
+            "disconnect participant",
+            ("disconnect participant", participant_key(&participant)),
+            move |session| match session.disconnect_size_participant(surface, &participant) {
+                // The menu is a snapshot; a participant that already left is done.
+                Err(error) if error.to_string().contains("unknown participant") => Ok(()),
+                result => result,
+            },
         );
     }
 
@@ -3929,6 +3977,17 @@ impl OrderedSession {
         });
     }
 
+    pub fn move_tab_to_workspace(&self, surface: SurfaceId, workspace: Option<WorkspaceId>) {
+        self.enqueue_with_completion(
+            localization::catalog().menu.move_tab_workspace,
+            MutationImpact::Destination,
+            move |session| {
+                session.move_tab_to_workspace(surface, workspace)?;
+                Ok(Some(SessionCompletionAction::SurfaceMoved { surface }))
+            },
+        );
+    }
+
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
         self.enqueue_pointer_mutation("move workspace", move |session| {
             session.move_workspace(workspace, index)
@@ -4018,6 +4077,8 @@ pub(crate) enum WorkspaceRailSelection {
     Workspace,
     Recoverable,
     Action(SidebarActionTarget),
+    /// An agent of the agents section, by its tab.
+    Agent(SurfaceId),
 }
 
 impl WorkspaceRailSelection {
@@ -4035,6 +4096,7 @@ enum WorkspaceRailTarget {
     Workspace(WorkspaceId),
     Recoverable(String),
     Action(SidebarActionTarget),
+    Agent(SurfaceId),
 }
 
 fn rail_page_size(area: Option<Rect>) -> usize {
@@ -4108,6 +4170,11 @@ pub enum Hit {
     },
     RecoverableWorkspace {
         index: usize,
+    },
+    /// A row of the workspace rail's agents section: focus that agent's tab.
+    AgentRow {
+        surface: SurfaceId,
+        target: ProjectionTarget,
     },
     CreateWorkspace {
         mode: Option<WorkspaceCreationMode>,
@@ -4441,6 +4508,10 @@ pub enum MenuAction {
     BrowserActivate(PaneId),
     RenameTab(PaneId),
     RenameSurface(SurfaceId),
+    MoveTabToWorkspace {
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    },
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
     CopyStatusMessage,
@@ -4468,6 +4539,8 @@ pub enum MenuAction {
         visible: bool,
     },
     ShowShortcuts,
+    /// Focus a tab of the attention list (`attention-list`).
+    FocusAttention(SurfaceId),
     SetClientSizing {
         surface: SurfaceId,
         client: u64,
@@ -4479,6 +4552,25 @@ pub enum MenuAction {
     },
     RestoreAllClientSizing(SurfaceId),
     DisconnectClient(u64),
+    /// Shared sizing (docs/shared-terminal-sizing.md): the terminal's mode.
+    SetSizeMode {
+        surface: SurfaceId,
+        mode: TerminalSizingMode,
+    },
+    /// Toggle one participant's counts-toward-size choice. `participant`
+    /// indexes the size state of `generation`, the one the menu showed.
+    SetSizeCounts {
+        surface: SurfaceId,
+        generation: u64,
+        participant: usize,
+        counts: bool,
+    },
+    /// Disconnect one participant of the size state of `generation`.
+    DisconnectSizeParticipant {
+        surface: SurfaceId,
+        generation: u64,
+        participant: usize,
+    },
     SelectProviderScope(usize),
     InvokeProviderAction(usize),
     CreateMachineFrom(usize),
@@ -4543,6 +4635,8 @@ impl MenuAction {
             MenuAction::RenameTab(_) | MenuAction::RenameSurface(_) => {
                 localization::catalog().action_label(Action::RenameTab)
             }
+            MenuAction::MoveTabToWorkspace { workspace: None, .. } => menu.move_tab_new_workspace,
+            MenuAction::MoveTabToWorkspace { .. } => menu.move_tab_workspace,
             MenuAction::CopyTabId(_) => menu.copy_tab_id,
             MenuAction::CopyPaneId(_) => menu.copy_pane_id,
             MenuAction::CopyStatusMessage => menu.copy_message,
@@ -4570,11 +4664,18 @@ impl MenuAction {
             MenuAction::ShowShortcuts => {
                 localization::catalog().action_label(Action::ShowShortcuts)
             }
+            // The list wraps every row in a labeled item; this is the fallback.
+            MenuAction::FocusAttention(_) => {
+                localization::catalog().action_label(Action::NextAttention)
+            }
             MenuAction::SetClientSizing { enabled: true, .. } => menu.include_client_size,
             MenuAction::SetClientSizing { enabled: false, .. } => menu.excluded,
             MenuAction::UseClientSize { .. } => menu.use_only_client_size,
             MenuAction::RestoreAllClientSizing(_) => menu.restore_all_client_sizing,
             MenuAction::DisconnectClient(_) => menu.disconnect_client,
+            MenuAction::SetSizeMode { mode, .. } => size_mode_label(*mode),
+            MenuAction::SetSizeCounts { .. } => menu.size_counts,
+            MenuAction::DisconnectSizeParticipant { .. } => menu.size_disconnect,
             MenuAction::SelectProviderScope(_) | MenuAction::InvokeProviderAction(_) => {
                 localization::catalog().sidebar.provider_actions
             }
@@ -5291,6 +5392,103 @@ fn pane_context_menu_groups(
         ],
         vec![MenuAction::CopyTabId(pane), MenuAction::CopyPaneId(pane)],
     ]
+}
+
+/// A coalescing key for one participant id (FNV-1a).
+fn participant_key(participant: &str) -> u64 {
+    participant.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// The mode names of the size menu, in menu order (Fit everyone first, the default).
+const SIZE_MENU_MODES: [TerminalSizingMode; 5] = [
+    TerminalSizingMode::Smallest,
+    TerminalSizingMode::Latest,
+    TerminalSizingMode::Largest,
+    TerminalSizingMode::Priority,
+    TerminalSizingMode::Fixed,
+];
+
+fn size_mode_label(mode: TerminalSizingMode) -> &'static str {
+    let menu = &localization::catalog().menu;
+    match mode {
+        TerminalSizingMode::Smallest => menu.size_mode_fit_everyone,
+        TerminalSizingMode::Latest => menu.size_mode_follow_latest,
+        TerminalSizingMode::Largest => menu.size_mode_largest,
+        TerminalSizingMode::Priority => menu.size_mode_priority,
+        TerminalSizingMode::Fixed => menu.size_mode_fixed,
+    }
+}
+
+/// The shared-sizing menu for a terminal (the Mac size panel's controls):
+/// the five modes with the current one checked, then one submenu per
+/// participant with Counts toward size and Disconnect.
+fn size_menu_item(size: &SurfaceSizeState, surface: SurfaceId) -> MenuItem {
+    let menu = &localization::catalog().menu;
+    let state = &size.state;
+    let self_id = size.self_participant.as_deref();
+    let check = |on: bool| if on { "✓ " } else { "  " };
+    let mut items = SIZE_MENU_MODES
+        .into_iter()
+        .map(|mode| MenuItem::LabeledAction {
+            label: format!("{}{}", check(state.policy.mode == mode), size_mode_label(mode)),
+            action: MenuAction::SetSizeMode { surface, mode },
+        })
+        .collect::<Vec<_>>();
+    items.push(MenuItem::Separator);
+    for (index, row) in state.participants.iter().enumerate() {
+        let participant = &row.participant;
+        let is_self = Some(participant.id.as_str()) == self_id;
+        let mut label = if is_self {
+            menu.this_client.to_string()
+        } else {
+            crate::ui::sizing::participant_label(participant, menu)
+        };
+        if let Some(viewport) = participant.viewport {
+            label.push_str(&format!(" · {}×{}", viewport.cols, viewport.rows));
+        }
+        if state.owners.contains(&participant.id) {
+            label.push_str(&format!(" · {}", menu.size_sets_size));
+        } else if !row.counts {
+            label.push_str(&format!(" · {}", menu.size_not_counted));
+        }
+        let generation = state.generation;
+        items.push(MenuItem::Submenu {
+            label,
+            items: vec![
+                MenuItem::LabeledAction {
+                    label: format!("{}{}", check(row.counts), menu.size_counts),
+                    action: MenuAction::SetSizeCounts {
+                        surface,
+                        generation,
+                        participant: index,
+                        counts: !row.counts,
+                    },
+                },
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::DisconnectSizeParticipant {
+                    surface,
+                    generation,
+                    participant: index,
+                }),
+            ],
+        });
+    }
+    MenuItem::Submenu { label: menu.terminal_size.to_string(), items }
+}
+
+/// The size menu when the host publishes shared sizing, else the legacy
+/// per-client menu for hosts without `shared-sizing-v1`.
+fn terminal_size_menu_item(
+    size: Option<&SurfaceSizeState>,
+    clients: &[ClientInfo],
+    surface: SurfaceId,
+) -> Option<MenuItem> {
+    match size {
+        Some(size) => Some(size_menu_item(size, surface)),
+        None => client_menu_item(clients, surface),
+    }
 }
 
 fn client_menu_item(clients: &[ClientInfo], surface: SurfaceId) -> Option<MenuItem> {
@@ -7192,6 +7390,9 @@ pub struct App {
     pub config: Config,
     #[cfg(test)]
     config_reload_applications: usize,
+    /// Ends the test binary when a test that owns this `App` hangs.
+    #[cfg(test)]
+    _test_deadline: Option<test_deadline::TestDeadline>,
     pub chrome: ChromeTheme,
     pub tree: TreeView,
     tab_locations: HashMap<SurfaceId, [usize; 4]>,
@@ -7219,6 +7420,10 @@ pub struct App {
     /// mouse-tracking state so the host owns clicks and selection whenever
     /// the inner application did not request mouse input.
     host_mouse_capture_applied: Option<bool>,
+    /// The capture a focus-in or resize re-assert cleared from
+    /// `host_mouse_capture_applied`. A frame that cannot read the inner
+    /// state (terminal lock busy) re-emits this value instead of guessing.
+    host_mouse_capture_before_reassert: Option<bool>,
     pub graphics_writer: Option<GraphicsWriter>,
     next_graphics_submission: u64,
     pending_graphics_submission: Option<u64>,
@@ -7261,6 +7466,7 @@ pub struct App {
     pending_size_releases: HashSet<SurfaceId>,
     geometry_authority_surface: Option<SurfaceId>,
     pub prefix_armed: bool,
+    pub(crate) copy_mode: Option<copy_mode::CopyModeSession>,
     pub session_label: String,
     /// Machine-level model spend readout from the session's daemon; `None`
     /// hides the sidebar readout.
@@ -7286,6 +7492,14 @@ pub struct App {
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
+    projection_order_cache: AgentOrderCache,
+    /// Agent status for the default sidebar and tab chips, rebuilt with
+    /// the tree on each layout frame (`sync_layout`), read on every frame.
+    pub(crate) sidebar_status: crate::sidebar_status::SidebarStatus,
+    /// The agents section's scroll offset in rows.
+    pub(crate) agent_section_scroll: usize,
+    /// The done tab this client last acknowledged as viewed.
+    pub(crate) done_tab_ack_sent: Option<SurfaceId>,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -7318,6 +7532,9 @@ pub struct App {
     pub menu: Option<ContextMenu>,
     pub clients: Vec<ClientInfo>,
     pub client_border_labels: HashMap<SurfaceId, String>,
+    /// Shared-sizing border labels by terminal; `None` hides the label.
+    /// Takes precedence over `client_border_labels` for its terminals.
+    pub size_state_labels: HashMap<SurfaceId, Option<String>>,
     pub prompt: Option<Prompt>,
     pub(crate) connection_transaction: Option<ConnectionTransaction>,
     next_connection_attempt: u64,
@@ -7381,6 +7598,11 @@ pub struct App {
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
+    /// Host terminal notification forwarding (`host_notify.rs`).
+    pub(crate) host_notify: crate::host_notify::HostNotifyGate,
+    /// The host terminal window has focus: false after a focus-out report,
+    /// true again after focus-in (and before any report).
+    pub(crate) host_focused: bool,
     /// Latest output per status-bar command segment, keyed by the segment's
     /// combined left-then-right index. Written by the status command worker.
     status_command_outputs: Arc<Mutex<HashMap<usize, String>>>,
@@ -9494,6 +9716,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         config,
         #[cfg(test)]
         config_reload_applications: 0,
+        #[cfg(test)]
+        _test_deadline: None,
         chrome,
         tree: TreeView::default(),
         tab_locations: HashMap::new(),
@@ -9506,6 +9730,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         desired_outer_cursor: OuterCursorSpec::Reset,
         applied_outer_cursor: initial_applied_outer_cursor(surface_only.is_some()),
         host_mouse_capture_applied: initial_host_mouse_capture(surface_only.is_some()),
+        host_mouse_capture_before_reassert: None,
         graphics_writer,
         next_graphics_submission: 0,
         pending_graphics_submission: None,
@@ -9533,6 +9758,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         pending_size_releases: HashSet::new(),
         geometry_authority_surface: None,
         prefix_armed: false,
+        copy_mode: None,
         session_label,
         surface_only,
         sidebar_visible: surface_only.is_none(),
@@ -9554,6 +9780,10 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
+        projection_order_cache: AgentOrderCache::default(),
+        sidebar_status: crate::sidebar_status::SidebarStatus::default(),
+        agent_section_scroll: 0,
+        done_tab_ack_sent: None,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -9578,6 +9808,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         menu: None,
         clients: Vec::new(),
         client_border_labels: HashMap::new(),
+        size_state_labels: HashMap::new(),
         prompt: None,
         connection_transaction: None,
         next_connection_attempt: 1,
@@ -9631,6 +9862,10 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         encoder,
         encode_buf: Vec::with_capacity(64),
         quit: false,
+        host_notify: crate::host_notify::HostNotifyGate::new(
+            crate::host_notify::HostTerminalInfo::detect(|name| std::env::var(name).ok()),
+        ),
+        host_focused: true,
         status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
         status_command_worker_stop: None,
         status_poke_pending: Arc::new(AtomicBool::new(false)),
@@ -10204,6 +10439,36 @@ impl App {
         }
     }
 
+    /// Rebuild the agent status index from the tree just adopted and the
+    /// session's agent roster, then treat a turn that finished while the
+    /// person views its tab as seen. Runs on layout frames only.
+    fn refresh_sidebar_status(&mut self) {
+        let agents = self.session.agents();
+        self.sidebar_status = crate::sidebar_status::SidebarStatus::build(&self.tree, &agents);
+        self.acknowledge_viewed_done_tab();
+    }
+
+    /// Done-until-seen: a turn that finished in the tab this client shows,
+    /// while the host terminal has focus, was seen as it finished, so ack it
+    /// and it is idle rather than done. Focusing or typing in a done tab
+    /// makes it the viewed tab, so this one path covers those too. A host
+    /// that never reports focus counts as focused, as for host
+    /// notifications. One ack per finished turn: the daemon's `tree-changed`
+    /// ends the done state.
+    fn acknowledge_viewed_done_tab(&mut self) {
+        let viewed = self.active_surface().filter(|_| self.host_focused).filter(|surface| {
+            self.sidebar_status.tab(*surface) == Some(cmux_tui_core::AgentStatus::Done)
+        });
+        if viewed.is_none() || viewed == self.done_tab_ack_sent {
+            self.done_tab_ack_sent = viewed;
+            return;
+        }
+        self.done_tab_ack_sent = viewed;
+        if let Some(surface) = viewed {
+            self.session.acknowledge_tab_notifications(surface);
+        }
+    }
+
     fn reconcile_workspace_rail_selection(&mut self) {
         let actions = self.workspace_sidebar_action_rows();
         let selection_is_valid = match self.workspace_rail_selection {
@@ -10213,6 +10478,10 @@ impl App {
             }),
             WorkspaceRailSelection::Action(target) => {
                 actions.iter().any(|action| action.target == target)
+            }
+            WorkspaceRailSelection::Agent(surface) => {
+                self.config.sidebar.agents
+                    && self.sidebar_status.agents().iter().any(|row| row.surface == surface)
             }
         };
         if self.workspace_rail_selection != WorkspaceRailSelection::Workspace && !selection_is_valid
@@ -10313,7 +10582,7 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
         let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
         let empty_collapsed = HashSet::new();
         let collapsed = self
@@ -10332,12 +10601,13 @@ impl App {
         } else {
             Vec::new()
         };
-        crate::sidebar_projection::rows(
+        crate::sidebar_projection::rows_cached(
             spec,
             &self.tree,
             &agents,
             self.sidebar_workspace_selection,
             collapsed,
+            &mut self.projection_order_cache,
         )
     }
 
@@ -12031,6 +12301,7 @@ impl App {
         self.menu = None;
         self.clients.clear();
         self.client_border_labels.clear();
+        self.size_state_labels.clear();
         self.prompt = None;
         self.pairing_dialog = None;
         self.pairing_queue.clear();
@@ -12369,7 +12640,9 @@ impl App {
                 .pane(pane)
                 .and_then(|pane| pane.tabs.get(index))
                 .map(|tab| PointerHitIdentity::Tab(tab.surface)),
-            Hit::SidebarTab { surface, .. } => Some(PointerHitIdentity::Tab(surface)),
+            Hit::SidebarTab { surface, .. } | Hit::AgentRow { surface, .. } => {
+                Some(PointerHitIdentity::Tab(surface))
+            }
             Hit::ProjectionRow { target: ProjectionTarget::Surface { surface, .. }, .. } => {
                 Some(PointerHitIdentity::Tab(surface))
             }
@@ -12394,7 +12667,9 @@ impl App {
 
     fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
-            MenuAction::RenameSurface(surface) => Some(MenuActionResource::Surface(surface)),
+            MenuAction::RenameSurface(surface)
+            | MenuAction::MoveTabToWorkspace { surface, .. }
+            | MenuAction::FocusAttention(surface) => Some(MenuActionResource::Surface(surface)),
             MenuAction::CopyStatusMessage => {
                 self.status_message.clone().map(MenuActionResource::StatusMessage)
             }
@@ -13020,13 +13295,14 @@ impl App {
         }
         let semantic_intent = completion.semantic_intent;
         match completion.action {
-            SessionCompletionAction::SurfaceCreated { surface } => {
+            SessionCompletionAction::SurfaceCreated { surface }
+            | SessionCompletionAction::SurfaceMoved { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_created_surface(surface);
+                self.select_completed_surface(surface);
             }
             SessionCompletionAction::BrowserTabCreated { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_created_surface(surface);
+                self.select_completed_surface(surface);
                 let pane = self
                     .tab_locations
                     .get(&surface)
@@ -13107,7 +13383,7 @@ impl App {
         localization::catalog().sidebar.confirm_layout_undo.replace("{items}", &identities)
     }
 
-    fn select_created_surface(&mut self, surface: SurfaceId) {
+    fn select_completed_surface(&mut self, surface: SurfaceId) {
         let Some([workspace_index, screen_index, pane_index, tab_index]) =
             self.tab_locations.get(&surface).copied()
         else {
@@ -13578,6 +13854,7 @@ impl App {
             stdout.write_all(sequence.as_bytes())?;
             stdout.flush()?;
             self.host_mouse_capture_applied = Some(desired_mouse_capture);
+            self.host_mouse_capture_before_reassert = None;
         }
         Ok(())
     }
@@ -13645,7 +13922,7 @@ impl App {
     /// inner application still holds. When the state is momentarily
     /// unknowable (terminal lock contended, surface gone during teardown)
     /// the client keeps the capture it last applied instead of toggling the
-    /// host.
+    /// host, including the capture a re-assert cleared.
     fn desired_host_mouse_capture(&self) -> bool {
         let Some(surface_id) = self.surface_only else { return true };
         let canonical = self
@@ -13656,7 +13933,11 @@ impl App {
                 PointerSemanticProbe::Ready(semantics) => Some(semantics.mouse_tracking),
                 PointerSemanticProbe::Contended => None,
             });
-        canonical.unwrap_or_else(|| self.host_mouse_capture_applied.unwrap_or(false))
+        canonical.unwrap_or_else(|| {
+            self.host_mouse_capture_applied
+                .or(self.host_mouse_capture_before_reassert)
+                .unwrap_or(false)
+        })
     }
 
     /// A scoped attach client mirrors the inner terminal's input modes onto
@@ -13680,16 +13961,12 @@ impl App {
         if self.surface_only.is_none() {
             return;
         }
-        // Keep the last applied state when the inner terminal cannot be
-        // probed. Clearing it here would make the next frame guess `false`
-        // and release host capture during a transient lock/contention.
-        let probe_available = self
-            .surface_only
-            .and_then(|surface_id| self.session.surface(surface_id))
-            .and_then(|surface| surface.try_pointer_semantics())
-            .is_some_and(|probe| matches!(probe, PointerSemanticProbe::Ready(_)));
-        if probe_available {
-            self.host_mouse_capture_applied = None;
+        // Clear even when the PTY reader holds the terminal lock: skipping
+        // the reset then would lose this re-assert for good. A frame that
+        // still cannot read the inner state re-emits the cleared value from
+        // `host_mouse_capture_before_reassert`, so it never guesses `false`.
+        if let Some(applied) = self.host_mouse_capture_applied.take() {
+            self.host_mouse_capture_before_reassert = Some(applied);
         }
         // The previous frame may have applied an authored style. If the
         // inner application reset DECSCUSR, clear the desired style now so
@@ -14654,6 +14931,7 @@ impl App {
             let _ = self.sync_sidebar_plugin(false);
         }
         self.replace_tree(self.session.tree());
+        self.refresh_sidebar_status();
         self.claim_active_terminal_geometry(false);
         if self.surface_only.is_none() {
             self.sidebar_workspace_selection = self
@@ -15600,6 +15878,18 @@ impl App {
                 self.session.refresh_clients_background();
                 Ok(RenderAction::Draw)
             }
+            AppEvent::Mux(MuxEvent::SizeStateChanged { surface, .. }) => {
+                self.refresh_size_state_label(surface);
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::Notification(notification)) => {
+                self.forward_notification_to_host(&notification);
+                Ok(RenderAction::Draw)
+            }
+            AppEvent::Mux(MuxEvent::Bell(surface)) => {
+                self.forward_bell_to_host(surface);
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => {
                 self.status_message =
@@ -16059,12 +16349,16 @@ impl App {
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             TerminalInput::FocusGained => {
+                // The layout frame below acks a done agent tab the person
+                // now sees (done-until-seen).
+                self.host_focused = true;
                 self.advance_pointer_focus_generation();
                 self.reassert_scoped_host_terminal_state();
                 self.reassert_visible_surface_sizes();
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
+                self.host_focused = false;
                 let action = if self.cancel_pointer_interaction() {
                     RenderAction::Draw
                 } else {
@@ -16784,7 +17078,7 @@ impl App {
             .map(|pane| pane.id)
     }
 
-    fn active_surface(&self) -> Option<SurfaceId> {
+    pub(crate) fn active_surface(&self) -> Option<SurfaceId> {
         self.tree.active_surface()
     }
 
@@ -18264,6 +18558,15 @@ impl App {
                 .into_iter()
                 .map(|action| WorkspaceRailTarget::Action(action.target)),
         );
+        // The agents section sits below the action rows.
+        if self.config.sidebar.agents {
+            targets.extend(
+                self.sidebar_status
+                    .agents()
+                    .iter()
+                    .map(|row| WorkspaceRailTarget::Agent(row.surface)),
+            );
+        }
         targets
     }
 
@@ -18284,6 +18587,12 @@ impl App {
                 })
                 .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
             WorkspaceRailSelection::Action(action) => Some(WorkspaceRailTarget::Action(action)),
+            WorkspaceRailSelection::Agent(surface) => self
+                .sidebar_status
+                .agents()
+                .iter()
+                .any(|row| row.surface == surface)
+                .then_some(WorkspaceRailTarget::Agent(surface)),
         }
     }
 
@@ -18311,6 +18620,9 @@ impl App {
             }
             WorkspaceRailTarget::Action(action) => {
                 self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
+            }
+            WorkspaceRailTarget::Agent(surface) => {
+                self.workspace_rail_selection = WorkspaceRailSelection::Agent(surface);
             }
         }
     }
@@ -18402,6 +18714,11 @@ impl App {
                 action,
                 prefix: KeyEvent::new(prefix.code, prefix.mods),
             });
+        }
+        if self.copy_mode_active()
+            && let Some(action) = self.copy_mode_key(&input)
+        {
+            return KeyboardIngress::Handled(action);
         }
         KeyboardIngress::Routed(TerminalInput::Keyboard(input))
     }
@@ -19164,6 +19481,18 @@ impl App {
                         Some(WorkspaceRailTarget::Recoverable(id)) => {
                             self.request_restore_managed_workspace(&id);
                             self.focus = FocusTarget::Pane;
+                        }
+                        Some(WorkspaceRailTarget::Agent(surface)) => {
+                            let target = self
+                                .sidebar_status
+                                .agents()
+                                .iter()
+                                .find(|row| row.surface == surface)
+                                .map(|row| row.target);
+                            if let Some(target) = target {
+                                self.activate_projection_target(target)?;
+                                self.focus = FocusTarget::Pane;
+                            }
                         }
                         None => {}
                     }
@@ -19999,6 +20328,12 @@ impl App {
             Action::ResizeShrink => self.resize_focused_split(-0.05),
             Action::ScrollUp => self.scroll_active(-10),
             Action::ScrollDown => self.scroll_active(10),
+            Action::ScrollPageUp => self.scroll_active_pages(-1, 1),
+            Action::ScrollPageDown => self.scroll_active_pages(1, 1),
+            Action::ScrollHalfPageUp => self.scroll_active_pages(-1, 2),
+            Action::ScrollHalfPageDown => self.scroll_active_pages(1, 2),
+            Action::CopyMode => self.enter_copy_mode(false),
+            Action::SearchScrollback => self.enter_copy_mode(true),
             Action::ClearHistory => {
                 if let Some(surface) = self.active_surface()
                     && self.tree.surface_kind(surface) == SurfaceKind::Pty
@@ -20028,6 +20363,18 @@ impl App {
                 if let Some(pane) = pane {
                     self.focus_omnibar(pane);
                 }
+                return Ok(RenderAction::Draw);
+            }
+            Action::NextAttention => {
+                self.jump_to_next_attention()?;
+                return Ok(RenderAction::Draw);
+            }
+            Action::AttentionList => {
+                self.finish_active_drag();
+                self.shortcut_help = None;
+                self.prompt = None;
+                self.omnibar = None;
+                self.open_attention_list();
                 return Ok(RenderAction::Draw);
             }
             Action::ShowShortcuts => {
@@ -20369,6 +20716,10 @@ impl App {
                 self.run_action(Action::ShowShortcuts)?;
                 return Ok(());
             }
+            MenuAction::FocusAttention(surface) => {
+                self.focus_attention_surface(surface)?;
+                return Ok(());
+            }
             _ => {}
         }
         if menu_action_prepares_pty_release(action) && !self.prepare_pty_input_before_mutation() {
@@ -20456,6 +20807,9 @@ impl App {
             }
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
             MenuAction::RenameSurface(surface) => self.open_rename_surface_prompt(surface),
+            MenuAction::MoveTabToWorkspace { surface, workspace } => {
+                self.move_tab_to_workspace(surface, workspace);
+            }
             MenuAction::CopyTabId(id) => {
                 if let Some(short_id) = self
                     .tree
@@ -20489,7 +20843,8 @@ impl App {
             | MenuAction::FocusSidebar
             | MenuAction::ActivateSidebarProfile(_)
             | MenuAction::SetSidebarViewVisible { .. }
-            | MenuAction::ShowShortcuts => unreachable!("shared menu actions return above"),
+            | MenuAction::ShowShortcuts
+            | MenuAction::FocusAttention(_) => unreachable!("shared menu actions return above"),
             MenuAction::SetClientSizing { surface, client, enabled } => {
                 self.session.set_client_sizing(surface, client, enabled);
             }
@@ -20498,6 +20853,42 @@ impl App {
             }
             MenuAction::RestoreAllClientSizing(surface) => {
                 self.session.use_all_client_sizing(surface);
+            }
+            MenuAction::SetSizeMode { surface, mode } => {
+                if let Some(size) = self.session.size_state(surface) {
+                    let state = &size.state;
+                    let priority = if mode == TerminalSizingMode::Priority {
+                        crate::ui::sizing::priority_with_self_first(
+                            state,
+                            size.self_participant.as_deref(),
+                        )
+                    } else {
+                        state.policy.priority.clone()
+                    };
+                    // Fixed keeps the current grid; the Mac and iPhone edit it.
+                    let fixed = state.policy.fixed.or(Some(state.size()));
+                    self.session
+                        .set_size_policy(surface, TerminalSizingPolicy::new(mode, priority, fixed));
+                }
+            }
+            MenuAction::SetSizeCounts { surface, generation, participant, counts } => {
+                if let Some((id, _)) = self.size_menu_participant(surface, generation, participant)
+                {
+                    self.session.set_size_counts(surface, id, Some(counts));
+                }
+            }
+            MenuAction::DisconnectSizeParticipant { surface, generation, participant } => {
+                if let Some((id, is_self)) =
+                    self.size_menu_participant(surface, generation, participant)
+                {
+                    if is_self {
+                        // Same as disconnecting this client from the legacy menu:
+                        // leave through the local detach lifecycle.
+                        self.run_action(Action::Detach)?;
+                    } else {
+                        self.session.disconnect_size_participant(surface, id);
+                    }
+                }
             }
             MenuAction::DisconnectClient(client) => {
                 if self.clients.iter().any(|info| info.client == client && info.is_self) {
@@ -21014,6 +21405,80 @@ impl App {
             crate::ui::omnibar::hit(rect, area.omnibar_source_x(), x, y, editing)
                 .map(|hit| (area.pane, hit))
         })
+    }
+
+    fn move_tab_to_workspace(&mut self, surface: SurfaceId, workspace: Option<WorkspaceId>) {
+        if self.surface_only.is_some()
+            || !self.session.supports_tab_workspace_moves()
+            || self.tab_location(surface).is_none()
+        {
+            return;
+        }
+        if workspace.is_none()
+            && self.workspace_creation_policy() != Some(WorkspaceCreationPolicy::SessionOwned)
+        {
+            return;
+        }
+        if workspace.is_some_and(|id| !self.tree.workspaces().iter().any(|ws| ws.id == id)) {
+            return;
+        }
+        if self.prepare_pty_input_before_mutation() {
+            self.session.move_tab_to_workspace(surface, workspace);
+        }
+    }
+
+    fn tab_move_workspace_item(&self, surface: SurfaceId) -> Option<MenuItem> {
+        if self.surface_only.is_some() || !self.session.supports_tab_workspace_moves() {
+            return None;
+        }
+        let (source_pane, _) = self.tab_location(surface)?;
+        let mut items = self
+            .tree
+            .workspaces()
+            .iter()
+            .filter(|ws| {
+                !ws.screens
+                    .iter()
+                    .any(|screen| screen.panes.iter().any(|pane| pane.id == source_pane))
+            })
+            .map(|ws| MenuItem::LabeledAction {
+                label: ws.name.clone(),
+                action: MenuAction::MoveTabToWorkspace { surface, workspace: Some(ws.id) },
+            })
+            .collect::<Vec<_>>();
+        if self.workspace_creation_policy() == Some(WorkspaceCreationPolicy::SessionOwned) {
+            if !items.is_empty() {
+                items.push(MenuItem::Separator);
+            }
+            items.push(MenuItem::Action(MenuAction::MoveTabToWorkspace {
+                surface,
+                workspace: None,
+            }));
+        }
+        (!items.is_empty()).then(|| MenuItem::Submenu {
+            label: localization::catalog().menu.move_tab_workspace.to_string(),
+            items,
+        })
+    }
+
+    fn tab_workspace_drop_at(&self, x: u16, y: u16) -> Option<Option<WorkspaceId>> {
+        match self.hit_at(x, y)? {
+            Hit::CreateWorkspace { mode: None }
+            | Hit::SidebarAction { action: SidebarActionTarget::CreateWorkspace(None), .. }
+            | Hit::SidebarAction {
+                action: SidebarActionTarget::Run(Action::NewWorkspace), ..
+            } if self.workspace_creation_policy()
+                == Some(WorkspaceCreationPolicy::SessionOwned) =>
+            {
+                Some(None)
+            }
+            Hit::Workspace { id, .. }
+            | Hit::ProjectionRow { target: ProjectionTarget::Workspace { id, .. }, .. }
+            | Hit::ProjectionToggle { branch: ProjectionBranch::Workspace(id), .. } => {
+                Some(Some(id))
+            }
+            _ => None,
+        }
     }
 
     fn tab_drop_target_at(&self, x: u16, y: u16) -> Option<(PaneId, usize)> {
@@ -22582,6 +23047,12 @@ impl App {
                         self.focus = FocusTarget::Pane;
                     }
                 }
+                Hit::AgentRow { surface, target } => {
+                    self.workspace_rail_follow_selection = true;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Agent(surface);
+                    self.activate_projection_target(target)?;
+                    self.focus = FocusTarget::Pane;
+                }
                 Hit::ProjectionToggle { view, branch } => {
                     let state = self.projection_rail_state_mut(view);
                     if !state.collapsed.remove(&branch) {
@@ -22819,6 +23290,7 @@ impl App {
             Some(Drag::TabArm { surface, at }) => {
                 let (surface, at) = (*surface, *at);
                 if (x, y) != at {
+                    self.hover = Some((x, y));
                     let target = self.tab_drop_target_at(x, y);
                     self.drag = Some(Drag::Tab { surface, target });
                 }
@@ -22826,6 +23298,7 @@ impl App {
             }
             Some(Drag::Tab { surface, .. }) => {
                 let surface = *surface;
+                self.hover = Some((x, y));
                 let target = self.tab_drop_target_at(x, y);
                 self.drag = Some(Drag::Tab { surface, target });
                 Ok(RenderAction::Draw)
@@ -23054,6 +23527,10 @@ impl App {
         }
         if let Some(Drag::Tab { surface, .. }) = self.drag {
             self.drag = None;
+            if let Some(workspace) = self.tab_workspace_drop_at(x, y) {
+                self.move_tab_to_workspace(surface, workspace);
+                return Ok(RenderAction::Draw);
+            }
             if let Some((pane, index)) = self.tab_drop_target_at(x, y)
                 && self.prepare_pty_input_before_mutation()
             {
@@ -23907,6 +24384,9 @@ impl App {
                 }
                 Some(Hit::SidebarTab { surface, .. }) => {
                     groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
+                    if let Some(item) = self.tab_move_workspace_item(surface) {
+                        groups.push(vec![item]);
+                    }
                 }
                 Some(Hit::ProjectionRow {
                     target: ProjectionTarget::Workspace { id, .. }, ..
@@ -23936,6 +24416,9 @@ impl App {
                     ..
                 }) => {
                     groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
+                    if let Some(item) = self.tab_move_workspace_item(surface) {
+                        groups.push(vec![item]);
+                    }
                 }
                 _ => {}
             }
@@ -23980,6 +24463,9 @@ impl App {
                     .into_iter()
                     .map(|group| self.menu_group(group))
                     .collect::<Vec<Vec<MenuItem>>>();
+                if let Some(item) = self.tab_move_workspace_item(surface) {
+                    groups.push(vec![item]);
+                }
                 if self.surface_only.is_none() {
                     let zoomed = self
                         .tree
@@ -23988,7 +24474,11 @@ impl App {
                     groups.push(self.menu_group([MenuAction::TogglePaneZoom { pane, zoomed }]));
                 }
                 if self.surface_only.is_none()
-                    && let Some(clients) = client_menu_item(&self.clients, surface)
+                    && let Some(clients) = terminal_size_menu_item(
+                        self.session.size_state(surface).as_ref(),
+                        &self.clients,
+                        surface,
+                    )
                 {
                     groups.push(vec![clients]);
                 }
@@ -24034,7 +24524,11 @@ impl App {
                 );
             }
             if self.surface_only.is_none()
-                && let Some(clients) = client_menu_item(&self.clients, area.surface)
+                && let Some(clients) = terminal_size_menu_item(
+                    self.session.size_state(area.surface).as_ref(),
+                    &self.clients,
+                    area.surface,
+                )
             {
                 groups.push(vec![clients]);
             }
@@ -24050,10 +24544,47 @@ impl App {
         self.clients = clients;
     }
 
+    /// Recomputes a terminal's shared-sizing border label from the session's
+    /// latest size state. A terminal with a size state uses it instead of the
+    /// legacy client label, including when it hides the label.
+    fn refresh_size_state_label(&mut self, surface: SurfaceId) {
+        match self.session.size_state(surface) {
+            Some(size) => {
+                let label = crate::ui::sizing::border_label(&size, &localization::catalog().menu);
+                self.size_state_labels.insert(surface, label);
+            }
+            None => {
+                self.size_state_labels.remove(&surface);
+            }
+        }
+    }
+
+    /// Resolves a size-menu participant index against the state the menu
+    /// showed; a newer state means the menu is stale.
+    fn size_menu_participant(
+        &mut self,
+        surface: SurfaceId,
+        generation: u64,
+        participant: usize,
+    ) -> Option<(String, bool)> {
+        let size = self.session.size_state(surface)?;
+        if size.state.generation != generation {
+            self.status_message =
+                Some(localization::catalog().menu.terminal_size_changed.to_string());
+            return None;
+        }
+        let row = size.state.participants.get(participant)?;
+        let is_self = size.self_participant.as_deref() == Some(row.participant.id.as_str());
+        Some((row.participant.id.clone(), is_self))
+    }
+
     fn open_clients_menu(&mut self, x: u16, y: u16, surface: SurfaceId) {
         self.session.refresh_clients_background();
         let mut groups = Vec::new();
-        if let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&self.clients, surface) {
+        let size = self.session.size_state(surface);
+        if let Some(MenuItem::Submenu { items, .. }) =
+            terminal_size_menu_item(size.as_ref(), &self.clients, surface)
+        {
             groups.push(items);
         }
         groups.push(self.global_menu_items());
@@ -24554,8 +25085,16 @@ fn action_is_frontend_local(action: Action) -> bool {
             | Action::FocusNextPane
             | Action::ScrollUp
             | Action::ScrollDown
+            | Action::ScrollPageUp
+            | Action::ScrollPageDown
+            | Action::ScrollHalfPageUp
+            | Action::ScrollHalfPageDown
+            | Action::CopyMode
+            | Action::SearchScrollback
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::NextAttention
+            | Action::AttentionList
     )
 }
 
@@ -24586,6 +25125,12 @@ fn action_available_in_mode(action: Action, surface_only: bool) -> bool {
                 | Action::RenameTab
                 | Action::ScrollUp
                 | Action::ScrollDown
+                | Action::ScrollPageUp
+                | Action::ScrollPageDown
+                | Action::ScrollHalfPageUp
+                | Action::ScrollHalfPageDown
+                | Action::CopyMode
+                | Action::SearchScrollback
                 | Action::ClearHistory
                 | Action::ShowShortcuts
                 | Action::Detach
@@ -24603,8 +25148,15 @@ fn action_prepares_pty_release(action: Action) -> bool {
             | Action::NewPaneRight
             | Action::ScrollUp
             | Action::ScrollDown
+            | Action::ScrollPageUp
+            | Action::ScrollPageDown
+            | Action::ScrollHalfPageUp
+            | Action::ScrollHalfPageDown
+            | Action::CopyMode
+            | Action::SearchScrollback
             | Action::BrowserEditUrl
             | Action::ShowShortcuts
+            | Action::AttentionList
     )
 }
 
@@ -24772,6 +25324,10 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 
 #[cfg(test)]
 mod tests {
+    mod attention;
+    mod copy_mode;
+    mod sidebar_agent_status;
+
     #[test]
     fn input_class_groups_routing_semantics() {
         let cases = [
@@ -24965,32 +25521,32 @@ mod tests {
     }
 
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
-        DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
-        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
-        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
-        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
-        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
-        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
-        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
-        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
-        SidebarActionTarget, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
-        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, content_size_for_rect,
-        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
-        first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
-        host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        AgentOrderCache, App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure,
+        ContextMenu, DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission,
+        DeferredInputQueue, DeferredReplayDisposition, Drag, EventCancellation, FocusTarget,
+        ForwardMuxOutcome, FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity,
+        GraphicPlacement, GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode,
+        HostInputIngress, HostInputMessage, HostInputRuntime, MachineActionWorker,
+        MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
+        OmnibarState, OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection,
+        PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
+        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
+        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
+        RenderedPointerFrame, Selection, SelectionMode, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, ShortcutHelp, SidebarActionTarget, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
+        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, first_pane_by_id, forward_host_input, forward_mux_event,
+        forward_mux_events, host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
@@ -26233,6 +26789,135 @@ mod tests {
     }
 
     #[test]
+    fn prefix_pane_shortcuts_create_and_resize_without_alt() {
+        let (mux, _) = test_mux("prefix-pane-shortcuts-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.config.keys.apply_for_test(&HashMap::from([(
+            "alt_shortcuts".to_string(),
+            serde_json::json!(false),
+        )]));
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+
+        // Exercise legacy character reports and enhanced Shift+base-key reports.
+        let sequences = [
+            (KeyEvent::new(KeyCode::Char('N'), KeyModifiers::NONE), 2),
+            (KeyEvent::new(KeyCode::Char('n'), KeyModifiers::SHIFT), 3),
+        ];
+        for (key, pane_count) in sequences {
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+            app.handle_key(key).unwrap();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+            }
+            assert!(!app.prefix_armed);
+            assert_eq!(app.tree.active_screen().unwrap().panes.len(), pane_count);
+        }
+
+        app.sync_layout((120, 30));
+        let pane = app.active_pane().unwrap();
+        for grow_key in [
+            KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('='), KeyModifiers::SHIFT),
+        ] {
+            let initial = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+            app.handle_key(grow_key).unwrap();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+            }
+            app.sync_layout((120, 30));
+            let grown = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
+            assert!(grown.width > initial.width || grown.height > initial.height);
+
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+            app.handle_key(KeyEvent::new(KeyCode::Char('-'), KeyModifiers::NONE)).unwrap();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+            }
+            app.sync_layout((120, 30));
+            let shrunk = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
+            assert!(shrunk.width < grown.width || shrunk.height < grown.height);
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn tab_workspace_menu_moves_the_clicked_inactive_tab_and_drag_creates_workspace() {
+        let (mux, first) = test_mux("tab-workspace-move-test", None);
+        let second = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        let target = mux.new_workspace(Some("destination".into()), Some((80, 24))).unwrap();
+        let destination = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.select_workspace(Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let first_pane = app.tab_location(first.id).unwrap().0;
+        let chip = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Tab { pane, index: 0 } if *pane == first_pane)
+                    .then_some(*rect)
+            })
+            .expect("inactive tab chip");
+        app.open_context_menu(chip.x, chip.y);
+        let move_existing =
+            MenuAction::MoveTabToWorkspace { surface: first.id, workspace: Some(destination) };
+        assert!(app.menu.as_ref().unwrap().actions().contains(&move_existing));
+        app.activate_menu(move_existing).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        assert_eq!(
+            mux.with_state(|state| state.pane_of(first.id)),
+            mux.with_state(|state| state.pane_of(target.id))
+        );
+        assert_ne!(
+            mux.with_state(|state| state.pane_of(first.id)),
+            mux.with_state(|state| state.pane_of(second.id))
+        );
+        assert_eq!(app.tree.active_surface(), Some(first.id));
+        app.menu = None;
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let footer = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::CreateWorkspace { mode: None }
+                        | super::Hit::SidebarAction {
+                            action: SidebarActionTarget::CreateWorkspace(None),
+                            ..
+                        }
+                )
+                .then_some(*rect)
+            })
+            .expect("new workspace footer");
+        let before = app.tree.workspaces().len();
+        app.drag = Some(Drag::Tab { surface: first.id, target: None });
+        app.handle_left_up(footer.x, footer.y).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        assert_eq!(app.tree.workspaces().len(), before + 1);
+        assert_eq!(app.tree.active_screen().unwrap().panes[0].tabs[0].surface, first.id);
+        assert!(Arc::ptr_eq(&first, &mux.surface(first.id).unwrap()));
+        for surface in [first.id, second.id, target.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn pane_context_new_pane_runs_the_same_smart_layout_action_as_alt_n() {
         let (mux, _) = test_mux("context-new-pane-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -26369,6 +27054,12 @@ mod tests {
                     | Action::RenameTab
                     | Action::ScrollUp
                     | Action::ScrollDown
+                    | Action::ScrollPageUp
+                    | Action::ScrollPageDown
+                    | Action::ScrollHalfPageUp
+                    | Action::ScrollHalfPageDown
+                    | Action::CopyMode
+                    | Action::SearchScrollback
                     | Action::ClearHistory
                     | Action::ShowShortcuts
                     | Action::Detach
@@ -30829,6 +31520,142 @@ mod tests {
         assert!(app.status_message.is_none());
     }
 
+    use super::size_menu_item;
+    use crate::session::SurfaceSizeState;
+    use cmux_tui_core::sizing_policy::{TerminalSizingMode, TerminalSizingPolicy};
+
+    fn sizing_test_state(mode: TerminalSizingMode) -> SurfaceSizeState {
+        use cmux_tui_core::sizing_policy::{
+            TerminalDeviceKind, TerminalGridSize, TerminalSizingEngine, TerminalSizingParticipant,
+        };
+        let mut engine = TerminalSizingEngine::new(
+            TerminalGridSize::new(80, 24),
+            TerminalSizingPolicy::new(mode, Vec::new(), None),
+        );
+        engine.attach(TerminalSizingParticipant {
+            viewport: Some(TerminalGridSize::new(100, 40)),
+            ..TerminalSizingParticipant::new("c0", TerminalDeviceKind::Tui)
+        });
+        engine.attach(TerminalSizingParticipant {
+            display_name: Some("Maya Ortiz".into()),
+            device_name: Some("Mac Studio".into()),
+            viewport: Some(TerminalGridSize::new(118, 30)),
+            ..TerminalSizingParticipant::new("c7", TerminalDeviceKind::Mac)
+        });
+        SurfaceSizeState { state: engine.state().clone(), self_participant: Some("c0".into()) }
+    }
+
+    #[test]
+    fn shared_size_menu_offers_the_five_modes_and_per_participant_controls() {
+        let size = sizing_test_state(TerminalSizingMode::Smallest);
+        let MenuItem::Submenu { label, items } = size_menu_item(&size, 31) else {
+            panic!("expected the terminal size submenu");
+        };
+        assert_eq!(label, "Terminal size");
+        let modes = items[..5]
+            .iter()
+            .map(|item| match item {
+                MenuItem::LabeledAction {
+                    label,
+                    action: MenuAction::SetSizeMode { surface: 31, mode },
+                } => (label.as_str(), *mode),
+                other => panic!("expected a mode action, got {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            modes,
+            [
+                ("✓ Fit everyone", TerminalSizingMode::Smallest),
+                ("  Follow latest", TerminalSizingMode::Latest),
+                ("  Largest window", TerminalSizingMode::Largest),
+                ("  Priority", TerminalSizingMode::Priority),
+                ("  Fixed", TerminalSizingMode::Fixed),
+            ]
+        );
+        assert_eq!(items[5], MenuItem::Separator);
+        let generation = size.state.generation;
+        let MenuItem::Submenu { label, items: row } = &items[7] else {
+            panic!("expected the Mac participant row");
+        };
+        assert_eq!(label, "Maya Ortiz · Mac Studio · 118×30 · sets size");
+        assert_eq!(
+            row,
+            &vec![
+                MenuItem::LabeledAction {
+                    label: "✓ Counts toward size".into(),
+                    action: MenuAction::SetSizeCounts {
+                        surface: 31,
+                        generation,
+                        participant: 1,
+                        counts: false,
+                    },
+                },
+                MenuItem::Separator,
+                MenuItem::Action(MenuAction::DisconnectSizeParticipant {
+                    surface: 31,
+                    generation,
+                    participant: 1,
+                }),
+            ]
+        );
+        let MenuItem::Submenu { label, .. } = &items[6] else {
+            panic!("expected this client's row");
+        };
+        assert_eq!(label, "this client · 100×40 · sets size");
+    }
+
+    #[test]
+    fn size_menu_commands_reach_the_shared_sizing_host() {
+        let mux = Mux::new("size-menu-commands-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.resize_surface_for_client(surface.id, 0, 100, 40).unwrap();
+        mux.resize_surface_for_client(surface.id, 7, 118, 30).unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        let settle = |app: &mut App| {
+            loop {
+                let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+                let settled = matches!(event, AppEvent::SessionMutationSettled { .. });
+                assert!(app.handle(event).is_ok());
+                if settled {
+                    break;
+                }
+            }
+        };
+
+        app.activate_menu(MenuAction::SetSizeMode {
+            surface: surface.id,
+            mode: TerminalSizingMode::Latest,
+        })
+        .unwrap();
+        settle(&mut app);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.policy.mode, TerminalSizingMode::Latest);
+
+        let mac = state.participants.iter().position(|row| row.participant.id == "c7").unwrap();
+        app.activate_menu(MenuAction::SetSizeCounts {
+            surface: surface.id,
+            generation: state.generation,
+            participant: mac,
+            counts: false,
+        })
+        .unwrap();
+        settle(&mut app);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert!(!state.participant("c7").unwrap().counts);
+        assert_eq!(state.size(), cmux_tui_core::sizing_policy::TerminalGridSize::new(100, 40));
+
+        // A menu opened on an older state is stale and changes nothing.
+        app.activate_menu(MenuAction::SetSizeCounts {
+            surface: surface.id,
+            generation: state.generation - 1,
+            participant: mac,
+            counts: true,
+        })
+        .unwrap();
+        assert!(app.status_message.is_some());
+        assert!(!mux.terminal_size_state(surface.id).unwrap().participant("c7").unwrap().counts);
+    }
+
     #[test]
     fn peer_disconnect_uses_the_pointer_mutation_barrier() {
         let mux = Mux::new("disconnect-pointer-barrier-test", SurfaceOptions::default());
@@ -31906,9 +32733,21 @@ mod tests {
         assert_eq!(initial_host_mouse_capture(false), Some(true));
     }
 
+    /// Surface options whose child writes nothing until it reads a line. A live
+    /// shell prints while a test inspects the terminal; the busy terminal lock
+    /// makes `try_pointer_semantics` report contention and the app then falls
+    /// back to the last applied capture, so tests that read terminal state
+    /// without a frame must not race a shell (port of feat ea2bf547).
+    fn quiet_surface() -> SurfaceOptions {
+        SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()]),
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn desired_host_mouse_capture_follows_scoped_inner_terminal() {
-        let mux = Mux::new("scoped-mouse-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-mouse-capture-test", quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         assert!(app.desired_host_mouse_capture(), "full TUI always captures host mouse");
@@ -31939,7 +32778,7 @@ mod tests {
     /// the inner application still owns the mouse.
     #[test]
     fn scoped_host_mouse_capture_follows_canonical_state_without_a_rendered_frame() {
-        let mux = Mux::new("scoped-canonical-capture-test", SurfaceOptions::default());
+        let mux = Mux::new("scoped-canonical-capture-test", quiet_surface());
         let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
         let mut app = test_app(Session::Local(mux.clone()));
         app.surface_only = Some(surface.id);
@@ -32075,6 +32914,54 @@ mod tests {
         )
         .expect("the re-derived frame must re-emit host mouse capture");
         assert!(reasserted.contains("\x1b[?1002h"));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    /// The PTY reader holds the terminal lock while it parses output, so the
+    /// inner state can be unknowable at the moment a resize arrives. The
+    /// re-assert must not be lost then: the next frame still re-emits host
+    /// mouse capture, from the capture last applied, and never guesses that
+    /// capture is off.
+    #[test]
+    fn scoped_resize_reasserts_host_mouse_capture_while_the_terminal_is_busy() {
+        let mux = Mux::new("scoped-resize-busy-reassert-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.surface_only = Some(surface.id);
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+        app.host_mouse_capture_applied = Some(true);
+
+        // Hold the terminal lock on another thread, as the reader does.
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let holder_surface = surface.clone();
+        let holder = std::thread::spawn(move || {
+            holder_surface.with_terminal(|_| {
+                held_tx.send(()).unwrap();
+                let _ = release_rx.recv_timeout(Duration::from_secs(10));
+            });
+        });
+        held_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+        app.handle(AppEvent::Input(Event::Resize(120, 40))).unwrap();
+        let applied_after_resize = app.host_mouse_capture_applied;
+        let next_frame = host_mouse_capture_escape_if_changed(
+            app.host_mouse_capture_applied,
+            app.desired_host_mouse_capture(),
+        );
+        release_tx.send(()).unwrap();
+        holder.join().unwrap();
+
+        assert_eq!(
+            applied_after_resize, None,
+            "a resize while the terminal is busy must still reset the applied host-capture bookkeeping"
+        );
+        let next_frame = next_frame
+            .expect("the next frame must re-emit host mouse capture while the terminal is busy");
+        assert!(
+            next_frame.contains("\x1b[?1002h"),
+            "the busy-terminal re-assert must keep the capture last applied, not release it: {next_frame:?}"
+        );
         mux.close_surface(surface.id).unwrap();
     }
 
@@ -34516,6 +35403,40 @@ mod tests {
     }
 
     #[test]
+    fn another_clients_creations_keep_this_clients_view() {
+        // A phone creating a screen, a tab, or a split moves only the shared
+        // tree's active fields. An attached frontend (the laptop) keeps the
+        // screen, pane, and tab it shows.
+        let mux = Mux::new("foreign-creation-keeps-view-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        let mut laptop = test_app(Session::Local(mux.clone()));
+        laptop.sidebar_visible = false;
+        laptop.replace_tree(laptop.session.tree());
+        let screen = laptop.tree.active_screen().unwrap().id;
+
+        mux.new_screen(Some(workspace), Some((80, 24))).unwrap();
+        laptop.replace_tree(laptop.session.tree());
+        assert_ne!(mux.with_state(|state| state.workspaces[0].active_screen), 0);
+        assert_eq!(laptop.tree.active_screen().unwrap().id, screen);
+
+        mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        laptop.replace_tree(laptop.session.tree());
+        assert_eq!(laptop.active_surface(), Some(first.id));
+
+        let split = mux.split(pane, SplitDir::Right, Some((40, 24))).unwrap();
+        laptop.replace_tree(laptop.session.tree());
+        assert_ne!(mux.active_surface(), Some(first.id));
+        assert_ne!(laptop.active_surface(), Some(split.id));
+        assert_eq!(laptop.tree.active_screen().unwrap().id, screen);
+        assert_eq!(laptop.active_pane(), Some(pane));
+        assert_eq!(laptop.active_surface(), Some(first.id));
+
+        mux.close_workspace(workspace);
+    }
+
+    #[test]
     fn attached_workspace_mouse_down_uses_both_rendered_rows_and_survives_routing_refresh() {
         let mux = Mux::new(
             "attached-workspace-mouse-test",
@@ -35230,6 +36151,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 1,
                 },
                 &tx,
@@ -35252,6 +36174,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 2,
                 },
                 &tx,
@@ -37778,6 +38701,20 @@ mod tests {
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.tree.active_surface(), Some(created_surface));
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(created_surface));
+    }
+
+    #[test]
+    fn tab_workspace_completion_selects_the_moved_tab_without_opening_browser_omnibar() {
+        let mux = Mux::new("tab-workspace-completion", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(browser_completion_tree(41, 42));
+        app.apply_session_completion(SessionCompletion {
+            mutation_generation: 1,
+            semantic_intent: None,
+            action: SessionCompletionAction::SurfaceMoved { surface: 41 },
+        });
+        assert_eq!(app.tree.active_surface(), Some(41));
+        assert!(app.omnibar.is_none());
     }
 
     #[test]
@@ -46115,6 +47052,7 @@ mod tests {
             durable_notice_ack_retry_at: None,
             config: Config::default(),
             config_reload_applications: 0,
+            _test_deadline: Some(super::test_deadline::TestDeadline::arm()),
             chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
             tab_locations: HashMap::new(),
@@ -46127,6 +47065,7 @@ mod tests {
             desired_outer_cursor: OuterCursorSpec::Reset,
             applied_outer_cursor: None,
             host_mouse_capture_applied: Some(true),
+            host_mouse_capture_before_reassert: None,
             graphics_writer: None,
             next_graphics_submission: 0,
             pending_graphics_submission: None,
@@ -46154,6 +47093,7 @@ mod tests {
             pending_size_releases: HashSet::new(),
             geometry_authority_surface: None,
             prefix_armed: false,
+            copy_mode: None,
             session_label: "test".to_string(),
             surface_only: None,
             sidebar_visible: true,
@@ -46175,6 +47115,10 @@ mod tests {
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
+            projection_order_cache: AgentOrderCache::default(),
+            sidebar_status: crate::sidebar_status::SidebarStatus::default(),
+            agent_section_scroll: 0,
+            done_tab_ack_sent: None,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
@@ -46199,6 +47143,7 @@ mod tests {
             menu: None,
             clients: Vec::new(),
             client_border_labels: HashMap::new(),
+            size_state_labels: HashMap::new(),
             prompt: None,
             connection_transaction: None,
             next_connection_attempt: 1,
@@ -46251,6 +47196,15 @@ mod tests {
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
             quit: false,
+            // Tests never read the developer's environment for the host.
+            host_notify: crate::host_notify::HostNotifyGate::new(
+                crate::host_notify::HostTerminalInfo {
+                    terminal: crate::host_notify::HostTerminal::Ghostty,
+                    multiplexed: false,
+                    cmux_terminal: None,
+                },
+            ),
+            host_focused: true,
             status_command_outputs: Arc::new(Mutex::new(HashMap::new())),
             status_command_worker_stop: None,
             status_poke_pending: Arc::new(AtomicBool::new(false)),
@@ -46301,8 +47255,11 @@ mod tests {
                             browser_source: None,
                             browser_frames_stalled: false,
                             supports_clear_history_key_fallback: false,
-                            notification: unread
-                                .then_some(TabNotificationView { unread: true, level: "warning" }),
+                            notification: unread.then_some(TabNotificationView {
+                                unread: true,
+                                level: "warning",
+                                sequence: 1,
+                            }),
                         }],
                     }],
                 }],

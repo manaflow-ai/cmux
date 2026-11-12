@@ -274,6 +274,137 @@ struct BrowserProfileSocketTests {
         ])
     }
 
+    @Test func surfaceCreationHonorsExplicitProfilesAndRejectsInvalidSelectors() throws {
+        let defaults = UserDefaults.standard
+        let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled(defaults: defaults)
+        let store = BrowserProfileStore.shared
+        let previousLastUsedProfileID = store.effectiveLastUsedProfileID
+        var createdProfileIDs: [UUID] = []
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            for profileID in createdProfileIDs {
+                _ = store.deleteProfile(id: profileID)
+            }
+            store.noteUsed(previousLastUsedProfileID)
+            BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled, defaults: defaults)
+        }
+
+        let suffix = UUID().uuidString
+        let target = try #require(store.createProfile(named: "Issue 21210 Target \(suffix)"))
+        createdProfileIDs.append(target.id)
+        let fallback = try #require(store.createProfile(named: "Issue 21210 Fallback \(suffix)"))
+        createdProfileIDs.append(fallback.id)
+
+        BrowserAvailabilitySettings.setDisabled(false, defaults: defaults)
+        let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        // Without a selector the surface inherits exactly as it did before, so
+        // the flag is the only thing that changed. This runs first on purpose:
+        // `resolvedNewBrowserProfileID` prefers the pane's selected browser
+        // panel and then the workspace preference, and creating a browser
+        // surface records both, so only an empty pane reaches the last-used
+        // profile that this covers.
+        store.noteUsed(fallback.id)
+        let inheritedResponse = try call(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "browser",
+                "url": "about:blank",
+                "focus": false,
+            ]
+        )
+        let inheritedResult = try successfulResult(inheritedResponse)
+        let inheritedSurfaceID = try #require(
+            (inheritedResult["surface_id"] as? String).flatMap(UUID.init(uuidString:))
+        )
+        let inheritedPanel = try #require(workspace.panels[inheritedSurfaceID] as? BrowserPanel)
+        #expect(inheritedPanel.profileID == fallback.id)
+
+        // An explicit selector wins over everything a surface would otherwise
+        // inherit, including the profile the surface above just recorded.
+        store.noteUsed(fallback.id)
+        let createdResponse = try call(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "browser",
+                "url": "about:blank",
+                "profile": target.displayName.lowercased(),
+                "focus": false,
+            ]
+        )
+        let createdResult = try successfulResult(createdResponse)
+        let createdSurfaceID = try #require(
+            (createdResult["surface_id"] as? String).flatMap(UUID.init(uuidString:))
+        )
+        let createdPanel = try #require(workspace.panels[createdSurfaceID] as? BrowserPanel)
+        #expect(createdPanel.profileID == target.id)
+
+        let unknownSelector = "Issue 21210 Missing \(suffix)"
+        let unknownError = try errorPayload(try call(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "browser",
+                "profile": unknownSelector,
+            ]
+        ))
+        #expect(unknownError["code"] as? String == "invalid_params")
+        #expect((unknownError["message"] as? String)?.contains(unknownSelector) == true)
+        #expect((unknownError["data"] as? [String: Any])?["profile"] as? String == unknownSelector)
+
+        let terminalProfileError = try errorPayload(try call(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "terminal",
+                "profile": target.displayName,
+            ]
+        ))
+        #expect(terminalProfileError["code"] as? String == "invalid_params")
+        #expect((terminalProfileError["message"] as? String)?.contains("browser pane") == true)
+
+        let multipleError = try errorPayload(try call(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "browser",
+                "profile": target.displayName,
+                "profile_id": fallback.id.uuidString,
+            ]
+        ))
+        #expect(multipleError["code"] as? String == "invalid_params")
+        #expect((multipleError["message"] as? String)?.contains("only one") == true)
+
+        let malformedError = try errorPayload(try call(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "browser",
+                "profile_name": 123,
+            ]
+        ))
+        #expect(malformedError["code"] as? String == "invalid_params")
+        #expect((malformedError["message"] as? String)?.contains("non-empty") == true)
+
+        BrowserAvailabilitySettings.setDisabled(true, defaults: defaults)
+        let disabledError = try errorPayload(try call(
+            method: "surface.create",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "type": "browser",
+                "profile": target.id.uuidString,
+            ]
+        ))
+        #expect(disabledError["code"] as? String == "invalid_params")
+        #expect((disabledError["message"] as? String)?.contains("disabled") == true)
+        BrowserAvailabilitySettings.setDisabled(false, defaults: defaults)
+    }
+
     @Test func explicitProfilesAreRejectedForRemoteWorkspaceCreation() throws {
         let defaults = UserDefaults.standard
         let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled(defaults: defaults)
@@ -305,7 +436,7 @@ struct BrowserProfileSocketTests {
         let profileID = BrowserProfileStore.shared.builtInDefaultProfileID.uuidString
         TerminalController.shared.setActiveTabManager(manager)
 
-        for method in ["browser.open_split", "pane.create"] {
+        for method in ["browser.open_split", "pane.create", "surface.create"] {
             var params: [String: Any] = [
                 "workspace_id": workspace.id.uuidString,
                 "surface_id": sourceID.uuidString,
@@ -314,6 +445,9 @@ struct BrowserProfileSocketTests {
             ]
             if method == "pane.create" {
                 params["direction"] = "right"
+                params["type"] = "browser"
+            }
+            if method == "surface.create" {
                 params["type"] = "browser"
             }
 

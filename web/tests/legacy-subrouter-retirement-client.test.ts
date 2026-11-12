@@ -14,6 +14,22 @@ describe("legacy Subrouter retirement client", () => {
     })).toThrow("legacy Subrouter retirement is not configured");
   });
 
+  test("has no default legacy source outside production", () => {
+    expect(() => legacySubrouterRetirementConfig({
+      VERCEL_ENV: "preview",
+      SUBROUTER_ADMIN_TOKEN: "admin",
+    })).toThrow("legacy Subrouter retirement is not configured");
+    expect(legacySubrouterRetirementConfig({
+      VERCEL_ENV: "preview",
+      SUBROUTER_ADMIN_TOKEN: "admin",
+      SUBROUTER_BASE_URL: "https://subrouter.example/",
+    }).baseUrl).toBe("https://subrouter.example");
+    expect(legacySubrouterRetirementConfig({
+      VERCEL_ENV: "production",
+      SUBROUTER_ADMIN_TOKEN: "admin",
+    }).baseUrl).toBe("https://subrouter.cmux.dev");
+  });
+
   test("revokes the exact legacy tenant without exposing the credential in the URL", async () => {
     const calls: Parameters<typeof fetch>[] = [];
     const client = createLegacySubrouterRetirementClient({

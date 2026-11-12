@@ -66,7 +66,10 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         let hostedTerminal = try makeHostedTerminal()
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
-        defer { window.orderOut(nil) }
+        defer {
+            hostedTerminal.surface.releaseHostedSurfaceForTesting()
+            window.orderOut(nil)
+        }
 
         // Headless CI runners can't initialize a Metal-backed Ghostty surface
         // (embedded_window logs error.OutOfMemory). Skip rather than report a

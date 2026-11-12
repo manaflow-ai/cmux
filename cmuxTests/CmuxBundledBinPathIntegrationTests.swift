@@ -81,7 +81,7 @@ struct CmuxBundledBinPathIntegrationTests {
             .appending(path: "shell-integration", directoryHint: .isDirectory)
         let binDirectory = resources.appending(path: "bin", directoryHint: .isDirectory)
         let openShim = binDirectory.appending(path: "open", directoryHint: .notDirectory)
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
+        let repositoryRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let shippedIntegration = repositoryRoot

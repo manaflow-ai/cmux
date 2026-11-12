@@ -17,6 +17,9 @@ public struct ControlSidebarStatusEntrySnapshot: Sendable, Equatable {
     public let priority: Int
     /// The render format (non-`plain` is appended to the listing line).
     public let format: ControlSidebarMetadataFormat
+    /// What a running agent is running on, when it reported one. Listed so
+    /// the state the compact glyph reads is observable over the socket.
+    public let workState: ControlSidebarAgentWorkState?
 
     /// Creates a snapshot.
     ///
@@ -28,6 +31,7 @@ public struct ControlSidebarStatusEntrySnapshot: Sendable, Equatable {
     ///   - urlAbsoluteString: The optional absolute URL string.
     ///   - priority: The display priority.
     ///   - format: The render format.
+    ///   - workState: The reported agent work state, if any.
     public init(
         key: String,
         value: String,
@@ -35,7 +39,8 @@ public struct ControlSidebarStatusEntrySnapshot: Sendable, Equatable {
         color: String?,
         urlAbsoluteString: String?,
         priority: Int,
-        format: ControlSidebarMetadataFormat
+        format: ControlSidebarMetadataFormat,
+        workState: ControlSidebarAgentWorkState? = nil
     ) {
         self.key = key
         self.value = value
@@ -44,5 +49,6 @@ public struct ControlSidebarStatusEntrySnapshot: Sendable, Equatable {
         self.urlAbsoluteString = urlAbsoluteString
         self.priority = priority
         self.format = format
+        self.workState = workState
     }
 }

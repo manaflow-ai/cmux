@@ -47,7 +47,7 @@ struct AboutLicensesResourceTests {
 
     @Test(
         "Non-stable builds link corresponding source to their commit",
-        arguments: ["com.cmuxterm.app.debug.licpkg", "com.cmuxterm.app.nightly"]
+        arguments: ["com.cmuxterm.app.debug.licpkg", "com.cmuxterm.app.nightly", "com.cmuxterm.app.rc"]
     )
     func nonStableBuildUsesCommit(bundleIdentifier: String) {
         let url = AboutLicenseContent(bundle: .main).correspondingSourceURL(

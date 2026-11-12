@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-import { StackServerApp } from "@stackframe/stack";
+import { StackServerApp } from "@hexclave/next";
 import { Pool } from "pg";
 
 import {
@@ -38,9 +38,10 @@ export function legacySubrouterRetirementConfigForTarget(
   target: LegacyTenantMigrationTarget,
   runtimeEnv: Record<string, string | undefined>,
 ) {
-  const targetBaseUrl = target === "production"
-    ? "https://subrouter.cmux.dev"
-    : "https://subrouter-staging.cmux.dev";
+  if (target !== "production") {
+    throw new Error("the staging legacy Subrouter is retired; only production can migrate");
+  }
+  const targetBaseUrl = "https://subrouter.cmux.dev";
   const configuredBaseUrl = runtimeEnv.SUBROUTER_BASE_URL?.trim().replace(/\/+$/, "");
   if (configuredBaseUrl && configuredBaseUrl !== targetBaseUrl) {
     throw new Error(`legacy Subrouter source does not match ${target} target`);

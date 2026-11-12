@@ -6,22 +6,16 @@ import Foundation
 @MainActor
 extension CloudTreeOutlineView.Coordinator {
     final class PendingDrag {
-        let dragID: UUID
-        let registration: TabDragTransferRegistration
-        let transferRegistry: TabDragTransferRegistry
+        let registration: CloudTreeDragRegistration
         weak var sourceView: NSOutlineView?
         weak var writer: CloudTreeSurfaceDragPasteboardWriter?
 
         init(
-            dragID: UUID,
-            registration: TabDragTransferRegistration,
-            transferRegistry: TabDragTransferRegistry,
+            registration: CloudTreeDragRegistration,
             sourceView: NSOutlineView,
             writer: CloudTreeSurfaceDragPasteboardWriter? = nil
         ) {
-            self.dragID = dragID
             self.registration = registration
-            self.transferRegistry = transferRegistry
             self.sourceView = sourceView
             self.writer = writer
         }

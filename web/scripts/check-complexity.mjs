@@ -25,7 +25,11 @@ const EXCLUDED_PREFIXES = [
   "tests/",
   "tools/",
 ];
-const TRUSTED_POLICY_FILES = ["web/scripts/check-complexity.mjs", ".github/workflows/web-complexity-trusted.yml"];
+const TRUSTED_POLICY_FILES = [
+  "scripts/ci/scope-web-complexity.py",
+  "web/scripts/check-complexity.mjs",
+  ".github/workflows/web-complexity-trusted.yml",
+];
 
 function fail(message) {
   console.error(`complexity gate: ${message}`);
@@ -48,6 +52,8 @@ function git(args, cwd = process.cwd(), allowFailure = false) {
 function parseArgs() {
   let base;
   let head;
+  let mergeRepo;
+  let mergeTree;
   let repoRoot;
   let toolRoot;
   let baseBaseline;
@@ -58,7 +64,7 @@ function parseArgs() {
     const arg = args[index];
     if (arg === "--help" || arg === "-h") {
       console.log(
-        "Usage: bun scripts/check-complexity.mjs [--base <sha> --head <sha>] [--repo-root <path>] [--tool-root <path>] [--base-baseline <path>] [--files <path> ...]",
+        "Usage: bun scripts/check-complexity.mjs [--base <sha> --head <sha>] [--merge-repo <git-dir> --merge-tree <tree>] [--repo-root <path>] [--tool-root <path>] [--base-baseline <path>] [--files <path> ...]",
       );
       process.exit(0);
     }
@@ -67,6 +73,15 @@ function parseArgs() {
       if (!value || value.startsWith("--")) fail(`${arg} requires a commit SHA`);
       if (arg === "--base") base = value;
       else head = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--merge-repo" || arg === "--merge-tree") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) fail(`${arg} requires a value`);
+      if (arg === "--merge-repo") mergeRepo = value;
+      else if (/^[0-9a-f]{40}$/.test(value)) mergeTree = value;
+      else fail("--merge-tree requires a full tree object ID");
       index += 1;
       continue;
     }
@@ -89,7 +104,9 @@ function parseArgs() {
 
   if ((base && !head) || (!base && head && !baseBaseline)) fail("--base or --base-baseline must be provided with --head");
   if (base && baseBaseline) fail("use only one of --base and --base-baseline");
-  return { base, head, repoRoot, toolRoot, baseBaseline, files };
+  if (Boolean(mergeRepo) !== Boolean(mergeTree)) fail("--merge-repo and --merge-tree must be given together");
+  const merge = mergeRepo ? { repo: path.resolve(mergeRepo), tree: mergeTree } : undefined;
+  return { base, head, merge, repoRoot, toolRoot, baseBaseline, files };
 }
 
 function isProductionSource(repoPath) {
@@ -120,9 +137,12 @@ function sourceFiles(repoRoot, explicitFiles) {
       .sort();
   }
 
-  const tracked = git(["ls-files", "--", "web"], repoRoot).stdout;
-  const untracked = git(["ls-files", "--others", "--exclude-standard", "--", "web"], repoRoot).stdout;
-  return [...new Set(`${tracked}\n${untracked}`.split("\n").filter(Boolean))]
+  // -z keeps git from C-quoting paths that contain non-ASCII or control
+  // characters. A quoted "web/app/\303\251.ts" no longer starts with web/, so
+  // isProductionSource() would drop the file and the gate would never see it.
+  const tracked = git(["ls-files", "-z", "--", "web"], repoRoot).stdout;
+  const untracked = git(["ls-files", "-z", "--others", "--exclude-standard", "--", "web"], repoRoot).stdout;
+  return [...new Set(`${tracked}${untracked}`.split("\0").filter(Boolean))]
     .filter(isProductionSource)
     .map((file) => file.slice("web/".length))
     .sort();
@@ -368,17 +388,50 @@ function oxlintLockEntries(root) {
     .join("\n");
 }
 
-function assertTrustedPolicy(repoRoot, toolRoot) {
-  if (path.resolve(repoRoot) === path.resolve(toolRoot)) return;
+// The raw `git ls-tree` entry (mode, type, object ID and path) for one path in
+// a tree, or an empty buffer when the tree has no such path.
+function treeEntry(gitArgs, tree, relative) {
+  const result = spawnSync("git", [...gitArgs, "ls-tree", "-z", tree, "--", relative], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) fail(`git ls-tree failed for ${relative}`);
+  return result.stdout;
+}
 
+// A stale branch carries old copies of trusted files that main has since
+// updated, and those copies never land: the merge keeps main's. So when the
+// workflow supplies the merge of this head into its base (git merge-tree, which
+// handles renames and criss-cross history the way the real merge does), each
+// trusted file is judged by its entry in that merge. Mode and object ID are
+// compared, so a symlink or type change cannot pass as an identical file.
+function assertTrustedFilesInMerge(toolRoot, merge) {
   for (const relative of TRUSTED_POLICY_FILES) {
-    const trustedFile = path.join(toolRoot, relative);
-    const candidateFile = path.join(repoRoot, relative);
-    if (!existsSync(trustedFile) || !existsSync(candidateFile)) {
+    const trusted = treeEntry(["-C", toolRoot], "HEAD", relative);
+    const merged = treeEntry([`--git-dir=${merge.repo}`], merge.tree, relative);
+    if (trusted.length === 0 || merged.length === 0) {
       fail(`${relative} must remain present and unchanged in a pull request`);
     }
-    if (readFileSync(trustedFile).compare(readFileSync(candidateFile)) !== 0) {
+    if (Buffer.compare(trusted, merged) !== 0) {
       fail(`${relative} is a trusted policy file and must be changed in a separate reviewed update`);
+    }
+  }
+}
+
+function assertTrustedPolicy(repoRoot, toolRoot, merge) {
+  if (path.resolve(repoRoot) === path.resolve(toolRoot)) return;
+
+  if (merge) {
+    assertTrustedFilesInMerge(toolRoot, merge);
+  } else {
+    for (const relative of TRUSTED_POLICY_FILES) {
+      const trustedFile = path.join(toolRoot, relative);
+      const candidateFile = path.join(repoRoot, relative);
+      if (!existsSync(trustedFile) || !existsSync(candidateFile)) {
+        fail(`${relative} must remain present and unchanged in a pull request`);
+      }
+      if (readFileSync(trustedFile).compare(readFileSync(candidateFile)) !== 0) {
+        fail(`${relative} is a trusted policy file and must be changed in a separate reviewed update`);
+      }
     }
   }
 
@@ -523,11 +576,11 @@ function diagnosticKey(repoRoot, diagnostic) {
   return `${filename}\t${diagnosticFingerprint(repoRoot, diagnostic)}\t${String(diagnostic.message ?? "")}`;
 }
 
-const { base, head, repoRoot: requestedRepoRoot, toolRoot: requestedToolRoot, baseBaseline, files: explicitFiles } = parseArgs();
+const { base, head, merge, repoRoot: requestedRepoRoot, toolRoot: requestedToolRoot, baseBaseline, files: explicitFiles } = parseArgs();
 const repoRoot = requestedRepoRoot ? path.resolve(requestedRepoRoot) : git(["rev-parse", "--show-toplevel"]).stdout.trim();
 const toolRoot = requestedToolRoot ? path.resolve(requestedToolRoot) : repoRoot;
 assertCheckedOutHead(repoRoot, head);
-assertTrustedPolicy(repoRoot, toolRoot);
+assertTrustedPolicy(repoRoot, toolRoot, merge);
 const baseline = readBaseline(repoRoot);
 assertBaselineOnlyShrinks(repoRoot, base, baseline, baseBaseline ? path.resolve(baseBaseline) : undefined);
 const files = sourceFiles(repoRoot, explicitFiles);

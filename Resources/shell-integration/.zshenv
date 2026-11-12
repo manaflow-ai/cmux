@@ -13,6 +13,14 @@
 # - CMUX_ZSH_ZDOTDIR (set by cmux when it overwrote a user-provided ZDOTDIR)
 # - unset (zsh treats unset ZDOTDIR as $HOME)
 
+# Move the one-shot welcome-banner token path out of the environment before
+# user startup files run, so children they exec (tmux, another shell) do not
+# inherit it. cmux-zsh-integration.zsh consumes the shell-local copy.
+if [[ -n "${CMUX_SHOW_WELCOME_FILE:-}" ]]; then
+    builtin typeset -g _CMUX_BOOTSTRAP_WELCOME_FILE="$CMUX_SHOW_WELCOME_FILE"
+    builtin unset CMUX_SHOW_WELCOME_FILE
+fi
+
 if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
     builtin export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
     builtin unset GHOSTTY_ZSH_ZDOTDIR
@@ -69,5 +77,5 @@ fi
         fi
     fi
 
-    builtin unset _cmux_file _cmux_ghostty _cmux_integ
+    builtin unset _cmux_file _cmux_ghostty _cmux_integ _CMUX_BOOTSTRAP_WELCOME_FILE
 }

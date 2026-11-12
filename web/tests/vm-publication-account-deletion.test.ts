@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { teardownVmPublicationsForAccountDeletion } from "../services/vm-publications/accountDeletion";
+import { ingressRule, publicationRuleStore } from "./fixtures/publicationRuleStore";
 import {
   VmPublicationProvider,
   VmPublicationProviderError,
@@ -18,6 +19,8 @@ const TARGET: CloudVmPublicationAccountDeletionTarget = {
   publicationId: "00000000-0000-4000-8000-000000000001",
   provider: "freestyle",
   hostname: "account.preview.example.test",
+  providerVmId: "vm-1",
+  hostnameClaimed: true,
   providerTlsRuleId: "tls-rule-account",
 };
 
@@ -68,8 +71,8 @@ describe("VM publication account deletion", () => {
           },
         },
         provider: {
-          deleteTlsRulesForHostnames: (hostnames) => {
-            events.push(`delete:${hostnames.join(",")}`);
+          deletePublicationTlsRules: (publications) => {
+            events.push(`delete:${publications.map((publication) => publication.hostname).join(",")}`);
             return Effect.succeed(2);
           },
         },
@@ -106,11 +109,11 @@ describe("VM publication account deletion", () => {
             },
           },
           provider: {
-            deleteTlsRulesForHostnames: () => {
+            deletePublicationTlsRules: () => {
               events.push("provider-delete");
               return Effect.fail(
                 new VmPublicationProviderError({
-                  operation: "deleteTlsRulesForHostnames",
+                  operation: "deletePublicationTlsRules",
                   cause: new Error("provider unavailable"),
                 }),
               );
@@ -125,7 +128,7 @@ describe("VM publication account deletion", () => {
     if (result._tag === "Left") {
       expect(result.left).toMatchObject({
         _tag: "VmPublicationProviderError",
-        operation: "deleteTlsRulesForHostnames",
+        operation: "deletePublicationTlsRules",
       });
     }
     expect(events).toEqual(["begin-disable", "provider-delete"]);
@@ -137,6 +140,8 @@ describe("VM publication account deletion", () => {
       ...TARGET,
       publicationId: "00000000-0000-4000-8000-000000000002",
       hostname: "second.preview.example.test",
+      providerVmId: "vm-1",
+      hostnameClaimed: true,
       providerTlsRuleId: null,
     };
     const result = await Effect.runPromise(
@@ -153,8 +158,8 @@ describe("VM publication account deletion", () => {
           },
         },
         provider: {
-          deleteTlsRulesForHostnames: (hostnames) => {
-            events.push(`delete:${hostnames.join(",")}`);
+          deletePublicationTlsRules: (publications) => {
+            events.push(`delete:${publications.map((publication) => publication.hostname).join(",")}`);
             return Effect.succeed(3);
           },
         },
@@ -169,5 +174,32 @@ describe("VM publication account deletion", () => {
       `finish:${TARGET.publicationId}`,
       `finish:${second.publicationId}`,
     ]);
+  });
+
+  test("removes the account's own rules and never a claimed owner's rule on the same hostname", async () => {
+    const store = publicationRuleStore([
+      ingressRule("tls-foreign-owner", "app.example.com", "vm-foreign"),
+      ingressRule("tls-own", "app.example.com", "vm-a"),
+      ingressRule("tls-own-duplicate", "app.example.com", "vm-a"),
+    ]);
+    const claimed = { ...TARGET, publicationId: "00000000-0000-4000-8000-00000000000a", hostname: "app.example.com", providerVmId: "vm-a" };
+    const unclaimed = { ...TARGET, publicationId: "00000000-0000-4000-8000-00000000000b", hostname: "app.example.com", providerVmId: "vm-b", providerTlsRuleId: null, hostnameClaimed: false };
+    // The first listing is stale: the claimed row recorded its rule after it.
+    const listed = [{ ...claimed, providerTlsRuleId: null }, unclaimed];
+    const rows = new Map([
+      [claimed.publicationId, { id: claimed.publicationId, state: "disabling", providerTlsRuleId: "tls-own", hostnameClaimedAt: new Date() }],
+      [unclaimed.publicationId, { id: unclaimed.publicationId, state: "disabling", providerTlsRuleId: null, hostnameClaimedAt: null }],
+    ]);
+    const result = await Effect.runPromise(runTeardown({
+      repository: {
+        listPublicationsForAccountDeletion: () => Effect.succeed(listed),
+        beginDisablePublication: (input) => Effect.succeed(rows.get(input.id) as never),
+        finishDisablePublication: () => Effect.succeed({ state: "disabled" } as never),
+      },
+      provider: store.provider,
+    }));
+    expect(result.publications).toBe(2);
+    expect(store.rules.map((rule) => rule.id)).toEqual(["tls-foreign-owner"]);
+    expect([...store.deleted].sort()).toEqual(["tls-own", "tls-own-duplicate"]);
   });
 });

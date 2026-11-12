@@ -2,15 +2,18 @@ import Foundation
 
 struct SurfaceResumeBindingIndex: Sendable {
     static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
+    static let unavailable = SurfaceResumeBindingIndex(bindingsByPanel: [:], isAvailable: false)
 
     typealias PanelKey = RestorableAgentSessionIndex.PanelKey
 
     private let bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]
     private let bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot]
     private let ambiguousPanelIds: Set<UUID>
+    let isAvailable: Bool
 
-    init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]) {
+    init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot], isAvailable: Bool = true) {
         self.bindingsByPanel = bindingsByPanel
+        self.isAvailable = isAvailable
         var candidatesByPanelId: [UUID: [SurfaceResumeBindingSnapshot]] = [:]
         for (key, binding) in bindingsByPanel {
             candidatesByPanelId[key.panelId, default: []].append(binding)
@@ -81,17 +84,22 @@ struct SurfaceResumeBindingIndex: Sendable {
     }
 
     static func loadProcessDetectedBindingsSynchronously(
+        processSnapshot: CmuxTopProcessSnapshot,
         fileManager: FileManager = .default
     ) -> SurfaceResumeBindingIndex {
-        let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
+        let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager, processSnapshot: processSnapshot, capturedAt: processSnapshot.sampledAt.timeIntervalSince1970)
         return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     static func loadIncludingProcessDetectedBindings(
         fileManager: FileManager = .default
     ) async -> SurfaceResumeBindingIndex {
-        await Task.detached(priority: .utility) {
-            loadProcessDetectedBindingsSynchronously(fileManager: fileManager)
-        }.value
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
+        return loadProcessDetectedBindingsSynchronously(processSnapshot: snapshot, fileManager: fileManager)
     }
 }

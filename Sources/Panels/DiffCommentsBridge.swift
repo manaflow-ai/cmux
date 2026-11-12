@@ -54,11 +54,19 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
     }
 
     private let store: DiffCommentStore
+    private let preferencesStore: DiffViewerPreferencesStore
+    private let viewedFilesStore: DiffViewerViewedFilesStore
 
-    init(store: DiffCommentStore? = nil) {
-        // Default resolved in the MainActor body: a `.shared` default argument
+    init(
+        store: DiffCommentStore? = nil,
+        preferencesStore: DiffViewerPreferencesStore? = nil,
+        viewedFilesStore: DiffViewerViewedFilesStore? = nil
+    ) {
+        // Defaults resolved in the MainActor body: a `.shared` default argument
         // would evaluate in the caller's nonisolated context and warn.
         self.store = store ?? DiffCommentStore.shared
+        self.preferencesStore = preferencesStore ?? DiffViewerPreferencesStore.shared
+        self.viewedFilesStore = viewedFilesStore ?? DiffViewerViewedFilesStore.shared
     }
 
     /// Adds the reply handler to a user content controller exactly once.
@@ -152,6 +160,23 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             throw BridgeError.invalidRequest("Malformed bridge request")
         }
         let params = body["params"] as? [String: Any] ?? [:]
+
+        // Viewer display preferences are global (not per-repo), so they are
+        // handled before the repoRoot requirement the comment methods share.
+        switch method {
+        case "viewerPrefs.get":
+            return ["preferences": preferencesStore.preferences()]
+        case "viewerPrefs.set":
+            guard let rawPreferences = params["preferences"] as? [String: Any] else {
+                throw BridgeError.invalidRequest("Missing preferences")
+            }
+            return ["preferences": preferencesStore.merge(rawPreferences)]
+        case "viewedFiles.list", "viewedFiles.set", "viewedFiles.clear":
+            return try handleViewedFiles(method: method, params: params)
+        default:
+            break
+        }
+
         guard let repoRoot = (params["repoRoot"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !repoRoot.isEmpty else {
             throw BridgeError.invalidRequest("Missing repoRoot")
@@ -187,6 +212,37 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             return ["deleted": store.delete(id: id, repoRoot: repoRoot)]
         default:
             throw BridgeError.invalidRequest("Unsupported method '\(method)'")
+        }
+    }
+
+    // MARK: - Viewed files
+
+    /// Per-file "Viewed" state, scoped by repository root plus diff source
+    /// identity (`unstaged`, `staged`, `branch:<base>`, `patch:<path>`, ...).
+    private func handleViewedFiles(method: String, params: [String: Any]) throws -> Any {
+        guard let rawScope = params["scope"] as? [String: Any],
+              let repoRoot = (rawScope["repoRoot"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let source = (rawScope["source"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !repoRoot.isEmpty, !source.isEmpty else {
+            throw BridgeError.invalidRequest("Missing viewed files scope")
+        }
+        let scope = DiffViewerViewedFilesStore.Scope(repoRoot: repoRoot, source: source)
+        switch method {
+        case "viewedFiles.list":
+            return ["files": viewedFilesStore.jsonEntries(scope: scope)]
+        case "viewedFiles.set":
+            guard let file = params["file"] as? [String: Any],
+                  let path = file["path"] as? String, !path.isEmpty,
+                  let fingerprint = file["fingerprint"] as? String, !fingerprint.isEmpty else {
+                throw BridgeError.invalidRequest("Malformed viewed file")
+            }
+            let entry = viewedFilesStore.markViewed(scope: scope, path: path, fingerprint: fingerprint)
+            return ["file": ["path": entry.path, "fingerprint": entry.fingerprint]]
+        default:
+            guard let path = params["path"] as? String, !path.isEmpty else {
+                throw BridgeError.invalidRequest("Missing viewed file path")
+            }
+            return ["cleared": viewedFilesStore.clear(scope: scope, path: path)]
         }
     }
 

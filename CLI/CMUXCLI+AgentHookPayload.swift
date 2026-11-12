@@ -1,6 +1,60 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Identifies Codex workers that share a process with a visible session but
+    /// do not own a user-resumable conversation.
+    func codexHookIsInternalSession(
+        input: ClaudeHookParsedInput,
+        cwd: String?,
+        environment: [String: String]
+    ) -> Bool {
+        if let raw = input.rawObject {
+            if firstString(in: raw, keys: ["thread_source", "threadSource"])?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased() == "subagent" {
+                return true
+            }
+            if let source = raw["source"] as? [String: Any],
+               source["subagent"] != nil || source["subAgent"] != nil {
+                return true
+            }
+        }
+
+        // Internal memory consolidation workers have no rollout transcript and
+        // run from Codex's shared memory workspace. A normal ephemeral session
+        // may also omit a transcript, so the cwd boundary is required.
+        guard input.transcriptPath == nil,
+              let rawCWD = normalizedHookValue(cwd) else {
+            return false
+        }
+        let rawHome: String
+        if let home = normalizedHookValue(environment["HOME"]) {
+            rawHome = home
+        } else {
+            let home = NSHomeDirectory()
+            guard !home.isEmpty else { return false }
+            rawHome = home
+        }
+        let codexHome = normalizedHookValue(environment["CODEX_HOME"])
+            ?? URL(fileURLWithPath: rawHome, isDirectory: true)
+                .appendingPathComponent(".codex", isDirectory: true)
+                .path
+        let memoryRoot = URL(
+            fileURLWithPath: NSString(string: codexHome).expandingTildeInPath,
+            isDirectory: true
+        )
+        .appendingPathComponent("memories", isDirectory: true)
+        .standardizedFileURL
+        .path
+        let cwd = URL(
+            fileURLWithPath: NSString(string: rawCWD).expandingTildeInPath,
+            isDirectory: true
+        )
+        .standardizedFileURL
+        .path
+        return cwd == memoryRoot || cwd.hasPrefix(memoryRoot + "/")
+    }
+
     /// Returns the hook event explicitly reported by an agent payload.
     ///
     /// Claude's hook command is selected by the installed settings, but the
@@ -20,9 +74,10 @@ extension CMUXCLI {
     /// Whether a Claude `stop` invocation is allowed to settle the parent.
     ///
     /// Payloads from current Claude Code versions identify their hook event;
-    /// only an explicit top-level `Stop` may run the visible completion path.
-    /// Older payloads omitted the discriminator, so those retain the legacy
-    /// command-driven behavior.
+    /// only an explicit top-level `Stop`, or the `StopFailure` Claude Code
+    /// fires instead of `Stop` when a turn dies on an API error, may run the
+    /// visible stop path. Older payloads omitted the discriminator, so those
+    /// retain the legacy command-driven behavior.
     func shouldApplyClaudeStopVisibleMutation(_ input: ClaudeHookParsedInput) -> Bool {
         guard let rawEvent = reportedHookEventName(from: input) else { return true }
         let normalized = rawEvent
@@ -30,7 +85,7 @@ extension CMUXCLI {
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
             .lowercased()
-        return normalized == "stop"
+        return normalized == "stop" || normalized == "stopfailure"
     }
 
     func parseClaudeHookInput(rawInput: String) -> ClaudeHookParsedInput {
@@ -77,10 +132,11 @@ extension CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
+            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath", "agent_id", "agentId",
+            "permission_mode", "permissionMode",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "assistant_response", "assistantResponse",
             "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
-            "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
+            "title", "summary", "message", "body", "text", "prompt", "error", "error_details", "codex_error_info", "codexErrorInfo",
             "agent_state", "turn_outcome",
             "additional_details", "additionalDetails", "description",
             "campfire_event_type", "campfireEventType", "display_name", "displayName", "capability",
@@ -88,6 +144,20 @@ extension CMUXCLI {
             if let value = compactClaudeHookValue(object[key], key: key) {
                 compact[key] = value
             }
+        }
+        for key in ["fullyIdle", "cmux_notification_routed"] {
+            if let value = object[key] as? Bool {
+                compact[key] = value
+            }
+        }
+
+        // The message keys above are capped at 240 characters, so a consumer
+        // reading the compacted payload cannot tell a long prompt from a short
+        // one. Carry the submitted length alongside it. An integer exposes no
+        // prompt text, so this stays inside the same redaction boundary.
+        for key in Self.hookMessageLengthKeys {
+            guard let raw = object[key] as? String else { continue }
+            compact["\(key)_length"] = raw.count
         }
 
         if let toolInput = object["tool_input"] as? [String: Any] {
@@ -149,6 +219,11 @@ extension CMUXCLI {
                     compactNested[nestedKey] = value
                 }
             }
+            for messageKey in Self.hookMessageLengthKeys {
+                if let raw = nested[messageKey] as? String {
+                    compactNested["\(messageKey)_length"] = raw.count
+                }
+            }
             if !compactNested.isEmpty {
                 compact[key] = compactNested
             }
@@ -175,9 +250,13 @@ extension CMUXCLI {
         return compact
     }
 
+    /// Message-bearing keys whose true length is published beside the
+    /// truncated value. Mirrors `promptMessageKeys` in WorkspacePromptSubmit.
+    static let hookMessageLengthKeys = ["prompt", "text", "message", "body"]
+
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "agent_state", "turn_outcome", "campfire_event_type", "campfireEventType", "capability":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "permission_mode", "permissionMode", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "campfire_event_type", "campfireEventType", "capability":
             return 80
         case "transcript_path", "transcriptPath":
             return 240

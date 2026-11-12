@@ -11,12 +11,20 @@
 #define GHOSTTY_RUNTIME_TEST_STUB_WEAK
 #endif
 
+typedef struct {
+    const char *ptr;
+    uintptr_t len;
+    bool sentinel;
+} GhosttyRuntimeTestString;
+
 // Test-only weak stand-ins for libghostty symbols reached by
 // GhosttyRuntimeCInterop and GhosttySurfaceRuntimeProbe. Plain SwiftPM still
 // cannot reliably link GhosttyKit's macOS archive because its static library is
 // not lib-prefixed, while xcodebuild now links that archive for this package.
 // Weak definitions let xcodebuild use GhosttyKit's real symbols and let SwiftPM
 // tests link fallback symbols no test calls.
+GHOSTTY_RUNTIME_TEST_STUB_WEAK int ghostty_init(uintptr_t argc, char **argv);
+
 GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_surface_new_with_scrollback_limit(
     void *app,
     const void *config,
@@ -35,6 +43,11 @@ GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_config_load_string(
     const char *contents,
     uintptr_t contents_len,
     const char *path);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_config_finalize(void *config);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK GhosttyRuntimeTestString
+ghostty_config_serialize(const void *config);
+GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_string_free(
+    GhosttyRuntimeTestString string);
 GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_config_get(
     void *config,
     void *value,

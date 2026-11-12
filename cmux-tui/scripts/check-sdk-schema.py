@@ -21,6 +21,10 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::FrontendJournalEvent": "FrontendJournalEvent",
     "crate::ResourceSelectors": "ResourceSelectors",
     "ProtocolKeyInput": "TerminalKeyInput",
+    "DetachClientTarget": "DetachClientTarget",
+    "TerminalDetachActor": "SizeDetachActor",
+    "TerminalSizingPolicy": "SizePolicy",
+    "ClientIdentityWire": "SizingIdentity",
 }
 
 sys.path.insert(0, str(BINDINGS))

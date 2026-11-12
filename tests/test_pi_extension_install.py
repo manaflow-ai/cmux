@@ -26,9 +26,39 @@ from claude_teams_test_utils import (
 NONBLOCKING_LOCK_TIMEOUT_SECONDS = 5.0
 
 
+# Fixtures exit at once while this is set, so priming runs none of their logic.
+PRIME_ENVIRONMENT_KEY = "CMUX_TEST_PRIME_EXEC"
+
+
+def prime_first_exec(path: Path) -> None:
+    """Pay macOS's first-exec assessment for a new executable before timing it.
+
+    The first exec of every newly written file blocks while syspolicyd assesses
+    it, one file at a time across the whole machine: about 0.2 s on an idle Mac
+    and seconds on a loaded shared mini. The fake cmux runs first inside the
+    import check's 5 s waits, which must time only the extension's hooks.
+    """
+    subprocess.run(
+        [str(path)],
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), PRIME_ENVIRONMENT_KEY: "1"},
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=120,
+        check=False,
+    )
+
+
 def make_executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+    """Write a fixture that exits at once while primed, then prime it."""
+    shebang, newline, body = content.partition("\n")
+    if "node" in shebang:
+        guard = f"if (process.env.{PRIME_ENVIRONMENT_KEY}) process.exit(0);\n"
+    else:
+        guard = f'if [ -n "${{{PRIME_ENVIRONMENT_KEY}:-}}" ]; then exit 0; fi\n'
+    path.write_text(f"{shebang}{newline}{guard}{body}", encoding="utf-8")
     path.chmod(0o755)
+    prime_first_exec(path)
 
 
 def communicate_or_terminate(
@@ -385,6 +415,10 @@ case "$*" in
     fi
     printf '{}\n'
     ;;
+  *"hooks pi session-start"*)
+    printf '{"resume_binding":{"kind":"pi","checkpoint_id":"pi-session-test","source":"agent-hook","auto_resume":true,"approval_policy":"auto"}}\n' > "$CMUX_TEST_PI_BINDING_FILE"
+    printf '{"workspace_id":"workspace-pi-test","surface_id":"surface-pi-test"}\n'
+    ;;
   *"surface resume get"*)
     if [ -f "$CMUX_TEST_PI_BINDING_FILE" ]; then
       cat "$CMUX_TEST_PI_BINDING_FILE"
@@ -517,8 +551,25 @@ async function waitForFeedEvent(eventName, expectedCount) {
   }
   throw new Error(`timed out waiting for ${expectedCount} ${eventName} Feed events`);
 }
+async function waitForArgument(fragment) {
+    const path = process.env.CMUX_TEST_PI_ARGS_LOG;
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const lines = path && Bun.file(path).size
+        ? (await Bun.file(path).text()).split("\\n")
+        : [];
+      if (lines.some((line) => line.includes(fragment))) return;
+      await Bun.sleep(10);
+    }
+  throw new Error(`timed out waiting for ${fragment}`);
+}
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
+await waitForArgument("hooks pi prompt-submit");
+const sessionStartBinding = JSON.parse(await Bun.file(process.env.CMUX_TEST_PI_BINDING_FILE).text()).resume_binding;
+if (sessionStartBinding?.auto_resume !== true || sessionStartBinding?.approval_policy !== "auto") {
+  throw new Error(`Pi session-start downgraded its resume binding: ${JSON.stringify(sessionStartBinding)}`);
+}
 await handlers.get("tool_execution_start")({
   id: "tool-event-start-should-not-be-turn-id",
   toolCallId: "tool-call-1",
@@ -551,6 +602,7 @@ const subagentTools = [
   { tool_name: "team_spawn" },
   { name: "superpowers_dispatch" },
   { toolName: "Task" },
+  { toolName: "Agent" },
   { toolName: "review_subagent_batch" }
 ];
 for (let index = 0; index < subagentTools.length; index += 1) {
@@ -609,8 +661,8 @@ completionCount += 2;
 await waitForCompletionHookCount(completionCount);
 await handlers.get("agent_settled")({}, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("duplicate agent_settled emitted completion twice");
-await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
-if (await completionHookCount() !== completionCount) throw new Error("shutdown after settlement emitted a duplicate stop");
+await handlers.get("session_shutdown")({ reason: "reload" }, ctx);
+if (await completionHookCount() !== completionCount) throw new Error("reload after settlement emitted a duplicate stop");
 const abortedCtx = {
   cwd: "/tmp/pi-project",
   isIdle() { return true; },
@@ -682,6 +734,21 @@ completionCount += 1;
 if (await completionHookCount() !== completionCount) throw new Error("interrupted shutdown did not emit one stop");
 await handlers.get("agent_settled")({}, interruptedCtx);
 if (await completionHookCount() !== completionCount) throw new Error("late settlement emitted completion after shutdown");
+for (const reason of ["reload", "quit"]) {
+  const shutdownCtx = {
+    ...ctx,
+    sessionManager: { getSessionId() { return `pi-session-idle-${reason}`; } }
+  };
+  await handlers.get("session_start")({}, shutdownCtx);
+  completionCount = await completionHookCount();
+  await handlers.get("session_shutdown")({ reason }, shutdownCtx);
+  if (await completionHookCount() !== completionCount + 1) {
+    throw new Error(`idle ${reason} did not emit exactly one Stop`);
+  }
+  if (await Bun.file(process.env.CMUX_TEST_PI_BINDING_FILE).exists()) {
+    throw new Error(`idle ${reason} did not clear resume binding`);
+  }
+}
 process.env.CMUX_PI_HOOKS_DISABLED = "1";
 const disabledCompletionCount = await completionHookCount();
 const disabledCtx = {
@@ -824,8 +891,6 @@ await waitForCompletionHookCount(completionCount);
             "hooks feed --source pi --event PostCompact",
             "hooks feed --source pi --event SubagentStart",
             "hooks feed --source pi --event SubagentStop",
-            "surface resume get",
-            "surface resume set",
             "surface resume clear",
         ]:
             if expected not in args_log:
@@ -842,31 +907,34 @@ await waitForCompletionHookCount(completionCount);
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
         expected_resume_ops = [
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
-            "set",
-            "get",
-            "set",
-            "get",
-            "set",
-            "get",
+            "clear",
+            "clear",
         ]
         if resume_ops != expected_resume_ops:
-            print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
+            print(f"FAIL: extension emitted unexpected resume binding operations, got {resume_ops!r}")
             return 1
         payloads = payloads_from_log(stdin_log)
+        for reason in ["reload", "quit"]:
+            shutdown_payloads = [
+                payload
+                for payload in payloads
+                if payload.get("session_id") == f"pi-session-idle-{reason}"
+                and payload.get("hook_event_name") in {"Notification", "Stop"}
+            ]
+            if [payload.get("hook_event_name") for payload in shutdown_payloads] != ["Stop"]:
+                print(f"FAIL: idle {reason} did not emit only one Stop: {shutdown_payloads!r}")
+                return 1
+            stop = shutdown_payloads[0]
+            if stop.get("terminationReason") != reason:
+                print(f"FAIL: idle {reason} lost its termination reason: {stop!r}")
+                return 1
+            if (stop.get("cmux_notification_routed") is True) != (reason == "reload"):
+                print(f"FAIL: idle {reason} has incorrect notification suppression: {stop!r}")
+                return 1
         for session_id in [
             "pi-session-test",
             "pi-session-notification-fails",
@@ -1028,6 +1096,7 @@ await waitForCompletionHookCount(completionCount);
             "team_spawn",
             "superpowers_dispatch",
             "Task",
+            "Agent",
             "review_subagent_batch",
         ]
         for tool_name in expected_subagent_names:

@@ -1,4 +1,5 @@
 import SwiftUI
+import CmuxSettings
 
 /// **Sleepy Mode** section — the keep-awake screensaver/lock: appearance,
 /// scene toggles, the Touch ID lock toggle, and preview/start actions.

@@ -217,6 +217,15 @@ struct VaultPaneTransferLifecycleTests {
                 currentEvent: mouseDragged,
                 dragPasteboard: drag.pasteboard
             )
+            let dropTarget = try #require(dragHit as? BrowserPaneDropTargetView)
+            let draggingInfo = DockPaneDropMockDraggingInfo(
+                window: window,
+                location: pointInWindow,
+                pasteboard: drag.pasteboard
+            )
+            #expect(!dropTarget.draggingEntered(draggingInfo).isEmpty)
+            defer { dropTarget.draggingExited(draggingInfo) }
+            #expect(host.hasActivePaneDropDrag)
             let mouseUpHit = host.performHitTest(
                 at: pointInHost,
                 currentEvent: mouseUp,

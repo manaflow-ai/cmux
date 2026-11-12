@@ -23,8 +23,8 @@ export const projects = {
 };
 
 export const requiredRuntimeEnvKeys = [
+  // AWS_REGION is used by KMS and other AWS SDK clients, never for the database.
   "AWS_REGION",
-  "AWS_ROLE_ARN",
   // Without the Slack sink every triggered VM alert drops silently while the
   // alert cron keeps returning 200, so an unset webhook is an observability
   // outage, not a tuning choice. The only waiver is a recorded operator
@@ -54,10 +54,7 @@ export const requiredRuntimeEnvKeys = [
   "FREESTYLE_API_KEY",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
-  "PGDATABASE",
-  "PGHOST",
-  "PGPORT",
-  "PGUSER",
+  "DATABASE_URL",
   "STACK_SECRET_SERVER_KEY",
 ];
 
@@ -66,6 +63,7 @@ export const requiredRuntimeEnvKeys = [
 // stack-token form that the runtime client accepts without making operators
 // store two credentials.
 export const requiredRuntimeEnvAlternativeGroups = [
+  { requiredKeys: ["DATABASE_URL"], alternatives: [["DIRECT_DATABASE_URL"]] },
   {
     requiredKeys: ["FREESTYLE_API_KEY"],
     alternatives: [["FREESTYLE_STACK_ACCESS_TOKEN", "FREESTYLE_TEAM_ID"]],
@@ -106,7 +104,6 @@ export const recommendedRuntimeEnvKeys = [
   // VALUES are audited by freeProvisioningAudit.mjs (a permissive value fails).
   // CMUX_ALERTS_SINK_UNCONFIGURED_ACK is absent for the same reason; its VALUE
   // is audited by alertSinkAudit.mjs.
-  "CMUX_DB_SSL_REJECT_UNAUTHORIZED",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_HEADERS",
   "OTEL_SERVICE_NAME",

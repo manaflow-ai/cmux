@@ -20,7 +20,7 @@ set -euo pipefail
 #       [--audience internal|external] [--bundle-id dev.cmux.app.beta] \
 #       [--changelog <path>] [--locale en-US] \
 #       [--expect-marketing-version X.Y.Z] \
-#       [--notes "literal override text"] [--timeout-seconds 900]
+#       [--notes "literal override text"] [--timeout-seconds 1800]
 #
 # --expect-marketing-version asserts the changelog TOP entry's version equals the
 # build's marketing version, so notes for the wrong version are never published
@@ -45,7 +45,7 @@ BUNDLE_ID="${IOS_BETA_BUNDLE_ID:-dev.cmux.app.beta}"
 CHANGELOG="$IOS_DIR/CHANGELOG.md"
 LOCALE="en-US"
 NOTES_OVERRIDE=""
-TIMEOUT_SECONDS="900"
+TIMEOUT_SECONDS="${CMUX_TESTFLIGHT_PROCESSING_TIMEOUT_SECONDS:-1800}"
 # When set, the TOP changelog version MUST equal this (the MARKETING_VERSION of
 # the build being annotated). Guards against attaching e.g. 1.0.3 notes to a build
 # archived as 1.0.0 when a cut forgets to bump the version. upload-testflight.sh

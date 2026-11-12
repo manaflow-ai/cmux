@@ -1,11 +1,7 @@
 import Foundation
 
-/// Delivers a ``MachineCreateNotice`` through the app's notification store:
-/// a banner (unless the person is already looking at the target) plus an
-/// entry in the notifications list, anchored to the workspace the machine
-/// opened in so clicking it goes there. Failures anchor to the workspace the
-/// person is in right now, so an error from a create they walked away from
-/// still reaches them.
+/// Delivers actionable failure and fallback success notices through the app's
+/// notification store. A success that selected its workspace never reaches it.
 struct MachineCreateNotifier {
     @MainActor
     func post(_ notice: MachineCreateNotice) {

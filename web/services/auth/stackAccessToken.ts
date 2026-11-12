@@ -7,7 +7,7 @@ import {
 } from "jose";
 
 import { env } from "../../app/env";
-import { stackApiBaseURL } from "./stackApiBaseURL";
+import { stackTokenIssuerBaseURL } from "./stackApiBaseURL";
 
 /**
  * Identity proven by a Stack Auth access token whose signature we checked
@@ -55,7 +55,7 @@ export function stackAccessTokenVerifierFromEnv(): StackAccessTokenVerifier | nu
   if (!projectId) return null;
   let apiBaseURL: string;
   try {
-    apiBaseURL = stackApiBaseURL().replace(/\/api\/v1$/u, "");
+    apiBaseURL = stackTokenIssuerBaseURL().replace(/\/api\/v1$/u, "");
   } catch {
     return null;
   }

@@ -197,12 +197,15 @@ final class MobileStateSyncHost {
                 localFallback: controller.mobileNonEmpty(terminal.directory)
                     ?? controller.mobileNonEmpty(terminal.requestedWorkingDirectory)
             )
+            let agent = workspace.mobileAgentStatus(forPanel: terminal.id)
             return WorkspaceSyncRecord.Terminal(
                 id: terminal.id.uuidString,
                 title: workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 currentDirectory: terminalDirectory,
                 isReady: terminal.surface.surface != nil,
-                isFocused: workspace.isFocusedTerminalInputSurface(terminal.id)
+                isFocused: workspace.isFocusedTerminalInputSurface(terminal.id),
+                agentSource: agent?.source,
+                agentState: agent?.state
             )
         }
         let simulatorEncoder = MobileSimulatorWireEncoder()

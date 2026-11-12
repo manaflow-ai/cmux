@@ -106,12 +106,19 @@ final class JSSidebarEngine {
             // responder off the NSTextField by itself, so resign it here.
             // The field's own submit/cancel/edit events must not re-blur -
             // "edit" fires on every keystroke of a live search field.
-            if event != "submit", event != "cancel", event != "edit",
+            // Drag feedback is informational, including when list disposal
+            // clears it while an unrelated editor remains active.
+            if event != "submit", event != "cancel", event != "edit", event != "dragChange",
                let window = NSApp.keyWindow,
                window.firstResponder is NSTextView {
                 window.makeFirstResponder(nil)
             }
-            self?.runtime?.dispatchEvent(nodeId: nodeId, event: event, payload: payload)
+            // A click may focus a text field its handler creates (a rename
+            // editor), but only if focus stays put; see SceneAutofocusGate.
+            guard let self, let runtime = self.runtime else { return }
+            runtime.store.autofocusGate.deliver(event) {
+                runtime.dispatchEvent(nodeId: nodeId, event: event, payload: payload)
+            }
         }
     }
 

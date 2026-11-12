@@ -47,7 +47,8 @@ extension TerminalPanel {
     func beginAgentHibernationTermination(
         agent: SessionRestorableAgentSnapshot,
         lastActivityAt: Date,
-        committedAt: Date = .now
+        committedAt: Date = .now,
+        processExitFence: (@Sendable () async -> Bool)? = nil
     ) -> Bool {
         guard case .live = agentHibernationPhase else { return false }
         onRequestAgentHibernationTerminationRetry = nil
@@ -57,7 +58,8 @@ extension TerminalPanel {
             lastActivityAt: lastActivityAt
         )
         guard suspendRuntimeForAgentHibernation(
-            reason: "agentHibernation.terminating"
+            reason: "agentHibernation.terminating",
+            processExitFence: processExitFence
         ) else {
             return false
         }
@@ -105,8 +107,28 @@ extension TerminalPanel {
         onRequestAgentHibernationTerminationRetry?()
     }
 
-    private func suspendRuntimeForAgentHibernation(reason: String) -> Bool {
-        guard surface.suspendRuntimeSurfaceForAgentHibernation(reason: reason) else {
+    /// Banner action: type the resume command again and restart the wake check.
+    func retryAgentWake() {
+        onRequestAgentWakeRetry?()
+    }
+
+    /// Banner action: close the wake failure banner.
+    func dismissAgentWakeFailure() {
+        if let onDismissAgentWakeFailure {
+            onDismissAgentWakeFailure()
+        } else {
+            agentWakeFailure = nil
+        }
+    }
+
+    private func suspendRuntimeForAgentHibernation(
+        reason: String,
+        processExitFence: (@Sendable () async -> Bool)? = nil
+    ) -> Bool {
+        guard surface.suspendRuntimeSurfaceForAgentHibernation(
+            reason: reason,
+            processExitFence: processExitFence
+        ) else {
             return false
         }
         unfocus()
@@ -117,6 +139,7 @@ extension TerminalPanel {
         return true
     }
 
+    /// Recreates the terminal runtime while retaining the old-generation intent until a new process is recorded.
     @discardableResult
     func prepareAgentHibernationResume() -> AgentHibernationResumePreparation {
         guard case .hibernated(let state) = agentHibernationPhase else {

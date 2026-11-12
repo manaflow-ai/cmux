@@ -68,6 +68,9 @@ public final class ControlCommandCoordinator {
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The command result, or `nil` if not owned here.
     public func handle(_ request: ControlRequest) -> ControlCallResult? {
+        if let error = context?.controlRemoteRelayDispatchError(method: request.method, params: request.params) {
+            return error
+        }
         // Each domain's handler (in its own `+<Domain>.swift` extension) owns its
         // methods and returns `nil` for anything else, so the chain falls through
         // to the next domain and finally to the legacy app-side dispatcher.
@@ -202,6 +205,16 @@ public final class ControlCommandCoordinator {
         handles.uuid(forRef: ref)
     }
 
+    /// Returns the ref already minted for an object, without minting one.
+    ///
+    /// - Parameters:
+    ///   - kind: The handle kind.
+    ///   - uuid: The object identity.
+    /// - Returns: The existing ref, or `nil` if none was minted or it was removed.
+    public func existingRef(kind: ControlHandleKind, uuid: UUID) -> String? {
+        handles.existingRef(kind: kind, uuid: uuid)
+    }
+
     /// Drops the ref for an identifier (without reusing its ordinal).
     ///
     /// - Parameters:
@@ -285,7 +298,9 @@ public final class ControlCommandCoordinator {
             surfaceID: uuid(params, "surface_id")
                 ?? uuid(params, "terminal_id")
                 ?? uuid(params, "tab_id"),
-            paneID: uuid(params, "pane_id")
+            paneID: uuid(params, "pane_id"),
+            remoteRelayOwnerWorkspaceID: uuid(params, "_cmux_remote_workspace_id"),
+            remoteRelayConnectionID: uuid(params, "_cmux_remote_connection_id")
         )
     }
 }

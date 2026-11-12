@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxCloud
 import AppKit
 import CmuxBrowser
 import CmuxTerminalCore
@@ -18,13 +20,15 @@ struct AppWebThemeSnapshot: Equatable {
             ?? GhosttyApp.shared.defaultForegroundColor
         return resolved(
             backgroundColor: backgroundColor,
-            foregroundColor: foregroundColor
+            foregroundColor: foregroundColor,
+            accent: (AppDelegate.shared?.accentColor ?? CmuxAccentColor())
         )
     }
 
     static func resolved(
         backgroundColor: NSColor,
-        foregroundColor: NSColor
+        foregroundColor: NSColor,
+        accent: CmuxAccentColor = CmuxAccentColor()
     ) -> AppWebThemeSnapshot {
         let colorScheme = cmuxReadableColorScheme(for: backgroundColor)
         let appearance = colorScheme == .dark ? "dark" : "light"
@@ -32,7 +36,7 @@ struct AppWebThemeSnapshot: Equatable {
             appearance: appearance,
             background: backgroundColor.hexString(),
             foreground: foregroundColor.hexString(),
-            accent: cmuxAccentNSColor(for: colorScheme).hexString()
+            accent: accent.nsColor(for: colorScheme).hexString()
         )
     }
 
@@ -192,8 +196,8 @@ struct AppWebThemeSnapshot: Equatable {
 /// Pro. The checklist is a chromeless in-app web page (`/app-pro-welcome`)
 /// shown in the same dedicated workspace surface as the pricing page, so it
 /// matches how upgrade/pricing already appears. Automatic presentation is
-/// gated on Pro status, a persisted seen-flag, and the Pro upgrade UI feature
-/// flag; manual and debug entrypoints call `present()` directly.
+/// gated on Pro status and a persisted seen-flag; manual and debug entrypoints
+/// call `present()` directly.
 enum ProWelcomeChecklistPresenter {
     static let seenDefaultsKey = "cmux.pro.welcomeChecklist.seen"
 
@@ -202,28 +206,26 @@ enum ProWelcomeChecklistPresenter {
     @MainActor
     static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
 
-    static func shouldPresentAutomatically(isPro: Bool, seen: Bool, flagEnabled: Bool) -> Bool {
-        isPro && !seen && flagEnabled
+    static func shouldPresentAutomatically(isPro: Bool, seen: Bool) -> Bool {
+        isPro && !seen
     }
 
     /// Whether the automatic checklist could plausibly be shown, ignoring the
     /// Pro status that only a network fetch can determine. Lets callers skip
     /// the `/api/billing/plan` fetch entirely when the checklist is already
-    /// seen or the Pro upgrade UI flag is off (the common Release path).
+    /// seen.
     static func canPresentAutomatically(
-        flagEnabled: Bool,
         defaults: UserDefaults = .standard
     ) -> Bool {
-        flagEnabled && !defaults.bool(forKey: seenDefaultsKey)
+        !defaults.bool(forKey: seenDefaultsKey)
     }
 
     static func consumeAutomaticPresentation(
         isPro: Bool,
-        flagEnabled: Bool,
         defaults: UserDefaults
     ) -> Bool {
         let seen = defaults.bool(forKey: seenDefaultsKey)
-        guard shouldPresentAutomatically(isPro: isPro, seen: seen, flagEnabled: flagEnabled) else {
+        guard shouldPresentAutomatically(isPro: isPro, seen: seen) else {
             return false
         }
         defaults.set(true, forKey: seenDefaultsKey)
@@ -239,7 +241,6 @@ enum ProWelcomeChecklistPresenter {
     static func presentIfNewlyPro(isPro: Bool, defaults: UserDefaults = .standard) {
         guard consumeAutomaticPresentation(
             isPro: isPro,
-            flagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
             defaults: defaults
         ) else {
             return

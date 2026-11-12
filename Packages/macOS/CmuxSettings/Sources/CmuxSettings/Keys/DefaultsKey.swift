@@ -34,6 +34,12 @@ public struct DefaultsKey<Value: SettingCodable>: Sendable, Equatable {
     /// Optional `UserDefaults` suite name. `nil` means `UserDefaults.standard`.
     public let suite: String?
 
+    /// Canonical user-facing metadata for ordinary settings surfaces.
+    ///
+    /// A nil value keeps internal/compatibility keys out of generated
+    /// Settings/search/Command Palette adapters.
+    public let userFacing: UserFacingSettingDescriptor?
+
     /// UserDefaults keys to migrate from on first read.
     ///
     /// When the primary ``userDefaultsKey`` has no value but a legacy key
@@ -51,17 +57,29 @@ public struct DefaultsKey<Value: SettingCodable>: Sendable, Equatable {
     ///   - userDefaultsKey: The actual UserDefaults key.
     ///   - suite: Optional suite name. `nil` is `UserDefaults.standard`.
     ///   - legacyUserDefaultsKeys: Renamed keys to migrate from on first read.
+    ///   - userFacing: Optional presentation/discovery metadata for ordinary settings UI.
     public init(
         id: String,
         defaultValue: Value,
         userDefaultsKey: String,
         suite: String? = nil,
-        legacyUserDefaultsKeys: [String] = []
+        legacyUserDefaultsKeys: [String] = [],
+        userFacing: UserFacingSettingDescriptor? = nil
     ) {
         self.id = id
         self.defaultValue = defaultValue
         self.userDefaultsKey = userDefaultsKey
         self.suite = suite
         self.legacyUserDefaultsKeys = legacyUserDefaultsKeys
+        self.userFacing = userFacing
+    }
+
+    /// Preserves the pre-metadata equality contract: storage identity and default only.
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id
+            && lhs.defaultValue == rhs.defaultValue
+            && lhs.userDefaultsKey == rhs.userDefaultsKey
+            && lhs.suite == rhs.suite
+            && lhs.legacyUserDefaultsKeys == rhs.legacyUserDefaultsKeys
     }
 }

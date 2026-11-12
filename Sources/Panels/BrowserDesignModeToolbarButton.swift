@@ -1,6 +1,8 @@
+import CmuxFoundation
 import SwiftUI
 
 struct BrowserDesignModeToolbarButton: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let controller: BrowserDesignModeController
     let iconPointSize: CGFloat
     let hitSize: CGFloat
@@ -16,9 +18,9 @@ struct BrowserDesignModeToolbarButton: View {
             CmuxSystemSymbolImage(
                 systemName: controller.isActive ? "paintbrush.pointed.fill" : "paintbrush.pointed",
                 pointSize: iconPointSize,
-                weight: .medium
+                weight: .medium,
+                tint: controller.isActive ? cmuxAccent.color : inactiveColor
             )
-            .foregroundStyle(controller.isActive ? Color.accentColor : inactiveColor)
             .frame(width: hitSize, height: hitSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())

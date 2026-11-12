@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxGit
 import CmuxFoundation
 
-private nonisolated struct TransientRemoteDiscovery: GitRepositoryDiscovering {
+private struct TransientRemoteDiscovery: GitRepositoryDiscovering {
     let branch: String
 
     func repositorySlugs(forDirectory _: String) async -> [String] { [] }

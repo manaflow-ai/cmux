@@ -22,7 +22,7 @@ cd "$web_dir"
 required_scripts=(
   db:check
   db:migrate
-  db:migrate:aws-rds-iam
+  db:migrate:planetscale
   db:test
 )
 

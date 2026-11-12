@@ -1,0 +1,7 @@
+# Hashed into every `spm-` cache key next to Package.resolved. Bump the number
+# when the archive's layout changes, so nightly.yml saves a fresh seed instead
+# of every job restoring one written in the old layout. Seeds save only on an
+# exact-key miss, so without a bump a new layout waits for a dependency change.
+#
+# 2: .package-cache/ holds SwiftPM's binary-artifact zips (-packageCachePath).
+2

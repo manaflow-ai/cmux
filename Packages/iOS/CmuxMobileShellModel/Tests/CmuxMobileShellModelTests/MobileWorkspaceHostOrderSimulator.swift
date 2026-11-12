@@ -182,9 +182,9 @@ struct MobileWorkspaceHostOrderSimulator {
             return groupedIndex
         }
         let pinnedCount = order.prefix(while: { isGlobalPinnedRow($0) }).count
-        return workspace.isPinned
+        return isGlobalPinnedRow(workspace)
             ? min(clamped, max(0, pinnedCount - 1))
-            : max(clamped, pinnedCount)
+            : min(max(clamped, pinnedCount), max(0, order.count - 1))
     }
 
     private func clampedGroupedMemberIndex(

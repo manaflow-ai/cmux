@@ -403,12 +403,15 @@ struct AgentExecutableResolverTests {
         }
     }
 
-    @Test
-    func testSkipsCmuxAgentCommandShim() throws {
+    @Test(arguments: [false, true])
+    func testSkipsCmuxAgentCommandShim(durableInheritedRoot: Bool) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "AgentExecutableResolverTests-\(UUID().uuidString)", isDirectory: true)
-        let shimBin = root.appendingPathComponent("shim-bin", isDirectory: true)
+        let shimBin = root.appendingPathComponent(
+            durableInheritedRoot ? ".cmuxterm/cmux-cli-shims/old-surface" : "shim-bin",
+            isDirectory: true
+        )
         let realBin = root.appendingPathComponent("real-bin", isDirectory: true)
         try FileManager.default.createDirectory(at: shimBin, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: realBin, withIntermediateDirectories: true)
@@ -425,8 +428,8 @@ struct AgentExecutableResolverTests {
             environment: [
                 "PATH": "\(shimBin.path):\(realBin.path)",
                 "HOME": root.path,
-                "CMUX_CLAUDE_WRAPPER_SHIM": shimClaude.path,
-                "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": shimBin.path,
+                "CMUX_CLAUDE_WRAPPER_SHIM": durableInheritedRoot ? "" : shimClaude.path,
+                "CMUX_CLAUDE_WRAPPER_SHIM_ROOT": durableInheritedRoot ? "" : shimBin.path,
             ],
             bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true)
         )

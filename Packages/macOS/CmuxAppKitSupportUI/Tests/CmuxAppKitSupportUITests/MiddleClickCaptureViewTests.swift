@@ -29,4 +29,24 @@ import Testing
         }
         #expect(invoked == 0)
     }
+
+    @Test func middleButtonDownInvokesHandlerOnThePressedView() {
+        let view = MiddleClickCaptureView()
+        var invoked = 0
+        view.onMiddleClick = { invoked += 1 }
+
+        let source = CGEventSource(stateID: .hidSystemState)
+        let event = source.flatMap {
+            CGEvent(
+                mouseEventSource: $0,
+                mouseType: .otherMouseDown,
+                mouseCursorPosition: .zero,
+                mouseButton: .center
+            )
+        }.flatMap(NSEvent.init(cgEvent:))
+        if let event {
+            view.otherMouseDown(with: event)
+        }
+        #expect(invoked == 1)
+    }
 }

@@ -14,6 +14,7 @@ import SwiftUI
 /// primary line and dot switch to presence (green = the Mac is online and worth
 /// tapping), and the workspace count is dropped (it is stale while disconnected).
 struct MacComputerRow: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
     /// How the row behaves and which status it leads with.
     enum Style {
         /// Computers screen: navigation to the detail view, phone-connection dot.
@@ -35,6 +36,10 @@ struct MacComputerRow: View {
     /// status dot). Re-entry is guarded by the owning list, not by disabling the
     /// button, so the row does not flash a dimmed state.
     var isConnecting: Bool = false
+    /// Whether the last authenticated attempt for this Mac was rejected by
+    /// the iOS minimum-version gate. This covers Macs absent from the
+    /// directory snapshot, which cannot expose a list-auth entry yet.
+    var hasVersionGateWarning: Bool = false
 
     @State private var showListAuthInfo = false
 
@@ -161,11 +166,19 @@ struct MacComputerRow: View {
         }
     }
 
-    /// Whether the account device list has a known-version compatibility warning
-    /// for this Mac. A seeded/unverified row stays quiet until its first hello
+    /// Whether the account device list has a compatibility warning for this
+    /// Mac. A row with no remembered version warns until its first hello
     /// records the build version in the durable overlay.
+    private var listAuthEntry: MobileMacListAuthState.Entry {
+        listAuthState?.compatibilityEntry(
+            pairingID: computer.id,
+            routes: computer.routes
+        ) ?? .init(status: "unknown", revoked: false, isFresh: false)
+    }
+
     private var showsListAuthWarning: Bool {
-        MobileMacListAuthState.shared.entry(deviceID: computer.deviceId)?.isOutdated == true
+        hasVersionGateWarning
+            || ((listAuthState?.hasSnapshot == true) && listAuthEntry.isOutdated)
     }
 
     /// Outdated rows carry a compact warning triangle beside the name; the
@@ -212,19 +225,20 @@ struct MacComputerRow: View {
     }
 
     private var listAuthWarningMessage: String {
-        guard let entry = MobileMacListAuthState.shared.entry(deviceID: computer.deviceId),
-              entry.isOutdated,
-              let required = entry.minimumSupportedVersion
-        else {
-            return ""
+        if listAuthEntry.isOutdated, let required = listAuthEntry.requiredVersionDisplay {
+            let requirement = "cmux \(required) or later"
+            return String(
+                format: L10n.string(
+                    "mobile.macUpdate.requiredOnMacFormat",
+                    defaultValue: "Requires %@ on your Mac."
+                ),
+                requirement
+            )
         }
-        let requirement = "cmux \(required) or later"
-        return String(
-            format: L10n.string(
-                "mobile.macUpdate.requiredOnMacFormat",
-                defaultValue: "Requires %@ on your Mac."
-            ),
-            requirement
+        guard showsListAuthWarning else { return "" }
+        return L10n.string(
+            "mobile.pairing.guidance.macUpdateRequired",
+            defaultValue: "Update cmux on this Mac to connect securely."
         )
     }
 

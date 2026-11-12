@@ -339,8 +339,11 @@ import Testing
 
         store.recoverMobileConnection(trigger: .networkChange)
 
+        // A no-store client only resyncs on a network change. Restarting the
+        // event stream re-runs the subscription readiness check, which must not
+        // demote an already-connected session to `reconnecting` (57ec73a9).
         #expect(store.connectionState == .connected)
-        #expect(store.macConnectionStatus == .reconnecting)
+        #expect(store.macConnectionStatus == .connected)
         #expect(!store.connectionRecoveryFailed)
     }
 

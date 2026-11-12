@@ -1,0 +1,14 @@
+<!doctype html><html><head><title>Parity Fixture</title><script src="/log.js"></script></head><body>
+<nav aria-label="Main"><a href="/aria.html">Home</a> <a href="/dynamic.html">Docs</a></nav>
+<main><h1>Sign up</h1>
+<form id="f"><label>Email <input id="email" type="email" name="email" placeholder="you@x.com"></label>
+<label><input id="tos" type="checkbox" name="tos"> Accept terms</label>
+<select id="plan" name="plan" aria-label="Plan"><option>Free</option><option selected>Pro</option><option>Team</option></select>
+<textarea id="bio" name="bio" aria-label="Bio">hi</textarea>
+<button id="submit" type="submit">Create account</button><button type="button" disabled>Disabled</button></form>
+<ul><li>One</li><li>Two</li></ul>
+<p>Plain <strong>bold</strong> text. <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'/%3E" alt="Logo"></p>
+<div style="height:2000px"></div><button id="far" onclick="this.textContent='Far clicked'">Far away</button>
+</main><script>
+document.getElementById("f").onsubmit = (e) => { e.preventDefault(); document.body.insertAdjacentHTML("beforeend", `<p id="ok">Submitted ${document.getElementById("email").value} tos=${document.getElementById("tos").checked} plan=${document.getElementById("plan").value}</p>`); };
+</script></body></html>

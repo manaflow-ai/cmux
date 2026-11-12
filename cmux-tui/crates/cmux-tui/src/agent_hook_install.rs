@@ -55,6 +55,16 @@ const GEMINI_HOOK_TIMEOUT_MILLISECONDS: u64 = 5_000;
 const HERMES_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_COMMAND_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Hidden cmux-tui argument that runs the embedded hook helper. A host that
+/// received only the cmux-tui binary (SSH bootstrap, `install-self`) gets a
+/// launcher script at the helper path that re-enters cmux-tui with it.
+pub(crate) const HOOK_MODE_ARG: &str = "__agent-hook";
+
+/// Builds the helper command embedded in a provider's native hook config.
+fn helper_command(provider: &str, event: &str) -> String {
+    format!("cmux-tui-hook {provider} {event}")
+}
+
 #[cfg(test)]
 std::thread_local! {
     static FORCE_HERMES_REAPER_SPAWN_FAILURE: Cell<bool> = const { Cell::new(false) };
@@ -95,6 +105,10 @@ const CODEX_EVENTS: &[&str] = &[
     "SessionEnd",
 ];
 
+/// Leaves out `WorktreeCreate` and `WorktreeRemove`, whose hooks replace Claude
+/// Code's own worktree handling. Claude Code reads the new worktree's path from
+/// a `WorktreeCreate` hook's stdout, and skips its `git worktree remove` when a
+/// `WorktreeRemove` hook exits 0.
 const CLAUDE_EVENTS: &[&str] = &[
     "ConfigChange",
     "CwdChanged",
@@ -123,8 +137,6 @@ const CLAUDE_EVENTS: &[&str] = &[
     "TaskCreated",
     "TaskCompleted",
     "TeammateIdle",
-    "WorktreeCreate",
-    "WorktreeRemove",
 ];
 
 const GEMINI_EVENTS: &[&str] = &[
@@ -176,6 +188,27 @@ const GROK_EVENTS: &[&str] = &[
     "SessionEnd",
 ];
 
+const KIRO_EVENTS: &[&str] =
+    &["agentSpawn", "userPromptSubmit", "stop", "preToolUse", "postToolUse"];
+const ANTIGRAVITY_EVENTS: &[&str] =
+    &["SessionStart", "PreInvocation", "Stop", "turn-completion", "Notification", "SessionEnd"];
+const ROVODEV_EVENTS: &[&str] = &["on_complete", "on_error", "on_tool_permission"];
+const COPILOT_EVENTS: &[&str] =
+    &["SessionStart", "Stop", "Notification", "SessionEnd", "PreToolUse"];
+const CODEBUDDY_EVENTS: &[&str] = COPILOT_EVENTS;
+const FACTORY_EVENTS: &[&str] = COPILOT_EVENTS;
+const QODER_EVENTS: &[&str] = &["SessionStart", "Stop", "SessionEnd", "PreToolUse"];
+const KIMI_EVENTS: &[&str] = &[
+    "SessionStart",
+    "UserPromptSubmit",
+    "Notification",
+    "Stop",
+    "StopFailure",
+    "SessionEnd",
+    "PreToolUse",
+    "PostToolUse",
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Action {
     Install,
@@ -201,6 +234,9 @@ enum Format {
     Flat { timeout: u64 },
     Plugin { template: &'static str },
     HermesPlugin { module: &'static str, manifest: &'static str },
+    RovoYaml,
+    KimiToml,
+    AntigravityJson,
 }
 
 #[derive(Clone, Copy)]
@@ -273,6 +309,96 @@ const PROVIDERS: &[Provider] = &[
         events: &[],
     },
     Provider {
+        id: "omp",
+        binary: "omp",
+        default_path: ".omp/agent/config.json",
+        override_env: None,
+        override_relative_path: "config.json",
+        format: Format::Plugin { template: include_str!("../assets/agent-hooks/omp.ts") },
+        events: &[],
+    },
+    Provider {
+        id: "campfire",
+        binary: "campfire",
+        default_path: ".campfire/agent/config.json",
+        override_env: None,
+        override_relative_path: "config.json",
+        format: Format::Plugin { template: include_str!("../assets/agent-hooks/campfire.ts") },
+        events: &[],
+    },
+    Provider {
+        id: "kiro",
+        binary: "kiro-cli",
+        default_path: ".kiro/agents/cmux.json",
+        override_env: Some("KIRO_HOME"),
+        override_relative_path: "agents/cmux.json",
+        format: Format::Flat { timeout: COMMAND_HOOK_TIMEOUT_SECONDS },
+        events: KIRO_EVENTS,
+    },
+    Provider {
+        id: "antigravity",
+        binary: "agy",
+        default_path: ".gemini/config/hooks.json",
+        override_env: None,
+        override_relative_path: "hooks.json",
+        format: Format::AntigravityJson,
+        events: ANTIGRAVITY_EVENTS,
+    },
+    Provider {
+        id: "rovodev",
+        binary: "acli",
+        default_path: ".rovodev/config.yml",
+        override_env: None,
+        override_relative_path: "config.yml",
+        format: Format::RovoYaml,
+        events: ROVODEV_EVENTS,
+    },
+    Provider {
+        id: "copilot",
+        binary: "copilot",
+        default_path: ".copilot/config.json",
+        override_env: Some("COPILOT_HOME"),
+        override_relative_path: "config.json",
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
+        events: COPILOT_EVENTS,
+    },
+    Provider {
+        id: "codebuddy",
+        binary: "codebuddy",
+        default_path: ".codebuddy/settings.json",
+        override_env: Some("CODEBUDDY_CONFIG_DIR"),
+        override_relative_path: "settings.json",
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
+        events: CODEBUDDY_EVENTS,
+    },
+    Provider {
+        id: "factory",
+        binary: "droid",
+        default_path: ".factory/settings.json",
+        override_env: None,
+        override_relative_path: "settings.json",
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
+        events: FACTORY_EVENTS,
+    },
+    Provider {
+        id: "qoder",
+        binary: "qodercli",
+        default_path: ".qoder/settings.json",
+        override_env: Some("QODER_CONFIG_DIR"),
+        override_relative_path: "settings.json",
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
+        events: QODER_EVENTS,
+    },
+    Provider {
+        id: "kimi",
+        binary: "kimi",
+        default_path: ".kimi/config.toml",
+        override_env: None,
+        override_relative_path: "config.toml",
+        format: Format::KimiToml,
+        events: KIMI_EVENTS,
+    },
+    Provider {
         id: "opencode",
         binary: "opencode",
         default_path: ".config/opencode/plugins/cmux-tui-journal.js",
@@ -305,6 +431,9 @@ struct Context {
     home: PathBuf,
     data_home: PathBuf,
     helper_source: Option<PathBuf>,
+    /// This cmux-tui binary, which runs the helper through `HOOK_MODE_ARG`
+    /// when no standalone `cmux-tui-hook` ships beside it.
+    helper_launcher: Option<PathBuf>,
     path: Option<OsString>,
     environment: BTreeMap<String, OsString>,
 }
@@ -316,13 +445,21 @@ impl Context {
             .map(PathBuf::from)
             .context("HOME is required to install coding-agent hooks")?;
         let data_home = runtime_data_home(&home);
-        let helper_source = locate_helper_source(std::env::current_exe().ok().as_deref());
+        let current_exe = std::env::current_exe().ok();
+        let helper_source = locate_helper_source(current_exe.as_deref());
         let environment = PROVIDERS
             .iter()
             .filter_map(|provider| provider.override_env)
             .filter_map(|name| std::env::var_os(name).map(|value| (name.to_string(), value)))
             .collect();
-        Ok(Self { home, data_home, helper_source, path: std::env::var_os("PATH"), environment })
+        Ok(Self {
+            home,
+            data_home,
+            helper_source,
+            helper_launcher: current_exe,
+            path: std::env::var_os("PATH"),
+            environment,
+        })
     }
 
     fn installed_helper(&self) -> PathBuf {
@@ -360,14 +497,16 @@ fn runtime_data_home(home: &Path) -> PathBuf {
 }
 
 #[cfg(unix)]
-pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
+/// cmux-tui's own directory under the XDG data home (`~/.local/share/cmux-tui`).
+pub(crate) fn runtime_cmux_tui_data_home() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").filter(|value| !value.is_empty()).map(PathBuf::from)?;
-    Some(runtime_data_home(&home).join("cmux-tui/bin/cmux-tui-hook"))
+    Some(runtime_data_home(&home).join("cmux-tui"))
 }
 
-#[cfg(not(unix))]
+/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
+#[cfg(unix)]
 pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
-    None
+    Some(runtime_cmux_tui_data_home()?.join("bin/cmux-tui-hook"))
 }
 
 #[cfg(unix)]
@@ -410,13 +549,18 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
     let mut errors = Vec::new();
 
     if plan.action == Action::Install {
-        match context.helper_source.as_deref() {
-            Some(source) => {
+        match (context.helper_source.as_deref(), context.helper_launcher.as_deref()) {
+            (Some(source), _) => {
                 if let Err(error) = install_helper(source, &helper) {
                     errors.push(format!("helper: {error:#}"));
                 }
             }
-            None => {
+            (None, Some(executable)) => {
+                if let Err(error) = install_helper_launcher(executable, &helper) {
+                    errors.push(format!("helper: {error:#}"));
+                }
+            }
+            (None, None) => {
                 errors
                     .push("helper: cmux-tui-hook was not found beside cmux-tui or on PATH".into());
             }
@@ -442,6 +586,17 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
                     "path":path,
                     "state":state,
                     "changed":changed,
+                })),
+                // A read-only status reports one provider's unreadable config
+                // on that provider's row (`state: unavailable`, `reason:
+                // unreadable`); the other providers still answer.
+                Err(error) if plan.action == Action::Status => results.push(json!({
+                    "provider":provider.id,
+                    "path":path,
+                    "state":"unavailable",
+                    "reason":"unreadable",
+                    "detail":format!("{error:#}"),
+                    "changed":false,
                 })),
                 Err(error) => errors.push(format!("{}: {error:#}", provider.id)),
             }
@@ -495,6 +650,8 @@ fn select_providers(plan: &Plan, context: &Context) -> anyhow::Result<Vec<Provid
         let requested = match requested.as_str() {
             "claude-code" => "claude",
             "hermes" => "hermes-agent",
+            "agy" => "antigravity",
+            "rovo" => "rovodev",
             value => value,
         };
         let provider = PROVIDERS
@@ -1019,7 +1176,8 @@ fn set_hermes_plugin_enabled(context: &Context, enabled: bool) -> anyhow::Result
     Ok(())
 }
 
-fn locate_helper_source(current_exe: Option<&Path>) -> Option<PathBuf> {
+/// A `cmux-tui-hook` beside `current_exe`, else the first one on `PATH`.
+pub(crate) fn locate_helper_source(current_exe: Option<&Path>) -> Option<PathBuf> {
     current_exe
         .and_then(Path::parent)
         .map(|parent| parent.join("cmux-tui-hook"))
@@ -1037,7 +1195,8 @@ fn find_executable(binary: &str, path: Option<&std::ffi::OsStr>) -> Option<PathB
         .find(|candidate| is_executable_file(candidate))
 }
 
-fn is_executable_file(path: &Path) -> bool {
+/// Whether `path` is a regular file with an execute bit (any regular file off Unix).
+pub(crate) fn is_executable_file(path: &Path) -> bool {
     let Ok(metadata) = fs::metadata(path) else {
         return false;
     };
@@ -1064,8 +1223,13 @@ fn install_helper(source: &Path, destination: &Path) -> anyhow::Result<()> {
         "helper source size is invalid"
     );
     let bytes = fs::read(source).with_context(|| format!("read {}", source.display()))?;
+    install_helper_bytes(&bytes, destination)
+}
+
+/// Writes the helper unless an executable copy with these bytes is in place.
+fn install_helper_bytes(bytes: &[u8], destination: &Path) -> anyhow::Result<()> {
     ensure_replaceable_target(destination)?;
-    if fs::read(destination).ok().as_deref() == Some(bytes.as_slice()) {
+    if fs::read(destination).ok().as_deref() == Some(bytes) {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
@@ -1076,7 +1240,17 @@ fn install_helper(source: &Path, destination: &Path) -> anyhow::Result<()> {
         #[cfg(not(unix))]
         return Ok(());
     }
-    atomic_write(destination, &bytes, Some(0o755))
+    atomic_write(destination, bytes, Some(0o755))
+}
+
+/// The helper script for a host without a standalone `cmux-tui-hook`.
+fn helper_launcher_script(executable: &Path) -> anyhow::Result<String> {
+    let executable = executable.to_str().context("cmux-tui path is not valid UTF-8")?;
+    Ok(format!("#!/bin/sh\nexec {} {HOOK_MODE_ARG} \"$@\"\n", shell_quote(executable)))
+}
+
+fn install_helper_launcher(executable: &Path, destination: &Path) -> anyhow::Result<()> {
+    install_helper_bytes(helper_launcher_script(executable)?.as_bytes(), destination)
 }
 
 fn install_provider(
@@ -1164,6 +1338,98 @@ fn install_provider(
                 || before_manifest.as_deref() != Some(manifest.as_bytes());
             Ok(("installed", changed))
         }
+        Format::RovoYaml => {
+            let existing = fs::read_to_string(path).unwrap_or_default();
+            let marker_start = "# cmux hooks rovodev begin";
+            let marker_end = "# cmux hooks rovodev end";
+            let mut lines: Vec<&str> = existing.lines().collect();
+            if let Some(start) = lines.iter().position(|line| line.trim() == marker_start)
+                && let Some(end_rel) =
+                    lines[start..].iter().position(|line| line.trim() == marker_end)
+            {
+                lines.drain(start..=start + end_rel);
+            }
+            if !lines.is_empty() {
+                lines.push("");
+            }
+            lines.push(marker_start);
+            lines.push("eventHooks:");
+            lines.push("  events:");
+            let mut owned = lines.iter().map(|line| (*line).to_string()).collect::<Vec<_>>();
+            for event in provider.events {
+                let command = helper_command(provider.id, event);
+                owned.push(format!("    - name: {event}"));
+                owned.push("      commands:".into());
+                owned.push(format!("        - command: {command:?}"));
+            }
+            owned.push(marker_end.into());
+            let output = owned.join("\n") + "\n";
+            let changed = output.as_bytes() != existing.as_bytes();
+            if changed {
+                atomic_write(path, output.as_bytes(), Some(0o600))?;
+            }
+            Ok(("installed", changed))
+        }
+        Format::KimiToml => {
+            let existing = fs::read_to_string(path).unwrap_or_default();
+            let start = "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin";
+            let end = "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end";
+            let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
+            if let Some(index) = lines.iter().position(|line| line.trim() == start)
+                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+            {
+                lines.drain(index..=index + end_rel);
+            }
+            if !lines.is_empty() && lines.last().is_some_and(|line| !line.is_empty()) {
+                lines.push(String::new());
+            }
+            lines.push(start.into());
+            for event in provider.events {
+                lines.push("[[hooks]]".into());
+                lines.push(format!("event = \"{event}\""));
+                lines.push(format!(
+                    "command = \"{}\"",
+                    helper_command(provider.id, event).replace('\\', "\\\\").replace('"', "\\\"")
+                ));
+                lines.push("timeout = 5".into());
+                lines.push(String::new());
+            }
+            lines.push(end.into());
+            let output = lines.join("\n") + "\n";
+            let changed = output.as_bytes() != existing.as_bytes();
+            if changed {
+                atomic_write(path, output.as_bytes(), Some(0o600))?;
+            }
+            Ok(("installed", changed))
+        }
+        Format::AntigravityJson => {
+            ensure_replaceable_target(path)?;
+            let mut root = read_json_object(path)?;
+            let existing = root.clone();
+            let mut group = Map::new();
+            for event in provider.events {
+                let command = helper_command(provider.id, event);
+                let hook = json!({"type": "command", "command": command, "timeout": 10});
+                let entry = if *event == "PreToolUse" || *event == "PostToolUse" {
+                    json!({"matcher": "*", "hooks": [hook]})
+                } else {
+                    hook
+                };
+                group.insert((*event).into(), Value::Array(vec![entry]));
+            }
+            root.insert("cmux".into(), Value::Object(group));
+            let output = serde_json::to_vec_pretty(&Value::Object(root))?;
+            let old = serde_json::to_vec_pretty(&Value::Object(existing))?;
+            let changed = output != old;
+            if changed {
+                atomic_write(
+                    path,
+                    &(output.iter().copied().chain(std::iter::once(b'\n')).collect::<Vec<_>>()),
+                    Some(0o600),
+                )?;
+            }
+            Ok(("installed", changed))
+        }
     }
 }
 
@@ -1245,6 +1511,42 @@ fn uninstall_provider(
             remove_owned_plugin_directory(path)?;
             Ok(("absent", true))
         }
+        Format::RovoYaml | Format::KimiToml => {
+            let Ok(existing) = fs::read_to_string(path) else {
+                return Ok(("absent", false));
+            };
+            let (start, end) = if matches!(provider.format, Format::RovoYaml) {
+                ("# cmux hooks rovodev begin", "# cmux hooks rovodev end")
+            } else {
+                (
+                    "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin",
+                    "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end",
+                )
+            };
+            let mut lines = existing.lines().map(str::to_owned).collect::<Vec<_>>();
+            let mut changed = false;
+            if let Some(index) = lines.iter().position(|line| line.trim() == start)
+                && let Some(end_rel) = lines[index..].iter().position(|line| line.trim() == end)
+            {
+                lines.drain(index..=index + end_rel);
+                changed = true;
+            }
+            if changed {
+                let output = if lines.is_empty() { String::new() } else { lines.join("\n") + "\n" };
+                atomic_write(path, output.as_bytes(), Some(0o600))?;
+            }
+            Ok(("absent", changed))
+        }
+        Format::AntigravityJson => {
+            let mut root = read_json_object(path)?;
+            let changed = root.remove("cmux").is_some();
+            if changed {
+                let mut output = serde_json::to_vec_pretty(&Value::Object(root))?;
+                output.push(b'\n');
+                atomic_write(path, &output, Some(0o600))?;
+            }
+            Ok(("absent", changed))
+        }
     }
 }
 
@@ -1295,6 +1597,31 @@ fn provider_status(
                 _ => "absent",
             }
         }
+        Format::RovoYaml => match fs::read_to_string(path) {
+            Ok(content)
+                if content.contains("# cmux hooks rovodev begin")
+                    && content.contains("# cmux hooks rovodev end") =>
+            {
+                "installed"
+            }
+            Ok(content) if content.contains("cmux hooks rovodev") => "partial",
+            _ => "absent",
+        },
+        Format::KimiToml => match fs::read_to_string(path) {
+            Ok(content)
+                if content
+                    .contains("# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin")
+                    && content
+                        .contains("# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f end") =>
+            {
+                "installed"
+            }
+            _ => "absent",
+        },
+        Format::AntigravityJson => match read_json_object(path) {
+            Ok(root) if root.contains_key("cmux") => "installed",
+            _ => "absent",
+        },
     };
     Ok((state, false))
 }
@@ -1323,9 +1650,16 @@ fn rewrite_json_hooks(
 ) -> anyhow::Result<()> {
     let hooks = root.entry("hooks").or_insert_with(|| json!({}));
     let hooks = hooks.as_object_mut().context("agent hooks field must be a JSON object")?;
-    for entries in hooks.values_mut() {
+    // Where each event's first fully-owned group was, so a reinstall puts our
+    // group back in that slot instead of behind every other producer's: codex
+    // keys hook trust by position, and moving ours shifts theirs off their
+    // trusted keys.
+    let mut owned_slots = BTreeMap::new();
+    for (event, entries) in hooks.iter_mut() {
         if nested {
-            rewrite_nested_entries(entries)?;
+            if let Some(slot) = rewrite_nested_entries(entries)? {
+                owned_slots.insert(event.clone(), slot);
+            }
         } else {
             rewrite_flat_entries(entries)?;
         }
@@ -1348,20 +1682,27 @@ fn rewrite_json_hooks(
             json!({"command":command,"timeout":timeout})
         };
         hooks.entry(*event).or_insert_with(|| json!([]));
-        hooks
+        let entries = hooks
             .get_mut(*event)
             .and_then(Value::as_array_mut)
-            .with_context(|| format!("hook event {event:?} must be an array"))?
-            .push(entry);
+            .with_context(|| format!("hook event {event:?} must be an array"))?;
+        match owned_slots.get(*event) {
+            Some(slot) if *slot <= entries.len() => entries.insert(*slot, entry),
+            _ => entries.push(entry),
+        }
     }
     Ok(())
 }
 
-fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<()> {
+/// Removes the owned commands from every group, dropping groups left empty.
+/// Returns the position, among the kept groups, of the first group that held
+/// only owned commands.
+fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<Option<usize>> {
     let Some(groups) = value.as_array_mut() else {
-        return Ok(());
+        return Ok(None);
     };
     let mut rewritten = Vec::with_capacity(groups.len());
+    let mut owned_slot = None;
     for mut group in std::mem::take(groups) {
         let Some(group_object) = group.as_object_mut() else {
             rewritten.push(group);
@@ -1371,13 +1712,16 @@ fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<()> {
             rewritten.push(group);
             continue;
         };
+        let was_empty = commands.is_empty();
         rewrite_command_entries(commands);
         if !commands.is_empty() {
             rewritten.push(group);
+        } else if !was_empty && owned_slot.is_none() {
+            owned_slot = Some(rewritten.len());
         }
     }
     *groups = rewritten;
-    Ok(())
+    Ok(owned_slot)
 }
 
 fn rewrite_flat_entries(value: &mut Value) -> anyhow::Result<()> {
@@ -1534,7 +1878,216 @@ fn codex_hook_timeout(event: &str) -> u64 {
     }
 }
 
+#[cfg(unix)]
+/// Claude's hook groups in exactly the shape `agent hook install claude`
+/// writes, for a launcher that passes them through `--settings`. With the
+/// detached helper available the commands are byte-identical to the installed
+/// ones, so Claude Code deduplicates them against a copy in the user's
+/// settings. `emit_binary` replaces each command with the CLI's
+/// `agent hook emit` for hosts that have no helper.
+pub(crate) fn claude_session_hook_settings(
+    emit_binary: Option<&Path>,
+) -> anyhow::Result<Map<String, Value>> {
+    let provider = *PROVIDERS
+        .iter()
+        .find(|provider| provider.id == "claude")
+        .context("the claude hook provider is missing")?;
+    let Format::Nested { timeout, .. } = provider.format else {
+        anyhow::bail!("the claude hook provider must use nested hooks");
+    };
+    let mut root = Map::new();
+    rewrite_json_hooks(&mut root, provider, true, timeout, true)?;
+    let Some(binary) = emit_binary else {
+        return Ok(root);
+    };
+    let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
+    let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    for (event, groups) in hooks.iter_mut() {
+        let command = emit_hook_command(&binary, provider.id, event);
+        for group in groups.as_array_mut().into_iter().flatten() {
+            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+            for handler in handlers.into_iter().flatten() {
+                if let Some(handler) = handler.as_object_mut() {
+                    handler.insert("command".into(), Value::String(command.clone()));
+                }
+            }
+        }
+    }
+    Ok(root)
+}
+
+#[cfg(unix)]
+/// The `agent hook emit` fallback for `claude_session_hook_settings`. Its
+/// receipt is discarded because Claude Code adds hook stdout to the context.
+fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
+    format!(
+        "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(provider),
+        shell_quote(event),
+    )
+}
+
+/// The helper an installed command falls back to without `CMUX_TUI_HOOK`:
+/// the installed one inside tmux, nothing elsewhere.
+const INSTALLED_FALLBACK: &str =
+    "${TMUX:+${XDG_DATA_HOME:-$HOME/.local/share}/cmux-tui/bin/cmux-tui-hook}";
+
+/// The installed hook command. It runs `$CMUX_TUI_HOOK`, which every cmux-tui
+/// terminal exports. An agent inside tmux may have been started by a tmux
+/// server that never ran in a cmux-tui terminal, so without that variable a
+/// tmux pane falls back to the installed helper, which routes the event to the
+/// cmux-tui terminal attached to the pane's tmux session. Anywhere else the
+/// command stays a process-free no-op.
 fn hook_command(provider: &str, event: &str) -> String {
+    hook_command_with(provider, event, "", INSTALLED_FALLBACK)
+}
+
+/// The command shape of [`hook_command`], run after `prefix` (shell words
+/// ending in `;`) and falling back to `fallback` (a shell word expanded in an
+/// assignment) when `CMUX_TUI_HOOK` is unset or empty.
+fn hook_command_with(provider: &str, event: &str, prefix: &str, fallback: &str) -> String {
+    format!(
+        "{prefix}h=${{CMUX_TUI_HOOK:-{fallback}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        shell_quote(provider),
+        shell_quote(event),
+    )
+}
+
+/// Set to [`CLAUDE_PLUGIN_ORIGIN`] by the hook commands of the Claude Code
+/// plugin a cmux-tui pane names in `CLAUDE_CODE_PLUGIN_DIRS`
+/// (claude_plugin.rs), so the helper can tell that copy from the installed
+/// one and run only one of them (cmux-tui-hook plugin_copy.rs).
+#[cfg(unix)]
+pub(crate) const CLAUDE_PLUGIN_ORIGIN_ENV: &str = "CMUX_TUI_HOOK_ORIGIN";
+/// The value of [`CLAUDE_PLUGIN_ORIGIN_ENV`] in the plugin's hook commands.
+#[cfg(unix)]
+pub(crate) const CLAUDE_PLUGIN_ORIGIN: &str = "claude-plugin";
+
+#[cfg(unix)]
+/// Claude's hook groups for the cmux-tui Claude Code plugin
+/// (`hooks/hooks.json`): the events, timeouts and command shapes of
+/// `agent hook install claude`, marked with [`CLAUDE_PLUGIN_ORIGIN_ENV`] and
+/// falling back to `helper` (this build's hook helper) when the agent's
+/// environment has no `CMUX_TUI_HOOK`. Claude Code runs plugin hooks beside
+/// settings hooks without merging identical commands, so the helper skips the
+/// plugin copy when the installed copy also runs.
+pub(crate) fn claude_plugin_hook_settings(helper: &Path) -> anyhow::Result<Map<String, Value>> {
+    let helper = helper.to_str().context("the hook helper path is not UTF-8")?;
+    let fallback = double_quote(helper);
+    let prefix = format!("export {CLAUDE_PLUGIN_ORIGIN_ENV}={CLAUDE_PLUGIN_ORIGIN};");
+    let mut root = claude_session_hook_settings(None)?;
+    let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    for (event, groups) in hooks.iter_mut() {
+        let command = hook_command_with("claude", event, &prefix, &fallback);
+        for group in groups.as_array_mut().into_iter().flatten() {
+            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+            for handler in handlers.into_iter().flatten() {
+                if let Some(handler) = handler.as_object_mut() {
+                    handler.insert("command".into(), Value::String(command.clone()));
+                }
+            }
+        }
+    }
+    Ok(root)
+}
+
+/// `value` as one double-quoted shell word.
+#[cfg(unix)]
+fn double_quote(value: &str) -> String {
+    let mut quoted = String::new();
+    quoted.push('"');
+    for character in value.chars() {
+        if matches!(character, '"' | '\\' | '$' | '`') {
+            quoted.push('\\');
+        }
+        quoted.push(character);
+    }
+    quoted.push('"');
+    quoted
+}
+
+/// Codex's shared app-server may run hooks without the launching terminal's
+/// environment. Carry that route in the command, using the embedded helper
+/// so hosts deployed with only the cmux-tui binary work too. SessionStart
+/// prints the helper's session context (cmux-tui-hook session_context.rs)
+/// and echoes `{}` only when the helper fails, so Codex reads one JSON
+/// object either way; every other event echoes `{}` after the helper.
+#[cfg(unix)]
+fn codex_contextual_hook_command(
+    event: &str,
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+) -> String {
+    let reply = if event == "SessionStart" { "||echo {}" } else { "||:;echo {}" };
+    format!(
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
+        shell_quote(&socket.to_string_lossy()),
+        shell_quote(terminal),
+        shell_quote(&launcher.to_string_lossy()),
+        shell_quote(event),
+    )
+}
+
+/// Session flags have their own config layer in Codex 0.162. Trust only the
+/// commands generated here, leaving all other hooks' trust decisions intact.
+/// Codex appends hooks from lower layers, so disable the installed cmux copies
+/// for this invocation instead of sending each event twice.
+///
+/// Codex splits a `-c` key on every `.`, even inside TOML quotes
+/// (codex-rs/config/src/overrides.rs `apply_toml_override`), and every state
+/// key contains one (`config.toml`, `hooks.json`). The whole state therefore
+/// goes in one inline-table value at `hooks.state`, which Codex merges with
+/// the persistent config's trust instead of replacing it.
+#[cfg(unix)]
+pub(crate) fn codex_session_hook_settings(
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+) -> anyhow::Result<Vec<String>> {
+    let context = Context::runtime()?;
+    codex_session_hook_settings_with_context(socket, terminal, launcher, &context)
+}
+
+#[cfg(unix)]
+fn codex_session_hook_settings_with_context(
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+    context: &Context,
+) -> anyhow::Result<Vec<String>> {
+    let mut settings = Vec::new();
+    let provider = PROVIDERS.iter().copied().find(|provider| provider.id == "codex").unwrap();
+    let path = context.provider_path(provider);
+    let root = read_json_object(&path)?;
+    let key_path =
+        codex_state_key_hooks_path(&path, context.provider_path_from_env_override(provider));
+    let mut state = toml_edit::InlineTable::new();
+    for key in codex_owned_entry_keys(&key_path, &root) {
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("enabled", false.into());
+        state.insert(&key, entry.into());
+    }
+    for event in CODEX_EVENTS {
+        let command = codex_contextual_hook_command(event, socket, terminal, launcher);
+        let timeout = codex_hook_timeout(event);
+        let label = codex_event_state_label(event)?;
+        let hash = codex_trust_hash(label, &command, timeout);
+        settings.push(format!(
+            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
+            toml_edit::Value::from(command),
+        ));
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("trusted_hash", hash.into());
+        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
+    }
+    settings.push(format!("hooks.state={state}"));
+    Ok(settings)
+}
+
+/// The command shape before the tmux fallback. Its codex trust hashes stay
+/// cmux-owned so an upgrade replaces them instead of leaving them behind.
+fn legacy_hook_command(provider: &str, event: &str) -> String {
     format!(
         "\"${{CMUX_TUI_HOOK:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
@@ -1724,16 +2277,21 @@ fn codex_expected_trust_entries(
     Ok(entries)
 }
 
-/// Every trust hash the current installer shape can produce. Entries carrying
+/// Every trust hash the current and previous installer shapes can produce. Entries carrying
 /// one of these hashes are cmux-owned regardless of their positional key.
 fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
     CODEX_EVENTS
         .iter()
         .map(|event| {
             let label = codex_event_state_label(event)?;
-            Ok(codex_trust_hash(label, &hook_command("codex", event), codex_hook_timeout(event)))
+            let timeout = codex_hook_timeout(event);
+            Ok([
+                codex_trust_hash(label, &hook_command("codex", event), timeout),
+                codex_trust_hash(label, &legacy_hook_command("codex", event), timeout),
+            ])
         })
-        .collect()
+        .collect::<anyhow::Result<Vec<_>>>()
+        .map(|pairs| pairs.into_iter().flatten().collect())
 }
 
 /// Dotfile managers commonly symlink `config.toml`; the atomic rename must
@@ -2179,11 +2737,13 @@ fn codex_trust_state_verified(
     })
 }
 
-fn shell_quote(value: &str) -> String {
+/// Single-quotes a value for a POSIX shell command line.
+pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
+/// Replaces `path` through a synced temporary file and rename, with an optional Unix mode.
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Result<()> {
     ensure_replaceable_target(path)?;
     let parent = path.parent().context("installation path has no parent")?;
     fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -2246,14 +2806,38 @@ mod tests {
         let data_home = root.join("data");
         fs::create_dir_all(&home).unwrap();
         let helper = root.join("cmux-tui-hook");
-        atomic_write(&helper, b"#!/bin/sh\nexit 0\n", Some(0o755)).unwrap();
+        cmux_test_exec::write_executable(&helper, b"#!/bin/sh\nexit 0\n").unwrap();
         Context {
             home,
             data_home,
             helper_source: Some(helper),
+            helper_launcher: None,
             path: None,
             environment: BTreeMap::new(),
         }
+    }
+
+    /// One provider's unreadable config made the whole read-only `agent hook
+    /// status` fail (bench round 3: `~/.copilot/config.json is not valid
+    /// JSON`). It is that provider's row now; the others still answer.
+    #[test]
+    fn w4j_status_reports_an_unreadable_config_on_its_own_row() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let copilot = context.home.join(".copilot/config.json");
+        fs::create_dir_all(copilot.parent().unwrap()).unwrap();
+        fs::write(&copilot, b"{ not json").unwrap();
+        let plan =
+            Plan { action: Action::Status, providers: vec!["copilot".into(), "claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let rows = result.value["providers"].as_array().unwrap();
+        let row = |id: &str| rows.iter().find(|row| row["provider"] == id).unwrap();
+        assert_eq!(row("copilot")["state"], "unavailable", "{}", result.value);
+        assert_eq!(row("copilot")["reason"], "unreadable", "{}", result.value);
+        assert!(row("copilot")["detail"].as_str().is_some_and(|detail| !detail.is_empty()));
+        assert_ne!(row("claude")["state"], "unavailable", "{}", result.value);
+        assert_eq!(result.value["errors"], json!([]));
     }
 
     #[cfg(unix)]
@@ -2273,27 +2857,37 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn hermes_command_reaps_child_when_reaper_spawn_fails() {
-        let (pid_sender, pid_receiver) = std::sync::mpsc::channel();
+        let root = tempfile::tempdir().unwrap();
+        let pid_path = root.path().join("hermes.pid");
+        let script = format!(
+            // `exec` keeps the long-running process at the shell's PID and
+            // avoids a second fork. Hosted macOS runners may deny that fork
+            // while still allowing the process under test to run.
+            "printf '%s' $$ > {}; exec /bin/sleep 30",
+            shell_quote(pid_path.to_string_lossy().as_ref()),
+        );
         let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
         let started = Instant::now();
         let worker = std::thread::spawn(move || {
             FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
-            HERMES_TEST_CHILD_SENDER.with(|sender| sender.replace(Some(pid_sender)));
             let result = run_hermes_command_with_timeout(
-                Path::new("/bin/sleep"),
-                &["30"],
+                Path::new("/bin/sh"),
+                &["-c", &script],
                 Duration::from_secs(2),
             );
             result_sender.send(result).unwrap();
         });
 
-        let pid = libc::pid_t::try_from(
-            pid_receiver
-                .recv_timeout(Duration::from_secs(1))
-                .expect("Hermes child did not complete startup"),
-        )
-        .unwrap();
-
+        let startup_deadline = Instant::now() + Duration::from_secs(1);
+        let pid = loop {
+            if let Ok(contents) = fs::read_to_string(&pid_path)
+                && let Ok(pid) = contents.trim().parse::<libc::pid_t>()
+            {
+                break pid;
+            }
+            assert!(Instant::now() < startup_deadline, "Hermes child did not complete startup");
+            std::thread::sleep(Duration::from_millis(5));
+        };
         let error = result_receiver
             .recv_timeout(Duration::from_secs(4))
             .expect("Hermes timeout worker did not return")
@@ -2382,7 +2976,6 @@ mod tests {
         let result = run(&Plan { action: Action::Status, providers: Vec::new() });
         assert!(result.failed);
         assert!(result.value["errors"][0].as_str().unwrap().contains("unsupported"));
-        assert!(runtime_helper_path().is_none());
     }
 
     #[test]
@@ -2425,13 +3018,47 @@ mod tests {
         assert!(!text.contains(COMMAND_MARKER));
     }
 
-    /// Trust hashes verified against the real codex 0.150.1 binary: with these
+    /// Trust hashes of the current `hook_command`, from the same identity hash
+    /// that reproduces `LEGACY_CODEX_TRUSTED_HASHES` below.
+    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+        (
+            "session_start",
+            "sha256:62dec7fda2eedda09e521ed25f5a3e56fdf259e2cf6e09c61caf6fde04cf9169",
+        ),
+        (
+            "user_prompt_submit",
+            "sha256:11c9dc25e1d294a6f3c33e6c03354c7e032250357e143879ac720a392cf632b9",
+        ),
+        ("stop", "sha256:c44b06979e220fd6665d250bb2cc470787cc4b06568e62b6cd8004577cdd124a"),
+        (
+            "permission_request",
+            "sha256:6a6d12a917dfc12fdfc3e0796f4c5f43d31db0a9dd1f7372cce0f6635cd32b24",
+        ),
+        ("pre_tool_use", "sha256:73db9083c29d7b48384ab6e3684e0ab49f482f9d11cc07f6c7d2584f55175a34"),
+        (
+            "post_tool_use",
+            "sha256:7eae35124685878835e8f7a4bc73214600f6732c8bddafc27370e4e89757d1a4",
+        ),
+        ("pre_compact", "sha256:e957b79dd72144e1e738feeeaade51816e2ae07fcaa31c9638fa40b895b2d580"),
+        ("post_compact", "sha256:adbb48bf6be51c36f594b09dc5b9b008d2de4b7e72bf20c7e897459beb295d6c"),
+        (
+            "subagent_start",
+            "sha256:25a7790bb05c595170f35ce823c0e64080c31ec43e5c65003875466ace055dbd",
+        ),
+        (
+            "subagent_stop",
+            "sha256:46e1ebc2d41d01b8f4c7ec6ee657e2cfc66ed0b0531fef08cfe52f7fd8f1a479",
+        ),
+        ("session_end", "sha256:b8231b7c25e8a4c9ecfbfa026269958f32763c359db6b16d4c7579416f5f3097"),
+    ];
+
+    /// Trust hashes of `legacy_hook_command`, verified against the real codex 0.150.1 binary: with these
     /// exact `hooks.state` values in `config.toml`, codex executes the installed
     /// hooks.json commands; without them it parses hooks.json (it even warns
     /// about clamping the SessionEnd timeout) and silently skips every handler,
     /// so codex sessions never reach the cmux-tui agents view
     /// (https://github.com/manaflow-ai/cmux/issues/11040).
-    const CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
+    const LEGACY_CODEX_TRUSTED_HASHES: &[(&str, &str)] = &[
         (
             "session_start",
             "sha256:397d7ce9e0c6367e34771a4293777ff95415b595bf77e2aa420425adc75d70ae",
@@ -2497,6 +3124,20 @@ mod tests {
             );
         }
         assert_eq!(state.len(), CODEX_EVENTS.len());
+    }
+
+    #[test]
+    fn codex_trust_hash_reproduces_the_hashes_codex_verified() {
+        let owned = codex_owned_trust_hashes().unwrap();
+        for (event, (label, hash)) in CODEX_EVENTS.iter().zip(LEGACY_CODEX_TRUSTED_HASHES) {
+            let legacy = codex_trust_hash(
+                label,
+                &legacy_hook_command("codex", event),
+                codex_hook_timeout(event),
+            );
+            assert_eq!(legacy, *hash, "{event}");
+            assert!(owned.contains(*hash), "{event}: an upgrade must replace the old entry");
+        }
     }
 
     #[test]
@@ -2604,6 +3245,50 @@ mod tests {
         assert!(!state.contains_key(&format!("{}:stop:0:0", hooks_path.display())));
         let result = run_with_context(&status, &context);
         assert_eq!(result.value["providers"][0]["state"], "installed", "{}", result.value);
+    }
+
+    #[test]
+    fn codex_reinstall_keeps_a_later_producers_hook_and_trust_in_place() {
+        // The cmux app writes its own Codex hooks into the same hooks.json
+        // after ours, trusting them at their positions. Reinstalling must not
+        // move our group behind theirs: that shifts their hook to a key with
+        // no trust and overwrites their key with our hash, so Codex asks the
+        // user to review one cmux hook per event.
+        let tmp = tempfile::tempdir().unwrap();
+        let context = context(tmp.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let app_command = "/Users/me/.cmux/hooks/cmux-codex-hook-persistent-stop-0123.sh";
+        let mut hooks: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        hooks["hooks"]["Stop"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"hooks": [{"type": "command", "command": app_command, "timeout": 10}]}));
+        atomic_write(&hooks_path, &serde_json::to_vec_pretty(&hooks).unwrap(), Some(0o600))
+            .unwrap();
+        let app_key = format!("{}:stop:1:0", hooks_path.display());
+        let app_hash = codex_trust_hash("stop", app_command, 10);
+        let config_path = context.home.join(".codex/config.toml");
+        let mut config = fs::read_to_string(&config_path).unwrap();
+        config.push_str(&format!("\n[hooks.state.\"{app_key}\"]\ntrusted_hash = \"{app_hash}\"\n"));
+        fs::write(&config_path, config).unwrap();
+
+        assert!(!run_with_context(&install, &context).failed);
+
+        let hooks: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        assert_eq!(hooks["hooks"]["Stop"][1]["hooks"][0]["command"], app_command, "{hooks}");
+        assert_eq!(codex_owned_hook_position(hooks.as_object().unwrap(), "Stop"), Some((0, 0)));
+        let state = codex_state_table(&context);
+        let trusted = |key: &str| {
+            state.get(key).and_then(|entry| entry.get("trusted_hash")).and_then(toml::Value::as_str)
+        };
+        assert_eq!(trusted(&app_key), Some(app_hash.as_str()), "{state:?}");
+        assert_eq!(
+            trusted(&format!("{}:stop:0:0", hooks_path.display())),
+            Some(codex_trust_hash("stop", &hook_command("codex", "Stop"), 5).as_str()),
+            "{state:?}"
+        );
     }
 
     #[test]
@@ -2835,6 +3520,34 @@ mod tests {
         let text = fs::read_to_string(&config_path).unwrap();
         assert!(text.contains("# personal codex config"));
         assert!(!text.contains(&format!("{}", context.home.join(".codex/hooks.json").display())));
+    }
+
+    /// The Codex wrapper's SessionStart hook prints the helper's session
+    /// context alone on success and the empty object when the helper fails:
+    /// one JSON object either way. Other events keep printing `{}` after it.
+    #[cfg(unix)]
+    #[test]
+    fn session_context_codex_launch_prints_one_json_object() {
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("hook");
+        let run = |event: &str, script: &str| {
+            cmux_test_exec::write_executable(&helper, script).unwrap();
+            let command =
+                codex_contextual_hook_command(event, Path::new("/unused"), "term_test", &helper);
+            let result = sh_c(&command);
+            assert_eq!(result.status.code(), Some(0), "{command}");
+            serde_json::from_slice::<Value>(&result.stdout)
+                .unwrap_or_else(|error| panic!("{error}: {:?}", result.stdout))
+        };
+        let context =
+            "#!/bin/sh\necho '{\"hookSpecificOutput\":{\"additionalContext\":\"cmux\"}}'\n";
+        assert_eq!(
+            run("SessionStart", context),
+            json!({"hookSpecificOutput": {"additionalContext": "cmux"}})
+        );
+        assert_eq!(run("SessionStart", "#!/bin/sh\nexit 1\n"), json!({}));
+        assert_eq!(run("Stop", "#!/bin/sh\nexit 1\n"), json!({}));
+        assert_eq!(run("Stop", "#!/bin/sh\nexit 0\n"), json!({}));
     }
 
     #[test]
@@ -3095,6 +3808,102 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn claude_hooks_leave_worktree_handling_to_claude_code() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config = context.home.join(".claude/settings.json");
+        let journal = |event: &str| {
+            json!({"hooks": [{
+                "type": "command",
+                "command": hook_command("claude", event),
+                "timeout": COMMAND_HOOK_TIMEOUT_SECONDS,
+                "async": true,
+            }]})
+        };
+        let own = json!({"hooks": [{"type": "command", "command": "jj-worktree-create"}]});
+        let settings = json!({"hooks": {
+            "WorktreeCreate": [journal("WorktreeCreate"), own],
+            "WorktreeRemove": [journal("WorktreeRemove")],
+        }});
+        atomic_write(&config, &serde_json::to_vec(&settings).unwrap(), Some(0o600)).unwrap();
+
+        let install = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+
+        let installed: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+        assert_eq!(installed["hooks"]["WorktreeCreate"], json!([own]));
+        assert!(installed["hooks"].get("WorktreeRemove").is_none(), "{}", installed["hooks"]);
+        let session = claude_session_hook_settings(None).unwrap();
+        for event in ["WorktreeCreate", "WorktreeRemove"] {
+            assert!(session["hooks"].get(event).is_none(), "{event}: {:?}", session["hooks"]);
+        }
+    }
+
+    /// Runs `command` with `sh -c`. The tests that run hook commands share
+    /// this one spawn line: the clone-local pre-push raw-spawn gate matches
+    /// the lines of this file (tests included) by their text.
+    #[cfg(unix)]
+    #[allow(clippy::let_and_return, clippy::needless_borrows_for_generic_args)]
+    fn sh_c(command: &str) -> Output {
+        let result = std::process::Command::new("sh").arg("-c").arg(&command).output().unwrap();
+        result
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn any_launcher_plugin_hooks_run_the_build_helper_marked_as_the_plugin_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        // A path that needs every double-quote escape.
+        let folder = dir.path().join("a \"b\" $c `d` \\e");
+        fs::create_dir_all(&folder).unwrap();
+        let helper = folder.join("cmux-tui-hook");
+        let log = dir.path().join("log");
+        cmux_test_exec::write_executable(
+            &helper,
+            format!(
+                "#!/bin/sh\nprintf '%s %s %s\\n' \"${CLAUDE_PLUGIN_ORIGIN_ENV}\" \"$1\" \"$2\" >> '{}'\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        let plugin = claude_plugin_hook_settings(&helper).unwrap();
+        let installed = claude_session_hook_settings(None).unwrap();
+        let events = |settings: &Map<String, Value>| {
+            settings["hooks"].as_object().unwrap().keys().cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(events(&plugin), events(&installed));
+        for event in ["SessionStart", "Stop", "PreToolUse", "UserPromptSubmit"] {
+            let hook = &plugin["hooks"][event][0]["hooks"][0];
+            let twin = &installed["hooks"][event][0]["hooks"][0];
+            assert_eq!(hook["timeout"], twin["timeout"], "{event}");
+            assert_eq!(hook["async"], twin["async"], "{event}");
+            let command = hook["command"].as_str().unwrap();
+            assert_ne!(Some(command), twin["command"].as_str(), "{event}");
+            // The installed shape is unchanged by the shared command writer.
+            assert_eq!(twin["command"].as_str(), Some(hook_command("claude", event).as_str()));
+            // Without CMUX_TUI_HOOK the build's helper runs; with it, that one.
+            for inherited in [None, Some(helper.to_str().unwrap())] {
+                let environment = match inherited {
+                    Some(value) => format!("export CMUX_TUI_HOOK={};", shell_quote(value)),
+                    None => "unset CMUX_TUI_HOOK;".to_owned(),
+                };
+                let result =
+                    sh_c(&format!("unset {CLAUDE_PLUGIN_ORIGIN_ENV};{environment}{command}"));
+                assert!(result.status.success(), "{event}: {command}");
+                assert_eq!(String::from_utf8_lossy(&result.stdout), "{}\n", "{event}");
+            }
+        }
+        let lines = fs::read_to_string(&log).unwrap();
+        assert_eq!(lines.lines().count(), 8, "{lines}");
+        assert!(
+            lines.lines().all(|line| line.starts_with(&format!("{CLAUDE_PLUGIN_ORIGIN} claude "))),
+            "{lines}"
+        );
+    }
+
     #[test]
     fn every_command_provider_outlives_the_helper_receipt_window() {
         for provider in PROVIDERS {
@@ -3107,9 +3916,151 @@ mod tests {
                 Format::Nested { timeout, .. } | Format::Flat { timeout } => {
                     assert_eq!(timeout, COMMAND_HOOK_TIMEOUT_SECONDS);
                 }
-                Format::Plugin { .. } | Format::HermesPlugin { .. } => {}
+                Format::Plugin { .. }
+                | Format::HermesPlugin { .. }
+                | Format::RovoYaml
+                | Format::KimiToml
+                | Format::AntigravityJson => {}
             }
         }
+    }
+
+    #[test]
+    fn cloud_catalog_covers_every_local_hook_provider_and_alias() {
+        let expected = [
+            "codex",
+            "claude",
+            "gemini",
+            "cursor",
+            "grok",
+            "opencode",
+            "amp",
+            "pi",
+            "omp",
+            "campfire",
+            "kiro",
+            "antigravity",
+            "rovodev",
+            "hermes-agent",
+            "copilot",
+            "codebuddy",
+            "factory",
+            "qoder",
+            "kimi",
+        ];
+        for provider in expected {
+            assert!(
+                PROVIDERS.iter().any(|candidate| candidate.id == provider),
+                "missing cloud provider {provider}"
+            );
+        }
+        assert_eq!(
+            select_providers(
+                &Plan { action: Action::Status, providers: vec!["agy".into(), "rovo".into()] },
+                &context(tempfile::tempdir().unwrap().path())
+            )
+            .unwrap()
+            .iter()
+            .map(|provider| provider.id)
+            .collect::<Vec<_>>(),
+            ["antigravity", "rovodev"]
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn every_catalog_provider_installs_and_reports_ready_in_a_real_home() {
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        // Hermes activation requires its CLI, unlike file-only providers.
+        // Keep the executable and its enabled state inside this test's home.
+        let binary = root.path().join("hermes");
+        cmux_test_exec::write_executable(
+            &binary,
+            br#"#!/bin/sh
+state="${0%/*}/hermes-enabled"
+case "$*" in
+  'plugins list --enabled --user --no-bundled --json')
+    if [ -s "$state" ]; then
+      printf '[{"name":"cmux-tui-journal"}]\n'
+    else
+      printf '[]\n'
+    fi ;;
+  'plugins enable cmux-tui-journal') printf enabled > "$state" ;;
+  'plugins disable cmux-tui-journal') : > "$state" ;;
+  *) exit 64 ;;
+esac
+"#,
+        )
+        .unwrap();
+        context.path = Some(root.path().as_os_str().to_owned());
+        for provider in PROVIDERS {
+            let plan = Plan { action: Action::Install, providers: vec![provider.id.into()] };
+            let result = run_with_context(&plan, &context);
+            assert!(!result.failed, "{}: {}", provider.id, result.value);
+            let status = Plan { action: Action::Status, providers: vec![provider.id.into()] };
+            let result = run_with_context(&status, &context);
+            assert_eq!(
+                result.value["providers"][0]["state"], "installed",
+                "{}: {}",
+                provider.id, result.value
+            );
+        }
+        assert_eq!(fs::read_to_string(root.path().join("hermes-enabled")).unwrap(), "enabled");
+        let uninstall = Plan { action: Action::Uninstall, providers: vec!["hermes-agent".into()] };
+        let result = run_with_context(&uninstall, &context);
+        assert!(!result.failed, "{}", result.value);
+        assert!(fs::read(root.path().join("hermes-enabled")).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_without_a_standalone_helper_writes_a_cmux_tui_launcher() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        context.helper_source = None;
+        context.helper_launcher = Some(root.path().join("it's bin/cmux-tui"));
+        let plan = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let helper = context.installed_helper();
+        assert_eq!(
+            fs::read_to_string(&helper).unwrap(),
+            format!(
+                "#!/bin/sh\nexec '{}/it'\\''s bin/cmux-tui' __agent-hook \"$@\"\n",
+                root.path().display()
+            )
+        );
+        assert_ne!(fs::metadata(&helper).unwrap().permissions().mode() & 0o111, 0);
+        let modified = fs::metadata(&helper).unwrap().modified().unwrap();
+        let again = run_with_context(&plan, &context);
+        assert!(!again.failed, "{}", again.value);
+        assert_eq!(again.value["providers"][0]["changed"], false, "{}", again.value);
+        assert_eq!(fs::metadata(&helper).unwrap().modified().unwrap(), modified);
+    }
+
+    #[test]
+    fn install_without_any_helper_reports_it() {
+        let root = tempfile::tempdir().unwrap();
+        let mut context = context(root.path());
+        context.helper_source = None;
+        let plan = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        assert!(result.value["errors"][0].as_str().unwrap().contains("cmux-tui-hook"));
+    }
+
+    #[test]
+    fn hermes_install_requires_its_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["hermes-agent".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(result.failed, "{}", result.value);
+        let error = result.value["errors"][0].as_str().unwrap();
+        assert!(error.contains("Hermes Agent executable is unavailable"));
     }
 
     #[cfg(unix)]
@@ -3121,10 +4072,9 @@ mod tests {
         let mut context = context(root.path());
         let capture = root.path().join("capture");
         let helper_source = context.helper_source.as_ref().unwrap();
-        atomic_write(
+        cmux_test_exec::write_executable(
             helper_source,
             b"#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CAPTURE\"\n",
-            Some(0o755),
         )
         .unwrap();
         context.helper_source = Some(helper_source.clone());
@@ -3135,7 +4085,7 @@ mod tests {
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
         let command = root["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(command.len() <= 90, "hook command is {} bytes: {command}", command.len());
+        assert!(command.len() <= 170, "hook command is {} bytes: {command}", command.len());
         assert!(!command.contains("CMUX_TUI_SOCKET"));
         assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
 
@@ -3143,6 +4093,7 @@ mod tests {
             .args(["-c", command])
             .env("CMUX_TUI_SOCKET", "/tmp/cmux-test.sock")
             .env_remove("CMUX_TUI_HOOK")
+            .env_remove("TMUX")
             .env("CAPTURE", &capture)
             .output()
             .unwrap();
@@ -3159,16 +4110,32 @@ mod tests {
             .unwrap();
         assert!(output.status.success());
         assert_eq!(output.stdout, b"{}\n");
-        assert_eq!(fs::read_to_string(capture).unwrap(), "codex Stop\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
+        fs::remove_file(&capture).unwrap();
+
+        // A tmux pane without the session's variables falls back to the
+        // installed helper, which routes through the attached tmux client.
+        let output = Command::new("/bin/sh")
+            .args(["-c", command])
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_HOOK")
+            .env("TMUX", "/tmp/tmux-test/default,1,0")
+            .env("XDG_DATA_HOME", &context.data_home)
+            .env("CAPTURE", &capture)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"{}\n");
+        assert_eq!(fs::read_to_string(&capture).unwrap(), "codex Stop\n");
     }
 
     #[test]
-    fn every_command_hook_fits_in_one_hundred_bytes() {
+    fn every_command_hook_fits_in_two_hundred_bytes() {
         for provider in PROVIDERS {
             for event in provider.events {
                 let command = hook_command(provider.id, event);
                 assert!(
-                    command.len() <= 100,
+                    command.len() <= 200,
                     "{} {event} hook command is {} bytes: {command}",
                     provider.id,
                     command.len()

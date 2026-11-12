@@ -2,6 +2,7 @@ import CmuxAgentChat
 import CmuxSidebar
 import Foundation
 
+@MainActor
 extension Workspace {
     /// Projects live workspace state into the custom-sidebar interpreter input snapshot.
     func customSidebarWorkspaceSnapshot(
@@ -10,6 +11,7 @@ extension Workspace {
         unreadCount: Int
     ) -> CustomSidebarWorkspaceSnapshot {
         let focusedPanelId = focusedPanelId
+        let displayTitle = customTitle ?? title
         let firstBranch = sidebarGitBranchesInDisplayOrder().first
         let progress = self.progress.map {
             CustomSidebarWorkspaceSnapshot.Progress(value: $0.value, label: $0.label)
@@ -23,7 +25,7 @@ extension Workspace {
         }
         return CustomSidebarWorkspaceSnapshot(
             id: id,
-            title: customTitle ?? title,
+            title: displayTitle,
             isSelected: id == selectedId,
             isPinned: isPinned,
             index: index,
@@ -45,8 +47,21 @@ extension Workspace {
             latestSubmittedAt: latestSubmittedAt,
             remote: remote,
             agents: customSidebarAgentSnapshots(),
-            groupId: groupId
+            groupId: groupId,
+            taskStatus: effectiveTaskStatus.rawValue,
+            emoji: Self.customSidebarLeadingEmoji(in: displayTitle)
         )
+    }
+
+    /// Returns the first grapheme when a workspace display title starts with
+    /// an emoji. The custom-sidebar context keeps the full title and exposes
+    /// this optional projection so a sidebar can render the emoji separately.
+    private static func customSidebarLeadingEmoji(in title: String) -> String? {
+        guard let first = title.first,
+              first.unicodeScalars.contains(where: { $0.properties.isEmojiPresentation }) else {
+            return nil
+        }
+        return String(first)
     }
 
     /// At most this many agent sessions are projected per workspace; the
@@ -133,18 +148,27 @@ extension Workspace {
         for paneId in bonsplitController.allPaneIds {
             for tab in bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
+                // Keep tab identity stable, but expose only IDs accepted by surface.*.
+                // A mirror without a projection stays visible without a focus target.
+                let focusSurfaceId = isRemoteTmuxControlContainer(panelId)
+                    ? activeRemoteTmuxControlSurfaceProjection(containerPanelID: panelId)?.surfaceID
+                    : panelId
                 let git = reportedPanelGitBranch(panelId: panelId)
+                let prompt = panelPrompts[panelId]
                 surfaces.append(
                     CustomSidebarSurfaceSnapshot(
                         panelId: panelId,
-                        surfaceId: tab.id.uuid,
+                        surfaceId: focusSurfaceId,
                         title: tab.title,
                         isFocused: panelId == focusedPanelId,
                         isPinned: pinnedPanelIds.contains(panelId),
                         directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: surfaceListeningPorts[panelId] ?? []
+                        listeningPorts: surfaceListeningPorts[panelId] ?? [],
+                        latestSubmittedMessage: prompt?.message,
+                        latestSubmittedAt: prompt?.submittedAt,
+                        hasUnreadNotification: hasUnreadNotification(panelId: panelId)
                     )
                 )
             }

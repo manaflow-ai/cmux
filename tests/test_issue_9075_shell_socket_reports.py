@@ -148,6 +148,34 @@ _cmux_tmux_publish_cmux_environment
 """
 
 
+NO_SERVER_ERROR = "no server running on /tmp/tmux-501/default"
+
+
+def failing_tmux_publish_command(
+    shell_name: str, attempts: int, error: str = NO_SERVER_ERROR
+) -> str:
+    publish = "\n_cmux_tmux_publish_cmux_environment" * attempts
+    if shell_name == "fish":
+        return (
+            f"""
+source "$CMUX_TEST_INTEGRATION"
+function tmux
+    string join ' ' -- $argv >> "$CMUX_TEST_TMUX_LOG"
+    echo '{error}' >&2
+    return 1
+end"""
+            + publish
+            + "\n"
+        )
+    return (
+        f"""
+source "$CMUX_TEST_INTEGRATION"
+tmux() {{ printf '%s\\n' "$*" >> "$CMUX_TEST_TMUX_LOG"; echo '{error}' >&2; return 1; }}"""
+        + publish
+        + "\n"
+    )
+
+
 def run_shell(
     argv_prefix: list[str],
     command: str,
@@ -191,16 +219,130 @@ def assert_background_send_is_capability_authenticated(
         )
 
 
+def tmux_environment(
+    shell_name: str,
+    integration: Path,
+    directory: Path,
+    server_running: bool,
+) -> tuple[dict[str, str], Path, Optional[socket.socket]]:
+    log_path = directory / f"{shell_name}-{server_running}-tmux.log"
+    tmux_tmpdir = directory / f"{shell_name}-{server_running}-tmux-tmp"
+    socket_directory = tmux_tmpdir / f"tmux-{os.getuid()}"
+    socket_directory.mkdir(parents=True)
+    server: Optional[socket.socket] = None
+    if server_running:
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(socket_directory / "default"))
+    environment = base_environment(integration, directory)
+    environment["CMUX_TEST_TMUX_LOG"] = str(log_path)
+    environment["TMUX_TMPDIR"] = str(tmux_tmpdir)
+    return environment, log_path, server
+
+
+def assert_tmux_not_spawned_without_server(
+    shell_name: str,
+    integration: Path,
+    argv_prefix: list[str],
+    directory: Path,
+) -> None:
+    environment, log_path, _ = tmux_environment(
+        shell_name, integration, directory, server_running=False
+    )
+    run_shell(argv_prefix, tmux_publish_command(shell_name), environment)
+    if log_path.exists() and log_path.read_text(encoding="utf-8"):
+        raise AssertionError(
+            f"{shell_name} ran tmux with no default tmux server:\n"
+            f"{log_path.read_text(encoding='utf-8')}"
+        )
+
+
+def tmux_log_lines(log_path: Path) -> list[str]:
+    if not log_path.exists():
+        return []
+    return [line for line in log_path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def assert_tmux_stops_retrying_stale_socket(
+    shell_name: str,
+    integration: Path,
+    argv_prefix: list[str],
+    directory: Path,
+) -> None:
+    """A default socket left behind by an exited tmux server must not cost a
+    failing tmux spawn on every prompt, but a restarted server must be seen."""
+    environment, log_path, _ = tmux_environment(
+        shell_name, integration, directory, server_running=False
+    )
+    socket_directory = Path(environment["TMUX_TMPDIR"]) / f"tmux-{os.getuid()}"
+    socket_path = socket_directory / "default"
+
+    def bind_stale_socket() -> None:
+        stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        stale.bind(str(socket_path))
+        stale.close()
+
+    bind_stale_socket()
+    # A failure that does not say the server is gone (an interrupted client,
+    # an oversized value) must not stop later publishes.
+    run_shell(
+        argv_prefix,
+        failing_tmux_publish_command(shell_name, 2, "command set-environment: too long"),
+        environment,
+    )
+    transient = tmux_log_lines(log_path)
+    if len(transient) != 2:
+        raise AssertionError(
+            f"{shell_name} stopped publishing after a failure that was not a dead "
+            f"server; tmux ran {len(transient)} times:\n" + "\n".join(transient)
+        )
+    log_path.unlink()
+
+    run_shell(argv_prefix, failing_tmux_publish_command(shell_name, 3), environment)
+    first = tmux_log_lines(log_path)
+    if len(first) != 1:
+        raise AssertionError(
+            f"{shell_name} should try a stale tmux socket once, then stop; tmux ran "
+            f"{len(first)} times:\n" + "\n".join(first)
+        )
+
+    run_shell(argv_prefix, failing_tmux_publish_command(shell_name, 2), environment)
+    second = tmux_log_lines(log_path)
+    if len(second) != 1:
+        raise AssertionError(
+            f"{shell_name} retried a known-stale tmux socket in a new shell:\n"
+            + "\n".join(second)
+        )
+
+    # A new server rebinds the socket, so its mtime moves past whatever the
+    # integration recorded for the failure. Age everything else in the socket
+    # directory so the check does not depend on timestamp resolution.
+    socket_path.unlink()
+    for entry in socket_directory.iterdir():
+        os.utime(entry, (1_000_000_000, 1_000_000_000), follow_symlinks=False)
+    bind_stale_socket()
+    run_shell(argv_prefix, failing_tmux_publish_command(shell_name, 1), environment)
+    third = tmux_log_lines(log_path)
+    if len(third) != 2:
+        raise AssertionError(
+            f"{shell_name} ignored a rebound tmux socket; tmux log:\n"
+            + "\n".join(third)
+        )
+
+
 def assert_tmux_does_not_publish_capability(
     shell_name: str,
     integration: Path,
     argv_prefix: list[str],
     directory: Path,
 ) -> None:
-    log_path = directory / f"{shell_name}-tmux.log"
-    environment = base_environment(integration, directory)
-    environment["CMUX_TEST_TMUX_LOG"] = str(log_path)
-    run_shell(argv_prefix, tmux_publish_command(shell_name), environment)
+    environment, log_path, server = tmux_environment(
+        shell_name, integration, directory, server_running=True
+    )
+    try:
+        run_shell(argv_prefix, tmux_publish_command(shell_name), environment)
+    finally:
+        if server is not None:
+            server.close()
     output = log_path.read_text(encoding="utf-8")
     forbidden = "set-environment -g CMUX_SOCKET_CAPABILITY "
     if forbidden in output:
@@ -234,6 +376,18 @@ def main() -> int:
                 integration,
                 argv_prefix,
                 directory,
+            )
+            assert_tmux_not_spawned_without_server(
+                shell_name,
+                integration,
+                argv_prefix,
+                directory,
+            )
+            assert_tmux_stops_retrying_stale_socket(
+                shell_name,
+                integration,
+                argv_prefix,
+                directory / "stale",
             )
 
         shadow_directory = directory / "shadow"

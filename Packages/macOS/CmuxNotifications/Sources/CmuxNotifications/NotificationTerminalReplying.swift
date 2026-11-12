@@ -16,5 +16,5 @@ public protocol NotificationTerminalReplying: AnyObject {
         tabId: UUID,
         surfaceId: UUID?,
         retargetsToLiveSurfaceOwner: Bool
-    ) -> Bool
+    ) async -> Bool
 }

@@ -50,18 +50,18 @@ export function makeAnalyticsIdentityHandler(
   };
 }
 
-function analyticsPlan(metadata: unknown): "free" | "pro" | "team" {
+function analyticsPlan(metadata: unknown): "free" | "go" | "pro" | "max" | "team" {
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
     return "free";
   }
   const plan = (metadata as Record<string, unknown>).cmuxPlan;
-  return plan === "pro" || plan === "team" ? plan : "free";
+  return plan === "go" || plan === "pro" || plan === "max" || plan === "team" ? plan : "free";
 }
 
 function identityResponse(
   user: {
     readonly id: string;
-    readonly plan: "free" | "pro" | "team";
+    readonly plan: "free" | "go" | "pro" | "max" | "team";
   } | null,
 ): NextResponse {
   return NextResponse.json(

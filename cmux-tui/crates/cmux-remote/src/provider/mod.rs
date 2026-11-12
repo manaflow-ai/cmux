@@ -282,6 +282,13 @@ pub enum ProviderError {
 }
 
 impl ProviderError {
+    /// Distinguishes a live route whose daemon port is not listening from a
+    /// provider shutdown. Callers can use the supported daemon recovery path
+    /// without treating a refused port as VM destruction.
+    pub fn is_connection_refused(&self) -> bool {
+        matches!(self, Self::Link(LinkError::Transport(message)) if message.to_ascii_lowercase().contains("connection refused"))
+    }
+
     /// Whether a provider failed because its current carrier path disappeared
     /// or could not be established. Configuration, authentication, and
     /// protocol failures remain terminal.
@@ -331,6 +338,18 @@ mod tests {
     use crate::crypto::AuthKind;
 
     use super::*;
+
+    #[test]
+    fn connection_refused_is_distinguished_from_other_transport_failures() {
+        assert!(
+            ProviderError::Link(LinkError::Transport("connection refused".into()))
+                .is_connection_refused()
+        );
+        assert!(
+            !ProviderError::Link(LinkError::Transport("connection reset".into()))
+                .is_connection_refused()
+        );
+    }
 
     #[test]
     fn carrier_retryability_excludes_configuration_authentication_and_protocol_failures() {

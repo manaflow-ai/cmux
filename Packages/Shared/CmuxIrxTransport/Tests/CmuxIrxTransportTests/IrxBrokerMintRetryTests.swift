@@ -154,6 +154,7 @@ struct IrxBrokerMintRetryTests {
 final class IrxStaleKeepAliveHTTPServer: @unchecked Sendable {
     enum RequestAction: Sendable {
         case respond
+        case reply(status: Int, body: Data)
         case resetConnection
     }
 
@@ -161,6 +162,7 @@ final class IrxStaleKeepAliveHTTPServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "irx-stale-keepalive-http-server")
     private let lock = NSLock()
     private let action: @Sendable (Int) -> RequestAction
+    private let requestHandler: (@Sendable (Data) -> RequestAction)?
     private var servedRequestCount = 0
     private var openConnections: [NWConnection] = []
     private var responseBody = Data("{}".utf8)
@@ -188,7 +190,8 @@ final class IrxStaleKeepAliveHTTPServer: @unchecked Sendable {
     }
 
     static func start(
-        action: @escaping @Sendable (Int) -> RequestAction
+        action: @escaping @Sendable (Int) -> RequestAction = { _ in .respond },
+        requestHandler: (@Sendable (Data) -> RequestAction)? = nil
     ) async throws -> IrxStaleKeepAliveHTTPServer {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = NWEndpoint.hostPort(
@@ -196,7 +199,7 @@ final class IrxStaleKeepAliveHTTPServer: @unchecked Sendable {
         )
         let listener = try NWListener(using: parameters)
         return try await withCheckedThrowingContinuation { continuation in
-            let server = IrxStaleKeepAliveHTTPServer(listener: listener, action: action)
+            let server = IrxStaleKeepAliveHTTPServer(listener: listener, action: action, requestHandler: requestHandler)
             let resumer = OnceResumer(continuation: continuation)
             listener.stateUpdateHandler = { state in
                 switch state {
@@ -232,10 +235,12 @@ final class IrxStaleKeepAliveHTTPServer: @unchecked Sendable {
 
     private init(
         listener: NWListener,
-        action: @escaping @Sendable (Int) -> RequestAction
+        action: @escaping @Sendable (Int) -> RequestAction,
+        requestHandler: (@Sendable (Data) -> RequestAction)?
     ) {
         self.listener = listener
         self.action = action
+        self.requestHandler = requestHandler
         listener.newConnectionHandler = { [weak self] connection in
             self?.adopt(connection)
         }
@@ -282,13 +287,14 @@ final class IrxStaleKeepAliveHTTPServer: @unchecked Sendable {
         _ buffer: inout Data, on connection: NWConnection
     ) -> Bool {
         while let request = Self.completeRequestLength(in: buffer) {
+            let bytes = Data(buffer.prefix(request))
             buffer.removeSubrange(buffer.startIndex ..< buffer.startIndex + request)
             lock.lock()
             let index = servedRequestCount
             servedRequestCount += 1
             let body = responseBody
             lock.unlock()
-            switch action(index) {
+            switch requestHandler?(bytes) ?? action(index) {
             case .respond:
                 let head =
                     "HTTP/1.1 200 OK\r\n"
@@ -299,6 +305,9 @@ final class IrxStaleKeepAliveHTTPServer: @unchecked Sendable {
                     content: Data(head.utf8) + body,
                     completion: .contentProcessed { _ in }
                 )
+            case let .reply(status, body):
+                let head = "HTTP/1.1 \(status) Response\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: keep-alive\r\n\r\n"
+                connection.send(content: Data(head.utf8) + body, completion: .contentProcessed { _ in })
             case .resetConnection:
                 // RST, exactly like the edge tearing down the idle pooled
                 // connection: the client's written request is never answered

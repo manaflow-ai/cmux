@@ -96,10 +96,21 @@ import Testing
         #expect(result.stdout == "before=OFF;after=ON\n")
 
         let commands = state.snapshot()
-        let workspaceListPayload = try #require(
-            commands.compactMap(v2Payload).first { $0["method"] as? String == "workspace.list" }
-        )
-        #expect((workspaceListPayload["params"] as? [String: Any])?["window_id"] as? String == windowId)
+        // The ref resolves client-side (#13964). This host lists the ref in every
+        // `workspace.list`, so one listing resolves it: the parameterless snapshot
+        // read, or a read scoped to the one window. A second listing would mean the
+        // CLI kept scanning after the ref was already found.
+        let workspaceListPayloads = commands.compactMap(v2Payload).filter {
+            $0["method"] as? String == "workspace.list"
+        }
+        #expect(workspaceListPayloads.count == 1, Comment(rawValue: commands.joined(separator: "\n")))
+        for payload in workspaceListPayloads {
+            let params = payload["params"] as? [String: Any] ?? [:]
+            #expect(
+                params.isEmpty || (params.count == 1 && params["window_id"] as? String == windowId),
+                Comment(rawValue: "unexpected workspace.list params: \(params)")
+            )
+        }
         #expect(commands.last == "workspace_loading manual on --tab=\(workspaceId)")
     }
 

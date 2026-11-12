@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCommandPalette
 import Foundation
 import Testing
 
@@ -10,6 +11,17 @@ import Testing
 
 @Suite(.serialized)
 struct CmuxAgentChatConfigTests {
+
+    @Test("Go plan is disabled when its rollout flag is off")
+    @MainActor
+    func goPlanRolloutFlagDefaultsOff() {
+        let flags = CmuxFeatureFlags.shared
+        let definition = CmuxFeatureFlags.goPlanFlag
+        let previous = flags.overrideValue(for: definition)
+        flags.setOverride(false, for: definition)
+        defer { flags.setOverride(previous, for: definition) }
+        #expect(flags.isGoPlanEnabled == false)
+    }
 
     @MainActor
     private func withAgentChatUIFlag<T>(_ enabled: Bool, _ body: () throws -> T) throws -> T {
@@ -450,7 +462,7 @@ struct CmuxAgentChatConfigTests {
 
         try withAgentChatUIFlag(true) {
             let contributions = ContentView.commandPaletteNewAgentChatContributions()
-            #expect(contributions.map(\.commandId) == ["palette.newAgentChat"])
+            #expect(contributions.map(\.commandId) == ["palette.newAgentChat", "palette.openTerminalChatView"])
         }
     }
 
@@ -494,4 +506,104 @@ struct CmuxAgentChatConfigTests {
             }
         }
     }
+
+    @MainActor
+    @Test func commandPaletteAgentLauncherContributionsFollowAvailabilityAndWorkspaceKind() throws {
+        let both = ContentView.commandPaletteAgentLauncherContributions(
+            availableProviders: [.claude, .codex]
+        )
+        #expect(both.map(\.commandId) == [
+            ContentView.commandPaletteLaunchClaudeTeamsCommandID,
+            ContentView.commandPaletteLaunchCodexTeamsCommandID,
+        ])
+
+        var localContext = CommandPaletteContextSnapshot()
+        localContext.setBool(CommandPaletteContextKeys.hasWorkspace, true)
+        localContext.setBool(ContentView.commandPaletteWorkspaceIsRemoteKey, false)
+        #expect(both.allSatisfy { $0.when(localContext) })
+        #expect(
+            both[0].title(localContext)
+                == String(localized: "menu.help.claudeCodeTeams", defaultValue: "Claude Code Teams")
+        )
+        #expect(both[0].subtitle(localContext) == "cmux claude-teams")
+        #expect(
+            both[1].title(localContext)
+                == String(localized: "menu.help.codexTeams", defaultValue: "Codex Teams")
+        )
+        #expect(both[1].subtitle(localContext) == "cmux codex-teams")
+        let allProviders = ContentView.commandPaletteAgentLauncherContributions(
+            availableProviders: Set(AgentSessionProviderID.allCases)
+        )
+        #expect(allProviders.map(\.commandId) == [
+            ContentView.commandPaletteLaunchClaudeTeamsCommandID,
+            ContentView.commandPaletteLaunchCodexTeamsCommandID,
+            ContentView.commandPaletteLaunchOpenCodeCommandID,
+        ])
+        #expect(
+            allProviders[2].title(localContext)
+                == String(localized: "menu.help.ohMyOpenCode", defaultValue: "oh-my-opencode")
+        )
+        #expect(allProviders[2].subtitle(localContext) == "cmux omo")
+        #expect(ContentView.commandPaletteAgentLauncherContributions(availableProviders: []).isEmpty)
+
+        var remoteContext = localContext
+        remoteContext.setBool(ContentView.commandPaletteWorkspaceIsRemoteKey, true)
+        #expect(both.allSatisfy { !$0.when(remoteContext) })
+
+        let codexOnly = ContentView.commandPaletteAgentLauncherContributions(
+            availableProviders: [.codex]
+        )
+        #expect(codexOnly.map(\.commandId) == [
+            ContentView.commandPaletteLaunchCodexTeamsCommandID,
+        ])
+        let openCodeOnly = ContentView.commandPaletteAgentLauncherContributions(
+            availableProviders: [.opencode]
+        )
+        #expect(openCodeOnly.map(\.commandId) == [
+            ContentView.commandPaletteLaunchOpenCodeCommandID,
+        ])
+    }
+
+    @MainActor
+    @Test func commandPaletteAgentLauncherCoversEveryProvider() {
+        let contributions = ContentView.commandPaletteAgentLauncherContributions(
+            availableProviders: Set(AgentSessionProviderID.allCases)
+        )
+        #expect(contributions.count == AgentSessionProviderID.allCases.count)
+    }
+
+    @Test func commandPaletteAgentLauncherAvailabilityFindsOpenCodeOnSearchPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CmuxAgentChatConfigTests-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("opencode")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let available = ContentView.resolveCommandPaletteAgentLauncherProviders(
+            environment: ["PATH": bin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            configuredExecutablePaths: [:]
+        )
+        #expect(available.contains(.opencode))
+    }
+
+    @MainActor
+    @Test func commandPaletteAgentLauncherShellInputDelegatesToBundledCLI() {
+        let cliURL = URL(
+            fileURLWithPath: "/Applications/cmux DEV.app/Contents/Resources/bin/cmux",
+            isDirectory: false
+        )
+        #expect(
+            ContentView.commandPaletteAgentLauncherShellInput(
+                cliURL: cliURL,
+                subcommand: "claude-teams"
+            )
+                == "/Applications/cmux\\ DEV.app/Contents/Resources/bin/cmux claude-teams\n"
+        )
+    }
+
+
 }

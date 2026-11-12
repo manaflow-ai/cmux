@@ -18,11 +18,17 @@ extension Workspace: WorkspaceSurfaceTreeReading {
         paneTree.surfaceId(forPanelId: panelId)
     }
 
+    /// The pane that currently holds this panel's surface.
+    ///
+    /// Bonsplit keeps a pane-ownership index, so ask it. The scan this replaced
+    /// built a `Tab` for every tab in every pane, and `Tab.init(from:)` copies
+    /// all fourteen `TabItem` properties. Run inside a SwiftUI update, as the
+    /// portal-ownership resolver does, that subscribed the update to every tab
+    /// title in the window, so an animating title invalidated the terminal
+    /// surfaces. `DockSplitStore.paneId(forPanelId:)` already did it this way.
     func paneId(forPanelId panelId: UUID) -> PaneID? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
-        return bonsplitController.allPaneIds.first { paneId in
-            bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabId })
-        }
+        return bonsplitController.paneId(containing: tabId)
     }
 
     func indexInPane(forPanelId panelId: UUID) -> Int? {

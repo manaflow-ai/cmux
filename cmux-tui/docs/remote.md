@@ -86,6 +86,28 @@ cmux-tui remote enroll disconnect <device-id> <session-id> --session dev
 
 Revocation closes an enrolled device's live sessions and rejects its key in the future. Carrier sessions have synthetic `carrier:*` device IDs and no persistent device record, so use `connections` followed by `disconnect` for a live carrier session. Other devices remain connected. Every enrolled device has full daemon authority, including all workspaces.
 
+## Decide what paired machines may do here
+
+Enrollment says two machines belong to the same user. It doesn't say what one may do on the other. Each machine keeps its own trust record for every peer, keyed by the peer's device fingerprint, and a peer without a record gets nothing.
+
+```sh
+cmux remote trust set FINGERPRINT --tier folders --folder ~/src/api --agent claude
+cmux remote trust set FINGERPRINT --tier ask --folder ~/src/api --agent claude --agent codex --expires-in-hours 24
+cmux remote trust list --json
+cmux remote trust forget FINGERPRINT
+cmux remote trust audit --limit 20
+```
+
+| Tier | The peer may |
+| --- | --- |
+| `none` | Nothing. Same as no record. |
+| `ask` | Request a session for a listed agent in a listed folder; each request waits for approval on this machine. |
+| `folders` | Start sessions for listed agents in listed folders without asking. |
+
+Folders are stored resolved through symlinks. A request's working directory is resolved too, so a link inside an allowed folder can't lead out of it, and a stored folder that's later replaced by a symlink admits nothing. `/`, the home folder and any folder above it can't be allowed. Records are written to `peer-trust.json` (updated under a lock) and requests to the append-only `peer-audit.jsonl` (rotated to `.1` past 4 MiB; oversized peer fields are cut, never dropped), both owner-only files in the remote state root (`--state-dir`, `CMUX_REMOTE_STATE_DIR`, or the platform default). A peer can't change them. There's no shell tier: opening a terminal for a peer needs its own design and review.
+
+Nothing remote consults these records yet. The next step, `machine.session.request`, will admit or refuse through them and log every decision ([design](../../docs/multi-machine-sessions.md#per-host-trust)).
+
 ## Connect directly or over SSH
 
 Connect through any route printed by the daemon:
@@ -108,11 +130,36 @@ cmux-tui remote ssh user@linux-server --session dev
 
 The SSH path probes for `~/.local/bin/cmux-tui`, then carries framed data over SSH stdio. It keeps a durable headless mux owner and a replaceable remote sidecar as separate processes. Existing terminal panes therefore survive sidecar replacement. If the named tmux-style session already has a live mux socket, the sidecar attaches without creating a second session. Otherwise cmux starts the user-scoped mux owner on demand.
 
-If the binary is absent or reports an understood incompatible probe, an npm-backed release or nightly binary runs its exact embedded npm distribution version and installs it under the remote user's home directory. Source builds, raw commit-addressed artifacts, PyPI-only builds, and other binaries without an npm bootstrap stamp fail with an instruction to preinstall the same binary; they never substitute an older npm release. An unrecognized legacy probe fails closed; use explicit `--upgrade` from an npm-backed binary to force the pinned install and replace an SSH-managed sidecar. npm verifies the pinned package integrity, and a post-install probe checks the distribution, npm bootstrap, and protocol versions. Release CI verifies that the packaged binary reports the same distribution and npm bootstrap version. Automatic install requires Node.js 18 or newer, `npx`, registry access, and write access to `--remote-binary`; the published Linux packages use static musl binaries and do not require a glibc runtime. Use `--no-install` to require a preinstalled binary. A running sidecar is never silently replaced or restarted.
+If the binary is absent or reports an understood incompatible probe, an npm-backed release or nightly binary runs its exact embedded npm distribution version and installs it under the remote user's home directory. Source builds, raw commit-addressed artifacts, PyPI-only builds, and other binaries without an npm bootstrap stamp fail with an instruction to preinstall the same binary; they never substitute an older npm release. An unrecognized legacy probe fails closed; use explicit `--upgrade` from an npm-backed binary to force the pinned install and replace an SSH-managed sidecar. Each npm platform package ships `bin/cmux-tui-ssh/manifest.json`, which pins the SHA-256 of every published remote binary for its exact build. The bootstrap downloads the remote platform's package with `npm pack --ignore-scripts` into a private staging directory, runs none of its code, and compares the extracted binary's SHA-256 (`sha256sum`, `shasum` or `openssl`) with the pinned digest; a mismatch removes the download and fails. Only then does a probe of the staged binary check the distribution, npm bootstrap, and protocol versions before it replaces `--remote-binary`. Release CI verifies that the packaged binary reports the same distribution and npm bootstrap version and that every pinned digest matches its packaged binary. A build stamped with an npm version but shipped without that manifest (for example, a PyPI wheel built in the same release run) falls back to `npx --yes --ignore-scripts cmux@VERSION install-self`, which trusts the npm registry and the post-install probe. Automatic install requires Node.js 18 or newer, `npm`, registry access, and write access to `--remote-binary`; the published Linux packages use static musl binaries and do not require a glibc runtime. Use `--no-install` to require a preinstalled binary. A running sidecar is never silently replaced or restarted.
 
 `--upgrade` explicitly installs the pinned distribution, stops an SSH-managed sidecar through its owner-only admin socket, waits for complete cleanup, and reconnects through the new binary. Terminal panes survive. Remote clients and forwards disconnect, sidecar-owned RPC processes terminate, and RPC workspace handles and route IDs reset. The durable mux owner continues running its previous binary until the user explicitly restarts the full session. Manually started embedded `cmux-tui server start` processes are refused because stopping one would terminate its mux workspaces. Use `--remote-state-dir` on every SSH command when the remote daemon uses a non-default state directory.
 
 Every command that selects SSH as its initial route performs the same probe and automatic install before starting its authenticated connection. This includes a raw `ssh://` route passed to `connect`, `forward`, or `rpc`. The bootstrap runs outside the short carrier-reattachment deadline, so installation can finish without making later keystroke-path reconnects wait on package setup. A later SSH fallback is expected to use the binary installed by an earlier SSH connection or by the server owner. These commands accept `--session`, `--ssh-binary`, `--remote-binary`, `--remote-state-dir`, repeated `--ssh-arg` values, `--upgrade`, and `--no-install`. Repeat `--session dev` on later connections to a non-main SSH session; the known-daemon record stores routes and keys, not the remote session name.
+
+## Diagnose SSH reachability
+
+`cmux remote doctor HOST` explains why this machine can't reach HOST over SSH. It changes nothing on either machine.
+
+```sh
+cmux remote doctor cosmic-gray
+cmux remote doctor cosmic-gray --user leoli --port 22 --timeout-seconds 5 --json
+```
+
+HOST may be an SSH config alias or `user@host`; the probes aim at the `HostName` and `Port` that `ssh -G HOST` reports. It runs three probes in order: a Tailscale TSMP ping (`tailscale ping --tsmp`), a TCP connect to the SSH port, and, only when TCP connects, `ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes HOST true` with agent, X11 and port forwarding disabled. The combined result is one diagnosis:
+
+| `diagnosis` | Probes | Meaning |
+| --- | --- | --- |
+| `ok` | TCP open, SSH works | cmux can use the host directly. |
+| `key-not-authorized` | TCP open, `Permission denied` | No offered key is in the target user's `authorized_keys`, or the login name differs (`--user`). |
+| `host-key-unknown` | TCP open, host key check failed | Connect once with plain `ssh` to verify and trust the key. |
+| `host-key-changed` | TCP open, `REMOTE HOST IDENTIFICATION HAS CHANGED` | Don't accept the new key until it's checked on the host itself. |
+| `ssh-failed` | TCP open, other SSH error | Run `ssh -v` for details. |
+| `ssh-off` | TCP refused | Nothing listens on the port. On a Mac, turn on Remote Login. |
+| `tailnet-policy-blocks` | TSMP answers, TCP times out | The tailnet access policy drops this direction. TSMP is answered before the packet filter, so it still works. Ask a tailnet admin for a rule, or connect from the other machine. cmux never edits the policy. |
+| `unreachable` | No TSMP answer, TCP times out | The host is offline or not on this tailnet. |
+| `unresolved` | Name lookup failed | Use the tailnet name or the 100.x address. |
+
+When the SSH config routes HOST through `ProxyJump` or `ProxyCommand`, the TCP and tailnet probes are skipped (`tcp: proxied`, `tailnet: not-tried`) and only the SSH probe runs. The SSH probe also overrides config options that could change state or skip the test: `UpdateHostKeys`, `ControlMaster`/`ControlPath`, `RemoteCommand` and `PermitLocalCommand`. `tailnet` is `unavailable` when the `tailscale` CLI is missing or not running; the TCP and SSH probes still run. The command exits 0 only for `ok`. HOST and `--user` must not start with `-` or contain spaces or control characters.
 
 ## Share one WireGuard tunnel between clients
 
@@ -387,6 +434,18 @@ Headless clients, port forwards, and headless daemons exit with the terminal run
 Transport diagnostics have two perspectives. The client snapshot owns its selected outbound provider and Iroh's live direct or relay path. The daemon snapshot owns generation, resume state, and authenticated lane bindings. The daemon does not infer the outbound provider because SSH reaches it through a Unix sidecar and a TLS proxy can deliver WSS as plaintext WebSocket ingress. Snapshotting is opt-in and takes no locks on the normal keystroke scheduling path.
 
 Direct plaintext WebSocket binds are loopback-only unless explicitly enabled. Prefer a TLS reverse proxy for a public endpoint. The direct listener bounds raw HTTP sockets and requires an upgrade within ten seconds. Native and Cloudflare relays enforce global and per-slot admission, short-lived scoped tickets, join deadlines, circuit idle expiry, and bounded queues.
+
+## Embedded clients
+
+`crates/cmux-terminal-client` exposes the client side of this protocol as a C
+ABI for programs that cannot spawn `cmux-tui` (the iOS app). It connects by
+`ws://`, `wss://`, or `iroh://` route with a persistent device identity under a
+caller-owned state directory, optionally dials private addresses through an
+in-process WireGuard tunnel (`cmux-wg`), delivers raw terminal bytes to the
+embedding renderer, and reads the terminal catalog over the mux control
+service. `MuxLineClient` in `cmux-remote` is the request/response form of the
+mux control bridge that makes the catalog possible without a local socket. See
+the crate README for the contract.
 
 ## Terms
 

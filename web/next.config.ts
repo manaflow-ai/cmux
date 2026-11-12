@@ -6,20 +6,29 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
+import { isPlatformDownloadAvailable } from "./app/lib/download";
+import {
+  isDocsZoneDeployment,
+  nightlyDocsOrigin as configuredNightlyDocsOrigin,
+  releaseDocsOrigin as configuredReleaseDocsOrigin,
+} from "./app/lib/docs-channel";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
 const docsChannel = process.env.CMUX_DOCS_CHANNEL;
-const isDocsZone = docsChannel === "release" || docsChannel === "nightly";
-const releaseDocsOrigin =
-  process.env.CMUX_RELEASE_DOCS_ORIGIN ?? "https://cmux-docs-release.vercel.app";
-const nightlyDocsOrigin =
-  process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://cmux-docs-nightly.vercel.app";
+const isDocsZone = isDocsZoneDeployment();
+const releaseDocsOrigin = configuredReleaseDocsOrigin();
+const nightlyDocsOrigin = configuredNightlyDocsOrigin();
 // The embedded browser reaches a dev server through its per-instance
-// Tailscale Serve hostname. Next.js blocks cross-origin HMR and RSC resources
-// unless that hostname is explicitly allowed. Keep this opt-in and validated
-// so production and SSH-backed development retain the default protection.
+// Tailscale Serve hostname. Published development VMs also use generated
+// `*.cmux.sh` hostnames. Next.js blocks cross-origin HMR and RSC resources
+// unless those origins are explicitly allowed. This setting is used only by
+// `next dev`; production keeps the default protection.
 const directDevBackendAllowedHost = directDevBackendHost();
+const developmentPublicationOrigins = [
+  ...(directDevBackendAllowedHost ? [directDevBackendAllowedHost] : []),
+  "*.cmux.sh",
+];
 
 // Agent landing pages moved under /agents/<agent>. Keep the old top-level
 // slugs working with permanent redirects, for the bare English path and every
@@ -71,9 +80,7 @@ const nextConfig: NextConfig = {
         ? "tsconfig.next.json"
         : "tsconfig.json",
   },
-  allowedDevOrigins: directDevBackendAllowedHost
-    ? [directDevBackendAllowedHost]
-    : undefined,
+  allowedDevOrigins: developmentPublicationOrigins,
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {
@@ -94,6 +101,12 @@ const nextConfig: NextConfig = {
     if (isDocsZone) {
       return {
         beforeFiles: [
+          // Direct docs previews use the same search URLs as the main site.
+          // Serve their own index instead of requiring the outer site router.
+          {
+            source: `/_docs-search/${docsChannel}/:path*`,
+            destination: "/pagefind/:path*",
+          },
           {
             source: `/_docs-assets/${docsChannel}/_next/:path*`,
             destination: "/_next/:path*",
@@ -103,6 +116,11 @@ const nextConfig: NextConfig = {
     }
     return {
       beforeFiles: [
+        // Universal links for the cmux iOS app (app/api/apple-app-site-association).
+        {
+          source: "/.well-known/apple-app-site-association",
+          destination: "/api/apple-app-site-association",
+        },
         {
           source: "/_docs-assets/release/:path*",
           destination: `${releaseDocsOrigin}/:path*`,
@@ -174,7 +192,25 @@ const nextConfig: NextConfig = {
         },
       ]),
     );
-    return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
+    // While Linux is waitlist-only, /linux (linked from older posts and the
+    // cmux Browser README) is a real 307 to /browser, whose Linux card takes
+    // waitlist signups. Temporary, so it lifts when Linux ships again.
+    const linuxWaitlistRedirects = isPlatformDownloadAvailable("linux")
+      ? []
+      : exts.flatMap((ext) => [
+          { source: `/linux${ext}`, destination: "/browser", permanent: false },
+          { source: `/en/linux${ext}`, destination: "/browser", permanent: false },
+          {
+            source: `/${localePrefix}/linux${ext}`,
+            destination: "/:locale/browser",
+            permanent: false,
+          },
+        ]);
+    return [
+      ...(isDocsZone ? [] : baseNightlyMoves),
+      ...agentRedirects,
+      ...(isDocsZone ? [] : linuxWaitlistRedirects),
+    ];
   },
   async headers() {
     const channelSecurityHeaders =
@@ -193,6 +229,14 @@ const nextConfig: NextConfig = {
     root: webRoot,
   },
   outputFileTracingIncludes: {
+    // Cloud VM lifecycle routes load these templates at runtime when building
+    // the guest prompt command. Keep the source assets in every traced server
+    // function; static analysis cannot follow the URL-relative fs reads after
+    // Turbopack bundles the module.
+    "/*": [
+      "./services/vms/images/devbox/cmux-bashrc",
+      "./services/vms/images/devbox/cmux-prompt.bash",
+    ],
     "**/opengraph-image": [
       "./app/lib/open-graph-fonts/**/*",
       "./app/**/assets/landing-image.png",
@@ -204,6 +248,8 @@ const nextConfig: NextConfig = {
     "**/docs/changelog": ["./CHANGELOG.md"],
     "**/docs/changelog/**": ["./CHANGELOG.md"],
     "**/sitemap.xml": ["./CHANGELOG.md"],
+    // IndexNow also reads the sitemap when its deployed function starts.
+    "/api/cron/indexnow": ["./CHANGELOG.md"],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +

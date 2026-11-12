@@ -12,12 +12,12 @@ After=network.target
 Type=notify
 NotifyAccess=all
 TimeoutStartSec=120
-User=ubuntu
-Environment=HOME=/home/ubuntu
-Environment=USER=ubuntu
+User=cmux
+Environment=HOME=/home/cmux
+Environment=USER=cmux
 Environment=DISPLAY=:1
 Environment=CMUX_DESKTOP_RUNTIME_DIR=/run/cmux-desktop
-WorkingDirectory=/home/ubuntu
+WorkingDirectory=/home/cmux
 # /run/cmux-desktop: the session's published env (DISPLAY, accessibility
 # bus) that /etc/cmux/desktop-env.sh hands to every other shell; owned by
 # the desktop user, readable by all.

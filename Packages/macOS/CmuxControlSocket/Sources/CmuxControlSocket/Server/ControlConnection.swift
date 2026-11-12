@@ -14,6 +14,13 @@ public struct ControlConnection: Sendable {
     /// failed.
     public let peerProcessID: pid_t?
 
+    /// The peer audit token copied with `LOCAL_PEERTOKEN` in the accept loop.
+    /// It is `nil` when the kernel lookup failed.
+    public let peerAuditToken: SocketPeerAuditToken?
+
+    /// Process start time captured for ``peerProcessID`` at accept.
+    public let peerProcessStartTime: SocketPeerProcessStartTime?
+
     /// Access-policy generation captured when the server accepted this client.
     public let authorizationGeneration: UInt64
 
@@ -24,17 +31,23 @@ public struct ControlConnection: Sendable {
     /// - Parameters:
     ///   - socket: The accepted client socket descriptor.
     ///   - peerProcessID: The peer PID captured at accept time, if available.
+    ///   - peerAuditToken: The immutable peer audit token captured at accept.
+    ///   - peerProcessStartTime: The peer process start time captured at accept.
     ///   - authorizationGeneration: Access-policy generation at accept time.
     ///   - authorizationRevocationSignal: Signal revoked with the generation.
     public init(
         socket: Int32,
         peerProcessID: pid_t?,
+        peerAuditToken: SocketPeerAuditToken? = nil,
+        peerProcessStartTime: SocketPeerProcessStartTime? = nil,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal =
             SocketAuthorizationRevocationSignal()
     ) {
         self.socket = socket
         self.peerProcessID = peerProcessID
+        self.peerAuditToken = peerAuditToken
+        self.peerProcessStartTime = peerProcessStartTime
         self.authorizationGeneration = authorizationGeneration
         self.authorizationRevocationSignal = authorizationRevocationSignal
     }

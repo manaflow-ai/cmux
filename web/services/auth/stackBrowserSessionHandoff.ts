@@ -1,4 +1,4 @@
-import type { StackServerApp } from "@stackframe/stack";
+import type { StackServerApp } from "@hexclave/next";
 import type { NextRequest, NextResponse } from "next/server";
 
 const SESSION_EXPIRES_IN_SECONDS = 30 * 24 * 60 * 60;
@@ -23,7 +23,7 @@ export type StackBrowserSessionHandoffAdapter = {
  * Stack's browser cookie store. The app argument is the real SDK type, so an
  * SDK token-store contract change fails typecheck here instead of being hidden
  * by a route-level cast. The integration test pins the cookie names and values
- * currently read by @stackframe/stack 2.8.x.
+ * currently read by @hexclave/next 1.0.x.
  */
 export function createStackBrowserSessionHandoffAdapter(
   app: StackServerApp<true>,

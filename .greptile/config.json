@@ -247,6 +247,35 @@
         "web/app/lib/agent-page-paths.ts"
       ],
       "severity": "high"
+    },
+    {
+      "id": "cmux-remote-relay-authorization",
+      "rule": "Apply .github/review-bot-rules/remote-relay-authorization.md (GHSA-9vmv-3hjw-j28c). The cmux ssh relay credential lives on the remote host, so treat relay clients as compromised: flag any v2 method added to the RemoteRelayCommandPolicy allowlist without a per-method security analysis (command execution on local objects, mutation of non-owned objects, local state reads), any acceptance of command-bearing params (initial_command, command, tmux_start_command, pane_start_command) through the relay on any method, new workspace/surface/tab ID param names not added to the policy's scoped key sets, and any weakening of the deny-by-default shape (prefix-allowing method families, skipping the non-UUID ref denial, passing unmapped IDs through). Require allow/deny coverage in RemoteCLIRelayPolicyTests.",
+      "scope": [
+        "Packages/macOS/CmuxRemoteWorkspace/Sources/CmuxRemoteWorkspace/Relay/**",
+        "Packages/macOS/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayPolicyTests.swift",
+        "daemon/remote/cmd/cmuxd-remote/commands.go",
+        "daemon/remote/cmd/cmuxd-remote/cli.go",
+        "daemon/remote/cmd/cmuxd-remote/cli_overrides.go",
+        "Sources/Workspace+RemoteRelayCommandRewrite.swift",
+        "Sources/WorkspaceRemoteRelayCommandRewriter.swift"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-cloud-persistent-session-and-early-input",
+      "rule": "For Cloud terminal creation and transport, flag a new cmux-tui client or physical transport per request/event, waiting for remote PTY or shell readiness before showing a focused user-created manual Ghostty runtime, losing ordered input ownership during attachment, or weakening auth, idempotency, revision, or attachment lease fences. Permit independent logical streams over one authenticated carrier when they preserve cancellation, geometry, and byte routing. Permit snapshots for cold, stale, missing, or revision-conflict state and measured tests that keep stages separate. Manual renderers must not wait for local command-wrapper installation; keep that work on exec surfaces.",
+      "scope": [
+        "Sources/Cloud/**/*.swift",
+        "Sources/Surfaces/**/*.swift",
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift",
+        "Sources/AppDelegate*.swift",
+        "Sources/Ghostty*.swift",
+        "cmux-tui/crates/**/src/**/*.rs",
+        "Sources/Workspace*.swift",
+        "Sources/TerminalSurfaceRuntimeWiring.swift"
+      ],
+      "severity": "high"
     }
   ]
 }

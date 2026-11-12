@@ -3,10 +3,12 @@ import Foundation
 /// Stages a remote workspace command for one execution by the first interactive shell.
 struct RemoteInitialCommandBootstrap {
     private let encodedCommand: String?
+    private let protectsFromHangup: Bool
     /// Embedded in the persisted bootstrap so reattaches reuse it while later workspaces do not.
     private let stateKey = UUID().uuidString.lowercased()
 
-    init(command: String?) {
+    init(command: String?, protectsFromHangup: Bool = false) {
+        self.protectsFromHangup = protectsFromHangup
         guard let command,
               !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             encodedCommand = nil
@@ -97,6 +99,14 @@ struct RemoteInitialCommandBootstrap {
     /// Runs the command through shell-specific adapters, with a POSIX wrapper for unknown shells.
     var fallbackShellLines: [String] {
         guard encodedCommand != nil else { return [] }
+        let shellExec = RemoteInteractiveShellBootstrapBuilder.shellExecCommand(
+            shell: #""$CMUX_LOGIN_SHELL""#,
+            protectsFromHangup: protectsFromHangup
+        )
+        let fallbackExec = RemoteInteractiveShellBootstrapBuilder.shellExecCommand(
+            shell: "/bin/sh",
+            protectsFromHangup: protectsFromHangup
+        )
         return [
             "cmux_initial_command_file=\"${CMUX_INITIAL_COMMAND_FILE:-}\"",
             "cmux_initial_command_started=\"$CMUX_SHELL_INTEGRATION_DIR/.initial-command.started.\(stateKey)\"",
@@ -114,12 +124,12 @@ struct RemoteInitialCommandBootstrap {
             "  cmux_initial_command_decode_status=$?",
             "  if [ \"$cmux_initial_command_decode_status\" -eq 0 ]; then",
             "    case \"${CMUX_LOGIN_SHELL##*/}\" in",
-            "      csh|tcsh) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$argv[2]\"; exec \"$argv[1]\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\"; fi ;;",
-            "      sh|dash|ksh|mksh|ash|yash|posh) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -i -c 'eval \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\"; fi ;;",
+            "      csh|tcsh) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then \(shellExec) -i -c 'eval \"$argv[2]\"; exec \"$argv[1]\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\"; fi ;;",
+            "      sh|dash|ksh|mksh|ash|yash|posh) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then \(shellExec) -i -c 'eval \"$1\"; exec \"$0\" -i' \"$CMUX_LOGIN_SHELL\" \"$cmux_initial_command\"; fi ;;",
             // Nushell src/command.rs: --execute runs then stays interactive; --commands exits.
-            "      nu|nushell) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" --execute \"$cmux_initial_command\"; fi ;;",
-            "      pwsh|powershell) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec \"$CMUX_LOGIN_SHELL\" \"$CMUX_LOGIN_SHELL\" -NoExit -Command \"$cmux_initial_command\"; fi ;;",
-            "      *) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then exec \"$CMUX_PERSISTENT_PTY_EXEC_HELPER\" --internal-persistent-pty-exec /bin/sh /bin/sh -c 'eval \"$1\"; exec \"$2\" -i' cmux-initial-command \"$cmux_initial_command\" \"$CMUX_LOGIN_SHELL\"; fi ;;",
+            "      nu|nushell) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then \(shellExec) --execute \"$cmux_initial_command\"; fi ;;",
+            "      pwsh|powershell) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then \(shellExec) -NoExit -Command \"$cmux_initial_command\"; fi ;;",
+            "      *) if mkdir \"$cmux_initial_command_started\" 2>/dev/null; then \(fallbackExec) -c 'eval \"$1\"; exec \"$2\" -i' cmux-initial-command \"$cmux_initial_command\" \"$CMUX_LOGIN_SHELL\"; fi ;;",
             "    esac",
             "  fi",
             "fi",

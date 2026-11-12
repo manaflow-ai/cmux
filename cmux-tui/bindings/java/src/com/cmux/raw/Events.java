@@ -42,6 +42,7 @@ public final class Events {
     public static final EventMetadata SCREEN_CLOSED = new EventMetadata("screen-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
+    public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
     public static final EventMetadata STATUS = new EventMetadata("status", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_EXITED = new EventMetadata("surface-exited", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_OUTPUT = new EventMetadata("surface-output", 5, null, List.of("subscribe"), true);
@@ -53,6 +54,7 @@ public final class Events {
     public static final EventMetadata TERMINAL_REGISTRY_CHANGED = new EventMetadata("terminal-registry-changed", 9, null, List.of("subscribe"), true);
     public static final EventMetadata TITLE_CHANGED = new EventMetadata("title-changed", 5, null, List.of("subscribe"), true);
     public static final EventMetadata TREE_CHANGED = new EventMetadata("tree-changed", 5, null, List.of("subscribe"), true);
+    public static final EventMetadata URL_OPEN = new EventMetadata("url-open", 12, null, List.of("control"), true);
     public static final EventMetadata VT_STATE = new EventMetadata("vt-state", 5, null, List.of("attach-byte"), true);
     public static final EventMetadata WINDOW_TITLE_REQUESTED = new EventMetadata("window-title-requested", 6, null, List.of("subscribe"), true);
     public static final EventMetadata WORKSPACE_ADDED = new EventMetadata("workspace-added", 7, null, List.of("subscribe-deltas"), true);
@@ -94,6 +96,7 @@ public final class Events {
         values.put("screen-closed", SCREEN_CLOSED);
         values.put("screen-renamed", SCREEN_RENAMED);
         values.put("scroll-changed", SCROLL_CHANGED);
+        values.put("size-state", SIZE_STATE);
         values.put("status", STATUS);
         values.put("surface-exited", SURFACE_EXITED);
         values.put("surface-output", SURFACE_OUTPUT);
@@ -105,6 +108,7 @@ public final class Events {
         values.put("terminal-registry-changed", TERMINAL_REGISTRY_CHANGED);
         values.put("title-changed", TITLE_CHANGED);
         values.put("tree-changed", TREE_CHANGED);
+        values.put("url-open", URL_OPEN);
         values.put("vt-state", VT_STATE);
         values.put("window-title-requested", WINDOW_TITLE_REQUESTED);
         values.put("workspace-added", WORKSPACE_ADDED);

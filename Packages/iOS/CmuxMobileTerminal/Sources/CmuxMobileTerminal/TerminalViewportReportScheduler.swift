@@ -1,5 +1,39 @@
 import Foundation
 
+/// Bounded retry schedule for a viewport RPC that produced no effective-grid echo.
+///
+/// Relay timeouts already consume roughly a transport deadline. Retrying again
+/// immediately turns that deadline into a metronome: each late report can
+/// resize the PTY, repaint a full-screen TUI, and make the following report
+/// late too. Keep one budget for a natural grid and spread its recovery
+/// attempts out. A confirmed report or a genuinely different natural grid
+/// resets the budget.
+public struct TerminalViewportRetryBackoff: Sendable {
+    public static let relayDelays: [Duration] = [
+        .milliseconds(500),
+        .seconds(2),
+        .seconds(5),
+    ]
+
+    private let delays: [Duration]
+    public private(set) var attemptsScheduled = 0
+
+    public init(delays: [Duration] = Self.relayDelays) {
+        self.delays = delays
+    }
+
+    public mutating func nextDelay() -> Duration? {
+        guard attemptsScheduled < delays.count else { return nil }
+        let delay = delays[attemptsScheduled]
+        attemptsScheduled += 1
+        return delay
+    }
+
+    public mutating func reset() {
+        attemptsScheduled = 0
+    }
+}
+
 /// Serializes the phone→Mac natural-grid viewport reports and their
 /// effective-grid echoes so they cannot race each other.
 ///

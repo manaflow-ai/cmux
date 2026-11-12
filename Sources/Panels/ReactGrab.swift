@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CryptoKit
 import Foundation
 import WebKit
@@ -165,9 +166,14 @@ enum ReactGrabBridgeMessage {
 }
 
 class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
-    private let onMessage: @MainActor (ReactGrabBridgeMessage) -> Void
+    private let isCurrent: @MainActor () -> Bool
+    private let onMessage: @MainActor (ReactGrabBridgeMessage, _ isMainFrame: Bool) -> Void
 
-    init(onMessage: @escaping @MainActor (ReactGrabBridgeMessage) -> Void) {
+    init(
+        isCurrent: @escaping @MainActor () -> Bool,
+        onMessage: @escaping @MainActor (ReactGrabBridgeMessage, _ isMainFrame: Bool) -> Void
+    ) {
+        self.isCurrent = isCurrent
         self.onMessage = onMessage
     }
 
@@ -177,15 +183,17 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
     ) {
         guard let body = message.body as? [String: Any],
               let bridgeMessage = ReactGrabBridgeMessage(body: body) else { return }
+        let isMainFrame = message.frameInfo.isMainFrame
         #if DEBUG
         switch bridgeMessage {
         case .stateChange(let isActive):
-            cmuxDebugLog("reactGrab.messageHandler type=stateChange isActive=\(isActive)")
+            cmuxDebugLog("reactGrab.messageHandler type=stateChange isActive=\(isActive) mainFrame=\(isMainFrame ? 1 : 0)")
         case .copySuccess(let content, _):
-            cmuxDebugLog("reactGrab.messageHandler type=copySuccess len=\(content.count)")
+            cmuxDebugLog("reactGrab.messageHandler type=copySuccess len=\(content.count) mainFrame=\(isMainFrame ? 1 : 0)")
         }
         #endif
         Task { @MainActor in
+            guard isCurrent() else { return }
             #if DEBUG
             switch bridgeMessage {
             case .stateChange(let isActive):
@@ -194,7 +202,7 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
                 cmuxDebugLog("reactGrab.messageHandler.mainActor type=copySuccess len=\(content.count)")
             }
             #endif
-            onMessage(bridgeMessage)
+            onMessage(bridgeMessage, isMainFrame)
         }
     }
 }
@@ -202,32 +210,41 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
 // MARK: - BrowserPanel extension
 
 extension BrowserPanel {
-    private func reactGrabSessionTokenLiteral() -> String {
-        pendingReactGrabRoundTripToken.map { "'\($0)'" } ?? "null"
-    }
-
-    private func reactGrabBridgeSessionRefreshScript() -> String {
-        """
-        (function() {
-            var syncToken = window['\(reactGrabBridgeSessionUpdaterName)'];
-            if (typeof syncToken !== 'function') {
-                return false;
-            }
-            return !!syncToken(\(reactGrabSessionTokenLiteral()));
-        })();
-        """
-    }
+    /// Isolated content world for the React Grab native bridge.
+    ///
+    /// The script message handler, the relay, and the round-trip token all
+    /// live here. A content world shares the DOM but not JavaScript globals,
+    /// so page scripts can neither post to the native handler nor read the
+    /// token; only the cmux-injected relay in this world can. The react-grab
+    /// library itself stays in the page world (component inspection needs
+    /// page-world React internals) and talks to the relay through
+    /// `window.postMessage` without any native authority.
+    static let reactGrabContentWorld = WKContentWorld.world(name: reactGrabMessageHandlerName)
 
     func setupReactGrabMessageHandler(for webView: WKWebView) {
-        let handler = ReactGrabMessageHandler { [weak self] message in
-            self?.handleReactGrabBridgeMessage(message)
+        let handler = ReactGrabMessageHandler(
+            isCurrent: webViewObservationValidator(for: webView)
+        ) { [weak self] message, isMainFrame in
+            self?.handleReactGrabBridgeMessage(message, isMainFrame: isMainFrame)
         }
         reactGrabMessageHandler = handler
-        webView.configuration.userContentController.add(handler, name: reactGrabMessageHandlerName)
+        webView.configuration.userContentController.add(
+            handler,
+            contentWorld: Self.reactGrabContentWorld,
+            name: reactGrabMessageHandlerName
+        )
+    }
+
+    func tearDownReactGrabMessageHandler(for webView: WKWebView, reason: String = "unspecified") {
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: reactGrabMessageHandlerName,
+            contentWorld: Self.reactGrabContentWorld
+        )
+        reactGrabMessageHandler = nil
+        resetReactGrabState(reason: reason)
     }
 
     func armReactGrabRoundTrip(returnTo panelId: UUID) {
-        let token = UUID().uuidString
 #if DEBUG
         cmuxDebugLog(
             "reactGrab.pasteback h3.arm " +
@@ -236,13 +253,12 @@ extension BrowserPanel {
             "return=\(panelId.uuidString.prefix(5))"
         )
 #endif
-        pendingReactGrabReturnTargetPanelId = panelId
-        pendingReactGrabRoundTripToken = token
+        reactGrabPasteback.arm(returnPanelId: panelId)
     }
 
     func clearReactGrabRoundTrip(reason: String = "unspecified") {
 #if DEBUG
-        let previousTarget = pendingReactGrabReturnTargetPanelId.map {
+        let previousTarget = reactGrabPasteback.armedReturnPanelId.map {
             String($0.uuidString.prefix(5))
         } ?? "nil"
         cmuxDebugLog(
@@ -252,16 +268,16 @@ extension BrowserPanel {
             "reason=\(reason) previous=\(previousTarget)"
         )
 #endif
-        pendingReactGrabReturnTargetPanelId = nil
-        pendingReactGrabRoundTripToken = nil
+        reactGrabPasteback.disarm()
     }
 
-    func handleReactGrabBridgeMessage(_ message: ReactGrabBridgeMessage) {
+    func handleReactGrabBridgeMessage(_ message: ReactGrabBridgeMessage, isMainFrame: Bool) {
         switch message {
         case .stateChange(let isActive):
+            guard isMainFrame else { return }
             isReactGrabActive = isActive
 #if DEBUG
-            let pendingTarget = pendingReactGrabReturnTargetPanelId.map {
+            let pendingTarget = reactGrabPasteback.armedReturnPanelId.map {
                 String($0.uuidString.prefix(5))
             } ?? "nil"
             cmuxDebugLog(
@@ -272,48 +288,87 @@ extension BrowserPanel {
             )
 #endif
         case .copySuccess(let content, let token):
-            guard let returnPanelId = pendingReactGrabReturnTargetPanelId,
-                  let expectedToken = pendingReactGrabRoundTripToken else {
+            let verdict = reactGrabPasteback.acceptDelivery(
+                token: token,
+                contentUTF8Count: content.utf8.count,
+                isMainFrame: isMainFrame
+            )
+            switch verdict {
+            case .accepted(let returnPanelId):
+#if DEBUG
+                cmuxDebugLog(
+                    "reactGrab.pasteback h3.copySuccess " +
+                    "workspace=\(workspaceId.uuidString.prefix(5)) " +
+                    "browser=\(id.uuidString.prefix(5)) " +
+                    "return=\(returnPanelId.uuidString.prefix(5)) len=\(content.count)"
+                )
+#endif
+                let filteredContent = ReactGrabPastebackContentFilter.filtered(content)
+                NotificationCenter.default.post(
+                    name: .reactGrabDidCopySelection,
+                    object: nil,
+                    userInfo: [
+                        ReactGrabPastebackNotificationKey.workspaceId: workspaceId,
+                        ReactGrabPastebackNotificationKey.browserPanelId: id,
+                        ReactGrabPastebackNotificationKey.returnPanelId: returnPanelId,
+                        ReactGrabPastebackNotificationKey.content: filteredContent,
+                    ]
+                )
+            case .rejectedSubframe, .rejectedUnarmed, .rejectedTokenMismatch, .rejectedOversizeContent:
 #if DEBUG
                 cmuxDebugLog(
                     "reactGrab.pasteback h3.copySuccess.drop " +
                     "workspace=\(workspaceId.uuidString.prefix(5)) " +
-                    "browser=\(id.uuidString.prefix(5)) reason=noReturnTarget len=\(content.count)"
+                    "browser=\(id.uuidString.prefix(5)) reason=\(verdict) len=\(content.count)"
                 )
 #endif
                 return
             }
-            guard token == expectedToken else {
+        }
+    }
+
+    /// Installs the relay in the isolated world's main frame. Idempotent per
+    /// document; the relay owns the only path to the native handler.
+    private func installReactGrabRelay() async -> Bool {
+        await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(
+                ReactGrabBridgeScripts.relaySource(handlerName: reactGrabMessageHandlerName),
+                in: nil,
+                in: Self.reactGrabContentWorld
+            ) { result in
+                switch result {
+                case .success(let value):
+                    continuation.resume(returning: (value as? Bool) ?? false)
+                case .failure(let error):
 #if DEBUG
-                cmuxDebugLog(
-                    "reactGrab.pasteback h3.copySuccess.drop " +
-                    "workspace=\(workspaceId.uuidString.prefix(5)) " +
-                    "browser=\(id.uuidString.prefix(5)) reason=tokenMismatch len=\(content.count)"
-                )
+                    cmuxDebugLog("reactGrab.relay.install.error error=\(error.localizedDescription)")
 #endif
-                clearReactGrabRoundTrip(reason: "copySuccess.tokenMismatch")
-                return
+                    continuation.resume(returning: false)
+                }
             }
+        }
+    }
+
+    /// Pushes the currently armed token (or a disarm) to the isolated-world
+    /// relay. The token never transits the page world.
+    @discardableResult
+    func syncReactGrabRelayToken() async -> Bool {
+        await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(
+                ReactGrabBridgeScripts.tokenSyncSource(token: reactGrabPasteback.tokenForRelaySync),
+                in: nil,
+                in: Self.reactGrabContentWorld
+            ) { result in
+                switch result {
+                case .success(let value):
+                    continuation.resume(returning: (value as? Bool) ?? false)
+                case .failure(let error):
 #if DEBUG
-            cmuxDebugLog(
-                "reactGrab.pasteback h3.copySuccess " +
-                "workspace=\(workspaceId.uuidString.prefix(5)) " +
-                "browser=\(id.uuidString.prefix(5)) " +
-                "return=\(returnPanelId.uuidString.prefix(5)) len=\(content.count)"
-            )
+                    cmuxDebugLog("reactGrab.relay.tokenSync.error error=\(error.localizedDescription)")
 #endif
-            let filteredContent = ReactGrabPastebackContentFilter.filtered(content)
-            clearReactGrabRoundTrip(reason: "copySuccess")
-            NotificationCenter.default.post(
-                name: .reactGrabDidCopySelection,
-                object: nil,
-                userInfo: [
-                    ReactGrabPastebackNotificationKey.workspaceId: workspaceId,
-                    ReactGrabPastebackNotificationKey.browserPanelId: id,
-                    ReactGrabPastebackNotificationKey.returnPanelId: returnPanelId,
-                    ReactGrabPastebackNotificationKey.content: filteredContent,
-                ]
-            )
+                    continuation.resume(returning: false)
+                }
+            }
         }
     }
 
@@ -331,79 +386,30 @@ extension BrowserPanel {
         cmuxDebugLog("reactGrab.inject.fetched len=\(scriptSource.count)")
         #endif
 
-        let handlerName = reactGrabMessageHandlerName
-        let sessionTokenLiteral = reactGrabSessionTokenLiteral()
-        let combined = """
-        (function() {
-            var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
-            var updaterName = '\(reactGrabBridgeSessionUpdaterName)';
-            var refreshSessionToken = function() {
-                var syncToken = window[updaterName];
-                if (typeof syncToken !== 'function') return false;
-                return !!syncToken(\(sessionTokenLiteral));
-            };
-            var installBridge = function(api) {
-                if (!api || window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__) return;
-                window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__ = true;
-                var activeToken = null;
-                var syncSessionToken = function(token) {
-                    activeToken = (typeof token === 'string' && token.length > 0) ? token : null;
-                    return true;
-                };
-                try {
-                    Object.defineProperty(window, updaterName, {
-                        value: syncSessionToken,
-                        writable: false,
-                        configurable: false,
-                        enumerable: false
-                    });
-                } catch (_) {
-                    if (typeof window[updaterName] !== 'function') return;
-                }
-                refreshSessionToken();
-                var lastActive;
-                api.registerPlugin({
-                    name: 'cmux-bridge',
-                    hooks: {
-                        onStateChange: function(state) {
-                            if (state.isActive === lastActive) return;
-                            lastActive = state.isActive;
-                            if (handler) handler.postMessage({ type: 'stateChange', isActive: state.isActive });
-                        },
-                        onCopySuccess: function(elements, content) {
-                            var token = activeToken;
-                            activeToken = null;
-                            if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || ''), token: token });
-                        }
-                    }
-                });
-            }
-            if (window.__REACT_GRAB__) {
-                installBridge(window.__REACT_GRAB__);
-                refreshSessionToken();
-                window.__REACT_GRAB__.activate();
-                return;
-            }
-            window.addEventListener('react-grab:init', function(e) {
-                var api = e.detail;
-                if (!api) return;
-                installBridge(api);
-                refreshSessionToken();
-                api.activate();
-            }, { once: true });
-        })();
-        \(scriptSource)
-        """
+        guard await installReactGrabRelay() else {
+            #if DEBUG
+            cmuxDebugLog("reactGrab.inject.relayInstallFailed")
+            #endif
+            isReactGrabActive = false
+            return
+        }
+        await syncReactGrabRelayToken()
+
+        let combined = ReactGrabBridgeScripts.pageBridgeSource() + "\n" + scriptSource
         #if DEBUG
         cmuxDebugLog("reactGrab.inject.evalJS len=\(combined.count)")
         #endif
-        webView.evaluateJavaScript(combined) { [weak self] _, error in
-            #if DEBUG
-            cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error?.localizedDescription ?? "none")")
-            #endif
-            if let error {
+        webView.evaluateJavaScript(combined, in: nil, in: .page) { [weak self] result in
+            if case .failure(let error) = result {
+                #if DEBUG
+                cmuxDebugLog("reactGrab.inject.evalJS.done error=\(error.localizedDescription)")
+                #endif
                 NSLog("ReactGrab: injection failed: %@", error.localizedDescription)
                 Task { @MainActor in self?.isReactGrabActive = false }
+            } else {
+                #if DEBUG
+                cmuxDebugLog("reactGrab.inject.evalJS.done error=none")
+                #endif
             }
         }
         #if DEBUG
@@ -434,25 +440,12 @@ extension BrowserPanel {
     func ensureReactGrabActive() async {
         guard await prepareForReactGrabActivation(reason: "reactGrab.ensureActive") else { return }
         if isReactGrabActive {
-            guard pendingReactGrabRoundTripToken != nil else { return }
-            if await refreshReactGrabBridgeSessionToken() {
+            guard reactGrabPasteback.isArmed else { return }
+            if await syncReactGrabRelayToken() {
                 return
             }
         }
         await injectReactGrab()
-    }
-
-    @discardableResult
-    func refreshReactGrabBridgeSessionToken() async -> Bool {
-        do {
-            let result = try await evaluateJavaScript(reactGrabBridgeSessionRefreshScript())
-            return (result as? Bool) ?? false
-        } catch {
-#if DEBUG
-            cmuxDebugLog("reactGrab.bridgeSessionRefresh.error error=\(error.localizedDescription)")
-#endif
-            return false
-        }
     }
 
     func resetReactGrabState(
@@ -460,7 +453,7 @@ extension BrowserPanel {
         reason: String = "unspecified"
     ) {
 #if DEBUG
-        let pendingTarget = pendingReactGrabReturnTargetPanelId.map {
+        let pendingTarget = reactGrabPasteback.armedReturnPanelId.map {
             String($0.uuidString.prefix(5))
         } ?? "nil"
         cmuxDebugLog(

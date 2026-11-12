@@ -28,7 +28,6 @@ struct OnboardingSceneContainer<PageContent: View>: View {
                 OnboardingSceneFooter(
                     primaryTitle: chrome.primaryTitle,
                     secondaryTitle: chrome.secondaryTitle,
-                    reservesSecondarySlot: stage != .connect,
                     onPrimary: onPrimary,
                     onSecondary: onSecondary
                 )

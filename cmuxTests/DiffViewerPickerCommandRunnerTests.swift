@@ -11,64 +11,15 @@ import WebKit
 @testable import cmux
 #endif
 
+/// The app-host half of the diff-viewer picker contract: the `WKURLSchemeTask`
+/// teardown path, which needs WebKit and the app-target
+/// `CmuxDiffViewerURLSchemeHandler`.
+///
+/// Concurrency-limit and cancellation coverage for the runner itself lives in
+/// `CmuxBrowserTests/DiffViewerPickerCommandRunnerTests.swift`.
 @MainActor
 @Suite(.serialized)
 struct DiffViewerPickerCommandRunnerTests {
-    @Test(.timeLimit(.minutes(1)))
-    func rejectsPickerCommandsBeyondConcurrencyLimitAndReusesCapacity() async throws {
-        let commands = ControllablePickerCommands()
-        let runner = DiffViewerPickerCommandRunner(
-            commandRunner: commands,
-            executablePath: "/test/cmux",
-            concurrencyLimit: 2
-        )
-        var starts = commands.starts.makeAsyncIterator()
-
-        let first = Task { await runner.run(arguments: ["first"]) }
-        let firstStarted = try #require(await starts.next())
-        let second = Task { await runner.run(arguments: ["second"]) }
-        let secondStarted = try #require(await starts.next())
-
-        #expect(await runner.run(arguments: ["rejected"]) == nil)
-        #expect(await commands.startedIDs == ["first", "second"])
-
-        await commands.complete(firstStarted)
-        await commands.complete(secondStarted)
-        let outputs = await [first.value, second.value]
-        #expect(outputs.allSatisfy { $0 != nil })
-        #expect(await commands.maximumActiveCount == 2)
-
-        let subsequent = Task { await runner.run(arguments: ["subsequent"]) }
-        let subsequentStarted = try #require(await starts.next())
-        await commands.complete(subsequentStarted)
-        #expect(await subsequent.value == "subsequent")
-    }
-
-    @Test(.timeLimit(.minutes(1)))
-    func cancellingActivePickerCommandReleasesCapacity() async throws {
-        let commands = ControllablePickerCommands()
-        let runner = DiffViewerPickerCommandRunner(
-            commandRunner: commands,
-            executablePath: "/test/cmux",
-            concurrencyLimit: 1
-        )
-        var starts = commands.starts.makeAsyncIterator()
-        var cancellations = commands.cancellations.makeAsyncIterator()
-
-        let active = Task { await runner.run(arguments: ["active"]) }
-        let activeID = try #require(await starts.next())
-        active.cancel()
-
-        #expect(await cancellations.next() == activeID)
-        #expect(await active.value == nil)
-        #expect(await commands.startedIDs == ["active"])
-
-        let subsequent = Task { await runner.run(arguments: ["subsequent"]) }
-        let subsequentID = try #require(await starts.next())
-        await commands.complete(subsequentID)
-        #expect(await subsequent.value == "subsequent")
-    }
-
     @Test(.timeLimit(.minutes(1)))
     func stoppingPickerSchemeTaskCancelsRunningCommand() async throws {
         let commands = ControllablePickerCommands()
@@ -133,9 +84,6 @@ private actor ControllablePickerCommands: CommandRunning {
     private let cancellationContinuation: AsyncStream<String>.Continuation
     private var completions: [String: CheckedContinuation<Void, Never>] = [:]
     private var cancelledBeforeRegistration: Set<String> = []
-    private var activeCount = 0
-    private(set) var maximumActiveCount = 0
-    private(set) var startedIDs: [String] = []
 
     init() {
         (starts, startContinuation) = AsyncStream.makeStream()
@@ -149,9 +97,6 @@ private actor ControllablePickerCommands: CommandRunning {
         timeout: TimeInterval?
     ) async -> CommandResult {
         let id = arguments.count == 1 ? arguments[0] : "picker"
-        activeCount += 1
-        maximumActiveCount = max(maximumActiveCount, activeCount)
-        startedIDs.append(id)
         startContinuation.yield(id)
 
         if !Task.isCancelled {
@@ -170,7 +115,6 @@ private actor ControllablePickerCommands: CommandRunning {
             }
         }
 
-        activeCount -= 1
         if Task.isCancelled {
             cancellationContinuation.yield(id)
             return CommandResult(

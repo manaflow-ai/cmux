@@ -76,7 +76,7 @@ public actor SimStreamViewerEngine {
                 maximumLongSidePixels: maximumLongSidePixels,
                 codecPreferences: [.hevc, .h264]
             )
-            try await lane.send(SimStreamWireCodec.encodeFramed(.start(start)))
+            try await lane.send(SimStreamWireCodec().encodeFramed(.start(start)))
             // Input staged while the lane was still dialing flushes now.
             drainInputIfNeeded()
             var accumulator = SimStreamFrameAccumulator()
@@ -84,7 +84,7 @@ public actor SimStreamViewerEngine {
                 guard !chunk.isEmpty else { continue }
                 accumulator.append(chunk)
                 while let body = try accumulator.nextMessageBody() {
-                    try await handle(SimStreamWireCodec.decode(body))
+                    try await handle(SimStreamWireCodec().decode(body))
                 }
             }
             await closeLane()
@@ -110,14 +110,14 @@ public actor SimStreamViewerEngine {
             maximumLongSidePixels: maximumLongSidePixels,
             codecPreferences: [.hevc, .h264]
         )
-        try? await lane.send(SimStreamWireCodec.encodeFramed(.start(start)))
+        try? await lane.send(SimStreamWireCodec().encodeFramed(.start(start)))
     }
 
     /// Sends `stop` and closes; used for deliberate viewer-initiated stops
     /// so the host tears down promptly instead of on lane error.
     public func stop() async {
         if let lane {
-            try? await lane.send(SimStreamWireCodec.encodeFramed(.stop))
+            try? await lane.send(SimStreamWireCodec().encodeFramed(.stop))
         }
         await closeLane()
     }
@@ -170,7 +170,7 @@ public actor SimStreamViewerEngine {
                 let receipt = UInt64(
                     Double(DispatchTime.now().uptimeNanoseconds) / 1_000)
                 try await lane.send(
-                    SimStreamWireCodec.encodeFramed(
+                    SimStreamWireCodec().encodeFramed(
                         .ack(
                             SimStreamAck(
                                 sequence: frame.sequence,
@@ -189,7 +189,7 @@ public actor SimStreamViewerEngine {
         if presentFailureRun >= 3, !requestedRecoveryKeyframe, let lane {
             requestedRecoveryKeyframe = true
             await presenter.reset()
-            try await lane.send(SimStreamWireCodec.encodeFramed(.keyframeRequest))
+            try await lane.send(SimStreamWireCodec().encodeFramed(.keyframeRequest))
         }
     }
 
@@ -212,7 +212,7 @@ public actor SimStreamViewerEngine {
         defer { isDrainingInput = false }
         while let lane, let batch = outbox.drainBatch() {
             do {
-                try await lane.send(SimStreamWireCodec.encodeFramed(.input(batch)))
+                try await lane.send(SimStreamWireCodec().encodeFramed(.input(batch)))
             } catch {
                 // The read loop surfaces the lane failure; pending input for
                 // a dead lane is discarded rather than replayed into a

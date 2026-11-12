@@ -23,6 +23,10 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
         owner?.notificationDeliveryPermissionCapabilities(requestId: requestId)
     }
 
+    func openWorkstream(workstreamId: String) {
+        owner?.notificationDeliveryOpenFeedWorkstream(workstreamId: workstreamId)
+    }
+
     func activateApplication() {
         owner?.notificationDeliveryActivateApplication()
     }
@@ -32,8 +36,8 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
         tabId: UUID,
         surfaceId: UUID?,
         retargetsToLiveSurfaceOwner: Bool
-    ) -> Bool {
-        owner?.notificationDeliverySendTerminalReply(
+    ) async -> Bool {
+        await owner?.notificationDeliverySendTerminalReply(
             text: text,
             tabId: tabId,
             surfaceId: surfaceId,
@@ -43,6 +47,45 @@ final class NotificationDeliverySeamAdapter: NotificationFeedReplying, Notificat
 }
 
 extension AppDelegate {
+    /// Rewrites a parked phone reply to the surface's current workspace when
+    /// its notification explicitly permits live-owner retargeting.
+    ///
+    /// The reply inbox is already authenticated by ``PhoneReplyInboxClient``;
+    /// this helper is deliberately limited to that internal relay path. Direct
+    /// mobile RPCs retain their workspace/window authorization and routing
+    /// selectors, and must not use this global surface re-home. A confined
+    /// notification keeps its claimed workspace unchanged.
+    func phoneReplyTerminalInputParams(
+        _ params: [String: Any],
+        retargetsToLiveSurfaceOwner: Bool
+    ) -> [String: Any]? {
+        let controller = TerminalController.shared
+        guard let surfaceID = controller.v2UUID(params, "surface_id") else {
+            return nil
+        }
+        let hasWorkspaceID = controller.v2HasNonNullParam(params, "workspace_id")
+        let claimedWorkspaceID = controller.v2UUID(params, "workspace_id")
+        guard !hasWorkspaceID || claimedWorkspaceID != nil else {
+            return nil
+        }
+        guard retargetsToLiveSurfaceOwner else {
+            // Workspace-confined notifications keep their original claim. The
+            // generic mobile resolver will fail closed if that target moved.
+            return claimedWorkspaceID == nil ? nil : params
+        }
+        guard let owner = liveSurfaceOwner(
+            surfaceID: surfaceID,
+            preferredTabID: claimedWorkspaceID
+        ) else {
+            return nil
+        }
+
+        var routed = params
+        routed["workspace_id"] = owner.tabID.uuidString
+        routed["surface_id"] = owner.surfaceID.uuidString
+        return routed
+    }
+
     func notificationDeliveryDeliverFeedReply(requestId: String, decision: NotificationFeedDecision) {
         FeedCoordinator.shared.deliverReply(
             requestId: requestId,
@@ -81,12 +124,20 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Focuses the workspace and surface running the agent behind a Feed
+    /// notification, using the same resolver as the Feed card's jump.
+    func notificationDeliveryOpenFeedWorkstream(workstreamId: String) {
+        Task { @MainActor in
+            _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+        }
+    }
+
     func notificationDeliverySendTerminalReply(
         text: String,
         tabId: UUID,
         surfaceId: UUID?,
         retargetsToLiveSurfaceOwner: Bool
-    ) -> Bool {
+    ) async -> Bool {
         guard let surfaceId else { return false }
         // A reply follows the surface to its CURRENT workspace exactly like
         // banner-open delivery does: a moved pane keeps its surface identity
@@ -107,7 +158,7 @@ extension AppDelegate {
         // remain separate. `surface.send_text` plus a trailing carriage return
         // writes a raw byte, which full-screen agent editors render as a
         // newline instead of treating it as Return.
-        switch TerminalController.shared.v2MobileTerminalPaste(params: [
+        switch await TerminalController.shared.v2MobileTerminalPaste(params: [
             "workspace_id": target.tabId.uuidString,
             "surface_id": surfaceId.uuidString,
             "text": text,

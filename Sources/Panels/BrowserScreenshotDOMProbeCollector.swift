@@ -210,8 +210,15 @@ final class BrowserScreenshotDOMProbeCollector {
           void body.scrollWidth;
           void body.scrollHeight;
         }
+        // Two frames let layout settle, but a page in a web view that is not
+        // visible never gets animation frames, so a timer bounds the wait.
         await new Promise((resolve) => {
-          requestAnimationFrame(() => requestAnimationFrame(resolve));
+          let settled = false;
+          const finish = () => {
+            if (!settled) { settled = true; resolve(); }
+          };
+          requestAnimationFrame(() => requestAnimationFrame(finish));
+          setTimeout(finish, 250);
         });
         return document.readyState;
         """

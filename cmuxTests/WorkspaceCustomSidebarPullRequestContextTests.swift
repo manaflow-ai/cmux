@@ -117,7 +117,13 @@ final class WorkspaceCustomSidebarPullRequestContextTests: XCTestCase {
             ) {
             case .err(let code, let message, _):
                 XCTAssertEqual(code, "invalid_params")
-                XCTAssertEqual(message, "Missing or invalid workspace_id")
+                XCTAssertEqual(
+                    message,
+                    String(
+                        localized: "socket.sidebar.custom.openInvalidWorkspaceId",
+                        defaultValue: "Missing or invalid workspace_id"
+                    )
+                )
             case .ok(let payload):
                 XCTFail("Expected invalid_params, got \(payload)")
             }

@@ -59,8 +59,9 @@ require_gpl_source_header() {
   fi
 }
 
+# web/ is the cmux server software, licensed BUSL-1.1 since #15206; only
+# the desktop packages stay GPL.
 require_package_license "$REPO_ROOT/package.json"
-require_package_license "$REPO_ROOT/web/package.json"
 
 require_text \
   "$REPO_ROOT/LICENSE" \

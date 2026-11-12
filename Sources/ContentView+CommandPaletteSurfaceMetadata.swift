@@ -24,6 +24,8 @@ extension ContentView {
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         case .workspaceTodo:
             return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
+        case .coderouterGuide:
+            return String(localized: "coderouter.guide.title", defaultValue: "coderouter")
         case .notifications:
             return String(localized: "notifications.title", defaultValue: "Notifications")
         case .cloudVMLoading:
@@ -32,6 +34,10 @@ extension ContentView {
             return String(localized: "command.mobileConnect.subtitle", defaultValue: "Tailscale")
         case .accountSignIn:
             return String(localized: "settings.section.account", defaultValue: "Account")
+        case .cloudVPNSetup:
+            return String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
+        case .chief:
+            return ChiefStrings.chiefName
         }
     }
     func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -57,6 +63,8 @@ extension ContentView {
             return ["sidebar", "extensions", "extensionkit", "browser"]
         case .workspaceTodo:
             return ["todo", "todos", "checklist", "task", "status"]
+        case .coderouterGuide:
+            return ["coderouter", "guide", "help", "cloud", "accounts"]
         case .notifications:
             return ["notifications", "alerts", "feed"]
         case .cloudVMLoading:
@@ -65,6 +73,10 @@ extension ContentView {
             return ContentView.commandPaletteMobileConnectKeywords
         case .accountSignIn:
             return ["account", "auth", "profile", "sign in"]
+        case .cloudVPNSetup:
+            return ["cloud", "vpn", "network", "private address"]
+        case .chief:
+            return ["chief", "home", "chat", "messages", "assistant", "agent"]
         }
     }
 }

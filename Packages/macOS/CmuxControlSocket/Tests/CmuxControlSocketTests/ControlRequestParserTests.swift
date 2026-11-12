@@ -56,6 +56,13 @@ struct ControlRequestParserTests {
         #expect(request.params == ["n": .int(2)])
     }
 
+    @Test func strictRejectsCamelCaseTargetAlias() {
+        let result = parser.request(
+            fromLine: #"{"id":7,"method":"terminal.input","params":{"surfaceId":"00000000-0000-0000-0000-000000000001","text":"marker"}}"#
+        )
+        #expect((try? result.get()) == nil)
+    }
+
     @Test func strictClassifiesInvalidJSON() {
         #expect(strictError("not json") == .invalidJSON)
         #expect(strictError(#"{"method""#) == .invalidJSON)

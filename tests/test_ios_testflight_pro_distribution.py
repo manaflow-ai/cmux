@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ios-testflight.yml"
-CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+CI_GUARDS_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
 DISTRIBUTION_HELPER = ROOT / "ios" / "scripts" / "resolve_testflight_distribution.py"
 
 
@@ -90,9 +90,9 @@ def test_workflow_executes_distribution_helper_and_consumes_its_outputs() -> Non
 
 
 def test_ci_executes_this_testflight_workflow_guard() -> None:
-    ci_text = CI_WORKFLOW.read_text(encoding="utf-8")
+    guards_text = CI_GUARDS_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "run: python3 tests/test_ios_testflight_pro_distribution.py" in ci_text
+    assert "run: python3 tests/test_ios_testflight_pro_distribution.py" in guards_text
 
 
 if __name__ == "__main__":

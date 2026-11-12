@@ -482,6 +482,67 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
     }
 
+    @MainActor
+    @Test("copy actions read a local terminal's own reported directory")
+    func copyActionTargetUsesLocalTerminalReport() throws {
+        let workspace = Workspace(workingDirectory: "/Users/alice/development")
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: panelId, directory: "/Users/alice/development/web"))
+
+        #expect(
+            workspace.copyActionDirectoryTarget(panelId: panelId)
+                == TerminalCopyDirectoryTarget(path: "/Users/alice/development/web", isLocal: true)
+        )
+    }
+
+    @MainActor
+    @Test("copy actions never fall back to another panel or the workspace directory")
+    func copyActionTargetRequiresATerminalPanel() {
+        let workspace = Workspace(workingDirectory: "/Users/alice/development")
+
+        #expect(workspace.copyActionDirectoryTarget(panelId: nil) == nil)
+        #expect(workspace.copyActionDirectoryTarget(panelId: UUID()) == nil)
+    }
+
+    @MainActor
+    @Test("copy actions in a remote tmux mirror wait for a remote report")
+    func copyActionTargetIgnoresLocalDirectoryInRemoteMirror() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let workspace = Workspace(workingDirectory: localDirectory)
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.isRemoteTmuxMirror = true
+        #expect(workspace.updatePanelDirectory(panelId: panelId, directory: localDirectory))
+
+        #expect(workspace.copyActionDirectoryTarget(panelId: panelId) == nil)
+
+        workspace.updateRemotePanelDirectory(panelId: panelId, directory: remoteDirectory)
+        #expect(
+            workspace.copyActionDirectoryTarget(panelId: panelId)
+                == TerminalCopyDirectoryTarget(path: remoteDirectory, isLocal: false)
+        )
+    }
+
+    @MainActor
+    @Test("copy actions in an SSH workspace use the remote report, not the local directory")
+    func copyActionTargetUsesRemoteReportInSSHWorkspace() throws {
+        let localDirectory = "/Users/alice/development"
+        let remoteDirectory = "/home/seepine/workspace"
+        let sshCommand = "ssh seepine@192.168.5.20"
+        let workspace = Workspace(workingDirectory: localDirectory, initialTerminalCommand: sshCommand)
+        let panelId = try #require(workspace.focusedPanelId)
+        #expect(workspace.updatePanelDirectory(panelId: panelId, directory: localDirectory))
+        workspace.configureRemoteConnection(sshRemoteConfiguration(command: sshCommand), autoConnect: false)
+
+        #expect(workspace.copyActionDirectoryTarget(panelId: panelId) == nil)
+
+        workspace.updateRemotePanelDirectory(panelId: panelId, directory: remoteDirectory)
+        #expect(
+            workspace.copyActionDirectoryTarget(panelId: panelId)
+                == TerminalCopyDirectoryTarget(path: remoteDirectory, isLocal: false)
+        )
+    }
+
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",

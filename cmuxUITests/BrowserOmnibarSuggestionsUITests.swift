@@ -708,8 +708,7 @@ final class BrowserOmnibarSuggestionsUITests: XCTestCase {
 
     private func isSuggestionRowSelected(_ row: XCUIElement) -> Bool {
         guard row.exists else { return false }
-        guard let rawValue = row.value as? String else { return false }
-        return rawValue.localizedCaseInsensitiveContains("selected")
+        return row.isSelected
     }
 
     private func typeQueryAndWaitForSuggestions(

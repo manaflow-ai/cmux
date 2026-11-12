@@ -118,7 +118,7 @@ extension TerminalController {
                 )
             )
         }
-        guard let browserPanel = dock.browserPanel(for: surfaceID) else {
+        guard let browserPanel = dock.browserPanelForAutomation(surfaceID) else {
             return (
                 true,
                 nil,
@@ -129,6 +129,9 @@ extension TerminalController {
                 )
             )
         }
+        if let refusal = v2BrowserReplTabRefusal(surfaceID) {
+            return (true, nil, refusal)
+        }
         return (
             true,
             V2BrowserPanelContext(
@@ -136,7 +139,7 @@ extension TerminalController {
                 workspaceId: dock.workspaceId,
                 surfaceId: surfaceID,
                 browserPanel: browserPanel,
-                webView: browserPanel.webView
+                webView: browserPanel.webViewForAutomationCommand()
             ),
             nil
         )

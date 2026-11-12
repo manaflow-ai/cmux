@@ -12,7 +12,7 @@ extension Workspace {
     /// Samples the live signals that drive task-status inference: agent
     /// lifecycle states (needs-input / running) for panels that still exist,
     /// the sidebar pull-request rows, and git working-tree dirtiness.
-    func taskStatusSignals() -> WorkspaceTaskStatusSignals {
+    func taskStatusSignals(orderedPanelIds: [UUID]? = nil) -> WorkspaceTaskStatusSignals {
         var anyAgentNeedsInput = false
         var anyAgentRunning = false
         for (panelId, states) in agentLifecycleStatesByPanelId where panels[panelId] != nil {
@@ -21,7 +21,8 @@ extension Workspace {
                 if state == .running { anyAgentRunning = true }
             }
         }
-        let pullRequests = sidebarPullRequestsInDisplayOrder()
+        let orderedPanelIds = orderedPanelIds ?? sidebarOrderedPanelIds()
+        let pullRequests = sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds)
         return WorkspaceTaskStatusSignals(
             anyAgentNeedsInput: anyAgentNeedsInput,
             anyAgentRunning: anyAgentRunning,
@@ -29,7 +30,7 @@ extension Workspace {
             hasPullRequests: !pullRequests.isEmpty,
             allPullRequestsMergedOrClosed: !pullRequests.isEmpty
                 && pullRequests.allSatisfy { $0.status != .open },
-            isGitDirty: sidebarGitBranchesInDisplayOrder().contains { $0.isDirty }
+            isGitDirty: sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).contains { $0.isDirty }
         )
     }
 
@@ -62,6 +63,7 @@ extension Workspace {
             inferred: inferredTaskStatus
         ).shouldClearOverride else { return }
         todoState.statusOverride = nil
+        persistTodoState()
     }
 
     /// Applies a manual status override, recording the current inference so
@@ -73,6 +75,7 @@ extension Workspace {
             status: status,
             inferredAtOverride: inferredTaskStatus
         )
+        persistTodoState()
     }
 
     /// Returns the status to automatic by clearing the manual override (and
@@ -80,6 +83,7 @@ extension Workspace {
     func clearTaskStatusOverride() {
         todoState.statusHidden = false
         todoState.statusOverride = nil
+        persistTodoState()
     }
 
     /// Opts this workspace out of the status feature: no glyph is drawn before
@@ -87,6 +91,7 @@ extension Workspace {
     func hideTaskStatus() {
         todoState.statusOverride = nil
         todoState.statusHidden = true
+        persistTodoState()
     }
 
     /// Cycles the effective status one lane forward (round-robin
@@ -106,9 +111,13 @@ extension Workspace {
         state: WorkspaceChecklistItem.State = .pending,
         origin: WorkspaceChecklistItem.Origin = .user
     ) -> Result<WorkspaceChecklistItem, WorkspaceChecklistItem.AddError> {
-        notifyingChecklistCompletion {
+        let result = notifyingChecklistCompletion {
             todoState.checklist.addChecklistItem(text, state: state, origin: origin)
         }
+        if case .success = result {
+            persistTodoState()
+        }
+        return result
     }
 
     /// Sets one checklist item's state (keeping completed items last in
@@ -117,9 +126,13 @@ extension Workspace {
     /// - Returns: `true` if the item existed.
     @discardableResult
     func setChecklistItemState(id: UUID, state: WorkspaceChecklistItem.State) -> Bool {
-        notifyingChecklistCompletion {
+        let didSet = notifyingChecklistCompletion {
             todoState.checklist.setChecklistItemState(id: id, state: state)
         }
+        if didSet {
+            persistTodoState()
+        }
+        return didSet
     }
 
     /// Moves one checklist item toward a new 0-based position, staying within
@@ -128,7 +141,11 @@ extension Workspace {
     /// - Returns: `true` if the item existed.
     @discardableResult
     func moveChecklistItem(id: UUID, toIndex: Int) -> Bool {
-        todoState.checklist.moveChecklistItem(id: id, toIndex: toIndex)
+        let didMove = todoState.checklist.moveChecklistItem(id: id, toIndex: toIndex)
+        if didMove {
+            persistTodoState()
+        }
+        return didMove
     }
 
     /// Rewrites one checklist item's text (same normalization as add).
@@ -136,7 +153,11 @@ extension Workspace {
     /// - Returns: `true` if the item existed and the text was non-empty.
     @discardableResult
     func setChecklistItemText(id: UUID, text: String) -> Bool {
-        todoState.checklist.setChecklistItemText(id: id, text: text)
+        let didSet = todoState.checklist.setChecklistItemText(id: id, text: text)
+        if didSet {
+            persistTodoState()
+        }
+        return didSet
     }
 
     /// Appends image attachment references to one checklist item.
@@ -153,6 +174,7 @@ extension Workspace {
             return false
         }
         todoState.checklist[index].attachments.append(contentsOf: attachments)
+        persistTodoState()
         return true
     }
 
@@ -166,6 +188,7 @@ extension Workspace {
             return false
         }
         todoState.checklist[itemIndex].attachments.remove(at: attachmentIndex)
+        persistTodoState()
         return true
     }
 
@@ -174,9 +197,13 @@ extension Workspace {
     /// - Returns: `true` if the item existed.
     @discardableResult
     func removeChecklistItem(id: UUID) -> Bool {
-        notifyingChecklistCompletion {
+        let didRemove = notifyingChecklistCompletion {
             todoState.checklist.removeChecklistItem(id: id)
         }
+        if didRemove {
+            persistTodoState()
+        }
+        return didRemove
     }
 
     /// Removes every checklist item.
@@ -184,7 +211,11 @@ extension Workspace {
     /// - Returns: The number of items removed.
     @discardableResult
     func clearChecklist() -> Int {
-        todoState.checklist.clearChecklist()
+        let removedCount = todoState.checklist.clearChecklist()
+        if removedCount > 0 {
+            persistTodoState()
+        }
+        return removedCount
     }
 
     /// Atomically replaces the checklist, preserving identity (and origin)
@@ -198,9 +229,13 @@ extension Workspace {
     func replaceChecklist(
         with items: [WorkspaceChecklistReplacementItem]
     ) -> Result<[WorkspaceChecklistItem], WorkspaceChecklistReplaceError> {
-        notifyingChecklistCompletion {
+        let result = notifyingChecklistCompletion {
             todoState.checklist.replaceChecklist(with: items)
         }
+        if case .success = result {
+            persistTodoState()
+        }
+        return result
     }
 
     /// The checklist item at a 0-based display index, if in bounds.
@@ -230,5 +265,10 @@ extension Workspace {
         todoState.statusOverride = snapshot.restoredTaskStatusOverride
         todoState.statusHidden = snapshot.taskStatusHidden ?? false
         todoState.checklist = snapshot.restoredChecklist
+    }
+
+    /// All callers, including CLI and UI edits, use the session persistence owner.
+    private func persistTodoState() {
+        AppDelegate.shared?.saveTodoState(in: self)
     }
 }

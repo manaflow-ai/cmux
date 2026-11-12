@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxSidebar
 import Foundation
 
@@ -18,6 +19,11 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     let provisionalToken: ProvisionalDragWriterOwnership.Token
     private var workspaceId: UUID
     private var sessionId: UUID?
+    /// The pane capability exported beside the reorder payload: a pane drop
+    /// merges this workspace's tabs (`WorkspaceMergeDragRegistry`).
+    private let mergeRegistry: TabDragTransferRegistry?
+    private var mergeDragID: UUID?
+    private var mergeRegistration: TabDragTransferRegistration?
 
     // These are intentionally strong. AppKit retains the writer while it
     // builds (and, if successful, runs) the native session, so the source table
@@ -33,14 +39,20 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
         sessionId: UUID?,
         sourceView: NSView,
         controller: SidebarWorkspaceTableController,
-        provisionalToken: ProvisionalDragWriterOwnership.Token
+        provisionalToken: ProvisionalDragWriterOwnership.Token,
+        merge: (registry: TabDragTransferRegistry, payload: WorkspaceMergeDragPayload)? = nil
     ) {
         self.workspaceId = workspaceId
         self.sessionId = sessionId
         self.sourceView = sourceView
         self.controller = controller
         self.provisionalToken = provisionalToken
+        self.mergeRegistry = merge?.registry
         super.init()
+        if let merge {
+            mergeRegistration = merge.payload.register(with: merge.registry)
+            mergeDragID = merge.payload.dragID
+        }
         materializePayload()
     }
 
@@ -54,7 +66,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
-        return [Self.pasteboardType]
+        return [Self.pasteboardType] + (mergeRegistration?.pasteboardItem.types ?? [])
     }
 
     /// Records the native generation associated with this writer request.
@@ -88,9 +100,34 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
     /// token-scoped terminal transition.
     func installProvisionalDelegate() {
         guard let tableView = sourceView as? SidebarWorkspaceTableViewImpl else { return }
-        previousTableDelegate = tableView.delegate
+        // Installing twice, or over another writer that already forwards to
+        // this one, must not make `responds(to:)` forward back here forever.
+        if tableView.delegate !== self,
+           !Self.forwardingChain(from: tableView.delegate, reaches: self) {
+            if let previousWriter = tableView.delegate as? SidebarWorkspaceDragPasteboardWriter {
+                // Preserve the original delegate rather than retaining a
+                // superseded provisional writer in the forwarding chain.
+                previousTableDelegate = previousWriter.previousTableDelegate
+            } else {
+                previousTableDelegate = tableView.delegate
+            }
+        }
         tableView.delegate = self
         controller = nil
+    }
+
+    private static func forwardingChain(
+        from delegate: NSTableViewDelegate?,
+        reaches target: SidebarWorkspaceDragPasteboardWriter
+    ) -> Bool {
+        var current = delegate
+        var hops = 0
+        while let writer = current as? SidebarWorkspaceDragPasteboardWriter, hops < 32 {
+            if writer === target { return true }
+            current = writer.previousTableDelegate
+            hops += 1
+        }
+        return false
     }
 
     /// Releases the old controller while leaving this writer's source table
@@ -124,16 +161,35 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
         actions = nil
         provisionalSession = nil
         previousTableDelegate = nil
+        endMergeCapability()
+    }
+
+    /// Ends the pane capability; an accepted drop already discarded the registry entry.
+    private func endMergeCapability() {
+        if let mergeRegistration {
+            mergeRegistry?.end(mergeRegistration)
+            self.mergeRegistration = nil
+        }
+        if let mergeDragID {
+            WorkspaceMergeDragRegistry.shared.discard(id: mergeDragID)
+            self.mergeDragID = nil
+        }
     }
 
     override func responds(to selector: Selector) -> Bool {
         super.responds(to: selector)
-            || previousTableDelegate?.responds(to: selector) == true
+            || forwardedDelegate?.responds(to: selector) == true
     }
 
     override func forwardingTarget(for selector: Selector) -> Any? {
-        previousTableDelegate
+        forwardedDelegate
             ?? super.forwardingTarget(for: selector)
+    }
+
+    /// The previous delegate, unless it is this writer itself.
+    private var forwardedDelegate: NSTableViewDelegate? {
+        guard let previousTableDelegate, previousTableDelegate !== self else { return nil }
+        return previousTableDelegate
     }
 
     func tableView(
@@ -200,5 +256,13 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem, NSTableViewD
             payloadValue,
             forType: Self.pasteboardType
         )
+        guard let item = mergeRegistration?.pasteboardItem else { return }
+        for type in item.types {
+            if let string = item.string(forType: type) {
+                _ = setString(string, forType: type)
+            } else if let data = item.data(forType: type) {
+                _ = setData(data, forType: type)
+            }
+        }
     }
 }

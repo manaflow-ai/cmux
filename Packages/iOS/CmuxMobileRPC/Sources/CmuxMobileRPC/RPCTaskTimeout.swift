@@ -5,7 +5,16 @@ import Foundation
 /// The scheduler owns settlement through an actor, so callers do not need
 /// timing tasks, polling, or manual synchronization.
 public struct RPCTaskTimeout: Sendable {
-    public init() {}
+    /// Suspends until a deadline of the given length elapses.
+    public typealias Sleep = @Sendable (_ nanoseconds: UInt64) async throws -> Void
+
+    private let sleepForDeadline: Sleep
+
+    /// Creates a scheduler whose deadlines elapse on `sleep`, the monotonic
+    /// clock by default.
+    public init(sleep: @escaping Sleep = RPCTaskTimeout.continuousClockSleep) {
+        sleepForDeadline = sleep
+    }
 
     /// Returns a task's value or throws when its deadline expires.
     public func value<T: Sendable>(
@@ -29,7 +38,7 @@ public struct RPCTaskTimeout: Sendable {
             }
             let timeoutTask = Task {
                 do {
-                    try await sleep(nanoseconds: timeoutNanoseconds)
+                    try await sleepForDeadline(timeoutNanoseconds)
                 } catch {
                     return
                 }
@@ -55,6 +64,12 @@ public struct RPCTaskTimeout: Sendable {
     }
 
     func sleep(nanoseconds: UInt64) async throws {
+        try await Self.continuousClockSleep(nanoseconds: nanoseconds)
+    }
+
+    /// Sleeps on the monotonic clock, capping lengths past `Int64.max`.
+    @Sendable
+    public static func continuousClockSleep(nanoseconds: UInt64) async throws {
         let capped = min(nanoseconds, UInt64(Int64.max))
         try await ContinuousClock().sleep(for: .nanoseconds(Int64(capped)))
     }

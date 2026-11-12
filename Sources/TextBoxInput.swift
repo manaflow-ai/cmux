@@ -869,7 +869,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 .background(Color.black.opacity(0.82))
         } else {
             VStack(spacing: 10) {
-                CmuxSystemSymbolImage(magnified: "doc", pointSize: 42, weight: .regular)
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 42, weight: .regular, tint: .primary.opacity(0.86))
                 Text(attachment.displayName)
                     .cmuxFont(size: 13, weight: .medium)
                     .lineLimit(2)
@@ -950,7 +950,7 @@ private struct TextBoxAttachmentChip: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             } else {
-                CmuxSystemSymbolImage(magnified: "doc", pointSize: 12, weight: .medium)
+                CmuxSystemSymbolImage(magnified: "doc", pointSize: 12, weight: .medium, tint: foreground.opacity(0.88))
                     .frame(
                         width: TextBoxLayout.attachmentImageSize,
                         height: TextBoxLayout.attachmentImageSize
@@ -964,7 +964,7 @@ private struct TextBoxAttachmentChip: View {
                 .frame(maxWidth: 118, alignment: .leading)
 
             Button(action: onRemove) {
-                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 8, weight: .bold)
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 8, weight: .bold, tint: foreground.opacity(0.62))
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
@@ -1179,6 +1179,8 @@ enum TextBoxSubmit {
         case keyText(String)
         case pasteText(String)
         case pasteFilePath(String)
+        case validateCloudImages([URL])
+        case pasteCloudImages([URL])
         case namedKeyRepeat(String, Int)
         case namedKey(String)
         case captureClipboardReadBaseline
@@ -1212,7 +1214,8 @@ enum TextBoxSubmit {
 
     static func dispatchEvents(
         for parts: [TextBoxSubmissionPart],
-        terminalAgentContext: String
+        terminalAgentContext: String,
+        imageTransferTarget: TerminalImageTransferTarget = .local
     ) -> [DispatchEvent] {
         guard let inputParts = submittedParts(parts) else {
             return [.namedKey(TextBoxTerminalKey.returnKey.rawValue)]
@@ -1233,6 +1236,9 @@ enum TextBoxSubmit {
         }
 
         let submitKey = TextBoxAgentDetection.composedPromptSubmitKey(containsNewline: containsNewline, context: terminalAgentContext)
+        if imageTransferTarget == .cloud, containsImageAttachment(inputParts) {
+            return cloudImageDispatchEvents(from: inputParts, submitKey: submitKey)
+        }
         if isClaude, containsImageAttachment(inputParts) {
             return claudeSequentialImageDispatchEvents(from: inputParts, submitKey: submitKey)
         }
@@ -1264,7 +1270,11 @@ enum TextBoxSubmit {
         terminalAgentContext: String,
         onComplete: ((CompletionContext) -> Void)? = nil
     ) {
-        let events = dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext)
+        let events = dispatchEvents(
+            for: parts,
+            terminalAgentContext: terminalAgentContext,
+            imageTransferTarget: surface.resolvedImageTransferTarget()
+        )
         TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
     }
 
@@ -1279,7 +1289,8 @@ enum TextBoxSubmit {
     static func cleanupAttachmentsAfterSubmit(
         from parts: [TextBoxSubmissionPart],
         terminalAgentContext: String,
-        completionContext: CompletionContext = .empty
+        completionContext: CompletionContext = .empty,
+        imageTransferTarget: TerminalImageTransferTarget = .local
     ) -> [TextBoxAttachment] {
         let isClaude = TextBoxAgentDetection.isClaudeCode(context: terminalAgentContext)
         var confirmedClaudeImageSubmissionTexts = completionContext.confirmedClaudeImageSubmissionTexts
@@ -1288,6 +1299,9 @@ enum TextBoxSubmit {
             return nil
         }.filter { attachment in
             guard attachment.cleanupLocalURLWhenDisposed else { return false }
+            // A Cloud submit uploaded the image bytes, so nothing reads the
+            // local file afterwards.
+            if imageTransferTarget == .cloud, attachment.isImage { return true }
             if isClaude, attachment.isImage {
                 let remainingCount = confirmedClaudeImageSubmissionTexts[attachment.submissionText, default: 0]
                 guard remainingCount > 0 else { return false }
@@ -1305,6 +1319,55 @@ enum TextBoxSubmit {
             }
             return false
         }
+    }
+
+    /// Sends text and Cloud image uploads in prompt order. Images stay in the
+    /// composer until submit, then use the authenticated Cloud paste channel.
+    private static func cloudImageDispatchEvents(
+        from parts: [TextBoxSubmissionPart],
+        submitKey: String
+    ) -> [DispatchEvent] {
+        var events: [DispatchEvent] = []
+        var attachmentNeedsBoundarySpace = false
+
+        func appendText(_ text: String) {
+            guard !text.isEmpty else { return }
+            var textToPaste = text
+            if attachmentNeedsBoundarySpace,
+               text.first?.isWhitespace != true {
+                textToPaste = " " + textToPaste
+            }
+            events.append(.pasteText(textToPaste))
+            attachmentNeedsBoundarySpace = false
+        }
+
+        for part in parts {
+            switch part {
+            case .text(let text):
+                appendText(text)
+            case .attachment(let attachment):
+                if attachment.isImage, let localURL = attachment.localURL {
+                    if attachmentNeedsBoundarySpace {
+                        events.append(.pasteText(" "))
+                    }
+                    events.append(.pasteCloudImages([localURL.standardizedFileURL]))
+                    attachmentNeedsBoundarySpace = true
+                } else {
+                    appendText(attachment.submissionText)
+                    attachmentNeedsBoundarySpace = attachment.submissionText.last?.isWhitespace != true
+                }
+            }
+        }
+
+        if attachmentNeedsBoundarySpace {
+            events.append(.pasteText(" "))
+        }
+        events.append(.namedKey(submitKey))
+        let imageURLs = events.flatMap { event -> [URL] in
+            if case .pasteCloudImages(let urls) = event { return urls }
+            return []
+        }
+        return [.validateCloudImages(imageURLs)] + events
     }
 
     private static func claudeSequentialImageDispatchEvents(
@@ -1502,6 +1565,7 @@ private final class TextBoxSubmitEventRunner {
     private var observers: [NSObjectProtocol] = []
     private var waitTimeoutTimer: DispatchSourceTimer?
     private var pasteFilePathTask: Task<Void, Never>?
+    private var cloudImagePasteTask: Task<Void, Never>?
     private var pasteFilePathMutationLease: TerminalPasteboardMutationLease?
     private var releaseTickNotifications: (() -> Void)?
     private var releaseRenderedFrameNotifications: (() -> Void)?
@@ -1631,6 +1695,36 @@ private final class TextBoxSubmitEventRunner {
                     fail(.terminalWriteRejected)
                     return
                 }
+            case .validateCloudImages(let urls):
+                guard let terminalSurface = surface.textBoxSubmitTerminalSurface else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                do {
+                    try terminalSurface.validateCloudImagesForSubmit(urls)
+                } catch {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+            case .pasteCloudImages(let urls):
+                guard let terminalSurface = surface.textBoxSubmitTerminalSurface else {
+                    fail(.terminalWriteRejected)
+                    return
+                }
+                cloudImagePasteTask = Task { @MainActor [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    do {
+                        try await terminalSurface.pasteCloudImages(urls, cleansUpTransferredFiles: false)
+                        self.cloudImagePasteTask = nil
+                        self.processNext()
+                    } catch {
+                        self.cloudImagePasteTask = nil
+                        self.fail(.terminalWriteRejected)
+                    }
+                }
+                return
             case .namedKeyRepeat(let key, let count):
                 guard count > 0 else { continue }
                 for _ in 0..<count {
@@ -1669,6 +1763,8 @@ private final class TextBoxSubmitEventRunner {
     private func fail(_ failure: TextBoxSubmit.CompletionContext.Failure) {
         removeObservers()
         cancelPendingPasteboardMutation()
+        cloudImagePasteTask?.cancel()
+        cloudImagePasteTask = nil
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -1688,6 +1784,8 @@ private final class TextBoxSubmitEventRunner {
 
     private func finish() {
         cancelPendingPasteboardMutation()
+        cloudImagePasteTask?.cancel()
+        cloudImagePasteTask = nil
         restorePasteboardIfNeeded()
         let completion = onComplete
         onComplete = nil
@@ -2185,6 +2283,10 @@ private final class TextBoxSubmitEventRunner {
             return "pasteText(\(debugText(text)))"
         case .pasteFilePath(let path):
             return "pasteFilePath(length:\(path.utf8.count))"
+        case .validateCloudImages(let urls):
+            return "validateCloudImages(count:\(urls.count))"
+        case .pasteCloudImages(let urls):
+            return "pasteCloudImages(count:\(urls.count))"
         case .namedKeyRepeat(let key, let count):
             return "namedKeyRepeat(\(key),\(count))"
         case .namedKey(let key):
@@ -2414,7 +2516,7 @@ struct TextBoxInputContainer: View {
 
     private func addFilesButton(foreground: Color) -> some View {
         Button(action: chooseFiles) {
-            CmuxSystemSymbolImage(magnified: "plus", pointSize: TextBoxLayout.iconSymbolSize, weight: .semibold)
+            CmuxSystemSymbolImage(magnified: "plus", pointSize: TextBoxLayout.iconSymbolSize, weight: .semibold, tint: foreground.opacity(0.82))
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
                 .background(
                     Circle()
@@ -2458,7 +2560,7 @@ struct TextBoxInputContainer: View {
                 showPendingCommentsPreview.toggle()
             } label: {
                 HStack(spacing: 5) {
-                    CmuxSystemSymbolImage(magnified: "text.bubble", pointSize: 11, weight: .medium)
+                    CmuxSystemSymbolImage(magnified: "text.bubble", pointSize: 11, weight: .medium, tint: foreground.opacity(0.92))
                     Text(pendingCommentsLabel(count))
                         .cmuxFont(size: 12, weight: .medium)
                         .lineLimit(1)
@@ -2472,7 +2574,7 @@ struct TextBoxInputContainer: View {
             Button {
                 dismissPendingComments()
             } label: {
-                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 9, weight: .bold)
+                CmuxSystemSymbolImage(magnified: "xmark", pointSize: 9, weight: .bold, tint: foreground.opacity(0.92))
                     .frame(width: 16, height: 16)
                     .background(Circle().fill(foreground.opacity(0.12)))
             }
@@ -2559,6 +2661,7 @@ struct TextBoxInputContainer: View {
             return
         }
         let launchAction = effectiveSubmitAction
+        let imageTransferTarget = surface.resolvedImageTransferTarget()
         if Self.shouldFailClosedForCommandTemplate(
             action: launchAction,
             shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
@@ -2580,6 +2683,19 @@ struct TextBoxInputContainer: View {
                     NSSound.beep()
                 }
             }
+            return
+        }
+        if Self.shouldRejectCloudImageCommandTemplate(
+            action: launchAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
+            imageTransferTarget: imageTransferTarget,
+            parts: submittedParts
+        ) {
+            // Command templates interpolate local submission paths. Keep a
+            // Cloud image draft intact rather than leaking a Mac path into a
+            // remote command; text-entry submission handles the upload once an
+            // agent is active.
+            NSSound.beep()
             return
         }
         // Claim the workspace's pending diff comments: this submission carries
@@ -2658,7 +2774,8 @@ struct TextBoxInputContainer: View {
             let cleanupAttachments = TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: submittedParts,
                 terminalAgentContext: submitPlan.cleanupTerminalAgentContext,
-                completionContext: completionContext
+                completionContext: completionContext,
+                imageTransferTarget: imageTransferTarget
             )
             submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
         }
@@ -2785,41 +2902,7 @@ struct TextBoxInputContainer: View {
             return true
         case .fileURLs(let fileURLs):
             return attachFileURLs(fileURLs, into: textView)
-        case .reject:
-            return false
-        }
-    }
-
-    private func attachFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
-        let standardizedURLs = fileURLs
-            .filter(\.isFileURL)
-            .map(\.standardizedFileURL)
-        guard !standardizedURLs.isEmpty else { return false }
-
-        let plan = TerminalImageTransferPlanner.plan(
-            fileURLs: standardizedURLs,
-            target: surface.resolvedImageTransferTarget(),
-            mode: .paste
-        )
-
-        switch plan {
-        case .insertText, .insertTextSegments:
-            textView.insertAttachments(
-                standardizedURLs.map {
-                        TextBoxAttachment(
-                            localURL: $0,
-                            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0),
-                            cleanupLocalURLWhenDisposed: TextBoxAttachment.shouldCleanupLocalURLWhenDisposed($0)
-                        )
-                }
-            )
-            attachments = textView.inlineAttachments()
-            text = textView.plainText()
-            return true
-        case .uploadFiles(let uploadURLs, let remoteTarget):
-            uploadFileAttachments(uploadURLs, remoteTarget: remoteTarget, focusing: textView)
-            return true
-        case .reject:
+        case .reject, .rejectOversizedImage:
             return false
         }
     }
@@ -3519,6 +3602,9 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        // IMEs can hand back a stale replacement range past the end of the
+        // UTF-16 storage; NSTextView raises NSRangeException on those.
+        let replacementRange = sanitizedTextStorageReplacementRange(replacementRange)
         queueAutomaticAttachmentFileCleanup(in: replacementRange)
         let isOuterInsertText = activeInsertTextDepth == 0
         if isOuterInsertText {
@@ -3540,12 +3626,46 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        let markedTextLength = Self.textInputStringLength(string)
+        super.setMarkedText(
+            string,
+            selectedRange: Self.sanitizedMarkedTextSelectionRange(selectedRange, markedTextLength: markedTextLength),
+            replacementRange: sanitizedTextStorageReplacementRange(replacementRange)
+        )
         onMarkedTextStateChanged(hasMarkedText())
         // Marked text bypasses textDidChange. Schedule the TextBox measurement boundary so
         // AppKit coalesces rapid preedit updates before laying out TextKit storage.
         needsLayout = true
         needsDisplay = true
+    }
+
+    private func sanitizedTextStorageReplacementRange(_ range: NSRange) -> NSRange {
+        guard range.location != NSNotFound else { return range }
+        return Self.sanitizedRange(range, upperBound: attributedString().length)
+    }
+
+    private static func sanitizedRange(_ range: NSRange, upperBound: Int) -> NSRange {
+        guard range.location != NSNotFound else { return range }
+        let upperBound = max(0, upperBound)
+        let location = min(max(0, range.location), upperBound)
+        let length = min(max(0, range.length), upperBound - location)
+        return NSRange(location: location, length: length)
+    }
+
+    private static func sanitizedMarkedTextSelectionRange(_ range: NSRange, markedTextLength: Int) -> NSRange {
+        let markedTextLength = max(0, markedTextLength)
+        guard range.location != NSNotFound else {
+            return NSRange(location: markedTextLength, length: 0)
+        }
+        return sanitizedRange(range, upperBound: markedTextLength)
+    }
+
+    private static func textInputStringLength(_ string: Any) -> Int {
+        if let attributed = string as? NSAttributedString {
+            return attributed.length
+        }
+        let plain = (string as? String) ?? String(describing: string)
+        return (plain as NSString).length
     }
 
     override func unmarkText() {

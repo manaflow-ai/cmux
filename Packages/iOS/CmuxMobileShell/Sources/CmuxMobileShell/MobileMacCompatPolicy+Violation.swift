@@ -9,7 +9,8 @@ extension MobileMacCompatPolicy {
         /// The Mac's reported version, or `nil` when it predates reporting.
         public let macAppVersion: String?
         /// The minimum version to present: the stable minimum, or the nightly
-        /// minimum rendered in the nightly stamp grammar.
-        public let requiredVersionDisplay: String
+        /// minimum rendered in the nightly stamp grammar. Nil means the version
+        /// report is invalid and no numeric floor exists for that lane.
+        public let requiredVersionDisplay: String?
     }
 }

@@ -16,18 +16,9 @@ let package = Package(
             targets: ["CMUXProjectDump"]
         ),
     ],
-    dependencies: [
-        .package(
-            url: "https://github.com/tuist/XcodeProj.git",
-            from: "9.0.0"
-        ),
-    ],
     targets: [
         .target(
-            name: "CMUXProjectModel",
-            dependencies: [
-                .product(name: "XcodeProj", package: "XcodeProj"),
-            ]
+            name: "CMUXProjectModel"
         ),
         .executableTarget(
             name: "CMUXProjectDump",

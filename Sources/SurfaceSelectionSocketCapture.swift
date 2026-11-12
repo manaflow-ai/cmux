@@ -1,7 +1,7 @@
 import Foundation
 
 /// Socket identity paired with an immutable panel selection snapshot.
-nonisolated struct SurfaceSelectionSocketCapture: Sendable {
+struct SurfaceSelectionSocketCapture: Sendable {
     let snapshot: SurfaceSelectionSnapshot
     let workspaceID: UUID
     let surfaceID: UUID

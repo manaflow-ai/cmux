@@ -19,6 +19,7 @@ ios/Config/AppStoreConnect.local.plist
 .swiftpm/
 .ci-source-packages/
 .ci-reload-derived-data/
+.glaeda/
 
 # GhosttyKit binary (built from ghostty submodule via scripts/setup.sh)
 GhosttyKit.xcframework
@@ -78,3 +79,6 @@ tmux-*.log
 # Remote-only Blacksmith cmux-tui benchmark output
 /testbox-benchmark/
 /.cmux-scratch/
+
+# Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
+Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/

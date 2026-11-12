@@ -36,7 +36,8 @@ public struct MobileRootAuthGate {
     /// shell would flash the add-device surface, so sign-in keeps the screen
     /// (showing its restore status) until validation settles. A live attach
     /// ticket always proceeds directly to the shell to complete the attach
-    /// flow.
+    /// flow. Signed out there is no other surface: every user signs in
+    /// before using the app, including SSH computers.
     public static func shouldShowSignIn(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool = false,
@@ -118,6 +119,35 @@ public struct MobileRootAuthGate {
             && didFinishAuthBootstrap
             && !isRestoringSession
             && !attachTicketAuthenticated
+            && connectionState != .connected
+    }
+
+    /// Whether launch may dial the saved Mac with the cached account while
+    /// restore still validates it over the network.
+    ///
+    /// Restore primes the cached user and the persisted team selection before
+    /// validating the token, reloading the user and refreshing teams in
+    /// series. The saved Mac's dial only needs that cached account scope, so
+    /// it runs alongside validation. A rejected session signs the shell out,
+    /// and a changed account or team supersedes the dial.
+    /// - Parameters:
+    ///   - stackAuthenticated: Whether Stack auth is established, including a primed cached session.
+    ///   - isRestoringSession: Whether cached auth is still being validated.
+    ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - hasLaunchConnectionRoute: Whether a pending URL or injected attach route owns startup.
+    ///   - connectionState: The current connection state.
+    /// - Returns: `true` when a primed cached session is still restoring, nothing else owns startup, and the Mac is not yet connected.
+    public static func shouldReconnectStoredMacDuringRestore(
+        stackAuthenticated: Bool,
+        isRestoringSession: Bool,
+        attachTicketAuthenticated: Bool,
+        hasLaunchConnectionRoute: Bool,
+        connectionState: MobileConnectionState
+    ) -> Bool {
+        stackAuthenticated
+            && isRestoringSession
+            && !attachTicketAuthenticated
+            && !hasLaunchConnectionRoute
             && connectionState != .connected
     }
 

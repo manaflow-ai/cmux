@@ -563,6 +563,7 @@ const (
 	AgentSourceHook     AgentSource = "hook"
 	AgentSourceSocket   AgentSource = "socket"
 	AgentSourceDetected AgentSource = "detected"
+	AgentSourcePlugin   AgentSource = "plugin"
 )
 
 // AgentReportSource excludes detected, which is server-owned discovery state.

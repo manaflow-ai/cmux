@@ -29,6 +29,7 @@ public final class ResourceApiTest {
         exactCommandAndRouting();
         creationCorrelationIsFirstClass();
         nullableMetadata();
+        journalBoundaryAndNullableTerminalMetadata();
         notificationTargetingIsOptionalAndTyped();
         strictTypedModels();
         layoutUndoUsesTypedConfirmation();
@@ -263,6 +264,49 @@ public final class ResourceApiTest {
             require(params.get("name") == null, "nullable name clears with null");
             require(params.get("kind").equals(""), "empty kind is preserved");
         }
+    }
+
+    private static void journalBoundaryAndNullableTerminalMetadata() {
+        Map<String, Object> screen = new LinkedHashMap<>();
+        screen.put("text", "unavailable");
+        screen.put("revision", null);
+        screen.put("osc_progress", null);
+        screen.put("cols", 80);
+        screen.put("rows", 24);
+        screen.put("cursor_row", 0);
+        screen.put("cursor_col", 0);
+        screen.put("cursor_visible", true);
+        Results.TerminalScreenResult decoded = Client.decodeTerminalScreen(screen);
+        require(decoded.revision().isEmpty(), "null terminal revision is unavailable");
+        require(decoded.oscProgress().isEmpty(), "null terminal progress is unavailable");
+
+        Map<String, Object> malformedPut = new LinkedHashMap<>();
+        malformedPut.put("producer_id", "screen!detector");
+        malformedPut.put("manifest_version", 1);
+        malformedPut.put("namespace", "plugin.screen!detector");
+        malformedPut.put("sequence", "1");
+        malformedPut.put("event_id", "event-1");
+        expect(IllegalArgumentException.class, () -> JournalWire.decodePut(malformedPut));
+
+        Map<String, Object> malformedAppend = new LinkedHashMap<>();
+        malformedAppend.put("producer_id", "screen!detector");
+        malformedAppend.put("sequence", "1");
+        malformedAppend.put("event_id", "event-1");
+        expect(IllegalArgumentException.class, () -> JournalWire.decodeAppend(malformedAppend));
+
+        JournalIngress invalidIngress = new JournalIngress(
+            "screen-detector",
+            1,
+            "agent.state.changed",
+            1,
+            Optional.empty(),
+            List.of(),
+            Optional.empty(),
+            JsonValue.of(Map.of("state", "working")),
+            Optional.empty(),
+            Optional.empty()
+        );
+        expect(IllegalArgumentException.class, invalidIngress::toWire);
     }
 
     private static void notificationTargetingIsOptionalAndTyped() {

@@ -59,6 +59,7 @@ const messagesByLocale = {
 type AuthErrorMessages = {
   emailUnverifiedTitle: string;
   emailUnverifiedBody: string;
+  signupPendingBody: string;
   genericTitle: string;
   genericBody: string;
   backToSignIn: string;
@@ -90,6 +91,21 @@ describe("localized browser auth error page", () => {
     expect(html).toContain('lang="ja"');
     expect(html).toContain("サインインを完了できませんでした");
     expect(html).not.toContain("unexpected");
+  });
+
+  test("renders signup recovery without disclosing whether an account exists", async () => {
+    acceptLanguage = "en-US,en;q=0.9";
+    const element = await AuthErrorPage({
+      searchParams: Promise.resolve({ code: "signup-pending" }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-auth-error="signupPending"');
+    expect(html).toContain("Verify your email to continue");
+    expect(html).toContain(
+      "If you already have an account, sign in with the method you used before. If you just created an account, verify your email before signing in.",
+    );
+    expect(html).not.toContain("USER_EMAIL_ALREADY_EXISTS");
   });
 
   test("sets right-to-left direction for Arabic recovery copy", async () => {

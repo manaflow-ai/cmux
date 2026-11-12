@@ -498,9 +498,7 @@ struct CmuxConfigActionSaverTests {
         var arguments = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in CodexHookInjectionSchema.current.events {
             arguments.append("-c")
-            arguments.append(
-                "hooks.\(event.agentEvent)=[{hooks=[{type=\"command\",command='''/Users/u/.cmux/hooks/cmux-codex-hook-\(event.cmuxSubcommand).sh''',timeout=\(event.timeoutMs)}]}]"
-            )
+            arguments.append(event.configValue { "/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-\($0).sh" })
         }
         return arguments
     }

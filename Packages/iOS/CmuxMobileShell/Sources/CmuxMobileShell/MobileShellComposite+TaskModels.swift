@@ -1,11 +1,7 @@
 internal import CmuxMobileRPC
+internal import CmuxMobilePairedMac
 public import CmuxMobileShellModel
 import Foundation
-
-private enum MobileTaskModelRefreshEvent: Sendable {
-    case host(MobileTaskModelListResult?)
-    case backend(MobileTaskModelListResult?)
-}
 
 private struct MobileTaskModelRequestContext {
     enum Owner {
@@ -19,6 +15,40 @@ private struct MobileTaskModelRequestContext {
 }
 
 extension MobileShellComposite {
+    /// Removes model state for pairing rows that are no longer available.
+    /// A removed row must also cancel an in-flight refresh so its completion
+    /// cannot repopulate the cache after the pairing list changes.
+    func pruneTaskModelStateToPairedMacs() {
+        let validPairingIDs = Set(taskComposerPairedMacs.map(\.id))
+        cancelTaskModelPrefetchTasks(keeping: validPairingIDs)
+        for key in taskModelRefreshRequests.keys
+            where !validPairingIDs.contains(
+                MobilePairedMac.pairingID(
+                    macDeviceID: key.macDeviceID,
+                    instanceTag: key.instanceTag
+                )
+            ) {
+            taskModelRefreshRequests[key]?.cancel()
+            taskModelRefreshRequests[key] = nil
+        }
+        taskModelCache = taskModelCache.filter { key, _ in
+            validPairingIDs.contains(
+                MobilePairedMac.pairingID(
+                    macDeviceID: key.macDeviceID,
+                    instanceTag: key.instanceTag
+                )
+            )
+        }
+        taskModelSuccessfulConnections = taskModelSuccessfulConnections.filter { key, _ in
+            validPairingIDs.contains(
+                MobilePairedMac.pairingID(
+                    macDeviceID: key.macDeviceID,
+                    instanceTag: key.instanceTag
+                )
+            )
+        }
+    }
+
     /// Identity of the live read connection currently serving one paired Mac.
     ///
     /// The identity stays stable when the same client moves between focused
@@ -105,6 +135,18 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async throws -> MobileTaskModelListResult {
+        try await fetchTaskModelsWithIdentity(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).result
+    }
+
+    private func fetchTaskModelsWithIdentity(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag: String?
+    ) async throws -> MobileTaskModelHostFetchResult {
         guard !Task.isCancelled,
               var context = captureTaskModelRequestContext(
                   macDeviceID: macDeviceID,
@@ -113,26 +155,34 @@ extension MobileShellComposite {
             throw MobileShellConnectionError.connectionClosed
         }
         let sessionGeneration = currentSessionGeneration
-        let request = try MobileCoreRPCClient.requestData(
-            method: "mobile.task.models.list",
-            params: ["provider": provider.rawValue]
-        )
-        var response: Data?
 
         // A terminal-stream recovery can replace the focused client without
         // changing the selected Mac or tag. Re-resolve once from the
         // connection registry when that exact ownership handoff races this
-        // read. This is state-driven and never waits or changes focus.
+        // read. The request and response parsing run on the concurrent
+        // executor; this main-actor method only owns connection validation.
         for attempt in 0..<2 {
             do {
-                response = try await context.client.sendRequest(
-                    request,
-                    // Claude's installed-agent control request is intentionally
-                    // bounded at 30 seconds on the Mac. Leave transport headroom;
-                    // the concurrent backend catalog keeps the picker responsive.
-                    timeoutNanoseconds: 35_000_000_000
+                let result = try await fetchTaskModelList(
+                    client: context.client,
+                    provider: provider
                 )
-                break
+                guard !Task.isCancelled,
+                      isSignedIn,
+                      currentSessionGeneration == sessionGeneration else {
+                    throw MobileShellConnectionError.invalidResponse
+                }
+                guard isCurrentTaskModelRequestContext(
+                    context,
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                ) else {
+                    throw MobileShellConnectionError.connectionClosed
+                }
+                return MobileTaskModelHostFetchResult(
+                    result: result,
+                    connectionIdentity: context.client.instanceID
+                )
             } catch {
                 guard !Task.isCancelled else { throw error }
                 if attempt == 0,
@@ -149,27 +199,42 @@ extension MobileShellComposite {
                     context = replacement
                     continue
                 }
-                if isCurrentTaskModelRequestContext(
-                    context,
-                    macDeviceID: macDeviceID,
-                    instanceTag: instanceTag
-                ), case .foreground(let generation) = context.owner {
-                    handleMacAvailabilityFailureIfCurrent(
-                        after: error,
-                        expectedClient: context.client,
-                        expectedGeneration: generation
-                    )
-                }
+                // Model discovery is a read-only optional capability probe.
+                // Its deadline or transport failure must not mark the whole
+                // Mac unavailable; the connection lifecycle owns that state
+                // and will publish a new refresh identity when it recovers.
                 throw error
             }
         }
+        throw MobileShellConnectionError.connectionClosed
+    }
 
-        guard !Task.isCancelled,
-              isSignedIn,
-              currentSessionGeneration == sessionGeneration,
-              let response else {
-            throw MobileShellConnectionError.invalidResponse
-        }
+    /// Performs the network request and parses the host response away from
+    /// the main actor. The caller revalidates the connection before applying
+    /// this immutable result to the observable shell state.
+    @concurrent
+    private nonisolated func fetchTaskModelList(
+        client: MobileCoreRPCClient,
+        provider: MobileTaskAgentProvider
+    ) async throws -> MobileTaskModelListResult {
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.task.models.list",
+            params: ["provider": provider.rawValue]
+        )
+        let response = try await client.sendRequest(
+            request,
+            // Claude's installed-agent control request is intentionally
+            // bounded at 30 seconds on the Mac. Leave transport headroom;
+            // the concurrent backend catalog keeps the picker responsive.
+            timeoutNanoseconds: 35_000_000_000
+        )
+        return try parseTaskModelList(response)
+    }
+
+    /// Decodes one host catalog without touching actor-isolated state.
+    private nonisolated func parseTaskModelList(
+        _ response: Data
+    ) throws -> MobileTaskModelListResult {
         guard let object = try JSONSerialization.jsonObject(with: response)
                 as? [String: Any],
               let rawSource = object["source"] as? String,
@@ -353,13 +418,34 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) -> MobileTaskModelListResult? {
-        taskModelCache[
-            MobileTaskModelCacheKey(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                provider: provider
-            )
-        ]?.result
+        cachedTaskModelEntry(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )?.result
+    }
+
+    /// Returns a cache entry only when an authoritative host result still
+    /// belongs to the current live connection. Backend results are portable
+    /// across connection replacement, while a stale host catalog is hidden
+    /// until the replacement client has answered.
+    private func cachedTaskModelEntry(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> MobileTaskModelCacheEntry? {
+        let key = MobileTaskModelCacheKey(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            provider: provider
+        )
+        guard let entry = taskModelCache[key] else { return nil }
+        guard let cachedIdentity = entry.connectionIdentity else { return entry }
+        guard taskModelConnectionIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) == cachedIdentity else { return nil }
+        return entry
     }
 
     /// Refreshes one provider from the selected Mac and the over-the-air
@@ -378,118 +464,335 @@ extension MobileShellComposite {
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
         instanceTag: String?,
+        maximumCacheAge: Double = 0,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
-    ) async {
+    ) async -> MobileTaskModelRefreshOutcome {
         await refreshTaskModels(
+            provider: provider, macDeviceID: macDeviceID, instanceTag: instanceTag,
+            maximumCacheAge: maximumCacheAge, prefetchedCatalog: nil, didUpdate: didUpdate
+        )
+    }
+
+    func refreshTaskModels(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag: String?,
+        maximumCacheAge: Double,
+        prefetchedCatalog: MobileTaskModelPrefetchCatalog?,
+        didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
+    ) async -> MobileTaskModelRefreshOutcome {
+        guard !Task.isCancelled else { return .stopped(.cancelled) }
+        let key = MobileTaskModelCacheKey(
+            macDeviceID: macDeviceID, instanceTag: instanceTag, provider: provider
+        )
+        let connectionIdentity = taskModelConnectionIdentity(
+            macDeviceID: macDeviceID, instanceTag: instanceTag
+        )
+        if let cached = cachedTaskModelEntry(
+               provider: provider,
+               macDeviceID: macDeviceID,
+               instanceTag: instanceTag
+           ),
+           (runtime?.now() ?? Date()).timeIntervalSince(cached.fetchedAt) < maximumCacheAge,
+           cached.result.error == nil {
+            let canReuseCachedResult: Bool
+            if connectionIdentity == nil {
+                canReuseCachedResult = cached.result.source == .backend
+            } else {
+                canReuseCachedResult = cached.result.source == .discovered
+                    && taskModelSuccessfulConnections[key] == connectionIdentity
+            }
+            if canReuseCachedResult {
+                didUpdate?(cached.result)
+                return .succeeded
+            }
+        }
+        if let request = taskModelRefreshRequests[key],
+           !request.isFinished,
+           request.connectionIdentity == connectionIdentity {
+            if let cached = cachedTaskModelEntry(
+                provider: provider,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ) {
+                didUpdate?(cached.result)
+            }
+            return await request.value(didUpdate: didUpdate)
+        }
+        taskModelRefreshRequests[key]?.cancel()
+        let request = MobileTaskModelRefreshRequest(connectionIdentity: connectionIdentity)
+        let sessionGeneration = currentSessionGeneration
+        taskModelRefreshRequests[key] = request
+        request.task = Task { [weak self] in
+            let outcome = await self?.performTaskModelRefresh(
+                provider: provider, macDeviceID: macDeviceID, instanceTag: instanceTag,
+                prefetchedCatalog: prefetchedCatalog,
+                didUpdate: { request.publish($0) }
+            ) ?? .stopped(.cancelled)
+            if let self {
+                if self.taskModelRefreshRequests[key] === request {
+                    self.taskModelRefreshRequests[key] = nil
+                    if !Task.isCancelled, self.currentSessionGeneration == sessionGeneration,
+                       outcome == .succeeded, let connectionIdentity {
+                        self.taskModelSuccessfulConnections[key] = connectionIdentity
+                    }
+                }
+            }
+            request.finish(outcome)
+        }
+        return await request.value(didUpdate: didUpdate)
+    }
+
+    private func performTaskModelRefresh(
+        provider: MobileTaskAgentProvider,
+        macDeviceID: String,
+        instanceTag: String?,
+        prefetchedCatalog: MobileTaskModelPrefetchCatalog?,
+        didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
+    ) async -> MobileTaskModelRefreshOutcome {
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(
+            .taskModelListLoadStarted,
+            correlationID: macDeviceID
+        )
+        let outcome = await refreshTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
+            prefetchedCatalog: prefetchedCatalog,
             hostResultLoader: { [weak self] in
-                guard let self else { return nil }
+                guard let self else {
+                    return MobileTaskModelHostRefreshResult(
+                        result: nil,
+                        outcome: .stopped(.cancelled)
+                    )
+                }
                 do {
-                    return try await self.fetchTaskModels(
-                        provider: provider,
-                        macDeviceID: macDeviceID,
-                        instanceTag: instanceTag
+                    let fetch = try await self.fetchTaskModelsWithIdentity(
+                            provider: provider,
+                            macDeviceID: macDeviceID,
+                            instanceTag: instanceTag
+                        )
+                    let result = fetch.result
+                    let outcome: MobileTaskModelRefreshOutcome
+                    switch result.error {
+                    case .providerUnavailable:
+                        outcome = .stopped(.providerUnavailable)
+                    case .queryFailed:
+                        outcome = .retry(.endpointUnavailable)
+                    case .hostUnavailable:
+                        outcome = .retry(.hostUnreachable)
+                    case nil:
+                        outcome = result.models.isEmpty && result.defaultModel == nil
+                            ? .retry(.unknown)
+                            : .succeeded
+                    }
+                    return MobileTaskModelHostRefreshResult(
+                        result: result,
+                        outcome: outcome,
+                        connectionIdentity: fetch.connectionIdentity
                     )
                 } catch {
-                    return MobileTaskModelListResult(
-                        models: [],
-                        source: .fallback,
-                        error: .hostUnavailable
+                    let outcome = MobileTaskModelRefreshOutcome(classifying: error)
+                    return MobileTaskModelHostRefreshResult(
+                        result: MobileTaskModelListResult(
+                            models: [],
+                            source: .fallback,
+                            error: .hostUnavailable
+                        ),
+                        outcome: outcome
                     )
                 }
             },
-            didUpdate: didUpdate
+            didUpdate: { [weak self] result in
+                self?.recordTaskModelResult(
+                    provider: provider,
+                    correlationID: macDeviceID,
+                    result: result
+                )
+                didUpdate?(result)
+            }
         )
+        let result = discoveredTaskModelResult(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        if case .succeeded = outcome,
+           let result,
+           result.error == nil,
+           (!result.models.isEmpty || result.defaultModel != nil) {
+            recordAppEvent(
+                .taskModelListLoadSucceeded,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                count: result.models.count
+            )
+        } else if outcome != .stopped(.cancelled) {
+            recordAppEvent(
+                .taskModelListLoadFailed,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                failure: outcome.diagnosticFailure,
+                count: result?.models.count ?? 0
+            )
+        }
+        return outcome
+    }
+
+    /// Fetches and decodes the backend fallback on the concurrent executor.
+    @concurrent
+    private nonisolated func fetchTaskModelCatalog(
+        client: MobileTaskModelCatalogClient,
+        provider: MobileTaskAgentProvider
+    ) async -> MobileTaskModelListResult? {
+        try? await client.result(for: provider)
     }
 
     private func refreshTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
         instanceTag: String? = nil,
-        hostResultLoader: @escaping @Sendable () async -> MobileTaskModelListResult?,
+        prefetchedCatalog: MobileTaskModelPrefetchCatalog?,
+        hostResultLoader: @escaping @Sendable () async -> MobileTaskModelHostRefreshResult,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
-    ) async {
+    ) async -> MobileTaskModelRefreshOutcome {
         let key = MobileTaskModelCacheKey(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             provider: provider
         )
         let catalogClient = taskModelCatalogClient
+        let sessionGeneration = currentSessionGeneration
         var hostFailure: MobileTaskModelListResult?
+        var hostOutcome: MobileTaskModelHostRefreshResult?
         var backendResult: MobileTaskModelListResult?
+        var refreshOutcome: MobileTaskModelRefreshOutcome?
         await withTaskGroup(of: MobileTaskModelRefreshEvent.self) { group in
             group.addTask {
                 .host(await hostResultLoader())
             }
-            group.addTask {
-                .backend(try? await catalogClient.result(for: provider))
+            if let prefetchedCatalog {
+                group.addTask { .backend(await prefetchedCatalog.result(for: provider)) }
+            } else {
+                group.addTask {
+                    .backend(await self.fetchTaskModelCatalog(
+                        client: catalogClient,
+                        provider: provider
+                    ))
+                }
             }
 
             for await event in group {
-                guard !Task.isCancelled else {
+                guard !Task.isCancelled, currentSessionGeneration == sessionGeneration else {
                     group.cancelAll()
                     return
                 }
                 switch event {
-                case .host(let result):
-                    guard let result else {
+                case .host(let outcome):
+                    guard let result = outcome.result else {
+                        hostOutcome = outcome
                         continue
                     }
-                    if let error = result.error {
+                    if result.error != nil {
+                        hostOutcome = outcome
                         hostFailure = result
                         if let backendResult, backendResult.error == nil {
-                            let visibleResult = resultWithError(
-                                backendResult,
-                                with: error
+                            // The backend catalog is usable while transient
+                            // host discovery is unavailable. Preserve a
+                            // permanent provider error so the agent picker
+                            // explains why these fallback models cannot run.
+                            let fallback = MobileTaskModelListResult(
+                                models: backendResult.models,
+                                source: backendResult.source,
+                                defaultModel: backendResult.defaultModel,
+                                error: outcome.outcome == .stopped(.providerUnavailable)
+                                    ? .providerUnavailable
+                                    : nil
                             )
-                            self.cacheTaskModels(visibleResult, for: key)
-                            didUpdate?(visibleResult)
+                            self.cacheTaskModels(fallback, for: key)
+                            didUpdate?(fallback)
                         }
                         continue
                     }
                     guard result.source == .discovered,
                           !result.models.isEmpty || result.defaultModel != nil else {
+                        hostOutcome = outcome
                         continue
                     }
-                    cacheTaskModels(result, for: key)
+                    guard cacheTaskModels(
+                        result,
+                        for: key,
+                        connectionIdentity: outcome.connectionIdentity
+                    ) else {
+                        // The response was validated for a client that has
+                        // since been replaced. Do not let it become a
+                        // successful refresh for the replacement connection.
+                        hostOutcome = MobileTaskModelHostRefreshResult(
+                            result: nil,
+                            outcome: .retry(.connectionClosed),
+                            connectionIdentity: outcome.connectionIdentity
+                        )
+                        continue
+                    }
                     didUpdate?(result)
+                    refreshOutcome = .succeeded
                     group.cancelAll()
                     return
                 case .backend(let models):
                     guard let result = models,
                           !result.models.isEmpty,
-                          taskModelCache[key]?.result.source != .discovered else {
+                          cachedTaskModelEntry(
+                              provider: provider,
+                              macDeviceID: macDeviceID,
+                              instanceTag: instanceTag
+                          )?.result.source != .discovered else {
                         continue
                     }
-                    let visibleResult = resultWithError(
-                        result,
-                        with: hostFailure?.error
+                    backendResult = result
+                    let fallback = MobileTaskModelListResult(
+                        models: result.models,
+                        source: result.source,
+                        defaultModel: result.defaultModel,
+                        error: hostOutcome?.outcome == .stopped(.providerUnavailable)
+                            ? .providerUnavailable
+                            : nil
                     )
-                    backendResult = visibleResult
-                    cacheTaskModels(visibleResult, for: key)
-                    didUpdate?(visibleResult)
+                    cacheTaskModels(fallback, for: key)
+                    didUpdate?(fallback)
                 }
             }
             if let hostFailure, backendResult == nil {
-                cacheTaskModels(hostFailure, for: key)
-                didUpdate?(hostFailure)
+                guard !Task.isCancelled,
+                      currentSessionGeneration == sessionGeneration,
+                      let failureIdentity = hostOutcome?.connectionIdentity,
+                      failureIdentity == taskModelConnectionIdentity(
+                          macDeviceID: key.macDeviceID,
+                          instanceTag: key.instanceTag
+                      ) else {
+                    return
+                }
+                if let cached = cachedTaskModelEntry(
+                    provider: provider,
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )?.result,
+                   cached.source == .discovered,
+                   cached.error == nil {
+                    // A prefetched catalog remains useful while an open-time
+                    // revalidation retries against an offline host. Keep it
+                    // visible and avoid replacing it with a transient error.
+                    didUpdate?(cached)
+                } else {
+                    cacheTaskModels(hostFailure, for: key)
+                    didUpdate?(hostFailure)
+                }
             }
         }
-    }
-
-    private func resultWithError(
-        _ result: MobileTaskModelListResult,
-        with error: MobileTaskModelListError?
-    ) -> MobileTaskModelListResult {
-        guard let error else { return result }
-        return MobileTaskModelListResult(
-            models: result.models,
-            source: result.source,
-            defaultModel: result.defaultModel,
-            error: error
-        )
+        if Task.isCancelled {
+            return .stopped(.cancelled)
+        }
+        return refreshOutcome ?? hostOutcome?.outcome ?? .retry(.unknown)
     }
 
     /// Applies the source-priority policy through an injectable host result.
@@ -523,14 +826,34 @@ extension MobileShellComposite {
         cacheTaskModels(result, for: key)
     }
 
+    @discardableResult
     private func cacheTaskModels(
         _ result: MobileTaskModelListResult,
-        for key: MobileTaskModelCacheKey
-    ) {
+        for key: MobileTaskModelCacheKey,
+        connectionIdentity: String? = nil
+    ) -> Bool {
+        let cachedConnectionIdentity: String?
+        if result.source == .discovered {
+            let currentIdentity = taskModelConnectionIdentity(
+                macDeviceID: key.macDeviceID,
+                instanceTag: key.instanceTag
+            )
+            if let connectionIdentity {
+                guard currentIdentity == connectionIdentity else { return false }
+                cachedConnectionIdentity = connectionIdentity
+            } else {
+                guard let currentIdentity else { return false }
+                cachedConnectionIdentity = currentIdentity
+            }
+        } else {
+            cachedConnectionIdentity = nil
+        }
         taskModelCache[key] = MobileTaskModelCacheEntry(
             result: result,
-            fetchedAt: runtime?.now() ?? Date()
+            fetchedAt: runtime?.now() ?? Date(),
+            connectionIdentity: cachedConnectionIdentity
         )
+        return true
     }
 
     /// Source of the cached catalog, exposed for diagnostics and UI verification.
@@ -539,13 +862,11 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) -> MobileTaskModelListSource? {
-        taskModelCache[
-            MobileTaskModelCacheKey(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag,
-                provider: provider
-            )
-        ]?.result.source
+        cachedTaskModelEntry(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )?.result.source
     }
 
     /// Fetch timestamp used by package tests and cache diagnostics.

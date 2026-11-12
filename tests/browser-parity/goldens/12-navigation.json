@@ -1,0 +1,19 @@
+{
+  "oracle": {
+    "title": "Dynamic Fixture",
+    "pushed-url": "PRIMARY/dynamic.html?step=2",
+    "pushed-title": "Dynamic step 2",
+    "wait-url": "PRIMARY/dynamic.html?step=2",
+    "late": "Late content",
+    "slow-heading": "Slow page loaded",
+    "back-url": "PRIMARY/dynamic.html?step=2",
+    "forward-url": "PRIMARY/slow?ms=600",
+    "reload-title": "Slow",
+    "goto-status": 200,
+    "goto-title": "ARIA Fixture",
+    "missing-status": 404
+  },
+  "cmux": {
+    "snapshot-url": true
+  }
+}

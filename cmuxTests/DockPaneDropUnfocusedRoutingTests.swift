@@ -10,7 +10,7 @@ import Testing
 @testable import cmux
 #endif
 
-private final class DockPaneDropMockDraggingInfo: NSObject, NSDraggingInfo {
+final class DockPaneDropMockDraggingInfo: NSObject, NSDraggingInfo {
     let draggingDestinationWindow: NSWindow?
     let draggingSourceOperationMask: NSDragOperation
     let draggingLocation: NSPoint
@@ -351,17 +351,16 @@ struct DockPaneDropUnfocusedRoutingTests {
         }
     }
 
-    @Test("Plain Finder file drop into a global Dock terminal inserts the path")
+    @Test("Plain Finder file drop into a global Dock terminal inserts the path", .timeLimit(.minutes(1)))
     @MainActor
     func plainFinderFileDropIntoGlobalDockTerminalInsertsPath() async throws {
         try await withGlobalDockTerminalFileDrop(defaultBehavior: .text) {
             target, draggingInfo, dock, terminalPanel, _, terminalInputs, terminalInputContinuation in
             #expect(target.draggingEntered(draggingInfo) == .copy)
             #expect(target.performDragOperation(draggingInfo))
-            terminalInputContinuation.finish()
-
             var inputIterator = terminalInputs.makeAsyncIterator()
             let nextInput = await inputIterator.next()
+            terminalInputContinuation.finish()
             let input = try #require(nextInput)
             let inputText: String
             switch input {

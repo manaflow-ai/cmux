@@ -28,6 +28,11 @@ extension BrowserPanel {
             informational: informational,
             resolve: response
         )
+        // Keep the native completion pending for the CLI. A later reveal must
+        // not turn an automation-owned dialog into a sheet on the user's window.
+        if browserDialogsOwnedByCLI, Self.isJavaScriptDialog(kind) {
+            return dialog
+        }
         let broker = mobileBrowserDialogBroker
         let dismiss = presentBrowserAlert(
             alert,
@@ -51,6 +56,35 @@ extension BrowserPanel {
             }
         )
         mobileBrowserDialogBroker.attachDismissal(dialogID: dialog.dialogID, dismissal: dismiss)
+        return dialog
+    }
+
+    static func isJavaScriptDialog(_ kind: MobileBrowserDialogKind) -> Bool {
+        switch kind {
+        case .javaScriptAlert, .javaScriptConfirm, .javaScriptPrompt: return true
+        default: return false
+        }
+    }
+
+    var pendingJavaScriptDialogs: [MobileBrowserDialogEvent] {
+        mobileBrowserDialogBroker.pendingDialogs.filter { Self.isJavaScriptDialog($0.kind) }
+    }
+
+    /// Claims the navigation's JavaScript dialogs together before invoking cancellation callbacks.
+    func cancelPendingJavaScriptDialogs() {
+        mobileBrowserDialogBroker.resolveAll { Self.isJavaScriptDialog($0.kind) }
+    }
+
+    /// Resolves the oldest native JavaScript dialog without evaluating page script.
+    func respondToJavaScriptDialog(accept: Bool, text: String?) -> MobileBrowserDialogEvent? {
+        guard let dialog = pendingJavaScriptDialogs.first else { return nil }
+        let button = dialog.kind == .javaScriptAlert || accept ? "ok" : "cancel"
+        guard mobileBrowserDialogBroker.respond(MobileBrowserDialogRespondParameters(
+            panelID: dialog.panelID,
+            dialogID: dialog.dialogID,
+            buttonID: button,
+            text: accept ? (text ?? dialog.textField?.initial ?? "") : nil
+        )) else { return nil }
         return dialog
     }
 

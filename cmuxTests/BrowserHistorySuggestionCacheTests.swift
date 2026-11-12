@@ -81,4 +81,30 @@ import Testing
         store.clearHistory()
         #expect(store.residentSuggestionCandidateCount == 0)
     }
+
+    @Test func asyncSuggestionsPreserveRankingForLargeHistory() async throws {
+        let (store, fileURL) = makeStore()
+        defer { store.clearHistory(); try? FileManager.default.removeItem(at: fileURL) }
+
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let entries = (0..<5_000).map { index in
+            BrowserHistoryStore.Entry(
+                id: UUID(),
+                url: index.isMultiple(of: 5)
+                    ? "https://needle.example/page-\(index)"
+                    : "https://example-\(index).com/page",
+                title: index.isMultiple(of: 7) ? "Needle result \(index)" : "Example result \(index)",
+                lastVisited: now.addingTimeInterval(-Double(index)),
+                visitCount: (index % 9) + 1,
+                typedCount: index.isMultiple(of: 11) ? 2 : 0
+            )
+        }
+        let data = try JSONEncoder().encode(entries)
+        try data.write(to: fileURL, options: [.atomic])
+
+        let synchronousIDs = store.suggestions(for: "needle", limit: 12).map(\.id)
+        let asynchronousIDs = (await store.suggestionsAsync(for: "needle", limit: 12)).map(\.id)
+
+        #expect(asynchronousIDs == synchronousIDs)
+    }
 }

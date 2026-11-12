@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShellModel
 @testable import CmuxMobileShellUI
 import Foundation
 import SwiftUI
@@ -17,6 +18,11 @@ import UIKit
             isAuthenticated: true,
             connectionPhase: .searching
         )
+        let pairing = OnboardingSceneChrome(
+            stage: .pairing,
+            isAuthenticated: true,
+            connectionPhase: .searching
+        )
 
         #expect(!agents.showsBack)
         #expect(agents.showsSkip)
@@ -27,6 +33,11 @@ import UIKit
         #expect(notifications.showsSkip)
         #expect(notifications.primaryTitle != nil)
         #expect(notifications.secondaryTitle == nil)
+
+        #expect(pairing.showsBack)
+        #expect(!pairing.showsSkip)
+        #expect(pairing.primaryTitle != nil)
+        #expect(pairing.secondaryTitle == nil)
     }
 
     /// The push page always offers the paired opt-in choice: Enable as the
@@ -99,6 +110,29 @@ import UIKit
         #expect(tailscaleFallback.secondaryTitle != nil)
         #expect(ready.primaryTitle != nil)
         #expect(ready.secondaryTitle == nil)
+    }
+
+    /// App Review, iPad, 2026-11-07: with no reachable Mac the connect page
+    /// offered only Check Again and the scanner, so a signed-in user could not
+    /// reach the app at all. Until a Mac connects, Skip continues without one.
+    @Test func connectPageLetsSignedInUsersContinueWithoutAMac() {
+        for phase in [OnboardingConnectionPhase.searching, .idle, .fallback] {
+            for method in [MobileConnectionMethod.automatic, .tailscale] {
+                let chrome = OnboardingSceneChrome(
+                    stage: .connect,
+                    isAuthenticated: true,
+                    connectionPhase: phase,
+                    connectionMethod: method
+                )
+                #expect(chrome.showsSkip, "phase \(phase), method \(method)")
+            }
+        }
+        let ready = OnboardingSceneChrome(
+            stage: .connect,
+            isAuthenticated: true,
+            connectionPhase: .ready
+        )
+        #expect(!ready.showsSkip)
     }
 
     @Test func screenshotLanguageMatchesTheSupportedLocale() {

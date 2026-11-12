@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Native click routing</title>
+<style>
+  body { font: 20px system-ui; padding: 80px 40px; }
+  button, a { display: block; margin: 24px 0; padding: 16px; }
+</style>
+<button id="target">Native click target</button>
+<p id="clicks">Trusted clicks: 0</p>
+<a id="link" href="#clicked">Native navigation target</a>
+<p id="navigation">Waiting for native navigation</p>
+<script>
+  let clicks = 0;
+  let pressed = false;
+  let released = false;
+  const target = document.getElementById('target');
+  target.addEventListener('mousedown', event => {
+    pressed = event.isTrusted;
+    released = false;
+  });
+  target.addEventListener('mouseup', event => { released = event.isTrusted; });
+  target.addEventListener('click', event => {
+    if (event.isTrusted && pressed && released) {
+      document.getElementById('clicks').textContent = `Trusted clicks: ${++clicks}`;
+    }
+    pressed = released = false;
+  });
+  let trustedNavigation = false;
+  document.getElementById('link').addEventListener('click', event => {
+    trustedNavigation = event.isTrusted;
+  });
+  window.addEventListener('hashchange', () => {
+    if (trustedNavigation && location.hash === '#clicked') {
+      document.getElementById('navigation').textContent = 'Native navigation complete';
+    }
+  });
+</script>
+</html>

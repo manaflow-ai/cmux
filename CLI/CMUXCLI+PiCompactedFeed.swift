@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import Foundation
 
 extension CMUXCLI {
@@ -127,10 +128,13 @@ extension CMUXCLI {
             surfaceId: target?.surfaceId,
             maximumRequestCount: client.isRelayBacked ? 2 : nil
         ).acknowledgedBatchRequest(from: rawObject)
-        guard let request else { throw piFeedAcknowledgmentError() }
+        guard let request,
+              let line = try? ControlRequestLine.encode(request.request) else {
+            throw piFeedAcknowledgmentError()
+        }
 
         let response = try client.send(
-            command: request.line,
+            command: line,
             responseTimeout: 4
         )
         let acknowledgedTarget = try validatePiFeedAcknowledgment(
@@ -224,6 +228,13 @@ extension CMUXCLI {
                 }
                 resolvedWorkspaceId = nil
             }
+        }
+        // `resolveWorkspaceId` hands an unmatched ref back unchanged when it
+        // cannot scan every window (a failed `window.list`, or a relay). That
+        // is not a resolution: routing on the surface alone would drop the
+        // caller's explicit scope, so an explicit selector must end as a UUID.
+        if let workspace = trimmedWorkspace, !isUUID(resolvedWorkspaceId ?? "") {
+            throw piHookSurfaceNotFoundError(workspace)
         }
         guard let surface else {
             guard let resolvedWorkspaceId else {

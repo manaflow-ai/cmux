@@ -475,6 +475,7 @@ impl WorkspaceService {
                     let mut capabilities = capabilities;
                     capabilities.push(RemoteCapability::ProcessPtyV1);
                     capabilities.push(RemoteCapability::ProcessTerminalSnapshotV1);
+                    capabilities.push(RemoteCapability::TerminalViewerSizePriorityV1);
                     capabilities
                 };
                 Ok(WorkspaceResponse::Capabilities { capabilities })
@@ -1322,6 +1323,18 @@ mod tests {
         #[cfg(not(unix))]
         assert!(!capabilities.contains(&RemoteCapability::ProcessPtyV1));
         assert!(capabilities.contains(&RemoteCapability::TcpRoutesV1));
+    }
+
+    #[tokio::test]
+    async fn terminal_viewer_size_priority_capability_tracks_terminal_bytes_support() {
+        let service = WorkspaceService::new();
+        let response = service.handle_request(WorkspaceRequest::Capabilities).await.unwrap();
+        let WorkspaceResponse::Capabilities { capabilities } = response else { panic!() };
+        // terminal-bytes-v1 is served only by Unix daemons.
+        assert_eq!(
+            capabilities.contains(&RemoteCapability::TerminalViewerSizePriorityV1),
+            cfg!(unix)
+        );
     }
 
     #[cfg(unix)]

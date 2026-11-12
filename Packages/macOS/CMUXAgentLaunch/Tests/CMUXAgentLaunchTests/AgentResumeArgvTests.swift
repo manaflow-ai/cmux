@@ -3,6 +3,13 @@ import Testing
 
 @Suite("AgentResumeArgv")
 struct AgentResumeArgvTests {
+    private func boundSubrouterMarker(_ command: String = "sr codex resume") -> [String: String] {
+        [
+            SubrouterCodexResumeRouting.environmentKey: command,
+            SubrouterCodexResumeRouting.launchBoundEnvironmentKey: command,
+        ]
+    }
+
     @Test("Built-in --option style kinds", arguments: [
         ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),
@@ -53,6 +60,84 @@ struct AgentResumeArgvTests {
         )
         #expect(
             AgentResumeArgv().builtInKind(kind: "not-an-agent", sessionId: "SID", executablePath: nil, arguments: ["x"]) == nil
+        )
+    }
+
+    @Test("Antigravity resumes the captured conversation and preserves launch options")
+    func antigravityResumeUsesConversationID() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "antigravity",
+                sessionId: "conversation-123",
+                executablePath: "/Users/example/.local/bin/agy",
+                arguments: [
+                    "/Users/example/.local/bin/agy",
+                    "--dangerously-skip-permissions",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                ]
+            ) == [
+                "/Users/example/.local/bin/agy",
+                "--conversation",
+                "conversation-123",
+                "--dangerously-skip-permissions",
+                "--add-dir",
+                "/tmp/extra repo",
+            ]
+        )
+    }
+
+    @Test("Antigravity restore renders through its per-surface wrapper and preserves a custom binary")
+    func antigravityRestoreUsesWrapperShim() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let executable = "/opt/Antigravity Preview/bin/agy"
+        let parts = AgentResumeArgv().builtInKind(
+            kind: "antigravity",
+            sessionId: "conversation-123",
+            executablePath: executable,
+            arguments: [executable, "--dangerously-skip-permissions"]
+        )!
+
+        let rendered = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            kind: "antigravity",
+            quote: quote
+        )
+        let fallback = "\"$([ -x \"${CMUX_AGY_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_AGY_WRAPPER_SHIM\" || printf '%s' '/opt/Antigravity Preview/bin/agy')\""
+        #expect(rendered == "/bin/sh -c '" + (fallback + " '--conversation' 'conversation-123' '--dangerously-skip-permissions'").replacingOccurrences(of: "'", with: "'\\''") + "'")
+        #expect(
+            AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: "antigravity",
+                executablePath: executable,
+                arguments: [executable]
+            ) == ["CMUX_CUSTOM_ANTIGRAVITY_PATH": executable]
+        )
+    }
+
+    @Test("Antigravity alias executable names use the managed wrapper")
+    func antigravityAliasExecutableUsesWrapper() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let executable = "/opt/Antigravity Preview/bin/antigravity"
+        let parts = AgentResumeArgv().builtInKind(
+            kind: "antigravity",
+            sessionId: "conversation-123",
+            executablePath: executable,
+            arguments: [executable, "--dangerously-skip-permissions"]
+        )!
+
+        let rendered = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            kind: "antigravity",
+            quote: quote
+        )
+        #expect(rendered.contains("CMUX_AGY_WRAPPER_SHIM"))
+        #expect(rendered.contains("/opt/Antigravity Preview/bin/antigravity"))
+        #expect(
+            AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: "antigravity",
+                executablePath: executable,
+                arguments: [executable]
+            ) == ["CMUX_CUSTOM_ANTIGRAVITY_PATH": executable]
         )
     }
 
@@ -188,6 +273,91 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Codex Teams remote resume and fork drop the unsupported permission override")
+    func codexTeamsRemoteResumeAndForkDropUnsupportedPermissionOverride() {
+        let appServerURL = "ws://127.0.0.1:4242"
+        let bypassFlag = "--dangerously-bypass-approvals-and-sandbox"
+        let builder = AgentResumeArgv()
+
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["resume", "THREAD", bypassFlag, "--model", "gpt-5"]
+            ) == ["resume", "--remote", appServerURL, "THREAD", "--model", "gpt-5"]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["fork", "THREAD", "--model", "gpt-5", bypassFlag]
+            ) == ["fork", "--remote", appServerURL, "THREAD", "--model", "gpt-5"]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["resume", "THREAD", "--", bypassFlag]
+            ) == ["resume", "--remote", appServerURL, "THREAD", "--", bypassFlag]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["fork", "THREAD", "--", bypassFlag]
+            ) == ["fork", "--remote", appServerURL, "THREAD", "--", bypassFlag]
+        )
+    }
+
+    @Test("Codex Teams fresh remote launches preserve the permission override")
+    func codexTeamsFreshRemoteLaunchPreservesPermissionOverride() {
+        let appServerURL = "ws://127.0.0.1:4242"
+        let bypassFlag = "--dangerously-bypass-approvals-and-sandbox"
+
+        #expect(
+            AgentResumeArgv().codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["--model", "gpt-5", bypassFlag]
+            ) == ["--remote", appServerURL, "--model", "gpt-5", bypassFlag]
+        )
+    }
+
+    @Test(
+        "A shell bootstrap snapshot falls back to the kind's executable and drops its argv",
+        arguments: [
+            // The pane bootstrap cmux spawns shells through; replaying it emitted
+            // `bash --resume <id>` (https://github.com/manaflow-ai/cmux/issues/5796).
+            (
+                "claude",
+                Optional("/bin/bash"),
+                ["bash", "--noprofile", "--norc", "-c", "exec -l fish"],
+                ["claude", "--resume", "SID"]
+            ),
+            (
+                "codex",
+                Optional("/bin/zsh"),
+                ["zsh", "-il"],
+                ["codex", "resume", "SID", "-c", "check_for_update_on_startup=false"]
+            ),
+            // Login shells rewrite argv[0] with a leading dash.
+            ("grok", Optional<String>.none, ["-fish"], ["grok", "-r", "SID"]),
+            (
+                "opencode",
+                Optional("/usr/bin/login"),
+                ["login", "-fp", "user"],
+                ["opencode", "--session", "SID"]
+            ),
+        ]
+    )
+    func shellBootstrapSnapshotFallsBack(
+        kind: String,
+        executablePath: String?,
+        arguments: [String],
+        expected: [String]
+    ) {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: kind, sessionId: "SID", executablePath: executablePath, arguments: arguments
+            ) == expected
+        )
+    }
+
     @Test("cmux wrapper launchers resolve before per-kind verbs")
     func launcherWrappers() {
         #expect(
@@ -246,10 +416,246 @@ struct AgentResumeArgvTests {
                 launcher: "claude", sessionId: "SID", executablePath: nil, arguments: ["claude"]
             ) == .passthrough
         )
+
         #expect(
             AgentResumeArgv().launcherResolution(
                 launcher: nil, sessionId: "SID", executablePath: nil, arguments: []
             ) == .passthrough
+        )
+    }
+
+    @Test("Subrouter-routed Codex resumes through the captured explicit launcher")
+    func subrouterCodexResumeUsesCapturedExplicitLauncher() {
+        let routedArguments = [
+            "/opt/bin/codex",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model",
+            "gpt-test",
+            "-c",
+            "model_provider=subrouter",
+            "-c",
+            "model_providers.subrouter.base_url=\"http://router.example/v1\"",
+            "-c",
+            "model_reasoning_effort=high",
+        ]
+
+        let preserved = [
+            "-c", "check_for_update_on_startup=false",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model", "gpt-test",
+            "-c", "model_reasoning_effort=high",
+        ]
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+            ) == .passthrough,
+            "An inherited raw marker without wrapper-bound proof must not reroute a direct Codex restore"
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: boundSubrouterMarker()
+            ) == .resolved(["sr", "codex", "resume", "SID"] + preserved)
+        )
+
+        for command in ["subrouter", "cx"] {
+            #expect(
+                AgentResumeArgv().launcherResolution(
+                    launcher: "codex",
+                    sessionId: "SID",
+                    executablePath: "/opt/bin/codex",
+                    arguments: routedArguments,
+                    environment: boundSubrouterMarker("\(command) codex resume")
+                ) == .resolved([command, "codex", "resume", "SID"] + preserved)
+            )
+        }
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "--config=model_provider=\"subrouter\""],
+                environment: boundSubrouterMarker("  sr   codex resume  ")
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: [:]
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c", "model_provider=subrouter",
+                    "-c", "model_provider=openai",
+                ],
+                environment: boundSubrouterMarker()
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c", "model_provider=openai",
+                    "--config=model_provider='subrouter'",
+                ],
+                environment: boundSubrouterMarker()
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"],
+                environment: boundSubrouterMarker()
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: boundSubrouterMarker("sr codex resume; echo unsafe")
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: boundSubrouterMarker("router codex resume")
+            ) == .passthrough
+        )
+    }
+
+    @Test("Subrouter routing proof and filtering stop at the option terminator")
+    func subrouterRoutingStopsAtOptionTerminator() {
+        let marker = boundSubrouterMarker()
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c", "model_provider=subrouter",
+                    "--",
+                    "-c", "model_provider=openai",
+                ],
+                environment: marker
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "--",
+                    "--config=model_provider=subrouter",
+                ],
+                environment: marker
+            ) == .passthrough
+        )
+    }
+
+    @Test("Public Subrouter arguments redact config without nulling prompt text")
+    func publicSubrouterArgumentsAreStructurallyRedacted() {
+        #expect(SubrouterCodexResumeRouting().removingPrivateRoutingArguments(from: [
+            "codex",
+            "discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter",
+            "-c", "model_provider=\"subrouter\"",
+            "--config=model_providers.subrouter.base_url=https://router.example.test/v1",
+            "--",
+            "--config=model_provider=subrouter",
+        ]) == [
+            "codex",
+            "discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter",
+            "--",
+            "--config=model_provider=subrouter",
+        ])
+    }
+
+    @Test("Captured executable fallback outranks a stale Subrouter child path")
+    func capturedExecutableFallbackOutranksStaleSubrouterPath() {
+        #expect(SubrouterCodexResumeRouting().preferredCustomCodexExecutable(
+            in: ["SUBROUTER_CODEX_BIN": "/stale/cmux-codex-wrapper"],
+            fallbackExecutable: "/opt/bin/codex",
+            wrapperShim: "/managed/cmux-codex-wrapper"
+        ) == "/opt/bin/codex")
+    }
+
+    @Test("Subrouter routing proof survives prompt sanitization")
+    func subrouterRoutingProofSurvivesPromptSanitization() {
+        let router = SubrouterCodexResumeRouting()
+        let marker = boundSubrouterMarker()
+
+        #expect(router.retainingRoutingProof(
+            in: ["codex"],
+            from: ["codex", "fix this", "-c", "model_provider=subrouter"],
+            launcher: "codex",
+            environment: marker
+        ) == ["codex", "-c", "model_provider=subrouter"])
+
+        #expect(router.retainingRoutingProof(
+            in: ["codex", "--"],
+            from: ["codex", "fix this", "--", "-c", "model_provider=subrouter"],
+            launcher: "codex",
+            environment: marker
+        ) == ["codex", "--"])
+    }
+
+    @Test("Codex wrapper rendering does not rewrite sr's codex subcommand")
+    func renderedSubrouterResumeKeepsExplicitLauncher() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: ["sr", "codex", "resume", "SID"],
+                quote: quote
+            ) == "'sr' 'codex' 'resume' 'SID'"
         )
     }
 
@@ -289,11 +695,15 @@ struct AgentResumeArgvTests {
         )
     }
 
-    @Test("Codex wrapper token resolves CMUX_CODEX_WRAPPER_SHIM, degrading to bare codex")
+    @Test("Codex wrapper token resolves CMUX_CODEX_WRAPPER_SHIM with an explicit fallback")
     func codexWrapperShellExecutableToken() {
         #expect(
             AgentResumeArgv.codexWrapperShellExecutableToken
                 == "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+        )
+        #expect(
+            AgentResumeArgv.codexWrapperShellExecutableToken(fallbackExecutable: "/opt/team's codex")
+                == "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf '%s' '/opt/team'\\''s codex')\""
         )
     }
 
@@ -322,6 +732,51 @@ struct AgentResumeArgvTests {
                 parts: ["/Applications/cmux.app/Contents/Resources/bin/cmux", "codex-teams", "resume", "SID"],
                 quote: quote
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID'"
+        )
+        // Captured absolute executables stay explicit so custom Codex installs are preserved.
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: ["/opt/team/codex", "resume", "SID"],
+                quote: quote
+            ) == "'/opt/team/codex' 'resume' 'SID'"
+        )
+    }
+
+    @Test("Only the executable position takes the wrapper token, after a bare or absolute env prefix")
+    func codexWrapperTokenOnlyReplacesTheExecutable() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let token = AgentResumeArgv.codexWrapperShellExecutableToken
+        for env in ["env", "/usr/bin/env"] {
+            #expect(
+                AgentResumeArgv.renderingCodexWrapperExecutable(
+                    parts: [env, "A=B", "codex", "resume", "SID"],
+                    quote: quote
+                ) == ["'\(env)'", "'A=B'", token, "'resume'", "'SID'"]
+            )
+        }
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: ["sr", "codex", "resume", "SID"],
+                quote: quote
+            ) == ["'sr'", "'codex'", "'resume'", "'SID'"]
+        )
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: ["/opt/team/codex", "resume", "SID"],
+                quote: quote
+            ) == ["'/opt/team/codex'", "'resume'", "'SID'"]
+        )
+    }
+
+    @Test("Managed rendering preserves absolute Hermes executables")
+    func managedRenderingPreservesAbsoluteHermesExecutable() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        #expect(
+            AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+                parts: ["/opt/team/hermes", "--resume", "SID"],
+                kind: "hermes-agent",
+                quote: quote
+            ) == "'/opt/team/hermes' '--resume' 'SID'"
         )
     }
 }

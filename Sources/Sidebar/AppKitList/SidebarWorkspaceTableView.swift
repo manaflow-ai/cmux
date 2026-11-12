@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxNotifications
 import CmuxAppKitSupportUI
 import SwiftUI
@@ -41,12 +42,14 @@ struct SidebarWorkspaceTableView: NSViewRepresentable {
         let container = context.coordinator.makeContainerView()
         container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         container.emptyDropIndicatorView.colorScheme = colorScheme
+        container.emptyDropIndicatorView.accentColor = context.environment.cmuxAccentColor
         return container
     }
 
     func updateNSView(_ nsView: SidebarWorkspaceTableContainerView, context: Context) {
         nsView.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         nsView.emptyDropIndicatorView.colorScheme = colorScheme
+        nsView.emptyDropIndicatorView.accentColor = context.environment.cmuxAccentColor
 #if DEBUG
         context.coordinator.reconfigurationProbe = sidebarLazyContractProbe.tableRootViewReconfigure
 #endif

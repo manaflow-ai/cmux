@@ -6,6 +6,10 @@ import CmuxMobileSupport
 extension TaskComposerSheet {
     var modelPickerErrorText: String? {
         guard let displayedModelError else { return nil }
+        if displayedModelError == .hostUnavailable,
+           !availableModels.isEmpty || displayedDefaultModel != nil {
+            return nil
+        }
         switch displayedModelError {
         case .providerUnavailable:
             return L10n.string(
@@ -94,10 +98,17 @@ extension TaskComposerSheet {
 
     var selectedModel: MobileTaskAgentModel? {
         guard let selectedModelID else { return nil }
-        // Once a user chooses from a presented menu, that concrete selection
-        // owns the request until they change it. A later catalog replacement
-        // can change the available choices, but must not silently strip the
-        // already-visible model from submission.
+        // Prefer the live catalog's metadata when the selected id is present.
+        // Keep the persisted snapshot only while the current catalog has not
+        // rediscovered that id, so refreshed effort choices remain authoritative.
+        if let currentModel = modelAvailability.models.first(where: {
+            $0.id == selectedModelID
+        }) {
+            return currentModel
+        }
+        if let explicitlySelectedModel, explicitlySelectedModel.id == selectedModelID {
+            return explicitlySelectedModel
+        }
         return availableModels.first { $0.id == selectedModelID }
     }
 
@@ -151,6 +162,7 @@ extension TaskComposerSheet {
             selectedEffortID = (model ?? modelAvailability.defaultModel)?.defaultEffortID
         }
         hasUserPickedModelOrEffort = true
+        persistPickerPreferences()
         store.recordAppEvent(
             .taskModelSelected,
             correlationID: selectedID
@@ -166,6 +178,7 @@ extension TaskComposerSheet {
             selectedEffortID = selectedID
         }
         hasUserPickedModelOrEffort = true
+        persistPickerPreferences()
     }
 
     func reconcileSelectedEffort() {

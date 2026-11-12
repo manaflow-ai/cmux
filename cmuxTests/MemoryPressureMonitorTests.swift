@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import CmuxFoundation
+import CmuxMemoryPressure
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -46,7 +48,7 @@ private struct FixedMemoryPressureFootprintSampler: MemoryPressureFootprintSampl
 private struct FixedMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
     let sample: MemoryPressureAggregateSample
 
-    func sample(at sampledAt: Date) -> MemoryPressureAggregateSample {
+    func sample(at sampledAt: Date) async -> MemoryPressureAggregateSample {
         sample.withSampledAt(sampledAt)
     }
 }
@@ -56,6 +58,98 @@ private struct FixedMemoryPressureCoalitionSampler: MemoryPressureCoalitionSampl
 
     func usage(forProcessID processID: Int) -> MemoryPressureCoalitionUsage? {
         bytes.map(MemoryPressureCoalitionUsage.init(physicalFootprintBytes:))
+    }
+}
+
+private struct MemoryPressureAggregateProcessFixture {
+    static let appPID = 101
+    static let loginPID = 202
+    static let shellPID = 303
+    static let childPID = 404
+    static let unrelatedParentPID = 505
+
+    static func process(
+        pid: Int,
+        parentPID: Int,
+        name: String,
+        path: String?,
+        memoryBytes: Int64,
+        memorySource: CmuxTopProcessMemorySource = .physicalFootprint,
+        startSeconds: Int64 = 1
+    ) -> CmuxTopProcessInfo {
+        CmuxTopProcessInfo(
+            pid: pid,
+            processIdentity: AgentPIDProcessIdentity(
+                pid: pid_t(pid),
+                startSeconds: startSeconds,
+                startMicroseconds: 1
+            ),
+            parentPID: parentPID,
+            name: name,
+            path: path,
+            ttyDevice: nil,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: nil,
+            terminalProcessGroupID: nil,
+            cpuPercent: 0,
+            memoryBytes: memoryBytes,
+            memorySource: memorySource,
+            residentBytes: max(0, memoryBytes),
+            residentMemorySource: memorySource,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+    }
+
+    static func snapshot(
+        includeUnreadableLogin: Bool = false,
+        includeUnreadableChild: Bool = false,
+        enumerationMissingProcessCount: Int = 0,
+        reusedPIDBelongsToUnrelatedParent: Bool = false
+    ) -> CmuxTopProcessSnapshot {
+        let login = process(
+            pid: loginPID,
+            parentPID: appPID,
+            name: "login",
+            path: "/usr/bin/login",
+            memoryBytes: includeUnreadableLogin ? 0 : 100,
+            memorySource: includeUnreadableLogin ? .unavailable : .physicalFootprint
+        )
+        let shell = process(
+            pid: shellPID,
+            parentPID: loginPID,
+            name: "zsh",
+            path: "/bin/zsh",
+            memoryBytes: 200
+        )
+        let child = process(
+            pid: childPID,
+            parentPID: reusedPIDBelongsToUnrelatedParent ? unrelatedParentPID : shellPID,
+            name: "worker",
+            path: "/usr/bin/worker",
+            memoryBytes: includeUnreadableChild ? 0 : 3_000,
+            memorySource: includeUnreadableChild ? .unavailable : .physicalFootprint,
+            startSeconds: reusedPIDBelongsToUnrelatedParent ? 9 : 1
+        )
+        return CmuxTopProcessSnapshot(
+            processes: [
+                process(
+                    pid: appPID,
+                    parentPID: 1,
+                    name: "cmux",
+                    path: "/Applications/cmux.app/Contents/MacOS/cmux",
+                    memoryBytes: 1_000
+                ),
+                login,
+                shell,
+                child
+            ],
+            sampledAt: Date(timeIntervalSince1970: 1),
+            includesProcessDetails: true,
+            enumerationMissingProcessCount: enumerationMissingProcessCount
+        )
     }
 }
 
@@ -208,6 +302,91 @@ struct MemoryPressureStateTrackerTests {
         #expect(policy.severity(for: unavailable) == .normal)
     }
 
+    @Test func rootOwnedLoginEPERMProducesAVisibleLowerBoundWithoutAction() async {
+        let snapshot = MemoryPressureAggregateProcessFixture.snapshot(includeUnreadableLogin: true)
+        let sampler = DarwinMemoryPressureAggregateSampler(
+            processID: MemoryPressureAggregateProcessFixture.appPID,
+            snapshotProvider: { snapshot },
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: nil),
+            physicalMemoryProvider: { 8_000 },
+            availableMemoryProvider: { nil }
+        )
+
+        let sample = await sampler.sample(at: Date(timeIntervalSince1970: 2))
+
+        #expect(sample.coverage == .lowerBound)
+        #expect(sample.source == .descendantProcessTree)
+        #expect(sample.aggregateBytes == 4_200)
+        #expect(sample.processCount == 4)
+        #expect(sample.missingProcessCount == 1)
+        #expect(sample.missingReason == .unreadableProcessRecord)
+        #expect(!sample.isUsable)
+        #expect(MemoryPressureAggregatePolicy.default.severity(for: sample) == .warning)
+        #expect(!MemoryPressureAggregatePolicy.default.evaluate(sample: sample).isActionable)
+    }
+
+    @Test func unreadableChildRemainsAVisibleLowerBound() async {
+        let snapshot = MemoryPressureAggregateProcessFixture.snapshot(includeUnreadableChild: true)
+        let sampler = DarwinMemoryPressureAggregateSampler(
+            processID: MemoryPressureAggregateProcessFixture.appPID,
+            snapshotProvider: { snapshot },
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: nil),
+            physicalMemoryProvider: { 8_000 },
+            availableMemoryProvider: { nil }
+        )
+
+        let sample = await sampler.sample(at: Date(timeIntervalSince1970: 3))
+
+        #expect(sample.coverage == .lowerBound)
+        #expect(sample.aggregateBytes == 1_300)
+        #expect(sample.missingProcessCount == 1)
+        #expect(!MemoryPressureAggregatePolicy.default.evaluate(sample: sample).isActionable)
+    }
+
+    @Test func exitingProcessKeepsPartialSampleNonActionable() async {
+        let snapshot = MemoryPressureAggregateProcessFixture.snapshot(
+            includeUnreadableLogin: true,
+            enumerationMissingProcessCount: 1
+        )
+        let sampler = DarwinMemoryPressureAggregateSampler(
+            processID: MemoryPressureAggregateProcessFixture.appPID,
+            snapshotProvider: { snapshot },
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: nil),
+            physicalMemoryProvider: { 8_000 },
+            availableMemoryProvider: { nil }
+        )
+
+        let sample = await sampler.sample(at: Date(timeIntervalSince1970: 4))
+
+        #expect(sample.coverage == .lowerBound)
+        #expect(sample.aggregateBytes == 4_200)
+        #expect(sample.missingProcessCount == 2)
+        #expect(sample.missingReason == .incompleteEnumeration)
+        #expect(!MemoryPressureAggregatePolicy.default.evaluate(sample: sample).isActionable)
+    }
+
+    @Test func reusedPIDOutsideTheTreeIsNotCounted() async {
+        let snapshot = MemoryPressureAggregateProcessFixture.snapshot(
+            includeUnreadableLogin: false,
+            reusedPIDBelongsToUnrelatedParent: true
+        )
+        let sampler = DarwinMemoryPressureAggregateSampler(
+            processID: MemoryPressureAggregateProcessFixture.appPID,
+            snapshotProvider: { snapshot },
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: nil),
+            physicalMemoryProvider: { 2_000 },
+            availableMemoryProvider: { nil }
+        )
+
+        let sample = await sampler.sample(at: Date(timeIntervalSince1970: 5))
+
+        #expect(sample.coverage == .complete)
+        #expect(sample.aggregateBytes == 1_300)
+        #expect(sample.processCount == 3)
+        #expect(sample.missingProcessCount == 0)
+        #expect(MemoryPressureAggregatePolicy.default.evaluate(sample: sample).isActionable)
+    }
+
     @Test func coalitionABIValidationUsesKnownOSLayoutsOnly() {
         #expect(DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
             operatingSystemMajorVersion: 14
@@ -221,9 +400,12 @@ struct MemoryPressureStateTrackerTests {
         #expect(!DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
             operatingSystemMajorVersion: 27
         ))
+        #expect(!DarwinMemoryPressureCoalitionSampler.coalitionABIIsSupported(
+            operatingSystemMajorVersion: 28
+        ))
     }
 
-    @Test func coalitionSamplingSkipsDescendantEnumeration() {
+    @Test func coalitionSamplingSkipsDescendantEnumeration() async {
         let sampler = DarwinMemoryPressureAggregateSampler(
             processID: 42,
             snapshotProvider: {
@@ -234,7 +416,7 @@ struct MemoryPressureStateTrackerTests {
             availableMemoryProvider: { 2_000 }
         )
 
-        let sample = sampler.sample(at: Date(timeIntervalSince1970: 21))
+        let sample = await sampler.sample(at: Date(timeIntervalSince1970: 21))
 
         #expect(sample.source == .coalition)
         #expect(sample.aggregateBytes == 5_000)
@@ -242,7 +424,7 @@ struct MemoryPressureStateTrackerTests {
         #expect(sample.missingProcessCount == 0)
     }
 
-    @Test func implausibleCoalitionFootprintFallsBackToCompleteTree() {
+    @Test func zeroCoalitionFootprintFallsBackToCompleteTree() async {
         let process = CmuxTopProcessInfo(
             pid: 42,
             parentPID: 1,
@@ -271,12 +453,12 @@ struct MemoryPressureStateTrackerTests {
         let sampler = DarwinMemoryPressureAggregateSampler(
             processID: 42,
             snapshotProvider: { snapshot },
-            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 9_000),
+            coalitionSampler: FixedMemoryPressureCoalitionSampler(bytes: 0),
             physicalMemoryProvider: { 8_000 },
             availableMemoryProvider: { nil }
         )
 
-        let sample = sampler.sample(at: Date(timeIntervalSince1970: 1))
+        let sample = await sampler.sample(at: Date(timeIntervalSince1970: 1))
 
         #expect(sample.source == .descendantProcessTree)
         #expect(sample.aggregateBytes == 4_000)
@@ -609,6 +791,45 @@ struct MemoryPressureMonitorTests {
 
         #expect(monitor.currentSeverity == .normal)
         #expect(monitor.aggregateMemoryPressure?.isActionable == false)
+    }
+
+    @Test func lowerBoundAggregateMetricsNeverDispatchHibernation() async {
+        let registry = MemoryPressureResponderRegistry()
+        let responder = RecordingMemoryPressureResponder(
+            id: "aggregate",
+            minimumSeverity: .warning,
+            priority: 1,
+            scope: .aggregate
+        )
+        registry.register(responder)
+        let sample = MemoryPressureAggregateSample(
+            source: .descendantProcessTree,
+            aggregateBytes: 5_000,
+            physicalMemoryBytes: 8_000,
+            availableMemoryBytes: nil,
+            processCount: 4,
+            missingProcessCount: 1,
+            sampledAt: Date(timeIntervalSince1970: 0)
+        )
+        let monitor = MemoryPressureMonitor(
+            registry: registry,
+            footprintSampler: FixedMemoryPressureFootprintSampler(bytes: 100),
+            aggregateSampler: FixedMemoryPressureAggregateSampler(sample: sample),
+            aggregatePolicy: .init(
+                warningCoalitionFraction: 0.5,
+                criticalCoalitionFraction: 0.75
+            ),
+            thresholds: .init(warningBytes: 1_000, criticalBytes: 2_000),
+            criticalPersistenceDuration: 10,
+            sampleInterval: 60
+        )
+
+        await monitor.samplePhysicalFootprint(at: Date(timeIntervalSince1970: 15))
+
+        #expect(monitor.aggregateMemoryPressure?.coverage == .lowerBound)
+        #expect(monitor.aggregateMemoryPressure?.severity == .warning)
+        #expect(monitor.aggregateMemoryPressure?.isActionable == false)
+        #expect(responder.calls.isEmpty)
     }
 
     @Test func systemWarningDoesNotTurnLowAggregateUsageIntoEvictionPressure() async {

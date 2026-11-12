@@ -32,6 +32,20 @@ pub mod transport {
         imp::connect(path)
     }
 
+    /// Connect and refuse a listener that runs as another user before the
+    /// caller writes anything. Windows sockets report no peer credentials, so
+    /// there this is a plain connect.
+    pub fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+        imp::connect_same_user(path)
+    }
+
+    /// A listener serves its owner and root. Root can already open any
+    /// socket file, so refusing it would only get in the way of an admin.
+    #[cfg(unix)]
+    pub(crate) fn peer_may_connect(peer_uid: u32, owner_uid: u32) -> bool {
+        peer_uid == owner_uid || peer_uid == 0
+    }
+
     impl Listener {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
@@ -59,9 +73,22 @@ pub mod transport {
             Ok(Box::new(UnixStream::connect(path)?))
         }
 
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            let stream = UnixStream::connect(path)?;
+            crate::platform::require_unix_peer_uid(&stream, crate::platform::effective_uid())?;
+            Ok(Box::new(stream))
+        }
+
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
+                let peer_uid = crate::platform::unix_peer_uid(&stream)?;
+                if !super::peer_may_connect(peer_uid, crate::platform::effective_uid()) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        format!("refused a socket client running as uid {peer_uid}"),
+                    ));
+                }
                 Ok(Box::new(stream))
             }
         }
@@ -106,6 +133,10 @@ pub mod transport {
             Ok(Box::new(UnixStream::connect(path)?))
         }
 
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            connect(path)
+        }
+
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
@@ -131,6 +162,99 @@ pub mod transport {
             }
         }
     }
+}
+
+/// The effective uid that owns this process's private sockets.
+#[cfg(unix)]
+pub fn effective_uid() -> u32 {
+    // SAFETY: geteuid has no preconditions and does not dereference pointers.
+    unsafe { libc::geteuid() }
+}
+
+/// The uid the kernel reports for the process on the other end of a
+/// connected Unix socket.
+#[cfg(unix)]
+pub fn unix_peer_uid(socket: &impl std::os::fd::AsRawFd) -> io::Result<u32> {
+    peer_uid_of(socket.as_raw_fd())
+}
+
+/// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
+/// before writing anything to a socket found at a path the caller derived.
+#[cfg(unix)]
+pub fn require_unix_peer_uid(
+    socket: &impl std::os::fd::AsRawFd,
+    expected_uid: u32,
+) -> io::Result<()> {
+    let peer_uid = unix_peer_uid(socket)?;
+    if peer_uid != expected_uid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("socket peer uid {peer_uid} does not match the expected uid {expected_uid}"),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn peer_uid_of(fd: std::os::fd::RawFd) -> io::Result<u32> {
+    use std::mem::{size_of, zeroed};
+
+    // SAFETY: ucred is plain data and all-zero is a valid value.
+    let mut credentials = unsafe { zeroed::<libc::ucred>() };
+    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: both out-pointers are valid for writes of the lengths passed.
+    let result = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&raw mut credentials).cast(),
+            &raw mut length,
+        )
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if length as usize != size_of::<libc::ucred>() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid peer credentials"));
+    }
+    Ok(credentials.uid)
+}
+
+#[cfg(any(
+    target_vendor = "apple",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn peer_uid_of(fd: std::os::fd::RawFd) -> io::Result<u32> {
+    let mut uid: libc::uid_t = 0;
+    let mut gid: libc::gid_t = 0;
+    // SAFETY: both out-pointers are valid for writes of one id each.
+    if unsafe { libc::getpeereid(fd, &raw mut uid, &raw mut gid) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(uid)
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))
+))]
+fn peer_uid_of(_fd: std::os::fd::RawFd) -> io::Result<u32> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "socket peer credentials are not available on this platform",
+    ))
 }
 
 /// The path to exec THIS running build again (terminal hosts, headless
@@ -988,6 +1112,189 @@ pub fn foreground_cwd(pid: u32) -> Option<String> {
     process_cwd(foreground_process_group(pid)?)
 }
 
+/// Executable path or name of a terminal's live foreground process-group
+/// leader (see [`foreground_cwd`] for the leader resolution contract). Exposed
+/// as generic terminal metadata so userland plugins can identify their own
+/// foreground applications.
+/// Returns `None` when the leader is gone, the child has no controlling
+/// terminal, or the platform denies the lookup.
+pub fn foreground_process_name(pid: u32) -> Option<String> {
+    process_name(foreground_process_group(pid)?)
+}
+
+/// Whether this process descends from Codex's shared app-server daemon
+/// (`codex app-server ... --managed-daemon`, started by the first Codex TUI
+/// that needed it). That daemon keeps the environment of whichever shell
+/// started it, so `CMUX_TUI_*` values seen by a hook it runs may belong to an
+/// unrelated, possibly closed, terminal. Codex starts a hook or a tool command
+/// as `$SHELL -lc <command>`: the hook's parent is that shell and its
+/// grandparent the daemon, and a single-command tool (`codex ...` through the
+/// shim, which execs) has the daemon as its parent. The walk stops there:
+/// the daemon also hosts every Codex session's tool commands, so a process
+/// further down (a cmux-tui server or a `cargo test` started by Codex, and
+/// the shells, wrappers and hooks below it) is not running for the daemon.
+/// A launcher between the daemon and the shell (a sandbox wrapper that
+/// forks, or one that hides the daemon's argv) makes this return false, so
+/// such a hook keeps the old behavior and posts by its inherited route.
+pub fn descends_from_codex_app_server_daemon() -> bool {
+    const MAX_ANCESTORS: usize = 2;
+    // SAFETY: getppid has no preconditions.
+    #[cfg(unix)]
+    let mut pid = u32::try_from(unsafe { libc::getppid() }).ok();
+    #[cfg(not(unix))]
+    let mut pid: Option<u32> = None;
+    for _ in 0..MAX_ANCESTORS {
+        let Some(current) = pid.filter(|pid| *pid > 1) else { return false };
+        if process_arguments(current).is_some_and(|argv| is_codex_app_server_daemon(&argv)) {
+            return true;
+        }
+        pid = parent_process_id(current);
+    }
+    false
+}
+
+fn is_codex_app_server_daemon(argv: &[String]) -> bool {
+    argv.iter().skip(1).any(|arg| arg == "app-server")
+        && (argv.iter().any(|arg| arg == "--managed-daemon")
+            || argv.first().is_some_and(|program| program.contains("/app-server-daemon/")))
+}
+
+#[cfg(target_os = "linux")]
+fn process_arguments(pid: u32) -> Option<Vec<String>> {
+    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    let cmdline = cmdline.strip_suffix(&[0]).unwrap_or(&cmdline);
+    Some(
+        cmdline
+            .split(|byte| *byte == 0)
+            .map(|arg| String::from_utf8_lossy(arg).into_owned())
+            .collect(),
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn parent_process_id(pid: u32) -> Option<u32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // Fields after the parenthesized command name are state(3) ppid(4).
+    let fields = stat.get(stat.rfind(')')? + 1..)?;
+    fields.split_whitespace().nth(1)?.parse().ok()
+}
+
+#[cfg(target_os = "macos")]
+fn process_arguments(pid: u32) -> Option<Vec<String>> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut arg_max: libc::c_int = 0;
+    let mut size = size_of::<libc::c_int>();
+    let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+    // SAFETY: the out pointer and size describe `arg_max`.
+    let result = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as libc::c_uint,
+            std::ptr::from_mut(&mut arg_max).cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result != 0 {
+        return None;
+    }
+    let mut buffer = vec![0u8; usize::try_from(arg_max).ok()?];
+    let mut size = buffer.len();
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    // SAFETY: the out pointer and size describe `buffer`.
+    let result = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib.len() as libc::c_uint,
+            buffer.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result != 0 {
+        return None;
+    }
+    // Layout: argc (int), the executable path, NUL padding, then argc
+    // NUL-terminated arguments followed by the environment.
+    let buffer = buffer.get(..size)?;
+    let argc = usize::try_from(i32::from_ne_bytes(buffer.get(..4)?.try_into().ok()?)).ok()?;
+    let mut rest = buffer.get(4..)?;
+    let path_end = rest.iter().position(|byte| *byte == 0)?;
+    rest = &rest[path_end..];
+    let start = rest.iter().position(|byte| *byte != 0)?;
+    rest = &rest[start..];
+    let argv: Vec<String> = rest
+        .split(|byte| *byte == 0)
+        .take(argc)
+        .map(|arg| String::from_utf8_lossy(arg).into_owned())
+        .collect();
+    (argv.len() == argc).then_some(argv)
+}
+
+#[cfg(target_os = "macos")]
+fn parent_process_id(pid: u32) -> Option<u32> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let size = libc::c_int::try_from(size_of::<libc::proc_bsdinfo>()).ok()?;
+    // SAFETY: proc_pidinfo writes at most `size` bytes into `info` and
+    // returns the initialized byte count.
+    let written = unsafe {
+        libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, info.as_mut_ptr().cast(), size)
+    };
+    if written != size {
+        return None;
+    }
+    // SAFETY: proc_pidinfo initialized the full structure.
+    Some(unsafe { info.assume_init() }.pbi_ppid)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_arguments(_pid: u32) -> Option<Vec<String>> {
+    None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn parent_process_id(_pid: u32) -> Option<u32> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn process_name(pid: u32) -> Option<String> {
+    // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
+    // bytes and wrapper launchers exec with a meaningful argv[0].
+    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|cmdline| {
+        let argv0 = cmdline.split(|byte| *byte == 0).next()?;
+        let argv0 = std::str::from_utf8(argv0).ok()?.trim();
+        (!argv0.is_empty()).then(|| argv0.to_string())
+    });
+    argv0.or_else(|| {
+        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+        let comm = comm.trim();
+        (!comm.is_empty()).then(|| comm.to_string())
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn process_name(pid: u32) -> Option<String> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns
+    // the written byte count (0 on failure).
+    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+    if written <= 0 {
+        return None;
+    }
+    let path = std::str::from_utf8(&path[..written as usize]).ok()?;
+    (!path.is_empty()).then(|| path.to_string())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process_name(_pid: u32) -> Option<String> {
+    None
+}
+
 #[cfg(target_os = "linux")]
 fn foreground_process_group(pid: u32) -> Option<u32> {
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
@@ -1123,6 +1430,9 @@ fn default_terminal_cwd_from(launch: Option<&Path>) -> Option<String> {
 /// name a safe local spawn directory, so callers should fall back to the
 /// surface's original working directory when this returns `None`.
 pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
+    if let Some(path) = kitty_shell_cwd_to_local_path(value) {
+        return Some(path);
+    }
     // Hosted surfaces never trust hostless OSC 7 values. Their authenticated
     // spawn CWD is the only safe fallback when no local host is identified.
     let mut url = url::Url::parse(value).ok()?;
@@ -1154,6 +1464,9 @@ pub fn local_terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     let plain = Path::new(value);
     if terminal_pwd_path_is_safe(plain) {
         return Some(plain.to_owned());
+    }
+    if let Some(path) = kitty_shell_cwd_to_local_path(value) {
+        return Some(path);
     }
 
     let mut url = url::Url::parse(value).ok()?;
@@ -1218,6 +1531,31 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
     difference == 0
 }
 
+/// Ghostty's shell integration follows a prompt's `file://` report with
+/// `kitty-shell-cwd://HOST/PATH`, so that is the value a terminal keeps. Its
+/// path is raw bytes, not percent-encoded, and it needs the same local-host
+/// check as a `file://` report.
+fn kitty_shell_cwd_to_local_path(value: &str) -> Option<PathBuf> {
+    const SCHEME: &str = "kitty-shell-cwd://";
+    let rest = value
+        .get(..SCHEME.len())
+        .filter(|scheme| scheme.eq_ignore_ascii_case(SCHEME))
+        .map(|_| &value[SCHEME.len()..])?;
+    let (host, path) = rest.split_at(rest.find('/')?);
+    if host.is_empty() || !terminal_pwd_host_is_local(host) || path.contains('\0') {
+        return None;
+    }
+    // `kitty-shell-cwd://host/C:/Users/me` keeps the URI's slash before a
+    // Windows drive, which a rooted Windows path does not have.
+    #[cfg(windows)]
+    let path = path
+        .strip_prefix('/')
+        .filter(|rest| windows_path_is_rooted_local_drive(rest))
+        .unwrap_or(path);
+    let path = PathBuf::from(path);
+    terminal_pwd_path_is_safe(&path).then_some(path)
+}
+
 fn terminal_pwd_path_is_safe(path: &Path) -> bool {
     if !path.is_absolute() {
         return false;
@@ -1250,7 +1588,7 @@ fn terminal_pwd_host_is_local(host: &str) -> bool {
 }
 
 #[cfg(unix)]
-fn local_hostname() -> Option<String> {
+pub(crate) fn local_hostname() -> Option<String> {
     let mut hostname = [0_u8; 256];
     if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
         return None;
@@ -1266,7 +1604,7 @@ fn decode_local_hostname(bytes: &[u8]) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn local_hostname() -> Option<String> {
+pub(crate) fn local_hostname() -> Option<String> {
     std::env::var("COMPUTERNAME").ok().filter(|value| !value.is_empty())
 }
 
@@ -1333,6 +1671,32 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn codex_app_server_daemon_is_recognized_only_by_its_daemon_argv() {
+        let argv = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+        assert!(is_codex_app_server_daemon(&argv(&[
+            "/home/me/.codex/packages/app-server-daemon/releases/0.162.1/bin/codex",
+            "app-server",
+            "--listen",
+            "unix://",
+            "--analytics-default-enabled",
+            "--managed-daemon",
+        ])));
+        // An older managed binary without the startup flag.
+        assert!(is_codex_app_server_daemon(&argv(&[
+            "/home/me/.codex/packages/app-server-daemon/releases/0.161.0/bin/codex",
+            "app-server",
+            "--listen",
+            "unix://",
+        ])));
+        // The embedded TUI, an editor's own app-server, and a prompt that
+        // merely mentions the words.
+        assert!(!is_codex_app_server_daemon(&argv(&["codex", "--enable", "hooks", "-c", "x=1"])));
+        assert!(!is_codex_app_server_daemon(&argv(&["/opt/codex", "app-server"])));
+        assert!(!is_codex_app_server_daemon(&argv(&["app-server", "--managed-daemon"])));
+        assert!(!is_codex_app_server_daemon(&argv(&["codex", "explain app-server"])));
+    }
+
     #[cfg(windows)]
     use std::ffi::OsString;
     #[cfg(windows)]
@@ -1349,6 +1713,30 @@ mod tests {
         let paths = ghostty_config_paths_from(Some(xdg.clone()), Some(home));
 
         assert_eq!(paths, vec![xdg.join("ghostty/config"), xdg.join("ghostty/config.ghostty")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_peer_uid_must_match_the_expected_user() {
+        let (client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let owner = effective_uid();
+
+        assert_eq!(unix_peer_uid(&client).unwrap(), owner);
+        assert_eq!(unix_peer_uid(&server).unwrap(), owner);
+        require_unix_peer_uid(&client, owner).unwrap();
+        let error = require_unix_peer_uid(&client, owner.wrapping_add(1))
+            .expect_err("a peer running as another user must be refused");
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_listener_admits_only_the_owner_and_root() {
+        assert!(transport::peer_may_connect(501, 501));
+        assert!(transport::peer_may_connect(0, 501));
+        assert!(transport::peer_may_connect(0, 0));
+        assert!(!transport::peer_may_connect(502, 501));
+        assert!(!transport::peer_may_connect(501, 0));
     }
 
     #[test]
@@ -1889,6 +2277,43 @@ mod tests {
         // remote shell can emit one and otherwise redirect a local spawn.
         assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), None);
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn terminal_pwd_accepts_windows_drive_kitty_shell_cwd_reports() {
+        assert_eq!(
+            terminal_pwd_to_local_path("kitty-shell-cwd://localhost/C:/Users/me"),
+            Some(PathBuf::from("C:/Users/me"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost/Users/me"), None);
+    }
+
+    /// Ghostty's bash integration reports `kitty-shell-cwd://$HOSTNAME$PWD`
+    /// after the Cloud prompt's `file://` report on a shell's first prompt and
+    /// after every `cd`, so that report is the one a hosted terminal keeps.
+    #[cfg(unix)]
+    #[test]
+    fn terminal_pwd_accepts_local_kitty_shell_cwd_reports() {
+        let hostname = local_hostname().expect("hostname");
+
+        assert_eq!(
+            terminal_pwd_to_local_path(&format!("kitty-shell-cwd://{hostname}/home/cmux")),
+            Some(PathBuf::from("/home/cmux"))
+        );
+        // kitty-shell-cwd carries the raw path; `%20` is three literal bytes.
+        assert_eq!(
+            terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/a b%20c"),
+            Some(PathBuf::from("/tmp/a b%20c"))
+        );
+        assert_eq!(
+            local_terminal_pwd_to_local_path(&format!("kitty-shell-cwd://{hostname}/srv")),
+            Some(PathBuf::from("/srv"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://remote.invalid/tmp/nope"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd:///tmp/hostless"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/\0nul"), None);
     }
 
     #[cfg(unix)]

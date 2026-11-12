@@ -60,12 +60,9 @@ struct SettledScrollRowReporter: ViewModifier {
                     onSettled(tracker.topRowID)
                 }
         } else {
-            // Both observers are iOS 18 / macOS 15 APIs. The app's iOS floor
-            // is 18.4, so this branch is reachable only on macOS 14, where
-            // this package builds for tests alone; no shipping surface
-            // renders the diff pager there. Scroll-position persistence is
-            // intentionally absent on that path.
-            content
+            // Row geometry observers use this viewport on iOS 17 / macOS 14.
+            // They update the same render-inert tracker and pager store.
+            content.coordinateSpace(name: ObjectIdentifier(tracker))
         }
     }
 }

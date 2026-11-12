@@ -20,6 +20,10 @@ tail -f "$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || echo /tmp/cmux-debug
 - Key events are logged in `AppDelegate.swift` (monitor, `performKeyEquivalent`); mouse/UI events inline in views (`ContentView`, `BrowserPanelView`).
 - Stable event prefixes: `focus.panel`, `focus.bonsplit`, `focus.firstResponder`, `focus.moveFocus`, `tab.select`, `tab.close`, `tab.dragStart`, `tab.drop`, `pane.focus`, `pane.drop`, `divider.dragStart`.
 
+## Profiling
+
+Profile a tagged build by attaching to its pid (`xctrace record --attach <pid>`, `sample <pid>`). Never use `xctrace --launch` or Instruments' launch mode on any cmux bundle, and never quit, kill or relaunch the user's running cmux (`com.cmuxterm.app`): it holds their live agent sessions, and on 2026-09-26 a suspected profiler relaunch took five of them down.
+
 ## Debug menu
 
 DEBUG builds get a **Debug** menu in the macOS menu bar. When the user says "debug menu" or "debug window" they mean this, not `defaults write`.
@@ -30,9 +34,9 @@ DEBUG builds get a **Debug** menu in the macOS menu bar. When the user says "deb
 
 - Custom drag-and-drop UTTypes must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations`.
 - Do not add an app-level display link or manual `ghostty_surface_draw` loop; rely on Ghostty wakeups/renderer to avoid typing lag.
-- `WindowTerminalHostView.hitTest()` in `Sources/TerminalWindowPortal.swift` runs on every event including keyboard. Add no work outside the `isPointerEvent` guard.
+- `WindowTerminalHostView.hitTest()` in `Sources/TerminalWindowPortal.swift` runs on every event including keyboard. Add no work outside the `allowsPortalPointerHitTesting` guard in `performHitTest`.
 - `TabItemView` in `Sources/ContentView.swift` uses `Equatable` plus `.equatable()` to skip body re-evaluation during typing. Do not add environment/store/binding reads without updating `==` and keeping `.equatable()` at the call site.
-- `TerminalSurface.forceRefresh()` in `Sources/GhosttyTerminalView.swift` runs on every keystroke. No allocations, file I/O, or formatting.
+- `TerminalSurface.forceRefresh()` in `Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/TerminalSurface+ForceRefresh.swift` runs on every keystroke. No allocations, file I/O, or formatting.
 - `SurfaceSearchOverlay` must be mounted from `GhosttySurfaceScrollView` in `Sources/GhosttyTerminalView.swift`, not from SwiftUI panel containers.
 - Views below a `LazyVStack` / `LazyHStack` / `List` / `ForEach` boundary receive immutable snapshots plus closures, never an observable store.
 - Functions called from SwiftUI `body` must not mutate state or schedule store writes.

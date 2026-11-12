@@ -13,7 +13,7 @@ import Foundation
 enum CloudAgentSkillLauncher {
     static let installedSkillRelativePath = ".config/cmux/skills/cmux-cloud.md"
 
-    /// The bundled skill markdown (`Resources/cloud-agent-skill.md`).
+    /// The bundled skill markdown (`Resources/en.lproj/cloud-agent-skill.md`).
     static func skillMarkdown(bundle: Bundle = .main) -> String? {
         let url = bundle.url(forResource: "cloud-agent-skill", withExtension: "md")
             ?? bundle.resourceURL?.appendingPathComponent("cloud-agent-skill.md")

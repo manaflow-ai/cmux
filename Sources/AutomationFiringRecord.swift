@@ -1,7 +1,7 @@
 import Foundation
 
 /// A bounded, JSON-friendly record retained by the automation firing ring.
-nonisolated struct AutomationFiringRecord: Sendable {
+struct AutomationFiringRecord: Sendable {
     let occurredAt: Date
     let ruleID: String
     let eventName: String

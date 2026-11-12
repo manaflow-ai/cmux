@@ -788,6 +788,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
     },
+    "FocusAttention": {
+        "classification": "presentation-only",
+        "route": "frontend attention list + client focus",
+    },
     "DeleteManagedWorkspace": {
         "classification": "external-protocol",
         "route": "machine-provider delete_workspace",
@@ -807,6 +811,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
     "BrowserActivate": {
         "classification": "direct",
         "route": "browser-activate",
+    },
+    "MoveTabToWorkspace": {
+        "classification": "direct",
+        "route": "move-tab-to-workspace",
     },
     "RenameSurface": {
         "classification": "composite",
@@ -847,6 +855,18 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
     "DisconnectClient": {
         "classification": "composite",
         "route": "self: close frontend transport; peer: detach-client",
+    },
+    "SetSizeMode": {
+        "classification": "direct",
+        "route": "set-size-policy",
+    },
+    "SetSizeCounts": {
+        "classification": "direct",
+        "route": "set-size-counts participant",
+    },
+    "DisconnectSizeParticipant": {
+        "classification": "composite",
+        "route": "self: close frontend transport; peer: detach-client participant",
     },
     "SelectProviderScope": {
         "classification": "external-protocol",

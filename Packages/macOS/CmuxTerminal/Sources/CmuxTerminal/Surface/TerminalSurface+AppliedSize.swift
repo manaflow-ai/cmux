@@ -12,6 +12,8 @@ extension TerminalSurface {
         height: UInt32,
         caller: StaticString
     ) {
+        let work = terminalWork.begin(.resizePublication, workspaceID: tabId)
+        defer { work?.end() }
         #if DEBUG
         let previous = ghostty_surface_size(surface)
         #endif

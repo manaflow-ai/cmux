@@ -1,41 +1,17 @@
-import CmuxFoundation
 import Foundation
 
 extension FilePreviewPanel {
-    /// Starts one panel-scoped filesystem observation task. `FileWatcher`
-    /// handles atomic replacement and delete/recreate recovery for the path.
-    func startWatchingForFileChanges() {
-        stopWatchingForFileChanges()
-        lastObservedFileState = .capture(path: filePath)
-        let watcher = FileWatcher(path: filePath, throttle: .milliseconds(300))
-        fileChangeWatcher = watcher
-        let events = watcher.events
-        fileChangeTask = Task { @MainActor [weak self] in
-            for await _ in events {
-                guard let self, !self.isClosed else { break }
-                self.handleObservedFileChange()
-            }
-        }
-    }
-
+    /// Starts the latest file-preview reload after a shared observation event.
     @discardableResult
-    func handleObservedFileChange() -> Task<Void, Never>? {
-        let state = FilePreviewFileState.capture(path: filePath)
-        guard state != lastObservedFileState else { return nil }
-        guard !isSaving else { return nil }
-        lastObservedFileState = state
-        fileChangeReloadTask?.cancel()
+    func reloadFromObservedFileChange() -> Task<Void, Never>? {
+        cancelObservedFileReload()
         let task = reloadFromDisk()
         fileChangeReloadTask = task
         return task
     }
 
-    func stopWatchingForFileChanges() {
-        fileChangeTask?.cancel()
-        fileChangeTask = nil
+    func cancelObservedFileReload() {
         fileChangeReloadTask?.cancel()
         fileChangeReloadTask = nil
-        // Dropping the watcher cancels its DispatchSources.
-        fileChangeWatcher = nil
     }
 }

@@ -9,6 +9,10 @@ import UniformTypeIdentifiers
 
 @MainActor
 enum SessionEntryResumeCoordinator {
+    enum ActiveTarget {
+        case workspace(workspaceID: UUID, surfaceID: UUID)
+        case dock(panelID: UUID)
+    }
     @discardableResult
     private static func launchInNewWorkspace(
         _ launch: SessionEntryResumeLaunch,
@@ -27,46 +31,109 @@ enum SessionEntryResumeCoordinator {
     /// Keeping target discovery separate from the focus mutation lets the Vault
     /// row expose an honest enabled/disabled state without focusing anything
     /// while SwiftUI is rendering a context menu.
+    ///
+    /// Pass `schedulingIndexRefresh: false` from a view body: it reads the
+    /// cached live index without starting a refresh, and the caller schedules
+    /// refreshes from its lifecycle hooks instead.
     static func activeTarget(
         for entry: SessionEntry,
-        tabManager: TabManager
-    ) -> (workspaceID: UUID, surfaceID: UUID)? {
+        tabManager: TabManager,
+        schedulingIndexRefresh: Bool = true
+    ) -> ActiveTarget? {
+        activeTargets(
+            for: [entry],
+            tabManager: tabManager,
+            schedulingIndexRefresh: schedulingIndexRefresh
+        )[VaultLiveSessionKeys.key(for: entry)]
+    }
+
+    /// Resolves several live entries in one snapshot pass. Conversations can
+    /// have many indexed rows that are all live; scanning every workspace,
+    /// Dock, and process observation once keeps rendering proportional to the
+    /// topology rather than the number of rows.
+    static func activeTargets(
+        for entries: [SessionEntry],
+        tabManager: TabManager,
+        schedulingIndexRefresh: Bool = true
+    ) -> [String: ActiveTarget] {
+        let requestedKeys = Set(entries.map(VaultLiveSessionKeys.key(for:)))
+        guard !requestedKeys.isEmpty else { return [:] }
+        var targets: [String: ActiveTarget] = [:]
+
         // Prefer the tab manager's authoritative surface snapshots. This
         // catches an open-but-idle session even while the process index is
         // between refreshes.
         for workspace in tabManager.tabs {
-            if let panel = workspace.restoredAgentSnapshotsByPanelId.first(where: { panelID, snapshot in
-                workspace.panels[panelID] != nil
-                    && workspace.panelShellActivityStates[panelID] == .commandRunning
-                    && snapshot.kind.rawValue == entry.agent.rawValue
-                    && ManagedAgentSessionIdentity.sessionIDsMatch(
-                        kind: entry.agent.rawValue,
-                        lhs: snapshot.sessionId,
-                        rhs: entry.sessionId
-                    )
-            }) {
-                return (workspace.id, panel.key)
+            for (panelID, snapshot) in workspace.restoredAgentSnapshotsByPanelId {
+                guard workspace.panels[panelID] != nil,
+                      workspace.panelShellActivityStates[panelID] == .commandRunning else {
+                    continue
+                }
+                let key = VaultLiveSessionKeys.key(
+                    kind: snapshot.kind.rawValue,
+                    sessionID: snapshot.sessionId
+                )
+                guard requestedKeys.contains(key), targets[key] == nil else { continue }
+                targets[key] = .workspace(workspaceID: workspace.id, surfaceID: panelID)
+            }
+        }
+
+        // Dock terminals keep the same restore snapshot and shell activity
+        // state, but do not appear in the workspace panel dictionaries.
+        for dock in DockSplitStore.liveStores {
+            for (panelID, snapshot) in dock.restoredAgentLifecycle.snapshotsByPanelId {
+                guard dock.panels[panelID] != nil,
+                      (dock.panels[panelID] as? TerminalPanel)?.shellActivity.state == .commandRunning else {
+                    continue
+                }
+                let key = VaultLiveSessionKeys.key(
+                    kind: snapshot.kind.rawValue,
+                    sessionID: snapshot.sessionId
+                )
+                guard requestedKeys.contains(key), targets[key] == nil else { continue }
+                targets[key] = .dock(panelID: panelID)
             }
         }
 
         // Process-detected sessions can still be present in the live index
         // before their snapshot has been projected into the tab manager.
-        guard let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
-              let match = index.forkValidationEntries().first(where: { panelKey, observation in
-                  observation.processLiveness == .running
-                      && observation.snapshot.kind.rawValue == entry.agent.rawValue
-                      && ManagedAgentSessionIdentity.sessionIDsMatch(
-                          kind: entry.agent.rawValue,
-                          lhs: observation.snapshot.sessionId,
-                          rhs: entry.sessionId
-                      )
-                      && tabManager.tabs.contains(where: { $0.id == panelKey.workspaceId })
-                      && tabManager.tabs.first(where: { $0.id == panelKey.workspaceId })?.panels[panelKey.panelId] != nil
-              }) else {
-            return nil
-        }
+        let liveIndex = schedulingIndexRefresh
+            ? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            : SharedLiveAgentIndex.shared.index
+        guard let index = liveIndex else { return targets }
 
-        return (match.0.workspaceId, match.0.panelId)
+        var workspacePanelIDsByWorkspaceID: [UUID: Set<UUID>] = [:]
+        for workspace in tabManager.tabs {
+            workspacePanelIDsByWorkspaceID[workspace.id] = Set(workspace.panels.keys)
+        }
+        var dockPanelOwnersByWorkspaceID: [UUID: [UUID: UUID]] = [:]
+        for dock in DockSplitStore.liveStores {
+            for (panelID, panel) in dock.panels {
+                dockPanelOwnersByWorkspaceID[dock.workspaceId, default: [:]][panelID] = panelID
+                if let terminal = panel as? TerminalPanel {
+                    dockPanelOwnersByWorkspaceID[dock.workspaceId, default: [:]][terminal.surface.id] = panelID
+                }
+            }
+            for (surfaceID, panelID) in dock.surfaceIdToPanelId {
+                if dock.panels[panelID] != nil {
+                    dockPanelOwnersByWorkspaceID[dock.workspaceId, default: [:]][surfaceID.uuid] = panelID
+                }
+            }
+        }
+        for (panelKey, observation) in index.forkValidationEntries() {
+            guard observation.processLiveness == .running else { continue }
+            let key = VaultLiveSessionKeys.key(
+                kind: observation.snapshot.kind.rawValue,
+                sessionID: observation.snapshot.sessionId
+            )
+            guard requestedKeys.contains(key), targets[key] == nil else { continue }
+            if let panelID = dockPanelOwnersByWorkspaceID[panelKey.workspaceId]?[panelKey.panelId] {
+                targets[key] = .dock(panelID: panelID)
+            } else if workspacePanelIDsByWorkspaceID[panelKey.workspaceId]?.contains(panelKey.panelId) == true {
+                targets[key] = .workspace(workspaceID: panelKey.workspaceId, surfaceID: panelKey.panelId)
+            }
+        }
+        return targets
     }
 
     /// Returns managed-session identities whose agent command is currently
@@ -135,7 +202,23 @@ enum SessionEntryResumeCoordinator {
         guard let target = activeTarget(for: entry, tabManager: tabManager) else {
             return false
         }
-        tabManager.focusTab(target.workspaceID, surfaceId: target.surfaceID)
+        switch target {
+        case .workspace(let workspaceID, let surfaceID):
+            tabManager.focusTab(workspaceID, surfaceId: surfaceID)
+        case .dock(let panelID):
+            guard let dock = DockSplitStore.liveStore(containingPanel: panelID) else { return false }
+            if dock.scope == .global {
+                // The live target is consumed even if its owning window is
+                // temporarily unavailable. Do not fall through to `open`,
+                // which would launch a duplicate session.
+                _ = TerminalController.shared.focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            } else if let owner = AppDelegate.shared?.tabManagerFor(tabId: dock.workspaceId) {
+                owner.focusTab(dock.workspaceId)
+            } else {
+                tabManager.focusTab(dock.workspaceId)
+            }
+            dock.focusPanelFromDockInteraction(panelID, window: nil)
+        }
         return true
     }
 
@@ -320,15 +403,14 @@ struct SessionIndexView: View {
                 }
             }
 
-            // Keep the category selector intentionally quiet. Folder scope
-            // and reload remain model capabilities, but the secondary icon
-            // controls competed with the three primary grouping choices.
+            Spacer(minLength: 4)
+            VaultAllSessionsBar.reloadButton(isLoading: store.isLoading) { store.reload() }
         }
-        // Match the right-sidebar mode bar above: the same 4/6-point outer
-        // insets and the same 28-point chrome rhythm.
+        // Match the right-sidebar mode bar above: the same outer insets and
+        // the same 28-point chrome rhythm.
         .rightSidebarChromeBar(
-            leadingPadding: 4,
-            trailingPadding: 6,
+            leadingPadding: RightSidebarChromeMetrics.headerLeadingPadding,
+            trailingPadding: RightSidebarChromeMetrics.headerTrailingPadding,
             height: RightSidebarChromeMetrics.secondaryBarHeight
         )
         // Expand the intrinsic-width selector to the column and keep its
@@ -548,7 +630,8 @@ struct SessionIndexView: View {
         // Rapid keystrokes bump the task id, cancelling this genuine debounce
         // deadline before any transcript work starts.
         try? await ContinuousClock().sleep(for: .milliseconds(200))
-        guard !Task.isCancelled else { return }
+        // Reload completion changes searchTaskKey and searches the fresh index once.
+        guard !Task.isCancelled, !store.isLoading else { return }
         let outcome = await store.searchAllSessions(rawQuery: trimmedSearchText)
         guard !Task.isCancelled else { return }
         searchResults = outcome.entries
@@ -608,12 +691,14 @@ private struct GroupingButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 3) {
+            HStack(spacing: RightSidebarChromeMetrics.contentIconTextSpacing) {
                 CmuxSystemSymbolImage(
                     magnified: mode.symbolName,
                     pointSize: RightSidebarChromeControlStyle.secondaryIconSize,
-                    weight: RightSidebarChromeControlStyle.iconWeight
+                    weight: RightSidebarChromeControlStyle.iconWeight,
+                    tint: RightSidebarChromeControlStyle.pillForegroundColor(isSelected: isSelected, isHovered: isHovered)
                 )
+                .frame(width: RightSidebarChromeMetrics.contentIconFrameSize)
                 Text(mode.label)
                     .cmuxFont(
                         size: RightSidebarChromeControlStyle.labelSize,
@@ -819,10 +904,10 @@ struct IndexSectionView: View, Equatable {
                     DispatchQueue.main.async { beginDrag() }
                     return NSItemProvider(object: section.key.raw as NSString)
                 } preview: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: RightSidebarChromeMetrics.contentIconTextSpacing) {
                         sectionIconView
                         Text(section.title)
-                            .cmuxFont(size: 13)
+                            .cmuxFont(size: 12, weight: .semibold)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -835,7 +920,7 @@ struct IndexSectionView: View, Equatable {
         Button {
             onToggleCollapsed()
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: RightSidebarChromeMetrics.contentIconTextSpacing) {
                 sectionIconView
                 Text(section.title)
                     .cmuxFont(size: 12, weight: .semibold)
@@ -846,12 +931,12 @@ struct IndexSectionView: View, Equatable {
                     .cmuxFont(size: 11, weight: .medium, monospacedDigit: true)
                     .foregroundStyle(.tertiary)
                     .fixedSize()
-                CmuxSystemSymbolImage(magnified: "chevron.down", pointSize: 9, weight: .semibold)
-                    .foregroundColor(.secondary.opacity(0.6))
+                CmuxSystemSymbolImage(magnified: "chevron.down", pointSize: 9, weight: .semibold, tint: .secondary.opacity(0.6))
                     .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
+            .padding(.leading, RightSidebarChromeMetrics.contentIconLeadingPadding)
+            .padding(.trailing, 12)
             .padding(.vertical, 3)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -860,11 +945,12 @@ struct IndexSectionView: View, Equatable {
     }
 
     private var sectionIconView: some View {
-        SessionIndexSectionIconImage(icon: section.icon, size: 14)
+        SessionIndexSectionIconImage(icon: section.icon, size: SessionIndexRowMetrics.sectionIconSize)
     }
 }
 
 struct SectionReorderGap: View, Equatable {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     /// Section the dragged item should land BEFORE if dropped here. `nil` for
     /// the trailing gap (drop appends to the end of persisted order).
     let beforeKey: SectionKey?
@@ -887,7 +973,7 @@ struct SectionReorderGap: View, Equatable {
             .overlay(alignment: .center) {
                 if isDropTarget && isValidDrop {
                     Capsule()
-                        .fill(Color.accentColor)
+                        .fill(cmuxAccent.color)
                         .frame(height: 3)
                         .padding(.horizontal, 10)
                 }
@@ -937,6 +1023,32 @@ private struct SectionGapDropDelegate: DropDelegate {
     }
 }
 
+/// Session row fill. The previewed row keeps its selection fill under the
+/// pointer; hover only tints rows that are not selected.
+enum SessionIndexRowHighlight: Equatable {
+    case previewed
+    case hovered
+    case plain
+
+    init(isPreviewPresented: Bool, isHovered: Bool) {
+        if isPreviewPresented {
+            self = .previewed
+        } else if isHovered {
+            self = .hovered
+        } else {
+            self = .plain
+        }
+    }
+
+    var backgroundColor: Color {
+        switch self {
+        case .previewed: return Color.accentColor.opacity(0.10)
+        case .hovered: return Color.primary.opacity(0.05)
+        case .plain: return Color.clear
+        }
+    }
+}
+
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
     /// Shared display facts for the status circle and optional repository /
@@ -964,14 +1076,9 @@ private struct SessionRow: View, Equatable {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 6) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                    SessionIndexAgentIconImage(agent: entry.agent, size: 12)
-                }
-                .frame(width: 20, height: 20)
+        VStack(alignment: .leading, spacing: SessionIndexRowMetrics.detailLineSpacing) {
+            HStack(spacing: SessionIndexRowMetrics.primaryLineSpacing) {
+                SessionIndexAgentIconImage(agent: entry.agent, size: SessionIndexRowMetrics.agentIconSize)
                 Text(entry.displayTitle)
                     .cmuxFont(size: 13)
                     .foregroundColor(.primary.opacity(0.92))
@@ -993,14 +1100,14 @@ private struct SessionRow: View, Equatable {
                     .foregroundColor(.secondary.opacity(0.75))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                // Match the title's leading edge: 20-point icon frame plus
-                // the six-point primary-line spacing.
-                .padding(.leading, 26)
+                // Start on the title's column: glyph width plus the
+                // primary-line spacing.
+                .padding(.leading, SessionIndexRowMetrics.detailLeadingInset)
             }
         }
         .padding(.leading, leadingPadding)
         .padding(.trailing, 12)
-        .padding(.vertical, 4)
+        .padding(.vertical, SessionIndexRowMetrics.verticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .background(rowBackground)
@@ -1029,13 +1136,8 @@ private struct SessionRow: View, Equatable {
     }
 
     private var rowBackgroundColor: Color {
-        if isHovered {
-            return Color.primary.opacity(0.05)
-        }
-        if isPreviewPresented {
-            return Color.accentColor.opacity(0.10)
-        }
-        return Color.clear
+        SessionIndexRowHighlight(isPreviewPresented: isPreviewPresented, isHovered: isHovered)
+            .backgroundColor
     }
 
     private var helpText: String {
@@ -1214,7 +1316,7 @@ struct SessionTranscriptPreviewView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 14)
+            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: SessionIndexRowMetrics.sectionIconSize)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.displayTitle)
                     .cmuxFont(size: 13, weight: .semibold)
@@ -1230,14 +1332,13 @@ struct SessionTranscriptPreviewView: View {
                 }
             }
             Spacer(minLength: 8)
-            CmuxSystemSymbolImage(magnified: "xmark", pointSize: 11, weight: .semibold)
-                .foregroundColor(closeIsHovered ? .primary : .secondary)
+            CmuxSystemSymbolImage(magnified: "xmark", pointSize: 11, weight: .semibold, tint: closeIsHovered ? .primary : .secondary)
                 .frame(width: 20, height: 20)
                 .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                         .fill(closeIsHovered ? Color.primary.opacity(0.08) : Color.clear)
                 )
-                .contentShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous))
                 .onHover { closeIsHovered = $0 }
                 .onTapGesture {
                     onDismiss()
@@ -1307,8 +1408,7 @@ struct SessionTranscriptPreviewView: View {
 
     private func statusRow(systemImage: String, text: String) -> some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(magnified: systemImage, pointSize: 12, weight: .medium)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(magnified: systemImage, pointSize: 12, weight: .medium, tint: .secondary)
             Text(text)
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
@@ -2480,8 +2580,7 @@ struct SectionPopoverView: View {
             .padding(.bottom, 6)
 
             HStack(spacing: 6) {
-                CmuxSystemSymbolImage(magnified: "magnifyingglass", pointSize: 11, weight: .medium)
-                    .foregroundColor(.secondary)
+                CmuxSystemSymbolImage(magnified: "magnifyingglass", pointSize: 11, weight: .medium, tint: .secondary)
                 TextField(
                     String(localized: "sessionIndex.popover.searchPlaceholder",
                            defaultValue: "Search Vault"),
@@ -2494,8 +2593,7 @@ struct SectionPopoverView: View {
                     Button {
                         query = ""
                     } label: {
-                        CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 11)
-                            .foregroundColor(.secondary)
+                        CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 11, tint: .secondary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(String(localized: "historyPane.search.clear", defaultValue: "Clear search"))
@@ -2516,8 +2614,7 @@ struct SectionPopoverView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(errorMessages, id: \.self) { msg in
                         HStack(alignment: .top, spacing: 6) {
-                            CmuxSystemSymbolImage(magnified: "exclamationmark.triangle.fill", pointSize: 10)
-                                .foregroundColor(.orange)
+                            CmuxSystemSymbolImage(magnified: "exclamationmark.triangle.fill", pointSize: 10, tint: .orange)
                             Text(msg)
                                 .cmuxFont(size: 11)
                                 .foregroundColor(.primary.opacity(0.85))
@@ -2769,7 +2866,7 @@ struct SectionPopoverView: View {
     }
 
     private var sectionIconView: some View {
-        SessionIndexSectionIconImage(icon: section.icon, size: 14)
+        SessionIndexSectionIconImage(icon: section.icon, size: SessionIndexRowMetrics.sectionIconSize)
     }
 }
 
@@ -2817,9 +2914,9 @@ private struct PopoverRow: View, Equatable {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 6) {
-                SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
+        VStack(alignment: .leading, spacing: SessionIndexRowMetrics.detailLineSpacing) {
+            HStack(spacing: SessionIndexRowMetrics.primaryLineSpacing) {
+                SessionIndexSectionIconImage(icon: .agent(entry.agent), size: SessionIndexRowMetrics.agentIconSize)
                 // Flatten newlines so titles containing `<command-message>…\n…`
                 // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
                 // always constrain a Text that has hard line breaks in the
@@ -2842,9 +2939,9 @@ private struct PopoverRow: View, Equatable {
                     .foregroundColor(.secondary.opacity(0.75))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    // The icon is 12 points wide and the title starts after
-                    // the six-point row spacing.
-                    .padding(.leading, 18)
+                    // Start on the title's column: glyph width plus the
+                    // primary-line spacing.
+                    .padding(.leading, SessionIndexRowMetrics.detailLeadingInset)
             }
         }
         .padding(.horizontal, 12)

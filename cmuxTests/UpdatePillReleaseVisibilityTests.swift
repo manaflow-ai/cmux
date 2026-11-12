@@ -168,7 +168,9 @@ struct BrowserInsecureHTTPSettingsTests {
         checkEqual(prepared.httpMethod, "POST")
         checkEqual(prepared.httpBody, Data("token=abc123".utf8))
         checkEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
-        checkEqual(prepared.cachePolicy, .useProtocolCachePolicy)
+        // #13003: the prepared request keeps the caller's cache policy so refreshing a
+        // failed navigation replays the original request semantics.
+        checkEqual(prepared.cachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
     }
 
     @Test
@@ -382,6 +384,48 @@ struct TitlebarControlsSizingPolicyTests {
         checkEqual(TitlebarShortcutHintMetrics.verticalGap, -3, accuracy: 0.001)
     }
 
+    @Test(arguments: TitlebarControlsStyle.allCases)
+    func testShortcutHintsAlignWithButtonCenters(style: TitlebarControlsStyle) throws {
+        let config = style.config
+        let slots: [(TitlebarShortcutHintActionSlot, MinimalModeSidebarControlActionSlot)] = [
+            (.toggleSidebar, .toggleSidebar),
+            (.showNotifications, .showNotifications),
+            // The hint belongs to the primary plus segment, not the whole split button.
+            (.newTab, .newTab),
+            (.focusHistoryBack, .focusHistoryBack),
+            (.focusHistoryForward, .focusHistoryForward),
+        ]
+
+        for (hintSlot, controlSlot) in slots {
+            let buttonRange = try requireValue(
+                TitlebarControlsHitRegions.buttonXRange(for: controlSlot, config: config)
+            )
+            let buttonCenter = (buttonRange.lowerBound + buttonRange.upperBound) / 2
+            for width: CGFloat in [24, 40, 80] {
+                for xOffset: CGFloat in [-6, 0, 6] {
+                    let interval = TitlebarControlsLayoutMetrics.hintInterval(
+                        for: hintSlot,
+                        width: width,
+                        config: config,
+                        xOffset: xOffset
+                    )
+                    // The overlay sits inside controlsGroup; the outer leading inset
+                    // then places both the group and its hints in the accessory.
+                    let hintCenterInAccessory = TitlebarControlsLayoutMetrics.hintLeadingPadding
+                        + (interval.lowerBound + interval.upperBound) / 2
+                    let context = "style=\(style), slot=\(hintSlot), width=\(width), xOffset=\(xOffset)"
+                    checkEqual(
+                        hintCenterInAccessory,
+                        buttonCenter + xOffset,
+                        accuracy: 0.001,
+                        context
+                    )
+                    checkEqual(interval.upperBound - interval.lowerBound, width, accuracy: 0.001, context)
+                }
+            }
+        }
+    }
+
     @Test
     func testTitlebarControlsUseNeutralVisualLift() {
         checkEqual(
@@ -413,14 +457,21 @@ struct TitlebarControlsSizingPolicyTests {
         let classic = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
         let classicRepeat = TitlebarControlsLayoutMetrics.contentSize(config: classicConfig)
         checkEqual(classic, classicRepeat)
-        checkEqual(classic.width, 152, accuracy: 0.001)
+        // System font metrics determine hint widths; every native control must
+        // still fit inside the deterministic reservation for each style.
+        let classicRightEdge = TitlebarControlsHitRegions.buttonXRanges(config: classicConfig)
+            .map(\.upperBound).max() ?? 0
+        checkGreaterThanOrEqual(classic.width, classicRightEdge)
         checkEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
 
         let compactConfig = TitlebarControlsStyle.compact.config
         let compact = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
         let compactRepeat = TitlebarControlsLayoutMetrics.contentSize(config: compactConfig)
         checkEqual(compact, compactRepeat)
-        checkEqual(compact.width, 139, accuracy: 0.001)
+        let compactRightEdge = TitlebarControlsHitRegions.buttonXRanges(config: compactConfig)
+            .map(\.upperBound).max() ?? 0
+        checkGreaterThanOrEqual(compact.width, compactRightEdge)
+        checkGreaterThan(classic.width, compact.width)
         checkEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
     }
 

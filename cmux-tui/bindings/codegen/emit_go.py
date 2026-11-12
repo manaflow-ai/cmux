@@ -48,7 +48,12 @@ _ACRONYMS = {
     "ws": "WS",
 }
 
-_SPECIAL_METHODS = {"send", "subscribe", "attach-surface"}
+_SPECIAL_METHODS = {
+    "send",
+    "subscribe",
+    "attach-surface",
+    "url-open-subscribe",
+}
 
 _ARGUMENT_ORDER = {
     "surface": 0,

@@ -77,6 +77,28 @@ struct ArtifactByteReaderTests {
         }
     }
 
+    @Test("thumbnail decodes the verified descriptor after its pathname is replaced")
+    func thumbnailUsesVerifiedDescriptor() throws {
+        try withTemporaryDirectory { directory in
+            let file = directory.appendingPathComponent("preview.png")
+            try Self.onePixelPNG.write(to: file)
+            let reader = ArtifactByteReader()
+            let opened = try reader.openVerifiedRegularFile(path: file.path)
+            defer { try? opened.handle.close() }
+
+            try FileManager.default.removeItem(at: file)
+            try #require(Darwin.mkfifo(file.path, 0o600) == 0)
+
+            let thumbnail = try reader.thumbnail(
+                verifiedFile: opened,
+                maxDimension: 128
+            )
+
+            #expect(thumbnail.pixelWidth == 1)
+            #expect(thumbnail.pixelHeight == 1)
+        }
+    }
+
     @Test("extensionless UTF-8 text is classified as text")
     func extensionlessUTF8Text() throws {
         try withTemporaryDirectory { directory in
@@ -256,4 +278,8 @@ struct ArtifactByteReaderTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         try operation(directory)
     }
+
+    private static let onePixelPNG = Data(base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )!
 }

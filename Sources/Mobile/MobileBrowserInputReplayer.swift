@@ -1,6 +1,7 @@
 import AppKit
 import CMUXMobileCore
 import CmuxBrowser
+import CmuxMobileHost
 import CoreGraphics
 import Foundation
 import WebKit
@@ -67,7 +68,7 @@ struct MobileBrowserInputReplayer {
         ) {
         case .delivered:
             break
-        case .unsupported:
+        case .unsupported, .shortcutOutcomeUnavailable:
             throw MobileBrowserInputReplayError.invalidKey
         case .eventCreationFailed:
             throw MobileBrowserInputReplayError.eventCreationFailed
@@ -99,7 +100,7 @@ struct MobileBrowserInputReplayer {
                 ) {
                 case .delivered:
                     break
-                case .unsupported:
+                case .unsupported, .shortcutOutcomeUnavailable:
                     throw MobileBrowserInputReplayError.invalidKey
                 case .eventCreationFailed:
                     throw MobileBrowserInputReplayError.eventCreationFailed

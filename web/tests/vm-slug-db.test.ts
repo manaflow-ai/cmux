@@ -55,12 +55,18 @@ describe("cloud VM slugs", () => {
       expect(first.vm.slug).toMatch(VM_SLUG_PATTERN);
       expect(second.vm.slug).toMatch(VM_SLUG_PATTERN);
       expect(first.vm.slug).not.toBe(second.vm.slug);
+      const runtimes = await sql!`select id, machine_id, placement_generation
+        from cloud_runtimes where owner_team_id = ${team} order by machine_id`;
+      expect(runtimes).toHaveLength(2);
+      expect(runtimes.map((row) => row.machine_id).sort()).toEqual([first.vm.id, second.vm.id].sort());
+      expect(runtimes.every((row) => row.placement_generation === 1)).toBe(true);
 
       // A same-key retry returns the existing row, so the name is stable.
       const replay = await beginCreate({ userId: "user-slug-a", billingTeamId: team, idempotencyKey: `${team}-1` });
       expect(replay.inserted).toBe(false);
       expect(replay.vm.slug).toBe(first.vm.slug);
     } finally {
+      await sql!`delete from cloud_runtimes where owner_team_id = ${team}`;
       await sql!`delete from cloud_vms where billing_team_id = ${team}`;
     }
   });
@@ -86,6 +92,7 @@ describe("cloud VM slugs", () => {
       await sql!`update cloud_vms set status = 'destroyed' where billing_team_id = ${team} and status = 'running'`;
       await insert("running");
     } finally {
+      await sql!`delete from cloud_runtimes where owner_team_id = ${team}`;
       await sql!`delete from cloud_vms where billing_team_id = ${team}`;
     }
   });

@@ -32,6 +32,40 @@ body:
     validations:
       required: false
 
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of cmux is this about?
+      description: |
+        A guess is fine, and "Not sure" is a normal answer. It only helps triage
+        find the right person: https://github.com/manaflow-ai/cmux/blob/main/docs/triage.md
+      options:
+        - Not sure
+        - terminal (rendering, scrollback, fonts, shell integration)
+        - input (keyboard, paste, IME, mouse)
+        - layout (splits, panes, tabs, windows)
+        - sidebar
+        - workspaces (sessions, worktrees, restore)
+        - agents (Claude Code, Codex, ACP, agent panes)
+        - cloud (cmux Cloud, VMs, relays, the dashboard)
+        - remote (cmux ssh, tunnels, device pairing)
+        - ios
+        - cli (the cmux command, cmux-tui, SDKs)
+        - settings
+        - browser
+        - command-palette
+        - appearance (themes, colors, transparency)
+        - notifications
+        - updates (Sparkle, nightly, install)
+        - auth (sign-in, tokens)
+        - performance (slowness, CPU, memory)
+        - localization (translations, RTL)
+        - accessibility (VoiceOver, keyboard-only)
+        - docs
+        - build-and-ci
+    validations:
+      required: false
+
   - type: textarea
     id: additional
     attributes:

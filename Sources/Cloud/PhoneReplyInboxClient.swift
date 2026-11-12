@@ -1,43 +1,60 @@
+import CmuxCloud
+import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxPhonePush
 import Foundation
 import OSLog
 
 private let phoneReplyLog = Logger(subsystem: "dev.cmux", category: "phone-reply-inbox")
 
 /// One phone inline-notification reply parked in the presence worker
-/// (`workers/presence/src/replies.ts`). Wire and stored shapes are identical.
+/// (`workers/presence/src/replies.ts`). This client reads only the encrypted
+/// inbox. Pre-release plaintext replies are intentionally unsupported.
 struct PhoneReplyRecord: Decodable, Equatable, Sendable {
     let replyId: String
     let macDeviceId: String
-    let workspaceId: String
-    let surfaceId: String
-    let notificationId: String
-    /// Whether the notification may follow its surface to a new workspace.
-    /// Older parked records predate this field and remain retargetable.
+    let macInstanceTag: String?
+    let encryptedPayload: PhonePushEncryptedPayload?
+    let workspaceId: String?
+    let surfaceId: String?
+    let notificationId: String?
     let retargetsToLiveSurfaceOwner: Bool
-    let text: String
+    let text: String?
     let createdAtMs: UInt64
     let expiresAtMs: UInt64
 
     private enum CodingKeys: String, CodingKey {
-        case replyId, macDeviceId, workspaceId, surfaceId, notificationId
-        case retargetsToLiveSurfaceOwner, text, createdAtMs, expiresAtMs
+        case replyId, macDeviceId, macInstanceTag, encryptedPayload
+        case workspaceId, surfaceId, notificationId, retargetsToLiveSurfaceOwner, text
+        case createdAtMs, expiresAtMs
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         replyId = try container.decode(String.self, forKey: .replyId)
         macDeviceId = try container.decode(String.self, forKey: .macDeviceId)
-        workspaceId = try container.decode(String.self, forKey: .workspaceId)
-        surfaceId = try container.decode(String.self, forKey: .surfaceId)
-        notificationId = try container.decode(String.self, forKey: .notificationId)
+        macInstanceTag = try container.decodeIfPresent(String.self, forKey: .macInstanceTag)
+        encryptedPayload = try container.decodeIfPresent(
+            PhonePushEncryptedPayload.self,
+            forKey: .encryptedPayload
+        )
+        workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
+        surfaceId = try container.decodeIfPresent(String.self, forKey: .surfaceId)
+        notificationId = try container.decodeIfPresent(String.self, forKey: .notificationId)
         retargetsToLiveSurfaceOwner = try container.decodeIfPresent(
             Bool.self,
             forKey: .retargetsToLiveSurfaceOwner
         ) ?? true
-        text = try container.decode(String.self, forKey: .text)
+        text = try container.decodeIfPresent(String.self, forKey: .text)
         createdAtMs = try container.decode(UInt64.self, forKey: .createdAtMs)
         expiresAtMs = try container.decode(UInt64.self, forKey: .expiresAtMs)
+        guard encryptedPayload != nil else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .replyId,
+                in: container,
+                debugDescription: "plaintext reply is not valid on the E2E endpoint"
+            )
+        }
     }
 }
 
@@ -50,6 +67,7 @@ final class PhoneReplyInboxClient {
 
     @MainActor private weak var auth: AuthCoordinator?
     private let session: URLSession
+    private let retryAfterGate = CmxRetryAfterGate()
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -58,6 +76,11 @@ final class PhoneReplyInboxClient {
     @MainActor
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+    }
+
+    @MainActor
+    func authenticatedAccountID() -> String? {
+        auth?.authenticatedSessionIdentity?.accountID
     }
 
     private struct FetchEnvelope: Decodable {
@@ -69,8 +92,9 @@ final class PhoneReplyInboxClient {
     /// next nudge; the entries wait out their server-side TTL).
     @MainActor
     func fetchPending() async -> [PhoneReplyRecord]? {
+        guard (try? await retryAfterGate.wait()) != nil else { return nil }
         guard let request = await authorizedRequest(
-            path: "/v1/replies",
+            path: "/v1/replies/e2e",
             queryItems: [URLQueryItem(
                 name: "macDeviceId",
                 value: MobileHostIdentity.deviceID()
@@ -78,8 +102,12 @@ final class PhoneReplyInboxClient {
         ) else { return nil }
         do {
             let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode) else { return nil }
+            guard let http = response as? HTTPURLResponse else { return nil }
+            if http.statusCode == 429 {
+                await recordRetryAfter(http)
+                return nil
+            }
+            guard (200...299).contains(http.statusCode) else { return nil }
             return try JSONDecoder().decode(FetchEnvelope.self, from: data).replies
         } catch {
             phoneReplyLog.error("reply fetch failed: \(String(describing: error), privacy: .private)")
@@ -94,7 +122,8 @@ final class PhoneReplyInboxClient {
     @discardableResult
     func acknowledge(replyIds: [String]) async -> Bool {
         guard !replyIds.isEmpty else { return true }
-        guard var request = await authorizedRequest(path: "/v1/replies/ack") else { return false }
+        guard (try? await retryAfterGate.wait()) != nil else { return false }
+        guard var request = await authorizedRequest(path: "/v1/replies/e2e/ack") else { return false }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.httpBody = try? JSONSerialization.data(
@@ -103,13 +132,25 @@ final class PhoneReplyInboxClient {
         )
         do {
             let (_, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200...299).contains(http.statusCode) else { return false }
+            guard let http = response as? HTTPURLResponse else { return false }
+            if http.statusCode == 429 {
+                await recordRetryAfter(http)
+                return false
+            }
+            guard (200...299).contains(http.statusCode) else { return false }
             return true
         } catch {
             phoneReplyLog.error("reply ack failed: \(String(describing: error), privacy: .private)")
             return false
         }
+    }
+
+    private func recordRetryAfter(_ response: HTTPURLResponse) async {
+        let seconds = CmxRetryAfterPolicy().seconds(
+            from: response,
+            defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+        ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
+        await retryAfterGate.extend(by: seconds)
     }
 
     @MainActor

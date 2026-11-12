@@ -111,7 +111,7 @@ if [ -f "$SUCCESS_DIR/GhosttyKit.xcframework.tar.gz" ]; then
   exit 1
 fi
 
-for expected_arg in --retry --retry-delay --retry-all-errors; do
+for expected_arg in --speed-limit --speed-time --continue-at; do
   if ! grep -Fxq -- "$expected_arg" "$SUCCESS_LOG"; then
     echo "FAIL: curl invocation missing $expected_arg"
     exit 1

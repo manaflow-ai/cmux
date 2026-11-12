@@ -18,6 +18,7 @@ export const GET = withCoderouterRoute(
   {
     surface: "models",
     route: "/v1/models",
+    provider: (request) => (isAnthropicRequest(request) ? "claude" : "codex"),
     unavailable: (request) =>
       isAnthropicRequest(request)
         ? anthropicError(503, "api_error", "coderouter is temporarily unavailable. Retry shortly.")

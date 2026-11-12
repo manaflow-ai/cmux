@@ -1,5 +1,6 @@
 import { locales } from "./routing";
 import { docsCanonicalOrigin } from "@/app/lib/docs-channel";
+import { resolveAgentPageVariant } from "@/app/lib/agent-page-paths";
 
 const BASE = "https://cmux.com";
 const DEFAULT_OG_IMAGE_PATH = "/opengraph-image";
@@ -412,37 +413,41 @@ export function canonicalUrl(locale: string, path: string) {
 export function buildAlternates(
   locale: string,
   path: string,
-  availableLocales: readonly string[] = locales,
+  hreflangLocales: readonly string[] = locales,
 ) {
-  const base = path === "/docs" || path.startsWith("/docs/")
-    ? docsCanonicalOrigin()
-    : BASE;
-  const languages: Record<string, string> = {};
-  for (const loc of availableLocales) {
-    languages[loc] =
-      loc === "en" ? `${base}${path}` : `${base}/${loc}${path}`;
+  const isDocs = path === "/docs" || path.startsWith("/docs/");
+  const origin = isDocs ? docsCanonicalOrigin() : BASE;
+  const urlFor = (target: string) =>
+    target === "en" ? `${origin}${path}` : `${origin}/${target}${path}`;
+
+  // hreflang entries for every locale that serves this path, plus English as
+  // the x-default for visitors whose language is not listed.
+  const languages: Record<string, string> = Object.fromEntries(
+    hreflangLocales.map((target) => [target, urlFor(target)]),
+  );
+  languages["x-default"] = urlFor("en");
+
+  const canonical = urlFor(locale);
+  // Docs pages the agent route serves also have a Markdown copy at `<page>.md`.
+  const markdownPath = `${new URL(canonical).pathname}.md`;
+  if (!isDocs || resolveAgentPageVariant(markdownPath)?.kind !== "page") {
+    return { canonical, languages };
   }
-  languages["x-default"] = `${base}${path}`;
-
-  const canonical =
-    locale === "en" ? `${base}${path}` : `${base}/${locale}${path}`;
-
-  return { canonical, languages };
+  return { canonical, languages, types: { "text/markdown": `${canonical}.md` } };
 }
 
+/** HTTP `Link` header value advertising the same hreflang set as `buildAlternates`. */
 export function buildAlternateLinkHeader(
   origin: string,
   path: string,
-  availableLocales: readonly string[] = locales,
+  hreflangLocales: readonly string[] = locales,
 ) {
-  const entries = availableLocales.map((locale) => {
-    const url = localizedUrl(origin, locale, path);
-    return `<${url}>; rel="alternate"; hreflang="${locale}"`;
-  });
-  entries.push(
-    `<${localizedUrl(origin, "en", path)}>; rel="alternate"; hreflang="x-default"`,
-  );
-  return entries.join(", ");
+  const link = (target: string, hreflang: string) =>
+    `<${localizedUrl(origin, target, path)}>; rel="alternate"; hreflang="${hreflang}"`;
+  return [
+    ...hreflangLocales.map((target) => link(target, target)),
+    link("en", "x-default"),
+  ].join(", ");
 }
 
 function localizedUrl(origin: string, locale: string, path: string) {

@@ -58,6 +58,26 @@ extension TerminalController: ControlWorkspaceGroupContext {
                 localized: "workspaceGroup.error.generatedAnchorRemovalFailed",
                 defaultValue: "The generated group anchor could not be removed"
             ),
+            customColorIsNotAnInputKey: String(
+                localized: "workspaceGroup.error.customColorIsNotAnInputKey",
+                defaultValue: "unknown key custom_color; set_color accepts hex or color"
+            ),
+            colorMustBeHex: String(
+                localized: "workspaceGroup.error.colorMustBeHex",
+                defaultValue: "color must be a 6-digit hex color like #FF3EA5 (leading # optional)"
+            ),
+            colorMustBeString: String(
+                localized: "workspaceGroup.error.colorMustBeString",
+                defaultValue: "color must be a string holding a hex color"
+            ),
+            iconSymbolIsNotAnInputKey: String(
+                localized: "workspaceGroup.error.iconSymbolIsNotAnInputKey",
+                defaultValue: "unknown key icon_symbol; set_icon accepts symbol or icon"
+            ),
+            symbolMustBeString: String(
+                localized: "workspaceGroup.error.symbolMustBeString",
+                defaultValue: "symbol must be a string"
+            ),
             emptyPinnedCannotUngroup: String(
                 localized: "workspaceGroup.error.emptyPinnedCannotUngroup",
                 defaultValue: "A pinned empty group can only be removed with Delete Group"
@@ -224,11 +244,13 @@ extension TerminalController: ControlWorkspaceGroupContext {
         routing: ControlRoutingSelectors,
         groupID: UUID,
         isPinned: Bool
-    ) -> Bool? {
-        guard let tabManager = resolveTabManager(routing: routing) else { return nil }
-        let ok = tabManager.workspaceGroups.contains(where: { $0.id == groupID })
-        if ok { tabManager.setWorkspaceGroupPinned(groupId: groupID, isPinned: isPinned) }
-        return ok
+    ) -> ControlWorkspaceGroupPinResolution {
+        guard let tabManager = resolveTabManager(routing: routing) else { return .tabManagerUnavailable }
+        guard tabManager.workspaceGroups.contains(where: { $0.id == groupID }) else { return .notFound }
+        guard tabManager.setWorkspaceGroupPinned(groupId: groupID, isPinned: isPinned) else {
+            return .protected(message: TabManager.chiefHomeCannotUnpinMessage)
+        }
+        return .applied
     }
 
     func controlAddWorkspaceToGroup(

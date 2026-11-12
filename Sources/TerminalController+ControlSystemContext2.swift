@@ -35,6 +35,7 @@ extension TerminalController {
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
+        force: Bool = false,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
@@ -89,6 +90,22 @@ extension TerminalController {
         let windowId = v2ResolveWindowId(tabManager: tabManager)
         let focus = v2FocusAllowed(requested: requestedFocus)
 
+        // A browser REPL session's tab is not closed, moved to another
+        // workspace or reloaded by another socket client
+        // (``browserReplTabRefusalMessage(_:)``); bulk closes skip it.
+        switch action {
+        case "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace", "reload", "reload_tab":
+            if let message = browserReplTabRefusalMessage(panelId) {
+                return .bridged(.err(
+                    code: "denied",
+                    message: message,
+                    data: .object(["surface_id": .string(panelId.uuidString), "reason": .string("browser_repl_tab")])
+                ))
+            }
+        default:
+            break
+        }
+
         func finish(_ extras: ControlTabActionResolution.Extras) -> ControlTabActionResolution {
             .completed(ControlTabActionResolution.Outcome(
                 workspaceID: workspace.id,
@@ -112,7 +129,17 @@ extension TerminalController {
             return max(rawTarget, pinnedCount)
         }
 
-        func closeTabs(_ tabIds: [TabID]) -> (closed: Int, skippedPinned: Int) {
+        func closeTabs(_ tabIds: [TabID]) -> ControlTabActionResolution {
+            let activeSurfaceIDs = tabIds.compactMap { tabId -> UUID? in
+                guard let targetPanelID = workspace.panelIdFromSurfaceId(tabId),
+                      !workspace.isPanelPinned(targetPanelID),
+                      browserReplTabRefusalMessage(targetPanelID) == nil,
+                      workspace.panelNeedsConfirmClose(panelId: targetPanelID) else { return nil }
+                return targetPanelID
+            }
+            if !force, !activeSurfaceIDs.isEmpty {
+                return .confirmationRequired(activeSurfaceIDs)
+            }
             var closed = 0
             var skippedPinned = 0
             for tabId in tabIds {
@@ -121,6 +148,7 @@ extension TerminalController {
                     skippedPinned += 1
                     continue
                 }
+                if browserReplTabRefusalMessage(panelId) != nil { continue }
                 if workspace.panels.count <= 1 {
                     break
                 }
@@ -128,7 +156,7 @@ extension TerminalController {
                     closed += 1
                 }
             }
-            return (closed, skippedPinned)
+            return finish(.closed(closed: closed, skippedPinned: skippedPinned))
         }
 
         switch action {
@@ -192,14 +220,14 @@ extension TerminalController {
             }
 
         case "reload", "reload_tab":
-            guard let browserPanel = workspace.browserPanel(for: panelId) else {
+            guard let browserPanel = workspace.browserPanelForAutomation(panelId) else {
                 return .reloadNotBrowser
             }
-            browserPanel.reload()
+            browserPanel.reload(dialogOwner: .automation)
             return finish(.none)
 
         case "duplicate", "duplicate_tab":
-            guard let browserPanel = workspace.browserPanel(for: panelId) else {
+            guard let browserPanel = workspace.browserPanelForAutomation(panelId) else {
                 return .duplicateNotBrowser
             }
             guard BrowserAvailabilitySettings.isEnabled() else {
@@ -210,7 +238,11 @@ extension TerminalController {
                 ))
             }
 
-            guard let newPanel = workspace.duplicateBrowserToRight(panelId: panelId, focus: focus) else {
+            guard let newPanel = workspace.duplicateBrowserToRight(
+                panelId: panelId,
+                focus: focus,
+                creationPolicy: .automationPreload
+            ) else {
                 return .duplicateFailed
             }
             return finish(.created(newPanel.id))
@@ -227,7 +259,8 @@ extension TerminalController {
                 focus: focus,
                 inheritWorkingDirectoryFallback: true,
                 workingDirectoryFallbackSourcePanelId: panelId,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let newPanel):
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
@@ -236,7 +269,7 @@ extension TerminalController {
                 // Routed to the remote tmux mirror as `new-window`; the tab arrives
                 // via %window-add and the mirror positions it, so no local reorder here.
                 return finish(.routedToRemote)
-            case .failed:
+            case .failed, .noSpace:
                 return .createFailed
             }
 
@@ -280,8 +313,7 @@ extension TerminalController {
                 return .tabNotFoundInPane
             }
             let targetIds = Array(tabs.prefix(index).map(\.id))
-            let closeResult = closeTabs(targetIds)
-            return finish(.closed(closed: closeResult.closed, skippedPinned: closeResult.skippedPinned))
+            return closeTabs(targetIds)
 
         case "close_right", "close_to_right":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
@@ -293,8 +325,7 @@ extension TerminalController {
                 return .tabNotFoundInPane
             }
             let targetIds = (index + 1 < tabs.count) ? Array(tabs.suffix(from: index + 1).map(\.id)) : []
-            let closeResult = closeTabs(targetIds)
-            return finish(.closed(closed: closeResult.closed, skippedPinned: closeResult.skippedPinned))
+            return closeTabs(targetIds)
 
         case "close_others", "close_other_tabs":
             guard let anchorTabId = workspace.surfaceIdFromPanelId(panelId),
@@ -304,8 +335,7 @@ extension TerminalController {
             let targetIds = workspace.bonsplitController.tabs(inPane: paneId)
                 .map(\.id)
                 .filter { $0 != anchorTabId }
-            let closeResult = closeTabs(targetIds)
-            return finish(.closed(closed: closeResult.closed, skippedPinned: closeResult.skippedPinned))
+            return closeTabs(targetIds)
 
         default:
             return .unknownAction

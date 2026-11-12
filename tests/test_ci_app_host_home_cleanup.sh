@@ -268,6 +268,63 @@ grep -Fq "Confirmed app-host cleanup target:" "$TMP_DIR/success.log" || {
 run_cleanup > "$TMP_DIR/already-absent.log"
 grep -Fq "already absent" "$TMP_DIR/already-absent.log"
 
+# test-e2e restores its product beneath the checkout, outside RUNNER_TEMP.
+# Location alone never authorizes signalling: require the current receipt and
+# its exact executable even when that product lives in the workspace.
+runner_derived_data_path="$DERIVED_DATA_PATH"
+DERIVED_DATA_PATH="$TMP_DIR/workspace/DerivedData/cmux-e2e"
+APP_HOST_EXECUTABLE="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
+mkdir -p "$(dirname "$APP_HOST_EXECUTABLE")"
+: > "$APP_HOST_EXECUTABLE"
+prepare_scope
+/bin/bash -c 'trap "exit 0" TERM; while :; do /bin/sleep 0.1; done' &
+APP_HOST_PID=$!
+printf '%s|%s\n' "$APP_HOST_PID" "$APP_HOST_EXECUTABLE" > "$FAKE_LSOF_STATE"
+
+if run_cleanup > "$TMP_DIR/workspace-missing-receipt.log" 2>&1; then
+  echo "FAIL: workspace cleanup accepted a live app host without a receipt"
+  exit 1
+fi
+/bin/kill -0 "$APP_HOST_PID"
+[ -d "$CMUX_APP_HOST_HOME" ]
+
+printf 'version=2\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\n' \
+  "$CMUX_APP_HOST_KEY" "$APP_HOST_PID" \
+  "$runner_derived_data_path/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV" \
+  > "$CMUX_APP_HOST_RECEIPT_DIR/app-host-$APP_HOST_PID.receipt"
+if run_cleanup > "$TMP_DIR/workspace-wrong-product.log" 2>&1; then
+  echo "FAIL: workspace cleanup accepted another product's receipt"
+  exit 1
+fi
+/bin/kill -0 "$APP_HOST_PID"
+[ -d "$CMUX_APP_HOST_HOME" ]
+
+printf 'version=2\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\n' \
+  "$CMUX_APP_HOST_KEY" "$APP_HOST_PID" "$APP_HOST_EXECUTABLE" \
+  > "$CMUX_APP_HOST_RECEIPT_DIR/app-host-$APP_HOST_PID.receipt"
+if ! run_cleanup > "$TMP_DIR/workspace-success.log" 2>&1; then
+  cat "$TMP_DIR/workspace-success.log"
+  echo "FAIL: cleanup rejected the receipt-owned workspace product"
+  exit 1
+fi
+wait "$APP_HOST_PID" 2>/dev/null || true
+APP_HOST_PID=""
+for removed_target in \
+  "$CMUX_APP_HOST_HOME" \
+  "$CMUX_APP_HOST_RECEIPT_DIR" \
+  "$CMUX_APP_HOST_CONFIRMATION_FILE"
+do
+  [ ! -e "$removed_target" ] || {
+    echo "FAIL: workspace cleanup left an identity-owned target behind"
+    exit 1
+  }
+done
+[ -f "$APP_HOST_EXECUTABLE" ] || {
+  echo "FAIL: app-host home cleanup removed the workspace product"
+  exit 1
+}
+DERIVED_DATA_PATH="$runner_derived_data_path"
+
 # Model interruption immediately after cleanup authority becomes durable but
 # before either mutable scope root is claimed. Teardown must remove the exact
 # confirmation instead of leaving a run key that preparation can never reuse.

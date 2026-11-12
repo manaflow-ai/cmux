@@ -49,6 +49,20 @@ final class AgentJournalDatabase: @unchecked Sendable {
         self.handle = handle
     }
 
+    /// Opens an existing journal for reading only: no create, no schema
+    /// migration, no pragma writes. Readers that are not the journal's owner
+    /// (crash recovery) use this so they never contend with the writer.
+    init(readOnlyPath path: String) throws {
+        var handle: OpaquePointer?
+        let rc = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil)
+        guard rc == SQLITE_OK, let handle else {
+            if let handle { sqlite3_close_v2(handle) }
+            throw AgentJournalStoreError.openFailed(rc)
+        }
+        sqlite3_busy_timeout(handle, 1000)
+        self.handle = handle
+    }
+
     func close() {
         sqlite3_close_v2(handle)
     }

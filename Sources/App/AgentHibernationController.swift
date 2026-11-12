@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import CmuxWorkspaces
 
@@ -21,7 +22,7 @@ struct AgentHibernationRecord {
     let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
-    let processLiveness: RestorableAgentProcessLiveness
+    private(set) var processLiveness: RestorableAgentProcessLiveness = .unknown
     init(
         key: AgentHibernationPanelKey,
         workspace: Workspace,
@@ -58,9 +59,7 @@ struct AgentHibernationRecord {
 @MainActor
 final class AgentHibernationController {
     static let shared = AgentHibernationController()
-
     static let unableToProtectRetrySeconds: TimeInterval = 120
-
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
     var evaluationPhase: EvaluationPhase = .idle
@@ -77,15 +76,23 @@ final class AgentHibernationController {
     var teardownInFlightByPanel: [AgentHibernationPanelKey: InFlightTeardown] = [:]
     var committedTerminationObservationsByPanelID: [UUID: CommittedTerminationObservation] = [:]
     var committedTerminationCleanupByPanelID: [UUID: CommittedTerminationCleanup] = [:]
+    var sessionEndPreservationIntentsByPanel: [AgentHibernationPanelKey: AgentHibernationSessionEndIntent] = [:]
     let processSnapshotCoordinator = AgentHibernationProcessSnapshotCoordinator()
     var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
     var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
     var memoryPressureEvaluation: (id: UUID, task: Task<Void, Never>)?
-
+    var backgroundWorkDrainTimer: DispatchSourceTimer?
+    var backgroundWorkDrainCheckInFlight = false
+    var backgroundWorkDrainRejections: [AgentHibernationPanelKey: ClaudeBackgroundWorkDrain.Evidence] = [:]
+    /// The lifecycle change each journaled drain answered, keyed by pane.
+    var backgroundWorkDrainsJournaled: [AgentHibernationPanelKey: TimeInterval?] = [:]
     private init() {}
 
     func start() {
         AgentHibernationTrackingGate.setEnabled(true)
+        // Runs whether or not hibernation is on: the sidebar shows the same
+        // stale Waiting state either way.
+        startBackgroundWorkDrainTimer()
         guard settingsObserver == nil else {
             updateTimerForCurrentSettings()
             return
@@ -105,6 +112,7 @@ final class AgentHibernationController {
     func stop() {
         timer?.cancel()
         timer = nil
+        stopBackgroundWorkDrainTimer()
         memoryPressureEvaluation?.task.cancel()
         memoryPressureEvaluation = nil
         AgentHibernationTrackingGate.setEnabled(false)
@@ -504,6 +512,7 @@ final class AgentHibernationController {
         teardownValidationEpochByPanel = teardownValidationEpochByPanel.filter { currentKeys.contains($0.key) }
         unableToProtectByPanel = unableToProtectByPanel.filter { currentKeys.contains($0.key) }
         teardownInFlightByPanel = teardownInFlightByPanel.filter { currentKeys.contains($0.key) }
+        sessionEndPreservationIntentsByPanel = sessionEndPreservationIntentsByPanel.filter { currentKeys.contains($0.key) }
         confirmations = confirmations.filter { key, confirmation in
             currentKeys.contains(key) &&
                 (confirmation.trigger != trigger || selectedKeys.contains(key))

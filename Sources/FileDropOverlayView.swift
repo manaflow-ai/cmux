@@ -3,34 +3,6 @@ import Bonsplit
 import Foundation
 import WebKit
 
-@MainActor
-protocol FileDropPaneTarget: AnyObject {
-    func fileDropDraggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation
-    func fileDropDraggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation
-    func fileDropDraggingExited(_ sender: (any NSDraggingInfo)?)
-    func fileDropPrepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool
-    func fileDropPerformDragOperation(_ sender: any NSDraggingInfo) -> Bool
-    func fileDropConcludeDragOperation(_ sender: (any NSDraggingInfo)?)
-}
-
-extension PaneDropTargetView: FileDropPaneTarget {
-    func fileDropDraggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
-    func fileDropDraggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation { draggingUpdated(sender) }
-    func fileDropDraggingExited(_ sender: (any NSDraggingInfo)?) { draggingExited(sender) }
-    func fileDropPrepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool { prepareForDragOperation(sender) }
-    func fileDropPerformDragOperation(_ sender: any NSDraggingInfo) -> Bool { performDragOperation(sender) }
-    func fileDropConcludeDragOperation(_ sender: (any NSDraggingInfo)?) { concludeDragOperation(sender) }
-}
-
-extension BrowserPaneDropTargetView: FileDropPaneTarget {
-    func fileDropDraggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
-    func fileDropDraggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation { draggingUpdated(sender) }
-    func fileDropDraggingExited(_ sender: (any NSDraggingInfo)?) { draggingExited(sender) }
-    func fileDropPrepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool { prepareForDragOperation(sender) }
-    func fileDropPerformDragOperation(_ sender: any NSDraggingInfo) -> Bool { performDragOperation(sender) }
-    func fileDropConcludeDragOperation(_ sender: (any NSDraggingInfo)?) { concludeDragOperation(sender) }
-}
-
 /// Transparent NSView installed on the window's theme frame (above the NSHostingView) to
 /// handle file/URL drags from Finder. Nested NSHostingController layers (created by bonsplit's
 /// SinglePaneWrapper) prevent AppKit's NSDraggingDestination routing from reaching deeply
@@ -61,7 +33,8 @@ final class FileDropOverlayView: NSView {
     var didPerformDragAsText = false
     weak var performedTextDragWebView: WKWebView?
     weak var performedTextPaneDropTarget: (any FileDropPaneTarget)?
-    let hintBadgeView = FileDropHintBadgeView(frame: .zero)
+    let hintPresentation = FileDropHintPresentation()
+    var hintBadgeView: FileDropHintBadgeView { hintPresentation.badge }
     var lastHitTestLogSignature: String?
     var lastDragRouteLogSignatureByPhase: [String: String] = [:]
     weak var hitTestReferenceView: NSView?
@@ -238,8 +211,7 @@ final class FileDropOverlayView: NSView {
             // dragged/up event even though its down was delivered underneath.
             // Recover the normal target in that case instead of dropping the
             // event and leaving the underlying selection gesture incomplete.
-            let point = contentView.convert(event.locationInWindow, from: nil)
-            target = contentView.hitTest(point)
+            target = contentView.cmuxHitTest(windowPoint: event.locationInWindow)
         }
 
         guard let target, target !== self else {
@@ -276,6 +248,7 @@ final class FileDropOverlayView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        hintPresentation.setHostWindow(window)
         if window == nil {
             clearForwardedMouseDragState(reason: "overlayDetached")
         }
@@ -300,6 +273,7 @@ final class FileDropOverlayView: NSView {
     // HTML5 drag events (dragenter, dragleave, drop) fire correctly.
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        hintPresentation.begin(sequenceNumber: sender.draggingSequenceNumber)
         return updateDragTarget(sender, phase: "entered")
     }
 
@@ -308,13 +282,17 @@ final class FileDropOverlayView: NSView {
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        hintBadgeView.hide()
+        hintPresentation.dismiss()
         preparedDragWebView = nil
         preparedPaneDropTarget = nil
         didPerformDragAsText = false
         performedTextDragWebView = nil
         performedTextPaneDropTarget = nil
         exitActiveDragTargets(sender)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        draggingExited(sender)
     }
 
     private func exitActiveDragTargets(_ sender: (any NSDraggingInfo)?) {
@@ -353,6 +331,7 @@ final class FileDropOverlayView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        hintPresentation.dismiss()
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
         let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -415,6 +394,7 @@ final class FileDropOverlayView: NSView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        hintPresentation.dismiss()
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
         let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
@@ -422,7 +402,6 @@ final class FileDropOverlayView: NSView {
             hasLocalDraggingSource: hasLocalDraggingSource
         )
         if shouldRouteFileDropToTextDestination(sender) {
-            hintBadgeView.hide()
             didPerformDragAsText = false
             performedTextDragWebView = nil
             performedTextPaneDropTarget = nil
@@ -516,7 +495,7 @@ final class FileDropOverlayView: NSView {
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         defer {
-            hintBadgeView.hide()
+            hintPresentation.dismiss()
             preparedDragWebView = nil
             activeDragWebView = nil
             preparedPaneDropTarget = nil

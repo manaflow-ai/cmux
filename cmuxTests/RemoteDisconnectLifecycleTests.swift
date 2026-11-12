@@ -236,6 +236,8 @@ struct RemoteDisconnectLifecycleTests {
             orientation: .horizontal,
             focus: false
         ))
+        #expect(workspace.markRemoteTerminalSessionConnected(surfaceId: panel.id, relayPort: 64007))
+        #expect(workspace.markRemoteTerminalSessionConnected(surfaceId: sibling.id, relayPort: 64007))
         workspace.restoredTerminalScrollbackByPanelId[panel.id] = "remote-output\n"
 
         manager.closePanelAfterChildExited(tabId: workspace.id, surfaceId: panel.id)

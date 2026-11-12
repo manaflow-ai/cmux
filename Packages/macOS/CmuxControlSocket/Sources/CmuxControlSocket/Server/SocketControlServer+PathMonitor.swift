@@ -60,6 +60,13 @@ extension SocketControlServer {
         }
 
         previousSource?.cancel()
+
+        // Registration is the lifecycle boundary for the watcher. This
+        // callback closes the bind-to-watch gap without scheduling an
+        // unowned queue hop that could outlive a cancelled source.
+        source.setRegistrationHandler { @Sendable [weak self] in
+            self?.handleSocketPathDirectoryEvent(path: path, generation: generation)
+        }
         source.resume()
     }
 

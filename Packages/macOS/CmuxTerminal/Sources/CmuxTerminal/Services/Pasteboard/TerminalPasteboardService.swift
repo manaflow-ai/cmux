@@ -60,7 +60,7 @@ public final class TerminalPasteboardService: Sendable {
     // SAFETY: immutable references; NSPasteboard handles are usable from any
     // thread and the legacy code already wrote to these pasteboards from
     // ghostty runtime threads.
-    nonisolated(unsafe) private let standardPasteboard: NSPasteboard
+    nonisolated(unsafe) let standardPasteboard: NSPasteboard
     nonisolated(unsafe) private let selectionPasteboard: NSPasteboard
     private let standardPasteboardLane: TerminalPasteboardTransactionLane
     private let selectionPasteboardLane: TerminalPasteboardTransactionLane
@@ -177,6 +177,12 @@ extension TerminalPasteboardService: TerminalClipboardWriting {
                 return
             }
         }
+
+        // An empty payload carries nothing to paste; writing it would only
+        // wipe what the user copied. Remote programs send it as an OSC 52
+        // write (`ESC ] 52 ; c ; BEL`), which xterm defines as "clear".
+        let representations = representations.filter { !$0.string.isEmpty }
+        guard !representations.isEmpty else { return }
 
         switch location {
         case GHOSTTY_CLIPBOARD_STANDARD:

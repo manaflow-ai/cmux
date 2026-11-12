@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -339,6 +341,16 @@ extension WorkspaceShellView {
         let store = store
         return { id in
             Task { @MainActor in
+                // SSH workspaces close on their own host (cmux-tui workspace,
+                // tmux session, or plain shell), never through a Mac RPC.
+                if let row = store.workspaces.first(where: { $0.id == id }),
+                   let deviceID = row.macDeviceID,
+                   store.sshHostID(computerDeviceID: deviceID) != nil {
+                    if let scopedID = store.sshScopedWorkspaceID(id) {
+                        await store.sshComputers.closeWorkspace(scopedID: scopedID)
+                    }
+                    return
+                }
                 let result = await store.closeWorkspace(id: id)
                 handleWorkspaceActionResult(result, action: .closeWorkspace)
             }
@@ -421,22 +433,22 @@ extension WorkspaceShellView {
     }
 
     var createWorkspaceInGroupInCompactStackClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCreateInGroup else { return nil }
+        guard store.supportsWorkspaceCreateInGroup, sshCreateHostID == nil else { return nil }
         return { groupID in createWorkspaceInCompactStack(inGroup: groupID) }
     }
 
     var createWorkspaceInGroupIfConnectedClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCreateInGroup else { return nil }
+        guard store.supportsWorkspaceCreateInGroup, sshCreateHostID == nil else { return nil }
         return { groupID in createWorkspaceIfConnected(inGroup: groupID) }
     }
 
     var createWorkspaceGroupInCompactStackClosure: (() -> Void)? {
-        guard store.supportsWorkspaceGroupCreate else { return nil }
+        guard store.supportsWorkspaceGroupCreate, sshCreateHostID == nil else { return nil }
         return { createWorkspaceGroupIfConnected() }
     }
 
     var createWorkspaceGroupIfConnectedClosure: (() -> Void)? {
-        guard store.supportsWorkspaceGroupCreate else { return nil }
+        guard store.supportsWorkspaceGroupCreate, sshCreateHostID == nil else { return nil }
         return { createWorkspaceGroupIfConnected() }
     }
 
@@ -446,6 +458,10 @@ extension WorkspaceShellView {
 
     func createWorkspaceInCompactStack(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
         guard canCreateWorkspaceForMacSelection else { return }
+        if let hostID = sshCreateHostID {
+            createSSHWorkspace(hostID: hostID)
+            return
+        }
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         if store.usesLocalWorkspaceCreationFallback {
@@ -475,6 +491,10 @@ extension WorkspaceShellView {
 
     func createWorkspaceIfConnected(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
         guard canCreateWorkspaceForMacSelection else { return }
+        if let hostID = sshCreateHostID {
+            createSSHWorkspace(hostID: hostID)
+            return
+        }
         if store.usesLocalWorkspaceCreationFallback {
             store.createWorkspace(inGroup: groupID)
             return
@@ -488,13 +508,202 @@ extension WorkspaceShellView {
         }
     }
 
+    /// New Workspace from a Cloud machine's workspace: made on that machine,
+    /// then opened through the same navigation a Mac-side create takes.
+    func createWorkspaceOnExternalHost(beside workspaceID: MobileWorkspacePreview.ID) {
+        runExternalHostWorkspaceCreate { store in
+            await store.createExternalHostWorkspace(beside: workspaceID)
+        }
+    }
+
+    /// New Workspace targeting a Cloud machine from the list's menu, or from
+    /// a computers scope naming one.
+    func createWorkspaceOnExternalHost(onHost hostID: String) {
+        runExternalHostWorkspaceCreate { store in
+            await store.createExternalHostWorkspace(onHost: hostID)
+        }
+    }
+
+    private func runExternalHostWorkspaceCreate(
+        _ create: @escaping @MainActor (CMUXMobileShellStore) async -> Result<Void, MobileWorkspaceMutationFailure>
+    ) {
+        let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
+        let settlesCompactNavigation = usesCompactStack
+        if settlesCompactNavigation {
+            pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
+        }
+        Task { @MainActor in
+            let result = await create(store)
+            handleWorkspaceActionResult(result, action: .createWorkspace)
+            if settlesCompactNavigation {
+                settlePendingCompactCreateNavigation(
+                    result: result,
+                    existingWorkspaceIDs: existingWorkspaceIDs
+                )
+            }
+        }
+    }
+
     func createWorkspaceGroupIfConnected() {
-        guard canCreateWorkspaceForMacSelection else { return }
+        guard canCreateWorkspaceForMacSelection, sshCreateHostID == nil else { return }
         Task { @MainActor in
             let result = await store.createWorkspaceGroup()
             handleWorkspaceActionResult(result, action: .createWorkspaceGroup)
         }
     }
+
+    /// New Workspace on an SSH computer (PRD D22, D31): a cmux-tui
+    /// workspace, a tmux session, or a shell, then open it. Failures land on
+    /// the computer's status (shown by the list's SSH banner), not a toast.
+    ///
+    /// `+` always names the kind. Entry points without a kind menu (the
+    /// terminal's New Workspace button, a keyboard shortcut) repeat the
+    /// kind of the workspace on screen when it is on this computer, else
+    /// the first kind the computer can create (cmux-tui, tmux, shell).
+    func createSSHWorkspace(hostID: UUID, kind: MobileSSHWorkspaceKind? = nil) {
+        let store = store
+        let compact = usesCompactStack
+        let resolved = kind ?? defaultSSHWorkspaceKind(hostID: hostID)
+        Task { @MainActor in
+            guard let id = await store.createSSHWorkspace(hostID: hostID, kind: resolved) else { return }
+            store.selectedWorkspaceID = id
+            if compact {
+                compactNavigationPath = [id]
+            }
+        }
+    }
+
+    private func defaultSSHWorkspaceKind(hostID: UUID) -> MobileSSHWorkspaceKind {
+        if let selected = store.selectedWorkspaceID,
+           let row = store.workspaces.first(where: { $0.id == selected }),
+           row.macDeviceID == store.sshComputerDeviceID(hostID: hostID),
+           let kind = store.sshWorkspaceKind(workspaceID: selected) {
+            return kind
+        }
+        let available = store.sshComputers.kindAvailability(hostID: hostID)
+        return available.first { $0.isAvailable && !$0.needsInstall }?.kind ?? .shell
+    }
+
+    /// The kinds `+` offers when it creates on one SSH computer; empty for
+    /// a Mac.
+    var sshNewWorkspaceKinds: [WorkspaceCreateKindOption] {
+        guard let hostID = sshCreateHostID else { return [] }
+        return store.sshComputers.kindAvailability(hostID: hostID).map(WorkspaceCreateKindOption.init)
+    }
+
+    #if os(iOS)
+    /// Computers `+` offers while "All Computers" is shown: connected Macs,
+    /// Cloud machines, and every saved SSH computer (creating on one connects
+    /// it). Empty when the list is scoped to one computer.
+    var newWorkspaceComputerTargets: [WorkspaceCreateComputerTarget] {
+        switch macSelectionScope.visibleSelection {
+        case .machine:
+            return []
+        case .all, .automatic:
+            break
+        }
+        let buildScope = MobileIOSBuildScope.current()
+        var targets: [WorkspaceCreateComputerTarget] = []
+        for mac in store.displayPairedMacs where macAcceptsNewWorkspace(mac) {
+            let name = buildScope.map { $0.computerDisplayName(mac.resolvedName) } ?? mac.resolvedName
+            targets.append(WorkspaceCreateComputerTarget(
+                id: mac.id,
+                kind: .mac(macDeviceID: mac.macDeviceID, instanceTag: mac.instanceTag),
+                name: name,
+                statusText: nil,
+                statusColor: MobileSSHHostStatus.connected.sshStatusColor
+            ))
+        }
+        for host in store.sshComputers.hosts {
+            let status = store.sshComputers.statusByHost[host.id] ?? .idle
+            targets.append(WorkspaceCreateComputerTarget(
+                id: store.sshComputerDeviceID(hostID: host.id),
+                kind: .ssh(host.id),
+                // No dev build tag suffix: an SSH host is not a cmux build.
+                name: host.name,
+                statusText: status == .connected ? nil : status.sshStatusText,
+                statusColor: status.sshStatusColor,
+                sshKinds: store.sshComputers.kindAvailability(hostID: host.id).map(WorkspaceCreateKindOption.init)
+            ))
+        }
+        var cloudHosts = store.externalHostSummaries
+        let knownCloudHostIDs = Set(cloudHosts.map(\.hostID))
+        let cloudRowsByHost = Dictionary(
+            grouping: store.workspaces.compactMap { workspace -> (String, MobileWorkspacePreview)? in
+                guard let hostID = workspace.macDeviceID,
+                      store.externalHostOwnsHost(hostID),
+                      !store.externalHostIsHidden(hostID) else { return nil }
+                return (hostID, workspace)
+            },
+            by: { $0.0 }
+        )
+        for (hostID, rows) in cloudRowsByHost where !knownCloudHostIDs.contains(hostID) {
+            cloudHosts.append(MobileExternalHostSummary(
+                hostID: hostID,
+                displayName: rows.first?.1.macDisplayName,
+                status: store.externalHostIsConnected(hostID) ? .connected : .unavailable,
+                workspaceCount: rows.count,
+                isHidden: false
+            ))
+        }
+        for host in cloudHosts where !host.isHidden {
+            targets.append(WorkspaceCreateComputerTarget(
+                id: host.hostID,
+                kind: .cloud(hostID: host.hostID),
+                name: host.displayName ?? host.hostID,
+                statusText: host.status == .connected ? nil : host.status.label,
+                statusColor: host.status.tintColor
+            ))
+        }
+        return targets
+    }
+
+    /// A paired Mac is offered when it is the live foreground connection or
+    /// its own connection reports healthy.
+    private func macAcceptsNewWorkspace(_ mac: MobilePairedMac) -> Bool {
+        isForegroundMac(macDeviceID: mac.macDeviceID, instanceTag: mac.instanceTag)
+            || store.macConnectionStatuses[mac.id] == .connected
+    }
+
+    private func isForegroundMac(macDeviceID: String, instanceTag: String?) -> Bool {
+        store.connectionState == .connected
+            && store.connectedMacDeviceID == macDeviceID
+            && Self.sameInstanceTag(store.connectedMacInstanceTag, instanceTag)
+    }
+
+    private static func sameInstanceTag(_ lhs: String?, _ rhs: String?) -> Bool {
+        func normalized(_ tag: String?) -> String? {
+            guard let trimmed = tag?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+        return normalized(lhs) == normalized(rhs)
+    }
+
+    /// Creates a workspace on the computer chosen from `+`'s menu. A Mac that
+    /// is not the foreground connection becomes it first (the same switch the
+    /// computers picker performs), then `create` runs the usual create path.
+    func createWorkspace(
+        on target: WorkspaceCreateComputerTarget,
+        kind: MobileSSHWorkspaceKind?,
+        create: @escaping () -> Void
+    ) {
+        switch target.kind {
+        case .ssh(let hostID):
+            createSSHWorkspace(hostID: hostID, kind: kind)
+        case .cloud(let hostID):
+            createWorkspaceOnExternalHost(onHost: hostID)
+        case .mac(let macDeviceID, let instanceTag):
+            if isForegroundMac(macDeviceID: macDeviceID, instanceTag: instanceTag) {
+                create()
+                return
+            }
+            Task { @MainActor in
+                guard await switchMacFromWorkspacePicker(macDeviceID: macDeviceID, instanceTag: instanceTag) else { return }
+                create()
+            }
+        }
+    }
+    #endif
 
     func settlePendingCompactCreateNavigation(
         result: Result<Void, MobileWorkspaceMutationFailure>,

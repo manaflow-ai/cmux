@@ -40,6 +40,7 @@ def run_claude_teams(
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
+    block_preload_directory: bool = False,
     unexpected_path_entries: tuple[str, ...] = (),
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with (
@@ -69,6 +70,12 @@ def run_claude_teams(
         child_node_options_log = tmp / "child-node-options.log"
         fake_home = tmp / "home"
         fake_home.mkdir(parents=True, exist_ok=True)
+        if block_preload_directory:
+            # A regular file where the restore preload's directory belongs
+            # makes creating the preload fail without touching the tmux shim.
+            cmuxterm = fake_home / ".cmuxterm"
+            cmuxterm.mkdir(parents=True, exist_ok=True)
+            (cmuxterm / "cmux-claude-node-options").write_text("occupied", encoding="utf-8")
 
         make_executable(
             wrapper_shim_bin / "claude",
@@ -512,6 +519,8 @@ def main() -> int:
         )
         return 1
 
+    # The restore preload lives in ~/.cmuxterm, not $TMPDIR (#14814), so an
+    # unusable TMPDIR must not cost the session its NODE_OPTIONS restore.
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-bad-tmp-") as td:
         bad_tmpdir = Path(td) / "not-a-directory"
         bad_tmpdir.write_text("occupied", encoding="utf-8")
@@ -528,26 +537,138 @@ def main() -> int:
         print(f"stderr={proc.stderr.strip()}")
         return 1
 
-    if node_options_value != "--trace-warnings":
+    require_flag, _, remaining_flags = node_options_value.partition(" ")
+    if (
+        not require_flag.startswith("--require=")
+        or "/.cmuxterm/cmux-claude-node-options/" not in require_flag
+        or str(bad_tmpdir) in require_flag
+    ):
         print(
-            "FAIL: expected claude-teams to skip restore preload injection when TMPDIR is unusable, "
+            "FAIL: expected claude-teams to inject the ~/.cmuxterm restore preload when TMPDIR is unusable, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if remaining_flags != "--max-old-space-size=4096 --trace-warnings":
+        print(
+            "FAIL: expected the heap cap after the restore preload when TMPDIR is unusable, "
             f"got {node_options_value!r}"
         )
         return 1
 
     if runtime_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected Claude runtime NODE_OPTIONS to be restored when TMPDIR is unusable, "
             f"got {runtime_node_options_value!r}"
         )
         return 1
 
     if child_node_options_value != "--trace-warnings":
         print(
-            "FAIL: expected child NODE_OPTIONS to remain unchanged when TMPDIR is unusable, "
+            "FAIL: expected child NODE_OPTIONS to be restored when TMPDIR is unusable, "
             f"got {child_node_options_value!r}"
         )
         return 1
+
+    # When the preload itself cannot be written, the launcher must skip the
+    # injection rather than point NODE_OPTIONS at a missing module.
+    proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+        cli_path,
+        base_env,
+        "--trace-warnings",
+        block_preload_directory=True,
+    )
+    if proc.returncode != 0:
+        print("FAIL: `cmux claude-teams --version` should still succeed when the restore preload cannot be written")
+        print(f"exit={proc.returncode}")
+        print(f"stdout={proc.stdout.strip()}")
+        print(f"stderr={proc.stderr.strip()}")
+        return 1
+
+    if node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected claude-teams to skip restore preload injection when the preload cannot be written, "
+            f"got {node_options_value!r}"
+        )
+        return 1
+
+    if runtime_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected Claude runtime NODE_OPTIONS to remain unchanged when the preload cannot be written, "
+            f"got {runtime_node_options_value!r}"
+        )
+        return 1
+
+    if child_node_options_value != "--trace-warnings":
+        print(
+            "FAIL: expected child NODE_OPTIONS to remain unchanged when the preload cannot be written, "
+            f"got {child_node_options_value!r}"
+        )
+        return 1
+
+    # A restore preload inherited from an earlier cmux Claude launch can point
+    # at a file that no longer exists (older builds kept it in TMPDIR). The
+    # launcher must drop it rather than carry it into the new session (#22274).
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-stale-preload-") as td:
+        stale_preload = Path(td) / "cmux-claude-node-options" / "restore-node-options.cjs"
+        stale_node_options = f"--require={stale_preload} --max-old-space-size=4096 --trace-warnings"
+        unmarked_env = {
+            key: value
+            for key, value in base_env.items()
+            if key not in ("CMUX_ORIGINAL_NODE_OPTIONS", "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
+        }
+        for stale_label, stale_base_env, expected_user in (
+            ("without recorded original", unmarked_env, "--trace-warnings"),
+            (
+                "with recorded original",
+                {
+                    **unmarked_env,
+                    "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT": "1",
+                    "CMUX_ORIGINAL_NODE_OPTIONS": "--trace-deprecation",
+                },
+                "--trace-deprecation",
+            ),
+        ):
+            for block_preload in (False, True):
+                proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
+                    cli_path,
+                    stale_base_env,
+                    stale_node_options,
+                    block_preload_directory=block_preload,
+                )
+                case = f"stale inherited preload {stale_label}, preload writable={not block_preload}"
+                if proc.returncode != 0:
+                    print(f"FAIL: `cmux claude-teams --version` exited non-zero ({case})")
+                    print(f"exit={proc.returncode}")
+                    print(f"stdout={proc.stdout.strip()}")
+                    print(f"stderr={proc.stderr.strip()}")
+                    return 1
+
+                if str(stale_preload) in node_options_value:
+                    print(f"FAIL: expected claude-teams to drop the stale restore preload ({case}), got {node_options_value!r}")
+                    return 1
+
+                expected_launch = (
+                    expected_user
+                    if block_preload
+                    else f"--max-old-space-size=4096 {expected_user}"
+                )
+                launch_flags = node_options_value
+                if not block_preload:
+                    require_flag, _, launch_flags = node_options_value.partition(" ")
+                    if "/.cmuxterm/cmux-claude-node-options/" not in require_flag:
+                        print(f"FAIL: expected the ~/.cmuxterm restore preload ({case}), got {node_options_value!r}")
+                        return 1
+                if launch_flags != expected_launch:
+                    print(f"FAIL: expected launch NODE_OPTIONS flags {expected_launch!r} ({case}), got {node_options_value!r}")
+                    return 1
+
+                if runtime_node_options_value != expected_user or child_node_options_value != expected_user:
+                    print(
+                        f"FAIL: expected restored NODE_OPTIONS {expected_user!r} ({case}), "
+                        f"got runtime={runtime_node_options_value!r} child={child_node_options_value!r}"
+                    )
+                    return 1
 
     print("PASS: cmux claude-teams restores child NODE_OPTIONS while injecting the auto-mode tmux env")
     return 0

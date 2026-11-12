@@ -1,7 +1,20 @@
+import CMUXMobileCore
 public import Foundation
 import OSLog
 
 private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
+
+public struct PushRegistrationIdentity: Equatable, Sendable {
+    public let installationID: String
+    public let keyID: String
+    public let publicKey: String
+
+    public init(installationID: String, keyID: String, publicKey: String) {
+        self.installationID = installationID
+        self.keyID = keyID
+        self.publicKey = publicKey
+    }
+}
 
 /// Owns the push opt-in state and the device-token sync with the cmux web API.
 ///
@@ -20,6 +33,11 @@ public actor PushRegistrationService: PushRegistering {
     private let apiBaseURL: String
     private let bundleID: String
     private let apnsEnvironment: String
+    private let pushInstallationID: String?
+    private let pushKeyID: String?
+    private let pushPublicKey: String?
+    private let initialPushIdentity: PushRegistrationIdentity?
+    private let pushIdentityProvider: (@Sendable () -> PushRegistrationIdentity?)?
     private let defaults: UserDefaults
     private let pendingUnregisterStoreURL: URL
     private var pendingUnregisterStore: PendingUnregisterStore?
@@ -107,6 +125,10 @@ public actor PushRegistrationService: PushRegistering {
         apiBaseURL: String,
         bundleID: String,
         apnsEnvironment: String,
+        pushInstallationID: String? = nil,
+        pushKeyID: String? = nil,
+        pushPublicKey: String? = nil,
+        pushIdentityProvider: (@Sendable () -> PushRegistrationIdentity?)? = nil,
         suiteName: String? = nil,
         pendingUnregisterStoreURL: URL? = nil,
         session: sending URLSession = .shared,
@@ -129,6 +151,19 @@ public actor PushRegistrationService: PushRegistering {
         self.apiBaseURL = apiBaseURL
         self.bundleID = bundleID
         self.apnsEnvironment = apnsEnvironment
+        self.pushInstallationID = pushInstallationID
+        self.pushKeyID = pushKeyID
+        self.pushPublicKey = pushPublicKey
+        if let pushInstallationID, let pushKeyID, let pushPublicKey {
+            self.initialPushIdentity = PushRegistrationIdentity(
+                installationID: pushInstallationID,
+                keyID: pushKeyID,
+                publicKey: pushPublicKey
+            )
+        } else {
+            self.initialPushIdentity = nil
+        }
+        self.pushIdentityProvider = pushIdentityProvider
         if let suiteName, let suite = UserDefaults(suiteName: suiteName) {
             self.defaults = suite
         } else {
@@ -531,7 +566,9 @@ public actor PushRegistrationService: PushRegistering {
         if await sendDelete(
             tokenHex: hex,
             capturedAccessToken: accessToken,
-            capturedRefreshToken: refreshToken
+            capturedRefreshToken: refreshToken,
+            installationID: pushIdentityProvider?()?.installationID ?? pushInstallationID,
+            revokeSession: true
         ), let ownerID {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
@@ -614,6 +651,7 @@ public actor PushRegistrationService: PushRegistering {
             hasDeviceToken: true,
             backendState: .registering
         ))
+        let pushIdentity = pushIdentityProvider?() ?? initialPushIdentity
         let request = await makeRequest(
             method: "POST",
             path: "/api/device-tokens",
@@ -622,7 +660,16 @@ public actor PushRegistrationService: PushRegistering {
                 "bundleId": bundleID,
                 "environment": apnsEnvironment,
                 "platform": "ios",
-            ],
+            ].merging(
+                pushIdentity.map { ["installationId": $0.installationID] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ).merging(
+                pushIdentity.map { ["pushKeyId": $0.keyID] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ).merging(
+                pushIdentity.map { ["pushPublicKey": $0.publicKey] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ),
             authPhase: .pushRegistrationSession
         )
         let result: RegistrationResult
@@ -740,10 +787,13 @@ public actor PushRegistrationService: PushRegistering {
     ) {
         guard failure.isRecoverable, !remainingDelays.isEmpty else { return }
         let fallbackDelay = remainingDelays[0]
-        let delay = retryAfter ?? Self.jittered(
+        let localDelay = Self.jittered(
             fallbackDelay,
             multiplier: retryJitter(0.8...1.2)
         )
+        // Retry-After is a server-owned floor. It can extend, but never
+        // shorten, the client's local backoff.
+        let delay = max(localDelay, retryAfter ?? .zero)
         let laterDelays = Array(remainingDelays.dropFirst())
         retryTask = Task { [weak self, retrySleep] in
             do {
@@ -815,7 +865,9 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
-        sessionSnapshot: AuthenticatedSessionSnapshot? = nil
+        sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
+        installationID: String? = nil,
+        revokeSession: Bool = false
     ) async -> Bool {
         guard case let .success(context) = await makeRequest(
             method: "DELETE",
@@ -823,7 +875,13 @@ public actor PushRegistrationService: PushRegistering {
             body: [
                 "deviceToken": tokenHex,
                 "bundleId": bundleID,
-            ],
+            ].merging(
+                installationID.map { ["installationId": $0] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ).merging(
+                revokeSession ? ["revokeSession": "true"] : [:],
+                uniquingKeysWith: { _, new in new }
+            ),
             capturedAccessToken: capturedAccessToken,
             capturedRefreshToken: capturedRefreshToken,
             sessionSnapshot: sessionSnapshot,
@@ -1371,10 +1429,10 @@ public actor PushRegistrationService: PushRegistering {
             let seconds = retryAfterSeconds(
                 response: response,
                 body: data
-            )
+            ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
             return .failure(
                 .rateLimited(retryAfterSeconds: seconds),
-                retryAfter: seconds.map(Duration.seconds)
+                retryAfter: .seconds(seconds)
             )
         case 500...599:
             return .failure(.serviceUnavailable, retryAfter: nil)
@@ -1387,14 +1445,17 @@ public actor PushRegistrationService: PushRegistering {
         response: HTTPURLResponse,
         body: Data
     ) -> Int? {
-        let headerDelay = response.value(forHTTPHeaderField: "Retry-After")
-            .flatMap(Int.init)
+        let headerDelay = CmxRetryAfterPolicy().seconds(
+            from: response.value(forHTTPHeaderField: "Retry-After")
+        )
         let bodyDelay = try? JSONDecoder().decode(
             RegistrationErrorResponse.self,
             from: body
         ).retryAfterSeconds
-        guard let raw = headerDelay ?? bodyDelay else { return nil }
-        return min(max(raw, 0), 600)
+        guard let raw = headerDelay ?? bodyDelay, raw > 0 else { return nil }
+        // The backend owns this floor. Local retry ladders may wait longer,
+        // but must never shorten a valid server directive.
+        return raw
     }
 
     private static func jittered(_ duration: Duration, multiplier: Double) -> Duration {

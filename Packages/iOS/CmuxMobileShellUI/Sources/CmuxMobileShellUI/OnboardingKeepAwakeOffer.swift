@@ -27,8 +27,10 @@ struct OnboardingKeepAwakeOffer: Equatable {
 /// path the Computers rows and detail use, named by the connected Mac's
 /// settled identity — never an implicit "whichever Mac is active" write.
 @MainActor
-enum OnboardingKeepAwakeOfferSource {
-    static func offer(from store: CMUXMobileShellStore?) -> OnboardingKeepAwakeOffer? {
+struct OnboardingKeepAwakeOfferSource: Sendable {
+    init() {}
+
+    func offer(from store: CMUXMobileShellStore?) -> OnboardingKeepAwakeOffer? {
         guard let store,
               store.connectionState == .connected,
               let macDeviceID = store.connectedMacDeviceID else { return nil }
@@ -50,7 +52,7 @@ enum OnboardingKeepAwakeOfferSource {
         )
     }
 
-    static func set(_ enabled: Bool, on store: CMUXMobileShellStore?) async -> Bool {
+    func set(_ enabled: Bool, on store: CMUXMobileShellStore?) async -> Bool {
         guard let store,
               let macDeviceID = store.connectedMacDeviceID else { return false }
         return await store.setCaffeineEnabled(

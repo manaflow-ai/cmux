@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 import CmuxSettings
@@ -8,9 +9,20 @@ import CmuxSettings
 @testable import cmux
 #endif
 
+/// A @MainActor Swift Testing body already runs inside a main queue block, so
+/// the main queue cannot drain until the test returns and every
+/// `drainMainQueue` call spins the run loop until its timeout. Spin briefly.
+private let mainActorTestMainQueueSpin: TimeInterval = 0.1
+
 @MainActor
 @Suite(.serialized)
 struct LastSurfaceClosePreferenceTests {
+    private func drainMainQueueForCloseTest(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+    }
     private let closeWorkspaceOnLastSurfaceKey = "closeWorkspaceOnLastSurfaceShortcut"
 
     @Test
@@ -25,8 +37,8 @@ struct LastSurfaceClosePreferenceTests {
 
             secondWorkspace.markTabCloseButtonClose(surfaceId: secondSurfaceId)
             #expect(secondWorkspace.closePanel(secondPanelId) == false)
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id])
             #expect(manager.selectedTabId == firstWorkspace.id)
@@ -51,8 +63,8 @@ struct LastSurfaceClosePreferenceTests {
                 didClose = secondWorkspace.closePanel(secondPanelId)
             }
             #expect(didClose)
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -74,8 +86,8 @@ struct LastSurfaceClosePreferenceTests {
 
             secondWorkspace.markTabStripMiddleClickClose(surfaceId: secondSurfaceId)
             #expect(secondWorkspace.closePanel(secondPanelId) == false)
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id])
             #expect(manager.selectedTabId == firstWorkspace.id)
@@ -100,8 +112,8 @@ struct LastSurfaceClosePreferenceTests {
                 didClose = secondWorkspace.closePanel(secondPanelId)
             }
             #expect(didClose)
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -127,8 +139,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: true
             ))
             #expect(secondWorkspace.closePanel(secondPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id])
             #expect(manager.selectedTabId == firstWorkspace.id)
@@ -154,8 +166,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: true
             ))
             #expect(secondWorkspace.closePanel(secondPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -185,8 +197,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: true
             ))
             #expect(secondWorkspace.handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded())
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -215,8 +227,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: false
             ))
             #expect(secondWorkspace.closePanel(secondPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id, secondWorkspace.id])
             #expect(manager.selectedTabId == secondWorkspace.id)
@@ -245,8 +257,8 @@ struct LastSurfaceClosePreferenceTests {
             ))
             let remainingPanel = try #require(secondWorkspace.createReplacementTerminalPanel())
             #expect(secondWorkspace.closePanel(closingPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(secondWorkspace.panels[closingPanelId] == nil)
             #expect(secondWorkspace.panels[remainingPanel.id] != nil)
@@ -280,8 +292,8 @@ struct LastSurfaceClosePreferenceTests {
                 tabCloseButton: true
             ))
             #expect(secondWorkspace.closePanel(secondPanelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(confirmationCount == 0)
             #expect(manager.tabs.map(\.id) == [firstWorkspace.id])
@@ -308,8 +320,8 @@ struct LastSurfaceClosePreferenceTests {
                 explicitUserClose: true
             ))
             #expect(workspace.closePanel(panelId, force: true))
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(manager.tabs.map(\.id) == [workspace.id])
             #expect(workspace.panels[panelId] == nil)
@@ -317,6 +329,134 @@ struct LastSurfaceClosePreferenceTests {
             #expect(workspace.panels.count == 1)
             #expect(workspace.focusedPanelId != panelId)
             #expect(!workspace.handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded())
+        }
+    }
+
+    @Test
+    func reopeningLastBrowserDoesNotKeepTheReplacementTerminal() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let workspace = manager.addWorkspace(
+                initialSurface: .browser,
+                inheritWorkingDirectory: false,
+                autoWelcomeIfNeeded: false
+            )
+            manager.selectWorkspace(workspace)
+            let browserId = try #require(workspace.focusedPanelId)
+            #expect(workspace.panels[browserId] is BrowserPanel)
+            let machine = SurfaceMachineID.cloud("reopen-browser-\(UUID().uuidString)")
+            let browserResource = SurfaceResourceID(machine: machine, kind: .browser, key: "tab:browser")
+            SurfaceCatalog.shared.record(SurfaceProjection(resource: browserResource, workspaceID: workspace.id, panelID: browserId, remoteWorkspaceID: "ws-browser"))
+            defer { SurfaceCatalog.shared.endProjections(panelID: browserId, reason: .replaced) }
+
+            workspace.markCloseHistoryEligible(panelId: browserId)
+            #expect(workspace.closePanel(browserId, force: true))
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+
+            #expect(manager.reopenMostRecentlyClosedItem())
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+
+            #expect(workspace.panels.count == 1)
+            #expect(workspace.panels.values.first is BrowserPanel)
+            #expect(workspace.bonsplitController.allPaneIds.count == 1)
+            #expect(workspace.focusedPanelId != nil)
+        }
+    }
+
+    @Test
+    /// A Cloud Desktop is a BrowserPanel backed by a `.display` projection
+    /// whose URL is the machine's noVNC view. Closing the final VNC view must
+    /// preserve that identity without creating a replacement terminal.
+    func reopeningLastCloudDesktopVNCViewPreservesItsResourceIdentity() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let workspace = manager.addWorkspace(
+                initialSurface: .browser,
+                inheritWorkingDirectory: false,
+                autoWelcomeIfNeeded: false
+            )
+            manager.selectWorkspace(workspace)
+            let browserId = try #require(workspace.focusedPanelId)
+            let desktopURL = "http://127.0.0.1:9/vnc.html?path=websockify&resize=remote"
+            let browser = try #require(workspace.panels[browserId] as? BrowserPanel)
+            var browserSnapshot = try #require(workspace.sessionSnapshot(includeScrollback: false).panels.first?.browser)
+            browserSnapshot.urlString = desktopURL
+            browserSnapshot.shouldRenderWebView = false
+            browser.restoreSessionSnapshot(browserSnapshot)
+            let machine = SurfaceMachineID.cloud("reopen-display-\(UUID().uuidString)")
+            let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
+            workspace.cloudVMBinding = WorkspaceCloudVMBinding(
+                vmID: machine.rawValue,
+                isBase: false,
+                remoteWorkspaceID: "ws-display"
+            )
+            SurfaceCatalog.shared.endProjections(panelID: browserId, reason: .replaced)
+            SurfaceCatalog.shared.record(SurfaceProjection(
+                resource: display,
+                workspaceID: workspace.id,
+                panelID: browserId,
+                remoteWorkspaceID: "ws-display"
+            ))
+            defer { SurfaceCatalog.shared.endProjections(panelID: browserId, reason: .replaced) }
+
+            workspace.markCloseHistoryEligible(panelId: browserId)
+            #expect(workspace.closePanel(browserId, force: true))
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+
+            #expect(workspace.panels.isEmpty)
+            #expect(workspace.bonsplitController.allPaneIds.count == 1)
+            #expect(manager.reopenMostRecentlyClosedItem())
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+
+            let restoredPanelId = try #require(workspace.focusedPanelId)
+            let restored = try #require(workspace.panels[restoredPanelId] as? BrowserPanel)
+            #expect(restored.currentURL?.absoluteString == desktopURL)
+            #expect(workspace.panels.count == 1)
+            #expect(workspace.cloudVMBinding?.remoteWorkspaceID == "ws-display")
+            #expect(workspace.panels.values.allSatisfy { !($0 is TerminalPanel) })
+            #expect(workspace.bonsplitController.allPaneIds.count == 1)
+            let records = SurfaceCatalog.shared.projectionRecords(forWorkspace: workspace.id)
+            let projection = try #require(records.first { $0.panelID == restoredPanelId })
+            #expect(projection.resource == display)
+            #expect(projection.remoteWorkspaceID == "ws-display")
+            #expect(projection.remoteTabID == nil)
+        }
+    }
+
+    @Test
+    func reopeningAClosedPanelRestoresMixedSplitTopology() throws {
+        try withManager(closeWorkspaceOnLastSurface: false) { manager in
+            let workspace = try #require(manager.selectedWorkspace)
+            let focusedPanelId = try #require(workspace.focusedPanelId)
+            let browserId = try #require(manager.newBrowserSplit(
+                tabId: workspace.id,
+                fromPanelId: focusedPanelId,
+                orientation: .horizontal,
+                url: URL(string: "https://example.com/closed-mixed-split")
+            ))
+            let browserPane = try #require(workspace.paneId(forPanelId: browserId))
+            let terminalId = try #require(workspace.newTerminalSurface(inPane: browserPane, focus: true)?.id)
+            let originalOrientation: String = {
+                guard case .split(let split) = workspace.bonsplitController.treeSnapshot() else { return "" }
+                return split.orientation
+            }()
+
+            workspace.markCloseHistoryEligible(panelId: terminalId)
+            #expect(workspace.closePanel(terminalId, force: true))
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            #expect(manager.reopenMostRecentlyClosedItem())
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+
+            #expect(workspace.bonsplitController.allPaneIds.count == 2)
+            #expect(workspace.panels.values.contains { $0 is BrowserPanel })
+            #expect(workspace.panels.values.contains { $0 is TerminalPanel })
+            let restoredTerminalId = try #require(workspace.panels.first { panelId, panel in
+                panel is TerminalPanel && panelId != focusedPanelId
+            }?.key)
+            #expect(workspace.paneId(forPanelId: restoredTerminalId) == workspace.paneId(forPanelId: browserId))
+            let restoredOrientation: String = {
+                guard case .split(let split) = workspace.bonsplitController.treeSnapshot() else { return "" }
+                return split.orientation
+            }()
+            #expect(restoredOrientation == originalOrientation)
         }
     }
 
@@ -336,6 +476,15 @@ struct LastSurfaceClosePreferenceTests {
         defer {
             ClosedItemHistoryStore.shared.removeAll()
         }
-        try run(TabManager(settings: settings, closeTabWarningDefaults: defaults))
+        let manager = TabManager(settings: settings, closeTabWarningDefaults: defaults)
+        let previousService = SurfaceCatalog.shared.cloudWorkspaceRenameService
+        SurfaceCatalog.shared.installCloudWorkspaceRenameService(CloudWorkspaceRenameService(environment: .init(
+            workspace: { manager.workspacesById[$0] }, tabManager: { _ in manager }, workspaces: { manager.tabs }
+        )))
+        defer {
+            manager.finalizeAllWorkspacesForWindowClose()
+            SurfaceCatalog.shared.installCloudWorkspaceRenameService(previousService)
+        }
+        try run(manager)
     }
 }

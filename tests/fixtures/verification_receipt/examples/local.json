@@ -1,0 +1,129 @@
+{
+  "artifacts": {
+    "launched": null,
+    "produced": null
+  },
+  "assessment": {
+    "exact_verification": false,
+    "launched_matches_produced": false,
+    "qualifications": [
+      "exact_snapshot_not_established",
+      "dirty_or_unknown_source"
+    ],
+    "review_current": false
+  },
+  "authority": "evidence_only",
+  "checks": [
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "preparation",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "parsing",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "typechecking",
+      "status": "skipped"
+    },
+    {
+      "evidence": "evidence",
+      "executed": true,
+      "phase": "tests",
+      "status": "passed"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "packaging",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "live",
+      "status": "skipped"
+    }
+  ],
+  "environment": {
+    "architecture": "arm64",
+    "build_input_identity": null,
+    "configuration": "workflow guard",
+    "platform": "Darwin",
+    "toolchain": "Python 3.14.6"
+  },
+  "evidence": {
+    "completed_at": "2026-09-20T17:09:46.950343+00:00",
+    "exit_code": 0,
+    "kind": "local_process",
+    "output_sha256": "921b60a7fd52e978fbb551cacd29df2d6708879400278e1fcc70fceeb0c6f8e0",
+    "started_at": "2026-09-20T17:09:46.483137+00:00",
+    "summary": [
+      "Ran 3 tests in 0.001s",
+      "OK"
+    ]
+  },
+  "integrations": {
+    "glaeda_request_id": null,
+    "glaeda_run_id": null,
+    "stensibly_run_id": null,
+    "stensibly_settlement_id": null
+  },
+  "recipe": {
+    "argv": [
+      "python3",
+      "tests/test_docs_deploy_auth_guard.py"
+    ],
+    "claim_class": "python-workflow-guard-tests",
+    "id": "tests/test_docs_deploy_auth_guard.py",
+    "revision": "sha256:48f77243887cf233bcbad2de78c074d39e75f9491df6d22a4ca979ea1e334e2b"
+  },
+  "review": {
+    "current_head": null,
+    "evidence": null,
+    "reviewed_head": null,
+    "status": "unsupported"
+  },
+  "schema_version": "cmux-verification/v1",
+  "source": {
+    "after": {
+      "clean": false,
+      "commit": "2889b72b866edfef0ac260f922fd2cf9f88906a3",
+      "status_sha256": "d8946e80d5b0748c76eb48b63ab4b9dd227fc29046db3104fa886efb6928b1eb",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tree": "56f33edfb6623d946d9329d0a29a9c7a37b1dba5"
+    },
+    "base_sha": null,
+    "before": {
+      "clean": false,
+      "commit": "2889b72b866edfef0ac260f922fd2cf9f88906a3",
+      "status_sha256": "d8946e80d5b0748c76eb48b63ab4b9dd227fc29046db3104fa886efb6928b1eb",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tree": "56f33edfb6623d946d9329d0a29a9c7a37b1dba5"
+    },
+    "checkout_sha": "2889b72b866edfef0ac260f922fd2cf9f88906a3",
+    "exact_snapshot": null,
+    "head_sha": "2889b72b866edfef0ac260f922fd2cf9f88906a3",
+    "merge_sha": null,
+    "repository": "cmux (caller-supplied checkout)",
+    "semantics": "latest_checkout_at_execution",
+    "tree": "56f33edfb6623d946d9329d0a29a9c7a37b1dba5"
+  },
+  "tests": {
+    "accepted_baselines": [],
+    "discovered": null,
+    "executed": 3,
+    "runner_reported": 3,
+    "selected": null,
+    "selection": [
+      "tests/test_docs_deploy_auth_guard.py"
+    ],
+    "skipped": 0
+  }
+}

@@ -1,0 +1,79 @@
+name: Main regression bisect
+
+# Checks what main_regression_attribution.py reported on the main full-suite
+# issue against real runs: each new failure is rerun alone at the red run's
+# head (a pass marks it flaky), and a reproduced failure with no single
+# suspect is bisected over the commits in its range. A focused run takes 10 to
+# 30 minutes, so each invocation advances every open check by one step and
+# keeps its state in a comment on the issue; see
+# scripts/ci/main_regression_bisect.py. MAIN_REGRESSION_BISECT_DISPATCHES_PER_DAY
+# caps the focused runs dispatched in any 24 hours (default 24; 0 stops new
+# ones).
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  # Right after the report job posts a red run's new failures.
+  workflow_run:
+    workflows: [CI main full suite]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # Keep the display-name trigger checked against its stable workflow identity.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci-main-full-suite.yml
+
+jobs:
+  advance:
+    name: Advance flake checks and bisects
+    # A CI main full suite run started by a push only dispatches; the one a
+    # completed CI run starts is the one that reports.
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'workflow_run' && github.event.workflow_run.path == '.github/workflows/ci-main-full-suite.yml')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # At most four dispatches, each bounded at eight minutes, plus reads.
+    timeout-minutes: 45
+    concurrency:
+      group: main-regression-bisect
+      cancel-in-progress: false
+    permissions:
+      # Dispatches app-host-test-rerun.yml and test-e2e.yml.
+      actions: write
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          # dispatch-focused-test.py reads the test sources for selectors and
+          # test-e2e.yml for its default runner.
+          sparse-checkout: |
+            scripts/ci
+            cmuxTests
+            .github/workflows
+
+      - name: Advance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The job token cannot list repository variables; the dispatcher
+          # reads the pool choice from these instead.
+          CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
+          CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
+          CMUX_CI_PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          CMUX_CI_PR_POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
+          CMUX_CI_PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          CMUX_CI_OWNED_POOL_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          CMUX_CMUX_CI_XCODE_APP_PR: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          CMUX_CI_E2E_OWNED_UI: ${{ vars.CI_E2E_OWNED_UI }}
+          PER_DAY: ${{ vars.MAIN_REGRESSION_BISECT_DISPATCHES_PER_DAY || '24' }}
+        run: |
+          set -euo pipefail
+          # Main's recent history without blobs: the dispatcher looks for an
+          # ancestor CI already compiled products for.
+          git fetch --no-tags --filter=blob:none --depth=1000 origin main
+          python3 scripts/ci/main_regression_bisect.py advance --max-dispatches-per-day "$PER_DAY"

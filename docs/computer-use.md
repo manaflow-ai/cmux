@@ -62,14 +62,26 @@ diagnostic tools.
 cmux's injection disables the upstream cmux-cua engine's telemetry and self-update
 checks; cmux manages application updates through Sparkle.
 
-Onboarding is opened only by a deliberate user action in Settings → Computer
-Use (the **Grant…** or **Open System Settings** permission controls). Launch or
-resume, MCP/skill discovery, helper status checks, protected tool calls, and
-prompt or UI text never present it and never establish consent. This keeps a
-model's decision to select a tool separate from the user's decision to grant
-Accessibility and Screen Recording. A first-time natural-language request
-therefore requires the one-time Settings setup action; cmux has no trusted
-structured invocation signal from the agent picker to safely infer consent.
+The first functional `$cmux-cua` request from a current cmux agent session opens
+the existing onboarding window when setup is required. This is an explicit
+user opt-in signal, not a permission grant: the user still chooses every
+Accessibility and Screen Recording action in the window. The presentation
+boundary is `ComputerUseOnboardingCoordinator`: deliberate Settings actions
+select a step, and authenticated functional CUA requests from a locally owned
+terminal claim the runtime's first-use gate before presenting. Reading or
+discovering `$cmux-cua` does not claim that gate.
+
+Launch/resume, enabled-setting reconciliation, helper recovery, permission/TCC
+refresh, feature-flag refresh, passive workstream events, and unrelated tools
+only update state. Even when both grants are present and capture verification
+is incomplete, a refresh never opens or reopens onboarding. Retried/concurrent
+protected requests share the runtime claim and one window controller. Dismissal
+leaves the claim in place, so later requests and refreshes stay quiet; only
+disabling Computer Use, relaunching, or invalidating helper readiness resets it.
+To resume or select another permission step, use **Finish Setup…**,
+**Grant…**, or **Open System Settings** in Settings → cmux Computer Use, or the
+matching command palette action. Completed setup stays quiet unless fresh
+explicit intent needs setup again after readiness is invalidated.
 
 The Settings action uses the same onboarding flow: its first **Allow** action
 goes directly to the matching permanent System Settings pane instead of
@@ -86,14 +98,36 @@ required before setup can complete. Agents must not call a standalone helper's
 permission prompt while onboarding is active, because that creates unrelated
 permission dialogs under the wrong process identity.
 
-The host keeps the helper's readiness phase authoritative. An already attached
-but unconfigured proxy can still wait for its external readiness milestone and
-then return the pinned helper's setup-required response, **“Computer Use
-onboarding is still in progress. Finish setup in cmux, then retry.”** That
-response is bounded by the helper's current 55-second poll and is intentionally
-documented here rather than bypassing permission readiness or silently opening
-the window. Existing users who completed setup retain their helper readiness;
-revoked permissions remain quiet until the user deliberately re-enters Settings.
+The **Setup** row reports the host's remaining step separately from the two
+TCC grants. If both grants say **Granted**, choose **Finish Setup…** to verify
+direct capture with both helper profiles and approve macOS's capture confirmation
+if it appears. A missing helper is reported as unavailable, not as a denied grant.
+
+The runtime owns completion; closing or completing a window cannot authorize
+tools. Its version-1 completion record is one atomic preferences value scoped
+to the runtime tag and the helper's signing digest. The runtime restores it only
+for an unchanged installed helper, invalidates it before replacement or
+re-provisioning, and rejects stale capture results after disable or replacement.
+The legacy completion preference is presentation history only and never
+authorizes a helper without a fresh, identity-scoped verification. A corrupt,
+unknown-version, or mismatched record requires setup again. A crash before
+preferences flush can lose the latest completion, requiring verification again;
+a partial record never authorizes tools.
+
+`runtime/<tag>/state/` contains authenticated activity snapshots written after
+tool actions, not onboarding records. An empty directory is normal before the
+first action. The daemon starts with host readiness false; the host republishes
+verified readiness on each launch through its host-only authenticated socket
+method. `list-tools` and `check_permissions` intentionally work before admission.
+
+An already attached but unconfigured proxy can still wait for its external
+readiness milestone and then return the pinned helper's setup-required response,
+**“cmux Computer Use onboarding is still in progress. Finish setup in cmux, then
+retry.”** That response is bounded by the helper's current 55-second poll and
+is intentionally documented here rather than bypassing permission readiness or
+silently granting access. Existing users who completed setup retain their
+helper readiness; revoked permissions invalidate that record and the next
+functional request opens setup again.
 
 Risk gating is handled by the MCP client harness. Claude Code and Codex show
 their normal tool approval UI for actions, and `cmux-cua` advertises the
@@ -116,7 +150,17 @@ logical-window screenshot plus accessibility tree. Its string
 `element_index` values are valid only for the current app snapshot. Mutating
 actions return a compact acknowledgement; perception is explicit through
 `get_app_state`, so one host turn can perform several safe actions and then
-take one authoritative screenshot/tree refresh.
+take one authoritative screenshot/tree refresh. `click` and `drag` accept the
+per-call `delivery_mode` values `background` (the default) and `foreground`.
+Retry a coordinate click rejected with `background_occluded` using
+`delivery_mode:"foreground"`; the helper briefly fronts the snapshotted window,
+dispatches the click, and restores the prior app. macOS reports WindowServer
+rectangles for system surfaces such as the Dock, so that error is a safety stop
+and does not prove that the app screenshot visibly shows an obstruction.
+Background coordinate drags are unavailable on macOS and return
+`background_unavailable`; use `delivery_mode:"foreground"` when a real drag is
+needed. The separate drag report in issue #18595 has not been independently
+reproduced.
 
 Claude Code continues to receive the broader native cmux contract. It uses
 pid/window addressing, `get_window_state`, stable snapshot tokens, explicit
@@ -130,17 +174,23 @@ no Node, Sky, or legacy bridge is involved.
 
 Set `CMUX_COMPUTER_USE_MCP_DISABLED=1` before launching an agent to disable
 automatic computer-use MCP injection. There is no ambient executable override:
-both wrappers fail closed unless the app-bundled `cmux-cua` client and the
-tag-scoped cmux helper are present.
+both wrappers fail closed unless cmux has installed its tag-scoped helper.
+That installed helper's `cmux-cua` executable is the MCP client for both
+Claude Code and Codex.
 
 ## Building the bundled cmux-cua engine
 
 Every cmux app build runs `scripts/build-cmux-cua.sh`, which compiles the
-pinned `manaflow-ai/cmux-cua` commit with Cargo and bundles the resulting
-MCP proxy as `Contents/Resources/bin/cmux-cua`. The same
-engine is packaged as the `cmux Computer Use.app` executable (`cmux-cua`) so Activity
-Monitor and permission UI show the product name instead of an implementation
-name. This requires a Rust
+pinned `manaflow-ai/cmux-cua` commit with Cargo and packages the result as
+the `cmux Computer Use.app` executable (`cmux-cua`), so Activity Monitor and
+permission UI show the product name instead of an implementation name. It is
+the only copy of the engine in the app. cmux installs that helper into its
+tag-scoped directory only when the helper is Developer ID signed (`com.cmuxterm.cua`, team `7WLXT3NR37`). A
+tagged dev build bundles an ad-hoc helper, which can never satisfy the
+Accessibility and Screen Recording rows, and a grant to it replaces the
+release helper's row. A dev build therefore copies the helper of an installed
+cmux NIGHTLY, RC or release app, or reports Computer Use unavailable and
+installs, launches and prompts for nothing. This requires a Rust
 toolchain on the build machine:
 
 - local dev: install via [rustup](https://rustup.rs) (or
@@ -150,5 +200,9 @@ toolchain on the build machine:
 
 The pinned source is cached under `~/Library/Caches/cmux/cmux-cua`; after
 the first successful build no network access is needed until the pinned
-commit changes. Set `CMUX_CUA_SRC=/path/to/cmux-cua` to build from a local
-checkout (it must still be at the pinned commit).
+commit changes. The build applies the checked-in
+`scripts/cmux-cua-codex-delivery-mode.patch` after the SHA check because the
+pinned native engine has the delivery ladder while its Codex adapter does not
+forward that field. Set `CMUX_CUA_SRC=/path/to/cmux-cua` to build from a local
+checkout (it must still be at the pinned commit); the same patch is applied
+idempotently there.

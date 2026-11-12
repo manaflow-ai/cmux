@@ -3,7 +3,7 @@ import Foundation
 /// Serializes app-scoped Ghostty configuration replacement.
 ///
 /// Requests that arrive while a transaction is preparing or reconciling are
-/// merged into the next transaction. Their completions remain attached to that
+/// merged into the next transaction. Their callbacks remain attached to that
 /// transaction, so callers never observe success against an older config.
 @MainActor
 final class TerminalConfigurationReloadCoordinator {
@@ -12,6 +12,9 @@ final class TerminalConfigurationReloadCoordinator {
     private var pendingRequest:
         TerminalPendingConfigurationReload?
     private let maximumOutstandingCompletionCount: Int
+    // Keep one slot available for a latency-sensitive commit acknowledgement;
+    // post-fanout callbacks are optional and may be rejected at the boundary.
+    private let reservedCommitCompletionCapacity: Int
     private var outstandingCompletionCount = 0
     private var activeCompletionCount = 0
 
@@ -24,6 +27,8 @@ final class TerminalConfigurationReloadCoordinator {
         )
         self.maximumOutstandingCompletionCount =
             maximumOutstandingCompletionCount
+        self.reservedCommitCompletionCapacity =
+            maximumOutstandingCompletionCount > 0 ? 1 : 0
     }
 
     var isReloadActive: Bool {
@@ -34,32 +39,55 @@ final class TerminalConfigurationReloadCoordinator {
         phase == .waitingForFontWork
     }
 
-    /// Queues a request while bounding completion closures across the active
-    /// and pending transactions. Reload semantics are retained even when
-    /// excess completion closures are rejected.
+    /// Queues a request while bounding commit and post-fanout callbacks across
+    /// the active and pending transactions. Reload semantics are retained even
+    /// when excess callbacks are rejected.
     func enqueue(
         _ originalRequest: TerminalPendingConfigurationReload
     ) -> TerminalConfigurationReloadEnqueueResult {
         var request = originalRequest
         let requestedCompletionCount =
-            request.completions.count
+            request.totalCompletionCount
         let availableCompletionCount = max(
             0,
             maximumOutstandingCompletionCount
                 - outstandingCompletionCount
         )
-        let retainedCompletionCount = min(
-            requestedCompletionCount,
+        // Commit acknowledgements are the latency-sensitive socket path, so
+        // retain them before optional post-fanout callbacks. For
+        // completion-only requests, keep one slot reserved so a later commit
+        // acknowledgement is not silently dropped behind optional work. A
+        // request that already carries commit callbacks may consume the
+        // remaining capacity; later requests then receive normal bounded
+        // backpressure rather than exceeding the global limit.
+        let retainedCommitCompletionCount = min(
+            request.commitCompletions.count,
             availableCompletionCount
         )
-        if retainedCompletionCount
-            < requestedCompletionCount {
-            request.completions = Array(
-                request.completions.prefix(
-                    retainedCompletionCount
-                )
+        let availableForFinalCompletions = max(
+            0,
+            availableCompletionCount
+                - retainedCommitCompletionCount
+                - (request.commitCompletions.isEmpty
+                    ? reservedCommitCompletionCapacity
+                    : 0)
+        )
+        let retainedFinalCompletionCount = min(
+            request.completions.count,
+            availableForFinalCompletions
+        )
+        let retainedCompletionCount =
+            retainedCommitCompletionCount + retainedFinalCompletionCount
+        request.commitCompletions = Array(
+            request.commitCompletions.prefix(
+                retainedCommitCompletionCount
             )
-        }
+        )
+        request.completions = Array(
+            request.completions.prefix(
+                retainedFinalCompletionCount
+            )
+        )
         outstandingCompletionCount +=
             retainedCompletionCount
 
@@ -99,7 +127,7 @@ final class TerminalConfigurationReloadCoordinator {
             "Only one configuration reload can be active"
         )
         activeCompletionCount =
-            pendingRequest.completions.count
+            pendingRequest.totalCompletionCount
         phase = .preparing
         return pendingRequest
     }

@@ -17,8 +17,11 @@ private func sanitizedInitialEnvironment(_ environment: [String: String]) -> [St
 extension TerminalController {
     struct WorkspaceCreateExecutionPreparation {
         let title: String?
+        let titleSource: Workspace.CustomTitleSource
         let description: String?
         let initialCommand: String?
+        let initialTerminalIsRemote: Bool
+        let initialInput: String?
         let initialEnvironment: [String: String]
         let workspaceEnvironment: [String: String]
         let workingDirectory: String?
@@ -47,6 +50,10 @@ extension TerminalController {
                 ? nil
                 : WorkspaceInitialCommandLoginShell.wrap($0)
         }
+        let initialTerminalIsRemote = v2Bool(params, "initial_terminal_is_remote") ?? false
+        let initialInput = v2RawString(params, "initial_input").flatMap {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
+        }
         let initialEnvironment = sanitizedInitialEnvironment(v2StringMap(params, "initial_env") ?? [:])
         let workspaceEnvironment = Workspace.sanitizedWorkspaceEnvironment(
             v2StringMap(params, "workspace_env") ?? [:]
@@ -65,6 +72,8 @@ extension TerminalController {
 
         let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = requestedTitle?.isEmpty == false ? requestedTitle : nil
+        let titleSource: Workspace.CustomTitleSource =
+            v2RawString(params, "title_source") == "auto" ? .auto : .user
         let description = v2RawString(params, "description")
         let groupID = v2UUID(params, "group_id")
         if v2HasNonNullParam(params, "group_id"), groupID == nil {
@@ -163,8 +172,11 @@ extension TerminalController {
 
         return .ready(WorkspaceCreateExecutionPreparation(
             title: title,
+            titleSource: titleSource,
             description: description,
             initialCommand: initialCommand,
+            initialTerminalIsRemote: initialTerminalIsRemote,
+            initialInput: initialInput,
             initialEnvironment: initialEnvironment,
             workspaceEnvironment: workspaceEnvironment,
             workingDirectory: cwd,

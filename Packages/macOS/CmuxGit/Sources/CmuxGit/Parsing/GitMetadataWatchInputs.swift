@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// Shared bounded inputs for one recursive Git metadata watch plan.
-nonisolated struct GitMetadataWatchInputs: Sendable {
+struct GitMetadataWatchInputs: Sendable {
     /// Aggregate deadline shared by the planner and final descriptor build.
     let deadline: DispatchTime
     let configPathsByRepository: [String: [String]]

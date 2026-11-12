@@ -298,12 +298,14 @@ extension CMUXCLI {
     func continuationSurfaceResumePayload(
         surfaceID: String,
         client: SocketClient,
-        verb: CMUXCLIContinuationVerb
+        verb: CMUXCLIContinuationVerb,
+        deadline: Date? = nil
     ) throws -> [String: Any] {
         do {
             return try client.sendV2(
                 method: "surface.resume.get",
-                params: ["surface_id": surfaceID]
+                params: ["surface_id": surfaceID],
+                deadline: deadline
             )
         } catch {
             guard isContinuationSurfaceNotFound(error) else { throw error }

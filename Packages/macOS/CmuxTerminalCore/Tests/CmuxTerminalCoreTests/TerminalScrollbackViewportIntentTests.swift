@@ -15,6 +15,13 @@ import CmuxTerminalCore
         #expect(!decision.consumedExplicitSync)
     }
 
+    @Test func acceptedInputResolvesAViewportThatGhosttyMovedToBottom() {
+        let reviewing = TerminalScrollbackViewportIntent.reviewingScrollback
+
+        #expect(reviewing.resolvingAcceptedExplicitInput(isAtBottom: true) == .followingOutput)
+        #expect(reviewing.resolvingAcceptedExplicitInput(isAtBottom: false) == .reviewingScrollback)
+    }
+
     @Test func reviewingScrollbackAcceptsAuthoritativeReflowPacket() {
         let decision = TerminalScrollbackViewportIntent.reviewingScrollback
             .applyingScrollbar(

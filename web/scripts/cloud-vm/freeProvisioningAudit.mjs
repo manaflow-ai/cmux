@@ -19,6 +19,7 @@ function normalized(value) {
 
 /** Same decision the runtime makes: does this env open free-plan provisioning? */
 export function isFreeProvisioningAllowed(env) {
+  if (env.VERCEL_ENV === "production") return false;
   const allow = env[FREE_PROVISIONING_ALLOW_KEY];
   if (allow !== undefined) return TRUTHY.has(normalized(allow));
   const legacy = env[FREE_PROVISIONING_LEGACY_KEY];

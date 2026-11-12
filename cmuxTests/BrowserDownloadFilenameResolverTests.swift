@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowser
 import CoreServices
 import Testing
 import UniformTypeIdentifiers
@@ -238,7 +239,7 @@ import WebKit
 
     @MainActor
     @Test func scriptedDownloadInterceptionKeepsFullHookOutOfSubframes() throws {
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let scripts = webView.configuration.userContentController.userScripts
 
         let mainFrameScript = try #require(

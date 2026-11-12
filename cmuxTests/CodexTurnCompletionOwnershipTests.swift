@@ -24,6 +24,48 @@ struct CodexTurnCompletionOwnershipTests {
     }
 
     @Test
+    func defaultLedgerPathExpandsHomeBeforeResolvingAgainstProjectCWD() throws {
+        let harness = try makeHarness(name: "codex-default-ledger-home")
+        defer { harness.context.cleanup() }
+
+        let fileManager = FileManager.default
+        let home = harness.context.root.appendingPathComponent("home", isDirectory: true)
+        let project = harness.context.root.appendingPathComponent("project", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+
+        var environment = harness.environment
+        environment["HOME"] = home.path
+        environment["PWD"] = project.path
+        environment["CMUX_AGENT_LAUNCH_CWD"] = project.path
+        environment.removeValue(forKey: "CMUX_AGENT_HOOK_STATE_DIR")
+        environment.removeValue(forKey: "CMUX_CODEX_TURN_LEDGER_PATH")
+        environment["CMUX_CLAUDE_HOOK_STATE_PATH"] = home
+            .appendingPathComponent(".cmuxterm/codex-hook-sessions.json", isDirectory: false)
+            .path
+
+        let result = runProcess(
+            harness,
+            subcommand: "session-start",
+            input: #"{"session_id":"\#(harness.sessionId)","cwd":"\#(project.path)","hook_event_name":"SessionStart"}"#,
+            environment: environment,
+            currentDirectoryURL: project,
+            timeout: 10
+        )
+        #expect(harness.handled.wait(timeout: .now() + 10) == .success)
+        harness.support.assertSuccessfulHook(result)
+
+        let expectedLedger = home
+            .appendingPathComponent(".cmuxterm/codex-turn-ledger.json", isDirectory: false)
+        #expect(fileManager.fileExists(atPath: expectedLedger.path))
+        #expect(
+            !fileManager.fileExists(
+                atPath: project.appendingPathComponent("~/.cmuxterm", isDirectory: true).path
+            )
+        )
+    }
+
+    @Test
     func inheritedOuterPIDCannotLetNestedCodexStopSettleForegroundPane() throws {
         let harness = try makeHarness(name: "codex-nested-inherited-pid")
         defer { harness.context.cleanup() }
@@ -67,6 +109,49 @@ struct CodexTurnCompletionOwnershipTests {
         #expect(
             !nestedCommands.contains { $0.contains("surface.resume.set") },
             "A nested reviewer Stop must not replace the foreground resume identity: \(nestedCommands)"
+        )
+    }
+
+    @Test
+    func internalMemorySessionCannotReplaceForegroundResumeBinding() throws {
+        let harness = try makeHarness(name: "codex-memory-session-admission")
+        defer { harness.context.cleanup() }
+
+        try runHook(
+            harness,
+            subcommand: "session-start",
+            input: sessionStartPayload(harness)
+        )
+
+        let memoryRoot = harness.context.root
+            .appendingPathComponent(".codex", isDirectory: true)
+            .appendingPathComponent("memories", isDirectory: true)
+        try FileManager.default.createDirectory(at: memoryRoot, withIntermediateDirectories: true)
+
+        var memoryEnvironment = harness.environment
+        memoryEnvironment["CODEX_HOME"] = memoryRoot.deletingLastPathComponent().path
+        let memorySessionID = "memory-consolidation-session"
+        let beforeMemoryStart = harness.context.state.snapshot().count
+        let memoryResult = runProcess(
+            harness,
+            subcommand: "session-start",
+            input: #"{"session_id":"\#(memorySessionID)","cwd":"\#(memoryRoot.path)","transcript_path":null,"hook_event_name":"SessionStart"}"#,
+            environment: memoryEnvironment
+        )
+        harness.support.assertSuccessfulHook(memoryResult)
+        #expect(harness.handled.wait(timeout: .now() + 5) == .success)
+
+        let memoryCommands = Array(harness.context.state.snapshot().dropFirst(beforeMemoryStart))
+        let allCommands = harness.context.state.snapshot()
+        let foregroundCheckpoint = "\"checkpoint_id\":\"\(harness.sessionId)\""
+        let memoryCheckpoint = "\"checkpoint_id\":\"\(memorySessionID)\""
+        #expect(
+            allCommands.contains { $0.contains(foregroundCheckpoint) },
+            "The foreground Codex session should keep its resume binding: \(allCommands)"
+        )
+        #expect(
+            !memoryCommands.contains { $0.contains(memoryCheckpoint) },
+            "An internal memory session must not publish a replacement binding: \(memoryCommands)"
         )
     }
 
@@ -292,6 +377,7 @@ struct CodexTurnCompletionOwnershipTests {
         subcommand: String,
         input: String,
         environment: [String: String],
+        currentDirectoryURL: URL? = nil,
         timeout: TimeInterval = 5
     ) -> ClaudeHookSurfaceResolutionSwiftTests.ProcessRunResult {
         let command = subcommand.split(separator: " ").map(String.init)
@@ -303,6 +389,7 @@ struct CodexTurnCompletionOwnershipTests {
             arguments: arguments,
             environment: environment,
             standardInput: input,
+            currentDirectoryURL: currentDirectoryURL,
             timeout: timeout
         )
     }

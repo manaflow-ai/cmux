@@ -47,6 +47,9 @@ var (
 	SessionCreationResolve        = Operation{"session.creation.resolve", Read}
 	SessionEvents                 = Operation{"session.events", StreamOpen}
 	SessionJournalSubscribe       = Operation{"session.journal.subscribe", StreamOpen}
+	SessionJournalProducerList    = Operation{"session.journal.producer.list", Read}
+	SessionJournalProducerPut     = Operation{"session.journal.producer.put", Mutation}
+	SessionJournalAppend          = Operation{"session.journal.append", Mutation}
 	SessionPing                   = Operation{"session.ping", Read}
 	SessionShutdown               = Operation{"session.shutdown", Mutation}
 	SessionReloadConfig           = Operation{"session.reload_config", Mutation}

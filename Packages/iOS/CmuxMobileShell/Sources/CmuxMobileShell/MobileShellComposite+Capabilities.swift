@@ -42,6 +42,14 @@ extension MobileShellComposite {
             && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
     }
 
+    /// Hybrid sessions subscribe to render-grid events only for screen-state
+    /// tracking and alternate-screen recovery. Primary-screen painting stays
+    /// on the sequence-aware byte lane, so an advisory grid must never impose
+    /// its shared viewport dimensions on the local natural surface.
+    public var usesHybridTerminalOutput: Bool {
+        terminalOutputTransport == .hybrid
+    }
+
     /// Screen-anchored render-grid sessions receive active-area-anchored
     /// frames whose deltas carry exact scrolled-row counts, so this device
     /// keeps a deep local scrollback and scrolls the primary screen locally

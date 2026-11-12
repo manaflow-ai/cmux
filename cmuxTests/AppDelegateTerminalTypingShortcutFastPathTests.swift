@@ -12,53 +12,52 @@ import Testing
 struct AppDelegateTerminalTypingShortcutFastPathTests {
 #if DEBUG
     @Test
-    func plainTerminalTextDoesNotResolveAppShortcutContext() throws {
-        let appDelegate = try #require(AppDelegate.shared)
-        appDelegate.debugResetShortcutRoutingStateForTesting()
-        NotificationsPopoverVisibilityState.shared.resetForTesting()
-
-        let windowId = appDelegate.createMainWindow()
-        defer {
-            KeyboardShortcutSettings.shortcutLookupObserver = nil
-            closeWindow(withId: windowId)
+    func plainTerminalTextDoesNotResolveAppShortcutContext() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let appDelegate = try #require(AppDelegate.shared)
             appDelegate.debugResetShortcutRoutingStateForTesting()
+            NotificationsPopoverVisibilityState.shared.resetForTesting()
+
+            let windowId = appDelegate.createMainWindow()
+            defer {
+                KeyboardShortcutSettings.shortcutLookupObserver = nil
+                closeWindow(withId: windowId)
+                appDelegate.debugResetShortcutRoutingStateForTesting()
+            }
+
+            let terminalWindow = try #require(findMainWindow(withId: windowId))
+            appDelegate.debugSetShortcutRoutingFocusedWindowForTesting(terminalWindow)
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let panelId = try #require(workspace.focusedPanelId)
+            let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
+
+            try #require(await appDelegate.focusTerminalForTesting(
+                terminalPanel, workspace: workspace, in: terminalWindow
+            ))
+
+            #expect(
+                terminalWindow.firstResponder === terminalPanel.hostedView.surfaceView,
+                "The regression must exercise a terminal-owned key event"
+            )
+
+            var resolvedActions: [KeyboardShortcutSettings.Action] = []
+            KeyboardShortcutSettings.shortcutLookupObserver = { action in
+                resolvedActions.append(action)
+            }
+
+            let event = try keyEvent(characters: "a", keyCode: 0)
+
+            #expect(
+                event.window == nil,
+                "The regression must match the nil-window event shape from the local monitor"
+            )
+            #expect(!appDelegate.debugHandleCustomShortcut(event: event))
+            #expect(
+                resolvedActions.isEmpty,
+                "Plain terminal text must bypass browser, palette, workspace, and app-wide shortcut resolution"
+            )
         }
-
-        let terminalWindow = try #require(findMainWindow(withId: windowId))
-        appDelegate.debugSetShortcutRoutingFocusedWindowForTesting(terminalWindow)
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
-
-        terminalWindow.makeKeyAndOrderFront(nil)
-        terminalPanel.hostedView.setVisibleInUI(true)
-        terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        terminalWindow.displayIfNeeded()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        #expect(
-            terminalWindow.firstResponder === terminalPanel.hostedView.surfaceView,
-            "The regression must exercise a terminal-owned key event"
-        )
-
-        var resolvedActions: [KeyboardShortcutSettings.Action] = []
-        KeyboardShortcutSettings.shortcutLookupObserver = { action in
-            resolvedActions.append(action)
-        }
-
-        let event = try keyEvent(characters: "a", keyCode: 0)
-
-        #expect(
-            event.window == nil,
-            "The regression must match the nil-window event shape from the local monitor"
-        )
-        #expect(!appDelegate.debugHandleCustomShortcut(event: event))
-        #expect(
-            resolvedActions.isEmpty,
-            "Plain terminal text must bypass browser, palette, workspace, and app-wide shortcut resolution"
-        )
     }
 
     @Test
@@ -66,19 +65,15 @@ struct AppDelegateTerminalTypingShortcutFastPathTests {
         let appDelegate = try #require(AppDelegate.shared)
         appDelegate.debugResetShortcutRoutingStateForTesting()
 
-        let windowId = appDelegate.createMainWindow()
+        let fixture = try TerminalFocusTestFixture()
         defer {
-            closeWindow(withId: windowId)
+            fixture.tearDown()
             appDelegate.debugResetShortcutRoutingStateForTesting()
         }
-
-        let terminalWindow = try #require(findMainWindow(withId: windowId))
+        let terminalWindow = fixture.window
         let contentView = try #require(terminalWindow.contentView)
         appDelegate.debugSetShortcutRoutingFocusedWindowForTesting(terminalWindow)
-        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let terminalPanel = try #require(workspace.terminalPanel(for: panelId))
+        let terminalPanel = fixture.panel
         let textBoxView = TextBoxInputTextView(
             frame: NSRect(x: 0, y: 0, width: 240, height: 30)
         )

@@ -6,7 +6,7 @@ let package = Package(
     name: "CMUXMobileCore",
     defaultLocalization: "en",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [

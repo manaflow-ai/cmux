@@ -12,7 +12,7 @@ import CmuxTerminal
 @MainActor
 @Suite
 struct GhosttyDrawableSizeRetryTests {
-    @Test func reconcilesDrawableAfterFullSizeUpdateRunsBeforeMetalLayerRealizes() throws {
+    @Test func reconcilesDrawableAfterFullSizeUpdateRunsBeforeMetalLayerRealizes() async throws {
         _ = NSApplication.shared
 
         let initialSize = CGSize(width: 800, height: 600)
@@ -49,11 +49,11 @@ struct GhosttyDrawableSizeRetryTests {
         _ = hostedView.reconcileGeometryNow()
 
         let surfaceView = try #require(findGhosttyNSView(in: hostedView))
-        let initialDrawableSize = surfaceView.convertToBacking(initialFrame).size
         _ = surfaceView.forceRefreshSurface()
+        let initialDrawableSize = surfaceView.convertToBacking(surfaceView.bounds).size
         #expect(surfaceView.layer is CAMetalLayer)
         #expect(surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize)
-        drainDeferredSurfaceSizeRetry(on: surfaceView)
+        await drainDeferredSurfaceSizeRetry(on: surfaceView)
         #expect(!surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting())
 
         let nonMetalLayer = CALayer()
@@ -64,15 +64,17 @@ struct GhosttyDrawableSizeRetryTests {
         let targetFrame = NSRect(origin: .zero, size: targetSize)
         window.setFrame(targetFrame, display: false)
         hostedView.frame = targetFrame
-        surfaceView.frame = targetFrame
-        #expect(surfaceView.bounds.size == targetSize)
+        _ = hostedView.reconcileGeometryNow()
+        let targetViewportSize = surfaceView.bounds.size
+        #expect(targetViewportSize.width <= targetSize.width)
+        #expect(targetViewportSize.width > initialSize.width)
 
-        let expectedDrawableSize = surfaceView.convertToBacking(targetFrame).size
+        let expectedDrawableSize = surfaceView.convertToBacking(surfaceView.bounds).size
         #expect(expectedDrawableSize.width > 0)
         #expect(expectedDrawableSize.height > 0)
         #expect(expectedDrawableSize != initialDrawableSize)
 
-        _ = surfaceView.debugUpdateSurfaceSizeForTesting(targetSize)
+        _ = surfaceView.commitPaneGeometry(size: targetViewportSize, phase: .settled)
 
         #expect(surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize)
         #expect(surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting())
@@ -83,9 +85,9 @@ struct GhosttyDrawableSizeRetryTests {
         realizedLayer.drawableSize = initialDrawableSize
         surfaceView.layer = realizedLayer
 
-        let deadline = Date().addingTimeInterval(0.5)
-        while realizedLayer.drawableSize != expectedDrawableSize && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while realizedLayer.drawableSize != expectedDrawableSize && ContinuousClock.now < deadline {
+            await yieldMainQueue()
         }
 
         #expect(realizedLayer.drawableSize == expectedDrawableSize)
@@ -105,10 +107,16 @@ struct GhosttyDrawableSizeRetryTests {
         return nil
     }
 
-    private func drainDeferredSurfaceSizeRetry(on surfaceView: GhosttyNSView) {
-        let deadline = Date().addingTimeInterval(0.5)
-        while surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting() && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+    private func drainDeferredSurfaceSizeRetry(on surfaceView: GhosttyNSView) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting() && ContinuousClock.now < deadline {
+            await yieldMainQueue()
+        }
+    }
+
+    private func yieldMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
         }
     }
 }

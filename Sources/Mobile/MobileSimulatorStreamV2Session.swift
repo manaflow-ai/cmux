@@ -1,4 +1,5 @@
 import CmuxIrohTransport
+import CmuxMobileHost
 import CmuxSimulator
 import CmuxSimulatorStreamKit
 import CmuxSimulatorUI
@@ -141,7 +142,7 @@ final class MobileSimulatorStreamV2Session {
                 guard !data.isEmpty else { continue }
                 accumulator.append(data)
                 while let body = try accumulator.nextMessageBody() {
-                    let message = try SimStreamWireCodec.decode(body)
+                    let message = try SimStreamWireCodec().decode(body)
                     guard await route(message) else { return }
                 }
             }

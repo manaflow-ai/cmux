@@ -1,7 +1,7 @@
 import Foundation
 
 /// A panel's supported, unsupported, or temporarily unavailable selection state.
-public nonisolated enum SurfaceSelectionReadResult: Equatable, Sendable {
+public enum SurfaceSelectionReadResult: Equatable, Sendable {
     /// A successfully captured selection snapshot, including an empty state.
     case snapshot(SurfaceSelectionSnapshot)
 

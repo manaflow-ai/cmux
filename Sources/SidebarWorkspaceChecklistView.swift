@@ -106,7 +106,7 @@ struct WorkspaceChecklistAttachmentMenu: View {
             }
         } label: {
             HStack(spacing: 2) {
-                CmuxSystemSymbolImage(systemName: "paperclip", pointSize: iconPointSize)
+                CmuxSystemSymbolImage(systemName: "paperclip", pointSize: iconPointSize, tint: foregroundColor)
                 if item.attachmentCount > 0 {
                     Text(verbatim: "\(item.attachmentCount)")
                         .font(countFont)
@@ -187,6 +187,7 @@ struct SidebarWorkspaceChecklistSection: View {
     /// and clears itself on appear).
     @State private var inlineAddGeneration = 0
     @State private var editingItemId: UUID?
+    @State private var editingOriginalText = ""
     /// The item currently under the pointer, used to reveal the trailing
     /// delete button. A single id (not a per-row `@State`) is enough because
     /// only one row can be hovered at a time; mirrors `editingItemId`.
@@ -272,9 +273,9 @@ struct SidebarWorkspaceChecklistSection: View {
             HStack(spacing: 4) {
                 CmuxSystemSymbolImage(
                     magnified: completedCount == totalCount ? "checkmark.circle.fill" : "checklist",
-                    pointSize: 8 * fontScale
+                    pointSize: 8 * fontScale,
+                    tint: secondaryColor
                 )
-                .foregroundColor(secondaryColor)
                 Text(verbatim: "\(completedCount)/\(totalCount)")
                     .font(summaryFont)
                     .foregroundColor(primaryColor)
@@ -352,9 +353,9 @@ struct SidebarWorkspaceChecklistSection: View {
             } label: {
                 CmuxSystemSymbolImage(
                     magnified: checkboxSymbolName(for: item.state),
-                    pointSize: 8 * fontScale
+                    pointSize: 8 * fontScale,
+                    tint: isCompleted ? secondaryColor : primaryColor
                 )
-                .foregroundColor(isCompleted ? secondaryColor : primaryColor)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -369,6 +370,10 @@ struct SidebarWorkspaceChecklistSection: View {
                     initialText: item.text,
                     placeholder: String(localized: "sidebar.checklist.editItemPlaceholder", defaultValue: "Item text"),
                     fontSize: 11 * fontScale,
+                    onTextChange: { text in
+                        guard text != item.text else { return }
+                        actions.editItem(item.id, text)
+                    },
                     onCommit: { commitItemEdit(item.id, text: $0) },
                     onCancel: cancelItemEdit,
                     selectsAllOnFocus: true,
@@ -471,8 +476,7 @@ struct SidebarWorkspaceChecklistSection: View {
         return Button {
             actions.removeItem(item.id)
         } label: {
-            CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 9 * fontScale)
-                .foregroundColor(secondaryColor)
+            CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 9 * fontScale, tint: secondaryColor)
                 .frame(width: 9 * fontScale + 8, height: 9 * fontScale + 8, alignment: .center)
                 .contentShape(Rectangle())
         }
@@ -494,8 +498,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 // the add row never reads as a real (unchecked) item. Uses the
                 // row's secondary color (which inverts on the selected row) so
                 // it never clashes as accent-blue on a blue selected row.
-                CmuxSystemSymbolImage(magnified: "plus.circle", pointSize: 8 * fontScale)
-                    .foregroundColor(secondaryColor)
+                CmuxSystemSymbolImage(magnified: "plus.circle", pointSize: 8 * fontScale, tint: secondaryColor)
                 // AppKit field (like the sidebar rename field): takes first
                 // responder in the main window on appear, so typing works
                 // reliably (a SwiftUI TextField / floating popover does not win
@@ -521,7 +524,7 @@ struct SidebarWorkspaceChecklistSection: View {
                 }
             } label: {
                 HStack(spacing: 4) {
-                    CmuxSystemSymbolImage(magnified: "plus", pointSize: 7 * fontScale)
+                    CmuxSystemSymbolImage(magnified: "plus", pointSize: 7 * fontScale, tint: secondaryColor)
                     Text(String(localized: "sidebar.checklist.addItem", defaultValue: "Add item"))
                         .font(itemFont)
                 }
@@ -552,16 +555,28 @@ struct SidebarWorkspaceChecklistSection: View {
 
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
+        editingOriginalText = item.text
     }
 
     /// Enter commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID, text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         cancelItemEdit()
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
     }
 
     private func cancelItemEdit() {
+        if let id = editingItemId,
+           !editingOriginalText.isEmpty,
+           let item = items.first(where: { $0.id == id }),
+           item.text != editingOriginalText {
+            actions.editItem(id, editingOriginalText)
+        }
         editingItemId = nil
+        editingOriginalText = ""
     }
 }

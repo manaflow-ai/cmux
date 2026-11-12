@@ -10,8 +10,7 @@ public struct CmxIrohDirectDialCandidate: Equatable, Sendable {
     /// Numeric IPv4 or IPv6 literal without brackets, a port, or a zone.
     public let address: String
 
-    /// Explicit UDP port override. `nil` joins the Mac's broker-published
-    /// Iroh UDP port for the address family at dial time.
+    /// Explicit local UDP port. The v2 transport rejects candidates without one.
     public let port: UInt16?
 
     /// Creates one Direct dial candidate.

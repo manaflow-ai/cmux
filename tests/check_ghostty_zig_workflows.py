@@ -273,7 +273,23 @@ def _command_name(target: str) -> str:
     return target.rsplit("/", 1)[-1]
 
 
+INIT_SUBMODULE_SCRIPT = "init-submodule.sh"
+INIT_SUBMODULE_PATHS = {
+    "scripts/ci/init-submodule.sh",
+    "./scripts/ci/init-submodule.sh",
+}
+
+
 def _is_ghostty_init(words: list[str]) -> bool:
+    # scripts/ci/init-submodule.sh runs `git submodule update --init --depth 1`
+    # with bounded retries, directly or through bash.
+    script_words = words[1:] if words and _command_name(words[0]) == "bash" else words
+    if (
+        len(script_words) == 2
+        and script_words[0] in INIT_SUBMODULE_PATHS
+        and script_words[1] == "ghostty"
+    ):
+        return True
     return (
         len(words) >= 4
         and _command_name(words[0]) == "git"
@@ -434,7 +450,8 @@ def _run_events(
     script: str, step_line: int, *, failure_propagates: bool = True,
 ) -> tuple[list[RunEvent], str | None]:
     if not any(name in script for name in CONSUMER_NAMES) and (
-        "git submodule" not in script or "ghostty" not in script
+        ("git submodule" not in script and INIT_SUBMODULE_SCRIPT not in script)
+        or "ghostty" not in script
     ):
         return [], None
 

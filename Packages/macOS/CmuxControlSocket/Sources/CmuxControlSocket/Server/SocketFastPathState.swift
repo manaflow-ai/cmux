@@ -25,6 +25,7 @@ public final class SocketFastPathState: Sendable {
     /// Last admitted process generation and state for one logical surface.
     private struct ReportedShellActivity: Equatable {
         let terminalLifecycleID: UUID?
+        let relayConnectionID: UUID?
         let state: String
     }
 
@@ -58,6 +59,7 @@ public final class SocketFastPathState: Sendable {
         workspaceId: UUID,
         panelId: UUID,
         terminalLifecycleID: UUID? = nil,
+        relayConnectionID: UUID? = nil,
         state: String
     ) -> Bool {
         let key = SocketSurfaceKey(
@@ -66,6 +68,7 @@ public final class SocketFastPathState: Sendable {
         )
         let report = ReportedShellActivity(
             terminalLifecycleID: terminalLifecycleID,
+            relayConnectionID: relayConnectionID,
             state: state
         )
         return lastReportedShellStates.withLock { lastReportedShellStates in

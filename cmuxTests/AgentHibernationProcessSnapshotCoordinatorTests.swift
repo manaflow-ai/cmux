@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import os
@@ -104,6 +105,9 @@ struct AgentHibernationProcessSnapshotCoordinatorTests {
         let processes = (101...133).map { processID in
             CmuxTopProcessInfo(
                 pid: processID,
+                processIdentity: AgentPIDProcessIdentity(
+                    pid: pid_t(processID), startSeconds: Int64(processID), startMicroseconds: 1
+                ),
                 parentPID: 1,
                 name: "test",
                 path: nil,
@@ -161,4 +165,32 @@ struct AgentHibernationProcessSnapshotCoordinatorTests {
         #expect(argumentProbeCount.withLock { $0 } == 0)
         #expect(processGroupProbeCount.withLock { $0 } == 0)
     }
+    @Test func reusedDescendantDoesNotJoinTheSignalableEpoch() async {
+        let leader = AgentPIDProcessIdentity(pid: 101, startSeconds: 10, startMicroseconds: 1)
+        let original = AgentPIDProcessIdentity(pid: 102, startSeconds: 11, startMicroseconds: 1)
+        let replacement = AgentPIDProcessIdentity(pid: 102, startSeconds: 12, startMicroseconds: 1)
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [leader, original].map { identity in
+                CmuxTopProcessInfo(
+                    pid: Int(identity.pid), processIdentity: identity, parentPID: 101,
+                    name: "fixture", path: nil, ttyDevice: 42, cmuxWorkspaceID: nil,
+                    cmuxSurfaceID: nil, cmuxAttributionReason: nil, processGroupID: 101,
+                    terminalProcessGroupID: 101, cpuPercent: 0, residentBytes: 0,
+                    virtualBytes: 0, threadCount: 0
+                )
+            },
+            sampledAt: .now, includesProcessDetails: false
+        )
+        let coordinator = AgentHibernationProcessSnapshotCoordinator(
+            captureSnapshot: { snapshot },
+            processIdentityProvider: { $0 == 101 ? leader : replacement },
+            processGroupProvider: { _ in 101 }
+        )
+        let epoch = await coordinator.refreshedExitEpoch(
+            processGroupLeaders: [101: leader], processScopeKey: nil,
+            ttyDevice: 42, excluding: []
+        )
+        #expect(epoch == nil)
+    }
+
 }

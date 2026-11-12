@@ -11,6 +11,7 @@ import os
 import plistlib
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
@@ -20,6 +21,13 @@ JUNK_APP_COUNT = 40000
 RSS_LIMIT_KB = 64 * 1024
 TIMEOUT_SECONDS = 10.0
 EXPECTED_STDOUT = "cmux 9.9.9 (999)"
+# The first launch of a new executable can pay a one-time system check before
+# main runs (about 3 s on the owned CI Macs, more on a busy host). One untimed
+# launch absorbs it, and a regression is slow on every attempt, so a single
+# stall on a loaded host is retried rather than failed. Memory does not depend
+# on host load, so a memory failure is never retried.
+WARMUP_TIMEOUT_SECONDS = 120
+ATTEMPTS = 3
 
 
 def resolve_cmux_cli() -> str:
@@ -102,13 +110,18 @@ def run_with_limits(cli_path: str, *args: str) -> dict[str, object]:
         stderr=subprocess.PIPE,
         text=True,
         env=env,
+        # Its own group, so a timeout stops cmux and not only /usr/bin/time.
+        start_new_session=True,
     )
 
     started = time.time()
     try:
         stdout, stderr = proc.communicate(timeout=TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        proc.kill()
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # it exited in the moment after the timeout
         stdout, stderr = proc.communicate()
         elapsed = time.time() - started
         return {
@@ -152,7 +165,15 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="cmux-version-memory-guard-") as root:
         fixture_cli = build_fixture(root, cli_path)
-        result = run_with_limits(fixture_cli, "--version")
+        # `--help` returns before the version lookup this guard is about.
+        try:
+            subprocess.run([fixture_cli, "--help"], capture_output=True, timeout=WARMUP_TIMEOUT_SECONDS)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        for _ in range(ATTEMPTS):
+            result = run_with_limits(fixture_cli, "--version")
+            if not str(result["failure_reason"] or "").startswith("timeout exceeded"):
+                break
 
     if result["failure_reason"]:
         print("FAIL: `cmux --version` exceeded runtime guard")

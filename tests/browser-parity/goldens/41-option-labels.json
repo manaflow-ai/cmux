@@ -1,0 +1,6 @@
+{
+  "oracle": {},
+  "cmux": {
+    "plan": "- combobox \"Plan\" [ref=e1] [options: Free, \"Pro] [ref=e9] [checked\", \"A, B\", \"+3 more\", \"say \\\"hi\\\"\"]: \"Free\""
+  }
+}

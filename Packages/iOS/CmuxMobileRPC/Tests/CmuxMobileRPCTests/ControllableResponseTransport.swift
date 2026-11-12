@@ -95,9 +95,33 @@ actor ControllableResponseTransport: CmxByteTransport {
         }
     }
 
+    func deliverCoalescedResponse(id: String, eventCount: Int) throws {
+        let event = try MobileSyncFrameCodec.encodeFrame(
+            Data(#"{"kind":"event","topic":"workspace.updated","payload":{}}"#.utf8)
+        )
+        var batch = Data()
+        for _ in 0..<eventCount { batch.append(event) }
+        batch.append(try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: [
+            "id": id, "ok": true, "result": ["status": "ok"],
+        ])))
+        if !receiveWaiters.isEmpty {
+            receiveWaiters.removeFirst().resume(returning: batch)
+        } else {
+            queuedFrames.append(batch)
+        }
+    }
+
     func finishReceiving() {
         let waiters = receiveWaiters
         receiveWaiters = []
         for waiter in waiters { waiter.resume(returning: nil) }
+    }
+
+    func deliverRawChunk(_ chunk: Data) {
+        if !receiveWaiters.isEmpty {
+            receiveWaiters.removeFirst().resume(returning: chunk)
+        } else {
+            queuedFrames.append(chunk)
+        }
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import os
+import CmuxFoundation
 import SwiftUI
 
 private let vaultCheckpointTimelineLogger = Logger(
@@ -12,6 +13,7 @@ private let vaultCheckpointTimelineLogger = Logger(
 /// transcript (bounded scan); manual ones from `VaultSessionCheckpointStore`.
 /// All capabilities arrive as closures — no store references (issue #2586).
 struct VaultCheckpointTimelineView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let entry: SessionEntry
     /// Opens a session in a new workspace; used to launch fork-from-checkpoint
     /// results through the exact same path as row resume.
@@ -140,12 +142,15 @@ struct VaultCheckpointTimelineView: View {
                     systemImage: "flag"
                 )
                 .cmuxFont(size: 11, weight: .semibold)
-                .foregroundColor(.accentColor)
+                .foregroundColor(cmuxAccent.color)
                 .padding(.horizontal, 10)
                 .frame(height: 26)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.accentColor.opacity(0.13))
+                    RoundedRectangle(
+                        cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius,
+                        style: .continuous
+                    )
+                    .fill(cmuxAccent.color.opacity(0.13))
                 )
             }
             .buttonStyle(.borderless)
@@ -328,6 +333,7 @@ struct VaultCheckpointTimelineView: View {
 
 /// One checkpoint line: source icon, name/snippet, relative time, short sha.
 private struct VaultCheckpointRow: View, Equatable {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let checkpoint: VaultSessionCheckpoint
     let isForkEnabled: Bool
     let showsForkButton: Bool
@@ -393,7 +399,7 @@ private struct VaultCheckpointRow: View, Equatable {
             Circle()
                 .fill(
                     checkpoint.source == .manual
-                        ? Color.accentColor
+                        ? cmuxAccent.color
                         : Color.secondary.opacity(0.65)
                 )
                 .frame(width: checkpoint.source == .manual ? 9 : 7,
@@ -411,14 +417,14 @@ private struct VaultCheckpointRow: View, Equatable {
                 systemImage: "arrow.triangle.branch"
             )
             .cmuxFont(size: 10, weight: .semibold)
-            .foregroundColor(isForkEnabled ? .accentColor : .secondary)
+            .foregroundColor(isForkEnabled ? cmuxAccent.color : .secondary)
             .padding(.horizontal, 8)
             .frame(height: 22)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                     .fill(
                         isForkEnabled
-                            ? Color.accentColor.opacity(isHovered ? 0.16 : 0.10)
+                            ? cmuxAccent.color.opacity(isHovered ? 0.16 : 0.10)
                             : Color.primary.opacity(0.04)
                     )
             )

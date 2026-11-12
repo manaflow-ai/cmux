@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Production ``BackgroundLogLineSink`` that appends each line to a file through a
@@ -21,19 +22,14 @@ actor FileBackgroundLogLineSink: BackgroundLogLineSink {
         try? handle.write(contentsOf: data)
     }
 
-    /// Lazily opens (and seeks to end of) the handle on first write, creating the
-    /// file if needed. Failures are cached so a bad path is not retried per line.
+    /// Lazily opens the handle at the end of the file on first write, creating
+    /// the file if needed. Failures are cached so a bad path is not retried per line.
     private func resolvedHandle() -> FileHandle? {
         if handleResolved {
             return handle
         }
         handleResolved = true
-        let path = fileURL.path
-        if FileManager.default.fileExists(atPath: path) == false {
-            FileManager.default.createFile(atPath: path, contents: nil)
-        }
-        let opened = try? FileHandle(forWritingTo: fileURL)
-        try? opened?.seekToEnd()
+        let opened = OwnedLogFile(path: fileURL.path).openForAppending()
         handle = opened
         return opened
     }

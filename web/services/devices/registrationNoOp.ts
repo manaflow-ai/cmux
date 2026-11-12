@@ -12,8 +12,23 @@
  * answer it without taking the per-team advisory lock or writing two rows.
  */
 
-/** How stale a presence timestamp may get before a no-op POST refreshes it. */
-const DEFAULT_PRESENCE_TOUCH_INTERVAL_MS = 60_000;
+/**
+ * How stale a presence timestamp may get before a no-op POST refreshes it.
+ *
+ * This interval is the registry's entire write budget. A device that keeps
+ * re-POSTing an identical row writes at most once per interval, so the steady
+ * write rate is `live devices / interval`. At one minute and ~2,900 live
+ * devices that was ~53,000 `devices` upserts an hour in production, the single
+ * hottest write in the database; five minutes brings the ceiling down by five.
+ *
+ * Five minutes is safe because nothing reads `last_seen_at` as a liveness
+ * signal. Online/offline is owned by the presence service, which heartbeats
+ * every 15 seconds over its own path; the registry timestamp only orders and
+ * labels the device list a phone shows. Raising it further trades nothing but
+ * the ordering of two Macs that were both active inside the same window, and
+ * `CMUX_DEVICE_PRESENCE_TOUCH_INTERVAL_MS` retunes it without a deploy.
+ */
+const DEFAULT_PRESENCE_TOUCH_INTERVAL_MS = 300_000;
 
 export function presenceTouchIntervalMs(
   raw = process.env.CMUX_DEVICE_PRESENCE_TOUCH_INTERVAL_MS,

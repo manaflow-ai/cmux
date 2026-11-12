@@ -3,13 +3,18 @@ import Foundation
 struct TerminalInputReportParser {
     private let scalars: [Unicode.Scalar]
     private let start: Int
-    init(scalars: [Unicode.Scalar], start: Int) { self.scalars = scalars; self.start = start }
+    private let bodyStart: Int
+    init(scalars: [Unicode.Scalar], start: Int, bodyStart: Int? = nil) {
+        self.scalars = scalars
+        self.start = start
+        self.bodyStart = bodyStart ?? start + 2
+    }
     func csiSequenceLength() -> Int? {
-        guard start + 1 < scalars.count else { return nil }
-        var cursor = start + 2
+        guard bodyStart <= scalars.count else { return nil }
+        var cursor = bodyStart
         while cursor < scalars.count {
             let value = scalars[cursor].value
-            if value >= 0x40, value <= 0x7E { return isReport(bodyStart: start + 2, finalIndex: cursor) ? cursor - start + 1 : nil }
+            if value >= 0x40, value <= 0x7E { return isReport(bodyStart: bodyStart, finalIndex: cursor) ? cursor - start + 1 : nil }
             guard value >= 0x20, value <= 0x3F else { return nil }
             cursor += 1
         }

@@ -12,9 +12,11 @@ extension ControlCommandCoordinator {
         guard let workspaceID = uuid(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
+        let force = bool(params, "force") ?? false
         let resolution = context?.controlCloseWorkspace(
             routing: routing,
-            workspaceID: workspaceID
+            workspaceID: workspaceID,
+            force: force
         ) ?? .tabManagerUnavailable
         switch resolution {
         case .tabManagerUnavailable:
@@ -27,6 +29,15 @@ extension ControlCommandCoordinator {
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
                 "pinned": .bool(true),
+            ]))
+        case .confirmationRequired:
+            let message = context?.controlWorkspaceStrings().closeConfirmationRequired
+                ?? "Workspace has a running process; retry with --force"
+            return .err(code: "confirmation_required", message: message, data: .object([
+                "window_id": .null,
+                "window_ref": .null,
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
             ]))
         case .notFound:
             return .err(code: "not_found", message: "Workspace not found", data: .object([

@@ -140,7 +140,9 @@ extension TerminalController {
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
         terminalLifecycleID: UUID?,
-        stateRawValue: String
+        stateRawValue: String,
+        remoteRelayOwnerWorkspaceID: UUID?,
+        remoteRelayConnectionID: UUID?
     ) -> ControlSurfaceReportShellStateResolution {
         guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
             // Unreachable: the coordinator only forwards a value the app produced.
@@ -151,7 +153,9 @@ extension TerminalController {
                 scope: ControlSidebarPanelScope(
                     workspaceID: workspaceID,
                     panelID: requestedSurfaceID,
-                    terminalLifecycleID: terminalLifecycleID
+                    terminalLifecycleID: terminalLifecycleID,
+                    remoteRelayOwnerWorkspaceID: remoteRelayOwnerWorkspaceID,
+                    remoteRelayConnectionID: remoteRelayConnectionID
                 ),
                 stateRawValue: state.rawValue
             )
@@ -195,7 +199,9 @@ extension TerminalController {
             workspaceID: tab.id,
             surfaceID: surfaceId,
             terminalLifecycleID: nil,
-            state: state
+            state: state,
+            remoteRelayOwnerWorkspaceID: remoteRelayOwnerWorkspaceID,
+            remoteRelayConnectionID: remoteRelayConnectionID
         )
         return .pending
     }

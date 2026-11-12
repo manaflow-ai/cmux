@@ -5,6 +5,14 @@ use serde::{Deserialize, Serialize};
 
 pub const MUX_INPUT_V1_FEATURE: &str = "mux-input-v1";
 
+/// Optional `terminal-bytes-v1` open metadata key. With the value
+/// [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED`], the stream's renderer
+/// negotiates terminal-host viewer-size priority when the host supports it.
+/// Daemons without [`RemoteCapability::TerminalViewerSizePriorityV1`] reject
+/// the key as `invalid-argument`.
+pub const TERMINAL_BYTES_VIEWER_SIZE_PRIORITY: &str = "viewer_size_priority";
+pub const TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED: &str = "preferred";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ByteString(String);
@@ -156,6 +164,8 @@ pub enum RemoteCapability {
     ProcessTerminalSnapshotV1,
     RequestControlV1,
     ComputerUseV1,
+    /// `terminal-bytes-v1` accepts [`TERMINAL_BYTES_VIEWER_SIZE_PRIORITY`].
+    TerminalViewerSizePriorityV1,
     /// A capability introduced by a newer peer.
     ///
     /// Capabilities are versioned wire strings, so clients must be able to
@@ -1212,6 +1222,17 @@ mod tests {
             serde_json::to_value(RemoteCapability::ProcessTerminalSnapshotV1).unwrap(),
             "process-terminal-snapshot-v1"
         );
+    }
+
+    #[test]
+    fn terminal_viewer_size_priority_capability_uses_its_wire_name() {
+        assert_eq!(
+            serde_json::to_value(RemoteCapability::TerminalViewerSizePriorityV1).unwrap(),
+            "terminal-viewer-size-priority-v1"
+        );
+        let decoded: RemoteCapability =
+            serde_json::from_value(serde_json::json!("terminal-viewer-size-priority-v1")).unwrap();
+        assert_eq!(decoded, RemoteCapability::TerminalViewerSizePriorityV1);
     }
 
     #[test]

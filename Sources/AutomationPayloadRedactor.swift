@@ -2,7 +2,7 @@ import Foundation
 
 /// Removes credential-like values before automation data crosses an API
 /// boundary or is rendered by the CLI.
-nonisolated struct AutomationPayloadRedactor: Sendable {
+struct AutomationPayloadRedactor: Sendable {
     private let sensitiveKeyFragments = [
         "authorization", "token", "secret", "password", "apikey", "credential", "cookie", "privatekey", "headers", "session"
     ]

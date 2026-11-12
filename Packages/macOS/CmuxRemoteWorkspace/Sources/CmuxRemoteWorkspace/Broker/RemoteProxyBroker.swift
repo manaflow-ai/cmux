@@ -29,6 +29,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         var configuration: WorkspaceRemoteConfiguration
         var remotePath: String
         var tunnel: (any RemoteProxyTunneling)?
+        var tunnelGeneration: UUID?
         var endpoint: BrowserProxyEndpoint?
         var restartTask: Task<Void, Never>?
         var restartToken: UUID?
@@ -436,14 +437,22 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
 
         do {
+            let tunnelGeneration = UUID()
+            // Fresh per tunnel start; only the embedded browser receives it.
+            let credential = BrowserProxyCredential.random()
             let tunnel = tunnelProvider.makeTunnel(
                 configuration: entry.configuration,
                 remotePath: entry.remotePath,
-                localPort: localPort
+                localPort: localPort,
+                credential: credential
             ) { [weak self] detail in
                 guard let self else { return }
                 self.queue.async {
-                    self.handleTunnelFailureLocked(key: key, detail: detail)
+                    self.handleTunnelFailureLocked(
+                        key: key,
+                        tunnelGeneration: tunnelGeneration,
+                        detail: detail
+                    )
                 }
             }
             if let snapshot = entry.ptyLifecycleSnapshot {
@@ -451,8 +460,9 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             }
             try tunnel.start()
             entry.tunnel = tunnel
+            entry.tunnelGeneration = tunnelGeneration
             entry.ptyLifecycleSnapshot = nil
-            let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort)
+            let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: localPort, credential: credential)
             entry.endpoint = endpoint
             entry.restartRetryCount = 0
             notifyLocked(entry, update: .ready(endpoint))
@@ -465,8 +475,14 @@ public final class RemoteProxyBroker: @unchecked Sendable {
         }
     }
 
-    private func handleTunnelFailureLocked(key: String, detail: String) {
-        guard let entry = entries[key], entry.tunnel != nil else { return }
+    private func handleTunnelFailureLocked(
+        key: String,
+        tunnelGeneration: UUID,
+        detail: String
+    ) {
+        guard let entry = entries[key],
+              entry.tunnel != nil,
+              entry.tunnelGeneration == tunnelGeneration else { return }
         stopEntryRuntimeLocked(entry, preservePTYLifecycle: true)
         let retryDelay = Self.retryDelay(baseDelay: 3.0, retry: entry.restartRetryCount + 1)
         notifyLocked(entry, update: .error("\(detail)\(Self.retrySuffix(delay: retryDelay))"))
@@ -555,6 +571,7 @@ public final class RemoteProxyBroker: @unchecked Sendable {
             entry.tunnel?.stop()
         }
         entry.tunnel = nil
+        entry.tunnelGeneration = nil
         entry.endpoint = nil
     }
 

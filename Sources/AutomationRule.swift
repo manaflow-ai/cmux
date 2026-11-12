@@ -6,7 +6,7 @@ import Foundation
 /// still allowing an RPC action to pass any JSON object accepted by the v2
 /// socket. The value is deliberately independent of ``JSONSerialization`` so
 /// it can be used by both the app target and the bundled CLI target.
-nonisolated enum AutomationJSONValue: Codable, Equatable, Hashable, Sendable {
+enum AutomationJSONValue: Codable, Equatable, Hashable, Sendable {
     case null
     case bool(Bool)
     case integer(Int64)
@@ -147,7 +147,7 @@ nonisolated enum AutomationJSONValue: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-nonisolated private struct AutomationCodingKey: CodingKey {
+private struct AutomationCodingKey: CodingKey {
     let stringValue: String
     let intValue: Int?
 
@@ -163,7 +163,7 @@ nonisolated private struct AutomationCodingKey: CodingKey {
 }
 
 /// The event and category selectors that start a rule.
-nonisolated struct AutomationWhen: Codable, Equatable, Sendable {
+struct AutomationWhen: Codable, Equatable, Sendable {
     let event: String?
     let category: String?
 
@@ -195,7 +195,7 @@ nonisolated struct AutomationWhen: Codable, Equatable, Sendable {
 }
 
 /// One ordered action in an automation rule.
-nonisolated struct AutomationAction: Codable, Equatable, Sendable {
+struct AutomationAction: Codable, Equatable, Sendable {
     let action: String
     let parameters: [String: AutomationJSONValue]
 
@@ -249,7 +249,7 @@ nonisolated struct AutomationAction: Codable, Equatable, Sendable {
 }
 
 /// A configurable per-rule burst window.
-nonisolated struct AutomationRateLimit: Codable, Equatable, Sendable {
+struct AutomationRateLimit: Codable, Equatable, Sendable {
     let intervalSeconds: TimeInterval
     let maximum: Int
 
@@ -285,7 +285,7 @@ nonisolated struct AutomationRateLimit: Codable, Equatable, Sendable {
 }
 
 /// A single config-file automation rule.
-nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
+struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
     let id: String
     let when: AutomationWhen
     let predicates: [String: AutomationJSONValue]
@@ -618,7 +618,7 @@ nonisolated struct AutomationRule: Codable, Equatable, Sendable, Identifiable {
 }
 
 /// The versioned top-level automation configuration.
-nonisolated struct AutomationConfiguration: Codable, Equatable, Sendable {
+struct AutomationConfiguration: Codable, Equatable, Sendable {
     static let currentVersion = 1
 
     let version: Int

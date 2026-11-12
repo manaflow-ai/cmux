@@ -139,11 +139,12 @@ import Testing
         ))
         errno = 0
         let probeResult = Darwin.kill(descendantPID, 0)
+        let probeErrno = errno
 
         #expect(result.standardOutputWasTruncated)
         #expect(clock.now - start < .seconds(4))
         #expect(probeResult == -1)
-        #expect(errno == ESRCH)
+        #expect(probeErrno == ESRCH)
     }
 
     @Test func aggregateUntrackedBudgetSkipsUnreadableRemainder() throws {

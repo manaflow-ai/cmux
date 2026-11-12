@@ -29,6 +29,9 @@ extension RemoteSessionCoordinator {
         guard !isStopping else { return }
         isSystemSleeping = true
         cancelReconnectRetryLocked()
+        // The deadline measures time spent seeking readiness, not time asleep;
+        // the post-wake reconnect arms a fresh one.
+        cancelReadinessDeadlineLocked()
         reachabilityProbeGeneration &+= 1
         debugLog("remote.session.systemSleep \(debugConfigSummary())")
     }
@@ -45,7 +48,7 @@ extension RemoteSessionCoordinator {
         reconnectRetryCount = 0
         consecutiveUnreachableProbeCount = 0
         resetBootstrapFailureTrackingLocked()
-        reconnectSuspended = false
+        endReadinessSeekLocked()
         reachabilityProbeGeneration &+= 1
         debugLog(
             "remote.session.reconnect.rearmed reason=\(reason.debugLogSnippet(limit: 80)) " +

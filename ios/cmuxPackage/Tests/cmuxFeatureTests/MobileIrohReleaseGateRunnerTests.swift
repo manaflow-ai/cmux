@@ -9,6 +9,25 @@ import Testing
 
 @MainActor
 struct MobileIrohReleaseGateRunnerTests {
+    @Test func completedRecoveryPreservesFailureAndSuccessfulProofs() throws {
+        var soak = MobileIrohSoakRunner.Evidence(profile: .stress, requestedDurationSeconds: 3_600)
+        soak.elapsedSeconds = 3_600
+        soak.completedCycles = 700
+        soak.currentOperation = "complete"
+        soak.recoverableFailures = ["terminalRoundTripFailed": 1]
+        let report = MobileIrohReleaseGateRunner.completedReport(
+            mode: .relayOnly, scenario: .standard, probe: Self.successfulProbe,
+            selectedPath: "relay", soak: soak
+        )
+        let serialized = try JSONEncoder().encode(report)
+        let restored = try JSONDecoder().decode(MobileIrohReleaseGateRunner.Report.self, from: serialized)
+        #expect(!restored.passed)
+        #expect(restored.failure == "soak_terminal_recovered")
+        #expect(restored.terminalRoundTripVerified)
+        #expect(restored.soak?.recoverableFailures == ["terminalRoundTripFailed": 1])
+        #expect(restored.soak?.currentOperation == "complete")
+    }
+
     @Test
     func taskRestartReusesOneRunAndOneReportWrite() async throws {
         let configuration = try temporaryConfiguration(mode: .relayOnly)
@@ -255,9 +274,12 @@ struct MobileIrohReleaseGateRunnerTests {
         let pendingSettings = AsyncStream<CmxIrohSettingsSnapshot>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
+        // The deadline fires only because the path never arrives, but it must
+        // not fire before readiness and the probe finish, or there are no
+        // proofs to preserve. 20 ms lost that race under the full suite.
         let report = try await runLatePathFailure(
             settingsUpdates: pendingSettings.stream,
-            timeout: .milliseconds(20)
+            timeout: .seconds(3)
         )
         pendingSettings.continuation.finish()
 
@@ -279,7 +301,7 @@ struct MobileIrohReleaseGateRunnerTests {
         )
         #expect(complete.passed)
         #expect(complete.scenario == "relay_rollover")
-        #expect(complete.soakDurationSeconds == 330)
+        #expect(complete.soakDurationSeconds == 1_950)
     }
 
     @Test
@@ -313,7 +335,17 @@ struct MobileIrohReleaseGateRunnerTests {
         ))
         #expect(configuration.mode == .relayOnly)
         #expect(configuration.scenario == .standard)
+        #expect(configuration.startupPath == "stored_pairing")
         #expect(configuration.reportURL.lastPathComponent == "cmux-iroh-release-gate.json")
+
+        let injected = try #require(MobileIrohReleaseGateRunner.Configuration(
+            environment: [
+                "CMUX_IROH_RELEASE_GATE_MODE": "relayOnly",
+                "CMUX_DOGFOOD_ATTACH_URL": "https://example.test/pair",
+            ],
+            cachesDirectory: cache
+        ))
+        #expect(injected.startupPath == "injected_pairing")
 
         let rollover = try #require(MobileIrohReleaseGateRunner.Configuration(
             environment: [
@@ -330,6 +362,16 @@ struct MobileIrohReleaseGateRunnerTests {
             ],
             cachesDirectory: cache
         ) == nil)
+
+        let rolloverSoak = try #require(MobileIrohReleaseGateRunner.Configuration(
+            environment: [
+                "CMUX_IROH_RELEASE_GATE_MODE": "relayOnly",
+                "CMUX_IROH_RELEASE_GATE_SCENARIO": "relay_rollover",
+                "CMUX_IROH_SOAK_PROFILE": "stress",
+            ],
+            cachesDirectory: cache
+        ))
+        #expect(rolloverSoak.soakProfile == .stress)
     }
 
     @Test(arguments: [
@@ -390,7 +432,7 @@ struct MobileIrohReleaseGateRunnerTests {
             independentEventsContinuityVerified: true,
             artifactLaneVerified: true,
             unrefreshedExpiryDisconnectVerified: false,
-            soakDurationSeconds: 330,
+            soakDurationSeconds: 1_950,
             routeKind: "iroh",
             selectedPath: "managed_relay",
             failure: nil,
@@ -506,7 +548,7 @@ struct MobileIrohReleaseGateRunnerTests {
         controlStreamContinuityVerified: true,
         independentEventsContinuityVerified: true,
         artifactLaneVerified: true,
-        soakDurationSeconds: 330
+        soakDurationSeconds: 1_950
     )
 
     private static let successfulExpiryProbe = MobileIrohReleaseGateProbeResult(

@@ -14,30 +14,32 @@ import Foundation
 /// Shared between the app (which builds the link a person clicks) and the CLI
 /// (`cmux vpn hosts`, which owns writing `/etc/hosts`) so the slug algorithm
 /// producing the name can never drift between the two.
-public enum CmuxInternalHostnames {
+public struct CmuxInternalHostnames: Sendable {
+    public init() {}
+
     /// Markers bounding cmux's block in `/etc/hosts`. Anything outside them
     /// (the user's own entries, other tools') is preserved byte-for-byte.
-    public static let blockBeginMarker = "# BEGIN cmux managed hosts (cmux vpn hosts)"
-    public static let blockEndMarker = "# END cmux managed hosts"
+    public let blockBeginMarker = "# BEGIN cmux managed hosts (cmux vpn hosts)"
+    public let blockEndMarker = "# END cmux managed hosts"
 
     /// The default tunnel scope (production): its block keeps the historical
     /// unscoped markers. Any other scope — a dev build on the same Mac, whose
     /// machines live on another private network behind its own tunnel — gets
     /// markers carrying the scope name, so each build owns exactly one block
     /// and never rewrites or clears the other's.
-    public static let defaultScope = "cmux"
+    public let defaultScope = "cmux"
 
-    public static func blockBeginMarker(scope: String?) -> String {
+    public func blockBeginMarker(scope: String?) -> String {
         guard let scope = scopedName(scope) else { return blockBeginMarker }
         return "# BEGIN cmux managed hosts [\(scope)] (cmux vpn hosts)"
     }
 
-    public static func blockEndMarker(scope: String?) -> String {
+    public func blockEndMarker(scope: String?) -> String {
         guard let scope = scopedName(scope) else { return blockEndMarker }
         return "# END cmux managed hosts [\(scope)]"
     }
 
-    private static func scopedName(_ scope: String?) -> String? {
+    private func scopedName(_ scope: String?) -> String? {
         guard let scope = scope?.trimmingCharacters(in: .whitespacesAndNewlines), !scope.isEmpty, scope != defaultScope else {
             return nil
         }
@@ -60,7 +62,7 @@ public enum CmuxInternalHostnames {
     /// The hostname this app would offer for a machine, given its stable id
     /// and (optional) display label — the label when it slugs to something
     /// non-empty, else the id. Both end in `.internal`.
-    public static func hostname(id: String, label: String?) -> String {
+    public func hostname(id: String, label: String?) -> String {
         if let label, let slug = slug(label), !slug.isEmpty {
             return "\(slug).internal"
         }
@@ -70,7 +72,7 @@ public enum CmuxInternalHostnames {
     /// Lowercase alphanumeric-and-hyphen, collapsing runs and trimming edges —
     /// a valid DNS label, or nil when nothing usable survives (emoji-only
     /// labels, etc.), so the caller falls back to the id.
-    public static func slug(_ raw: String) -> String? {
+    public func slug(_ raw: String) -> String? {
         let lowered = raw.lowercased()
         var out = ""
         var lastWasHyphen = false
@@ -87,7 +89,7 @@ public enum CmuxInternalHostnames {
         return out.isEmpty ? nil : out
     }
 
-    private static func slugOrRaw(_ raw: String) -> String {
+    private func slugOrRaw(_ raw: String) -> String {
         slug(raw) ?? raw
     }
 
@@ -99,14 +101,14 @@ public enum CmuxInternalHostnames {
     /// only resolves once `/etc/hosts` has been synced, and a link that only
     /// sometimes works is worse than one that always does. An IPv6 literal is
     /// bracketed the way every URL scheme requires.
-    public static func directPortURL(privateAddress: String, port: Int) -> String {
+    public func directPortURL(privateAddress: String, port: Int) -> String {
         let bracketed = privateAddress.contains(":") ? "[\(privateAddress)]" : privateAddress
         return "http://\(bracketed):\(port)"
     }
 
     /// Render entries as the managed block's body (no markers): one `ip host`
     /// line per hostname, sorted for a stable, diffable file.
-    public static func renderBlockBody(_ entries: [Entry]) -> String {
+    public func renderBlockBody(_ entries: [Entry]) -> String {
         var lines: [String] = []
         for entry in entries {
             for host in entry.hostnames {
@@ -122,7 +124,7 @@ public enum CmuxInternalHostnames {
     /// end in one). `body` may be empty, which removes the block entirely
     /// (leaving one trailing newline) — used when this Mac has no machines
     /// left to publish.
-    public static func mergedHostsFile(current: String, body: String, scope: String? = nil) -> String {
+    public func mergedHostsFile(current: String, body: String, scope: String? = nil) -> String {
         let beginMarker = blockBeginMarker(scope: scope)
         let endMarker = blockEndMarker(scope: scope)
         let block = body.isEmpty ? "" : "\(beginMarker)\n\(body)\n\(endMarker)"

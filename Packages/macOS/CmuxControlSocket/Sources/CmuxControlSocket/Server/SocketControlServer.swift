@@ -301,7 +301,7 @@ public final class SocketControlServer {
         listenerStateSnapshot().pendingRearmGeneration != nil
     }
 
-    /// The access mode of the current (or most recently started) listener.
+    /// The access mode currently owned by the authorization state.
     public nonisolated var accessMode: SocketControlMode {
         connectionAuthorizationState.accessMode
     }
@@ -323,10 +323,43 @@ public final class SocketControlServer {
         _ generation: UInt64,
         passwordAuthorization: SocketPasswordAuthorization
     ) -> Bool {
-        connectionAuthorizationState.permitsContinuation(
+        return connectionAuthorizationState.permitsContinuation(
             generation: generation,
             authenticatedPasswordFingerprint:
                 passwordAuthorization.authenticatedCredentialFingerprint
+        )
+    }
+
+    /// Performs a bounded operation while checking the accepted connection's
+    /// authorization generation and password revision under one lock. This is
+    /// used for the CodeRouter handoff response so revocation cannot land
+    /// between the final check and the credential write.
+    public nonisolated func withConnectionAuthorization<T: Sendable>(
+        _ generation: UInt64,
+        passwordAuthorization: SocketPasswordAuthorization,
+        _ body: @Sendable () -> T
+    ) -> T? {
+        connectionAuthorizationState.withPermittedContinuation(
+            generation: generation,
+            authenticatedPasswordFingerprint:
+                passwordAuthorization.authenticatedCredentialFingerprint,
+            body
+        )
+    }
+
+    /// Performs a bounded response write for an app-validated, scoped trusted
+    /// peer while checking the listener generation under the same lock.
+    ///
+    /// This deliberately does not accept a password credential. It is only
+    /// for the signed CodeRouter path, whose audit token and single-use arm
+    /// grant are checked by the app before this call and again in the body.
+    public nonisolated func withTrustedPeerConnectionAuthorization<T: Sendable>(
+        _ generation: UInt64,
+        _ body: @Sendable () -> T
+    ) -> T? {
+        connectionAuthorizationState.withCurrentGeneration(
+            generation: generation,
+            body
         )
     }
 
@@ -394,7 +427,7 @@ public final class SocketControlServer {
         stateMirror.withLock { $0 }
     }
 
-    nonisolated func configureConnectionAuthorization(accessMode: SocketControlMode) {
+    func configureConnectionAuthorization(accessMode: SocketControlMode) {
         connectionAuthorizationState.configure(
             accessMode: accessMode,
             effectivePassword: accessMode.requiresPasswordAuth

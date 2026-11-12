@@ -1,7 +1,7 @@
 import Foundation
 
 /// The stable identity carried from an agent notification source to sound delivery.
-nonisolated public struct NotificationSoundOverrideContext: Codable, Equatable, Hashable, Sendable {
+public struct NotificationSoundOverrideContext: Codable, Equatable, Hashable, Sendable {
     /// The stable registry identifier for the agent that produced the alert.
     public let agentID: String
     /// The semantic alert class used to select the matrix cell.

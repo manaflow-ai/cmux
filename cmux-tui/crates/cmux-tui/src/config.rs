@@ -45,6 +45,14 @@
 //!       "cwd": "/optional"
 //!     }
 //!   },
+//!   "agents": {
+//!     "plugin": {
+//!       "id": "example_agent_screen_detection",
+//!       "command": ["/path/to/agent-plugin"],
+//!       "cwd": "/optional",
+//!       "revision": "sha256-..."
+//!     }
+//!   },
 //!   "machine_sidebar": {
 //!     "enabled": false,
 //!     "width": 22,
@@ -76,6 +84,10 @@
 //!   },
 //!   "viewport": {
 //!     "animation": true
+//!   },
+//!   "notifications": {
+//!     "desktop": "auto",
+//!     "bell": false
 //!   },
 //!   "server": {
 //!     "ws": "127.0.0.1:7681",
@@ -114,9 +126,12 @@
 //! `toggle-sidebar-view`, `focus-sidebar`, `new-pane-right`, `undo-layout`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
-//! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
+//! `resize-shrink`, `scroll-up`, `scroll-down`, `scroll-page-up`,
+//! `scroll-page-down`, `scroll-half-page-up`, `scroll-half-page-down`,
+//! `copy-mode`, `search-scrollback`, `clear-history`, `browser-back`,
 //! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
-//! and `detach`.
+//! `next-attention`, `attention-list`, and `detach`. `keys.copy_mode` holds
+//! the copy-mode key table.
 //!
 //! The defaults intentionally match tmux where cmux has the same
 //! capability, except that `x` closes the more commonly managed tab and
@@ -129,7 +144,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
@@ -148,6 +163,10 @@ use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 
 const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
+/// Bound every JSON config read before parsing it into a dynamic value.
+/// Normal hand-written configs are far smaller, while a damaged or hostile
+/// file must not be allowed to consume unbounded TUI memory.
+pub(crate) const CONFIG_FILE_MAX_BYTES: usize = 4 * 1024 * 1024;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::buffer::CellWidth;
 use ratatui::style::Color;
@@ -157,6 +176,9 @@ use unicode_segmentation::UnicodeSegmentation;
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
+
+mod copy_mode_keys;
+pub use copy_mode_keys::{CopyModeAction, CopyModeKeys};
 
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
@@ -179,6 +201,8 @@ struct RawConfig {
     #[serde(default)]
     sidebar: RawSidebar,
     #[serde(default)]
+    agents: RawAgents,
+    #[serde(default)]
     machine_sidebar: RawMachineSidebar,
     #[serde(default)]
     machine_provider: RawMachineProvider,
@@ -200,6 +224,9 @@ struct RawConfig {
     viewport: RawViewport,
     #[serde(default)]
     server: RawServer,
+    /// Host terminal notifications (`host_notify.rs`).
+    #[serde(default)]
+    notifications: RawNotifications,
     /// Key bindings: `"prefix"` plus one entry per action. Values may be
     /// a chord string, an array of chord strings, `"none"`, or
     /// `"alt_shortcuts": false`, `"super_shortcuts": false`, or the host
@@ -214,6 +241,14 @@ struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
     detached_owner: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawNotifications {
+    /// `off`, `auto` or `always`.
+    desktop: Option<crate::host_notify::DesktopNotifyMode>,
+    bell: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -538,6 +573,8 @@ struct RawSidebar {
     rail_glyph: Option<String>,
     /// Workspace row label template with `{index}` and `{name}`.
     workspace_label: Option<String>,
+    /// The workspace rail's agents section; `false` hides it.
+    agents: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -618,6 +655,22 @@ struct RawSidebarColumn {
 struct RawSidebarPlugin {
     command: Option<Vec<String>>,
     cwd: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAgents {
+    /// Optional background process that reports generic agent journal events.
+    plugin: Option<RawAgentPlugin>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAgentPlugin {
+    id: Option<String>,
+    command: Option<Vec<String>>,
+    cwd: Option<String>,
+    revision: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1028,6 +1081,16 @@ pub struct Sidebar {
     pub rail_glyph: String,
     /// Workspace row label template with `{index}` and `{name}`.
     pub workspace_label: String,
+    /// Show the agents section (every agent across workspaces, most urgent
+    /// first) at the bottom of the workspace rail.
+    pub agents: bool,
+}
+
+/// Background agent integrations. The process is optional and runs outside
+/// the core detector. Its events enter through the journal producer API.
+#[derive(Debug, Clone, Default)]
+pub struct Agents {
+    pub plugin: Option<cmux_tui_core::JournalPluginOptions>,
 }
 
 impl Default for Sidebar {
@@ -1059,6 +1122,7 @@ impl Default for Sidebar {
             row_gap: 1,
             rail_glyph: "\u{258e}".to_string(),
             workspace_label: "{name}".to_string(),
+            agents: true,
         }
     }
 }
@@ -1642,12 +1706,24 @@ pub enum Action {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ScrollPageUp,
+    ScrollPageDown,
+    ScrollHalfPageUp,
+    ScrollHalfPageDown,
+    /// Keyboard copy mode over the active terminal's scrollback.
+    CopyMode,
+    /// Copy mode opened straight into a backward scrollback search.
+    SearchScrollback,
     ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
+    /// Jump to the next tab that needs the person (src/attention.rs order).
+    NextAttention,
+    /// Open the searchable list of tabs that need the person.
+    AttentionList,
     Detach,
     /// A user-configured command from the top-level `commands` section,
     /// opened as a new PTY tab through the mux `run` command.
@@ -1699,12 +1775,20 @@ pub(crate) enum ActionExecution {
     ResizeShrink,
     ScrollUp,
     ScrollDown,
+    ScrollPageUp,
+    ScrollPageDown,
+    ScrollHalfPageUp,
+    ScrollHalfPageDown,
+    CopyMode,
+    SearchScrollback,
     ClearHistory,
     BrowserBack,
     BrowserForward,
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
+    NextAttention,
+    AttentionList,
     Detach,
     UserCommand(UserCommandIndex),
 }
@@ -1924,12 +2008,20 @@ define_named_action_definitions! {
     RESIZE_SHRINK_DEFINITION => (Action::ResizeShrink, "resize-shrink", "Shrink pane", "ペインを縮小");
     SCROLL_UP_DEFINITION => (Action::ScrollUp, "scroll-up", "Scroll up", "上にスクロール");
     SCROLL_DOWN_DEFINITION => (Action::ScrollDown, "scroll-down", "Scroll down", "下にスクロール");
+    SCROLL_PAGE_UP_DEFINITION => (Action::ScrollPageUp, "scroll-page-up", "Scroll up one page", "1 ページ上にスクロール");
+    SCROLL_PAGE_DOWN_DEFINITION => (Action::ScrollPageDown, "scroll-page-down", "Scroll down one page", "1 ページ下にスクロール");
+    SCROLL_HALF_PAGE_UP_DEFINITION => (Action::ScrollHalfPageUp, "scroll-half-page-up", "Scroll up half a page", "半ページ上にスクロール");
+    SCROLL_HALF_PAGE_DOWN_DEFINITION => (Action::ScrollHalfPageDown, "scroll-half-page-down", "Scroll down half a page", "半ページ下にスクロール");
+    COPY_MODE_DEFINITION => (Action::CopyMode, "copy-mode", "Copy mode", "コピーモード");
+    SEARCH_SCROLLBACK_DEFINITION => (Action::SearchScrollback, "search-scrollback", "Search scrollback", "スクロールバックを検索");
     CLEAR_HISTORY_DEFINITION => (Action::ClearHistory, "clear-history", "Clear terminal history", "ターミナル履歴を消去");
     BROWSER_BACK_DEFINITION => (Action::BrowserBack, "browser-back", "Browser back", "ブラウザで戻る");
     BROWSER_FORWARD_DEFINITION => (Action::BrowserForward, "browser-forward", "Browser forward", "ブラウザで進む");
     BROWSER_RELOAD_DEFINITION => (Action::BrowserReload, "browser-reload", "Reload browser", "ブラウザを再読み込み");
     BROWSER_EDIT_URL_DEFINITION => (Action::BrowserEditUrl, "browser-edit-url", "Edit browser URL", "ブラウザ URL を編集");
     SHOW_SHORTCUTS_DEFINITION => (Action::ShowShortcuts, "show-shortcuts", "Keyboard shortcuts", "キーボードショートカット");
+    NEXT_ATTENTION_DEFINITION => (Action::NextAttention, "next-attention", "Go to next tab that needs you", "対応が必要な次のタブへ移動");
+    ATTENTION_LIST_DEFINITION => (Action::AttentionList, "attention-list", "Tabs that need you", "対応が必要なタブ");
     DETACH_DEFINITION => (Action::Detach, "detach", "Detach", "デタッチ");
 }
 
@@ -2062,7 +2154,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 67] = [
+    static DEFINITIONS: [&ActionDefinition; 75] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -2123,12 +2215,20 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &RESIZE_SHRINK_DEFINITION,
         &SCROLL_UP_DEFINITION,
         &SCROLL_DOWN_DEFINITION,
+        &SCROLL_PAGE_UP_DEFINITION,
+        &SCROLL_PAGE_DOWN_DEFINITION,
+        &SCROLL_HALF_PAGE_UP_DEFINITION,
+        &SCROLL_HALF_PAGE_DOWN_DEFINITION,
+        &COPY_MODE_DEFINITION,
+        &SEARCH_SCROLLBACK_DEFINITION,
         &CLEAR_HISTORY_DEFINITION,
         &BROWSER_BACK_DEFINITION,
         &BROWSER_FORWARD_DEFINITION,
         &BROWSER_RELOAD_DEFINITION,
         &BROWSER_EDIT_URL_DEFINITION,
         &SHOW_SHORTCUTS_DEFINITION,
+        &NEXT_ATTENTION_DEFINITION,
+        &ATTENTION_LIST_DEFINITION,
         &DETACH_DEFINITION,
     ];
     &DEFINITIONS
@@ -2410,6 +2510,42 @@ impl Action {
                 "frontend viewport adapter; scroll-surface for shared local viewport",
                 ActionExecution::ScrollDown,
             ),
+            Action::ScrollPageUp => ActionMetadata::new(
+                "scroll-page-up",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter",
+                ActionExecution::ScrollPageUp,
+            ),
+            Action::ScrollPageDown => ActionMetadata::new(
+                "scroll-page-down",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter",
+                ActionExecution::ScrollPageDown,
+            ),
+            Action::ScrollHalfPageUp => ActionMetadata::new(
+                "scroll-half-page-up",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter",
+                ActionExecution::ScrollHalfPageUp,
+            ),
+            Action::ScrollHalfPageDown => ActionMetadata::new(
+                "scroll-half-page-down",
+                ActionClassification::PresentationOnly,
+                "frontend viewport adapter",
+                ActionExecution::ScrollHalfPageDown,
+            ),
+            Action::CopyMode => ActionMetadata::new(
+                "copy-mode",
+                ActionClassification::PresentationOnly,
+                "frontend copy mode over the terminal mirror",
+                ActionExecution::CopyMode,
+            ),
+            Action::SearchScrollback => ActionMetadata::new(
+                "search-scrollback",
+                ActionClassification::PresentationOnly,
+                "frontend copy mode over the terminal mirror",
+                ActionExecution::SearchScrollback,
+            ),
             Action::ClearHistory => ActionMetadata::new(
                 "clear-history",
                 ActionClassification::Direct,
@@ -2445,6 +2581,18 @@ impl Action {
                 ActionClassification::PresentationOnly,
                 "frontend shortcut overlay",
                 ActionExecution::ShowShortcuts,
+            ),
+            Action::NextAttention => ActionMetadata::new(
+                "next-attention",
+                ActionClassification::PresentationOnly,
+                "frontend attention queue + client focus",
+                ActionExecution::NextAttention,
+            ),
+            Action::AttentionList => ActionMetadata::new(
+                "attention-list",
+                ActionClassification::PresentationOnly,
+                "frontend attention list overlay",
+                ActionExecution::AttentionList,
             ),
             Action::Detach => ActionMetadata::new(
                 "detach",
@@ -2507,12 +2655,20 @@ impl Action {
             Action::ResizeShrink => &RESIZE_SHRINK_DEFINITION,
             Action::ScrollUp => &SCROLL_UP_DEFINITION,
             Action::ScrollDown => &SCROLL_DOWN_DEFINITION,
+            Action::ScrollPageUp => &SCROLL_PAGE_UP_DEFINITION,
+            Action::ScrollPageDown => &SCROLL_PAGE_DOWN_DEFINITION,
+            Action::ScrollHalfPageUp => &SCROLL_HALF_PAGE_UP_DEFINITION,
+            Action::ScrollHalfPageDown => &SCROLL_HALF_PAGE_DOWN_DEFINITION,
+            Action::CopyMode => &COPY_MODE_DEFINITION,
+            Action::SearchScrollback => &SEARCH_SCROLLBACK_DEFINITION,
             Action::ClearHistory => &CLEAR_HISTORY_DEFINITION,
             Action::BrowserBack => &BROWSER_BACK_DEFINITION,
             Action::BrowserForward => &BROWSER_FORWARD_DEFINITION,
             Action::BrowserReload => &BROWSER_RELOAD_DEFINITION,
             Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
             Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
+            Action::NextAttention => &NEXT_ATTENTION_DEFINITION,
+            Action::AttentionList => &ATTENTION_LIST_DEFINITION,
             Action::Detach => &DETACH_DEFINITION,
             // One shared fallback: presentation surfaces resolve the
             // configured display name through the command list instead of
@@ -2663,6 +2819,8 @@ pub struct Keys {
     action_by_chord: HashMap<Chord, Action>,
     modeless_action_by_chord: HashMap<Chord, Action>,
     pub(crate) provider_menu_overridden: bool,
+    /// Keys of keyboard copy mode, configured under `keys.copy_mode`.
+    pub copy_mode: CopyModeKeys,
 }
 
 impl Default for Keys {
@@ -2680,6 +2838,7 @@ impl Default for Keys {
                 alt(KeyCode::Char('t'), Action::NewTab),
                 bind(KeyCode::Char('B'), Action::NewBrowserTab),
                 alt(KeyCode::Char('n'), Action::NewPaneSmart),
+                bind(KeyCode::Char('N'), Action::NewPaneSmart),
                 bind(KeyCode::Tab, Action::NextTab),
                 bind(KeyCode::BackTab, Action::PrevTab),
                 bind(KeyCode::Char('%'), Action::SplitRight),
@@ -2735,24 +2894,30 @@ impl Default for Keys {
                 alt(KeyCode::Char('j'), Action::FocusDown),
                 alt(KeyCode::Down, Action::FocusDown),
                 alt(KeyCode::Char('='), Action::ResizeGrow),
+                bind(KeyCode::Char('+'), Action::ResizeGrow),
                 alt(KeyCode::Char('-'), Action::ResizeShrink),
+                bind(KeyCode::Char('-'), Action::ResizeShrink),
                 bind(KeyCode::Char('z'), Action::ZoomPane),
                 bind(KeyCode::Char('{'), Action::SwapPanePrev),
                 bind(KeyCode::Char('}'), Action::SwapPaneNext),
-                bind(KeyCode::Char('['), Action::ScrollUp),
-                bind(KeyCode::PageUp, Action::ScrollUp),
-                bind(KeyCode::PageDown, Action::ScrollDown),
+                bind(KeyCode::Char('['), Action::CopyMode),
+                bind(KeyCode::Char('/'), Action::SearchScrollback),
+                bind(KeyCode::PageUp, Action::ScrollPageUp),
+                bind(KeyCode::PageDown, Action::ScrollPageDown),
                 command(KeyCode::Char('k'), Action::ClearHistory),
                 bind(KeyCode::Char('<'), Action::BrowserBack),
                 bind(KeyCode::Char('>'), Action::BrowserForward),
                 bind(KeyCode::Char('r'), Action::BrowserReload),
                 bind(KeyCode::Char('u'), Action::BrowserEditUrl),
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
+                bind(KeyCode::Char('a'), Action::NextAttention),
+                bind(KeyCode::Char('A'), Action::AttentionList),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
             action_by_chord: HashMap::new(),
             modeless_action_by_chord: HashMap::new(),
             provider_menu_overridden: false,
+            copy_mode: CopyModeKeys::default(),
         };
         keys.rebuild_dispatch_maps();
         keys
@@ -2921,6 +3086,7 @@ impl Keys {
                 || name == "alt_shortcuts"
                 || name == "super_shortcuts"
                 || name == "prefix"
+                || name == "copy_mode"
             {
                 continue;
             }
@@ -2980,6 +3146,9 @@ impl Keys {
             }
         }
         let prefix = self.prefix;
+        if let Some(value) = raw.get("copy_mode") {
+            self.copy_mode.apply(value, prefix);
+        }
         self.bindings.retain(|(chord, action)| *action == Action::SendPrefix || *chord != prefix);
         self.rebuild_dispatch_maps();
     }
@@ -3053,6 +3222,7 @@ pub struct Config {
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
+    pub agents: Agents,
     pub machine_sidebar: MachineSidebar,
     pub machine_provider: MachineProviderConfig,
     pub machines: Vec<MachineConfig>,
@@ -3062,6 +3232,8 @@ pub struct Config {
     pub status_bar: StatusBarOptions,
     pub viewport: Viewport,
     pub server: Server,
+    /// Host terminal notifications (`notifications`).
+    pub notifications: crate::host_notify::NotifyConfig,
     pub keys: Keys,
     pub commands: Vec<UserCommandConfig>,
 }
@@ -3305,6 +3477,14 @@ pub struct SidebarPluginConfig {
     pub cwd: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentPluginConfig {
+    pub id: String,
+    pub command: Vec<String>,
+    pub cwd: Option<String>,
+    pub revision: Option<String>,
+}
+
 /// Load the config: defaults, overlaid with the user's Ghostty selection
 /// colors, overlaid with `cmux-tui.json` or legacy `mux.json`.
 pub fn load() -> Config {
@@ -3435,6 +3615,9 @@ pub fn load() -> Config {
             );
         }
     }
+    if let Some(agents) = raw.sidebar.agents {
+        config.sidebar.agents = agents;
+    }
     if let Some(template) = raw.sidebar.workspace_label {
         let template = template.trim().to_string();
         if !template.is_empty() {
@@ -3442,13 +3625,11 @@ pub fn load() -> Config {
         }
     }
     if let Some(plugin) = raw.sidebar.plugin {
-        let command = plugin
-            .command
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|arg| !arg.is_empty())
-            .collect::<Vec<_>>();
-        if command.is_empty() {
+        // Preserve every argument after argv[0]. Empty arguments are valid
+        // process arguments, and filtering them would silently change the
+        // command a user configured. Only the executable slot is required.
+        let command = plugin.command.unwrap_or_default();
+        if command.first().is_none_or(|arg| arg.trim().is_empty()) {
             crate::client_log::stderr_log!(
                 "config",
                 "cmux-tui: ignoring sidebar.plugin with empty command"
@@ -3458,6 +3639,39 @@ pub fn load() -> Config {
                 command,
                 cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
             });
+        }
+    }
+    if let Some(plugin) = raw.agents.plugin {
+        if let Some(id) = plugin.id {
+            // Do not filter later argv entries. An empty value can be meaningful
+            // to a plugin, while an empty executable must still disable config.
+            let command = plugin.command.unwrap_or_default();
+            if command.first().is_none_or(|arg| arg.trim().is_empty()) {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring agents.plugin with empty command"
+                );
+            } else {
+                let options = cmux_tui_core::JournalPluginOptions {
+                    id,
+                    command,
+                    cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
+                    revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
+                };
+                if let Err(error) = options.validate() {
+                    crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring invalid agents.plugin: {error}"
+                    );
+                } else {
+                    config.agents.plugin = Some(options);
+                }
+            }
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring agents.plugin without an explicit id"
+            );
         }
     }
     if let Some(enabled) = raw.machine_sidebar.enabled {
@@ -3866,6 +4080,12 @@ pub fn load() -> Config {
     if let Some(detached_owner) = raw.server.detached_owner {
         config.server.detached_owner = detached_owner;
     }
+    if let Some(desktop) = raw.notifications.desktop {
+        config.notifications.desktop = desktop;
+    }
+    if let Some(bell) = raw.notifications.bell {
+        config.notifications.bell = bell;
+    }
     config.keys.apply(&raw.keys);
     bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
     config.commands = user_commands;
@@ -4024,7 +4244,7 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 
 fn load_raw_config() -> RawConfig {
     let Some(path) = platform::config_path() else { return RawConfig::default() };
-    let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
+    let Ok(text) = read_config_text(&path) else { return RawConfig::default() };
     let value: Value = match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(e) => {
@@ -4049,6 +4269,7 @@ fn load_raw_config() -> RawConfig {
         "theme",
         "tabs",
         "sidebar",
+        "agents",
         "machine_sidebar",
         "machine_provider",
         "machines",
@@ -4059,6 +4280,7 @@ fn load_raw_config() -> RawConfig {
         "status_bar",
         "viewport",
         "server",
+        "notifications",
         "keys",
     ];
     if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
@@ -4089,6 +4311,7 @@ fn load_raw_config() -> RawConfig {
     section!(theme, "theme");
     section!(tabs, "tabs");
     section!(sidebar, "sidebar");
+    section!(agents, "agents");
     section!(machine_sidebar, "machine_sidebar");
     section!(machine_provider, "machine_provider");
     section!(machines, "machines");
@@ -4099,6 +4322,7 @@ fn load_raw_config() -> RawConfig {
     section!(status_bar, "status_bar");
     section!(viewport, "viewport");
     section!(server, "server");
+    section!(notifications, "notifications");
     section!(keys, "keys");
     raw
 }
@@ -4116,6 +4340,27 @@ fn config_diagnostic(error: &serde_json::Error) -> String {
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
+}
+
+/// Read a UTF-8 file with an explicit byte bound. The extra byte distinguishes
+/// an exact-size file from one that exceeds the limit without allocating an
+/// unbounded buffer.
+pub(crate) fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    let mut text = String::new();
+    file.take(u64::try_from(max_bytes).unwrap_or(u64::MAX).saturating_add(1))
+        .read_to_string(&mut text)?;
+    if text.len() > max_bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("file exceeds {max_bytes}-byte limit"),
+        ));
+    }
+    Ok(text)
+}
+
+pub(crate) fn read_config_text(path: &Path) -> io::Result<String> {
+    read_bounded_utf8_file(path, CONFIG_FILE_MAX_BYTES)
 }
 
 /// The result of replacing the config file. A committed replacement is a
@@ -4184,12 +4429,58 @@ pub(crate) fn write_sidebar_plugin_at_path(
     write_config_value_atomic(path, &root)
 }
 
+/// Writes the userland agent plugin selection to the configured path.
+pub(crate) fn write_agent_plugin(
+    plugin: Option<&AgentPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let path = config_path()?;
+    write_agent_plugin_at_path(&path, plugin)
+}
+
+pub(crate) fn write_agent_plugin_at_path(
+    path: &Path,
+    plugin: Option<&AgentPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let mut root = read_config_value(path)?;
+    let Some(root_object) = root.as_object_mut() else {
+        anyhow::bail!("{} must contain a JSON object", path.display());
+    };
+    match plugin {
+        Some(plugin) => {
+            let agents = root_object.entry("agents").or_insert_with(|| json!({}));
+            if !agents.is_object() {
+                *agents = json!({});
+            }
+            let agents_object = agents.as_object_mut().expect("agents was just made an object");
+            let mut plugin_value = json!({
+                "id": &plugin.id,
+                "command": &plugin.command,
+            });
+            if let Some(cwd) = &plugin.cwd {
+                plugin_value["cwd"] = json!(cwd);
+            }
+            if let Some(revision) = &plugin.revision {
+                plugin_value["revision"] = json!(revision);
+            }
+            agents_object.insert("plugin".to_string(), plugin_value);
+        }
+        None => {
+            if let Some(agents) = root_object.get_mut("agents")
+                && let Some(agents_object) = agents.as_object_mut()
+            {
+                agents_object.remove("plugin");
+            }
+        }
+    }
+    write_config_value_atomic(path, &root)
+}
+
 fn read_config_value(path: &Path) -> anyhow::Result<Value> {
-    match std::fs::read_to_string(path) {
+    match read_config_text(path) {
         Ok(text) if text.trim().is_empty() => Ok(json!({})),
         Ok(text) => serde_json::from_str(&text)
             .map_err(|err| anyhow::anyhow!("failed to parse {}: {err}", path.display())),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(json!({})),
         Err(err) => Err(anyhow::anyhow!("failed to read {}: {err}", path.display())),
     }
 }
@@ -4254,7 +4545,7 @@ fn write_config_value_atomic_with_sync_and_staging(
                 staged = Some((tmp_path, file));
                 break;
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error.into()),
         }
     }
@@ -4303,7 +4594,7 @@ fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>>
         }
         match std::fs::create_dir(&current) {
             Ok(()) => created_directories.push(current.clone()),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 if !std::fs::metadata(&current)?.is_dir() {
                     anyhow::bail!(
                         "config parent component {} is not a directory",
@@ -5932,7 +6223,7 @@ mod tests {
                     .join(format!("cmux-tui-config-{label}-{}-{sequence}", std::process::id()));
                 match std::fs::create_dir(&path) {
                     Ok(()) => return Self { path },
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
                     Err(error) => panic!("create config test directory failed: {error}"),
                 }
             }
@@ -6257,8 +6548,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn packaged_ghostty_resolver_receives_matching_resources() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = std::env::temp_dir().join(format!(
             "cmux-tui-ghostty-resolver-{}-{}",
             std::process::id(),
@@ -6267,14 +6556,13 @@ mod tests {
         let resources = root.join("ghostty");
         let binary = root.join("ghostty-config-helper");
         std::fs::create_dir_all(&resources).unwrap();
-        std::fs::write(
+        cmux_test_exec::write_executable(
             &binary,
             "#!/bin/sh\n\
              printf 'resource-path = %s\\n' \"$GHOSTTY_RESOURCES_DIR\"\n\
              printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
         )
         .unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
         let output = ghostty_show_config_command(&platform::GhosttyInstallation {
             binary,
@@ -6294,8 +6582,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn ghostty_resolver_drains_output_while_the_child_is_running() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = std::env::temp_dir().join(format!(
             "cmux-tui-ghostty-large-output-{}-{}",
             std::process::id(),
@@ -6303,7 +6589,7 @@ mod tests {
         ));
         let binary = root.join("ghostty-config-helper");
         std::fs::create_dir_all(&root).unwrap();
-        std::fs::write(
+        cmux_test_exec::write_executable(
             &binary,
             "#!/bin/sh\n\
              i=0\n\
@@ -6314,7 +6600,6 @@ mod tests {
              printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
         )
         .unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
 
         let mut command = Command::new(&binary);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
@@ -7375,18 +7660,14 @@ mod tests {
             let descriptor = unsafe { libc::kqueue() };
             #[cfg(target_os = "linux")]
             if descriptor < 0 {
-                let error = std::io::Error::last_os_error();
+                let error = io::Error::last_os_error();
                 if matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EPERM)) {
                     return None;
                 }
                 panic!("observe helper child {pid}: {error}");
             }
             #[cfg(target_vendor = "apple")]
-            assert!(
-                descriptor >= 0,
-                "observe helper child {pid}: {}",
-                std::io::Error::last_os_error()
-            );
+            assert!(descriptor >= 0, "observe helper child {pid}: {}", io::Error::last_os_error());
             // SAFETY: pidfd_open and kqueue return a new owned descriptor.
             let descriptor =
                 unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor as libc::c_int) };
@@ -7416,7 +7697,7 @@ mod tests {
                 assert!(
                     registered >= 0,
                     "register helper child {pid} exit: {}",
-                    std::io::Error::last_os_error()
+                    io::Error::last_os_error()
                 );
             }
 
@@ -7575,7 +7856,7 @@ mod tests {
             command.arg("5").process_group(0);
             let mut child = command.spawn().unwrap();
             println!("{READY_MARKER}{}", child.id());
-            std::io::stdout().flush().unwrap();
+            io::stdout().flush().unwrap();
             let _ = child.wait();
             return;
         }
@@ -7637,7 +7918,7 @@ mod tests {
         if unsafe { libc::kill(pid, 0) } == 0 {
             return true;
         }
-        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+        io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -7663,8 +7944,7 @@ mod tests {
         }
         assert!(output.len() > 4 * 1024);
 
-        let reader =
-            read_ghostty_helper_output_async(std::io::Cursor::new(output.clone())).unwrap();
+        let reader = read_ghostty_helper_output_async(io::Cursor::new(output.clone())).unwrap();
 
         assert_eq!(reader.wait(), Some(output));
     }
@@ -7673,7 +7953,7 @@ mod tests {
     fn ghostty_config_helper_output_reader_enforces_byte_limit() {
         let output = "x".repeat(GHOSTTY_HELPER_OUTPUT_MAX_BYTES as usize + 1);
 
-        let reader = read_ghostty_helper_output_async(std::io::Cursor::new(output)).unwrap();
+        let reader = read_ghostty_helper_output_async(io::Cursor::new(output)).unwrap();
 
         assert_eq!(reader.wait(), None);
     }
@@ -8104,6 +8384,31 @@ mod tests {
     }
 
     #[test]
+    fn agent_plugin_requires_an_explicit_namespace_id() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let directory = TestDirectory::new("agent-plugin-id-required");
+        let path = directory.path.join("mux.json");
+        std::fs::write(&path, r#"{"agents":{"plugin":{"command":["/tmp/agent-plugin"]}}}"#)
+            .unwrap();
+        // SAFETY: environment mutation is serialized by CONFIG_ENV_LOCK.
+        unsafe {
+            std::env::remove_var("CMUX_TUI_CONFIG");
+            std::env::set_var("CMUX_MUX_CONFIG", &path);
+        }
+
+        let config = load();
+
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        assert!(
+            config.agents.plugin.is_none(),
+            "a userland plugin without an explicit producer id must be ignored",
+        );
+    }
+
+    #[test]
     fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
         assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
         assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
@@ -8207,6 +8512,14 @@ mod tests {
                     "plugin": {
                         "command": ["/tmp/sidebar-plugin", "--mode", "test"],
                         "cwd": "/tmp"
+                    }
+                },
+                "agents": {
+                    "plugin": {
+                        "id": "screen-detector",
+                        "command": ["/tmp/agent-plugin", "", "--mode", "test"],
+                        "cwd": "/tmp",
+                        "revision": "sha256-test"
                     }
                 },
                 "machine_sidebar": {
@@ -8335,6 +8648,15 @@ mod tests {
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
+        let agent_plugin = config.agents.plugin.as_ref().expect("agent plugin config");
+        assert_eq!(agent_plugin.id, "screen-detector");
+        assert_eq!(
+            agent_plugin.command,
+            vec!["/tmp/agent-plugin", "", "--mode", "test"],
+            "empty arguments after argv[0] must remain part of the command"
+        );
+        assert_eq!(agent_plugin.cwd.as_deref(), Some("/tmp"));
+        assert_eq!(agent_plugin.revision.as_deref(), Some("sha256-test"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
         assert_eq!(config.theme.border_style, BorderStyle::Rounded);
         assert_eq!(config.pane.padding, MAX_PANE_PADDING, "padding clamps to the maximum");
@@ -8918,6 +9240,8 @@ mod tests {
             ("new-pane-right", Action::NewPaneRight),
             ("undo-layout", Action::UndoLayout),
             ("show-shortcuts", Action::ShowShortcuts),
+            ("next-attention", Action::NextAttention),
+            ("attention-list", Action::AttentionList),
             ("send-prefix", Action::SendPrefix),
             ("prev-workspace", Action::PrevWorkspace),
             ("close-workspace", Action::CloseWorkspace),
@@ -9035,8 +9359,8 @@ mod tests {
         collision.apply(&raw);
         assert_eq!(
             collision.shortcut_labels(Action::NewPaneSmart),
-            Vec::<String>::new(),
-            "the prefix chord must not remain advertised as a modeless action"
+            ["Alt-n N"],
+            "the surviving uppercase prefix fallback must remain advertised"
         );
         assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
     }
@@ -9761,5 +10085,62 @@ mod tests {
         let synced = synced.into_inner();
         assert!(synced.iter().any(|directory| directory == &parent));
         assert!(synced.iter().any(|directory| directory == &dir.path));
+    }
+
+    #[test]
+    fn copy_mode_and_page_scroll_have_default_prefix_bindings() {
+        let keys = Keys::default();
+        let plain = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        assert_eq!(keys.action_for(&plain(KeyCode::Char('['))), Some(Action::CopyMode));
+        assert_eq!(keys.action_for(&plain(KeyCode::Char('/'))), Some(Action::SearchScrollback));
+        assert_eq!(keys.action_for(&plain(KeyCode::PageUp)), Some(Action::ScrollPageUp));
+        assert_eq!(keys.action_for(&plain(KeyCode::PageDown)), Some(Action::ScrollPageDown));
+        assert_eq!(
+            keys.copy_mode.action_for(&plain(KeyCode::Char('v'))),
+            Some(CopyModeAction::SelectChar)
+        );
+        assert_eq!(
+            keys.copy_mode.action_for(&KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL)),
+            Some(CopyModeAction::SelectBlock)
+        );
+        assert_eq!(
+            keys.copy_mode.action_for(&KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT)),
+            Some(CopyModeAction::HistoryBottom)
+        );
+        assert_eq!(keys.copy_mode.label(CopyModeAction::Yank).as_deref(), Some("y"));
+    }
+
+    #[test]
+    fn copy_mode_keys_are_configurable_under_keys_copy_mode() {
+        let mut keys = Keys::default();
+        let raw: HashMap<String, Value> = serde_json::from_value(serde_json::json!({
+            "scroll-half-page-up": "u",
+            "copy_mode": {
+                "yank": ["Y", "x"],
+                "exit": "none",
+                "search-forward": "ctrl+b",
+                "not-a-command": "z"
+            }
+        }))
+        .unwrap();
+        keys.apply(&raw);
+        let plain = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        assert_eq!(keys.action_for(&plain('u')), Some(Action::ScrollHalfPageUp));
+        assert_eq!(keys.copy_mode.action_for(&plain('x')), Some(CopyModeAction::Yank));
+        assert_eq!(keys.copy_mode.action_for(&plain('Y')), Some(CopyModeAction::Yank));
+        assert_eq!(
+            keys.copy_mode.action_for(&plain('y')),
+            None,
+            "an override replaces the defaults"
+        );
+        assert_eq!(keys.copy_mode.action_for(&plain('q')), None, "none unbinds a command");
+        assert_eq!(
+            keys.copy_mode.action_for(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            None,
+            "the prefix stays the prefix"
+        );
+        assert_eq!(keys.copy_mode.action_for(&plain('/')), None);
+        assert_eq!(keys.copy_mode.action_for(&plain('z')), None);
+        assert_eq!(keys.copy_mode.action_for(&plain('j')), Some(CopyModeAction::CursorDown));
     }
 }

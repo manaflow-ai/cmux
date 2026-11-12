@@ -1,7 +1,32 @@
 import AppKit
+import Carbon.HIToolbox
 import GhosttyKit
 import Testing
 @testable import CmuxTerminal
+
+@_silgen_name("cmux_test_ghostty_surface_key_reset")
+private func cmuxTestGhosttySurfaceKeyReset()
+
+@_silgen_name("cmux_test_ghostty_surface_key_was_called")
+private func cmuxTestGhosttySurfaceKeyWasCalled() -> Bool
+
+@_silgen_name("cmux_test_ghostty_surface_key_mods")
+private func cmuxTestGhosttySurfaceKeyMods() -> Int32
+
+@_silgen_name("cmux_test_ghostty_surface_key_unshifted_codepoint")
+private func cmuxTestGhosttySurfaceKeyUnshiftedCodepoint() -> UInt32
+
+@_silgen_name("cmux_test_ghostty_surface_key_text")
+private func cmuxTestGhosttySurfaceKeyText() -> UnsafePointer<CChar>
+
+@_silgen_name("cmux_test_ghostty_input_events_reset")
+private func cmuxTestGhosttyInputEventsReset()
+
+@_silgen_name("cmux_test_ghostty_input_event_count")
+private func cmuxTestGhosttyInputEventCount() -> UInt32
+
+@_silgen_name("cmux_test_ghostty_input_event_kind")
+private func cmuxTestGhosttyInputEventKind(_ index: UInt32) -> Int32
 
 @MainActor
 @Suite(.serialized)
@@ -89,13 +114,76 @@ struct TerminalSurfaceExplicitInputTests {
         )
     }
 
+    @Test func genericCtrlLetterParserRecognizesPlusAndDashForms() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        for spelling in ["ctrl+p", "ctrl-p", "control+p"] {
+            let event = fixture.surface.pendingKeyEvent(for: spelling)
+            #expect(event?.keycode == UInt32(kVK_ANSI_P))
+            #expect(event?.mods.rawValue == GHOSTTY_MODS_CTRL.rawValue)
+        }
+        #expect(fixture.surface.pendingKeyEvent(for: "ctrl+1") == nil)
+    }
+
+    @Test func syntheticCtrlLetterProvidesGhosttyEncoderTextAndCodepoint() {
+        let runtimeSurface = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: runtimeSurface)
+        defer {
+            fixture.surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+        }
+        cmuxTestGhosttySurfaceKeyReset()
+
+        #expect(fixture.surface.sendNamedKey("ctrl+p") == .sent)
+        #expect(cmuxTestGhosttySurfaceKeyWasCalled())
+        #expect(cmuxTestGhosttySurfaceKeyMods() == Int32(GHOSTTY_MODS_CTRL.rawValue))
+        #expect(cmuxTestGhosttySurfaceKeyUnshiftedCodepoint() == UInt32("p".unicodeScalars.first!.value))
+        #expect(String(cString: cmuxTestGhosttySurfaceKeyText()) == "p")
+    }
+
     @Test func pasteTextNotifiesPaneHostBeforeQueueingOnAColdSurface() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
 
-        #expect(fixture.surface.sendText("hello"))
+        #expect(fixture.surface.sendTextResult("hello") == .queued)
 
         #expect(fixture.paneHost.explicitInputCount == 1)
+    }
+
+    @Test func pasteReportsClipboardDeferralAndRetainsOneReplay() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.shouldDeferRuntimeInput = true
+
+        #expect(fixture.surface.sendTextResult("literal\n世界") == .queued)
+        #expect(fixture.nativeView.deferredRuntimeInputs.count == 1)
+        #expect(fixture.surface.pendingSocketInputBytes == 0)
+
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+        #expect(fixture.surface.pendingSocketInputBytes == "literal\n世界".utf8.count)
+    }
+
+    @Test func pasteReportsQueueFullWithoutAcceptingText() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.pendingSocketInputBytes = fixture.surface.maxPendingSocketInputBytes
+        var accepted = 0
+        fixture.surface.onExplicitInput = { accepted += 1 }
+
+        #expect(fixture.surface.sendTextResult("literal\n世界") == .inputQueueFull)
+        #expect(fixture.surface.pendingSocketInputBytes == fixture.surface.maxPendingSocketInputBytes)
+        #expect(accepted == 0)
+    }
+
+    @Test func pasteReportsClosedSurfaceWithoutQueueing() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        #expect(fixture.surface.sendTextResult("literal\n世界") == .surfaceUnavailable)
+        #expect(fixture.surface.pendingSocketInputBytes == 0)
     }
 
     @Test func parsedInputNotifiesPaneHostBeforeQueueingOnAColdSurface() {
@@ -116,6 +204,29 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.surface.sendInputResult("hello") == .queued)
 
         #expect(acceptedInputCount == 1)
+    }
+
+    @Test func coldSurfaceKeepsQueuedTextAndKeyInSubmissionOrder() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(fixture.surface.sendTextResult("echo ready\n") == .queued)
+        #expect(fixture.surface.sendNamedKey("enter") == .queued)
+
+        let pending = fixture.surface.debugPendingSocketInputForTesting()
+        #expect(pending.items == 2)
+        #expect(pending.pasteTextItems == 1)
+        #expect(pending.keyEvents == 1)
+
+        let runtimeSurface = allocatedRuntimeSurface()
+        fixture.registry.registerRuntimeSurface(runtimeSurface, ownerId: fixture.surface.id)
+        fixture.surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        cmuxTestGhosttyInputEventsReset()
+        fixture.surface.flushPendingSocketInputIfNeeded()
+
+        #expect(cmuxTestGhosttyInputEventCount() == 2)
+        #expect(cmuxTestGhosttyInputEventKind(0) == 1, "Expected queued text to replay first")
+        #expect(cmuxTestGhosttyInputEventKind(1) == 2, "Expected queued key to replay second")
     }
 
     @Test func rejectedParsedInputDoesNotNotifyItsOwner() {
@@ -270,7 +381,8 @@ struct TerminalSurfaceExplicitInputTests {
     ) -> (
         surface: TerminalSurface,
         paneHost: FakeTerminalSurfacePaneHost,
-        nativeView: FakeTerminalSurfaceNativeView
+        nativeView: FakeTerminalSurfaceNativeView,
+        registry: FakeSurfaceRegistry
     ) {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -297,7 +409,7 @@ struct TerminalSurfaceExplicitInputTests {
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(
+                    agentCommandShimRootDirectory: URL(
                         fileURLWithPath: "/tmp/cmux-terminal-tests",
                         isDirectory: true
                     ),
@@ -313,7 +425,7 @@ struct TerminalSurfaceExplicitInputTests {
             registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
             surface.installRuntimeSurfaceForTesting(runtimeSurface)
         }
-        return (surface, paneHost, nativeView)
+        return (surface, paneHost, nativeView, registry)
     }
 
     private func allocatedRuntimeSurface() -> ghostty_surface_t {

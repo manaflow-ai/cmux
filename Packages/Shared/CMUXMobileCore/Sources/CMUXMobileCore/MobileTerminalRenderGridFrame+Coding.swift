@@ -3,6 +3,7 @@ extension MobileTerminalRenderGridFrame {
         case format
         case surfaceID = "surface_id"
         case stateSeq = "state_seq"
+        case appliedInputSequence = "applied_input_sequence"
         case renderEpoch = "render_epoch"
         case renderRevision = "render_revision"
         case columns
@@ -28,5 +29,6 @@ extension MobileTerminalRenderGridFrame {
         case deltaBaseHistoryRows = "delta_base_history_rows"
         case deltaBaseRenderRevision = "delta_base_render_revision"
         case rowSpaceRevision = "row_space_revision"
+        case hostTiming = "host_timing"
     }
 }

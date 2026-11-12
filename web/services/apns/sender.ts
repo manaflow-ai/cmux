@@ -24,6 +24,8 @@ export interface ApnsTarget {
   readonly deviceToken: string;
   readonly bundleId: string;
   readonly environment: string; // "sandbox" | "production"
+  readonly installationId?: string;
+  readonly pushKeyId?: string;
 }
 
 export interface ApnsSendResult {
@@ -344,7 +346,7 @@ export async function sendApnsNotification(
   sessionPool: ApnsSessionPool | null = defaultSessionPool(transport),
 ): Promise<ApnsSendResult[]> {
   if (targets.length === 0) return [];
-  const body = Buffer.from(JSON.stringify(buildApnsPayload(input)));
+  const bodies = new Map<string, Buffer>();
   // The collapse-id coalesces repeated updates for one exact Mac app instance
   // and notification into one delivered banner. The dismiss lever itself is
   // the `cmux.notificationId` payload key, which iOS maps to delivered banners;
@@ -388,31 +390,25 @@ export async function sendApnsNotification(
       });
       continue;
     }
+    const selected = selectRecipientPayload(input, t);
+    if (!selected) {
+      invalidEnvironmentResults.push({
+        deviceToken: t.deviceToken, status: 409, reason: "push_recipient_key_changed", prune: false,
+      });
+      continue;
+    }
+    const body = Buffer.from(JSON.stringify(buildApnsPayload(selected)));
+    if (body.byteLength > APNS_MAX_PAYLOAD_BYTES) {
+      invalidEnvironmentResults.push({
+        deviceToken: t.deviceToken, status: 413, reason: "PayloadTooLarge", prune: false,
+      });
+      continue;
+    }
+    bodies.set(apnsTargetBodyKey(t), body);
     (byHost.get(host) ?? byHost.set(host, []).get(host)!).push(t);
   }
 
   if (byHost.size === 0) return invalidEnvironmentResults;
-
-  if (body.byteLength > APNS_MAX_PAYLOAD_BYTES) {
-    const oversizedResults = [...byHost.values()]
-      .flat()
-      .map((target): ApnsSendResult => ({
-        deviceToken: target.deviceToken,
-        status: 413,
-        reason: "PayloadTooLarge",
-        prune: false,
-      }));
-    const byToken = new Map(
-      [...oversizedResults, ...invalidEnvironmentResults].map((result) => [
-        result.deviceToken,
-        result,
-      ]),
-    );
-    return targets.flatMap((target) => {
-      const result = byToken.get(target.deviceToken);
-      return result ? [result] : [];
-    });
-  }
 
   let jwt: string;
   try {
@@ -445,7 +441,7 @@ export async function sendApnsNotification(
         host,
         hostTargets,
         jwt,
-        body,
+        bodies,
         timeoutMs,
         collapseId,
         priority,
@@ -466,6 +462,24 @@ export async function sendApnsNotification(
     const result = byToken.get(target.deviceToken);
     return result ? [result] : [];
   });
+}
+
+function selectRecipientPayload(
+  input: ApnsNotificationInput,
+  target: ApnsTarget,
+): ApnsNotificationInput | null {
+  if (!input.encryptedPayloads?.length) return input;
+  const candidates = input.encryptedPayloads.filter((envelope) =>
+    envelope.installationID === target.installationId && envelope.keyID === target.pushKeyId
+  );
+  if (candidates.length !== 1) return null;
+  const tuple = candidates[0]!.tuple as Record<string, unknown> | undefined;
+  if (tuple?.iosBuildID !== target.bundleId) return null;
+  return { ...input, encryptedPayloads: candidates };
+}
+
+function apnsTargetBodyKey(target: ApnsTarget): string {
+  return [target.deviceToken, target.bundleId, target.installationId, target.pushKeyId].join("\0");
 }
 
 /**
@@ -705,7 +719,7 @@ async function sendHostGroup(
   host: string,
   hostTargets: readonly ApnsTarget[],
   jwt: string,
-  body: Buffer,
+  bodies: ReadonlyMap<string, Buffer>,
   timeoutMs: number,
   collapseId: string | undefined,
   priority: string | undefined,
@@ -727,7 +741,7 @@ async function sendHostGroup(
           connectionError,
           hostTargets,
           jwt,
-          body,
+          bodies,
           deadlineMs,
           collapseId,
           priority,
@@ -751,7 +765,7 @@ async function sendHostTargets(
   connectionError: Promise<null>,
   hostTargets: readonly ApnsTarget[],
   jwt: string,
-  body: Buffer,
+  bodies: ReadonlyMap<string, Buffer>,
   deadlineMs: number,
   collapseId: string | undefined,
   priority: string | undefined,
@@ -769,7 +783,7 @@ async function sendHostTargets(
     client,
     jwt,
     hostTargets[0]!,
-    body,
+    bodies.get(apnsTargetBodyKey(hostTargets[0]!))!,
     deadlineMs,
     connectionError,
     collapseId,
@@ -791,7 +805,7 @@ async function sendHostTargets(
         client,
         jwt,
         hostTargets[index]!,
-        body,
+        bodies.get(apnsTargetBodyKey(hostTargets[index]!))!,
         deadlineMs,
         connectionError,
         collapseId,

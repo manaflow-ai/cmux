@@ -2,6 +2,11 @@
 public import CMUXMobileCore
 
 extension MobileCoreRPCClient {
+    /// Reads privacy-safe identity and path evidence from the installed RPC transport.
+    public func transportConnectionObservation() async -> CmxTransportConnectionObservation? {
+        await session.transportConnectionObservation()
+    }
+
     /// Returns a process-local identifier for the exact installed native
     /// transport, when the active transport supports continuity inspection.
     ///

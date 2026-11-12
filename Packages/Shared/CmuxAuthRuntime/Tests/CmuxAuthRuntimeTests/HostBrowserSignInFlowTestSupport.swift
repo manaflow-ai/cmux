@@ -34,6 +34,7 @@ struct HostBrowserSignInFlowHarness {
         slowSignInThreshold: TimeInterval = 30,
         clock: (any Clock<Duration>)? = nil,
         openSucceeds: Bool = true,
+        approveUnsolicitedCallback: @escaping @MainActor (UnsolicitedAuthCallbackApprovalRequest) async -> Bool = { _ in false },
         beginSignOut: @escaping @MainActor @Sendable () -> Void = {},
         localSignOut: @escaping @MainActor @Sendable () async -> Void = {},
         onSignedOut: @escaping @Sendable (
@@ -66,6 +67,7 @@ struct HostBrowserSignInFlowHarness {
             makeSignInURL: { URL(string: "https://example.test/handler/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-dev" },
             openExternalURL: { openedURLRecorder.append($0) },
+            approveUnsolicitedCallback: approveUnsolicitedCallback,
             clock: clock ?? ContinuousClock(),
             browserAttemptTimeout: browserAttemptTimeout,
             slowSignInThreshold: slowSignInThreshold,

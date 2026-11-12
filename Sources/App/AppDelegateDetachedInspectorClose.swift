@@ -59,7 +59,7 @@ extension AppDelegate {
 
     func handleDetachedInspectorCloseShortcutOutsideMainContext(event: NSEvent) -> Bool {
         guard isCloseTabShortcutEventOrChordPrefix(event) else { return false }
-        let panels = allBrowserPanelsForInspectorWindowClose()
+        let panels = allLiveBrowserPanels()
         if matchConfiguredShortcut(event: event, action: .closeTab) {
             return closeDetachedInspectorWindowForCloseShortcut(event: event, panels: panels)
         }
@@ -101,7 +101,7 @@ extension AppDelegate {
                 allowFallback: Self.allowsWindowFallback(for: action)
             ) else { return false }
 
-            for panel in allBrowserPanelsForInspectorWindowClose() {
+            for panel in allLiveBrowserPanels() {
                 if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
                     window,
                     source: "sendAction.\(NSStringFromSelector(action))"
@@ -165,56 +165,6 @@ extension AppDelegate {
             return AppDelegate.shared?.shortcutRoutingActiveWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
         return allowFallback ? (AppDelegate.shared?.shortcutRoutingActiveWindow ?? NSApp.keyWindow ?? NSApp.mainWindow) : nil
-    }
-
-    func allBrowserPanelsForInspectorWindowClose() -> [BrowserPanel] {
-        var candidateManagers: [TabManager] = []
-        var seenManagers = Set<ObjectIdentifier>()
-        var panels: [BrowserPanel] = []
-        var seenPanels = Set<ObjectIdentifier>()
-
-        func appendCandidate(_ manager: TabManager?) {
-            guard let manager else { return }
-            let identifier = ObjectIdentifier(manager)
-            guard seenManagers.insert(identifier).inserted else { return }
-            candidateManagers.append(manager)
-        }
-
-        appendCandidate(tabManager)
-        for context in mainWindowContexts.values {
-            appendCandidate(context.tabManager)
-        }
-        for route in recoverableMainWindowRoutes() {
-            appendCandidate(route.tabManager)
-        }
-
-        func appendPanel(_ panel: any Panel) {
-            guard let browserPanel = panel as? BrowserPanel else { return }
-            let identifier = ObjectIdentifier(browserPanel)
-            guard seenPanels.insert(identifier).inserted else { return }
-            panels.append(browserPanel)
-        }
-
-        for manager in candidateManagers {
-            for workspace in manager.tabs {
-                for panel in workspace.panels.values {
-                    appendPanel(panel)
-                }
-                // Workspace Docks keep their own panel store; include their
-                // browser panels so detached-inspector close routing and focus
-                // handoff cover Dock-hosted DevTools too.
-                workspace._dockSplit?.forEachPanel { _, panel in
-                    appendPanel(panel)
-                }
-            }
-        }
-        for context in mainWindowContexts.values {
-            context.existingWindowDock()?.forEachPanel { _, panel in
-                appendPanel(panel)
-            }
-        }
-
-        return panels
     }
 
 }

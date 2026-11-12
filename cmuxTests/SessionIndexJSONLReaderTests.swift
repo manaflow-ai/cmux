@@ -260,9 +260,12 @@ struct SessionIndexJSONLReaderTests {
         )
         #expect(initialSection.shouldOfferShowMore(rowLimit: 5))
         #expect(entries.map(\.sessionId) == ["old-session"])
-        #expect(turns.first?.role == .event)
-        #expect(turns.last?.text == "latest prompt")
-        #expect(oldTurns.contains { $0.text == "needle-old" })
+        // The preview pages past the index's initial tail cap and reaches
+        // the start, so neither complete conversation needs a truncation marker.
+        #expect(turns.map(\.role) == [.user])
+        #expect(turns.map(\.text) == ["latest prompt"])
+        #expect(oldTurns.map(\.role) == [.user])
+        #expect(oldTurns.map(\.text) == ["needle-old"])
     }
 
     @Test

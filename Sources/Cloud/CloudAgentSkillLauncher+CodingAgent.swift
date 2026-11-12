@@ -8,6 +8,7 @@ extension CloudAgentSkillLauncher {
         case claude
         case codex
         case opencode
+        case pi
 
         var displayName: String {
             switch self {
@@ -17,6 +18,8 @@ extension CloudAgentSkillLauncher {
                 return String(localized: "machines.agent.codex", defaultValue: "Codex")
             case .opencode:
                 return String(localized: "machines.agent.opencode", defaultValue: "OpenCode")
+            case .pi:
+                return String(localized: "machines.agent.pi", defaultValue: "Pi")
             }
         }
 
@@ -28,6 +31,7 @@ extension CloudAgentSkillLauncher {
             case .claude: return ["claude", prompt]
             case .codex: return ["codex", prompt]
             case .opencode: return ["opencode", "--prompt", prompt]
+            case .pi: return ["pi", prompt]
             }
         }
     }

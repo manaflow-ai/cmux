@@ -26,6 +26,14 @@ export const PRIORITY_PATH_PREFIXES = [
   "/v1",
   "/api/coderouter",
   "/api/admin",
+  // Operational routes are low volume and every failure needs a full trace:
+  // scheduled crons, the retention drain, and Stripe webhook processing.
+  "/api/cron",
+  "/api/internal",
+  "/api/stripe/webhook",
+  // Account deletion (DELETE) and its hourly resume cron (GET) are rare, and
+  // every erasure attempt must be traceable after the fact.
+  "/api/account",
 ] as const;
 const PRIORITY_SUBSYSTEMS: ReadonlySet<string> = new Set(["vm-cloud", "coderouter"]);
 
@@ -99,7 +107,8 @@ class VmPriorityRootSampler implements Sampler {
 }
 
 /**
- * The app-wide trace sampler: keep 100% of Cloud VM, coderouter, and admin traces, head-sample
+ * The app-wide trace sampler: keep 100% of priority-path traces (Cloud VM,
+ * coderouter, admin, operational routes, account deletion), head-sample
  * everything else at `CMUX_OTEL_BASE_SAMPLE_RATIO` (default 2%). Children
  * follow their root's decision, so a kept VM trace keeps its pg/fetch/
  * provider child spans and a dropped page-load trace drops all of its own.
@@ -121,7 +130,7 @@ export function buildCmuxTraceSampler(
   });
 }
 
-const DEFAULT_BASE_SAMPLE_RATIO = 0.02;
+export const DEFAULT_BASE_SAMPLE_RATIO = 0.02;
 
 function baseSampleRatio(env: Record<string, string | undefined>): number {
   const raw = env.CMUX_OTEL_BASE_SAMPLE_RATIO?.trim();

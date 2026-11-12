@@ -34,12 +34,14 @@ public struct RemoteDaemonProxyTunnelProvider: RemoteProxyTunnelProviding {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         localPort: Int,
+        credential: BrowserProxyCredential,
         onFatalError: @escaping @Sendable (String) -> Void
     ) -> any RemoteProxyTunneling {
         RemoteDaemonProxyTunnel(
             configuration: configuration,
             remotePath: remotePath,
             localPort: localPort,
+            credential: credential,
             strings: strings,
             ptyBridgeStrings: ptyBridgeStrings,
             clock: clock,

@@ -43,6 +43,8 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
         public let lifecycleID: String
         /// Attachment identifier requested for this bridge.
         public let attachmentID: String
+        /// Daemon identity from the established RPC transport, before PTY mutation.
+        public let daemonVersion: String?
     }
 
     private let rpcClient: any RemotePTYBridgeRPCClient
@@ -162,7 +164,8 @@ public final class RemotePTYBridgeServer: @unchecked Sendable {
             token: token,
             sessionID: sessionID,
             lifecycleID: lifecycleID,
-            attachmentID: attachmentID
+            attachmentID: attachmentID,
+            daemonVersion: rpcClient.daemonVersion
         )
     }
 

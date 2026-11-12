@@ -3,6 +3,7 @@
 //! rename prompt). Every renderer that draws something interactive also
 //! pushes a [`Hit`] so clicks always match what is on screen.
 
+mod copy_mode;
 pub mod graphics;
 pub mod graphics_writer;
 pub(crate) mod input;
@@ -12,6 +13,7 @@ pub(crate) mod pane;
 mod rail;
 mod scrollbar;
 mod sidebar;
+pub(crate) mod sizing;
 pub(crate) mod terminal_grid;
 
 use cmux_tui_core::Rect;
@@ -152,8 +154,14 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
     };
     if app.is_surface_only() || !app.config.status_bar.visible {
         // No reserved status row: transient messages overlay the last row
-        // with foreground styling only, single-surface style.
-        draw_surface_status(app, frame);
+        // with foreground styling only, single-surface style. Copy mode
+        // overlays its mode line the same way.
+        if let Some(line) = app.copy_mode_line() {
+            copy_mode::draw_mode_line(app, frame, 0, area.height - 1, &line);
+            app.hide_status_message();
+        } else {
+            draw_surface_status(app, frame);
+        }
     } else {
         draw_status_bar(app, frame);
     }
@@ -394,6 +402,16 @@ fn draw_status_bar(app: &mut App, frame: &mut Frame) {
     let status_bg = theme.status_bg.unwrap_or(chrome.status_bg);
     let status_fg = theme.status_fg.unwrap_or(chrome.status_fg);
     let base = Style::default().bg(status_bg).fg(status_fg);
+    if let Some(line) = app.copy_mode_line() {
+        // Copy mode owns the status row: its mode line replaces the screens
+        // and segments until copy mode ends.
+        copy_mode::draw_mode_line(app, frame, bar_x, status_y, &line);
+        app.hide_status_message();
+        if app.prefix_armed {
+            draw_prefix_help_bar(app, frame, bar_x, status_y.saturating_sub(1));
+        }
+        return;
+    }
     let segments = app.resolved_status_segments();
     let (left_segments, right_segments) = (&segments.0, &segments.1);
     let segment_style = |segment: &crate::app::StatusSegmentView| {

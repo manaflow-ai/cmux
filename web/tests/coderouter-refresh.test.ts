@@ -14,7 +14,7 @@ const expired: CodexCredential = {
   provider: "codex",
   accessToken: "old-access",
   refreshToken: "old-refresh",
-  idToken: "old-id",
+  idToken: "header.eyJlbWFpbCI6ICJwZXJzb25AZXhhbXBsZS5jb20iLCAiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjogeyJjaGF0Z3B0X3VzZXJfaWQiOiAiZml4dHVyZS11c2VyIiwgImNoYXRncHRfYWNjb3VudF9pZCI6ICJwcm92aWRlci1hY2NvdW50In19.signature",
   accountId: "provider-account",
   email: "person@example.com",
   expiresAt: 1,
@@ -60,7 +60,7 @@ describe("coderouter credential refresh coordination", () => {
     await didClaim;
     await expect(refresh(input())).rejects.toBeInstanceOf(CodeRouterRefreshBusy);
     releaseProvider();
-    expect((await first).refreshToken).toBe("new-refresh");
+    expect(((await first) as CodexCredential).refreshToken).toBe("new-refresh");
   });
 
   test("an abandoned lease becomes claimable after expiry", async () => {
@@ -76,7 +76,7 @@ describe("coderouter credential refresh coordination", () => {
     const refresh = createCredentialRefresher(dependencies);
     await expect(refresh(input())).rejects.toBeInstanceOf(CodeRouterRefreshBusy);
     now = 1_001;
-    expect((await refresh(input())).accessToken).toBe("new-access");
+    expect(((await refresh(input())) as CodexCredential).accessToken).toBe("new-access");
   });
 
   test("persists a rotated provider refresh token at the next revision", async () => {
@@ -88,9 +88,9 @@ describe("coderouter credential refresh coordination", () => {
         completed = value;
       },
     }));
-    const result = await refresh(input());
+    const result = (await refresh(input())) as CodexCredential;
     expect(result.refreshToken).toBe("new-refresh");
-    expect(completed?.credential.refreshToken).toBe("new-refresh");
+    expect((completed?.credential as CodexCredential | undefined)?.refreshToken).toBe("new-refresh");
     expect(completed?.encrypted.credentialRevision).toBe(2);
   });
 
@@ -159,7 +159,7 @@ describe("coderouter provider refresh responses", () => {
       Response.json({
         access_token: "rotated-access",
         refresh_token: "rotated-refresh",
-        id_token: "rotated-id",
+        id_token: "header.eyJlbWFpbCI6ICJwZXJzb25AZXhhbXBsZS5jb20iLCAiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjogeyJjaGF0Z3B0X3VzZXJfaWQiOiAiZml4dHVyZS11c2VyIiwgImNoYXRncHRfYWNjb3VudF9pZCI6ICJwcm92aWRlci1hY2NvdW50In19.signature",
         expires_in: 3600,
       })) as typeof fetch;
     try {
@@ -167,7 +167,7 @@ describe("coderouter provider refresh responses", () => {
       if (result.provider !== "codex") throw new Error("unexpected provider");
       expect(result.accessToken).toBe("rotated-access");
       expect(result.refreshToken).toBe("rotated-refresh");
-      expect(result.idToken).toBe("rotated-id");
+      expect(result.idToken).toBe("header.eyJlbWFpbCI6ICJwZXJzb25AZXhhbXBsZS5jb20iLCAiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjogeyJjaGF0Z3B0X3VzZXJfaWQiOiAiZml4dHVyZS11c2VyIiwgImNoYXRncHRfYWNjb3VudF9pZCI6ICJwcm92aWRlci1hY2NvdW50In19.signature");
     } finally {
       globalThis.fetch = originalFetch;
     }

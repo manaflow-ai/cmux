@@ -12,5 +12,12 @@ extension TerminalSurfaceRuntimeTeardownCoordinator {
     public var debugPendingTeardownCount: Int {
         pendingReasonsById.count
     }
+
+    /// Test support: the native frees still queued or in flight, keyed by
+    /// teardown id (the owning surface id for close/deinit frees) with the
+    /// teardown reason, so a leak check can name what is still pending.
+    public var debugPendingTeardownReasonsById: [UUID: String] {
+        pendingReasonsById
+    }
 }
 #endif

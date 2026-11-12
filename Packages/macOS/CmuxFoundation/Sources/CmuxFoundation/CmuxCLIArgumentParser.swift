@@ -57,6 +57,30 @@ public struct CmuxCLIArgumentParser: Sendable {
     /// Creates the parser with cmux's command-option vocabulary.
     public init() {}
 
+    /// Returns the auth subcommand when its fixed-arity arguments are valid.
+    ///
+    /// Other subcommands and variable-arity team operations remain available
+    /// for the command dispatcher to validate.
+    /// - Parameter authArgs: Arguments following `auth`, including its subcommand.
+    /// - Returns: The lowercase subcommand, `status` when absent, or `nil`
+    ///   when a fixed-arity operation has trailing arguments.
+    public func parseAuthSubcommand(_ authArgs: [String]) -> String? {
+        let subcommand = authArgs.first?.lowercased() ?? "status"
+        switch subcommand {
+        case "status", "login", "logout":
+            return authArgs.dropFirst().isEmpty ? subcommand : nil
+        case "team":
+            let teamArgs = authArgs.dropFirst()
+            if (teamArgs.first?.lowercased() ?? "list") == "list",
+               !teamArgs.dropFirst().isEmpty {
+                return nil
+            }
+            return subcommand
+        default:
+            return subcommand
+        }
+    }
+
     /// Extracts presentation flags while preserving command arguments.
     ///
     /// Presentation flags remain valid after a command and its subcommand.
@@ -64,9 +88,10 @@ public struct CmuxCLIArgumentParser: Sendable {
     /// consume their following value, even when that value begins with `-`.
     ///
     /// - Parameter commandArgs: Arguments after the top-level command.
+    /// - Parameter optionsWithOptionalValues: Value options that also accept a bare flag for this command.
     /// - Returns: The presentation flags and the command arguments to forward.
     /// - Throws: ``ParseError/missingIDFormatValue`` when `--id-format` has no value.
-    public func parse(_ commandArgs: [String]) throws -> Result {
+    public func parse(_ commandArgs: [String], optionsWithOptionalValues: Set<String> = []) throws -> Result {
         var jsonOutput = false
         var idFormat: String?
         var remaining: [String] = []
@@ -104,7 +129,8 @@ public struct CmuxCLIArgumentParser: Sendable {
                 continue
             }
             remaining.append(arg)
-            if Self.commandOptionsWithValues.contains(arg), index + 1 < commandArgs.count {
+            if Self.commandOptionsWithValues.contains(arg),
+               !optionsWithOptionalValues.contains(arg), index + 1 < commandArgs.count {
                 remaining.append(commandArgs[index + 1])
                 index += 2
                 continue

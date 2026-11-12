@@ -42,12 +42,46 @@ The top entry's version MUST equal the checked-in
 for a different version), so bump the beta version with
 `ios/scripts/bump-ios-version.sh` in the SAME change that adds the top entry.
 
+## [1.0.6] - 2026-09-23
+
+### Internal
+
+- Require Mac 0.64.25 or NIGHTLY 0.64.25-nightly.3522337919701 for BETA and INTERNAL 1.0.6's v2 connection service and Iroh transport.
+- Show a new What's New notice only to BETA and INTERNAL 1.0.6, with exact Mac requirements, pairing opt-in, and rollback instructions.
+- Keep the existing compatibility requirements for older iOS versions.
+- Verify updating from 1.0.5 preserves sign-in and saved computers, and exercise reconnects after backgrounding.
+
+### External
+
+- Updated the Mac connection service and Iroh transport.
+- Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac.
+- If you cannot update your Mac, use cmux BETA 1.0.5 (20260914204800) in TestFlight > Previous Builds while available. Choose that exact build.
+
+---
+
+## [1.0.5] - 2026-09-15
+
+### Internal
+
+- Require explicit opt-in for iOS pairing on each Mac before discovery.
+- Fix Mac NIGHTLY registration when build settings are empty.
+- Keep iOS terminal scrolling and Iroh connections alive through reconnect gaps, stalls, and traffic bursts.
+- Preserve older iOS access to v2 Macs and saved computer metadata.
+- Add the IROH v2 Cloudflare backend and clients.
+- Improve iOS readiness receipts so they identify the installed build.
+- Dogfood focus: update from 1.0.4, confirm sign-in survives relaunch, verify both NIGHTLY Macs connect, and exercise recovery after backgrounding.
+
+### External
+
+- This build is for internal cmux BETA testing only.
+
 ---
 
 ## [1.0.4] - 2026-07-09
 
 ### Internal
 
+- Mac+iOS pairing is now opt-in. Turn on Enable iOS pairing in Settings > Mobile for each cmux Mac app before testing discovery.
 - Version-sync bump: checked-in beta marketing version catches up to `1.0.4`, the version already live to external founders (an earlier upload under that version shipped stale, pre-#7636 code; the CI reship on 2026-07-09 replaced it with current `main`).
 - Fix iOS surface-teardown deadlock behind external-beta watchdog kills (#7666).
 - Add iOS account deletion and legal links (#7645).
@@ -64,6 +98,7 @@ for a different version), so bump the beta version with
 
 ### External
 
+- Each cmux Mac app now requires Enable iOS pairing in Settings > Mobile before that Mac can appear on iPhone.
 - Fixed an issue where the app could freeze or crash in the background.
 - Fixed an issue that could sign you out unexpectedly after updating.
 - Terminal connections recover more reliably after switching apps or losing network.

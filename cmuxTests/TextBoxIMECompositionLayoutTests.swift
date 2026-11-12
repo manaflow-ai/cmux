@@ -10,7 +10,7 @@ import Testing
 
 @Suite("TextBox IME composition layout")
 struct TextBoxIMECompositionLayoutTests {
-    @Test("marked text has synchronous caret geometry and reflows before commit")
+    @Test("marked text has synchronous caret geometry and reflows at layout before commit")
     @MainActor
     func markedTextReflowsBeforeCommit() {
         var text = ""
@@ -96,6 +96,10 @@ struct TextBoxIMECompositionLayoutTests {
         #expect(textView.hasMarkedText())
         #expect(markedTextStates == [true])
         #expect(completedLayoutCount == 0)
+        expectValidCaretGeometry(in: textView)
+        #expect(textView.needsLayout)
+        textView.layoutSubtreeIfNeeded()
+        #expect(completedLayoutCount > 0)
         #expect(textViewHeight > committedOnlyHeight)
         #expect(textView.frame.height == textViewHeight)
         #expect(heightPublicationCount == 1)
@@ -118,6 +122,10 @@ struct TextBoxIMECompositionLayoutTests {
         #expect(textView.hasMarkedText())
         #expect(markedTextStates == [true])
         #expect(completedLayoutCount == 0)
+        expectValidCaretGeometry(in: textView)
+        #expect(textView.needsLayout)
+        textView.layoutSubtreeIfNeeded()
+        #expect(completedLayoutCount > 0)
         #expect(textViewHeight > firstCompositionHeight)
         #expect(textView.frame.height == textViewHeight)
         #expect(heightPublicationCount == 1)
@@ -137,6 +145,8 @@ struct TextBoxIMECompositionLayoutTests {
             )
         }
 
+        #expect(textView.needsLayout)
+        textView.layoutSubtreeIfNeeded()
         #expect(textViewHeight == stableCompositionHeight)
         #expect(heightPublicationCount == 0)
         #expect(!textView.needsLayout)

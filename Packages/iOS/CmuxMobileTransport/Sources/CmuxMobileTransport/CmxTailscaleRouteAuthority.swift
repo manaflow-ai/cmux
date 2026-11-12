@@ -34,6 +34,7 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, Send
 
     private let monitor: NWPathMonitor
     private let readiness: CmxTailscaleRouteReadiness<NWInterface>
+    // Carve-out: stamp NWPath callbacks synchronously before actor hops can reorder delivery.
     private let observationSequence: OSAllocatedUnfairLock<UInt64>
 
     init(
@@ -44,6 +45,7 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, Send
             clock: clock,
             readinessDeadline: readinessDeadline
         )
+        // Carve-out: this counter orders monitor callbacks and synchronous current-path captures.
         let sequence = OSAllocatedUnfairLock<UInt64>(initialState: 0)
         let monitor = NWPathMonitor()
         self.readiness = readiness
@@ -105,6 +107,7 @@ final class CmxSystemTailscaleRouteAuthority: CmxTailscaleRouteAuthorizing, Send
     }
 
     private static func nextSequence(
+        // Carve-out: stamp the synchronous Network.framework observation before scheduling ingestion.
         _ lock: OSAllocatedUnfairLock<UInt64>
     ) -> UInt64 {
         lock.withLock { sequence in

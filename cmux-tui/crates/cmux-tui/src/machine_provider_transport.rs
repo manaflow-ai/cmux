@@ -774,10 +774,8 @@ mod tests {
 
         fn script(&self, name: &str, body: &str) -> PathBuf {
             let path = self.path.join(name);
-            fs::write(&path, format!("#!/bin/sh\nset -eu\n{body}\n"))
+            cmux_test_exec::write_executable(&path, format!("#!/bin/sh\nset -eu\n{body}\n"))
                 .expect("write provider test script");
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
-                .expect("make provider test script executable");
             path
         }
     }
@@ -1188,7 +1186,7 @@ mod tests {
         let connector = SshProviderConnector::cloud_with_program(
             fake_ssh,
             "edge.example.com",
-            Some("lawrence"),
+            Some("dev"),
             Some(2200),
             Some(identity.clone()),
         )
@@ -1215,9 +1213,11 @@ mod tests {
                 .windows(2)
                 .any(|pair| { pair[0] == "-i" && pair[1] == identity.to_string_lossy().as_ref() })
         );
-        assert!(arguments.windows(5).any(|tail| {
-            tail == ["--", "lawrence@edge.example.com", "cmux", "provider", "control"]
-        }));
+        assert!(
+            arguments.windows(5).any(|tail| {
+                tail == ["--", "dev@edge.example.com", "cmux", "provider", "control"]
+            })
+        );
         assert!(!arguments.iter().any(|argument| argument.contains(token.expose())));
         drop(control);
     }

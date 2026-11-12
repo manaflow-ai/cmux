@@ -16,9 +16,9 @@ import { isPlainEmailLocalPart } from "./access";
 import {
   AccountDeletionMutationBlockedError,
   AccountDeletionUserMutationInProgressError,
-  withAccountDeletionUserMutation,
   type AccountDeletionUserMutationLease,
 } from "../account/deletionLock";
+import { withTeamMetadataMutation } from "../teams/mutationLease";
 import {
   AccountMetadataUserUnavailableError,
   type AccountMetadataUserLoader,
@@ -26,6 +26,7 @@ import {
 } from "../account/metadataMutation";
 import {
   FOUNDERS_PLAN_ID,
+  MAX_PLAN_ID,
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
   hasActiveTeamSubscriptionForTeam,
@@ -39,7 +40,7 @@ import {
   type StripeBillingStatus,
 } from "../billing/pro";
 
-export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, FOUNDERS_PLAN_ID] as const;
+export const ADMIN_GRANTABLE_PLAN_IDS = [PRO_PLAN_ID, MAX_PLAN_ID, FOUNDERS_PLAN_ID] as const;
 export type AdminGrantablePlanId = (typeof ADMIN_GRANTABLE_PLAN_IDS)[number];
 
 export const ADMIN_USER_SEARCH_LIMIT = 25;
@@ -379,7 +380,7 @@ function metadataRecord(raw: unknown): Record<string, unknown> {
     : {};
 }
 
-function defaultAdminStackApp(): AdminStackApp {
+export function defaultAdminStackApp(): AdminStackApp {
   const app = getStackServerApp();
   return {
     getUser: (userId) => app.getUser(userId),
@@ -544,14 +545,9 @@ export async function setTeamManualPlanGrant(input: {
   return adminTeamRow(reloaded, await billing(reloaded.id), await memberCount(reloaded));
 }
 
-/** Team lease key. Teams share the account-mutation lease table under a prefixed id. */
-function teamMutationKey(teamId: string): string {
-  return `team:${teamId}`;
-}
-
-function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
+export function defaultWithFreshTeam(app: AdminStackApp): FreshAdminTeamMutation {
   return async (teamId, operation) =>
-    await withAccountDeletionUserMutation(cloudDb(), teamMutationKey(teamId), async (lease) => {
+    await withTeamMetadataMutation(cloudDb(), teamId, async (lease) => {
       const team = await app.getTeam(teamId);
       if (!team || team.id !== teamId) throw new AdminTeamNotFoundError(teamId);
       return await operation(team, lease);

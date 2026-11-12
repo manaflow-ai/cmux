@@ -8,6 +8,8 @@ import Testing
         "com.cmuxterm.app",
         "com.cmuxterm.app.nightly",
         "com.cmuxterm.app.nightly.rc1",
+        "com.cmuxterm.app.rc",
+        "com.cmuxterm.app.rc.candidate1",
         "com.cmuxterm.app.staging",
         "com.cmuxterm.app.debug",
         "com.cmuxterm.app.debug.snmsc",

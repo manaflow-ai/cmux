@@ -14,6 +14,8 @@ public protocol RemoteProxyTunnelProviding: Sendable {
     /// - Parameters:
     ///   - remotePath: Resolved remote path of the daemon binary.
     ///   - localPort: Loopback port the tunnel's proxy listener binds to.
+    ///   - credential: Credential the tunnel's proxy listener requires from
+    ///     every client.
     ///   - onFatalError: Invoked once when the started tunnel fails
     ///     irrecoverably (it has already stopped itself); may fire on any
     ///     queue.
@@ -21,6 +23,7 @@ public protocol RemoteProxyTunnelProviding: Sendable {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         localPort: Int,
+        credential: BrowserProxyCredential,
         onFatalError: @escaping @Sendable (String) -> Void
     ) -> any RemoteProxyTunneling
 }

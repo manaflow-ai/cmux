@@ -8,10 +8,12 @@
 # contain the requested slice, and fails if any fat file lacks it. Single-arch
 # files already matching the request are left as-is; single-arch files of another
 # architecture fail, since that bundle could never launch on the target machine.
+# Contents/Resources/bin/cmux-tui-ssh/ is skipped: it holds cmux-tui builds for
+# SSH hosts of every platform, which the app uploads rather than runs.
 # Run before code signing: thinning invalidates existing signatures.
 set -euo pipefail
 
-usage() { sed -n '2,11p' "$0"; }
+usage() { sed -n '2,13p' "$0"; }
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then usage; exit 0; fi
 if [ "$#" -ne 2 ]; then usage >&2; exit 2; fi
@@ -58,6 +60,6 @@ while IFS= read -r -d '' path; do
   chmod --reference="$path" "$tmp" 2>/dev/null || chmod "$(stat -f '%Lp' "$path")" "$tmp"
   mv -f "$tmp" "$path"
   thinned=$((thinned + 1))
-done < <(find "$APP_PATH" -type f -print0)
+done < <(find "$APP_PATH" -path "$APP_PATH/Contents/Resources/bin/cmux-tui-ssh" -prune -o -type f -print0)
 
 echo "thinned $thinned fat Mach-O files to $ARCH in $APP_PATH ($kept already $ARCH-only)"

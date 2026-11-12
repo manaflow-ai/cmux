@@ -12,6 +12,8 @@ import java.util.Objects;
 
 /** Immutable agent-changed event. Protocol v11; streams: subscribe. */
 public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
+    /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
+    private final Field<String> agent;
     private final String session;
     private final AgentSource source;
     private final AgentState state;
@@ -19,6 +21,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     private final UInt64 updatedAtMs;
 
     private AgentChangedEvent(Builder builder) {
+        this.agent = builder.agent;
         if (!builder.sessionSet) throw new IllegalArgumentException("session is required");
         this.session = builder.session;
         if (!builder.sourceSet) throw new IllegalArgumentException("source is required");
@@ -33,6 +36,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<String> agent() { return agent; }
     public String session() { return session; }
     public AgentSource source() { return source; }
     public AgentState state() { return state; }
@@ -44,6 +48,10 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         Map<String, Object> object = Wire.object(value, "AgentChangedEvent");
         Builder builder = builder();
         ProtocolSupport.literal(Wire.required(object, "event"), "agent-changed", "AgentChangedEvent.event");
+        Object rawAgent = Wire.optional(object, "agent");
+        if (!Wire.isMissing(rawAgent)) {
+            builder.agent(rawAgent == null ? null : Wire.string(rawAgent, "AgentChangedEvent.agent"));
+        }
         Object rawSession = Wire.required(object, "session");
         builder.session(rawSession == null ? null : Wire.string(rawSession, "AgentChangedEvent.session"));
         Object rawSource = Wire.required(object, "source");
@@ -61,6 +69,7 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "agent-changed");
+        Wire.put(object, "agent", agent);
         Wire.put(object, "session", session);
         Wire.put(object, "source", source);
         Wire.put(object, "state", state);
@@ -72,16 +81,17 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AgentChangedEvent that)) return false;
-        return Objects.equals(session, that.session) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
+        return Objects.equals(agent, that.agent) && Objects.equals(session, that.session) && Objects.equals(source, that.source) && Objects.equals(state, that.state) && Objects.equals(surface, that.surface) && Objects.equals(updatedAtMs, that.updatedAtMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(session, source, state, surface, updatedAtMs); }
+    public int hashCode() { return Objects.hash(agent, session, source, state, surface, updatedAtMs); }
 
     @Override
     public String toString() { return "AgentChangedEvent" + toWire(); }
 
     public static final class Builder {
+        private Field<String> agent = Field.omitted();
         private String session;
         private boolean sessionSet;
         private AgentSource source;
@@ -93,6 +103,10 @@ public final class AgentChangedEvent implements WireValue, DeltaStreamEvent, Pro
         private UInt64 updatedAtMs;
         private boolean updatedAtMsSet;
 
+        public Builder agent(String value) {
+            this.agent = Field.ofNullable(value);
+            return this;
+        }
         public Builder session(String value) {
             this.session = value;
             this.sessionSet = true;

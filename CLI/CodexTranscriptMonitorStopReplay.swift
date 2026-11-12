@@ -4,6 +4,8 @@ import Foundation
 struct CodexTranscriptMonitorStopReplay {
     let commandArguments: [String]
     let payload: String
+    let workspaceId: String
+    let surfaceId: String?
 
     init?(
         sessionId: String,
@@ -14,6 +16,8 @@ struct CodexTranscriptMonitorStopReplay {
         lastAssistantMessage: String?
     ) {
         guard !sessionId.isEmpty, !workspaceId.isEmpty else { return nil }
+        self.workspaceId = workspaceId
+        self.surfaceId = surfaceId
 
         var object: [String: Any] = [
             "session_id": sessionId,
@@ -34,11 +38,11 @@ struct CodexTranscriptMonitorStopReplay {
             return nil
         }
 
-        var commandArguments = ["stop", "--workspace", workspaceId]
-        if let surfaceId, !surfaceId.isEmpty {
-            commandArguments += ["--surface", surfaceId]
-        }
-        self.commandArguments = commandArguments
+        // Do not pin the replay to the monitor's original pane. The Codex
+        // process can move between the monitor and terminal completion; the
+        // regular Stop resolver can then re-home the session through the live
+        // surface binding before projecting Idle/Completed state.
+        self.commandArguments = ["stop"]
         self.payload = payload
     }
 }

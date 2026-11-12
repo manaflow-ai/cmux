@@ -398,8 +398,9 @@ extension AppDelegate {
     ) {
         let routeTTYDeviceBindings = currentSurfaceTTYDeviceBindings(for: route)
         let windowId = route.windowId
+        let routeIdentity = ObjectIdentifier(route)
         let taskToken = UUID()
-        let task = Task { @MainActor [weak self, weak route] in
+        let task = Task { @MainActor [weak self] in
             defer {
                 self?.mainWindowLifecycleCoordinator.releaseWindowlessRouteFreezeTask(
                     windowId: windowId,
@@ -407,11 +408,11 @@ extension AppDelegate {
                 )
             }
             guard !Task.isCancelled else { return }
-            guard let route,
-                  self?.mainWindowLifecycleCoordinator.orphanedRoute(
-                      windowId: windowId
-                  ) === route,
-                  route.window == nil,
+            guard self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                windowId: windowId
+            ).map({
+                ObjectIdentifier($0) == routeIdentity && $0.window == nil
+            }) == true,
                   self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
@@ -420,7 +421,11 @@ extension AppDelegate {
                 windowId: windowId,
                 availablePersistenceSlots: self?.availableWindowlessPersistenceSlots() ?? 0
             ) == true else {
-                self?.retireWindowlessRecoverableMainWindowRoute(route)
+                if let currentRoute = self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                    windowId: windowId
+                ), ObjectIdentifier(currentRoute) == routeIdentity {
+                    self?.retireWindowlessRecoverableMainWindowRoute(currentRoute)
+                }
                 return
             }
             defer {
@@ -452,8 +457,9 @@ extension AppDelegate {
             guard !Task.isCancelled,
                   self?.mainWindowLifecycleCoordinator.orphanedRoute(
                       windowId: windowId
-                  ) === route,
-                  route.window == nil,
+                  ).map({
+                      ObjectIdentifier($0) == routeIdentity && $0.window == nil
+                  }) == true,
                   self?.windowForMainWindowId(windowId) == nil else {
                 return
             }
@@ -482,13 +488,17 @@ extension AppDelegate {
             }
             guard !Task.isCancelled else { return }
             let detectedSurfaceResumeBindingIndex = resumeIndexes?.surfaceResumeBindingIndex
-            self?.freezeWindowlessRecoverableMainWindowRoute(
-                route,
-                restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex?.isEmpty == false
-                    ? detectedSurfaceResumeBindingIndex
-                    : nil
-            )
+            if let currentRoute = self?.mainWindowLifecycleCoordinator.orphanedRoute(
+                windowId: windowId
+            ), ObjectIdentifier(currentRoute) == routeIdentity {
+                self?.freezeWindowlessRecoverableMainWindowRoute(
+                    currentRoute,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: detectedSurfaceResumeBindingIndex?.isEmpty == false
+                        ? detectedSurfaceResumeBindingIndex
+                        : nil
+                )
+            }
         }
         mainWindowLifecycleCoordinator.retainWindowlessRouteFreezeTask(
             task,
@@ -839,8 +849,12 @@ extension AppDelegate {
         guard mainWindowLifecycleCoordinator.teardownRoute(windowId: route.windowId) === route else {
             return
         }
-        let workspaceIds = recoverableRouteWorkspaceIdsForRemoteTeardown(route)
+        // Drop the route before resolving current workspace owners. That lookup
+        // walks the recoverable routes, and a windowless route whose manager is
+        // already finalized would otherwise re-enter this retirement for the
+        // same route without bound (a stack overflow in the app host).
         mainWindowLifecycleCoordinator.removeRecoverableRoute(windowId: route.windowId)
+        let workspaceIds = recoverableRouteWorkspaceIdsForRemoteTeardown(route)
         let manager = route.tabManager
         manager?.clearRecoverableMainWindowRouteOwnerRegistration(for: route)
         route.markForTeardown()
@@ -1274,5 +1288,64 @@ extension AppDelegate {
             return nil
         }
         return tabManager
+    }
+
+    /// Captures the same owners as `workspaceFor(tabId:)` in one pass per manager.
+    /// Registered owners win, then the first matching recoverable route, then the
+    /// active manager. An owner whose tab array is inconsistent remains unknown.
+    func workspacesForRead(tabIds: Set<UUID>) -> [UUID: Workspace] {
+        guard !tabIds.isEmpty else { return [:] }
+        var remaining = tabIds
+        var result: [UUID: Workspace] = [:]
+        var indexedManagers: [ObjectIdentifier: [UUID: Workspace]] = [:]
+        let capture: (TabManager, Set<UUID>) -> Void = { manager, ids in
+            let key = ObjectIdentifier(manager)
+            if indexedManagers[key] == nil {
+                var workspaces: [UUID: Workspace] = [:]
+                for workspace in manager.tabs where workspaces[workspace.id] == nil {
+                    workspaces[workspace.id] = workspace
+                }
+                indexedManagers[key] = workspaces
+            }
+            for id in ids {
+                result[id] = indexedManagers[key]?[id]
+            }
+            remaining.subtract(ids)
+        }
+        var registeredManagers: Set<ObjectIdentifier> = []
+        for context in mainWindowContexts.values {
+            guard registeredManagers.insert(ObjectIdentifier(context.tabManager)).inserted else { continue }
+            let ids = Set(context.tabManager.workspacesById.keys.filter { remaining.contains($0) })
+            if !ids.isEmpty { capture(context.tabManager, ids) }
+        }
+        // tabManagerFor consults only the first orphan containing an id. If that
+        // route cannot resolve, it falls through to the active manager, not a
+        // later orphan with the same id.
+        var orphanCandidates = remaining
+        let liveWindowIdentities = Set(NSApp.windows.map { ObjectIdentifier($0) })
+        var orphanManagers: Set<ObjectIdentifier> = []
+        for route in mainWindowLifecycleCoordinator.orphanedRoutes() {
+            guard let manager = route.tabManager,
+                  orphanManagers.insert(ObjectIdentifier(manager)).inserted else { continue }
+            let ids = Set(manager.workspacesById.keys.filter { orphanCandidates.contains($0) })
+            guard !ids.isEmpty else { continue }
+            orphanCandidates.subtract(ids)
+            let cachedWindow = route.window
+                ?? mainWindowLifecycleCoordinator.registeredContext(windowId: route.windowId)?.window
+            if tabManagerCanOwnRecoverableMainWindowRoute(manager),
+               let window = liveRecoverableMainWindow(
+                   windowId: route.windowId,
+                   cachedWindow: cachedWindow,
+                   liveWindowIdentities: liveWindowIdentities
+               ),
+               let owner = storedRecoverableMainWindowRouteSnapshot(for: route, window: window)?.tabManager {
+                capture(owner, ids)
+            }
+        }
+        if let tabManager {
+            let ids = Set(tabManager.workspacesById.keys.filter { remaining.contains($0) })
+            if !ids.isEmpty { capture(tabManager, ids) }
+        }
+        return result
     }
 }

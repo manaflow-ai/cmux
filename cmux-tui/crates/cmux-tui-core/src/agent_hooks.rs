@@ -9,13 +9,20 @@ use crate::{
 
 pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
 pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 1;
-const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+pub(crate) const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+/// Internal lifecycle event emitted when the generic core supervisor observes
+/// a userland journal-plugin exit. This is a core projection adapter, not an
+/// agent implementation. It lets the roster remain a journal-only projection
+/// even when a crashed plugin cannot emit per-terminal `session.ended` events.
+// Keep the wire value from the preview so journals already on disk replay
+// after this boundary rename.
+pub(crate) const JOURNAL_PLUGIN_EXIT_NATIVE_EVENT: &str = "AgentPluginExited";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
 
-const AGENT_EVENT_KINDS: [&str; 12] = [
+const AGENT_EVENT_KINDS: [&str; 13] = [
     "agent.session.started",
     "agent.turn.started",
     "agent.turn.completed",
@@ -28,6 +35,7 @@ const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.error.reported",
     "agent.state.changed",
     "agent.session.ended",
+    "agent.plugin.exited",
 ];
 
 pub fn agent_hook_journal_ingress(
@@ -39,10 +47,18 @@ pub fn agent_hook_journal_ingress(
     validate_agent_source(source)?;
     validate_native_event(native_event)?;
     let terminal_id = terminal_id.map(TerminalPublicId::parse).transpose()?;
+    // Read the structured reason before redaction replaces free-form strings.
+    let resumable_interruption = is_resumable_opencode_interruption(source, native_event, &native);
     let native = redact_agent_native(native_event, native);
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
-    let kind = semantic_kind(source, native_event, &normalized);
+    let kind = if resumable_interruption {
+        // OpenCode keeps a shutdown-interrupted execution and resumes it, so
+        // the turn is still running rather than completed.
+        "agent.state.changed"
+    } else {
+        semantic_kind(source, native_event, &normalized)
+    };
     let mut subjects = Vec::with_capacity(4);
     if let Some(terminal_id) = terminal_id {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
@@ -74,6 +90,94 @@ pub fn agent_hook_journal_ingress(
         causation_id: None,
         correlation_id: None,
     })
+}
+
+/// Build the core-owned lifecycle event for an unexpectedly exited userland
+/// plugin. The reducer uses the plugin subject to retire all entries owned by
+/// that producer in one deterministic fold.
+pub(crate) fn journal_plugin_exit_journal_ingress(
+    plugin_id: &str,
+    generation: u64,
+) -> anyhow::Result<JournalIngress> {
+    validate_agent_source(plugin_id)?;
+    Ok(JournalIngress {
+        producer_id: AGENT_HOOK_PRODUCER_ID.into(),
+        manifest_version: AGENT_HOOK_MANIFEST_VERSION,
+        kind: "agent.plugin.exited".into(),
+        schema_version: 1,
+        occurred_at_ms: None,
+        subjects: vec![JournalSubject { kind: "plugin".into(), id: plugin_id.into() }],
+        sensitivity: Some(JournalSensitivity::Sensitive),
+        payload: json!({
+            "format": AGENT_HOOK_FORMAT,
+            "adapter": {"id": "cmux", "version": 1},
+            "native_event": JOURNAL_PLUGIN_EXIT_NATIVE_EVENT,
+            "normalized": {
+                "plugin_id": plugin_id,
+                "plugin_generation": generation.to_string(),
+                "observed_at_ms": crate::workspace_registry::unix_epoch_ms()?.to_string(),
+            },
+            "native": {},
+        }),
+        causation_id: None,
+        correlation_id: None,
+    })
+}
+
+/// How far apart two hook starts of one session may be for the later-sent
+/// one to be journaled first. One agent's hooks run one after another, and a
+/// hook hands its event over within its own run, so a reorder is at most a
+/// few seconds; an event that started even earlier comes from a clock that
+/// stepped back and is newer, not reordered.
+pub(crate) const HOOK_REORDER_WINDOW_MS: u64 = 5_000;
+
+/// When the hook that sent the event with `payload` started
+/// (`normalized.observed_at_ms`), if it said.
+pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
+    payload
+        .get("normalized")
+        .and_then(|normalized| normalized.get("observed_at_ms"))
+        .and_then(Value::as_str)
+        .and_then(|text| text.parse().ok())
+}
+
+/// Whether a hook event of kind `kind` whose hook started at `observed_at_ms`
+/// came after a later-started event of the same session (`last_observed_at_ms`)
+/// that was already applied, so it must not set the agent's state. The
+/// journal keeps it either way. The agent projection and the roster both ask
+/// this, so they agree.
+///
+/// Never skipped: the session's start and end, and an event that shows a
+/// dialog or an error (parallel subagents of one session can each raise one;
+/// the next later event clears it).
+pub(crate) fn hook_event_is_reordered(
+    kind: &str,
+    observed_at_ms: Option<u64>,
+    last_observed_at_ms: Option<u64>,
+) -> bool {
+    if matches!(
+        kind,
+        "agent.session.started"
+            | "agent.session.ended"
+            | "agent.approval.requested"
+            | "agent.question.requested"
+            | "agent.plan_review.requested"
+            | "agent.error.reported"
+    ) {
+        return false;
+    }
+    let (Some(seen), Some(last)) = (observed_at_ms, last_observed_at_ms) else { return false };
+    seen < last && last - seen <= HOOK_REORDER_WINDOW_MS
+}
+
+/// Records in `ingress` when the hook that saw the event started
+/// (`normalized.observed_at_ms`, ms since the epoch). One agent's hooks run
+/// one after another but reach the journal on separate connections; the
+/// daemon orders the agent's state by this time, not by journal sequence.
+pub fn stamp_agent_hook_observed_at(ingress: &mut JournalIngress, observed_at_ms: u64) {
+    if let Some(normalized) = ingress.payload.get_mut("normalized").and_then(Value::as_object_mut) {
+        normalized.insert("observed_at_ms".into(), Value::String(observed_at_ms.to_string()));
+    }
 }
 
 fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
@@ -179,7 +283,7 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
                         "type":"string",
                         "minLength":1,
                         "maxLength":MAX_AGENT_SOURCE_BYTES,
-                        "pattern":"^[a-z0-9_-]+$"
+                        "pattern":"^[a-z0-9][a-z0-9_-]*$"
                     },
                     "version":{"const":1}
                 },
@@ -215,10 +319,11 @@ fn validate_agent_source(source: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         !source.is_empty()
             && source.len() <= MAX_AGENT_SOURCE_BYTES
+            && source.as_bytes().first().is_some_and(|byte| byte.is_ascii_alphanumeric())
             && source.bytes().all(|byte| {
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
             }),
-        "agent source must contain 1 to {MAX_AGENT_SOURCE_BYTES} lowercase ASCII letters, digits, hyphens, or underscores"
+        "agent source must match [a-z0-9][a-z0-9_-]* and contain at most {MAX_AGENT_SOURCE_BYTES} bytes"
     );
     Ok(())
 }
@@ -256,6 +361,12 @@ fn semantic_kind(
         ("antigravity" | "hermes-agent", "sessionend" | "onsessionend") => "agent.turn.completed",
         ("opencode", "sessioncreated") => "agent.session.started",
         ("opencode", "sessionidle") => "agent.turn.completed",
+        ("opencode", "sessionexecutionsucceeded" | "sessionexecutioninterrupted") => {
+            "agent.turn.completed"
+        }
+        ("opencode", "sessionexecutionfailed" | "sessionnextstepfailed" | "sessionerror") => {
+            "agent.error.reported"
+        }
         ("opencode", "sessiondeleted") => "agent.session.ended",
         (_, event) if is_child_spawn(event) => "agent.child.spawned",
         (_, event) if is_child_completion(event) => "agent.child.completed",
@@ -284,6 +395,17 @@ fn semantic_kind(
         }
         _ => "agent.state.changed",
     }
+}
+
+fn is_resumable_opencode_interruption(source: &str, native_event: &str, native: &Value) -> bool {
+    if source != "opencode" || semantic_key(native_event) != "sessionexecutioninterrupted" {
+        return false;
+    }
+    let event = native.get("event").unwrap_or(native);
+    ["data", "properties"]
+        .iter()
+        .filter_map(|key| event.get(key))
+        .any(|properties| properties.get("reason").and_then(Value::as_str) == Some("shutdown"))
 }
 
 fn is_child_spawn(event: &str) -> bool {
@@ -783,6 +905,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn agent_source_uses_the_shared_component_grammar() {
+        assert!(agent_hook_journal_ingress("codex-agent", "Stop", None, json!({})).is_ok());
+        assert!(agent_hook_journal_ingress("-codex", "Stop", None, json!({})).is_err());
+        assert!(agent_hook_journal_ingress("codex.agent", "Stop", None, json!({})).is_err());
+    }
+
+    #[test]
     fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {
         for (source, event) in [
             ("codex", "Stop"),
@@ -909,6 +1038,40 @@ mod tests {
         let deleted =
             agent_hook_journal_ingress("opencode", "session.deleted", None, json!({})).unwrap();
         assert_eq!(deleted.kind, "agent.session.ended");
+    }
+
+    #[test]
+    fn current_opencode_failure_events_report_errors() {
+        for event in ["session.execution.failed", "session.next.step.failed", "session.error"] {
+            let ingress = agent_hook_journal_ingress(
+                "opencode",
+                event,
+                None,
+                json!({"event":{"properties":{"sessionID":"opencode-session"}}}),
+            )
+            .unwrap();
+            assert_eq!(ingress.kind, "agent.error.reported", "{event}");
+        }
+    }
+
+    #[test]
+    fn opencode_shutdown_interruption_keeps_the_turn_running() {
+        let interrupted = "session.execution.interrupted";
+        let kind = |field: &str, reason: &str| {
+            let native = json!({"event":{"type":interrupted,field:{"reason":reason}}});
+            agent_hook_journal_ingress("opencode", interrupted, None, native).unwrap().kind
+        };
+        assert_eq!(kind("data", "shutdown"), "agent.state.changed");
+        assert_eq!(kind("properties", "shutdown"), "agent.state.changed");
+        assert_eq!(kind("data", "user"), "agent.turn.completed");
+    }
+
+    #[test]
+    fn current_opencode_completion_events_report_completed_turns() {
+        for event in ["session.execution.succeeded", "session.execution.interrupted"] {
+            let ingress = agent_hook_journal_ingress("opencode", event, None, json!({})).unwrap();
+            assert_eq!(ingress.kind, "agent.turn.completed", "{event}");
+        }
     }
 
     #[test]

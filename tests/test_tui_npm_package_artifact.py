@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
 import stat
 import subprocess
@@ -94,7 +95,11 @@ def make_package_fixture(packages: Path) -> None:
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/cmux-tui", "bin/cmux-tui-hook"],
+                    "files": [
+                        "bin/cmux-tui",
+                        "bin/cmux-tui-hook",
+                        "bin/cmux-tui-ssh/manifest.json",
+                    ],
                 }
             )
             + "\n"
@@ -104,6 +109,25 @@ def make_package_fixture(packages: Path) -> None:
             executable.parent.mkdir(parents=True, exist_ok=True)
             executable.write_text("#!/bin/sh\nexit 0\n")
             executable.chmod(0o755)
+    # Every platform package pins each remote binary's SHA-256; the fixture
+    # binaries are identical, so one digest serves them all.
+    digest = hashlib.sha256(b"#!/bin/sh\nexit 0\n").hexdigest()
+    manifest = {
+        "commit": "0123456789abcdef0123456789abcdef01234567",
+        "binaries": {
+            f"cmux-tui-{target}": digest
+            for target in (
+                "aarch64-unknown-linux-musl",
+                "x86_64-unknown-linux-musl",
+                "aarch64-apple-darwin",
+                "x86_64-apple-darwin",
+            )
+        },
+    }
+    for name in TARGETS:
+        path = packages / name / "bin/cmux-tui-ssh/manifest.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(manifest) + "\n")
 
     launcher = packages / "cmux"
     launcher.mkdir(parents=True, exist_ok=True)
@@ -245,20 +269,17 @@ def test_extract_rejects_paths_outside_package_root(tmp_path: Path) -> None:
 def test_publish_workflows_restore_the_mode_preserving_archive() -> None:
     build = (ROOT / ".github/workflows/cmux-tui-build-package.yml").read_text()
     stable = (ROOT / ".github/workflows/tui-publish-npm.yml").read_text()
-    nightly = (ROOT / ".github/workflows/cmux-tui-nightly.yml").read_text()
 
     assert "package_npm_artifact.py create" in build
     assert "path: dist/npm-packages.tar.gz" in build
-    for workflow in (stable, nightly):
-        assert "package_npm_artifact.py extract" in workflow
-        assert "--archive dist/npm-packages.tar.gz" in workflow
+    assert "package_npm_artifact.py extract" in stable
+    assert "--archive dist/npm-packages.tar.gz" in stable
 
 
 def test_publish_workflows_smoke_install_machine_relay() -> None:
     workflows = (
         ROOT / ".github/workflows/cmux-tui-build-package.yml",
         ROOT / ".github/workflows/tui-publish-npm.yml",
-        ROOT / ".github/workflows/cmux-tui-nightly.yml",
     )
     for workflow_path in workflows:
         workflow = workflow_path.read_text()

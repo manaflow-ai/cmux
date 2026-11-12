@@ -22,7 +22,9 @@ import {
   type ServerEventInput,
   type ServerEventScalar,
 } from "../analytics/serverEvents";
+import { isRememberedSyntheticUser } from "../analytics/syntheticAccounts";
 import type { VmRepositoryShape, VmUsageEventInput } from "./repository";
+import { currentVmRequestContext, noteVmRequestLedgerVmId } from "./requestContext";
 
 export const VM_PRODUCT_ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -34,6 +36,7 @@ export const VM_LEDGER_TO_POSTHOG_EVENT = {
   "vm.exec": "cloud_vm_exec",
   "vm.forked": "cloud_vm_forked",
   "vm.resumed": "cloud_vm_resumed",
+  "vm.paused": "cloud_vm_paused",
   "vm.snapshot.created": "cloud_vm_snapshot_created",
   "vm.open_port": "cloud_vm_port_opened",
   "vm.base.opened": "cloud_vm_base_opened",
@@ -48,13 +51,19 @@ export const VM_PRODUCT_EVENT_NAMES: readonly VmProductEventName[] = Object.valu
 /**
  * Why a machine row became destroyed. `destroyVm` stamps the caller's reason
  * into the ledger metadata (`source`); the reconcile cron and base reset
- * stamp theirs at their own write sites.
+ * stamp theirs at their own write sites. The `provider_status_*` reasons all
+ * mean the same thing, and differ only in which request or job was the one to
+ * notice: the cron sweep, the create path's limit refresh, a status read, an
+ * access operation's preflight, or a stats read.
  */
 export const VM_DESTROY_SOURCES = [
   "user_request",
   "account_deletion",
   "provider_status_cron",
   "provider_status_refresh",
+  "provider_status_read",
+  "provider_status_access",
+  "provider_status_stats",
   "base_open_provider_missing",
 ] as const;
 export type VmDestroySource = (typeof VM_DESTROY_SOURCES)[number];
@@ -94,6 +103,10 @@ const METADATA_PICKERS: Record<VmLedgerEventType, MetadataPicker> = {
   }),
   "vm.resumed": (m) => ({
     source: str(m.source) ?? "unknown",
+  }),
+  "vm.paused": (m) => ({
+    source: enumValue(m.source, ["user", "go_hours_limit", "unexpected_wake"]) ?? "unknown",
+    used_seconds: int(m.usedSeconds), automated: bool(m.automated),
   }),
   "vm.snapshot.created": (m) => ({
     named: bool(m.named),
@@ -141,6 +154,7 @@ export function vmProductEventFromLedger(
     plan_id: planId,
     billing_team_id: input.billingTeamId ?? undefined,
     schema_version: VM_PRODUCT_ANALYTICS_SCHEMA_VERSION,
+    is_synthetic: isSyntheticLedgerRow(input) ? true : undefined,
     ...METADATA_PICKERS[input.eventType](metadata),
   };
   if (input.eventType === "vm.destroyed" && input.vmCreatedAt) {
@@ -166,6 +180,44 @@ export function vmProductEventFromLedger(
   };
 }
 
+/** PostHog event for a machine that reached `running` and accepts connections. */
+export const VM_READY_POSTHOG_EVENT = "cloud_vm_ready";
+
+/**
+ * `cloud_vm_ready`: the machine is usable (its `mark_running` committed,
+ * which is when the create workflow writes `vm.created`). `time_to_ready_ms`
+ * runs from the machine row's insert, the moment the request was accepted,
+ * so it covers provider provisioning and boot. Null for rows that are not a
+ * successful create, or when the machine's `createdAt` is unknown.
+ */
+export function vmReadyEventFromLedger(
+  input: VmUsageEventInput,
+  now: Date = new Date(),
+): ServerEventInput | null {
+  if (input.eventType !== "vm.created" || !input.vmId || !input.vmCreatedAt) return null;
+  const timeToReadyMs = now.getTime() - input.vmCreatedAt.getTime();
+  if (!Number.isFinite(timeToReadyMs) || timeToReadyMs < 0) return null;
+  const metadata = input.metadata ?? {};
+  return {
+    event: VM_READY_POSTHOG_EVENT,
+    distinctId: input.userId,
+    teamId: input.billingTeamId,
+    properties: {
+      product: "cloud_vm",
+      vm_id: input.vmId,
+      plan_id: normalizedPlan(input.billingPlanId),
+      provider: input.provider,
+      origin: enumValue(metadata.origin, ["create", "restore", "fork", "base"]) ?? "create",
+      time_to_ready_ms: Math.round(timeToReadyMs),
+      billing_team_id: input.billingTeamId ?? undefined,
+      is_synthetic: isSyntheticLedgerRow(input) ? true : undefined,
+      schema_version: VM_PRODUCT_ANALYTICS_SCHEMA_VERSION,
+    },
+    insertId: `${VM_READY_POSTHOG_EVENT}:${input.vmId}`,
+    timestamp: now,
+  };
+}
+
 export type VmProductCapture = (input: VmUsageEventInput) => void;
 
 /** Default capture: map the ledger row and hand it to the shared sender. */
@@ -173,9 +225,19 @@ export function captureVmProductEvent(
   input: VmUsageEventInput,
   dependencies: Partial<ServerEventDependencies> = {},
 ): void {
-  const event = vmProductEventFromLedger(input, dependencies.now?.() ?? new Date());
-  if (!event) return;
-  void captureServerEvent(event, dependencies);
+  const now = dependencies.now?.() ?? new Date();
+  for (const event of [vmProductEventFromLedger(input, now), vmReadyEventFromLedger(input, now)]) {
+    if (event) void captureServerEvent(event, dependencies);
+  }
+}
+
+/**
+ * A probe account's row: the request that wrote it authenticated a probe
+ * account, or this instance did earlier (rows mirrored after the response).
+ */
+function isSyntheticLedgerRow(input: VmUsageEventInput): boolean {
+  const context = currentVmRequestContext();
+  return (context?.synthetic === true && context.userId === input.userId) || isRememberedSyntheticUser(input.userId);
 }
 
 /**
@@ -189,6 +251,8 @@ export function withVmProductAnalytics(
 ): VmRepositoryShape {
   const safeCapture = (input: VmUsageEventInput): void => {
     try {
+      // The request's PostHog rows name the machine this row is about.
+      noteVmRequestLedgerVmId(input.vmId);
       capture(input);
     } catch (error) {
       console.warn("[analytics] cloud vm product capture failed", {
@@ -199,6 +263,15 @@ export function withVmProductAnalytics(
   };
   return {
     ...repository,
+    markProviderObservedStatus: (input) =>
+      repository.markProviderObservedStatus(input).pipe(
+        Effect.tap((updated) => {
+          const usageEvent = input.usageEvent;
+          return updated && usageEvent
+            ? Effect.sync(() => safeCapture(usageEvent))
+            : Effect.void;
+        }),
+      ),
     recordUsageEvent: (input) =>
       repository.recordUsageEvent(input).pipe(
         Effect.tap(() => Effect.sync(() => safeCapture(input))),

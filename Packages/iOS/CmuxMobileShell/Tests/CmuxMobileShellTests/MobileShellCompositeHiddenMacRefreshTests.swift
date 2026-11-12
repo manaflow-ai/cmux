@@ -373,7 +373,7 @@ import Testing
                         lastSeenAt: Date(timeIntervalSince1970: 10),
                         isActive: false,
                         routes: [staleRoute],
-                        instanceTag: "old"
+                        instanceTag: "current"
                     ),
                 ],
             ],

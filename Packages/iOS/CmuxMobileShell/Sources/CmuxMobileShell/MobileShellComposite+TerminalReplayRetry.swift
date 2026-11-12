@@ -1,4 +1,5 @@
 import Foundation
+internal import CMUXMobileCore
 internal import CmuxMobileDiagnostics
 
 /// Retry accounting for the pending-input render-grid drop path, layered on
@@ -40,7 +41,7 @@ extension MobileShellComposite {
             terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
             return
         }
-        requestTerminalReplay(surfaceID: surfaceID)
+        requestTerminalReplay(surfaceID: surfaceID, trigger: .pendingInputDrop)
     }
 
     @discardableResult
@@ -59,6 +60,7 @@ extension MobileShellComposite {
             clearTerminalReplayInFlightIfCurrent(surfaceID: surfaceID, requestID: replayRequestID)
             requestTerminalReplay(
                 surfaceID: surfaceID,
+                trigger: .failureRetry,
                 replayBarrierToken: retryToken,
                 coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCount
                     ?? terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
@@ -68,7 +70,7 @@ extension MobileShellComposite {
         if replayBarrierToken == nil,
            prepareNonBarrierTerminalReplayFailureRetry(surfaceID: surfaceID) {
             clearTerminalReplayInFlightIfCurrent(surfaceID: surfaceID, requestID: replayRequestID)
-            requestTerminalReplay(surfaceID: surfaceID)
+            requestTerminalReplay(surfaceID: surfaceID, trigger: .failureRetry)
             return true
         }
         let retryBudgetExhausted = retryBudgetWasExhausted

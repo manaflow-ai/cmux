@@ -13,16 +13,16 @@ extension MobilePairedMac {
 @MainActor
 extension MobileShellComposite {
     /// The effective connection method for one pairing: its own stored choice,
-    /// else the app-wide default (legacy global setting), else automatic.
+    /// else automatic. Legacy app-wide preferences have no authority.
     public func connectionMethod(for mac: MobilePairedMac) -> MobileConnectionMethod {
-        mac.storedConnectionMethod ?? connectionMethodStore?.method ?? .automatic
+        mac.storedConnectionMethod ?? .automatic
     }
 
     /// The effective connection method for a pairing identified by device and
     /// optional tag. With a nil tag this resolves the device's first stored
     /// pairing, matching the legacy device-level call sites. An explicit tag
     /// never falls back to a sibling build's row: methods are chosen per
-    /// build, so an unstored tagged pairing uses the app default instead of
+    /// build, so an unstored tagged pairing uses automatic instead of
     /// inheriting whichever sibling happens to be stored first.
     public func connectionMethod(
         forMacDeviceID macDeviceID: String,
@@ -34,7 +34,6 @@ extension MobileShellComposite {
                 && (instanceTag == nil || $0.instanceTag == instanceTag)
         } ?? (instanceTag == nil ? pairedMacs.first { $0.macDeviceID == canonical } : nil)
         return match.map(connectionMethod(for:))
-            ?? connectionMethodStore?.method
             ?? .automatic
     }
 
@@ -59,11 +58,10 @@ extension MobileShellComposite {
             stackUserID: scope.userID,
             teamID: scope.teamID
         )
-        await loadPairedMacs()
+        _ = await loadPairedMacs(forceRefresh: true)
         // A method change affects dialing whether or not the Mac is currently
         // connected — the OLD method may be exactly what disconnected it (for
-        // example Tailscale Only without a grant). Mirror the legacy app-wide
-        // observer and always run recovery, which redials with the new method.
+        // example Tailscale Only without a grant). Run recovery with the newly persisted method.
         recoverMobileConnection(trigger: .connectionMethodChanged)
     }
 
@@ -85,7 +83,7 @@ extension MobileShellComposite {
             stackUserID: scope.userID,
             teamID: scope.teamID
         )
-        await loadPairedMacs()
+        _ = await loadPairedMacs(forceRefresh: true)
         if connectionMethod(forMacDeviceID: canonical, instanceTag: targetInstanceTag) == .direct {
             recoverMobileConnection(trigger: .connectionMethodChanged)
         }
@@ -131,29 +129,4 @@ extension MobileShellComposite {
         }
     }
 
-
-    /// Zero-touch discovery yields Iroh candidates only. It is pointless only
-    /// when the app default is Tailscale AND no stored pairing opted back into
-    /// the automatic method — a per-Computer Iroh choice keeps discovery alive.
-    var zeroTouchIrohDiscoveryDisabled: Bool {
-        guard connectionMethodStore?.method == .tailscale else { return false }
-        return pairedMacs.allSatisfy { connectionMethod(for: $0) != .automatic }
-    }
-
-    /// Observes the shared Settings/onboarding choice and replaces any live
-    /// foreground connection whose route was selected under the old method.
-    func startObservingConnectionMethodChanges() {
-        guard connectionMethodObservationTask == nil,
-              let connectionMethodStore else { return }
-        let initialMethod = connectionMethodStore.method
-        connectionMethodObservationTask = Task { @MainActor [weak self, connectionMethodStore] in
-            var observedMethod = initialMethod
-            for await method in connectionMethodStore.changes() {
-                guard let self, !Task.isCancelled else { return }
-                guard method != observedMethod else { continue }
-                observedMethod = method
-                self.recoverMobileConnection(trigger: .connectionMethodChanged)
-            }
-        }
-    }
 }

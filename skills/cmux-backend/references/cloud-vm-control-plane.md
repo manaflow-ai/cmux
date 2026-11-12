@@ -10,11 +10,11 @@ Cloud VM backend logic lives in Vercel route handlers and Effect services. Reque
 
 ## Migrations
 
-Production and staging: `bun db:migrate:aws-rds-iam`. Never run Drizzle migrations from Vercel build or route startup; that makes deploy behavior non-deterministic and couples app availability to schema mutation. Local development keeps the `CMUX_PORT`-derived Docker Postgres path from `bun dev`.
+Production and staging: `bun run cloud-vm:migrate -- staging` followed by `-- production`. Never run Drizzle migrations from Vercel build or route startup; that makes deploy behavior non-deterministic and couples app availability to schema mutation. Local development keeps the `CMUX_PORT`-derived Docker Postgres path from `bun dev`.
 
-## AWS RDS IAM runtime
+## PlanetScale PostgreSQL runtime
 
-Production and staging use the Vercel Marketplace AWS Aurora PostgreSQL OIDC/RDS IAM path with `CMUX_DB_DRIVER=aws-rds-iam`, `AWS_ROLE_ARN`, `AWS_REGION`, `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`. Do not invent parallel env names for the same settings; each new name is another migration and deploy surface.
+Production and staging use PlanetScale Postgres database `cmux-prod` in organization `cmux`. Production is branch `main`; staging is `staging`; development is `development`. The application reads `DATABASE_URL` and uses `CMUX_DB_DRIVER=url`. Migration jobs use the protected `DATABASE_URL` secret. AWS credentials are not database credentials.
 
 ## Pricing and active limits
 

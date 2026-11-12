@@ -1,5 +1,7 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// This Mac as a surface provider.
@@ -59,7 +61,8 @@ final class LocalSurfaceProvider: SurfaceProvider {
     /// (markdown, file preview, tools, loading placeholders, …).
     func resource(for panel: any Panel, in workspace: Workspace) -> SurfaceResource? {
         let title = workspace.panelTitles[panel.id].flatMap { $0.isEmpty ? nil : $0 } ?? panel.displayTitle
-        if panel is TerminalPanel {
+        if let terminal = panel as? TerminalPanel {
+            guard terminal.surface.ioMode != .manualMirror else { return nil }
             return SurfaceResource(
                 id: Self.resourceID(forTerminalPanel: panel.id),
                 title: title,
@@ -237,15 +240,48 @@ final class LocalSurfaceProvider: SurfaceProvider {
 
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         let all = workspaces()
-        guard let workspace = all.first(where: { $0.owningTabManager?.selectedTabId == $0.id }) ?? all.first else {
-            throw SurfaceCatalogError.destinationNotFound("a workspace")
+        let preferredManager = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: nil)
+        let candidates = preferredManager?.tabs ?? all
+        // A local terminal must never be staged inside a Cloud or remote
+        // workspace. This matters when the destination setup workspace lives
+        // in another window: selecting it does not deselect the Cloud tab in
+        // the initiating window, and the old first-selected lookup could pick
+        // that remote workspace before projection moved the pane.
+        let workspace: Workspace
+        if let existing = candidates.first(where: {
+            $0.owningTabManager?.selectedTabId == $0.id && Self.canHostLocalTerminal($0)
+        }) ?? candidates.first(where: { Self.canHostLocalTerminal($0) }) {
+            workspace = existing
+        } else {
+            // A remote-only window is a supported state: the user can close
+            // the starter local workspace after opening a Cloud or SSH
+            // workspace. Preserve the old destination-nil behavior by making
+            // a local workspace before staging the requested terminal there.
+            let created = preferredManager?.addWorkspaceIfActive(
+                inheritWorkingDirectory: false,
+                select: false,
+                autoWelcomeIfNeeded: false,
+                autoRefreshMetadata: false
+            ) ?? AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
+                titleSource: .auto,
+                inheritWorkingDirectory: false,
+                select: false,
+                shouldBringToFront: false,
+                debugSource: "surface.localTerminalFallback"
+            )
+            guard let created, Self.canHostLocalTerminal(created) else {
+                throw SurfaceCatalogError.destinationNotFound("a local workspace")
+            }
+            workspace = created
         }
         let initialCommand = command.map { $0.map(Self.shellQuote).joined(separator: " ") }
         let made = try SurfacePaneFactory.makeTerminalPane(
             initialCommand: initialCommand,
             workingDirectory: cwd,
             at: .workspace(id: workspace.id, placement: .split),
-            focus: true
+            // The pane is a staging spot: `surface.new_terminal` then projects it to its
+            // destination with the request's focus, so creating it must not take focus.
+            focus: false
         )
         let id = Self.resourceID(forTerminalPanel: made.panelID)
         if var resource = catalog.resources[id] {
@@ -258,9 +294,13 @@ final class LocalSurfaceProvider: SurfaceProvider {
         return resource
     }
 
+    private static func canHostLocalTerminal(_ workspace: Workspace) -> Bool {
+        workspace.canHostLocalTerminal
+    }
+
     static func shellQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
-        if value.range(of: "^[A-Za-z0-9_./:=@%+-]+$", options: .regularExpression) != nil { return value }
+        if value.isPOSIXShellBareWord(punctuation: "_./:=@%+-") { return value }
         return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

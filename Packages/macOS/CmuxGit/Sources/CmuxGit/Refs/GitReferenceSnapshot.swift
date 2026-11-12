@@ -1,7 +1,7 @@
 import Foundation
 
 /// One resolved view of a repository's checked-out ref and commit.
-nonisolated struct GitReferenceSnapshot: Equatable, Sendable {
+struct GitReferenceSnapshot: Equatable, Sendable {
     /// The branch, detached, or unreadable classification returned by Git or the file parser.
     let checkedOutBranch: GitCheckedOutBranch
 

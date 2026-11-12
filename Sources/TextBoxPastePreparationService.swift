@@ -13,7 +13,7 @@ struct TextBoxPastePreparationService: Sendable {
         switch preparedContent {
         case .insertText(let text):
             return .insertText(text)
-        case .reject:
+        case .reject, .rejectOversizedImage:
             return .reject
         case .fileURLs(let fileURLs):
             var attachments: [TextBoxPreparedAttachment] = []

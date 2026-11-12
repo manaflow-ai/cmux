@@ -16,6 +16,10 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// viewport ownership. SwiftUI can retain a representable after removing
     /// its view from the window, so dismantle alone is not a mount boundary.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool)
+    /// The app became active while this surface stayed mounted. Hosts should
+    /// reconcile any stream or viewport ownership that may have been cancelled
+    /// while the app was backgrounded.
+    func ghosttySurfaceViewDidBecomeActive(_ surfaceView: GhosttySurfaceView)
     /// Bytes the phone wants to send TO the PTY (typing, paste, mouse
     /// reports). The host forwards them to the Mac, which writes them into
     /// its libghostty surface and down the shared PTY.
@@ -114,6 +118,8 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 public extension GhosttySurfaceViewDelegate {
     /// Default no-op so hosts without window-scoped resources can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didChangeWindowAttachment isAttached: Bool) {}
+    /// Default no-op so hosts without app-lifecycle resources can ignore it.
+    func ghosttySurfaceViewDidBecomeActive(_ surfaceView: GhosttySurfaceView) {}
     /// Default no-op so hosts without remote scroll forwarding can ignore it.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
     /// Default false so hosts without screen-anchored sessions keep line units.

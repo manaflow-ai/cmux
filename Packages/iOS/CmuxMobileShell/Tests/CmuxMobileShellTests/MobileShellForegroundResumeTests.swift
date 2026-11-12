@@ -16,6 +16,7 @@ import Testing
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing foreground resume"
     )
@@ -55,6 +56,7 @@ import Testing
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing long foreground resume"
     )
@@ -80,6 +82,7 @@ import Testing
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing foreground phase order"
     )
@@ -133,7 +136,7 @@ struct MobileShellForegroundConnectionRecoveryTests {
 }
 
 @MainActor
-@Test func failedForegroundProbeStillSurfacesRedialRecoveryState() async throws {
+@Test func failedForegroundProbeWithLiveTransportDoesNotRedial() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
@@ -152,12 +155,54 @@ struct MobileShellForegroundConnectionRecoveryTests {
     store.resumeForegroundRefresh()
 
     #expect(try await pollUntil {
-        if case .redialing = store.connectionRecoveryOwner.phase {
-            return store.isRecoveringConnection
-        }
-        return false
+        store.connectionRecoveryOwner.phase == .idle
+            && !store.isRecoveringConnection
+            && store.connectionState == .connected
     })
     await router.releaseAllHeld()
+}
+
+@MainActor
+@Test func foregroundProbeTimeoutWithLiveTransportRepairsMountedTerminal() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let (store, directory) = try await makeForegroundRecoveryStore(
+        router: router,
+        box: box,
+        clock: clock,
+        probeTimeoutNanoseconds: 50_000_000
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+        try? FileManager.default.removeItem(at: directory)
+    }
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    try await waitForReplayResponsesServed(
+        1,
+        store: store,
+        router: router,
+        "the cold replay response must settle before testing a foreground probe timeout"
+    )
+    let replayCount = await router.count(of: "mobile.terminal.replay")
+    let originalTransport = try #require(box.get())
+
+    store.suspendForegroundRefresh()
+    clock.advance(by: 31)
+    await router.holdNextWorkspaceListRequests()
+    store.resumeForegroundRefresh()
+    #expect(await router.waitForCount(of: "mobile.sync.fetch", atLeast: 2))
+
+    #expect(await router.waitForCount(
+        of: "mobile.terminal.replay",
+        atLeast: replayCount + 1,
+        timeoutNanoseconds: 1_000_000_000
+    ))
+    #expect(store.connectionState == .connected)
+    #expect(box.get() === originalTransport)
+    collector.unmount()
 }
 
 @MainActor

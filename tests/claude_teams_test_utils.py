@@ -13,6 +13,18 @@ import tempfile
 import threading
 import uuid
 from pathlib import Path
+from typing import BinaryIO
+
+FIXTURE_SOCKET_PASSWORD = "cmux-cli-fixture-password"
+
+
+def accept_fixture_socket_authentication(line: bytes, stream: BinaryIO) -> bool:
+    """Answer the explicit fixture credential without reading host credentials."""
+    if line.rstrip(b"\r\n") != f"auth {FIXTURE_SOCKET_PASSWORD}".encode():
+        return False
+    stream.write(b"OK\n")
+    stream.flush()
+    return True
 
 FOCUSED_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 FOCUSED_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
@@ -27,6 +39,29 @@ def stable_tmux_numeric_id(raw: str) -> str:
         value = (value * 1099511628211) & 0xFFFFFFFFFFFFFFFF
     value &= 0x7FFFFFFFFFFFFFFF
     return str(value or 1)
+
+
+def strip_capability_envelope(decoded_line: str) -> str | None:
+    """Unwrap the `_cmux_capability_v1 <token> <payload>` envelope the shell integration
+    adds when CMUX_SOCKET_CAPABILITY is set, so a test run from inside a cmux terminal
+    sees the same payload CI does. Returns None for a malformed envelope."""
+    capability_prefix = "_cmux_capability_v1 "
+    if not decoded_line.startswith(capability_prefix):
+        return decoded_line
+    envelope_parts = decoded_line.split(" ", 2)
+    if len(envelope_parts) != 3 or not envelope_parts[1] or not envelope_parts[2]:
+        return None
+    return envelope_parts[2]
+
+
+def socket_request_method(request: object) -> str | None:
+    """The `method` of a decoded socket request, or None when the payload is not a
+    JSON object carrying a string method. A fake server answers those with an error
+    line, so the CLI reports the bad payload instead of the handler raising on it."""
+    if not isinstance(request, dict):
+        return None
+    method = request.get("method")
+    return method if isinstance(method, str) and method else None
 
 
 def resolve_cmux_cli() -> str:
@@ -48,15 +83,12 @@ def resolve_cmux_cli() -> str:
 class _FocusedCmuxHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         while line := self.rfile.readline():
-            decoded_line = line.decode("utf-8").rstrip("\r\n")
-            capability_prefix = "_cmux_capability_v1 "
-            if decoded_line.startswith(capability_prefix):
-                envelope_parts = decoded_line.split(" ", 2)
-                if len(envelope_parts) != 3 or not envelope_parts[1] or not envelope_parts[2]:
-                    self.wfile.write(b"ERROR: malformed capability envelope\n")
-                    self.wfile.flush()
-                    continue
-                decoded_line = envelope_parts[2]
+            unwrapped = strip_capability_envelope(line.decode("utf-8").rstrip("\r\n"))
+            if unwrapped is None:
+                self.wfile.write(b"ERROR: malformed capability envelope\n")
+                self.wfile.flush()
+                continue
+            decoded_line = unwrapped
 
             if decoded_line.startswith("auth "):
                 self.server.requests.append("auth")  # type: ignore[attr-defined]
@@ -65,7 +97,11 @@ class _FocusedCmuxHandler(socketserver.StreamRequestHandler):
                 continue
 
             request = json.loads(decoded_line)
-            method = str(request["method"])
+            method = socket_request_method(request)
+            if method is None:
+                self.wfile.write(b"ERROR: malformed request\n")
+                self.wfile.flush()
+                continue
             self.server.requests.append(method)  # type: ignore[attr-defined]
             workspace_id = self.server.workspace_id  # type: ignore[attr-defined]
             window_id = self.server.window_id  # type: ignore[attr-defined]

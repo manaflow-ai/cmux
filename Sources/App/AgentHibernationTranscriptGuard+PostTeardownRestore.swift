@@ -16,7 +16,7 @@ extension AgentHibernationTranscriptGuard {
     static func runPostTeardownRestoreChecks(
         snapshot: TeardownTranscriptSnapshot,
         processIDs: Set<Int>,
-        initialRetryDelaysNanoseconds: [UInt64] = [0, 250_000_000, 500_000_000, 1_000_000_000, 2_000_000_000],
+        initialRetryDelaysNanoseconds: [UInt64] = Self.initialRestoreCheckDelaysNanoseconds,
         backstopDelaysSeconds: [UInt64] = Self.restoreCheckDelaysSeconds,
         clock: ContinuousClock = ContinuousClock(),
         fileManager: FileManager = .default,

@@ -156,4 +156,31 @@ struct AgentLaunchCaptureTrustTests {
             )
         )
     }
+    @Test(arguments: ["/opt/omp/bin/omp", "/Users/test/.bun/bin/omp"])
+    func ompAbsoluteExecutableIsDurableWithOrWithoutArgv(_ executable: String) {
+        for arguments in [[], [executable, "--model", "sonnet"]] {
+            #expect(AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(
+                AgentLaunchCommand(launcher: "omp", executablePath: executable, arguments: arguments)
+            ))
+        }
+        #expect(AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(
+            AgentLaunchCommand(launcher: "omp", arguments: [executable])
+        ))
+    }
+
+    @Test
+    func ompUnresolvedCaptureIsNotDurable() {
+        #expect(!AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(nil))
+        for executable in [nil, "", "omp", "bin/omp"] as [String?] {
+            for arguments in [[], ["omp", "--model", "sonnet"]] {
+                #expect(!AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(
+                    AgentLaunchCommand(launcher: "omp", executablePath: executable, arguments: arguments)
+                ))
+            }
+        }
+        #expect(!AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(
+            AgentLaunchCommand(rejectedOn: .argvDecodeFailed, launcher: "omp", executablePath: "/opt/omp/bin/omp")
+        ))
+    }
+
 }

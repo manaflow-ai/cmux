@@ -43,7 +43,7 @@ async function handleGet(request: Request): Promise<Response> {
     machine.vmId,
     "vm_usage_api",
   );
-  return Response.json(vmUsageResponse(machine.vmId, metrics), {
+  return Response.json(vmUsageResponse(machine.vmId, metrics, machine.displayName), {
     headers: JSON_HEADERS,
   });
 }

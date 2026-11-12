@@ -1,12 +1,17 @@
+import * as Effect from "effect/Effect";
+import { preconnectCloudDb } from "../../../../../db/client";
 import { preconnectFreestyle } from "../../../../../services/vms/drivers/freestyle";
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
-  vmResourceErrorResponse,
+  runAfterResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { openAttachEndpoint, openVmCmuxRemote, runVmWorkflow } from "../../../../../services/vms/workflows";
+import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
+import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vms/workflows";
+import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
+import { vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import {
   capabilityList,
   optionalClientIdentifier,
@@ -14,12 +19,17 @@ import {
   parseLenientObjectBody,
 } from "../../../../../services/vms/routeInput";
 
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 960;
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  // Warm the Freestyle connection while the caller is being verified.
+  // Warm the Freestyle and database connections while the caller is being verified.
   preconnectFreestyle();
+  preconnectCloudDb();
   return withAuthedVmApiRoute(
     request,
     "/api/vm/[id]/attach-endpoint",
@@ -61,23 +71,26 @@ export async function POST(
         }
         const clientCapabilities = capabilityList(body.clientCapabilities ?? body.client_capabilities);
         setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote" });
-        try {
-          const endpoint = await runVmWorkflow(openVmCmuxRemote({
-            userId: user.id,
-            billingTeamId: account.entitlements.billingTeamId,
-            maxActiveVms: account.entitlements.maxActiveVms,
-            teamIds: user.teamIds,
-            providerVmId: id,
-            deviceFingerprint,
-            clientCapabilities,
-            callerPlanId: account.entitlements.planId,
-          }));
-          return jsonResponse(endpoint);
-        } catch (err) {
-          const response = vmResourceErrorResponse(err, id);
-          if (response) return response;
-          throw err;
-        }
+        const run = await runVmRoute(openVmCmuxRemote({
+          userId: user.id,
+          billingTeamId: account.entitlements.billingTeamId,
+          maxActiveVms: account.entitlements.maxActiveVms,
+          entitlementOverride: account.entitlements.entitlementOverride,
+          teamIds: user.teamIds,
+          providerVmId: id,
+          deviceFingerprint,
+          clientCapabilities,
+          callerPlanId: account.entitlements.planId,
+          // An opted-in machine's agent-update exec runs after the response.
+          deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
+          modelPlane: vmModelPlaneRevoker(),
+        // vmKind: owner for the creator's machine while they remain a team member,
+        // and for a teammate it was shared with (services/vms/chatGrants.ts).
+        teamDirectory: vmTeamDirectory(),
+        readChatGrants: true,
+        }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
+        if (!run.ok) return run.response;
+        return jsonResponse(run.value);
       }
       if (transport && transport !== "websocket") {
         return jsonResponse({
@@ -87,24 +100,26 @@ export async function POST(
       }
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.attach.session_id": sessionId });
-      try {
-        const endpoint = await runVmWorkflow(openAttachEndpoint({
-          userId: user.id,
-          billingTeamId: account.entitlements.billingTeamId,
-          maxActiveVms: account.entitlements.maxActiveVms,
-          callerPlanId: account.entitlements.planId,
-          teamIds: user.teamIds,
-          providerVmId: id,
-          sessionTitle,
-          options: { requireDaemon, sessionId, attachmentId },
-        }));
-        setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
-        return jsonResponse(endpoint);
-      } catch (err) {
-        const response = vmResourceErrorResponse(err, id);
-        if (response) return response;
-        throw err;
-      }
+      const run = await runVmRoute(openAttachEndpoint({
+        userId: user.id,
+        billingTeamId: account.entitlements.billingTeamId,
+        maxActiveVms: account.entitlements.maxActiveVms,
+        entitlementOverride: account.entitlements.entitlementOverride,
+        callerPlanId: account.entitlements.planId,
+        teamIds: user.teamIds,
+        providerVmId: id,
+        sessionTitle,
+        options: { requireDaemon, sessionId, attachmentId },
+        modelPlane: vmModelPlaneRevoker(),
+        // vmKind: owner for the creator's machine while they remain a team member,
+        // and for a teammate it was shared with (services/vms/chatGrants.ts).
+        teamDirectory: vmTeamDirectory(),
+        readChatGrants: true,
+      }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
+      if (!run.ok) return run.response;
+      const endpoint = run.value;
+      setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
+      return jsonResponse(endpoint);
     },
   );
 }

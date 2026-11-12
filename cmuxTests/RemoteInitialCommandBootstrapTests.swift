@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 
 #if canImport(cmux_DEV)
@@ -107,7 +108,7 @@ struct RemoteInitialCommandBootstrapTests {
         mkfifo.executableURL = URL(fileURLWithPath: "/usr/bin/mkfifo")
         mkfifo.arguments = [gate.path]
         try mkfifo.run()
-        mkfifo.waitUntilExit()
+        try waitForExit(mkfifo, timeout: 5)
         #expect(mkfifo.terminationStatus == 0)
 
         let delayed = Process()
@@ -120,12 +121,21 @@ struct RemoteInitialCommandBootstrapTests {
         delayed.standardError = delayedStderr
         try delayed.run()
 
-        let gateWriter = try FileHandle(forWritingTo: gate)
+        var gateWriter: FileHandle?
+        defer {
+            try? gateWriter?.close()
+            if delayed.isRunning {
+                delayed.terminate()
+                try? waitForExit(delayed, timeout: 5)
+            }
+        }
+        gateWriter = try openFIFOWriter(gate, waitingFor: delayed, timeout: 5)
         let concurrent = try runShell("umask 022\n" + concurrentScript, environment: environment)
         #expect(concurrent.status == 0, "stdout: \(concurrent.stdout)\nstderr: \(concurrent.stderr)")
-        gateWriter.write(Data("release\n".utf8))
-        try gateWriter.close()
-        delayed.waitUntilExit()
+        try gateWriter?.write(contentsOf: Data("release\n".utf8))
+        try gateWriter?.close()
+        gateWriter = nil
+        try waitForExit(delayed, timeout: 10)
         let delayedResult = ProcessResult(
             status: delayed.terminationStatus,
             stdout: String(decoding: delayedStdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
@@ -238,7 +248,8 @@ struct RemoteInitialCommandBootstrapTests {
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
             shellFeatures: "ssh-env,ssh-terminfo",
-            initialCommand: command
+            initialCommand: command,
+            protectsFromHangup: true
         )
         let environment = ProcessInfo.processInfo.environment.merging([
             "HOME": home.path,
@@ -426,12 +437,51 @@ struct RemoteInitialCommandBootstrapTests {
         process.standardError = stderr
 
         try process.run()
-        process.waitUntilExit()
+        try waitForExit(process, timeout: 10)
         return ProcessResult(
             status: process.terminationStatus,
             stdout: String(decoding: stdout.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self),
             stderr: String(decoding: stderr.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         )
+    }
+
+    private func openFIFOWriter(
+        _ url: URL,
+        waitingFor process: Process,
+        timeout: TimeInterval
+    ) throws -> FileHandle {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let descriptor = open(url.path, O_WRONLY | O_NONBLOCK)
+            if descriptor >= 0 {
+                return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            }
+            guard errno == ENXIO else { throw POSIXError(.init(rawValue: errno)!) }
+            guard process.isRunning else {
+                throw NSError(domain: "RemoteInitialCommandBootstrapTests", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "delayed bootstrap exited before opening the stage FIFO",
+                ])
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        throw NSError(domain: "RemoteInitialCommandBootstrapTests", code: 2, userInfo: [
+            NSLocalizedDescriptionKey: "timed out waiting for delayed bootstrap to open the stage FIFO",
+        ])
+    }
+
+    private func waitForExit(_ process: Process, timeout: TimeInterval) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        guard !process.isRunning else {
+            process.terminate()
+            Thread.sleep(forTimeInterval: 0.1)
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            throw NSError(domain: "RemoteInitialCommandBootstrapTests", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "process timed out after \(timeout) seconds",
+            ])
+        }
     }
 
     private func writePersistentPTYExecHelper(to directory: URL) throws -> URL {

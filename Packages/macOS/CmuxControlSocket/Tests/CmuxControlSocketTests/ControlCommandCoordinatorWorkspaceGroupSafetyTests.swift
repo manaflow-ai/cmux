@@ -189,6 +189,39 @@ struct ControlCommandCoordinatorWorkspaceGroupSafetyTests {
         #expect(context.deletedGroupIDs.isEmpty)
     }
 
+    @Test func refusedUnpinReportsProtectedInsteadOfOK() {
+        let context = FakeWorkspaceGroupSafetyContext()
+        context.pinResolution = .protected(message: "stays pinned")
+        let coordinator = ControlCommandCoordinator(context: context)
+        let groupID = UUID()
+
+        guard case .err(let code, let message, _) = coordinator.handle(request(
+            "workspace.group.unpin",
+            ["group_id": .string(groupID.uuidString)]
+        )) else {
+            Issue.record("a refused unpin reported success")
+            return
+        }
+
+        #expect(code == "protected")
+        #expect(message == "stays pinned")
+    }
+
+    @Test func appliedUnpinReportsTheNewState() {
+        let context = FakeWorkspaceGroupSafetyContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        guard case .ok(.object(let payload)) = coordinator.handle(request(
+            "workspace.group.unpin",
+            ["group_id": .string(UUID().uuidString)]
+        )) else {
+            Issue.record("an applied unpin did not succeed")
+            return
+        }
+
+        #expect(payload["is_pinned"] == .bool(false))
+    }
+
     private func request(
         _ method: String,
         _ params: [String: JSONValue] = [:]

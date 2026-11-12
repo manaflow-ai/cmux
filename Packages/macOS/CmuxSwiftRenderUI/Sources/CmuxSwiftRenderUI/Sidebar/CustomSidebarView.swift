@@ -36,12 +36,13 @@ public struct CustomSidebarView: View {
     ///     interpreter fault from an untrusted sidebar can't crash the host.
     public init(
         fileURL: URL,
+        sourceOverride: String? = nil,
         dataContext: [String: SwiftValue],
         dispatch: SidebarActionDispatch,
         contentInsets: CustomSidebarContentInsets = .zero,
         interpreter: any SidebarInterpreting = InProcessSidebarInterpreter()
     ) {
-        _model = State(initialValue: CustomSidebarModel(fileURL: fileURL, interpreter: interpreter))
+        _model = State(initialValue: CustomSidebarModel(fileURL: fileURL, sourceOverride: sourceOverride, interpreter: interpreter))
         self.dataContext = dataContext
         self.dispatch = dispatch
         self.contentInsets = contentInsets

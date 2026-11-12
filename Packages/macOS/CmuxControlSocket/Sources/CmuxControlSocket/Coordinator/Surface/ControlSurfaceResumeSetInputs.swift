@@ -33,8 +33,6 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     public let resumeEvidenceProvenance: String?
     /// The relay-claimed remote workspace, authenticated by the app context.
     public let remoteWorkspaceID: UUID?
-    /// Raw relay parameters retained to authenticate their provenance.
-    public let remoteRelayParameters: [String: JSONValue]?
 
     /// Creates resume-set inputs.
     ///
@@ -48,7 +46,6 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     ///   - environment: The environment overrides.
     ///   - autoResume: Whether automatic resume is requested.
     ///   - remoteWorkspaceID: The authenticated relay's owning workspace.
-    ///   - remoteRelayParameters: Raw parameters carrying relay authentication.
     ///   - resumeEvidenceProvenance: The verified Codex hook provenance, when present.
     public init(
         name: String?,
@@ -62,7 +59,6 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         permissionMode: String?,
         autoResume: Bool,
         remoteWorkspaceID: UUID?,
-        remoteRelayParameters: [String: JSONValue]?,
         resumeEvidenceProvenance: String? = nil
     ) {
         self.name = name
@@ -77,6 +73,5 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.autoResume = autoResume
         self.resumeEvidenceProvenance = resumeEvidenceProvenance
         self.remoteWorkspaceID = remoteWorkspaceID
-        self.remoteRelayParameters = remoteRelayParameters
     }
 }

@@ -137,7 +137,7 @@ final class MobileWhatsNewWebPageLoad {
             decidePolicyFor navigationAction: WKNavigationAction
         ) async -> WKNavigationActionPolicy {
             guard let url = navigationAction.request.url,
-                  mobileWebPageURLAllowed(url, allowedHosts: allowedHosts) else {
+                  MobileWebPageHosts().allows(url, allowedHosts: allowedHosts) else {
                 // WebKit-internal blank navigations carry no host; cancelling
                 // one would fail a load that never touched the network.
                 if navigationAction.request.url?.absoluteString == "about:blank" {

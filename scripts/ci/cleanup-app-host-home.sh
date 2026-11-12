@@ -143,19 +143,14 @@ if [ -z "${CMUX_DERIVED_DATA_PATH:-}" ]; then
   echo "FAIL: app-host cleanup requires the shard DerivedData path" >&2
   exit 1
 fi
-runner_temp="$CMUX_RESOLVED_RUNNER_TEMP"
 cmux_validate_app_host_derived_data "$CMUX_DERIVED_DATA_PATH"
 derived_data_path="$CMUX_VALIDATED_APP_HOST_DERIVED_DATA"
-case "$derived_data_path" in
-  "$runner_temp"/*) ;;
-  *)
-    echo "FAIL: refusing to inspect app hosts outside runner temp" >&2
-    exit 1
-    ;;
-esac
 
-# The process helper cross-checks every receipt against lsof's executable vnode
-# and fails if a live target in this DerivedData tree lacks a receipt.
+# E2E products live in the workspace, while shards use runner temp. Neither
+# location grants process ownership. The helper cross-checks the current run's
+# receipts against lsof's executable vnode and open receipt descriptor, and
+# fails if a live target in this exact DerivedData tree lacks a matching receipt.
+# Only the confirmed home and receipt paths below are deleted, never the product.
 cmux_terminate_verified_app_hosts \
   "$app_host_receipt_dir" "$app_host_key" "$derived_data_path"
 

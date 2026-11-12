@@ -84,6 +84,7 @@ extension TabManager {
     }
 
     func publishCmuxWorkspaceSelectedChange(from previousWorkspaceId: UUID?) {
+        AppDelegate.shared?.workspacePresenceController.refreshSelection()
         guard let selectedTabId,
               let workspace = tabs.first(where: { $0.id == selectedTabId }) else { return }
         CmuxEventBus.shared.publishWorkspaceSelected(
@@ -227,6 +228,8 @@ extension Workspace {
             return "extension_browser"
         case .workspaceTodo:
             return "workspace_todo"
+        case .coderouterGuide:
+            return "coderouter_guide"
         case .notifications:
             return "notifications"
         case .cloudVMLoading:
@@ -235,6 +238,10 @@ extension Workspace {
             return "mobile_pairing"
         case .accountSignIn:
             return "account_sign_in"
+        case .cloudVPNSetup:
+            return "cloud_vpn_setup"
+        case .chief:
+            return "chief"
         }
     }
 }

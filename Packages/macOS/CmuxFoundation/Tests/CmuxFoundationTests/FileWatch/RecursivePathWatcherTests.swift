@@ -76,18 +76,21 @@ extension RecursivePathWatcher {
 }
 
 @Suite struct RecursivePathWatcherTests {
-    @Test func emptyPathsFailsInitialization() {
-        let watcher = RecursivePathWatcher(paths: [])
+    @Test func emptyPathsFailsInitialization() async {
+        let watcher = await RecursivePathWatcher(paths: [])
         #expect(watcher == nil)
     }
 
-    @Test func realDirectoryStartsAndStops() async {
+    /// The production sidebar creates watchers from a main-actor service. Keep
+    /// this lifecycle check on that actor so the asynchronous initializer's
+    /// executor boundary remains part of the tested contract.
+    @Test @MainActor func realDirectoryStartsAndStops() async {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-watch-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let watcher = RecursivePathWatcher(paths: [directory.path])
+        let watcher = await RecursivePathWatcher(paths: [directory.path])
         #expect(watcher != nil)
         #expect(watcher?.watchedPaths == [directory.path])
         await watcher?.stop()

@@ -19,6 +19,12 @@ use crate::workspace_registry::{
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
+/// `screen.create`'s `focus` field: whether the new screen becomes its
+/// workspace's focused screen. The resource router sends `false` when a
+/// caller omits it; the daemon's and the user's own new screens omit it and
+/// focus the new screen.
+pub(crate) const SCREEN_CREATE_FOCUS_FIELD: &str = "focus";
+
 #[derive(Clone, Copy)]
 struct LayoutMutationContext<'a> {
     coalesce: Option<LayoutMutationKey>,
@@ -288,6 +294,8 @@ impl Mux {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
         }
+        // Read before the state lock: `surface_notifications` locks state.
+        let notifications = self.surface_notifications();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.state.lock().unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
@@ -320,6 +328,11 @@ impl Mux {
                 });
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 return Err(anyhow::Error::new(resource_effect_indeterminate(
                     &idempotency_key,
                     &operation,
@@ -450,7 +463,32 @@ impl Mux {
             plan.workspace_ledger.as_ref(),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);
+        // Push the same coarse tree event a terminal-bearing create emits
+        // (`emit_committed_workspace_delta` in the legacy create path), so
+        // `subscribe` clients see the empty workspace now instead of when
+        // the next real change flushes an event.
+        let entity = crate::server::tree_entity_json(
+            &state,
+            &notifications,
+            TreeDeltaKind::WorkspaceAdded,
+            workspace_slot,
+        )
+        .expect("new empty workspace is present in tree snapshot");
         drop(state);
+        self.emit_committed_workspace_delta(
+            &registry,
+            TreeDelta {
+                kind: TreeDeltaKind::WorkspaceAdded,
+                workspace: workspace_slot,
+                screen: None,
+                pane: None,
+                surface: None,
+                index: Some(index),
+                entity,
+                workspace_revision,
+            },
+            index > 0,
+        );
         drop(registry);
         self.publish_resource_event();
         Ok(commit)
@@ -650,6 +688,7 @@ impl Mux {
             ResourceOperation::TabRename => self.resource_rename_tab(
                 selectors,
                 nullable_name(&fields)?,
+                crate::resource_name::TabNameUpdate::parse(&fields)?,
                 expected_revision,
                 mutation,
                 &fingerprint,
@@ -868,6 +907,7 @@ impl Mux {
         self: &Arc<Self>,
         selectors: ResourceSelectors,
         name: Option<String>,
+        authority: crate::resource_name::TabNameUpdate,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -891,7 +931,12 @@ impl Mux {
                 let tab_id = resolved.path.tab.context("tab selector has no public id")?;
                 let topology = registry.resource_topology_snapshot()?;
                 let mut durable = topology_tab(&topology, &tab_id)?.clone();
-                durable.name = name.clone();
+                authority.apply(
+                    &mut durable,
+                    name.clone(),
+                    &topology.generation,
+                    topology.revision,
+                )?;
                 let value = tab_value(&durable, &topology)?;
                 let result = json!({"tab":tab_id});
                 let deltas = upserts([("tab", tab_id.as_str(), value)]);
@@ -1382,6 +1427,486 @@ impl Mux {
         )
     }
 
+    /// Move a live placement without spawning replacement content. New/empty
+    /// workspace layout and source removal commit together before live state changes.
+    pub fn move_tab_to_workspace(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<()> {
+        if let Some(workspace) = workspace {
+            if self.with_state(|state| {
+                state
+                    .pane_of(surface)
+                    .and_then(|pane| state.screen_of(pane))
+                    .is_some_and(|(wi, _)| state.workspaces[wi].id == workspace)
+            }) {
+                return Ok(());
+            }
+            let target = self.with_state(|state| -> anyhow::Result<_> {
+                let ws = state
+                    .workspace_by_id(workspace)
+                    .context("destination workspace disappeared")?;
+                Ok(ws
+                    .active_screen_ref()
+                    .and_then(|screen| state.panes.get(&screen.active_pane))
+                    .map(|pane| (pane.id, pane.tabs.len())))
+            })?;
+            if let Some((pane, index)) = target {
+                anyhow::ensure!(self.move_tab(surface, pane, index), "tab could not be moved");
+                return Ok(());
+            }
+        }
+        anyhow::ensure!(
+            workspace.is_some() || !self.workspaces_are_provider_managed(),
+            "managed workspace creation is not supported by tab moves"
+        );
+        let mutation = WorkspaceMutation::local("cmux-tui");
+        let fingerprint = json!({"surface":surface,"workspace":workspace});
+        let mux = Arc::clone(self);
+        let commit = self.commit_resource_mutation_plan(
+            &mutation,
+            "tab.move_workspace",
+            &fingerprint,
+            None,
+            None,
+            move |state, registry| {
+                let source_pane = state.pane_of(surface).context("source tab disappeared")?;
+                let (source_wi, source_si) =
+                    state.screen_of(source_pane).context("source screen disappeared")?;
+                let source_ws = &state.workspaces[source_wi];
+                let source_screen = &source_ws.screens[source_si];
+                let source_screen_slot = source_screen.id;
+                let source_ws_id = source_ws.public_id.clone();
+                let source_screen_id = source_screen.public_id.clone();
+                let tab_id = state
+                    .resource_indexes
+                    .tab_ids
+                    .get(&surface)
+                    .cloned()
+                    .context("source tab has no identity")?;
+                let source_pane_id = state.resource_indexes.pane_ids[&source_pane].clone();
+                let new_workspace = workspace.is_none();
+                let (target_wi, mut target_ws) = if let Some(id) = workspace {
+                    let index =
+                        state.workspace_index(id).context("destination workspace disappeared")?;
+                    anyhow::ensure!(
+                        state.workspaces[index].screens.is_empty(),
+                        "destination layout changed; retry the move"
+                    );
+                    (index, state.workspaces[index].clone())
+                } else {
+                    anyhow::ensure!(
+                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
+                        "workspace limit reached"
+                    );
+                    (
+                        state.workspaces.len(),
+                        Workspace {
+                            id: mux.next_id(),
+                            public_id: WorkspacePublicId::random()?,
+                            key: Mux::new_workspace_key()?,
+                            name: Mux::default_workspace_name(state),
+                            screens: Vec::new(),
+                            active_screen: 0,
+                        },
+                    )
+                };
+                let target_pane = mux.next_id();
+                let target_screen = mux.next_id();
+                let target_pane_id = PanePublicId::random()?;
+                let target_screen_id = ScreenPublicId::random()?;
+                let mut after = registry.resource_topology_snapshot()?;
+                let mut moved_tab = topology_tab(&after, &tab_id)?.clone();
+                moved_tab.pane_id = target_pane_id.clone();
+                moved_tab.position = 0;
+                let mut source_record = topology_pane(&after, &source_pane_id)?.clone();
+                let mut source_tabs = state.panes[&source_pane].tabs.clone();
+                let old_index = source_tabs
+                    .iter()
+                    .position(|id| *id == surface)
+                    .context("source tab disappeared")?;
+                source_tabs.remove(old_index);
+                let source_empty = source_tabs.is_empty();
+                let source_active = if state.panes[&source_pane].active_tab >= old_index {
+                    state.panes[&source_pane].active_tab.saturating_sub(1)
+                } else {
+                    state.panes[&source_pane].active_tab
+                };
+                source_record.active_tab = source_tabs
+                    .get(source_active)
+                    .map(|id| state.resource_indexes.tab_ids[id].clone());
+                let mut changes = Vec::new();
+                let mut deltas = Vec::new();
+                let mut source_layout = source_screen.layout_snapshot();
+                let source_screen_remains =
+                    !source_empty || remove_pane_from_layout(&mut source_layout, source_pane);
+                if source_empty {
+                    after.panes.retain(|pane| pane.public_id != source_pane_id);
+                    changes.push(ResourceChange::TombstonePane { pane_id: source_pane_id.clone() });
+                    deltas.push(delete_delta(deltas.len(), "pane", source_pane_id.as_str()));
+                    if source_screen_remains {
+                        if source_layout.active_pane == source_pane {
+                            source_layout.active_pane = source_layout.root.first_visible_pane();
+                        }
+                        if source_layout.zoomed_pane == Some(source_pane) {
+                            source_layout.zoomed_pane = None;
+                        }
+                        let durable = registry_screen_from_layout(
+                            state,
+                            source_wi,
+                            source_si,
+                            &source_layout,
+                            &after,
+                            source_screen.name.clone(),
+                        )?;
+                        *after
+                            .screens
+                            .iter_mut()
+                            .find(|s| s.public_id == source_screen_id)
+                            .expect("source screen") = durable.clone();
+                        changes.push(ResourceChange::UpsertScreen(durable));
+                    } else {
+                        after.screens.retain(|s| s.public_id != source_screen_id);
+                        changes.push(ResourceChange::TombstoneScreen {
+                            screen_id: source_screen_id.clone(),
+                        });
+                        deltas.push(delete_delta(
+                            deltas.len(),
+                            "screen",
+                            source_screen_id.as_str(),
+                        ));
+                        let remaining = source_ws
+                            .screens
+                            .iter()
+                            .filter(|s| s.id != source_screen_slot)
+                            .nth(
+                                source_ws
+                                    .active_screen
+                                    .min(source_ws.screens.len().saturating_sub(2)),
+                            )
+                            .map(|s| s.public_id.clone());
+                        changes.push(ResourceChange::UpsertWorkspace {
+                            workspace: registry_workspace(
+                                state,
+                                source_wi,
+                                registry.session_id().as_str(),
+                            ),
+                            position: source_wi,
+                            active_screen: remaining.clone(),
+                        });
+                        set_active_screen(&mut after, &source_ws_id, remaining);
+                        let order = after
+                            .screens
+                            .iter_mut()
+                            .filter(|s| s.workspace_id == source_ws_id)
+                            .enumerate()
+                            .map(|(index, s)| {
+                                s.position = index;
+                                s.public_id.clone()
+                            })
+                            .collect();
+                        changes.push(ResourceChange::SetScreenOrder {
+                            workspace_id: source_ws_id.clone(),
+                            screen_ids: order,
+                        });
+                    }
+                } else {
+                    *topology_pane_mut(&mut after, &source_pane_id)? = source_record.clone();
+                    changes.push(ResourceChange::UpsertPane(source_record));
+                    let order = source_tabs
+                        .iter()
+                        .map(|id| state.resource_indexes.tab_ids[id].clone())
+                        .collect::<Vec<_>>();
+                    reindex_target_tab_positions(&mut after.tabs, &source_pane_id, &order);
+                    changes.push(ResourceChange::SetTabOrder {
+                        pane_id: source_pane_id.clone(),
+                        tab_ids: order,
+                    });
+                }
+                let pane_record = RegistryPane {
+                    public_id: target_pane_id.clone(),
+                    screen_id: target_screen_id.clone(),
+                    name: None,
+                    active_tab: Some(tab_id.clone()),
+                    creation_ordinal: target_pane,
+                };
+                let screen_record = RegistryScreen {
+                    public_id: target_screen_id.clone(),
+                    workspace_id: target_ws.public_id.clone(),
+                    position: 0,
+                    name: None,
+                    layout: RegistryLayoutNode::Leaf { pane: target_pane_id.clone() },
+                    active_pane: target_pane_id.clone(),
+                    zoomed_pane: None,
+                    auto_layout: Some(vec![target_pane_id.clone()]),
+                    viewport: RegistryViewport { base_width: None, columns: Vec::new() },
+                };
+                after.panes.push(pane_record.clone());
+                after.screens.push(screen_record.clone());
+                *topology_tab_mut(&mut after, &tab_id)? = moved_tab.clone();
+                after.active_workspace = Some(target_ws.public_id.clone());
+                if new_workspace {
+                    after
+                        .active_screens
+                        .push((target_ws.public_id.clone(), Some(target_screen_id.clone())));
+                } else {
+                    set_active_screen(
+                        &mut after,
+                        &target_ws.public_id,
+                        Some(target_screen_id.clone()),
+                    );
+                }
+                let durable_ws = RegistryWorkspace {
+                    id: target_ws.id,
+                    public_id: target_ws.public_id.clone(),
+                    key: target_ws.key.clone(),
+                    name: target_ws.name.clone(),
+                    group_key: mux.session.clone(),
+                };
+                let source_changes = std::mem::take(&mut changes);
+                changes.extend([
+                    ResourceChange::UpsertWorkspace {
+                        workspace: durable_ws.clone(),
+                        position: target_wi,
+                        active_screen: Some(target_screen_id.clone()),
+                    },
+                    ResourceChange::UpsertScreen(screen_record.clone()),
+                    ResourceChange::UpsertPane(pane_record.clone()),
+                    ResourceChange::UpsertTab(moved_tab.clone()),
+                    ResourceChange::SetScreenOrder {
+                        workspace_id: target_ws.public_id.clone(),
+                        screen_ids: vec![target_screen_id.clone()],
+                    },
+                    ResourceChange::SetTabOrder {
+                        pane_id: target_pane_id.clone(),
+                        tab_ids: vec![tab_id.clone()],
+                    },
+                    ResourceChange::SetActiveWorkspace {
+                        workspace_id: Some(target_ws.public_id.clone()),
+                    },
+                ]);
+                changes.extend(source_changes);
+                if new_workspace {
+                    let mut order =
+                        state.workspaces.iter().map(|w| w.public_id.clone()).collect::<Vec<_>>();
+                    order.push(target_ws.public_id.clone());
+                    changes.push(ResourceChange::SetWorkspaceOrder { workspace_ids: order });
+                }
+                if let ContentPublicId::Terminal(public_id) = &moved_tab.content_id {
+                    let host =
+                        moved_tab.terminal_id.as_deref().context("terminal has no host id")?;
+                    let mut terminal =
+                        registry.terminal_record(host)?.context("terminal has no durable host")?;
+                    terminal.workspace_key = target_ws.key.clone();
+                    changes.push(ResourceChange::UpsertTerminal {
+                        public_id: public_id.clone(),
+                        terminal,
+                    });
+                }
+                deltas.push(upsert(
+                    deltas.len(),
+                    "tab",
+                    tab_id.as_str(),
+                    tab_value(&moved_tab, &after)?,
+                ));
+                deltas.push(upsert(
+                    deltas.len(),
+                    "pane",
+                    target_pane_id.as_str(),
+                    pane_value_with_flags(&pane_record, true, false)?,
+                ));
+                deltas.push(upsert(
+                    deltas.len(),
+                    "screen",
+                    target_screen_id.as_str(),
+                    screen_value(
+                        &screen_record,
+                        &after,
+                        after.active_workspace.as_ref(),
+                        Some(&target_screen_id),
+                    )?,
+                ));
+                deltas.push(workspace_resource_upsert(
+                    deltas.len(),
+                    registry.session_id().as_str(),
+                    &target_ws.public_id,
+                    &target_ws.name,
+                    target_wi,
+                    true,
+                ));
+                if let Some(previous) = state.workspaces.get(state.active_workspace)
+                    && previous.public_id != target_ws.public_id
+                {
+                    deltas.push(workspace_resource_upsert(
+                        deltas.len(),
+                        registry.session_id().as_str(),
+                        &previous.public_id,
+                        &previous.name,
+                        state.active_workspace,
+                        false,
+                    ));
+                }
+                if !source_empty {
+                    deltas.push(upsert(
+                        deltas.len(),
+                        "pane",
+                        source_pane_id.as_str(),
+                        pane_value(state, topology_pane(&after, &source_pane_id)?, &after)?,
+                    ));
+                    for id in &source_tabs {
+                        let id = &state.resource_indexes.tab_ids[id];
+                        deltas.push(upsert(
+                            deltas.len(),
+                            "tab",
+                            id.as_str(),
+                            tab_value(topology_tab(&after, id)?, &after)?,
+                        ));
+                    }
+                }
+                for screen in
+                    after.screens.iter().filter(|screen| screen.workspace_id == source_ws_id)
+                {
+                    deltas.push(upsert(
+                        deltas.len(),
+                        "screen",
+                        screen.public_id.as_str(),
+                        screen_value(
+                            screen,
+                            &after,
+                            after.active_workspace.as_ref(),
+                            active_screen(&after, &source_ws_id),
+                        )?,
+                    ));
+                }
+                deltas.push(upsert(
+                    deltas.len(),
+                    "workspace",
+                    source_ws_id.as_str(),
+                    workspace_value(state, &after, &source_ws_id)?,
+                ));
+                // A sidebar move can start from an inactive workspace. Clear the
+                // formerly focused pane/screen in public event streams as well.
+                if let Some(previous) = state.workspaces.get(state.active_workspace)
+                    && previous.public_id != source_ws_id
+                    && previous.public_id != target_ws.public_id
+                    && let Some(screen) = previous.active_screen_ref()
+                {
+                    let screen = topology_screen(&after, &screen.public_id)?;
+                    deltas.push(upsert(
+                        deltas.len(),
+                        "screen",
+                        screen.public_id.as_str(),
+                        screen_value(
+                            screen,
+                            &after,
+                            after.active_workspace.as_ref(),
+                            active_screen(&after, &previous.public_id),
+                        )?,
+                    ));
+                    let pane = topology_pane(&after, &screen.active_pane)?;
+                    deltas.push(upsert(
+                        deltas.len(),
+                        "pane",
+                        pane.public_id.as_str(),
+                        pane_value(state, pane, &after)?,
+                    ));
+                }
+                let result = json!({"tab":tab_id,"workspace":target_ws.public_id});
+                let mut desired = mux.registry_projection(state);
+                if new_workspace {
+                    desired.push(durable_ws);
+                }
+                let key = target_ws.key.clone();
+                let target_ws_slot = target_ws.id;
+                target_ws.screens.push(Screen {
+                    id: target_screen,
+                    public_id: target_screen_id,
+                    name: None,
+                    root: Node::Leaf(target_pane),
+                    active_pane: target_pane,
+                    zoomed_pane: None,
+                    creation_order_auto_layout: Some(vec![target_pane]),
+                    viewport_splits: Default::default(),
+                    viewport_base_width: None,
+                    layout_columns: Vec::new(),
+                    layout_revision: 0,
+                    layout_undo: Default::default(),
+                });
+                let pane = Pane {
+                    id: target_pane,
+                    public_id: target_pane_id,
+                    name: None,
+                    tabs: vec![surface],
+                    active_tab: 0,
+                    active_at: mux.next_active_at(),
+                    focused_at: 0,
+                };
+                state.workspaces.reserve(usize::from(new_workspace));
+                state.panes.reserve(1);
+                let plan = ResourceMutationPlan::new(
+                    ResourcePatch { changes },
+                    result.clone(),
+                    Value::Array(deltas),
+                    move |state| {
+                        fence_layout_undo_for_tab_membership(state, &[source_pane]);
+                        state.panes.get_mut(&source_pane).expect("source pane").tabs = source_tabs;
+                        state.panes.get_mut(&source_pane).expect("source pane").active_tab =
+                            source_active;
+                        if source_empty {
+                            collapse_empty_pane(&mux, state, source_pane);
+                            if source_screen_remains {
+                                overwrite_layout_snapshot(
+                                    &mut state.workspaces[source_wi].screens[source_si],
+                                    source_layout,
+                                );
+                            }
+                        }
+                        if new_workspace {
+                            state.push_workspace(target_ws);
+                        } else {
+                            state.workspaces[target_wi] = target_ws;
+                        }
+                        state.insert_pane(pane);
+                        state.rebuild_resource_indexes();
+                        state.active_workspace = target_wi;
+                        stamp_pane_focus(&mux, state, target_pane);
+                        Mux::rebuild_split_screen_index(state);
+                        mux.subscribers.update_surface_session_path(
+                            surface,
+                            target_ws_slot,
+                            target_screen,
+                            target_pane,
+                        );
+                    },
+                );
+                Ok(if new_workspace {
+                    plan.with_workspace_ledger(ResourceWorkspaceLedger {
+                        event_kind: "workspace-added",
+                        workspace_key: key,
+                        workspaces: desired,
+                        legacy_result: result,
+                    })
+                } else {
+                    plan
+                })
+            },
+        )?;
+        if let Some(surface_handle) = self.surface(surface) {
+            let key = self.with_state(|state| {
+                state
+                    .pane_of(surface)
+                    .and_then(|pane| state.screen_of(pane))
+                    .map(|(wi, _)| state.workspaces[wi].key.clone())
+            });
+            if let Some(key) = key {
+                let _ = surface_handle.persist_host_workspace(&key);
+            }
+        }
+        self.emit_resource_topology_legacy_events(ResourceOperation::TabMove, &commit);
+        Ok(())
+    }
+
     fn resource_move_tab_selected(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -1525,6 +2050,22 @@ impl Mux {
                     changes.push(ResourceChange::SetTabOrder {
                         pane_id: target_pane_id.clone(),
                         tab_ids: target_order,
+                    });
+                }
+                if source.path.workspace.as_ref() != Some(&target_workspace_id)
+                    && let ContentPublicId::Terminal(public_id) = &moved_tab.content_id
+                {
+                    let host = moved_tab
+                        .terminal_id
+                        .as_deref()
+                        .context("terminal tab omitted its host id")?;
+                    let mut terminal = registry
+                        .terminal_record(host)?
+                        .context("terminal has no durable host placement")?;
+                    terminal.workspace_key = state.workspaces[target_workspace_index].key.clone();
+                    changes.push(ResourceChange::UpsertTerminal {
+                        public_id: public_id.clone(),
+                        terminal,
                     });
                 }
                 let mut after = topology.clone();
@@ -1781,7 +2322,7 @@ impl Mux {
                         let target = &mut state.workspaces[workspace].screens[screen];
                         let before = target.layout_snapshot_for_coalescing_change(coalesce);
                         target.root = layout.root;
-                        target.zellij_auto_layout = layout.zellij_auto_layout;
+                        target.creation_order_auto_layout = layout.creation_order_auto_layout;
                         target.viewport_splits = layout.viewport_splits;
                         target.viewport_base_width = layout.viewport_base_width;
                         target.layout_columns = layout.layout_columns;
@@ -1970,9 +2511,17 @@ impl Mux {
                 }
                 ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
             },
-            ResourceEffectPreparation::Indeterminate => Err(anyhow::Error::new(
-                resource_effect_indeterminate(&mutation.id, &operation_name),
-            )),
+            ResourceEffectPreparation::Indeterminate => {
+                self.report_resource_effect_indeterminate(
+                    &mutation.id,
+                    &operation_name,
+                    crate::resource_api::EARLIER_ATTEMPT_CAUSE,
+                );
+                Err(anyhow::Error::new(resource_effect_indeterminate(
+                    &mutation.id,
+                    &operation_name,
+                )))
+            }
             ResourceEffectPreparation::Execute { .. } => {
                 let intent = self.mark_resource_effect_executing(
                     &mutation.id,
@@ -1994,29 +2543,21 @@ impl Mux {
                                 format!("{error:#}"),
                                 json!({"idempotency_key":mutation.id}),
                             );
-                            if self
-                                .commit_resource_effect(
-                                    &mutation.id,
-                                    &operation_name,
-                                    fingerprint,
-                                    &ResourceEffectOutcome::Failure(error.clone()),
-                                    None,
-                                )
-                                .is_ok()
-                            {
-                                return Err(anyhow::Error::new(error));
-                            } else {
-                                let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                                return Err(anyhow::Error::new(resource_effect_indeterminate(
-                                    &mutation.id,
-                                    &operation_name,
-                                )));
-                            }
+                            return Err(self.commit_topology_failure_or_indeterminate(
+                                &mutation.id,
+                                &operation_name,
+                                fingerprint,
+                                error,
+                            ));
                         }
                     };
                     drop(_creation_fence);
                     drop(_creation_handoff);
                     return Ok(self.finish_resource_close(committed));
+                }
+                #[cfg(test)]
+                if let Some(hook) = self.topology_effect_before_execute.lock().unwrap().clone() {
+                    hook();
                 }
                 let result = match self.execute_resource_topology_effect(operation, &intent) {
                     Ok(result) => result,
@@ -2026,24 +2567,12 @@ impl Mux {
                             .is_some_and(|error| error.code == "confirmation.required") =>
                     {
                         let error = error.downcast_ref::<ResourceError>().expect("checked").clone();
-                        let outcome = ResourceEffectOutcome::Failure(error.clone());
-                        if self
-                            .commit_resource_effect(
-                                &mutation.id,
-                                &operation_name,
-                                fingerprint,
-                                &outcome,
-                                None,
-                            )
-                            .is_ok()
-                        {
-                            return Err(anyhow::Error::new(error));
-                        }
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                        return Err(self.commit_topology_failure_or_indeterminate(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            fingerprint,
+                            error,
+                        ));
                     }
                     Err(error)
                         if operation == ResourceOperation::ScreenLayoutUndo
@@ -2058,66 +2587,42 @@ impl Mux {
                                 format!("{error:#}"),
                                 json!({"idempotency_key":mutation.id}),
                             );
-                            if self
-                                .commit_resource_effect(
-                                    &mutation.id,
-                                    &operation_name,
-                                    fingerprint,
-                                    &ResourceEffectOutcome::Failure(error.clone()),
-                                    None,
-                                )
-                                .is_ok()
-                            {
-                                return Err(anyhow::Error::new(error));
-                            }
-                            let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                            return Err(anyhow::Error::new(resource_effect_indeterminate(
-                                &mutation.id,
-                                &operation_name,
-                            )));
-                        };
-                        let actual = match self
-                            .workspace_registry
-                            .lock()
-                            .unwrap()
-                            .resource_topology_snapshot()
-                        {
-                            Ok(snapshot) => snapshot.revision,
-                            Err(_) => {
-                                let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                                return Err(anyhow::Error::new(resource_effect_indeterminate(
-                                    &mutation.id,
-                                    &operation_name,
-                                )));
-                            }
-                        };
-                        let error = ResourceError::revision_conflict(expected, actual);
-                        if self
-                            .commit_resource_effect(
+                            return Err(self.commit_topology_failure_or_indeterminate(
                                 &mutation.id,
                                 &operation_name,
                                 fingerprint,
-                                &ResourceEffectOutcome::Failure(error.clone()),
-                                None,
-                            )
-                            .is_ok()
-                        {
-                            return Err(anyhow::Error::new(error));
-                        }
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                                error,
+                            ));
+                        };
+                        // The read is its own statement: its registry guard ends here,
+                        // before an Err arm that marks the effect indeterminate (and so
+                        // locks the registry again).
+                        let snapshot =
+                            self.workspace_registry.lock().unwrap().resource_topology_snapshot();
+                        let actual = match snapshot {
+                            Ok(snapshot) => snapshot.revision,
+                            Err(error) => {
+                                return Err(self.indeterminate_topology_effect(
+                                    &mutation.id,
+                                    &operation_name,
+                                    &format!("the topology revision could not be read: {error:#}"),
+                                ));
+                            }
+                        };
+                        let error = ResourceError::revision_conflict(expected, actual);
+                        return Err(self.commit_topology_failure_or_indeterminate(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            fingerprint,
+                            error,
+                        ));
                     }
-                    Err(_error) => {
-                        #[cfg(test)]
-                        eprintln!("resource topology effect execution failed: {_error:#}");
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                    Err(error) => {
+                        return Err(self.indeterminate_topology_effect(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            &format!("the effect failed: {error:#}"),
+                        ));
                     }
                 };
                 match self.commit_full_resource_effect_projection(
@@ -2127,18 +2632,56 @@ impl Mux {
                     result,
                 ) {
                     Ok(commit) => Ok(commit),
-                    Err(_error) => {
-                        #[cfg(test)]
-                        eprintln!("resource topology effect projection commit failed: {_error:#}");
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        Err(anyhow::Error::new(resource_effect_indeterminate(
-                            &mutation.id,
-                            &operation_name,
-                        )))
-                    }
+                    Err(error) => Err(self.indeterminate_topology_effect(
+                        &mutation.id,
+                        &operation_name,
+                        &format!("the outcome commit failed: {error:#}"),
+                    )),
                 }
             }
         }
+    }
+
+    /// Commits `error` as the effect's failed outcome. When that commit
+    /// fails, the effect is indeterminate, and the daemon log gets both the
+    /// failure and the commit error.
+    fn commit_topology_failure_or_indeterminate(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        error: ResourceError,
+    ) -> anyhow::Error {
+        match self.commit_resource_effect(
+            idempotency_key,
+            operation,
+            fingerprint,
+            &ResourceEffectOutcome::Failure(error.clone()),
+            None,
+        ) {
+            Ok(_) => anyhow::Error::new(error),
+            Err(commit_error) => self.indeterminate_topology_effect(
+                idempotency_key,
+                operation,
+                &format!(
+                    "the effect failed ({}: {}) and its failure outcome commit failed: {commit_error:#}",
+                    error.code, error.message
+                ),
+            ),
+        }
+    }
+
+    /// Marks a topology effect indeterminate and logs `cause`, so the daemon
+    /// log says why the response is `mutation.indeterminate`.
+    fn indeterminate_topology_effect(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        cause: &str,
+    ) -> anyhow::Error {
+        self.report_resource_effect_indeterminate(idempotency_key, operation, cause);
+        let _ = self.mark_resource_effect_indeterminate(idempotency_key);
+        anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2245,6 +2788,7 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_terminal_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        guard: TerminalCloseGuard,
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
@@ -2269,6 +2813,31 @@ impl Mux {
             return Ok(None);
         };
         let mut state = self.state.lock().unwrap();
+        if guard.requires_unplaced() {
+            // The registry lock serializes placement commits and the creation
+            // fence excludes a creation between runtime and placement, so
+            // this check cannot race a new view of the terminal.
+            let placed = !state
+                .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+                .is_empty()
+                || state.terminal_catalog.get(&public_id).is_some_and(|runtime| {
+                    state.surfaces.values().any(|view| view.shares_terminal_runtime(runtime))
+                });
+            if placed {
+                return Err(TerminalCloseGuardFailed::Placed.into());
+            }
+            if guard.requires_detached()
+                && state
+                    .terminal_catalog
+                    .get(&public_id)
+                    .is_some_and(|runtime| self.terminal_view_attached(runtime.id))
+            {
+                return Err(TerminalCloseGuardFailed::Attached.into());
+            }
+            if guard.requires_detached() && self.daemon_handoff_in_progress() {
+                return Err(TerminalCloseGuardFailed::HandingOff.into());
+            }
+        }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
             terminal_close_state_error(format!("terminal {public_id} has no durable host"))
         })?;
@@ -3044,6 +3613,11 @@ impl Mux {
                 Ok(ResourcePatchCommit { revision, result: created_path, replayed: true })
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 Err(anyhow::Error::new(resource_effect_indeterminate(&idempotency_key, &operation)))
             }
             ResourceCreationPreparation::Failed { error, .. } => Err(anyhow::Error::new(error)),
@@ -3067,6 +3641,7 @@ impl Mux {
                         eprintln!("correlated resource creation failed: {error:#}");
                         let failure = resource_creation_failure(&recovery, &error);
                         return creation_settlement_result(
+                            self,
                             self.settle_resource_creation(recovery, Some(failure))?,
                             &idempotency_key,
                             &operation_name,
@@ -3087,6 +3662,7 @@ impl Mux {
                         );
                         let failure = resource_creation_failure(&recovery, &error);
                         creation_settlement_result(
+                            self,
                             self.settle_resource_creation(recovery, Some(failure))?,
                             &idempotency_key,
                             &operation_name,
@@ -3155,15 +3731,17 @@ impl Mux {
                     created_path,
                 ) {
                     Ok(commit) => Ok(ResourceCreationSettlement::Created(commit)),
-                    Err(_) => {
+                    Err(error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
                         if recovery.interrupted {
                             return Ok(ResourceCreationSettlement::Pending);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!("the created resource's outcome commit failed: {error:#}"),
+                        )
                     }
                 }
             }
@@ -3187,30 +3765,43 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
             ResourceCreationEvidence::Ambiguous => {
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
+                self.indeterminate_creation(
+                    &recovery,
+                    &creation_cause("the creation evidence is ambiguous", failure.as_ref()),
+                )
             }
-            ResourceCreationEvidence::AmbiguousLive => {
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
-            }
+            ResourceCreationEvidence::AmbiguousLive => self.indeterminate_creation(
+                &recovery,
+                &creation_cause(
+                    "the live state does not show whether the creation applied",
+                    failure.as_ref(),
+                ),
+            ),
             ResourceCreationEvidence::Pending => Ok(ResourceCreationSettlement::Pending),
             ResourceCreationEvidence::TerminalClosedAfterFailure => {
                 let Some(error) = failure else {
                     self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                    self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                    return Ok(ResourceCreationSettlement::Indeterminate);
+                    return self.indeterminate_creation(
+                        &recovery,
+                        "the created terminal closed and the failure that closed it is unknown",
+                    );
                 };
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
                 match self.commit_resource_effect(
@@ -3221,16 +3812,38 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
         }
+    }
+
+    /// Marks a creation indeterminate and logs `cause`, so the daemon log
+    /// says why the creation answers `mutation.indeterminate`.
+    fn indeterminate_creation(
+        &self,
+        recovery: &ResourceCreationRecovery,
+        cause: &str,
+    ) -> anyhow::Result<ResourceCreationSettlement> {
+        self.report_resource_effect_indeterminate(
+            &recovery.idempotency_key,
+            &recovery.operation,
+            cause,
+        );
+        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+        Ok(ResourceCreationSettlement::Indeterminate)
     }
 
     fn rollback_interrupted_workspace_creation(&self, intent: &Value) -> anyhow::Result<()> {
@@ -4183,6 +4796,9 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
+        // Absent only on the daemon's and the user's own new screens: the
+        // resource router sends `focus: false` for a caller that did not ask.
+        let focus = intent["fields"][SCREEN_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;
@@ -4232,7 +4848,9 @@ impl Mux {
                 anyhow::bail!("workspace disappeared while creating screen");
             };
             state.insert_pane(pane);
-            stamp_pane_focus(self, &mut state, pane_id);
+            if focus {
+                stamp_pane_focus(self, &mut state, pane_id);
+            }
             let workspace = &mut state.workspaces[workspace_index];
             workspace.screens.push(Screen {
                 id: screen_id,
@@ -4241,14 +4859,17 @@ impl Mux {
                 root: Node::Leaf(pane_id),
                 active_pane: pane_id,
                 zoomed_pane: None,
-                zellij_auto_layout: Some(vec![pane_id]),
+                creation_order_auto_layout: Some(vec![pane_id]),
                 viewport_splits: Default::default(),
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
                 layout_revision: 0,
                 layout_undo: Default::default(),
             });
-            workspace.active_screen = workspace.screens.len() - 1;
+            // A workspace whose only screen this is shows it either way.
+            if focus || workspace.screens.len() == 1 {
+                workspace.active_screen = workspace.screens.len() - 1;
+            }
             let path = self.created_resource_path_in_state(&state, surface.id)?;
             CreatedTerminalEffect { path }
         };
@@ -4327,7 +4948,7 @@ impl Mux {
                             id: split_id.expect("viewport split reserved an id"),
                             width,
                             root: Node::Leaf(pane_id),
-                            zellij_auto_layout: Some(vec![pane_id]),
+                            creation_order_auto_layout: Some(vec![pane_id]),
                         },
                     ),
                     "target pane disappeared from its layout"
@@ -4339,7 +4960,7 @@ impl Mux {
                     let column = screen
                         .layout_column_for_pane_mut(target)
                         .context("target pane has no viewport column")?;
-                    column.zellij_auto_layout = None;
+                    column.creation_order_auto_layout = None;
                     &mut column.root
                 } else {
                     &mut screen.root
@@ -4364,7 +4985,7 @@ impl Mux {
                 if in_viewport_column {
                     screen.sync_layout_column_projection();
                 } else {
-                    screen.zellij_auto_layout = None;
+                    screen.creation_order_auto_layout = None;
                 }
             } else if screen.layout_columns_active() {
                 let column = screen
@@ -4372,7 +4993,7 @@ impl Mux {
                     .context("target pane has no viewport column")?;
                 append_to_auto_layout(
                     &mut column.root,
-                    &mut column.zellij_auto_layout,
+                    &mut column.creation_order_auto_layout,
                     pane_id,
                     || self.next_id(),
                 );
@@ -4380,7 +5001,7 @@ impl Mux {
             } else {
                 append_to_auto_layout(
                     &mut screen.root,
-                    &mut screen.zellij_auto_layout,
+                    &mut screen.creation_order_auto_layout,
                     pane_id,
                     || self.next_id(),
                 );
@@ -4503,7 +5124,24 @@ fn resource_creation_failure(
     })
 }
 
+/// Cause logged when a creation waits on an earlier attempt that is still
+/// running or has an indeterminate outcome.
+const BLOCKED_CREATION_CAUSE: &str =
+    "an earlier attempt of this creation is still running or has an indeterminate outcome";
+
+/// Joins an indeterminate creation's reason with the failure that started its
+/// settlement, when there is one.
+fn creation_cause(reason: &str, failure: Option<&ResourceError>) -> String {
+    match failure {
+        Some(failure) => {
+            format!("{reason}; the attempt failed ({}: {})", failure.code, failure.message)
+        }
+        None => reason.to_string(),
+    }
+}
+
 fn creation_settlement_result(
+    mux: &Mux,
     settlement: ResourceCreationSettlement,
     idempotency_key: &str,
     operation: &str,
@@ -4515,6 +5153,11 @@ fn creation_settlement_result(
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
         ResourceCreationSettlement::Pending => {
+            mux.report_resource_effect_indeterminate(
+                idempotency_key,
+                operation,
+                "an interrupted attempt of this creation has not settled yet",
+            );
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
     }
@@ -4844,7 +5487,7 @@ fn parse_resource_layout_document(
                     &mut seen_tabs,
                     &mut tab_orders,
                 )?;
-                parsed.push(LayoutColumn { id, width, root, zellij_auto_layout: None });
+                parsed.push(LayoutColumn { id, width, root, creation_order_auto_layout: None });
             }
             anyhow::ensure!(
                 parsed.first().is_some_and(|column| column.width == base_width),
@@ -4893,7 +5536,7 @@ fn parse_resource_layout_document(
         root,
         active_pane,
         zoomed_pane,
-        zellij_auto_layout: None,
+        creation_order_auto_layout: None,
         viewport_splits: Default::default(),
         viewport_base_width,
         layout_columns,
@@ -5374,18 +6017,8 @@ fn pane_value_with_flags(
 
 fn tab_value(tab: &RegistryTab, topology: &ResourceTopologySnapshot) -> anyhow::Result<Value> {
     let pane = topology_pane(topology, &tab.pane_id)?;
-    Ok(json!({
-        "id":tab.public_id,
-        "pane_id":tab.pane_id,
-        "name":tab.name,
-        "index":u32::try_from(tab.position).context("tab index exceeds uint32")?,
-        "focused":pane.active_tab.as_ref() == Some(&tab.public_id),
-        "content_kind":match tab.content_id {
-            ContentPublicId::Terminal(_) => "terminal",
-            ContentPublicId::Browser(_) => "browser",
-        },
-        "content_id":tab.content_id.as_str(),
-    }))
+    u32::try_from(tab.position).context("tab index exceeds uint32")?;
+    Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
 }
 
 fn layout_document(
@@ -5906,7 +6539,7 @@ fn target_location_screen(state: &State, location: (usize, usize)) -> ScreenId {
 }
 
 fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> bool {
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     if layout.layout_columns.is_empty() {
         let root = std::mem::replace(&mut layout.root, Node::Leaf(0));
         let Some(root) = root.remove_leaf(pane) else {
@@ -5920,7 +6553,7 @@ fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> b
         return true;
     };
     let column = &mut layout.layout_columns[index];
-    column.zellij_auto_layout = None;
+    column.creation_order_auto_layout = None;
     let root = std::mem::replace(&mut column.root, Node::Leaf(0));
     if let Some(root) = root.remove_leaf(pane) {
         column.root = root;
@@ -5932,7 +6565,7 @@ fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> b
         1 => {
             let column = layout.layout_columns.remove(0);
             layout.root = column.root;
-            layout.zellij_auto_layout = column.zellij_auto_layout;
+            layout.creation_order_auto_layout = column.creation_order_auto_layout;
             layout.viewport_splits.clear();
             layout.viewport_base_width = None;
             true
@@ -5973,7 +6606,7 @@ fn registry_screen_from_layout(
     };
     let layout_node = registry_layout_node(state, &layout.root)?;
     let auto_layout = layout
-        .zellij_auto_layout
+        .creation_order_auto_layout
         .as_ref()
         .map(|panes| {
             panes.iter().map(|pane| public_pane(*pane)).collect::<anyhow::Result<Vec<_>>>()
@@ -5993,7 +6626,7 @@ fn registry_screen_from_layout(
                 width: column.width,
                 layout: registry_layout_node(state, &column.root)?,
                 auto_layout: column
-                    .zellij_auto_layout
+                    .creation_order_auto_layout
                     .as_ref()
                     .map(|panes| {
                         panes
@@ -6110,7 +6743,7 @@ fn set_layout_split_ratio(
         changed
     };
     anyhow::ensure!(changed, "unknown split");
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     Ok(())
 }
 
@@ -6135,13 +6768,13 @@ fn swap_layout_panes(
     for column in &mut layout.layout_columns {
         if column.root.contains(first) || column.root.contains(second) {
             column.root.swap_leaf_ids(first, second);
-            column.zellij_auto_layout = None;
+            column.creation_order_auto_layout = None;
         }
     }
     if !layout.layout_columns.is_empty() {
         sync_layout_column_projection(layout);
     }
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     if !both_present {
         if layout.active_pane == first {
             layout.active_pane = second;
@@ -6167,7 +6800,7 @@ fn overwrite_layout_snapshot(screen: &mut Screen, layout: ScreenLayoutSnapshot) 
     screen.root = layout.root;
     screen.active_pane = layout.active_pane;
     screen.zoomed_pane = layout.zoomed_pane;
-    screen.zellij_auto_layout = layout.zellij_auto_layout;
+    screen.creation_order_auto_layout = layout.creation_order_auto_layout;
     screen.viewport_splits = layout.viewport_splits;
     screen.viewport_base_width = layout.viewport_base_width;
     screen.layout_columns = layout.layout_columns;
@@ -6181,7 +6814,7 @@ fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
     };
     layout.viewport_splits.clear();
     layout.viewport_base_width = Some(first.width);
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     let mut root = first.root.clone();
     let mut width_before = first.width;
     for column in layout.layout_columns.iter().skip(1) {
@@ -6237,6 +6870,8 @@ mod structural_tab_move_tests {
     /// Build a terminal tab fixture with the requested durable placement.
     fn tab(id: &str, pane_id: &str, position: usize) -> RegistryTab {
         RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
             public_id: TabPublicId::parse(id.to_string()).unwrap(),
             pane_id: PanePublicId::parse(pane_id.to_string()).unwrap(),
             position,

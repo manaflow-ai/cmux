@@ -12,7 +12,7 @@ let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedM
 /// SQLite connection, so it is genuinely `Sendable` without opting out of
 /// concurrency checking. Construct it once at the app composition root and
 /// inject it as `any MobilePairedMacStoring`.
-public actor MobilePairedMacStore: MobilePairedMacStoring {
+public actor MobilePairedMacStore: MobilePairedMacPairingStoring {
     /// The schema version this build creates and migrates to.
     public static let currentSchemaVersion: Int32 = 12
 
@@ -22,6 +22,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     static let routeRemovalWildcardEndpoint = "*"
 
     private let dbPath: String
+    private let importingLegacyDatabaseURL: URL?
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
     // the handle. Every other access goes through actor-isolated methods, and
     // the connection itself is opened `SQLITE_OPEN_FULLMUTEX`, so this is safe.
@@ -46,10 +47,15 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     }
 
     /// Open (creating if needed) the store at the given database URL.
-    /// - Parameter databaseURL: On-disk SQLite file location.
+    /// - Parameters:
+    ///   - databaseURL: On-disk SQLite file location.
+    ///   - importingLegacyDatabaseURL: Optional same-installation saved-Mac database
+    ///     to import once. Callers must establish that both files belong to the
+    ///     same backend environment. The source stays unchanged.
     /// - Throws: ``MobilePairedMacStoreError`` if the connection cannot be opened.
-    public init(databaseURL: URL) throws {
+    public init(databaseURL: URL, importingLegacyDatabaseURL: URL? = nil) throws {
         self.dbPath = databaseURL.path
+        self.importingLegacyDatabaseURL = importingLegacyDatabaseURL
         self.db = try Self.openConnection(path: databaseURL.path)
     }
 
@@ -74,7 +80,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// Schema migration runs lazily on first store access via `ensureReady()`.
     private nonisolated static func openConnection(path: String) throws -> OpaquePointer {
         var handle: OpaquePointer?
-        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_URI
         let rc = sqlite3_open_v2(path, &handle, flags, nil)
         guard rc == SQLITE_OK, let handle else {
             if let handle { sqlite3_close_v2(handle) }
@@ -93,9 +99,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     private var didMigrate = false
 
     /// Run schema migrations exactly once, on first store access (actor-isolated).
-    private func ensureReady() throws {
+    func ensureReady() throws {
         guard !didMigrate else { return }
         try runMigrations()
+        if let importingLegacyDatabaseURL {
+            try importLegacyDatabase(at: importingLegacyDatabaseURL)
+        }
         didMigrate = true
     }
 
@@ -769,7 +778,6 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             let removed = currentRoutes[removedIndex]
             var remaining = currentRoutes
             remaining.remove(at: removedIndex)
-            guard !remaining.isEmpty else { return }
 
             let encoded = try Self.encodeRouteEndpoint(removed)
             try exec("""
@@ -792,6 +800,25 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 ownerKey: ownerKey,
                 endpoint: removed.endpoint
             )
+            guard !remaining.isEmpty else {
+                try upsertMacRow(
+                    macDeviceID: macDeviceID,
+                    ownerKey: ownerKey,
+                    displayName: current.displayName,
+                    instanceTag: current.instanceTag,
+                    stackUserID: current.stackUserID,
+                    teamID: current.teamID,
+                    createdAt: current.createdAt,
+                    lastSeenAt: now,
+                    isActive: current.isActive
+                )
+                try exec(
+                    "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                    binding: [.text(macDeviceID), .text(ownerKey)]
+                )
+                didWrite = true
+                return
+            }
             try upsertMacRow(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey,

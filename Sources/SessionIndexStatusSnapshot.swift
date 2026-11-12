@@ -4,7 +4,7 @@ import Foundation
 /// paginated popovers. Keeping the key snapshot, detail visibility, and
 /// timestamp together means a page can derive the same row state for entries
 /// that were not in the initial section projection.
-nonisolated struct SessionIndexStatusSnapshot: Equatable, Sendable {
+struct SessionIndexStatusSnapshot: Equatable, Sendable {
     let activeSessionKeys: Set<String>
     let liveSessionKeys: Set<String>
     let now: Date

@@ -42,7 +42,6 @@ export async function GET(
       const snapshots = await db
         .select({
           sha256: vaultSnapshots.sha256,
-          objectKey: vaultSnapshots.objectKey,
           sizeBytes: vaultSnapshots.sizeBytes,
           compressedSizeBytes: vaultSnapshots.compressedSizeBytes,
           uploadedAt: vaultSnapshots.uploadedAt,
@@ -73,6 +72,7 @@ export async function GET(
         latestSha256: session.latestSha256,
         sizeBytes: session.sizeBytes,
         compressedSizeBytes: session.compressedSizeBytes,
+        firstUploadedAt: session.firstUploadedAt.toISOString(),
         lastUploadedAt: session.lastUploadedAt.toISOString(),
         downloadUrl,
         snapshots: snapshots.map((snapshot) => ({

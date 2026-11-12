@@ -10,6 +10,8 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     @Binding public var isPresented: Bool
     public let preferredEdge: NSRectEdge
     public let detachedGap: CGFloat
+    private let presentationAnimation: CmuxPopoverPresentationAnimation
+    private let group: CmuxPopoverGroup?
     @ViewBuilder public let content: () -> PopoverContent
 
     /// Creates an arrowless popover anchor.
@@ -17,16 +19,22 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     ///   - isPresented: Binding driving popover presentation.
     ///   - preferredEdge: The edge of the anchor the popover prefers to appear from.
     ///   - detachedGap: The gap, in points, between the anchor edge and the popover.
+    ///   - presentationAnimation: The opening transition policy for this popover.
+    ///   - group: Shared dismissal owner when this popover belongs to a nested menu.
     ///   - content: The SwiftUI content rendered inside the popover.
     public init(
         isPresented: Binding<Bool>,
         preferredEdge: NSRectEdge,
         detachedGap: CGFloat,
+        presentationAnimation: CmuxPopoverPresentationAnimation = .automatic,
+        group: CmuxPopoverGroup? = nil,
         @ViewBuilder content: @escaping () -> PopoverContent
     ) {
         self._isPresented = isPresented
         self.preferredEdge = preferredEdge
         self.detachedGap = detachedGap
+        self.presentationAnimation = presentationAnimation
+        self.group = group
         self.content = content
     }
 
@@ -39,6 +47,8 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     public func updateNSView(_ nsView: NSView, context: Context) {
         let coordinator = context.coordinator
         coordinator.anchorView = nsView
+        coordinator.updatePresentationBinding($isPresented)
+        coordinator.updatePresentationAnimation(presentationAnimation)
         switch ArrowlessPopoverRootViewUpdatePolicy.rootViewUpdateStrategy(
             isPresented: isPresented,
             popoverIsShown: coordinator.isPopoverShown
@@ -57,12 +67,24 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
                 detachedGap: detachedGap
             )
         } else {
-            coordinator.dismiss()
+            // SwiftUI runs updateNSView inside its view update, and the binding
+            // is already false on this branch. Rewriting it here is a
+            // "Modifying state during view update" fault on every parent
+            // re-evaluation, including each sidebar workspace switch.
+            coordinator.dismiss(resetPresentation: false)
         }
     }
 
     public func makeCoordinator() -> Coordinator {
-        Coordinator(isPresented: $isPresented)
+        Coordinator(
+            isPresented: $isPresented,
+            presentationAnimation: presentationAnimation,
+            group: group
+        )
+    }
+
+    public static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.dismiss(resetPresentation: false)
     }
 
     /// Bridges popover lifecycle between AppKit's `NSPopover` and the SwiftUI binding.
@@ -74,11 +96,29 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private let visibleUpdateScheduler = CmuxPopoverVisibleUpdateScheduler()
         private var popover: NSPopover?
+        private var closingPopovers: [ObjectIdentifier: NSPopover] = [:]
         private var pendingVisibleRootView: AnyView?
+        private var presentationAnimation: CmuxPopoverPresentationAnimation
+        private let group: CmuxPopoverGroup?
+        private var groupMemberID: UUID?
         var isPopoverShown: Bool { popover?.isShown == true }
 
-        init(isPresented: Binding<Bool>) {
+        init(
+            isPresented: Binding<Bool>,
+            presentationAnimation: CmuxPopoverPresentationAnimation,
+            group: CmuxPopoverGroup?
+        ) {
             _isPresented = isPresented
+            self.presentationAnimation = presentationAnimation
+            self.group = group
+        }
+
+        func updatePresentationBinding(_ binding: Binding<Bool>) {
+            _isPresented = binding
+        }
+
+        func updatePresentationAnimation(_ animation: CmuxPopoverPresentationAnimation) {
+            presentationAnimation = animation
         }
 
         func updateRootView(_ rootView: AnyView) {
@@ -122,6 +162,11 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
                 return
             }
 
+            popover.animates = presentationAnimation.animates(
+                isGrouped: group != nil,
+                reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            )
+
             hostingController.view.invalidateIntrinsicContentSize()
             hostingController.view.layoutSubtreeIfNeeded()
             let fittingSize = hostingController.view.fittingSize
@@ -141,15 +186,43 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
                 of: anchorView,
                 preferredEdge: preferredEdge
             )
+            if popover.isShown {
+                groupMemberID = group?.register(popover: popover, anchor: anchorView)
+            }
         }
 
-        func dismiss() {
+        func dismiss(resetPresentation: Bool = true) {
             cancelDeferredRootViewUpdate()
-            popover?.performClose(nil)
-            popover = nil
+            unregisterFromGroup()
+            guard let popover else {
+                if resetPresentation { isPresented = false }
+                return
+            }
+            closingPopovers[ObjectIdentifier(popover)] = popover
+            if group != nil { popover.animates = false }
+            popover.performClose(nil)
+            self.popover = nil
+            if resetPresentation { isPresented = false }
+        }
+
+        public func popoverWillClose(_ notification: Notification) {
+            guard let closing = notification.object as? NSPopover else { return }
+            guard closing === popover || closingPopovers[ObjectIdentifier(closing)] != nil else { return }
+            if closing === popover {
+                unregisterFromGroup()
+            }
+        }
+
+        private func unregisterFromGroup() {
+            guard let id = groupMemberID else { return }
+            groupMemberID = nil
+            group?.unregister(id)
         }
 
         public func popoverDidClose(_ notification: Notification) {
+            guard let closing = notification.object as? NSPopover else { return }
+            if closingPopovers.removeValue(forKey: ObjectIdentifier(closing)) != nil { return }
+            guard closing === popover else { return }
             cancelDeferredRootViewUpdate()
             popover = nil
             if isPresented {
@@ -159,8 +232,8 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
 
         private func makePopover() -> NSPopover {
             let popover = NSPopover()
-            popover.behavior = .semitransient
-            popover.animates = true
+            popover.behavior = group == nil ? .semitransient : .applicationDefined
+            popover.animates = group == nil
             popover.setValue(true, forKeyPath: "shouldHideAnchor")
             popover.contentViewController = hostingController
             popover.delegate = self

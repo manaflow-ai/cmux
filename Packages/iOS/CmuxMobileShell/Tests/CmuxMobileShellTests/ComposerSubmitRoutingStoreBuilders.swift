@@ -29,6 +29,7 @@ func makeRoutingConnectedStore(
     routeKind: CmxAttachTransportKind = .debugLoopback,
     terminalLaneProvider: MobileTerminalLaneProvider? = nil,
     draftStore: (any TerminalDraftStoring)? = nil,
+    deliveredNotificationClearer: any DeliveredNotificationClearing = NoopDeliveredNotificationClearer(),
     rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
     taskModelCatalogClient: MobileTaskModelCatalogClient = .live()
 ) async throws -> MobileShellComposite {
@@ -55,6 +56,7 @@ func makeRoutingConnectedStore(
         ],
         pairedMacStore: pairedMacStore,
         identityProvider: StaticIdentityProvider(userID: "routing-user"),
+        deliveredNotificationClearer: deliveredNotificationClearer,
         pendingDismissQueue: pendingDismissQueue,
         draftStore: draftStore,
         taskModelCatalogClient: taskModelCatalogClient

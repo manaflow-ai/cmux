@@ -8,6 +8,7 @@ import SwiftUI
 /// bundle id, and dependency count. Selecting a target shows a detail panel
 /// listing per-config build settings the target overrides at its scope.
 struct ProjectTargetsTabView: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     @ObservedObject var panel: ProjectPanel
     let model: ProjectModel
 
@@ -48,7 +49,7 @@ struct ProjectTargetsTabView: View {
         Button(action: { panel.selectedTargetID = target.id }) {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: glyph(for: target.productType))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(cmuxAccent.color)
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
@@ -104,7 +105,7 @@ struct ProjectTargetsTabView: View {
                     HStack(spacing: 8) {
                         Image(systemName: glyph(for: selected.target.productType))
                             .cmuxFont(size: 18)
-                            .foregroundStyle(Color.accentColor)
+                            .foregroundStyle(cmuxAccent.color)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(selected.target.displayName)
                                 .cmuxFont(size: 14, weight: .semibold)
@@ -206,7 +207,7 @@ struct ProjectTargetsTabView: View {
                         .cmuxFont(size: 11, weight: .medium)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(cmuxAccent.color)
             }
         }
     }

@@ -12,7 +12,7 @@ final class MemoryPressureResponderRegistry {
         category: "MemoryPressure"
     )
 
-    private var respondersByID: [String: any MemoryPressureResponder] = [:]
+    var respondersByID: [String: any MemoryPressureResponder] = [:]
 
     func register(_ responder: any MemoryPressureResponder) {
         respondersByID[responder.memoryPressureResponderID] = responder

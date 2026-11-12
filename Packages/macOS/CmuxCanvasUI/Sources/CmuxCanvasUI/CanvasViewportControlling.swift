@@ -12,11 +12,17 @@ public protocol CanvasViewportControlling: AnyObject {
     func revealPane(_ panelId: UUID, animated: Bool)
     /// Toggles between fit-all overview magnification and the previous zoom.
     func toggleOverview()
+    /// ``toggleOverview()`` with explicit motion; `false` jumps (socket verbs).
+    func toggleOverview(animated: Bool)
     /// Multiplies the magnification by `factor` (clamped), anchored at the
     /// viewport center.
     func zoom(by factor: CGFloat)
+    /// ``zoom(by:)`` with explicit motion; `false` jumps (socket verbs).
+    func zoom(by factor: CGFloat, animated: Bool)
     /// Returns to 100% magnification, anchored at the viewport center.
     func resetZoom()
+    /// ``resetZoom()`` with explicit motion; `false` jumps (socket verbs).
+    func resetZoom(animated: Bool)
     /// Centers the viewport on `center` (canvas coordinates) and, when
     /// `magnification` is non-nil, sets the magnification (clamped to the
     /// scroll view's range). A nil magnification keeps the current zoom.
@@ -28,4 +34,11 @@ public protocol CanvasViewportControlling: AnyObject {
     /// Re-reads the model after an external mutation (palette command,
     /// automation verb) and animates pane views to their new frames.
     func modelDidChangeExternally(animated: Bool)
+}
+
+extension CanvasViewportControlling {
+    /// Conformers without motion (test spies) ignore `animated`.
+    public func toggleOverview(animated: Bool) { toggleOverview() }
+    public func zoom(by factor: CGFloat, animated: Bool) { zoom(by: factor) }
+    public func resetZoom(animated: Bool) { resetZoom() }
 }

@@ -427,6 +427,108 @@ impl Session {
         self.client.stream(ops::SESSION_JOURNAL_SUBSCRIBE, params).map(SessionJournalStream::new)
     }
 
+    /// Lists the generic journal producers installed for this session.
+    /// Plugins can use this read to diagnose a rejected or superseded
+    /// registration without knowing any daemon-internal storage details.
+    pub fn journal_producers(&self) -> Result<super::journal_plugin::JournalProducerListResult> {
+        let result = wire::decode_exact::<super::journal_plugin::JournalProducerListResult>(
+            &self.client.read(ops::SESSION_JOURNAL_PRODUCER_LIST, self.params())?,
+            "journal producer list",
+        )?;
+        result.validate()?;
+        Ok(result)
+    }
+
+    /// Installs or updates a userland journal producer manifest for this
+    /// session. The manifest is validated by the daemon before any event is
+    /// accepted.
+    pub fn put_journal_producer(
+        &self,
+        manifest: &super::journal_plugin::JournalProducerManifest,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalProducerPutResult>> {
+        manifest.validate()?;
+        let value = self.client.mutate(
+            ops::SESSION_JOURNAL_PRODUCER_PUT,
+            self.params().value(
+                "manifest",
+                serde_json::to_value(manifest).map_err(|error| {
+                    Error::InvalidArgument(format!(
+                        "journal producer manifest is not encodable: {error}"
+                    ))
+                })?,
+            ),
+            mutation,
+        )?;
+        mutation_result(value, |value| {
+            let result: super::journal_plugin::JournalProducerPutResult =
+                wire::decode_exact(value, "journal producer result")?;
+            result.validate()?;
+            Ok(result)
+        })
+    }
+
+    /// Compatibility alias for the first generic journal SDK spelling.
+    pub fn put_journal_producer_manifest(
+        &self,
+        manifest: &super::journal_plugin::JournalProducerManifest,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalProducerPutResult>> {
+        self.put_journal_producer(manifest, mutation)
+    }
+
+    /// Compatibility alias for the first agent-plugin SDK preview.
+    pub fn put_agent_plugin_manifest(
+        &self,
+        manifest: &super::journal_plugin::AgentPluginManifest,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalProducerPutResult>> {
+        self.put_journal_producer(manifest, mutation)
+    }
+
+    /// Appends one event to the session journal from a userland producer.
+    pub fn append_journal(
+        &self,
+        event: &super::journal_plugin::JournalIngress,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalAppendResult>> {
+        event.validate()?;
+        let value = self.client.mutate(
+            ops::SESSION_JOURNAL_APPEND,
+            self.params().value(
+                "event",
+                serde_json::to_value(event).map_err(|error| {
+                    Error::InvalidArgument(format!("journal event is not encodable: {error}"))
+                })?,
+            ),
+            mutation,
+        )?;
+        mutation_result(value, |value| {
+            let result: super::journal_plugin::JournalAppendResult =
+                wire::decode_exact(value, "journal append result")?;
+            result.validate()?;
+            Ok(result)
+        })
+    }
+
+    /// Compatibility alias for the first generic journal SDK spelling.
+    pub fn append_journal_event(
+        &self,
+        event: &super::journal_plugin::JournalIngress,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalAppendResult>> {
+        self.append_journal(event, mutation)
+    }
+
+    /// Compatibility alias for the first agent-plugin SDK preview.
+    pub fn append_agent_plugin_event(
+        &self,
+        event: &super::journal_plugin::AgentPluginIngress,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalAppendResult>> {
+        self.append_journal(event, mutation)
+    }
+
     pub fn ping(&self) -> Result<PingResult> {
         wire::decode_exact(
             &self.client.read(ops::SESSION_PING, self.params())?,
@@ -1452,25 +1554,33 @@ impl Tab {
 }
 
 impl Session {
-    pub fn terminals(&self) -> Result<Vec<Terminal>> {
+    /// Returns the terminal catalog values from one list request.
+    ///
+    /// Use this when a caller needs to inspect every terminal. Calling
+    /// `Terminal::refresh` after `terminals` would turn one catalog read into
+    /// an N+1 request pattern and discard the snapshots the list operation
+    /// already returned.
+    pub fn terminal_snapshots(&self) -> Result<Vec<TerminalSnapshot>> {
         wire::list::<TerminalSnapshot>(
             &self.client.read(ops::TERMINAL_LIST, self.params())?,
             "terminals",
             "terminal",
         )
-        .map(|snapshots| snapshots.into_iter().map(|snapshot| self.terminal(snapshot.id)).collect())
+    }
+
+    pub fn terminals(&self) -> Result<Vec<Terminal>> {
+        self.terminal_snapshots().map(|snapshots| {
+            snapshots.into_iter().map(|snapshot| self.terminal(snapshot.id)).collect()
+        })
     }
 
     pub fn find_terminals_by_name(&self, name: &str) -> Result<Vec<Terminal>> {
-        Ok(wire::list::<TerminalSnapshot>(
-            &self.client.read(ops::TERMINAL_LIST, self.params())?,
-            "terminals",
-            "terminal",
-        )?
-        .into_iter()
-        .filter(|snapshot| snapshot.title == name)
-        .map(|snapshot| self.terminal(snapshot.id))
-        .collect())
+        Ok(self
+            .terminal_snapshots()?
+            .into_iter()
+            .filter(|snapshot| snapshot.title == name)
+            .map(|snapshot| self.terminal(snapshot.id))
+            .collect())
     }
 
     pub fn browsers(&self) -> Result<Vec<Browser>> {

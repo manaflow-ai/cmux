@@ -1,4 +1,4 @@
-public import CMUXMobileCore
+internal import CMUXMobileCore
 public import CmuxIrohTransport
 public import Foundation
 
@@ -110,6 +110,10 @@ public actor IrxBrokerService {
         public var accountID: String?
         /// The app's Keychain access group (iOS); nil on macOS.
         public var keychainAccessGroup: String?
+        /// Additional signed capabilities supplied by the owning runtime.
+        public var additionalCapabilities: [String]
+        /// Separates compatibility caches for independently enrolled v2 tuples.
+        public var cacheIdentity: String?
 
         public init(
             baseURL: URL,
@@ -120,7 +124,9 @@ public actor IrxBrokerService {
             cacheDirectory: URL,
             identityGeneration: Int = 1,
             accountID: String? = nil,
-            keychainAccessGroup: String? = nil
+            keychainAccessGroup: String? = nil,
+            additionalCapabilities: [String] = [],
+            cacheIdentity: String? = nil
         ) {
             self.baseURL = baseURL
             self.clientNamespace = clientNamespace
@@ -131,12 +137,14 @@ public actor IrxBrokerService {
             self.identityGeneration = identityGeneration
             self.accountID = accountID
             self.keychainAccessGroup = keychainAccessGroup
+            self.additionalCapabilities = additionalCapabilities
+            self.cacheIdentity = cacheIdentity
         }
 
         var cacheScope: IrxBrokerCacheScope? {
             guard let accountID, let backendHost = baseURL.host else { return nil }
             return IrxBrokerCacheScope(
-                accountID: accountID,
+                accountID: cacheIdentity.map { "\(accountID)|\($0)" } ?? accountID,
                 backendHost: backendHost,
                 keychainAccessGroup: keychainAccessGroup
             )
@@ -151,7 +159,17 @@ public actor IrxBrokerService {
     private let trustCache: any IrxJSONCache<IrxTrustSnapshot>
     private let credentialCache: any IrxJSONCache<IrxRelayCredentialSnapshot>
     private let grantCache: any IrxJSONCache<[String: IrxGrantSnapshot]>
-    private var registrationInFlight: Task<IrxBindingSnapshot, any Error>?
+    var registrationInFlight: Task<IrxBindingSnapshot, any Error>?
+    /// Retains every queued operation so deactivation cancels the active request as well as its tail.
+    var registrationTasks: [UUID: Task<IrxBindingSnapshot, any Error>] = [:]
+    struct RegistrationParameters: Equatable {
+        let pairingEnabled: Bool
+        let relayURLHint: String?
+        let directAddresses: [String]
+        let directPorts: CmxIrohDirectPorts?
+    }
+    var registrationParameters: RegistrationParameters?
+    var registrationOperationID: UUID?
     private var lastHintRegistered: (
         url: String?,
         directAddresses: [String],
@@ -277,31 +295,7 @@ public actor IrxBrokerService {
 
     /// Registers (or refreshes) this endpoint's binding. Single-flight;
     /// pathHints advertise the relay URL so peers can dial relay-first.
-    public func register(
-        pairingEnabled: Bool,
-        relayURLHint: String?,
-        directAddresses: [String] = [],
-        directPorts: CmxIrohDirectPorts? = nil
-    ) async throws -> IrxBindingSnapshot {
-        let epoch = try beginOperation()
-        if let registrationInFlight {
-            return try await registrationInFlight.value
-        }
-        let task = Task<IrxBindingSnapshot, any Error> {
-            try await self.registerOnce(
-                pairingEnabled: pairingEnabled,
-                relayURLHint: relayURLHint,
-                directAddresses: directAddresses,
-                directPorts: directPorts,
-                epoch: epoch
-            )
-        }
-        registrationInFlight = task
-        defer { registrationInFlight = nil }
-        return try await task.value
-    }
-
-    private func registerOnce(
+    func registerOnce(
         pairingEnabled: Bool,
         relayURLHint: String?,
         directAddresses: [String],
@@ -351,7 +345,8 @@ public actor IrxBrokerService {
             endpointID: identity.endpointIDHex,
             identityGeneration: configuration.identityGeneration,
             pairingEnabled: pairingEnabled,
-            capabilities: Self.registrationCapabilities(for: configuration.platform),
+            capabilities: Array(Set(Self.registrationCapabilities(for: configuration.platform)
+                + configuration.additionalCapabilities)).sorted(),
             pathHints: hints,
             directPorts: directPorts
         )
@@ -729,8 +724,11 @@ public actor IrxBrokerService {
     public func deactivate() {
         lifecycleEpoch &+= 1
         deactivated = true
-        registrationInFlight?.cancel()
+        for task in registrationTasks.values { task.cancel() }
+        registrationTasks.removeAll()
         registrationInFlight = nil
+        registrationParameters = nil
+        registrationOperationID = nil
         lastHintRegistered = nil
         lastDiscovery = nil
         lastDiscoveryAt = nil
@@ -741,12 +739,12 @@ public actor IrxBrokerService {
         journal.record("broker", "deactivated")
     }
 
-    private func beginOperation() throws -> UInt64 {
+    func beginOperation() throws -> UInt64 {
         guard !deactivated else { throw IrxBrokerServiceError.deactivated }
         return lifecycleEpoch
     }
 
-    private func requireCurrent(_ epoch: UInt64) throws {
+    func requireCurrent(_ epoch: UInt64) throws {
         guard !deactivated, lifecycleEpoch == epoch else {
             throw IrxBrokerServiceError.deactivated
         }

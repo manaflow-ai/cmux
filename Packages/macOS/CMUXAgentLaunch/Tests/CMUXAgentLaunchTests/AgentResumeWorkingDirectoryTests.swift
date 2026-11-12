@@ -3,6 +3,41 @@ import Testing
 
 @Suite("AgentResumeWorkingDirectory")
 struct AgentResumeWorkingDirectoryTests {
+    @Test("Claude resumes from the worktree that owns its transcript", arguments: [false, true])
+    func claudeTranscriptOverridesStaleLaunchDirectory(nested: Bool) {
+        let sessionID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        let transcript = "/custom/claude/projects/-Users-x-repo--claude-worktrees-feature/"
+            + (nested ? "\(sessionID)/messages/" : "") + "\(sessionID).jsonl"
+        #expect(AgentResumeWorkingDirectory().resolve(
+            kind: "claude",
+            runtimeCwd: "/Users/x/repo/.claude/worktrees/feature",
+            launchWorkingDirectory: "/Users/x/repo",
+            transcriptPath: transcript
+        ) == "/Users/x/repo/.claude/worktrees/feature")
+    }
+
+    @Test("Claude uses the final projects directory in a nested transcript path")
+    func claudeTranscriptUsesFinalProjectsDirectory() {
+        let transcript = "/Users/x/projects/.claude/projects/-Users-x-repo--claude-worktrees-feature/session.jsonl"
+        #expect(AgentResumeWorkingDirectory().resolve(
+            kind: "claude",
+            runtimeCwd: "/Users/x/repo/.claude/worktrees/feature",
+            launchWorkingDirectory: "/Users/x/repo",
+            transcriptPath: transcript
+        ) == "/Users/x/repo/.claude/worktrees/feature")
+    }
+
+    @Test("Claude project slugs preserve non-ASCII and punctuation normalization")
+    func claudeTranscriptMatchesGeneralProjectSlug() {
+        let transcript = "/custom/claude/projects/-Users-a-my-proj-v2-home--/session.jsonl"
+        #expect(AgentResumeWorkingDirectory().resolve(
+            kind: "claude",
+            runtimeCwd: "/Users/a/my_proj.v2/home/é",
+            launchWorkingDirectory: "/Users/a",
+            transcriptPath: transcript
+        ) == "/Users/a/my_proj.v2/home/é")
+    }
+
     @Test("Directory-namespaced agents pin the launch cwd over a drifted runtime cwd")
     func directoryNamespacedPrefersLaunch() {
         #expect(

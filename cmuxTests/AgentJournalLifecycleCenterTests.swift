@@ -69,4 +69,37 @@ struct AgentJournalLifecycleCenterTests {
         #expect(!center.isAvailable)
         #expect(center.handleAppendCommand("{}") == "ERROR: agent journal unavailable")
     }
+    @Test func cancelledAndTerminatedAdmissionsAlwaysResume() async {
+        let cancelled = AgentNotificationAdmissionWaiters()
+        let id = UUID()
+        cancelled.cancel(id)
+        let cancelledResult = await withCheckedContinuation { continuation in
+            cancelled.register(id, continuation: continuation)
+        }
+        #expect(cancelledResult == false)
+        cancelled.forget(id)
+
+        let terminated = AgentNotificationAdmissionWaiters()
+        let result = await withCheckedContinuation { continuation in
+            terminated.register(UUID(), continuation: continuation)
+            terminated.finish()
+        }
+        #expect(result == false)
+        let afterTermination = await withCheckedContinuation { continuation in
+            terminated.register(UUID(), continuation: continuation)
+        }
+        #expect(afterTermination == false)
+    }
+
+    @Test func completedAdmissionCannotResumeTwice() async {
+        let admissions = AgentNotificationAdmissionWaiters()
+        let id = UUID()
+        let result = await withCheckedContinuation { continuation in
+            admissions.register(id, continuation: continuation)
+            admissions.complete(id, accepted: true)
+            admissions.complete(id, accepted: false)
+            admissions.finish()
+        }
+        #expect(result == true)
+    }
 }

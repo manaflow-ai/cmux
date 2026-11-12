@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde_json::{Value, json};
@@ -312,6 +312,24 @@ impl JournalKernel {
         self.state.lock().unwrap().epoch
     }
 
+    /// Like `wait`, but `None` waits with no timeout (a real deadline or
+    /// nothing, never a poll period).
+    pub(crate) fn wait_until(&self, epoch: u64, deadline: Option<Instant>) -> u64 {
+        let mut state = self.state.lock().unwrap();
+        while state.epoch == epoch {
+            match deadline {
+                None => state = self.changed.wait(state).unwrap(),
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        break;
+                    };
+                    state = self.changed.wait_timeout(state, remaining).unwrap().0;
+                }
+            }
+        }
+        state.epoch
+    }
+
     pub(crate) fn wait(&self, epoch: u64, timeout: Duration) -> u64 {
         let state = self.state.lock().unwrap();
         if state.epoch != epoch {
@@ -319,6 +337,26 @@ impl JournalKernel {
         }
         let (state, _) = self.changed.wait_timeout(state, timeout).unwrap();
         state.epoch
+    }
+
+    /// Like `wait`, with no timeout: returns the new epoch, or `epoch`
+    /// once `interrupt` has fired.
+    pub(crate) fn wait_until_interrupted(
+        &self,
+        epoch: u64,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> u64 {
+        let mut state = self.state.lock().unwrap();
+        while state.epoch == epoch && !interrupt.is_fired() {
+            state = self.changed.wait(state).unwrap();
+        }
+        state.epoch
+    }
+
+    /// Wakes every waiter without changing the epoch (an interrupt fired).
+    pub(crate) fn notify_waiters(&self) {
+        let _state = self.state.lock().unwrap_or_else(|error| error.into_inner());
+        self.changed.notify_all();
     }
 
     pub(crate) fn wake_waiters(&self) {
@@ -499,6 +537,11 @@ fn sensitivity_rank(value: JournalSensitivity) -> u8 {
 
 fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_sequence: u64) {
     let mut observed_request_epoch = 0;
+    // After a failed read the tailer retries with capped backoff; otherwise
+    // it waits for a commit or shutdown. It used to wake every second.
+    let mut retry =
+        crate::backoff::Backoff::new(Duration::from_millis(100), Duration::from_secs(5));
+    let mut retry_at: Option<Instant> = None;
     loop {
         let Some(kernel) = weak.upgrade() else { break };
         let requested_epoch = {
@@ -510,12 +553,17 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
                 if state.requested_epoch != observed_request_epoch {
                     break state.requested_epoch;
                 }
-                let (next_state, waited) =
-                    kernel.changed.wait_timeout(state, Duration::from_secs(1)).unwrap();
-                state = next_state;
-                if waited.timed_out() && !state.available {
-                    break state.requested_epoch;
+                if state.available {
+                    retry_at = None;
+                    state = kernel.changed.wait(state).unwrap();
+                    continue;
                 }
+                let deadline = *retry_at.get_or_insert_with(|| Instant::now() + retry.next_delay());
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    retry_at = None;
+                    break state.requested_epoch;
+                };
+                state = kernel.changed.wait_timeout(state, remaining).unwrap().0;
             }
         };
         drop(kernel);
@@ -557,6 +605,7 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         }
         state.available = !read_failed;
         if !read_failed {
+            retry.reset();
             for record in appended {
                 let state = &mut *state;
                 push_bounded_journal_document(&mut state.records, &mut state.record_bytes, record);

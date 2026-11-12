@@ -297,6 +297,7 @@ private struct ProjectFilesGroupRow: View {
 }
 
 private struct ProjectFilesFileRow: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let file: ProjectFileNode
     let depth: Int
     let module: ProjectModule
@@ -332,9 +333,9 @@ private struct ProjectFilesFileRow: View {
                                 .padding(.vertical, 1)
                                 .background(
                                     RoundedRectangle(cornerRadius: 3)
-                                        .fill(Color.accentColor.opacity(0.15))
+                                        .fill(cmuxAccent.color.opacity(0.15))
                                 )
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(cmuxAccent.color)
                         }
                     }
                 }
@@ -373,6 +374,7 @@ private struct ProjectFilesFileRow: View {
 }
 
 private struct ProjectFilesDetailStrip: View {
+    @Environment(\.cmuxAccentColor) private var cmuxAccent
     let file: ProjectFileNode
     let module: ProjectModule
 
@@ -425,7 +427,7 @@ private struct ProjectFilesDetailStrip: View {
         let target = module.target(for: membership.targetID)
         HStack(spacing: 6) {
             Image(systemName: "checkmark.square")
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(cmuxAccent.color)
             Text(target?.displayName ?? String(membership.targetID.rawValue.prefix(8)))
                 .cmuxFont(size: 12)
             Text("· \(membership.role.rawValue)")

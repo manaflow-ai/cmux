@@ -1,25 +1,21 @@
 "use client";
 
 import posthog from "posthog-js";
+import type {
+  ClientConfig,
+  ClientConfigEvaluationContext,
+} from "../../services/client-config/types";
 
-export type ClientConfigFlagValue = boolean | string;
+export type {
+  ClientConfig,
+  ClientConfigEvaluationContext,
+  ClientConfigFlagValue,
+} from "../../services/client-config/types";
 
-export type ClientConfig = {
-  readonly featureFlags: Record<string, ClientConfigFlagValue>;
-  readonly featureFlagPayloads: Record<string, unknown>;
-  readonly errorsWhileComputingFlags: boolean;
-  readonly requestId?: string;
-};
-
-export type ClientConfigEvaluationContext = {
-  readonly groups?: Record<string, unknown>;
-  readonly personProperties?: Record<string, unknown>;
-  readonly groupProperties?: Record<string, unknown>;
-  readonly anonDistinctId?: string;
-  readonly deviceId?: string;
-  readonly timezone?: string;
-  readonly evaluationContexts?: readonly string[];
-};
+// Coalesce duplicate mounts in one browser process. Durable evaluation caching
+// belongs to the server route, where it can also avoid the rate-limit and
+// PostHog work for every client surface.
+const pendingClientConfigs = new Map<string, Promise<ClientConfig>>();
 
 type PostHogWithFlagContext = typeof posthog & {
   readonly config?: {
@@ -38,19 +34,30 @@ type PostHogWithFlagContext = typeof posthog & {
 export async function getClientConfig(
   options: { readonly distinctId?: string; readonly context?: ClientConfigEvaluationContext } = {},
 ): Promise<ClientConfig> {
-  const response = await fetch("/api/client-config", {
+  const requestBody = JSON.stringify({
+    distinctId: options.distinctId ?? getPostHogDistinctId(),
+    context: options.context ?? getPostHogEvaluationContext(),
+  });
+  const pending = pendingClientConfigs.get(requestBody);
+  if (pending) return pending;
+
+  const request = fetch("/api/client-config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      distinctId: options.distinctId ?? getPostHogDistinctId(),
-      context: options.context ?? getPostHogEvaluationContext(),
-    }),
+    body: requestBody,
     cache: "no-store",
-  });
-  if (!response.ok) {
-    throw new Error("client_config_unavailable");
-  }
-  return await response.json() as ClientConfig;
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw new Error("client_config_unavailable");
+      }
+      return await response.json() as ClientConfig;
+    })
+    .finally(() => {
+      pendingClientConfigs.delete(requestBody);
+    });
+  pendingClientConfigs.set(requestBody, request);
+  return request;
 }
 
 function getPostHogEvaluationContext(): ClientConfigEvaluationContext {

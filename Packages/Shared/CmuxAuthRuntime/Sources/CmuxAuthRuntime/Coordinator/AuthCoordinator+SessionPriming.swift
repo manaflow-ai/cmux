@@ -1,6 +1,7 @@
 internal import CMUXAuthCore
 import Foundation
 import OSLog
+import StackAuth
 
 private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 
@@ -106,9 +107,13 @@ extension AuthCoordinator {
         }
         isRevalidatingSession = true
         defer { completeSessionRevalidation() }
-        await checkExistingSessionBody(
-            retryOnStorageAvailable: retryOnStorageAvailable
-        )
+        // A 429 on the user fetch or team load is reported, with the backoff
+        // it sets, by noteTeamScopeFailure as a session check.
+        await StackAuthRateLimitReporting.$callerReports.withValue(true) {
+            await checkExistingSessionBody(
+                retryOnStorageAvailable: retryOnStorageAvailable
+            )
+        }
     }
 
     private func checkExistingSessionBody(
@@ -156,6 +161,11 @@ extension AuthCoordinator {
             currentUser = fixtureUser
             isAuthenticated = true
             publishAuthenticatedSessionIdentity()
+            // Only launches that ask for fixture teams load membership, so
+            // other fixture UI tests never wait on a live team lookup.
+            if launch.environment["CMUX_UITEST_AUTH_FIXTURE_TEAMS"] != nil {
+                await refreshTeams(generation: generation)
+            }
             return
         }
 
@@ -208,6 +218,12 @@ extension AuthCoordinator {
     }
 
     private func completeSessionRevalidation() {
+        // Retire recovery only after validation and its side effects finish.
+        // Cancelling inside refreshTeams would cancel an owning recovery task
+        // before its post-sign-in hook runs. An in-flight fetch is not success.
+        if authenticatedTeamsSessionGeneration == sessionGeneration {
+            cancelTeamScopeRecovery()
+        }
         isRevalidatingSession = false
         let waiters = sessionRevalidationWaiters
         sessionRevalidationWaiters.removeAll(keepingCapacity: false)
@@ -325,6 +341,7 @@ extension AuthCoordinator {
                 )
                 return
             }
+            noteTeamScopeFailure(error)
             let action = AuthError(displaySafe: error)?.cachedSessionValidationFailureAction
                 ?? .preserveCachedSession
             authLog.error(

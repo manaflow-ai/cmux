@@ -46,7 +46,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             AgentJournalAppendCapture.contains(
                 runningCommands,
-                kind: "agent.turn.started",
+                kind: "agent.attention.resolved",
                 agentKey: "amp",
                 sessionId: sessionID
             ),
@@ -185,6 +185,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (settledErrorRecord["terminalPromptTurnIds"] as? [String])?.contains(errorTurnID) == true
         )
 
+        let explicitErrorTurnID = "amp-explicit-error-turn"
+        let nextPrompt = try runAmpHook(
+            context: context,
+            subcommand: "prompt-submit",
+            sessionID: sessionID,
+            pid: ampProcess.processIdentifier,
+            fields: ["hook_event_name": "UserPromptSubmit", "turn_id": explicitErrorTurnID]
+        )
+        XCTAssertFalse(nextPrompt.timedOut, nextPrompt.stderr)
+        XCTAssertEqual(nextPrompt.status, 0, nextPrompt.stderr)
+
         let beforeError = context.state.snapshot().count
         let error = try runAmpHook(
             context: context,
@@ -197,6 +208,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "turn_outcome": "error",
                 "notification_type": "error",
                 "error": "Amp turn failed",
+                "turn_id": explicitErrorTurnID,
             ]
         )
         XCTAssertFalse(error.timedOut, error.stderr)

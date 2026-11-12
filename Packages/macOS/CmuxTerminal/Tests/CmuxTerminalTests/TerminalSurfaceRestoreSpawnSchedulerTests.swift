@@ -61,6 +61,37 @@ import CmuxTerminalCore
         #expect(spawned.values == ids)
     }
 
+    @Test func restoredAgentResumeHoldsALongerCooldownThanAShell() async {
+        let delayer = ManualRestoreSpawnDelayer()
+        let scheduler = TerminalSurfaceRestoreSpawnScheduler(
+            interSpawnDelay: .milliseconds(125),
+            agentResumeInterSpawnDelay: .milliseconds(750),
+            delayer: delayer
+        )
+        let ids = (0..<3).map { _ in UUID() }
+        let spawned = RestoreSpawnRecorder<UUID>()
+
+        scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[0], resumesAgent: true) {
+            spawned.append(ids[0])
+        }
+        scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[1], resumesAgent: true) {
+            spawned.append(ids[1])
+        }
+        scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[2], resumesAgent: false) {
+            spawned.append(ids[2])
+        }
+
+        await delayer.waitForDelayCount(1)
+        #expect(spawned.values == [ids[0]])
+        delayer.releaseNextDelay()
+        await delayer.waitForDelayCount(2)
+        #expect(spawned.values == [ids[0], ids[1]])
+        delayer.releaseNextDelay()
+        await delayer.waitForDelayCount(3)
+        #expect(spawned.values == ids)
+        #expect(delayer.delayDurations == [.milliseconds(750), .milliseconds(750), .milliseconds(125)])
+    }
+
     @Test func duplicateReadinessCallbacksForOneSurfaceCoalesce() async {
         let scheduler = TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero)
         let id = UUID()
@@ -124,7 +155,7 @@ import CmuxTerminalCore
         let scheduler = RecordingRestoreSpawnScheduler()
         let shimInstaller = ManualAgentCommandShimInstaller()
         let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installAgentCommandShims: {
                 await shimInstaller.install(wrapperDirectoryURL: $0, surfaceId: $1, temporaryDirectory: $2)
             },
@@ -221,6 +252,62 @@ import CmuxTerminalCore
         surface.admitStartupRestoreRuntime()
 
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+    }
+
+    @Test func admittedRestoredAgentEntersSpawnQueueAsAgentResume() {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(
+            surfaceView: nativeView,
+            attachesThroughSurfaceModel: true
+        )
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .pacedSessionRestore.requiringStartupRestoreAdmission(),
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.agentCommandShimInstallCompleted = true
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        surface.admitStartupRestoreRuntime()
+
+        #expect(scheduler.scheduledSurfaceIds == [surface.id])
+        #expect(scheduler.scheduledResumesAgent == [true])
+    }
+
+    @Test func cancelledOrPlainRestoreEntersSpawnQueueAsShell() {
+        let scheduler = RecordingRestoreSpawnScheduler()
+        var surfaces: [TerminalSurface] = []
+        for policy in [
+            TerminalSurfaceRuntimeSpawnPolicy.pacedSessionRestore,
+            .pacedSessionRestore.requiringDeferredAgentResumeAdmission()
+        ] {
+            let nativeView = FakeTerminalSurfaceNativeView(
+                frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+            )
+            let paneHost = FakeTerminalSurfacePaneHost(
+                surfaceView: nativeView,
+                attachesThroughSurfaceModel: true
+            )
+            let surface = makeSurface(
+                runtimeSpawnPolicy: policy,
+                scheduler: scheduler,
+                nativeView: nativeView,
+                paneHost: paneHost
+            )
+            surface.agentCommandShimInstallCompleted = true
+            surfaces.append(surface)
+        }
+        defer { surfaces.forEach { $0.closeHeadlessStartupWindowIfNeeded() } }
+
+        surfaces[0].scheduleHeadlessRuntimeStartIfNeeded(reason: "plain-restore")
+        surfaces[1].cancelStartupRestoreAdmission()
+
+        #expect(scheduler.scheduledSurfaceIds == surfaces.map(\.id))
+        #expect(scheduler.scheduledResumesAgent == [false, false])
     }
 
     @Test func configurationReloadDefersAndPromotesRuntimeCreation() {
@@ -429,7 +516,7 @@ import CmuxTerminalCore
         paneHost: FakeTerminalSurfacePaneHost,
         engine: FakeTerminalEngine = FakeTerminalEngine(),
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installAgentCommandShims: { _, _, _ in nil },
             isExecutableFile: { _ in false }
         )

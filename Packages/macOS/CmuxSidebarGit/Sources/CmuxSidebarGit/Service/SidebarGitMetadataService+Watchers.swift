@@ -42,122 +42,156 @@ extension SidebarGitMetadataService {
         )
         workspaceGitMetadataWatcherDescriptorRequestsByKey[key] = request
 
-        Task { [weak self] in
-            guard let gitMetadataService = self?.gitMetadataService else { return }
-            let descriptor = await gitMetadataService.watchDescriptor(for: directory)
-            await MainActor.run { [weak self] in
-                self?.applyWorkspaceGitMetadataWatcherDescriptor(
-                    descriptor,
-                    for: key,
-                    request: request
-                )
-            }
+        workspaceGitMetadataWatcherTasksByKey[key]?.cancel()
+        let reader = gitMetadataService
+        let makeWatcher = makeWatcher
+        workspaceGitMetadataWatcherTasksByKey[key] = Task { [weak self] in
+            let descriptor = await reader.watchDescriptor(for: directory)
+            guard !Task.isCancelled,
+                  self?.prepareWorkspaceGitMetadataWatcher(descriptor, for: key, request: request) == true,
+                  let descriptor else { return }
+            let watcher = await makeWatcher(descriptor)
+            self?.installWorkspaceGitMetadataWatcher(watcher, descriptor: descriptor, for: key, request: request)
         }
     }
 
-    private func applyWorkspaceGitMetadataWatcherDescriptor(
+    /// Validates the requested generation before doing native registration.
+    private func prepareWorkspaceGitMetadataWatcher(
         _ descriptor: GitWorkspaceMetadataWatchDescriptor?,
         for key: WorkspaceGitProbeKey,
         request: WorkspaceGitMetadataWatcherDescriptorRequest
-    ) {
-        guard workspaceGitMetadataWatcherDescriptorRequestsByKey[key] == request else {
-            return
-        }
-        workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
-
-        if workspaceGitMetadataWatcherDescriptorInvalidatedKeys.remove(key) != nil {
-            guard sidebarGitMetadataActivePollingEnabled,
-                  workspaceGitTrackedDirectoryByKey[key] == request.directory else {
+    ) -> Bool {
+        guard acceptWorkspaceGitMetadataWatcherRequest(for: key, request: request) else { return false }
+        guard let descriptor else {
+            // A failed rescan cannot retire a working watcher for this same
+            // directory. A directory change still releases the old ownership.
+            let installedPathsKey = workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key]
+            let hasInstalledWatcher = workspaceGitMetadataWatcherSourceDirectoryByKey[key] == request.directory
+                && installedPathsKey.flatMap { workspaceGitMetadataWatchersByWatchedPathsKey[$0] } != nil
+            if hasInstalledWatcher {
+                finishWorkspaceGitMetadataWatcherRequest(for: key)
+            } else {
                 stopWorkspaceGitMetadataWatcher(for: key)
-                return
             }
-            updateWorkspaceGitMetadataWatcher(
-                for: key,
-                directory: request.directory,
-                forceDescriptorRefresh: true
-            )
+            return false
+        }
+        let watchedPathsKey = watchedPathsKey(for: descriptor)
+        if workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] != nil {
+            finishWorkspaceGitMetadataWatcherRequest(for: key)
+            setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
+            moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
+            logWatcherDegradationIfNeeded(for: descriptor)
+            return false
+        }
+        // Keep the old watcher live until the replacement has registered.
+        return true
+    }
+
+    /// Runs without suspension so no older success or failure can retire newer state.
+    private func installWorkspaceGitMetadataWatcher(
+        _ watcher: RecursivePathWatcher?,
+        descriptor: GitWorkspaceMetadataWatchDescriptor,
+        for key: WorkspaceGitProbeKey,
+        request: WorkspaceGitMetadataWatcherDescriptorRequest
+    ) {
+        guard acceptWorkspaceGitMetadataWatcherRequest(for: key, request: request) else { return }
+        let watchedPathsKey = watchedPathsKey(for: descriptor)
+        if workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] != nil {
+            // Another panel completed the same registration while this one was
+            // suspended. Preserve its one event consumer and discard our duplicate.
+            finishWorkspaceGitMetadataWatcherRequest(for: key)
+            setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
+            moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
             return
         }
-
-        guard sidebarGitMetadataActivePollingEnabled,
-              workspaceGitTrackedDirectoryByKey[key] == request.directory,
-              let descriptor else {
-            stopWorkspaceGitMetadataWatcher(for: key)
+        guard let watcher else {
+            // A failed replacement must leave the currently installed watcher
+            // and its event consumer authoritative until a later registration
+            // succeeds. Only retire the pending request itself.
+            finishWorkspaceGitMetadataWatcherRequest(for: key)
             return
         }
+        finishWorkspaceGitMetadataWatcherRequest(for: key)
+        workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] = watcher
+        setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
+        moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
+        logWatcherDegradationIfNeeded(for: descriptor)
+        consumeWorkspaceGitMetadataWatcherEvents(watcher, descriptor: descriptor, watchedPathsKey: watchedPathsKey)
+    }
 
-        if let degradation = descriptor.degradation,
-           workspaceGitMetadataDegradationLoggedRepositoryRoots.insert(descriptor.repositoryRoot).inserted {
-            let message = "workspace.gitWatch.degraded " + degradation.logDescription
-            debugLog(message)
-            Self.gitWatchDiagnosticsLogger.info("\(message, privacy: .public)")
-        }
-
-        let watchedPathsKey = WorkspaceGitMetadataWatchedPathsKey(
+    private func watchedPathsKey(
+        for descriptor: GitWorkspaceMetadataWatchDescriptor
+    ) -> WorkspaceGitMetadataWatchedPathsKey {
+        WorkspaceGitMetadataWatchedPathsKey(
             paths: descriptor.watchedPaths,
             eventFilterIdentity: descriptor.eventFilterIdentity,
             eventCoalescingInterval: descriptor.eventCoalescingInterval
         )
-        if workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] != nil {
-            setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
-            moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
-            return
-        }
+    }
 
-        stopWorkspaceGitMetadataWatcher(for: key)
-        if let watcher = RecursivePathWatcher(
-            paths: descriptor.watchedPaths,
-            throttleInterval: descriptor.eventCoalescingInterval,
-            eventFilter: { descriptor.containsRelevantChange(
-                paths: $0.paths,
-                requiresFullRescan: $0.requiresFullRescan
-            ) }
-        ) {
-            workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] = watcher
-            setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
-            moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
-            let events = watcher.pathEvents
-            workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey[watchedPathsKey] = Task { @MainActor [weak self] in
-                for await change in events {
-                    guard let self else { break }
-                    // The watcher key includes the immutable filter identity,
-                    // watched roots, and throttle. Its event filter has already
-                    // evaluated this batch once, so every attached probe shares
-                    // the same relevance result.
-                    let keys = Array(
-                        self.workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey[watchedPathsKey] ?? []
+    private func finishWorkspaceGitMetadataWatcherRequest(for key: WorkspaceGitProbeKey) {
+        workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+        workspaceGitMetadataWatcherTasksByKey.removeValue(forKey: key)
+    }
+
+    private func acceptWorkspaceGitMetadataWatcherRequest(
+        for key: WorkspaceGitProbeKey,
+        request: WorkspaceGitMetadataWatcherDescriptorRequest
+    ) -> Bool {
+        guard workspaceGitMetadataWatcherDescriptorRequestsByKey[key] == request else { return false }
+        guard sidebarGitMetadataActivePollingEnabled,
+              workspaceGitTrackedDirectoryByKey[key] == request.directory else {
+            stopWorkspaceGitMetadataWatcher(for: key)
+            return false
+        }
+        if workspaceGitMetadataWatcherDescriptorInvalidatedKeys.remove(key) != nil {
+            finishWorkspaceGitMetadataWatcherRequest(for: key)
+            updateWorkspaceGitMetadataWatcher(for: key, directory: request.directory, forceDescriptorRefresh: true)
+            return false
+        }
+        return true
+    }
+
+    private func consumeWorkspaceGitMetadataWatcherEvents(
+        _ watcher: RecursivePathWatcher,
+        descriptor: GitWorkspaceMetadataWatchDescriptor,
+        watchedPathsKey: WorkspaceGitMetadataWatchedPathsKey
+    ) {
+        let events = watcher.pathEvents
+        workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey[watchedPathsKey] = Task { @MainActor [weak self] in
+            for await change in events {
+                guard let self, !Task.isCancelled else { break }
+                let keys = Array(workspaceGitMetadataWatcherProbeKeysByWatchedPathsKey[watchedPathsKey] ?? [])
+                guard !keys.isEmpty else { continue }
+                recordWorkspaceGitMetadataFilesystemEvent(for: keys)
+                for key in keys {
+                    scheduleWorkspaceGitMetadataRefreshIfPossible(
+                        workspaceId: key.workspaceId, panelId: key.panelId, reason: "filesystemEvent"
                     )
-                    guard !keys.isEmpty else { continue }
-                    self.recordWorkspaceGitMetadataFilesystemEvent(for: keys)
-                    for key in keys {
-                        self.scheduleWorkspaceGitMetadataRefreshIfPossible(
-                            workspaceId: key.workspaceId,
-                            panelId: key.panelId,
-                            reason: "filesystemEvent"
-                        )
-                    }
-                    guard descriptor.containsGitMetadataChange(
-                        paths: change.paths,
-                        requiresFullRescan: change.requiresFullRescan
-                    ) else {
-                        continue
-                    }
-                    for key in keys {
-                        guard let directory = self.workspaceGitMetadataWatcherSourceDirectoryByKey[key] else {
-                            continue
-                        }
-                        self.updateWorkspaceGitMetadataWatcher(
-                            for: key,
-                            directory: directory,
-                            forceDescriptorRefresh: true
-                        )
-                    }
+                }
+                guard descriptor.containsGitMetadataChange(
+                    paths: change.paths, requiresFullRescan: change.requiresFullRescan
+                ) else { continue }
+                for key in keys {
+                    guard let directory = workspaceGitMetadataWatcherSourceDirectoryByKey[key] else { continue }
+                    updateWorkspaceGitMetadataWatcher(for: key, directory: directory, forceDescriptorRefresh: true)
                 }
             }
-        } else {
-            setWorkspaceGitMetadataWatcherSourceDirectory(request.directory, for: key)
-            setWorkspaceGitMetadataWatcherWatchedPathsKey(nil, for: key)
         }
+    }
+
+    private func logWatcherDegradationIfNeeded(
+        for descriptor: GitWorkspaceMetadataWatchDescriptor
+    ) {
+        guard let degradation = descriptor.degradation,
+              workspaceGitMetadataDegradationLoggedRepositoryRoots
+                  .insert(descriptor.repositoryRoot)
+                  .inserted else {
+            return
+        }
+        let message = "workspace.gitWatch.degraded " + degradation.logDescription
+        debugLog(message)
+        Self.gitWatchDiagnosticsLogger.info("\(message, privacy: .public)")
     }
 
     func workspaceGitSnapshotCacheGeneration(directory: String) -> UInt64? {
@@ -209,7 +243,7 @@ extension SidebarGitMetadataService {
                 workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey
                     .removeValue(forKey: previousWatchedPathsKey)?
                     .cancel()
-                // Dropping the last watcher reference invalidates the FSEventStream.
+                // Dropping the last reference queues native cleanup without blocking this actor.
                 workspaceGitMetadataWatchersByWatchedPathsKey.removeValue(forKey: previousWatchedPathsKey)
             }
         }
@@ -274,6 +308,7 @@ extension SidebarGitMetadataService {
     }
 
     func stopWorkspaceGitMetadataWatcher(for key: WorkspaceGitProbeKey) {
+        workspaceGitMetadataWatcherTasksByKey.removeValue(forKey: key)?.cancel()
         let stoppedDirectory = workspaceGitMetadataWatcherSourceDirectoryByKey[key]
         workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
         workspaceGitMetadataWatcherDescriptorInvalidatedKeys.remove(key)
@@ -292,12 +327,13 @@ extension SidebarGitMetadataService {
     }
 
     func stopAllWorkspaceGitMetadataWatchers() {
+        for task in workspaceGitMetadataWatcherTasksByKey.values { task.cancel() }
+        workspaceGitMetadataWatcherTasksByKey.removeAll()
         for task in workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey.values {
             task.cancel()
         }
         workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey.removeAll()
-        // Dropping the references runs each watcher's deinit synchronously,
-        // invalidating its FSEventStream.
+        // Dropping references queues native cleanup without blocking this actor.
         workspaceGitMetadataWatchersByWatchedPathsKey.removeAll()
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
         workspaceGitMetadataWatcherKeysBySourceDirectory.removeAll()

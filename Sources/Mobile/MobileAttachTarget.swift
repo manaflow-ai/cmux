@@ -20,14 +20,22 @@ enum MobileAttachTarget: String, Sendable {
         case .ticketOnly:
             selected = routes
         case .simulatorInjection:
-            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
+            let irohRoutes = try Self.identityOnlyIrohRoutes(
+                from: routes.filter(Self.hasUsableIrohPath)
+            )
             selected = irohRoutes.isEmpty
                 ? routes.filter { route in
                     route.kind == .debugLoopback && CmxLoopbackHost().matches(route)
                 }
                 : irohRoutes
         case .physicalDevice:
-            let irohRoutes = try Self.identityOnlyIrohRoutes(from: routes)
+            // An Iroh identity without a current relay or direct hint is only
+            // a directory record. It cannot be dialed in an offline or local
+            // dev broker, so let the authenticated Tailscale listener carry
+            // this attach instead.
+            let irohRoutes = try Self.identityOnlyIrohRoutes(
+                from: routes.filter(Self.hasUsableIrohPath)
+            )
             guard irohRoutes.isEmpty else {
                 selected = irohRoutes
                 break
@@ -81,6 +89,14 @@ enum MobileAttachTarget: String, Sendable {
                 priority: route.priority
             )
         }
+    }
+
+    private static func hasUsableIrohPath(_ route: CmxAttachRoute) -> Bool {
+        guard route.kind == .iroh,
+              case let .peer(_, pathHints) = route.endpoint else {
+            return false
+        }
+        return pathHints.contains { $0.isUsable(at: Date()) }
     }
 }
 

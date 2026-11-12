@@ -21,6 +21,34 @@ struct CodexAppServerSessionTests {
         }
     }
 
+    /// Lets a just-created `Task` reach its first suspension point on the main
+    /// actor before the test continues. `submit` runs on the main actor, so a
+    /// test that calls it right after spawning another submit would otherwise
+    /// run first and steal the single queue slot, then wait forever for a thread
+    /// the test only starts later.
+    private func settleSpawnedTasks() async {
+        for _ in 0..<4 {
+            await Task.yield()
+        }
+    }
+
+    /// After the initialize response the session sends `initialized` and then
+    /// `thread/start` from a spawned main-actor task. A test that feeds the
+    /// thread/start response before that request exists has its response dropped
+    /// as unknown, after which every submit waits for a thread forever. Wait for
+    /// the request (or an already-started thread) before continuing.
+    private func waitForThreadStartRequest(_ session: CodexAppServerSession) async {
+        var spins = 0
+        while !session.isAwaitingThreadStart, !session.hasThread, spins < 10_000 {
+            spins += 1
+            await Task.yield()
+        }
+        #expect(
+            session.isAwaitingThreadStart || session.hasThread,
+            "Codex session never requested a thread after the initialize response"
+        )
+    }
+
     @Test
     func testOpenCodeAuthHeaderMatchesServerEnvironment() {
         expectNil(OpenCodeServerAuth(environment: [:]))
@@ -696,6 +724,11 @@ struct CodexAppServerSessionTests {
 
         expectEqual(
             accumulator.consumeLine(
+                #"{"type":"message_start","message":{"id":"msg_1","role":"assistant"}}"#),
+            []
+        )
+        expectEqual(
+            accumulator.consumeLine(
                 #"{"type":"content_block_delta","delta":{"type":"text_delta","text":"first"}}"#),
             ["first"]
         )
@@ -704,6 +737,11 @@ struct CodexAppServerSessionTests {
                 #"{"type":"assistant","message":{"id":"msg_1","role":"assistant","content":[{"type":"text","text":"first done"}]}}"#
             ),
             [" done"]
+        )
+        expectEqual(
+            accumulator.consumeLine(
+                #"{"type":"message_start","message":{"id":"msg_2","role":"assistant"}}"#),
+            []
         )
         expectEqual(
             accumulator.consumeLine(
@@ -735,7 +773,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         expectEqual(jsonLine(sentLines[1])["method"] as? String, "initialized")
 
         let threadStart = jsonLine(sentLines[2])
@@ -778,6 +816,7 @@ struct CodexAppServerSessionTests {
 
         try await session.start()
         let submitTask = Task { try await session.submit("first prompt") }
+        await settleSpawnedTasks()
         await expectThrowsErrorAsync {
             try await session.submit("second prompt")
         }
@@ -785,7 +824,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await submitTask.value
 
@@ -826,7 +865,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await session.submit("please review", permissionMode: .autoReview)
 
@@ -854,7 +893,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await session.submit("use config", permissionMode: .custom)
 
@@ -882,7 +921,7 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await session.submit("use full access", permissionMode: .fullAccess)
         session.consumeStdout(#"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
@@ -899,17 +938,20 @@ struct CodexAppServerSessionTests {
         expectTrue(defaultParams["sandboxPolicy"] is NSNull)
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func testCodexSubmitBlocksReentrantTurnWhileWriteIsPending() async throws {
         var sentLines: [String] = []
         var pendingTurnWrite: CheckedContinuation<Void, Never>?
+        let turnWriteStarted = AsyncStream<Void>.makeStream()
         let session = CodexAppServerSession(
             workingDirectory: nil,
             writeData: { data in
                 let line = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
-                if line.contains(#""method":"turn/start""#) {
+                let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                if object?["method"] as? String == "turn/start" {
                     await withCheckedContinuation { continuation in
                         pendingTurnWrite = continuation
+                        turnWriteStarted.continuation.yield(())
                     }
                 }
                 sentLines.append(line)
@@ -921,13 +963,12 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
 
         let firstSubmit = Task { try await session.submit("first prompt") }
-        while pendingTurnWrite == nil {
-            await Task.yield()
-        }
+        _ = await turnWriteStarted.stream.first(where: { _ in true })
+        #expect(pendingTurnWrite != nil, "turn/start write never became pending")
 
         await expectThrowsErrorAsync {
             try await session.submit("second prompt")
@@ -941,13 +982,19 @@ struct CodexAppServerSessionTests {
         expectEqual(input.first?["text"] as? String, "first prompt")
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func testCodexApprovalRequestsOnlyAutoApproveForFullAccessMode() async throws {
-        var sentLines: [String] = []
+        var responsesByID: [String: [String: Any]] = [:]
+        let responses = AsyncStream<Void>.makeStream()
+        var responseIterator = responses.stream.makeAsyncIterator()
         let session = CodexAppServerSession(
             workingDirectory: nil,
             writeData: { data in
-                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+                if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let id = object["id"] as? String {
+                    responsesByID[id] = object
+                    responses.continuation.yield(())
+                }
             },
             outputSink: { _, _ in }
         )
@@ -956,13 +1003,16 @@ struct CodexAppServerSessionTests {
         session.consumeStdout(
             #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
                 + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
         try await session.submit("default prompt", permissionMode: .standard)
         session.consumeStdout(
             #"{"id":"cmd-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
         session.consumeStdout(
             #"{"id":"perm-1","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
+        while responsesByID["cmd-1"] == nil || responsesByID["perm-1"] == nil {
+            _ = await responseIterator.next()
+        }
         await expectThrowsErrorAsync {
             try await session.submit("blocked full access prompt", permissionMode: .fullAccess)
         }
@@ -972,21 +1022,24 @@ struct CodexAppServerSessionTests {
             #"{"id":"cmd-2","method":"item/commandExecution/requestApproval","params":{"threadId":"thread-1"}}"# + "\n")
         session.consumeStdout(
             #"{"id":"perm-2","method":"item/permissions/requestApproval","params":{"permissions":{"network":{"enabled":true}}}}"# + "\n")
+        while responsesByID["cmd-2"] == nil || responsesByID["perm-2"] == nil {
+            _ = await responseIterator.next()
+        }
 
-        let defaultCommandResponse = jsonLine(sentLines[4])
+        let defaultCommandResponse = try #require(responsesByID["cmd-1"])
         let defaultCommandResult = try #require(defaultCommandResponse["result"] as? [String: Any])
         expectEqual(defaultCommandResult["decision"] as? String, "decline")
 
-        let defaultPermissionResponse = jsonLine(sentLines[5])
+        let defaultPermissionResponse = try #require(responsesByID["perm-1"])
         let defaultPermissionResult = try #require(defaultPermissionResponse["result"] as? [String: Any])
         let defaultPermissions = try #require(defaultPermissionResult["permissions"] as? [String: Any])
         expectTrue(defaultPermissions.isEmpty)
 
-        let fullAccessCommandResponse = jsonLine(sentLines[7])
+        let fullAccessCommandResponse = try #require(responsesByID["cmd-2"])
         let fullAccessCommandResult = try #require(fullAccessCommandResponse["result"] as? [String: Any])
         expectEqual(fullAccessCommandResult["decision"] as? String, "acceptForSession")
 
-        let fullAccessPermissionResponse = jsonLine(sentLines[8])
+        let fullAccessPermissionResponse = try #require(responsesByID["perm-2"])
         let fullAccessPermissionResult = try #require(fullAccessPermissionResponse["result"] as? [String: Any])
         let fullAccessPermissions = try #require(fullAccessPermissionResult["permissions"] as? [String: Any])
         let networkPermissions = try #require(fullAccessPermissions["network"] as? [String: Any])
@@ -1146,7 +1199,7 @@ struct CodexAppServerSessionTests {
         expectEqual(failures.count, 1)
         expectEqual(failures.first!, "unsupported initialize")
         expectEqual(output.last?.0, "stderr")
-        expectEqual(output.last?.1, "Codex app-server request failed.")
+        expectEqual(output.last?.1, "The Codex request failed. Try again.")
         await expectThrowsErrorAsync {
             try await session.submit("later prompt")
         }
@@ -1167,7 +1220,7 @@ struct CodexAppServerSessionTests {
 
         try await session.start()
         session.consumeStdout(#"{"id":1,"result":{}}"# + "\n")
-        await Task.yield()
+        await waitForThreadStartRequest(session)
         expectEqual(jsonLine(sentLines[2])["method"] as? String, "thread/start")
 
         let submitTask = Task { try await session.submit("queued prompt") }

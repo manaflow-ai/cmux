@@ -1,3 +1,5 @@
+> **Provider update (2026-09-16):** This rollout checklist is historical. cmux Cloud now uses PlanetScale PostgreSQL (`cmux` / `cmux-prod`, `main` production, `staging` staging, `development` development). Do not execute the old AWS Aurora/RDS steps below. Use `skills/cmux-backend/references/cloud-vm-control-plane.md` and the current `cloud-vm-migrate.yml` workflow.
+
 # Cloud VM Backend Rollout Todo
 
 This is the scoped todo list for making the Cloud VM backend production-ready with application logic running in the existing Vercel `manaflow/cmux` project.

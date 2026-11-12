@@ -1,3 +1,4 @@
+import Foundation
 import GhosttyKit
 @testable import CmuxTerminal
 
@@ -16,6 +17,7 @@ final class FakeTerminalEngine: TerminalEngineHosting {
         [@MainActor () -> Void] = []
 
     func deferRuntimeSurfaceCreationForConfigurationReload(
+        surfaceID: UUID,
         _ action: @escaping @MainActor () -> Void
     ) -> Bool {
         guard shouldDeferRuntimeSurfaceCreationForConfigurationReload else {

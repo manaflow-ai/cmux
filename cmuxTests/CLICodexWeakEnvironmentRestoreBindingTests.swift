@@ -43,7 +43,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CMUX_CODEX_") }
         environment["HOME"] = root.path
         environment["PWD"] = workspace.path
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -187,7 +187,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CMUX_CODEX_") }
         environment["HOME"] = root.path
         environment["PWD"] = worktree.path
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -269,8 +269,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-plain-default-session"
         let ttyName = "ttys307"
+        let transcript = root.appendingPathComponent("rollout.jsonl")
 
         try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        // No launch capture is available, but this is still a real Codex
+        // session whose exact checkpoint can be verified before publication.
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcript, atomically: true, encoding: .utf8)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -302,7 +307,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        var environment = ProcessInfo.processInfo.environment
+        var environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CMUX_CODEX_") }
         environment["HOME"] = root.path
         environment["PWD"] = repo.path
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -319,7 +324,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             executablePath: cliPath,
             arguments: ["hooks", "codex", "prompt-submit"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(repo.path)","hook_event_name":"UserPromptSubmit","prompt":"review this"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(repo.path)","transcript_path":"\#(transcript.path)","hook_event_name":"UserPromptSubmit","prompt":"review this"}"#,
             timeout: 5
         )
 

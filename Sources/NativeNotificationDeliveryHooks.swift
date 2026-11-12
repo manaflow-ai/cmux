@@ -10,7 +10,8 @@ struct NativeNotificationDeliveryHooks: Sendable {
     ) -> Void
     typealias AuthorizationHandler = @Sendable (@escaping AuthorizationCompletion) -> Void
     typealias Scheduler = @Sendable (UNNotificationRequest, @escaping @Sendable (Error?) -> Void) -> Void
-    typealias CommandRunner = @Sendable (String, String, String) -> Void
+    /// `(title, subtitle, body, origin)` for the user's `notifications.command`.
+    typealias CommandRunner = @Sendable (String, String, String, TerminalNotificationOrigin) -> Void
 
     typealias UnavailableFeedbackPlayer = @Sendable (
         TerminalNotificationPolicyEffects,
@@ -24,8 +25,9 @@ struct NativeNotificationDeliveryHooks: Sendable {
     static let defaultCommandRunner: CommandRunner = {
         title,
         subtitle,
-        body in
-        NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
+        body,
+        origin in
+        NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body, origin: origin)
     }
 
     var authorizationHandlerForTesting: AuthorizationHandler?
@@ -68,8 +70,8 @@ struct NativeNotificationDeliveryHooks: Sendable {
         }
     }
 
-    func runCommand(title: String, subtitle: String, body: String) {
-        commandRunner(title, subtitle, body)
+    func runCommand(title: String, subtitle: String, body: String, origin: TerminalNotificationOrigin = .local) {
+        commandRunner(title, subtitle, body, origin)
     }
 
     func playUnavailableFeedback(
@@ -86,7 +88,8 @@ struct NativeNotificationDeliveryHooks: Sendable {
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool = true,
         soundContext: NotificationSoundOverrideContext? = nil,
-        playbackAdmission: PlaybackAdmission? = nil
+        playbackAdmission: PlaybackAdmission? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) async {
         await Self.runLocalFeedback(
             title: title,
@@ -96,6 +99,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
             runCommand: runCommand,
             soundContext: soundContext,
             playbackAdmission: playbackAdmission,
+            origin: origin,
             commandRunner: commandRunner
         )
     }
@@ -118,11 +122,13 @@ struct NativeNotificationDeliveryHooks: Sendable {
         runCommand: Bool = true,
         soundContext: NotificationSoundOverrideContext? = nil,
         playbackAdmission: PlaybackAdmission? = nil,
+        origin: TerminalNotificationOrigin = .local,
         commandRunner: CommandRunner = {
             title,
             subtitle,
-            body in
-            NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
+            body,
+            origin in
+            NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body, origin: origin)
         }
     ) async {
         guard !Task.isCancelled, await (playbackAdmission?() ?? true) else { return }
@@ -138,11 +144,11 @@ struct NativeNotificationDeliveryHooks: Sendable {
                await (playbackAdmission?() ?? true),
                effects.command,
                runCommand {
-                commandRunner(title, subtitle, body)
+                commandRunner(title, subtitle, body, origin)
             }
             _ = await didPlay
         } else if effects.command, runCommand {
-            commandRunner(title, subtitle, body)
+            commandRunner(title, subtitle, body, origin)
         }
     }
 }

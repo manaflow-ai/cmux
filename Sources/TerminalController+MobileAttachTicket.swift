@@ -6,6 +6,19 @@ import Foundation
 extension TerminalController {
     @MainActor
     func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
+        // `DisableRemoteControl` (MDM): no pairing material is minted while the
+        // Mac may not host a phone, rather than relying on the route set
+        // happening to be empty.
+        guard MobileRemoteControlPolicy.isEnabled else {
+            return .err(
+                code: "remote_control_disabled",
+                message: String(
+                    localized: "settings.mobile.managedByOrganization",
+                    defaultValue: "Remote control from the iOS app is disabled by your organization."
+                ),
+                data: nil
+            )
+        }
         let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
         let routeID = v2OptionalTrimmedRawString(params, "route_id")
             ?? v2OptionalTrimmedRawString(params, "routeID")

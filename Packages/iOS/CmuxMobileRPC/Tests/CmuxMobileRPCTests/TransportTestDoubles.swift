@@ -16,6 +16,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
     var now: @Sendable () -> Date
     var supportsServerPushEvents: Bool
     var independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider?
+    var independentEventsMergeSurfaceLanes: Bool
 
     init(
         transportFactory: any CmxByteTransportFactory,
@@ -28,8 +29,10 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
         pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         now: @escaping @Sendable () -> Date = Date.init,
         supportsServerPushEvents: Bool = true,
-        independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil
+        independentEventByteStreamProvider: CmxIndependentEventByteStreamProvider? = nil,
+        independentEventsMergeSurfaceLanes: Bool = false
     ) {
+        self.independentEventsMergeSurfaceLanes = independentEventsMergeSurfaceLanes
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? {

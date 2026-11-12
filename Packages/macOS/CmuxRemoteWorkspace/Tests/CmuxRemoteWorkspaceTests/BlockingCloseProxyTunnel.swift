@@ -85,7 +85,7 @@ final class BlockingCloseProxyTunnel: RemoteProxyTunneling, @unchecked Sendable 
             token: "token",
             sessionID: sessionID,
             lifecycleID: lifecycleID,
-            attachmentID: attachmentID
+            attachmentID: attachmentID, daemonVersion: nil
         )
     }
 }

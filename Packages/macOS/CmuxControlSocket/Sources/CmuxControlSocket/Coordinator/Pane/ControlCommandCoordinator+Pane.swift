@@ -307,6 +307,9 @@ extension ControlCommandCoordinator {
 
     /// `pane.create` — split the source surface into a new pane.
     func paneCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+        if let error = incompatibleTerminalCreationInputError(params) {
+            return error
+        }
         let routing = routingSelectors(params)
         guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -326,6 +329,7 @@ extension ControlCommandCoordinator {
             hasMultipleProfileParams: profileKeys.filter { hasNonNull(params, $0) }.count > 1,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
+            initialInput: nonBlankRawString(params, "initial_input"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             requestedSourceSurfaceID: string(params, "surface_id").flatMap(UUID.init(uuidString:)),
@@ -411,6 +415,8 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "No source surface to split", data: nil)
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create pane", data: nil)
+        case .noSpace:
+            return noSpaceForNewPaneResult
         case .mirrorUnsupportedOptions(let unsupported):
             return mirrorUnsupportedOptionsResult(unsupported)
         case .routedToRemote(let windowID, let workspaceID, let typeRawValue):
@@ -486,6 +492,12 @@ extension ControlCommandCoordinator {
             return .err(code: "internal_error", message: "Failed moving source surface into target pane", data: nil)
         case .moveTargetFailed:
             return .err(code: "internal_error", message: "Failed moving target surface into source pane", data: nil)
+        case .denied(let id, let message):
+            return .err(
+                code: "denied",
+                message: message,
+                data: .object(["surface_id": .string(id.uuidString), "reason": .string("browser_repl_tab")])
+            )
         case .swapped(let windowID, let workspaceID, let sourcePane, let targetPane, let sourceSurface, let targetSurface):
             return .ok(.object([
                 "window_id": .string(windowID.uuidString),
@@ -535,6 +547,12 @@ extension ControlCommandCoordinator {
             return .err(code: "internal_error", message: "Failed to detach source surface", data: nil)
         case .createWorkspaceFailed:
             return .err(code: "internal_error", message: "Failed to create workspace for detached surface", data: nil)
+        case .denied(let id, let message):
+            return .err(
+                code: "denied",
+                message: message,
+                data: .object(["surface_id": .string(id.uuidString), "reason": .string("browser_repl_tab")])
+            )
         case .destinationPaneUnresolved(let workspaceID, let surfaceID):
             return .err(
                 code: "internal_error",

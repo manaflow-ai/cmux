@@ -17,12 +17,14 @@
 /// "internal", "demo", "prod"); the web catalog validates against the same
 /// set. Unknown tokens never match, so a typo fails closed (hidden), and an
 /// explicit empty list hides the page from every channel.
-public enum MobileWhatsNewChannelPolicy {
+public struct MobileWhatsNewChannelPolicy: Sendable {
+    public init() {}
+
     /// Channels shown when no channel list is declared: the team lanes.
     /// Deliberately spelled out (not derived from
     /// ``MobileBuildType/usesInternalBuildVocabulary``) so vocabulary policy
     /// and announcement audience can evolve independently.
-    public static let defaultChannelTokens: Set<String> = [
+    public let defaultChannelTokens: Set<String> = [
         MobileBuildType.dev.token,
         MobileBuildType.beta.token,
         MobileBuildType.internal.token,
@@ -30,7 +32,7 @@ public enum MobileWhatsNewChannelPolicy {
 
     /// Whether a page carrying `channelTokens` (`nil` = undeclared) is shown
     /// on a build of `buildType`.
-    public static func isVisible(
+    public func isVisible(
         channelTokens: [String]?,
         buildType: MobileBuildType
     ) -> Bool {

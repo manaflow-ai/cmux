@@ -2147,13 +2147,15 @@ pub fn default_state_dir() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("CMUX_REMOTE_STATE_DIR") {
         return Some(path.into());
     }
-    #[cfg(target_os = "macos")]
+    // Every Apple target keeps app state under Library/Application Support;
+    // on iOS HOME is the app's sandbox container.
+    #[cfg(target_vendor = "apple")]
     {
         std::env::var_os("HOME")
             .map(PathBuf::from)
             .map(|home| home.join("Library/Application Support/cmux/remote"))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_vendor = "apple"))]
     {
         std::env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)
@@ -2222,9 +2224,10 @@ pub fn credential_free_route_hint(route: &str) -> Result<String, IdentityError> 
 
 fn credential_free_route_hints(routes: Vec<String>) -> Result<Vec<String>, IdentityError> {
     let mut sanitized = Vec::with_capacity(routes.len());
+    let mut seen = HashSet::with_capacity(routes.len());
     for route in routes {
         let route = credential_free_route_hint(&route)?;
-        if !sanitized.contains(&route) {
+        if seen.insert(route.clone()) {
             sanitized.push(route);
         }
     }
@@ -2233,9 +2236,10 @@ fn credential_free_route_hints(routes: Vec<String>) -> Result<Vec<String>, Ident
 
 fn credential_free_route_hints_lossy(routes: &[String]) -> Vec<String> {
     let mut sanitized = Vec::with_capacity(routes.len());
+    let mut seen = HashSet::with_capacity(routes.len());
     for route in routes {
         if let Ok(route) = credential_free_route_hint(route)
-            && !sanitized.contains(&route)
+            && seen.insert(route.clone())
         {
             sanitized.push(route);
         }
@@ -4009,6 +4013,22 @@ mod tests {
         };
         let error = validate_relay_access(&[route], &[access.clone(), access]).unwrap_err();
         assert!(matches!(error, IdentityError::Invalid(message) if message.contains("unique")));
+    }
+
+    #[test]
+    fn credential_free_route_hints_deduplicate_without_reordering() {
+        let routes = vec![
+            "unix:///tmp/first".to_string(),
+            "unix:///tmp/second".to_string(),
+            "unix:///tmp/first".to_string(),
+        ];
+
+        let sanitized = credential_free_route_hints(routes).unwrap();
+
+        assert_eq!(
+            sanitized,
+            vec!["unix:///tmp/first".to_string(), "unix:///tmp/second".to_string()]
+        );
     }
 
     #[tokio::test]

@@ -13,12 +13,14 @@ import Foundation
 /// - A stream is (re)established by a single `start` message. Every `start`
 ///   is answered with `config` followed by a keyframe. There is no other
 ///   handshake and no state survives a transport drop.
-public enum SimStreamProtocol {
-    public static let version: UInt8 = 1
+public struct SimStreamProtocol: Sendable {
+    public init() {}
+
+    public let version: UInt8 = 1
     /// Capability token the Mac host advertises when it can serve this lane.
-    public static let capability = "simulator.stream.v2"
+    public let capability = "simulator.stream.v2"
     /// Upper bound for any single wire message (keyframes included).
-    public static let maximumMessageByteCount = 8 * 1024 * 1024
+    public let maximumMessageByteCount = 8 * 1024 * 1024
 }
 
 public enum SimStreamVideoCodec: UInt8, Sendable, Equatable, CaseIterable {
@@ -55,7 +57,7 @@ public struct SimStreamStartRequest: Sendable, Equatable {
     public var codecPreferences: [SimStreamVideoCodec]
 
     public init(
-        version: UInt8 = SimStreamProtocol.version,
+        version: UInt8 = SimStreamProtocol().version,
         epoch: UInt64,
         maximumLongSidePixels: UInt16,
         codecPreferences: [SimStreamVideoCodec]

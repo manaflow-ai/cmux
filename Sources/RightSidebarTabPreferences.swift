@@ -1,10 +1,11 @@
 import Foundation
 
 /// User customization of the right sidebar's mode tabs: which tabs are shown
-/// and in what order. Feature availability (beta toggles, Cloud rollout) stays
-/// in `RightSidebarMode.isAvailable`; this layer only stores the user's
-/// choices on top of it, so a tab hidden here can still be revealed by an
-/// explicit selection (CLI, command palette, notification routing).
+/// and in what order. Feature availability for the remaining beta and Cloud
+/// rollout gates stays in `RightSidebarMode.isAvailable`; this layer only
+/// stores the user's choices on top of it, so a tab hidden here can still be
+/// revealed by an explicit selection (CLI, command palette, notification
+/// routing).
 enum RightSidebarTabPreferences {
     static let orderKey = "rightSidebar.tabs.order"
     static let hiddenKey = "rightSidebar.tabs.hidden"

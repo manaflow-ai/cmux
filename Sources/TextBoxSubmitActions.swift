@@ -204,6 +204,25 @@ extension TextBoxInputContainer {
         shellActivityState == .promptIdle
     }
 
+    static func shouldRejectCloudImageCommandTemplate(
+        action: TextBoxSubmitAction,
+        shouldForceTextEntrySubmit: Bool,
+        imageTransferTarget: TerminalImageTransferTarget,
+        parts: [TextBoxSubmissionPart]
+    ) -> Bool {
+        guard action.kind == .commandTemplate,
+              !shouldForceTextEntrySubmit,
+              imageTransferTarget == .cloud else {
+            return false
+        }
+        return parts.contains { part in
+            if case .attachment(let attachment) = part {
+                return attachment.isImage
+            }
+            return false
+        }
+    }
+
     var shouldUseTextEntryFallbackForCommandTemplate: Bool {
         Self.shouldUseTextEntryFallbackForCommandTemplate(
             action: selectedSubmitAction,
@@ -498,7 +517,8 @@ extension TextBoxInputContainer {
             shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
             terminalAgentContext: terminalAgentContext,
-            pendingProviderLaunchAction: pendingProviderLaunchAction
+            pendingProviderLaunchAction: pendingProviderLaunchAction,
+            imageTransferTarget: surface.resolvedImageTransferTarget()
         )
     }
 
@@ -508,7 +528,8 @@ extension TextBoxInputContainer {
         shouldForceTextEntrySubmit: Bool,
         allowsCommandTemplateSubmit: Bool,
         terminalAgentContext: String,
-        pendingProviderLaunchAction: TextBoxSubmitAction?
+        pendingProviderLaunchAction: TextBoxSubmitAction?,
+        imageTransferTarget: TerminalImageTransferTarget = .local
     ) -> SubmitDispatchPlan {
         guard !shouldForceTextEntrySubmit, allowsCommandTemplateSubmit else {
             let textEntryContext = Self.textEntryTerminalAgentContext(
@@ -517,7 +538,11 @@ extension TextBoxInputContainer {
                 pendingProviderLaunchAction: pendingProviderLaunchAction
             )
             return SubmitDispatchPlan(
-                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
+                events: TextBoxSubmit.dispatchEvents(
+                    for: parts,
+                    terminalAgentContext: textEntryContext,
+                    imageTransferTarget: imageTransferTarget
+                ),
                 cleanupTerminalAgentContext: textEntryContext,
                 launchCommand: nil,
                 launchContextCommand: nil
@@ -531,7 +556,11 @@ extension TextBoxInputContainer {
                 pendingProviderLaunchAction: pendingProviderLaunchAction
             )
             return SubmitDispatchPlan(
-                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
+                events: TextBoxSubmit.dispatchEvents(
+                    for: parts,
+                    terminalAgentContext: textEntryContext,
+                    imageTransferTarget: imageTransferTarget
+                ),
                 cleanupTerminalAgentContext: textEntryContext,
                 launchCommand: nil,
                 launchContextCommand: nil

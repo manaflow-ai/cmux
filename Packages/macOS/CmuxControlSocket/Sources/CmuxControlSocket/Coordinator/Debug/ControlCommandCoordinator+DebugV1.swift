@@ -72,6 +72,9 @@ extension ControlCommandCoordinator {
         case "flash_count":
             return debugContext?.controlDebugFlashCount(surfaceArgument: args)
                 ?? Self.debugContextUnavailableResponse
+        case "browser_discard":
+            return debugContext?.controlDebugBrowserDiscard(arguments: args)
+                ?? Self.debugContextUnavailableResponse
         case "reset_flash_counts":
             return debugContext?.controlDebugResetFlashCounts()
                 ?? Self.debugContextUnavailableResponse

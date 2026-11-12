@@ -1,10 +1,13 @@
 import {
-  defaultHostedSubrouterURL,
   hostedSubrouterBaseURL,
 } from "@/services/subrouter/constants";
 
 
 const DEFAULT_STACK_API_URL = "https://api.stack-auth.com/api/v1";
+const PRODUCTION_CODEROUTER_HOSTS = new Set([
+  "coderouter.dev",
+  "www.coderouter.dev",
+]);
 
 // This metadata is informational for now. Keep the legacy `version` field
 // below for clients that already consume the config response, and do not gate
@@ -23,14 +26,24 @@ export function GET(request: Request): Response {
   if (!projectId || !publishableClientKey) {
     return unavailableResponse();
   }
-  let subrouterUrl: string;
-  try {
-    subrouterUrl = hostedSubrouterBaseURL(
-      process.env.SUBROUTER_HOSTED_URL?.trim() ||
-        defaultHostedSubrouterURL(),
-    );
-  } catch {
-    return unavailableResponse();
+  const configuredHostedURL = process.env.SUBROUTER_HOSTED_URL?.trim();
+  let hostedSubrouter:
+    | { readonly url: string; readonly exchangeUrl: string }
+    | undefined;
+  if (configuredHostedURL) {
+    let subrouterUrl: string;
+    try {
+      subrouterUrl = hostedSubrouterBaseURL(configuredHostedURL);
+    } catch {
+      return unavailableResponse();
+    }
+    hostedSubrouter = {
+      url: subrouterUrl,
+      exchangeUrl: new URL(
+        "/api/subrouter/tenant-exchange",
+        request.url,
+      ).toString(),
+    };
   }
 
   return Response.json(
@@ -45,7 +58,7 @@ export function GET(request: Request): Response {
         publishableClientKey,
         // Start and complete the CLI login against the same deployment so the
         // confirmation page uses the Stack project that issued the login code.
-        confirmUrl: new URL("/handler/cli-auth-confirm", request.url).toString(),
+        confirmUrl: cliAuthConfirmationURL(request),
       },
       coderouter: {
         sessionUrl: new URL("/api/coderouter/session", request.url).toString(),
@@ -54,17 +67,15 @@ export function GET(request: Request): Response {
           "/api/coderouter/organizations",
           request.url,
         ).toString(),
-        openaiBaseUrl: new URL("/v1", request.url).toString(),
-      },
-      // Keep the hosted Subrouter fields for released sr clients while cmux
-      // migrates its CodeRouter data plane to Vercel.
-      subrouter: {
-        url: subrouterUrl,
-        exchangeUrl: new URL(
-          "/api/subrouter/tenant-exchange",
+        apiKeysSelfUrl: new URL(
+          "/api/coderouter/api-keys/self",
           request.url,
         ).toString(),
+        openaiBaseUrl: new URL("/v1", request.url).toString(),
       },
+      // Hosted Subrouter is opt-in. Do not advertise the retired default
+      // origin to released sr clients when the deployment has no hosted URL.
+      ...(hostedSubrouter ? { subrouter: hostedSubrouter } : {}),
     },
     {
       headers: {
@@ -72,6 +83,24 @@ export function GET(request: Request): Response {
       },
     },
   );
+}
+
+/**
+ * Keep the CodeRouter data plane on its dedicated host while sending browser
+ * sign-in through cmux.com's canonical auth surface. The Stack login code is
+ * issued by the same deployment and remains in the CLI confirmation query.
+ * Non-production and explicitly configured hosts stay on their own origin.
+ */
+function cliAuthConfirmationURL(request: Request): string {
+  const url = new URL("/handler/cli-auth-confirm", request.url);
+  if (
+    url.protocol === "https:" &&
+    PRODUCTION_CODEROUTER_HOSTS.has(url.hostname)
+  ) {
+    url.hostname = "cmux.com";
+    url.port = "";
+  }
+  return url.toString();
 }
 
 function unavailableResponse(): Response {

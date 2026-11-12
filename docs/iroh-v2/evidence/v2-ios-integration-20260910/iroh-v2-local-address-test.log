@@ -1,0 +1,583 @@
+Building for debugging...
+[0/9] /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/.build/arm64-apple-macosx/debug/CMUXMobileCorePackageTests.derived/runner.swift
+[1/9] Copying Localizable.xcstrings
+[2/9] Write sources
+[3/9] Copying Info.plist
+[3/9] Write sources
+[6/9] Write swift-version--58304C5D6DBC2206.txt
+[8/76] Emitting module CMUXMobileCore
+[9/98] Compiling CMUXMobileCore CmxIrohNetworkProfileKeyError.swift
+[10/98] Compiling CMUXMobileCore CmxIrohPathHint+AddressValidation.swift
+[11/98] Compiling CMUXMobileCore CmxIrohPathHint.swift
+[12/98] Compiling CMUXMobileCore CmxIrohPathHintError.swift
+[13/98] Compiling CMUXMobileCore CmxIrohPathHintKind.swift
+[14/98] Compiling CMUXMobileCore CmxIrohPathHintPrivacyScope.swift
+[15/98] Compiling CMUXMobileCore CmxIrohPathHintSource.swift
+[16/98] Compiling CMUXMobileCore CmxIrohPathHintUse.swift
+[17/98] Compiling CMUXMobileCore CmxIrohPathPreference.swift
+[18/98] Compiling CMUXMobileCore CmxIrohPeerIdentity.swift
+[19/98] Compiling CMUXMobileCore CmxIrohPeerIdentityError.swift
+[20/98] Compiling CMUXMobileCore CmxIrohPrivatePathSynthesizer.swift
+[21/98] Compiling CMUXMobileCore CmxIrohRelayOrigin.swift
+[22/98] Compiling CMUXMobileCore CmxIrohRelayPreferenceDraft.swift
+[23/98] Compiling CMUXMobileCore CmxIrohRelayPreferenceDraftError.swift
+[24/98] Compiling CMUXMobileCore CmxIrohRelayTestResult.swift
+[25/98] Compiling CMUXMobileCore CmxIrohSelectedTransportPath.swift
+[26/98] Compiling CMUXMobileCore CmxIrohSettingsControlling.swift
+[27/98] Compiling CMUXMobileCore CmxIrohSettingsSnapshot.swift
+[28/98] Compiling CMUXMobileCore CmxIrohTransportPolicy.swift
+[29/98] Compiling CMUXMobileCore CmxIrohTransportVerificationMode.swift
+[30/98] Compiling CMUXMobileCore CmxLegacyTailscaleAuthorizationEvidence.swift
+[31/120] Compiling CMUXMobileCore ComposerDockIntent.swift
+[32/120] Compiling CMUXMobileCore ComposerDockReducer.swift
+[33/120] Compiling CMUXMobileCore ConnectionOutageThrottle.swift
+[34/120] Compiling CMUXMobileCore DiagnosticAppEventDetail.swift
+[35/120] Compiling CMUXMobileCore DiagnosticBuildStamp.swift
+[36/120] Compiling CMUXMobileCore DiagnosticCorrelation.swift
+[37/120] Compiling CMUXMobileCore DiagnosticEvent.swift
+[38/120] Compiling CMUXMobileCore DiagnosticEventCode.swift
+[39/120] Compiling CMUXMobileCore DiagnosticEventPresentation.swift
+[40/120] Compiling CMUXMobileCore DiagnosticIncidentTitleFormatter.swift
+[41/120] Compiling CMUXMobileCore DiagnosticLocalization.swift
+[42/120] Compiling CMUXMobileCore DiagnosticLog.swift
+[43/120] Compiling CMUXMobileCore DiagnosticReport.swift
+[44/120] Compiling CMUXMobileCore DiagnosticReportArchive.swift
+[45/120] Compiling CMUXMobileCore DiagnosticTaxonomy.swift
+[46/120] Compiling CMUXMobileCore InputResponderIdentity.swift
+[47/120] Compiling CMUXMobileCore MobileBrowserClosedEvent.swift
+[48/120] Compiling CMUXMobileCore MobileBrowserDialogButton.swift
+[49/120] Compiling CMUXMobileCore MobileBrowserDialogButtonRole.swift
+[50/120] Compiling CMUXMobileCore MobileBrowserDialogEvent.swift
+[51/120] Compiling CMUXMobileCore MobileBrowserDialogKind.swift
+[52/120] Compiling CMUXMobileCore MobileBrowserDialogQueue.swift
+[53/141] Compiling CMUXMobileCore CmxLoopbackHost.swift
+[54/141] Compiling CMUXMobileCore CmxMacAppInstanceIdentity.swift
+[55/141] Compiling CMUXMobileCore CmxManualPairingEntry.swift
+[56/141] Compiling CMUXMobileCore CmxPairingQRBitmap.swift
+[57/141] Compiling CMUXMobileCore CmxPairingQRCode.swift
+[58/141] Compiling CMUXMobileCore CmxPairingRouteDisclosureMode.swift
+[59/141] Compiling CMUXMobileCore CmxPairingURLScheme.swift
+[60/141] Compiling CMUXMobileCore CmxPairingURLSchemeResolver.swift
+[61/141] Compiling CMUXMobileCore CmxRetryAfterPolicy.swift
+[62/141] Compiling CMUXMobileCore CmxRetryAfterProviding.swift
+[63/141] Compiling CMUXMobileCore CmxRoutePingResult.swift
+[64/141] Compiling CMUXMobileCore CmxRoutePinging.swift
+[65/141] Compiling CMUXMobileCore CmxTailscalePeerAddress.swift
+[66/141] Compiling CMUXMobileCore CmxTailscalePeerRecord.swift
+[67/141] Compiling CMUXMobileCore CmxTailscaleStatusPeerResolutionError.swift
+[68/141] Compiling CMUXMobileCore CmxTailscaleStatusPeerResolver.swift
+[69/141] Compiling CMUXMobileCore CmxTransport.swift
+[70/141] Compiling CMUXMobileCore CmxTransportSessionPurpose.swift
+[71/141] Compiling CMUXMobileCore CmxUserTailscalePairingAuthorization.swift
+[72/141] Compiling CMUXMobileCore CompactAttachEndpoint.swift
+[73/141] Compiling CMUXMobileCore CompactAttachRoute.swift
+[74/141] Compiling CMUXMobileCore CompactAttachTicket.swift
+[75/141] Compiling CMUXMobileCore AnalyticsConsentProviding.swift
+[76/141] Compiling CMUXMobileCore AnalyticsEmitting.swift
+[77/141] Compiling CMUXMobileCore AnalyticsValue.swift
+[78/141] Compiling CMUXMobileCore AppLog.swift
+[79/141] Compiling CMUXMobileCore CellRelativeColor.swift
+[80/141] Compiling CMUXMobileCore CmxAttachRouteDisclosure.swift
+[81/141] Compiling CMUXMobileCore CmxAttachTicketCompactCoder.swift
+[82/141] Compiling CMUXMobileCore CmxAttachTicketCompactCoderError.swift
+[83/141] Compiling CMUXMobileCore CmxByteTransportLivenessObserving.swift
+[84/141] Compiling CMUXMobileCore CmxByteTransportRequest.swift
+[85/141] Compiling CMUXMobileCore CmxByteTransportSessionPurposeUpdating.swift
+[86/141] Compiling CMUXMobileCore CmxCredentialedHTTPSession.swift
+[87/141] Compiling CMUXMobileCore CmxDeviceIDCanonicalization.swift
+[88/141] Compiling CMUXMobileCore CmxIrohConnectionCheckReport.swift
+[89/141] Compiling CMUXMobileCore CmxIrohCustomPrivateAddress.swift
+[90/141] Compiling CMUXMobileCore CmxIrohCustomPrivatePathDraft.swift
+[91/141] Compiling CMUXMobileCore CmxIrohCustomRelayDraft.swift
+[92/141] Compiling CMUXMobileCore CmxIrohDebugSettingsControlling.swift
+[93/141] Compiling CMUXMobileCore CmxIrohDialPlan.swift
+[94/141] Compiling CMUXMobileCore CmxIrohDirectDialCandidate.swift
+[95/141] Compiling CMUXMobileCore CmxIrohLocalSocketAddress.swift
+[96/141] Compiling CMUXMobileCore CmxIrohNetworkProfileKey.swift
+[97/162] Compiling CMUXMobileCore MobileBrowserDialogResolvedEvent.swift
+[98/162] Compiling CMUXMobileCore MobileBrowserDialogRespondParameters.swift
+[99/162] Compiling CMUXMobileCore MobileBrowserDialogTextField.swift
+[100/162] Compiling CMUXMobileCore MobileBrowserFrameEvent.swift
+[101/162] Compiling CMUXMobileCore MobileBrowserFrameFormat.swift
+[102/162] Compiling CMUXMobileCore MobileBrowserFrameSizeBudget.swift
+[103/162] Compiling CMUXMobileCore MobileBrowserKeyInput.swift
+[104/162] Compiling CMUXMobileCore MobileBrowserPanelDescriptor.swift
+[105/162] Compiling CMUXMobileCore MobileBrowserPointerButton.swift
+[106/162] Compiling CMUXMobileCore MobileBrowserPointerInput.swift
+[107/162] Compiling CMUXMobileCore MobileBrowserPointerKind.swift
+[108/162] Compiling CMUXMobileCore MobileBrowserScrollInput.swift
+[109/162] Compiling CMUXMobileCore MobileBrowserScrollPhase.swift
+[110/162] Compiling CMUXMobileCore MobileBrowserStateEvent.swift
+[111/162] Compiling CMUXMobileCore MobileBrowserStreamCapability.swift
+[112/162] Compiling CMUXMobileCore MobileBrowserStreamPacing.swift
+[113/162] Compiling CMUXMobileCore MobileBrowserStreamPacingDecision.swift
+[114/162] Compiling CMUXMobileCore MobileBrowserStreamStartParameters.swift
+[115/162] Compiling CMUXMobileCore MobileBrowserTextInput.swift
+[116/162] Compiling CMUXMobileCore MobileBrowserViewport.swift
+[117/162] Compiling CMUXMobileCore MobileBrowserViewportParameters.swift
+[118/162] Compiling CMUXMobileCore MobileHapticFeedback.swift
+[119/162] Compiling CMUXMobileCore MobileTerminalRenderGridReplay+Palette.swift
+[120/162] Compiling CMUXMobileCore MobileTerminalRenderGridReplay+Style.swift
+[121/162] Compiling CMUXMobileCore MobileTerminalRenderGridReplay.swift
+[122/162] Compiling CMUXMobileCore MobileTerminalRenderGridRevisionContinuity.swift
+[123/162] Compiling CMUXMobileCore MobileTerminalRenderGridStyle+ColorSource.swift
+[124/162] Compiling CMUXMobileCore MobileTerminalRenderGridVisualSnapshot.swift
+[125/162] Compiling CMUXMobileCore MobileTerminalRenderGridVisualSpan.swift
+[126/162] Compiling CMUXMobileCore MobileTerminalReplayViewportFence.swift
+[127/162] Compiling CMUXMobileCore MobileTerminalScrollbackPreference.swift
+[128/162] Compiling CMUXMobileCore MobileTodoItem.swift
+[129/162] Compiling CMUXMobileCore MobileTodoItemOrigin.swift
+[130/162] Compiling CMUXMobileCore MobileTodoItemState.swift
+[131/162] Compiling CMUXMobileCore MobileTodoSnapshot.swift
+[132/162] Compiling CMUXMobileCore MobileTodoStatus.swift
+[133/162] Compiling CMUXMobileCore MobileWorkspaceMetadataLimits.swift
+[134/162] Compiling CMUXMobileCore NoopAnalytics.swift
+[135/162] Compiling CMUXMobileCore TerminalGridSize.swift
+[136/162] Compiling CMUXMobileCore TerminalTheme.swift
+[137/162] Compiling CMUXMobileCore TransportIncidentPolicy.swift
+[138/162] Compiling CMUXMobileCore UserDefaultsAnalyticsConsentProvider.swift
+[139/162] Compiling CMUXMobileCore resource_bundle_accessor.swift
+[140/162] Compiling CMUXMobileCore MobileHostRPCWorkQuota.swift
+[141/162] Compiling CMUXMobileCore MobileIOSAppNamespace.swift
+[142/162] Compiling CMUXMobileCore MobileIOSBuildScope.swift
+[143/162] Compiling CMUXMobileCore MobileIOSLegacyBackupScope.swift
+[144/162] Compiling CMUXMobileCore MobileSimulatorFrameEvent.swift
+[145/162] Compiling CMUXMobileCore MobileSimulatorPanelDescriptor.swift
+[146/162] Compiling CMUXMobileCore MobileSimulatorRPCDTOs.swift
+[147/162] Compiling CMUXMobileCore MobileSimulatorStreamCapability.swift
+[148/162] Compiling CMUXMobileCore MobileStateSyncFrames.swift
+[149/162] Compiling CMUXMobileCore MobileStateSyncMirror.swift
+[150/162] Compiling CMUXMobileCore MobileStateSyncRecords.swift
+[151/162] Compiling CMUXMobileCore MobileStateSyncStore.swift
+[152/162] Compiling CMUXMobileCore MobileSurfaceKind.swift
+[153/162] Compiling CMUXMobileCore MobileSyncProtocol.swift
+[154/162] Compiling CMUXMobileCore MobileTerminalRenderGrid.swift
+[155/162] Compiling CMUXMobileCore MobileTerminalRenderGridEmissionState.swift
+[156/162] Compiling CMUXMobileCore MobileTerminalRenderGridFrame+CellWidth.swift
+[157/162] Compiling CMUXMobileCore MobileTerminalRenderGridFrame+Coding.swift
+[158/162] Compiling CMUXMobileCore MobileTerminalRenderGridFrame+Emission.swift
+[159/162] Compiling CMUXMobileCore MobileTerminalRenderGridFrame+Style.swift
+[160/162] Compiling CMUXMobileCore MobileTerminalRenderGridReplay+ModeReset.swift
+[161/209] Compiling CMUXMobileCoreTests AppLogTests.swift
+[162/209] Compiling CMUXMobileCoreTests CmxAttachTicketCodingTests.swift
+[163/209] Compiling CMUXMobileCoreTests CmxAttachTicketCompactCoderTests.swift
+[164/209] Compiling CMUXMobileCoreTests CmxAttachTicketDisclosureTests.swift
+[165/209] Compiling CMUXMobileCoreTests CmxAttachTicketIrohQRCodeTests.swift
+[166/209] Compiling CMUXMobileCoreTests CmxCredentialedHTTPSessionTests.swift
+[167/209] Compiling CMUXMobileCoreTests CmxDeviceIDCanonicalizationTests.swift
+[168/209] Compiling CMUXMobileCoreTests CmxIrohConnectionCheckReportTests.swift
+[169/209] Compiling CMUXMobileCoreTests CmxIrohCustomPrivateAddressTests.swift
+[170/209] Compiling CMUXMobileCoreTests CmxIrohLocalSocketAddressTests.swift
+[171/209] Compiling CMUXMobileCoreTests CmxIrohPathHintTests.swift
+[172/209] Compiling CMUXMobileCoreTests CmxIrohPrivatePathSynthesizerTests.swift
+[173/209] Compiling CMUXMobileCoreTests CmxIrohRelayPathHintTests.swift
+[174/209] Compiling CMUXMobileCoreTests CmxIrohSettingsSnapshotTests.swift
+[175/209] Compiling CMUXMobileCoreTests CmxIrohTransportPolicyTests.swift
+[176/209] Compiling CMUXMobileCoreTests CmxLegacyTailscaleAuthorizationEvidenceTests.swift
+[177/224] Compiling CMUXMobileCoreTests CmxLoopbackHostTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[178/224] Compiling CMUXMobileCoreTests CmxManualPairingEntryTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[179/224] Compiling CMUXMobileCoreTests CmxPairingQRBitmapTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[180/224] Compiling CMUXMobileCoreTests CmxPairingQRCodeTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[181/224] Compiling CMUXMobileCoreTests CmxPairingURLSchemeTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[182/224] Compiling CMUXMobileCoreTests CmxRetryAfterPolicyTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[183/224] Compiling CMUXMobileCoreTests CmxTailscalePeerAddressTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[184/224] Compiling CMUXMobileCoreTests CmxTailscaleStatusPeerResolverTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[185/224] Compiling CMUXMobileCoreTests CmxTransportTestDoubles.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[186/224] Compiling CMUXMobileCoreTests CmxTransportTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[187/224] Compiling CMUXMobileCoreTests CmxUserTailscalePairingAuthorizationTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[188/224] Compiling CMUXMobileCoreTests ComposerDockReducerTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[189/224] Compiling CMUXMobileCoreTests ConnectionOutageThrottleTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[190/224] Compiling CMUXMobileCoreTests DiagnosticBuildStampTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[191/224] Compiling CMUXMobileCoreTests DiagnosticEventPresentationTests.swift
+macro expansion #require:5:17: warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+`- /Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxPairingQRBitmapTests.swift:111:11: note: expanded code originates here
+103 |             authToken: "minted-but-never-in-the-qr"
+104 |         )
+105 |         let payload = try #require(CmxPairingQRCode().encode(
+    |                           `- note: in expansion of macro 'require' here
+106 |             ticket,
+107 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    :
+109 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+110 |             )
+111 |         ))
+    +--- macro expansion #require --------------------------------------
+    |3 |             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+    |4 |             pairingURLScheme: try #require(
+    |5 |                 CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+    |  |                 `- warning: '#require(_:_:)' is redundant because 'CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")' never equals 'nil' (from macro 'require')
+    |6 |             )
+    |7 |         ),expression: .__fromSyntaxNode(#"CmxPairingQRCode().encode(\#n            ticket,\#n            routeDisclosureMode: .legacyPrivateNetworkCompatibility,\#n            pairingURLScheme: try #require(\#n                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")\#n            )\#n        )"#),comments: [],isRequired: true,sourceLocation: Testing.SourceLocation.__here()).__required()
+    +-------------------------------------------------------------------
+112 |         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+113 |         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+[192/224] Compiling CMUXMobileCoreTests DiagnosticLogTests.swift
+[193/224] Compiling CMUXMobileCoreTests DiagnosticReportArchiveTests.swift
+[194/224] Compiling CMUXMobileCoreTests LocalizationTestSupport.swift
+[195/224] Compiling CMUXMobileCoreTests MobileBrowserStreamTests.swift
+[196/224] Compiling CMUXMobileCoreTests MobileHapticFeedbackTests.swift
+[197/224] Compiling CMUXMobileCoreTests MobileHostRPCWorkQuotaTests.swift
+[198/224] Compiling CMUXMobileCoreTests MobileIOSAppNamespaceTests.swift
+[199/224] Compiling CMUXMobileCoreTests MobileStateSyncFrameCodingTests.swift
+[200/224] Compiling CMUXMobileCoreTests MobileStateSyncMirrorTests.swift
+[201/224] Compiling CMUXMobileCoreTests MobileStateSyncStoreTests.swift
+[202/224] Compiling CMUXMobileCoreTests MobileSyncProtocolTests.swift
+[203/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridEmissionTests.swift
+[204/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridModeReplayTests.swift
+[205/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridPaletteReplayTests.swift
+[206/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridReplayColumnTests.swift
+[207/224] Emitting module CMUXMobileCoreTests
+[208/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridRevisionChainTests.swift
+[209/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridRevisionContinuityTests.swift
+[210/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridScreenAnchorTests.swift
+[211/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridSnapshotReplayTests.swift
+[212/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridTests.swift
+[213/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridThemePatchTests.swift
+[214/224] Compiling CMUXMobileCoreTests MobileTerminalRenderGridVisualSnapshotTests.swift
+[215/224] Compiling CMUXMobileCoreTests MobileTerminalReplayViewportFenceTests.swift
+[216/224] Compiling CMUXMobileCoreTests MobileWorkspaceMetadataLimitsTests.swift
+[217/224] Compiling CMUXMobileCoreTests ReplayClearStyleProbe.swift
+[218/224] Compiling CMUXMobileCoreTests ReplayHyperlinkProbe.swift
+[219/224] Compiling CMUXMobileCoreTests TerminalGridSizeTests.swift
+[220/224] Compiling CMUXMobileCoreTests TerminalThemeTests.swift
+[221/224] Compiling CMUXMobileCoreTests TransportIncidentPolicyTests.swift
+[222/224] Compiling CMUXMobileCoreTests UserDefaultsAnalyticsConsentProviderTests.swift
+[223/226] Compiling CMUXMobileCorePackageTests runner.swift
+[224/226] Emitting module CMUXMobileCorePackageTests
+[224/226] Write Objects.LinkFileList
+[225/226] Linking CMUXMobileCorePackageTests
+Build complete! (17.16s)
+Test Suite 'Selected tests' started at 2026-09-10 21:41:58.865.
+Test Suite 'CMUXMobileCorePackageTests.xctest' started at 2026-09-10 21:41:58.865.
+Test Suite 'CMUXMobileCorePackageTests.xctest' passed at 2026-09-10 21:41:58.866.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-09-10 21:41:58.866.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite CmxIrohLocalSocketAddressTests started.
+◇ Test refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test requiresExplicitPortAndCanonicalizesBothFamilies() started.
+◇ Test case passing 1 argument value → "192.168.1.5" to refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test case passing 1 argument value → "fd00::5" to refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test case passing 1 argument value → "192.168.1.5:0" to refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test case passing 1 argument value → "[fd00::5]" to refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test case passing 1 argument value → "192.168.1.5:65536" to refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test case passing 1 argument value → "127.0.0.1:443" to refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test case passing 1 argument value → "[fe80::1%en0]:443" to refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test case passing 1 argument value → "mac.local:443" to refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test case passing 1 argument value → "192.168.1.5:+443" to refusesIncompleteOrNonNumericRoutes(_:) started.
+◇ Test case passing 1 argument value → "[fd00::5]:443:5" to refusesIncompleteOrNonNumericRoutes(_:) started.
+✔ Test requiresExplicitPortAndCanonicalizesBothFamilies() passed after 0.001 seconds.
+✔ Test refusesIncompleteOrNonNumericRoutes(_:) with 10 test cases passed after 0.001 seconds.
+✔ Suite CmxIrohLocalSocketAddressTests passed after 0.001 seconds.
+✔ Test run with 2 tests in 1 suite passed after 0.001 seconds.

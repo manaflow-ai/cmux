@@ -5,6 +5,8 @@ import * as Effect from "effect/Effect";
 import { closeCloudDbForTests } from "../db/client";
 import { reserveManagedPublication, type ManagedPublicationInput } from "../services/vm-publications/managedRepository";
 import { CloudVmPublicationRepository, CloudVmPublicationRepositoryLive, type CloudVmPublicationRepositoryShape } from "../services/vm-publications/repository";
+import { PublicationAuthRepository, makePublicationAuthRepository } from "../services/vm-publications/authRepository";
+import { publicationDatabaseRuntime, closePublicationAuthDb } from "../services/vm-publications/database";
 import { evaluatePublicationRequest, resolvePublicationAccess, PublicationViewerResolver } from "../services/vm-publications/auth";
 import { hashPublicationToken, publicationPkceChallenge, randomPublicationToken } from "../services/vm-publications/security";
 
@@ -17,7 +19,7 @@ const owners: string[] = [];
 beforeAll(async () => {
   if (process.env.CMUX_DB_TEST !== "1") return;
   db = postgres(process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!, { max: 6 });
-  repository = await Effect.runPromise(CloudVmPublicationRepository.pipe(Effect.provide(CloudVmPublicationRepositoryLive)));
+  repository = { ...await Effect.runPromise(CloudVmPublicationRepository.pipe(Effect.provide(CloudVmPublicationRepositoryLive))), ...await (await publicationDatabaseRuntime()).runPromise(makePublicationAuthRepository) };
 });
 afterAll(async () => {
   if (!db) return;
@@ -27,6 +29,7 @@ afterAll(async () => {
     await db`delete from cloud_vms where user_id = ${owner}`;
   }
   await closeCloudDbForTests();
+  await closePublicationAuthDb();
   await db.end();
 });
 
@@ -88,7 +91,7 @@ describe("managed port publications in Postgres", () => {
     await Effect.runPromise(repository.setEmailGrant(grant));
     let verifiedEmails = ["guest@example.com"];
     const check = (ruleId: string, at = now) => Effect.runPromise(evaluatePublicationRequest({ providerTlsRuleId: ruleId, sessionToken, method: "POST", now: at }).pipe(
-      Effect.provideService(CloudVmPublicationRepository, repository),
+      Effect.provideService(PublicationAuthRepository, repository),
       Effect.provideService(PublicationViewerResolver, { resolve: () => Effect.succeed({ userId: guest, teamIds: [], verifiedEmails }) }),
     ));
     expect(await check(first.publication.providerTlsRuleId!)).toEqual({ kind: "allow" });
@@ -126,14 +129,14 @@ describe("managed port publications in Postgres", () => {
     });
     const check = () => Effect.runPromise(evaluatePublicationRequest({
       providerTlsRuleId: target.publication.providerTlsRuleId!, sessionToken, method: "POST", now,
-    }).pipe(Effect.provideService(CloudVmPublicationRepository, repository), services));
+    }).pipe(Effect.provideService(PublicationAuthRepository, repository), services));
     expect(await check()).toEqual({ kind: "allow" });
     teamIds = [];
     expect(await check()).toEqual({ kind: "unauthorized" });
     const handoff = await Effect.runPromise(resolvePublicationAccess({
       transaction, state, now,
       user: { userId: input.ownerUserId, teamIds: [team], identity: "owner@example.com" },
-    }).pipe(Effect.provideService(CloudVmPublicationRepository, repository), services));
+    }).pipe(Effect.provideService(PublicationAuthRepository, repository), services));
     expect(handoff.kind).toBe("denied");
     // An explicit grant remains an independent publication-only audience.
     await Effect.runPromise(repository.setEmailGrant({

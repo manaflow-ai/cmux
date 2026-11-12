@@ -248,7 +248,8 @@ cmux browser surface:2 frame main`}</CodeBlock>
 
       <DocsHeading level={2} id="downloads-section">{t("downloadsSection")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux browser surface:2 click "a#download-report"
-cmux browser surface:2 download --path /tmp/report.csv --timeout-ms 30000`}</CodeBlock>
+cmux browser surface:2 download --path /tmp/report.csv --timeout-ms 30000
+cmux browser surface:2 download list --limit 5 --json`}</CodeBlock>
 
       <DocsHeading level={2} id="common-patterns">{t("commonPatterns")}</DocsHeading>
 

@@ -23,6 +23,8 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     ConfigReload,
+    /// What can change the unplaced-terminal reaper's reapable set.
+    TerminalTopology,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -71,6 +73,11 @@ impl MuxEventBroadcaster {
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::ConfigReload)
+    }
+
+    /// The unplaced-terminal reaper's events (`mux/terminal_reap.rs`).
+    pub(crate) fn subscribe_terminal_topology(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::TerminalTopology)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -137,6 +144,14 @@ impl MuxEventFilter {
         match self {
             Self::All => true,
             Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
+            Self::TerminalTopology => matches!(
+                event,
+                MuxEvent::TreeChanged
+                    | MuxEvent::TreeDelta(_)
+                    | MuxEvent::TerminalRegistryChanged { .. }
+                    | MuxEvent::SurfaceExited(..)
+                    | MuxEvent::Empty
+            ),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -159,7 +174,8 @@ impl SurfaceSessionScope {
             | MuxEvent::SurfaceResizeFailed { surface, .. }
             | MuxEvent::AgentChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
-            | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
+            | MuxEvent::ScrollChanged { surface, .. }
+            | MuxEvent::SizeStateChanged { surface, .. } => *surface == self.surface,
             MuxEvent::Notification(notification) => {
                 notification.surface.is_none_or(|surface| surface == self.surface)
             }
@@ -358,8 +374,19 @@ impl MuxEventMailboxState {
 }
 
 impl MuxEventReceiver {
+    /// Whether `self` and `other` read the same mailbox.
+    pub(crate) fn same_mailbox(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.mailbox, &other.mailbox)
+    }
+
     pub fn close(&self) {
         self.mailbox.close();
+    }
+
+    /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
+    /// consumers use it for state changes that no broadcast event carries.
+    pub(crate) fn wake(&self) {
+        self.mailbox.push(MuxEvent::TreeChanged);
     }
 
     pub fn overflowed(&self) -> bool {
@@ -374,6 +401,38 @@ impl MuxEventReceiver {
             }
             if state.closed {
                 return Err(RecvError);
+            }
+            state = self.mailbox.changed.wait(state).unwrap();
+        }
+    }
+
+    /// Wakes a blocked `recv_until_interrupted` when `interrupt` fires.
+    pub(crate) fn wake_on(&self, interrupt: &crate::stream_interrupt::StreamInterrupt) {
+        let mailbox = Arc::downgrade(&self.mailbox);
+        interrupt.on_fire(move || {
+            if let Some(mailbox) = mailbox.upgrade() {
+                let _state = mailbox.state.lock().unwrap_or_else(|error| error.into_inner());
+                mailbox.changed.notify_all();
+            }
+        });
+    }
+
+    /// Blocks for an event. Returns `Timeout` once `interrupt` has fired
+    /// and nothing is queued.
+    pub(crate) fn recv_until_interrupted(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> Result<MuxEvent, RecvTimeoutError> {
+        let mut state = self.mailbox.state.lock().unwrap();
+        loop {
+            if let Some(event) = state.pop() {
+                return Ok(event);
+            }
+            if state.closed {
+                return Err(RecvTimeoutError::Disconnected);
+            }
+            if interrupt.is_fired() {
+                return Err(RecvTimeoutError::Timeout);
             }
             state = self.mailbox.changed.wait(state).unwrap();
         }
@@ -467,6 +526,7 @@ mod tests {
                 state: format!("one-{index}").into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: index,
             });
             broadcaster.emit(MuxEvent::AgentChanged {
@@ -474,6 +534,7 @@ mod tests {
                 state: format!("two-{index}").into(),
                 source: "socket".into(),
                 session: Some("agent-session".into()),
+                agent: None,
                 updated_at_ms: index,
             });
         }
@@ -494,6 +555,7 @@ mod tests {
                 state,
                 source,
                 session: Some(session),
+                agent: None,
                 updated_at_ms: 9_999,
             } if state.as_ref() == "two-9999"
                 && source.as_ref() == "socket"
@@ -559,6 +621,7 @@ mod tests {
             state: "working".into(),
             source: "hook".into(),
             session: None,
+            agent: None,
             updated_at_ms: 1,
         });
         broadcaster.emit(MuxEvent::SurfaceExited(4));

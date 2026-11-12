@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CMUXMobileCore
 
 @testable import CmuxIrxTransport
 
@@ -184,4 +185,52 @@ import Testing
         #expect(gate.dialCount >= 2)
         await engine.stop()
     }
+
+    @Test func rateLimitedDialDoesNotRedialBeforeServerDeadline() async throws {
+        let journal = IrxJournal(subsystem: "test", category: "retry-after", journalFileURL: nil)
+        let gate = DialGate()
+        let clock = PeerRetryTestClock()
+        let sleeps = AsyncStream<Duration>.makeStream()
+        let wake = AsyncStream<Void>.makeStream()
+        let dials = AsyncStream<Void>.makeStream()
+        let engine = IrxPeerEngine(
+            config: .init(initialBackoff: .milliseconds(10), maxBackoff: .milliseconds(20)),
+            journal: journal,
+            label: "test",
+            clockNow: { clock.now },
+            retrySleep: { duration in
+                sleeps.continuation.yield(duration)
+                for await _ in wake.stream { break }
+                try Task.checkCancellation()
+            }
+        ) {
+            gate.dialStarted()
+            dials.continuation.yield(())
+            throw CmxRateLimitedError(retryAfterSeconds: 1)
+        }
+
+        _ = try? await engine.ensureSession(trigger: "test-rate-limit")
+        var dialIterator = dials.stream.makeAsyncIterator()
+        _ = await dialIterator.next()
+        var sleepIterator = sleeps.stream.makeAsyncIterator()
+        #expect(await sleepIterator.next() == .seconds(1))
+        clock.advance(by: .milliseconds(999))
+        _ = try? await engine.ensureSession(trigger: "foreground-before-deadline")
+        #expect(gate.dialCount == 1)
+        clock.advance(by: .milliseconds(1))
+        wake.continuation.yield(())
+        _ = await dialIterator.next()
+        #expect(gate.dialCount == 2)
+        await engine.stop()
+        wake.continuation.finish()
+        sleeps.continuation.finish()
+        dials.continuation.finish()
+    }
+}
+
+private final class PeerRetryTestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant = ContinuousClock.now
+    var now: ContinuousClock.Instant { lock.withLock { instant } }
+    func advance(by duration: Duration) { lock.withLock { instant = instant.advanced(by: duration) } }
 }

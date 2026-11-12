@@ -255,6 +255,30 @@ struct AgentJournalStoreTests {
         }
     }
 
+    @Test func unreadableAttentionRowSkipsTheEventInsteadOfStrippingIt() throws {
+        try withStore { store, url in
+            _ = try store.append(draft())
+            // A context row this build cannot decode must not read back as "no
+            // attention": that would strip request identity from replay and
+            // turn an identical retry into an idempotency conflict.
+            var handle: OpaquePointer?
+            defer { sqlite3_close_v2(handle) }
+            try #require(sqlite3_open_v2(url.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK)
+            let insert = """
+            INSERT INTO agent_journal(
+                event_id, schema_version, kind, occurred_at_ms, committed_at_ms,
+                source, agent_key, is_subagent, pending_work, unattributed_reason
+            ) VALUES ('corrupt-1', 1, 'agent.approval.requested', 1, 1, 'claude', 'claude_code', 0, 0, 'x');
+            INSERT INTO agent_attention_context(event_id, context) VALUES ('corrupt-1', 'not json');
+            """
+            #expect(sqlite3_exec(handle, insert, nil, nil, nil) == SQLITE_OK)
+            let page = try store.readPage(afterSequence: 0, limit: 10)
+            #expect(page.events.map(\.sequence) == [1])
+            #expect(page.skippedSequences == [2])
+            #expect(page.scannedThroughSequence == 2)
+        }
+    }
+
     @Test func closedStoreThrows() throws {
         let (store, url) = try makeStore()
         defer {

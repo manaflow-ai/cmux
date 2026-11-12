@@ -36,6 +36,21 @@ const RATES: readonly {
   readonly matches: (model: string) => boolean;
   readonly rate: ApiRate;
 }[] = [
+  rate(/^gpt-6-astra(?:-|$)/, 10, 1, 50, {
+    inputTokensAbove: 272_000,
+    inputMultiplier: 2,
+    outputMultiplier: 1.5,
+  }),
+  rate(/^gpt-6-sol(?:-|$)/, 2, 0.2, 10, {
+    inputTokensAbove: 272_000,
+    inputMultiplier: 2,
+    outputMultiplier: 1.5,
+  }),
+  rate(/^gpt-6-luna(?:-|$)/, 0.1, 0.01, 0.5, {
+    inputTokensAbove: 272_000,
+    inputMultiplier: 2,
+    outputMultiplier: 1.5,
+  }),
   rate(/^gpt-5\.6-sol(?:-|$)|^gpt-5\.6$/, 5, 0.5, 30, {
     inputTokensAbove: 272_000,
     inputMultiplier: 2,
