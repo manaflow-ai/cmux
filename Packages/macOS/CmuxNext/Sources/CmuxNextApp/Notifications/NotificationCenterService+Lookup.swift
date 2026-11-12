@@ -42,8 +42,10 @@ extension NotificationCenterService {
     /// The tab is the focused content of the key window while cmux is active.
     func isViewed(_ tabID: String) -> Bool {
         guard let services, services.appActiveSource() else { return false }
-        return services.windows.controllers.contains { $0.focus.state.windowKey && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
+        return services.windows.controllers.contains { ownsKey($0) && Self.shownFocus($0).flatMap(Self.contentTab) == tabID }
     }
+    /// `c`'s window is key, or a window it owns is: a Chromium page (an agent chat) takes the key from it (cmux#42210).
+    func ownsKey(_ c: WindowController) -> Bool { _ = viewedRevision; return c.focus.state.windowKey || services?.keyWindowSource().flatMap { services?.windows.owner(of: $0) } === c }
 
     static func tab(id: String, in store: DaemonStore) -> TabModel? { // perf-hot: 0.1ms key-dispatch (every key-down: noteTyping)
         // The store's index: every keystroke looks its tab up here (noteTyping), so no walk over every tab.
