@@ -286,7 +286,12 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     // The first frame after the send is already at the latest message (within a line, as the new
     // rows settle to their drawn heights): no frame on the way down.
     expect(offsets.filter((top) => top > start + 1 && top < end - 23)).toEqual([]);
-    expect(offsets[0]!).toBeGreaterThan(start + 1);
+    // The cut is in the first or second sampled frame: the send's commit paints in the frame the
+    // sampling starts or the next, whichever the page's frame clock gives (2 of 8 runs the next).
+    expect(
+      offsets[1]!,
+      `the view cut to the latest message by the second frame (${offsets.slice(0, 3)})`,
+    ).toBeGreaterThan(start + 1);
     await page.waitForFunction(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
