@@ -713,6 +713,9 @@ final class StreamKeyBar: UIInputView {
     init(target: StreamView?) {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 46), inputViewStyle: .keyboard)
         allowsSelfSizing = true
+        // The keys' symbols follow the text size, but the bar is 46 pt like the keyboard's own:
+        // past XXXL they outgrew it and were cut at the top and bottom.
+        maximumContentSizeCategory = .extraExtraExtraLarge
         scroll.showsHorizontalScrollIndicator = false
         let stack = UIStackView()
         stack.axis = .horizontal
