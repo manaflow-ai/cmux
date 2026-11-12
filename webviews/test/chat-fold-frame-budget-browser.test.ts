@@ -149,7 +149,14 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
                 (animation) =>
                   animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
               );
-            const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight} ${scroller.clientHeight}`;
+            // The virtualizer can adjust its mounted range after scroll geometry has settled,
+            // especially in WebKit.  A stable scrollHeight alone let measurement begin while
+            // rows were still entering, counting that catch-up as fold work.  Wait for the
+            // actual mounted row run and its identities to settle as well.
+            const mounted = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
+              .map((row) => `${row.getAttribute("aria-posinset")}:${row.dataset.rowId}`)
+              .join(",");
+            const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight} ${scroller.clientHeight} ${mounted}`;
             alike = !moving && now === last ? alike + 1 : 0;
             last = now;
             if (alike >= 3) {
