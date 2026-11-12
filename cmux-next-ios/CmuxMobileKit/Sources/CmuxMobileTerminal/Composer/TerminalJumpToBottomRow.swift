@@ -35,17 +35,35 @@ struct TerminalJumpToBottomRow: View {
                 .accessibilityIdentifier("terminal.jumpToBottom")
                 .padding(.bottom, TerminalDockMetrics.keyRowGap)
                 .frame(maxWidth: .infinity, alignment: .center)
-                .transition(.opacity)
+                // It rises out of the key row: up 14 pt from 92 % and
+                // transparent, on a light spring. Its removal is at once
+                // (the animation below is nil for a hide).
+                .transition(.asymmetric(insertion: .modifier(active: JumpRise(progress: 0), identity: JumpRise(progress: 1)),
+                                        removal: .identity))
             }
         }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.jumpRowHeightChanged(height)
         }
-        // Shown with a fade; gone at once when following starts (a Jump to
+        // Shown with the rise; gone at once when following starts (a Jump to
         // bottom tap: qa11 wt-fling-c, the row still drawn after the page
         // reached the bottom, and a row shrinking over 0.2 s moved the page's
         // inset on every frame of the jump).
-        .animation(showsJumpToBottom ? Animation.smooth(duration: 0.2).unlessReduceMotion : nil, value: showsJumpToBottom)
+        // Reduce Motion: no animation.
+        .animation(showsJumpToBottom ? Animation.cmuxMobileSnappy.unlessReduceMotion : nil, value: showsJumpToBottom)
+    }
+}
+
+/// The pill's entrance: from 14 pt low, 92 % and transparent (0) to its
+/// place (1).
+private struct JumpRise: ViewModifier {
+    var progress: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(progress)
+            .scaleEffect(0.92 + 0.08 * progress, anchor: .bottom)
+            .offset(y: 14 * (1 - progress))
     }
 }
 #endif
