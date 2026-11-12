@@ -285,6 +285,19 @@ impl<B, C> Core<B, C> {
         self.bind_with(next, None);
     }
 
+    /// The bind answer's seed, checked in the same transition that installs
+    /// the bind. `before` was captured before the HTTP request: a resume or
+    /// another bind since then invalidates the answer even if it is unexpired.
+    pub(super) fn seed_from_bind(
+        &self,
+        before: u64,
+        prefetch: bool,
+        reply: &Value,
+        now_ms: u64,
+    ) -> Option<Warm> {
+        if prefetch && before == self.generation { Warm::of(reply, now_ms) } else { None }
+    }
+
     /// The machine is bound (again): the bind's generation starts now, not
     /// when the fetch thread takes it. A bind that already holds its first
     /// ticket (the bind answer's) keeps it as the generation's kept ticket in
