@@ -14,7 +14,9 @@ pub(crate) struct ShutdownPlan {
 
 /// How long the hub's own tasks, and its peers', get to end once cancelled at shutdown
 /// (`Hub::close_owned_tasks`).
-pub(crate) const OWNED_TASKS_CLOSE: std::time::Duration = std::time::Duration::from_secs(2);
+/// The daemon's hard stop budget. A peer that ignores cancellation is aborted at this boundary;
+/// it must never serialize the next daemon's start behind remote links.
+pub(crate) const OWNED_TASKS_CLOSE: std::time::Duration = std::time::Duration::from_secs(1);
 
 impl Hub {
     /// The coming shutdown ends hosted agents too (the app's Quit
@@ -62,11 +64,21 @@ impl Hub {
         self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
     }
 
-    /// The hub's own tasks end, after its agents (`daemon.rs`): each peer's, then the hub's
-    /// (its connections' among them), cancelled and joined within [`OWNED_TASKS_CLOSE`] in all.
-    /// A task still running then is aborted and named at warn.
-    pub(crate) async fn close_owned_tasks(&self) {
-        let deadline = tokio::time::Instant::now() + OWNED_TASKS_CLOSE;
+    /// The hub's own tasks end, after its agents (`daemon.rs`). Stop every peer first so a
+    /// reconnect cannot reopen while its scope is being joined, then cancel and join all peer
+    /// scopes and the hub scope in parallel under one absolute deadline. A task still running
+    /// then is aborted and named at warn.
+    #[allow(dead_code, reason = "the standalone hub shutdown bench uses the default budget")]
+    pub(crate) async fn close_owned_tasks(&self) -> Vec<cmux_scope::CloseReport> {
+        self.close_owned_tasks_until(tokio::time::Instant::now() + OWNED_TASKS_CLOSE).await
+    }
+
+    /// [`Self::close_owned_tasks`] with the daemon's already-running absolute shutdown deadline.
+    /// This prevents a late task close from extending the one-second handoff budget.
+    pub(crate) async fn close_owned_tasks_until(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Vec<cmux_scope::CloseReport> {
         let peers: Vec<_> = self
             .peers
             .lock()
@@ -74,20 +86,26 @@ impl Hub {
             .values()
             .cloned()
             .collect();
-        let mut reports = Vec::with_capacity(peers.len() + 1);
-        for peer in peers {
-            let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-            reports.push(peer.close_tasks(left).await);
+        // Cancellation alone is insufficient for a peer's ssh child: `stop` also kills the
+        // tunnel, which prevents the retry loop from opening another link during handoff.
+        for peer in &peers {
+            peer.stop();
         }
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        reports.push(self.scope.close(left).await);
-        for report in reports {
+        let (reports, hub_report) = tokio::join!(
+            futures::future::join_all(peers.iter().map(|peer| peer.close_tasks(left))),
+            self.scope.close(left),
+        );
+        let mut reports = reports;
+        reports.push(hub_report);
+        for report in &reports {
             if report.joined() {
                 tracing::debug!("{report}");
             } else {
                 tracing::warn!("{report}");
             }
         }
+        reports
     }
 
     /// Fences new turns and automatic continuations before transports begin draining.

@@ -159,7 +159,6 @@ pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
 #[cfg(debug_assertions)]
-pub(crate) use log_load::test_hold;
 mod model_options;
 mod new_request;
 pub use model_options::{

@@ -561,3 +561,22 @@ async fn a_stop_during_a_cache_write_that_does_not_finish_ends_within_its_bound(
     hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Twenty-two hub tasks once ignored cancellation and serialized Restart to Update behind their
+/// remote work. The owner aborts all of them at one absolute one-second deadline, so a peer count
+/// cannot turn the handoff into one wait per task.
+#[tokio::test(start_paused = true)]
+async fn hub_tasks_that_ignore_cancellation_are_cut_at_one_shared_deadline() {
+    let dir = std::env::temp_dir().join(format!("acpmux-shutdown-bound-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(&dir);
+    for _ in 0..22 {
+        hub.scope.spawn_named("shutdown-stubborn", std::future::pending::<()>());
+    }
+    hub.begin_shutdown();
+    let started = tokio::time::Instant::now();
+    let reports = hub.close_owned_tasks().await;
+    assert!(started.elapsed() <= super::shutdown::OWNED_TASKS_CLOSE);
+    let report = reports.iter().find(|report| report.owner == "acpmux hub").expect("hub report");
+    assert_eq!(report.still_running.len(), 22, "{report}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

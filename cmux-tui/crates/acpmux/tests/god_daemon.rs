@@ -388,10 +388,38 @@ impl Daemon {
     }
 
     /// SIGTERM, then the exit: the daemon writes its heap profile on the way out.
-    fn stop(mut self) {
+    fn stop(&mut self) {
         // SAFETY: the pid is this test's own child, not yet reaped.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
         let _ = self.child.wait();
+    }
+
+    /// The updater's one-stop handoff, measured through the pane's cache-first attach. The new
+    /// daemon is allowed to bind and answer the local chat while peer links and bulk log loading
+    /// continue in the background.
+    fn restart_to_chat_visible(
+        &mut self,
+        scratch: &Path,
+        home: &Path,
+        profile: Option<&Path>,
+        session: &str,
+    ) -> u64 {
+        let started = Instant::now();
+        self.stop();
+        *self = Self::start(scratch, home, profile);
+        let mut rpc = Rpc::connect(&self.socket);
+        rpc.call(
+            "initialize",
+            json!({"protocolVersion": 1, "clientInfo": {"name": "restart-bench"}}),
+        )
+        .unwrap();
+        let attached = rpc.call(
+            "_acpmux/attach",
+            json!({"sessionId": session, "waitLogs": false, "limit": PAGE_LIMIT,
+                   "maxBytes": PAGE_BYTES}),
+        );
+        assert!(attached.is_ok(), "chat was not visible after restart: {attached:?}");
+        started.elapsed().as_millis() as u64
     }
 }
 
@@ -449,7 +477,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let god = made.god.clone();
     let cutter = proxies.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let daemon = Daemon::start(&scratch, &home, profile.as_deref());
+        let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
         let ready_ms = ms(daemon.spawned);
         let socket_connect_us = daemon.socket_connect_us;
         let mut rpc = Rpc::connect(&daemon.socket);
@@ -620,6 +648,8 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         let status = rpc.call("_acpmux/status", json!({})).unwrap_or_default();
         let (startup_phases_ms, marks_ms) = startup_axes(&status["gauges"]);
         let (rss, peak_rss) = daemon.rss();
+        let restart_chat_visible_ms =
+            daemon.restart_to_chat_visible(&scratch, &home, profile.as_deref(), &god);
         drop(rpc);
         daemon.stop();
         let home_bytes = dir_bytes(&home);
@@ -642,6 +672,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "settledScrollPageUs": spread(&settled_scrolls),
             "settledSendFirstTokenUs": spread(&settled_sends),
             "reconnectMs": reconnect_ms, "reconnectMedianMs": reconnect_median_ms,
+            "restartChatVisibleMs": restart_chat_visible_ms,
             "rss": rss, "peakRss": peak_rss,
             "fixtureBytes": fixture_bytes, "homeBytes": home_bytes,
             "daemonDiskBytes": daemon_disk_bytes,
@@ -787,6 +818,11 @@ async fn god_and_small_homes_in_one_harness() {
             other => panic!("ACPMUX_GOD_SHAPES: no shape {other}"),
         };
         let result = run(shape, dhat).await;
+        let restart_ms = result["restartChatVisibleMs"].as_u64().unwrap_or(u64::MAX);
+        assert!(
+            restart_ms <= 2_000,
+            "Restart to Update -> chat visible exceeded 2 s: {restart_ms} ms; result={result}"
+        );
         println!("GOD-BASELINE {result}");
         results.push(result);
     }
@@ -833,4 +869,13 @@ async fn god_and_small_homes_in_one_harness() {
             .collect();
         println!("GOD-RATIO {}", Value::Object(ratios));
     }
+}
+
+/// CI's Linux budget check uses the same harness and the small shape. It keeps the full god bench
+/// ignored while still failing the PR when the local restart path regresses past the product goal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restart_to_chat_visible_is_under_two_seconds() {
+    let result = run(Shape::small(), false).await;
+    let elapsed = result["restartChatVisibleMs"].as_u64().unwrap_or(u64::MAX);
+    assert!(elapsed <= 2_000, "Restart to Update -> chat visible took {elapsed} ms: {result}");
 }
