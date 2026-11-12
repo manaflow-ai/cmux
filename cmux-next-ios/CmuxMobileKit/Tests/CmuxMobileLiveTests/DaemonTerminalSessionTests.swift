@@ -772,6 +772,81 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(daemon.recorded.filter { $0["cmd"] as? String == "send" }.first?["bytes"] as? String == Data("x".utf8).base64EncodedString())
     }
 
+    /// Leo, 2026-11-12: "thjs chatters too often with connectivity". Ghostty
+    /// answers terminal queries and reports focus by itself; those replies
+    /// are no keys the person typed. Through an outage they are dropped,
+    /// never held, never said as "Keys typed while your Mac was unreachable
+    /// were not sent", and never make the session refuse the person's next keys.
+    @Test func terminalRepliesInAnOutageNeverSayKeysWereNotSent() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var clock: TimeInterval = 1000
+        session.now = { clock }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+
+        // A focus report and a cursor report while the Mac is unreachable,
+        // then the outage outlasts the hold limit.
+        session.sendReply(Data("\u{1B}[O".utf8))
+        session.sendReply(Data("\u{1B}[12;1R".utf8))
+        clock += DaemonTerminalSession.inputHoldLimit + 1
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+
+        // The person types after the reattach: it goes, and nothing was said.
+        session.send(Data("x".utf8))
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+        let sends = daemon.recorded.filter { $0["cmd"] as? String == "send" }
+        #expect(sends.count == 1)
+        #expect(sends.first?["bytes"] as? String == Data("x".utf8).base64EncodedString())
+        #expect(!events.contains { if case .inputNotSent = $0 { true } else { false } })
+
+        // Attached, a reply goes out like a key.
+        session.sendReply(Data("\u{1B}[I".utf8))
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count == 2 }
+    }
+
+    /// Review of the reply split: a reply written when the channel fails is
+    /// no key the person typed. It is never said as not sent, and the keys
+    /// typed after the reattach go.
+    @Test func aWrittenReplyLostWithTheChannelSaysNothing() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.unansweredSends = true
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var events: [TerminalSessionEvent] = []
+        session.now = { 1000 }
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        let sends = { daemon.recorded.filter { $0["cmd"] as? String == "send" }.count }
+        session.sendReply(Data("\u{1B}[O".utf8))
+        try await waitUntil { sends() == 1 }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+        daemon.unansweredSends = false
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        session.send(Data("x".utf8))
+        try await waitUntil { sends() >= 2 }
+        let last = daemon.recorded.last { $0["cmd"] as? String == "send" }
+        #expect(last?["bytes"] as? String == Data("x".utf8).base64EncodedString())
+        #expect(!events.contains { if case .inputNotSent = $0 { true } else { false } })
+    }
+
     /// termqa D3: right after the Mac's host restarts, a reattach can be refused
     /// ("unknown surface") for a moment. The screen keeps its last frame: no
     /// mirror reset and no error line until an attach succeeds, then the

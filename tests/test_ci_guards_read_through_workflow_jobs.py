@@ -19,6 +19,12 @@ Writes (`job["runs-on"] = ...` in a fixture) are not reads. workflow_jobs.py its
 ALLOWED is for a read that is not a guard's; each entry gives its reason, and an entry that no longer matches a
 read fails. It also checks workflow_jobs.UNRESOLVED_MATRICES: an entry whose job is gone, or whose matrix now
 resolves, fails.
+
+runs-on has a stricter lint (RawRunsOnReads), because the job heuristic above misses a job reached through a name
+it does not know (`build = JOBS.get("build-nightly-deltas")`; #40846 review F1): no Python file under tests/ reads
+the key `runs-on` from anything (`X["runs-on"]`, `X.get("runs-on")`, `.pop` / `.setdefault`, `"runs-on" in X`)
+outside RUNS_ON_READERS, which is workflow_jobs.py and may only shrink. Read runs_on_cells, runs_on_values or
+single_runs_on instead; a fixture keeps the route it writes in a local. Writes and dict-literal keys are not reads.
 """
 
 from __future__ import annotations
@@ -49,7 +55,6 @@ STEPS = re.compile(r"\bsteps\b")
 ALLOWED: dict[tuple[str, str], str] = {
     # The pre-fix reader the mutation test patches in: it reads the raw field on purpose, to show a fixture fails
     # without workflow_jobs.
-    ("test_ci_job_list_fixture_mutations.py", "job.get('runs-on')"): "PreFixReader models the pre-fix raw runs-on read",
     ("test_ci_job_list_fixture_mutations.py", "job.get('environment')"):
         "PreFixReader models the pre-fix literal environment read",
     ("test_ci_job_list_fixture_mutations.py", "{**job}"):
@@ -88,6 +93,20 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("test_test_reds.py", "dict(self.job, steps=[dict(s, status='completed', conclusion='success') for s in self.job['steps']])"):
         "a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job (LOST_JOB)",
     ("test_test_reds.py", "dict(self.job, conclusion='cancelled')"): "a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job (LOST_JOB)",
+    ('test_base_red_excuse.py', "dict(self.gh.jobs[2], steps=[{'number': 1, 'name': 'Set up job', 'status': 'completed', 'conclusion': 'success', 'started_at': '2026-10-30T23:15:20Z', 'completed_at': '2026-10-30T23:15:30Z'}, {'number': 2, 'name': 'swift test (macOS)', 'status': 'completed', 'conclusion': 'success', 'started_at': '2026-10-30T23:15:31Z', 'completed_at': '2026-10-30T23:16:37Z'}, {'number': 3, 'name': self.STEP, 'status': 'completed', 'conclusion': 'failure', 'started_at': '2026-10-30T23:16:38Z', 'completed_at': '2026-10-30T23:29:27Z'}, {'number': 4, 'name': 'Complete job', 'status': 'completed', 'conclusion': 'success', 'started_at': '2026-10-30T23:29:27Z', 'completed_at': '2026-10-30T23:29:27Z'}])"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(github.jobs[2], conclusion='success', steps=[dict(step, conclusion='success' if step['name'] == PrOnlyStepGitHub.LIVE else step['conclusion']) for step in github.jobs[2]['steps']])"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(job, conclusion='success')"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', 'dict(base_job, id=2, run_id=20, head_sha=BASE_SHA)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', 'dict(job, id=1, run_id=10, head_sha=HEAD)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(job, id=2, run_id=20, head_sha=BASE_SHA, conclusion='success', steps=green)"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', 'dict(job, name=name)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
     ("test_nightly_linux_admission.py", "{**receipt('fleet'), **mutation}"):
         "an admission receipt merged with a mutation; the loop that binds `mutation` builds a runner map per job",
 }
@@ -214,6 +233,48 @@ def failures(reads: list[tuple[str, int, str]]) -> list[str]:
     return out
 
 
+# The files allowed to read runs-on raw. It may only shrink: RUNS_ON_READERS_CEILING is the set it started as.
+RUNS_ON_READERS = frozenset({"workflow_jobs.py"})
+RUNS_ON_READERS_CEILING = frozenset({"workflow_jobs.py"})
+RUNS_ON = "runs-on"
+_KEY_METHODS = frozenset({"get", "pop", "setdefault"})
+
+
+def raw_runs_on_reads(source: str) -> list[tuple[int, str]]:
+    """(line, the read as written) for every read of the key runs-on, from any object, in one file's source."""
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load) \
+                and isinstance(node.slice, ast.Constant) and node.slice.value == RUNS_ON:
+            found.append((node.lineno, _text(node)))
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in _KEY_METHODS \
+                and node.args and isinstance(node.args[0], ast.Constant) and node.args[0].value == RUNS_ON:
+            found.append((node.lineno, _text(node)))
+        elif isinstance(node, ast.Compare) and isinstance(node.left, ast.Constant) and node.left.value == RUNS_ON \
+                and isinstance(node.ops[0], (ast.In, ast.NotIn)):
+            found.append((node.lineno, _text(node)))
+    return sorted(set(found))
+
+
+def runs_on_failures(files: Iterable[Path]) -> list[str]:
+    out = []
+    reading = set()
+    for path in files:
+        name = path.relative_to(TESTS).as_posix()
+        reads = raw_runs_on_reads(path.read_text(encoding="utf-8"))
+        if reads:
+            reading.add(name)
+        if name in RUNS_ON_READERS:
+            continue
+        out += [f"tests/{name}:{line}: reads runs-on raw: {read} (read workflow_jobs.runs_on_cells, runs_on_values "
+                f"or single_runs_on, which expand the matrix and refuse what they cannot resolve)"
+                for line, read in reads]
+    out += [f"RUNS_ON_READERS entry reads no runs-on any more; drop it: {name}"
+            for name in sorted(RUNS_ON_READERS - reading)]
+    out += [f"RUNS_ON_READERS may only shrink; {name} is new" for name in sorted(RUNS_ON_READERS - RUNS_ON_READERS_CEILING)]
+    return out
+
+
 def matrix_audit_failures() -> list[str]:
     out = []
     for (workflow, job_id), reason in sorted(workflow_jobs.UNRESOLVED_MATRICES.items()):
@@ -248,6 +309,40 @@ class GuardsReadThroughWorkflowJobs(unittest.TestCase):
             "kept = {k: v for k, v in job.items() if k != 'environment'}\n"
         )
         self.assertEqual([line for line, _ in raw_reads(source)], [2, 4, 6, 7, 8, 9, 10])
+
+    def test_no_file_but_workflow_jobs_reads_runs_on_raw(self) -> None:
+        found = runs_on_failures(python_files())
+        self.assertEqual(found, [], "\n" + "\n".join(found))
+
+    def test_a_raw_runs_on_read_from_any_name_is_named(self) -> None:
+        # #40846 F1: `build` came from `JOBS.get(...)`, a name the job heuristic does not know.
+        source = (
+            "build = JOBS.get('build-nightly-deltas')\nok = 'x' in str(build.get('runs-on'))\n"
+            "route = DOC['jobs']['a']['runs-on']\n"
+            "merged = {**base, **change}['runs-on']\n"
+            "gone = fixture.pop('runs-on')\nhas = 'runs-on' in thing\nkept = row.setdefault('runs-on', '')\n"
+        )
+        self.assertEqual([line for line, _ in raw_runs_on_reads(source)], [2, 3, 4, 5, 6, 7])
+
+    def test_runs_on_writes_and_fixture_keys_are_not_reads(self) -> None:
+        source = (
+            "job['runs-on'] = 'x'\n[twin['runs-on']] = cells\nfixture = {'runs-on': route}\n"
+            "del job['runs-on']\nworkflow_jobs.single_runs_on(job)\n"
+        )
+        self.assertEqual(raw_runs_on_reads(source), [])
+
+    def test_the_runs_on_reader_list_only_shrinks(self) -> None:
+        self.assertLessEqual(RUNS_ON_READERS, RUNS_ON_READERS_CEILING)
+        self.assertEqual(RUNS_ON_READERS_CEILING, frozenset({"workflow_jobs.py"}))
+
+    def test_single_runs_on_refuses_what_it_cannot_read_as_one_route(self) -> None:
+        self.assertEqual(workflow_jobs.single_runs_on({"runs-on": "ubuntu-24.04"}), "ubuntu-24.04")
+        matrix = {"runs-on": "${{ matrix.runner }}", "strategy": {"matrix": {"runner": ["a", "b"]}}}
+        unresolved = {"runs-on": "${{ matrix.runner }}", "strategy": {"matrix": "${{ fromJSON(needs.x.outputs.m) }}"}}
+        for job in (matrix, unresolved, {}, {"uses": "./.github/workflows/x.yml"}):
+            with self.subTest(job=job):
+                with self.assertRaises(workflow_jobs.UnresolvedRunsOn):
+                    workflow_jobs.single_runs_on(job)
 
     def test_writes_steps_and_resolved_reads_are_not_named(self) -> None:
         source = (
