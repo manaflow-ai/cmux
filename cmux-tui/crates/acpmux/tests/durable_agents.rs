@@ -775,6 +775,40 @@ async fn an_adopted_claude_chat_still_moves_its_work_after_an_update_restart() {
     daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
 }
 
+/// Lead (review of #40790): the PreToolUse gate of acpmux's own Claude Code backend is believed
+/// only from the kind the agent started under (`startedKind`), which an older build did not
+/// record. A chat it started, adopted after the update and then narrowed to `ask`, has its agent
+/// stopped (fail closed), and `policy_refused` says why and what to do: restart the agent.
+#[tokio::test]
+async fn a_chat_started_before_the_update_is_told_to_restart_its_agent_for_its_policy() {
+    let mut daemon = Daemon::claude_router("oldkind", &[]);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    let hi = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    client.call("session/prompt", hi).await;
+    daemon.sigterm();
+    drop(client);
+    // What an older build left: no kind recorded for the agent it started.
+    let path = daemon.saved_meta_path(&session);
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(meta["startedKind"], "claude-stdio", "this build records the kind: {meta}");
+    meta.as_object_mut().unwrap().remove("startedKind");
+    std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/set_policy", json!({"sessionId": session, "policy": "ask"})).await;
+    let refused = daemon.wait_event(&session, "policy_refused", |e| e["kind"] == "policy_refused");
+    let message = refused["msg"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message
+            .contains("This chat started before an update. Restart the agent to apply its policy"),
+        "{refused}"
+    );
+    assert_eq!(refused["msg"]["startedBeforeUpdate"], true, "{refused}");
+    assert!(!message.contains("\"family\""), "no family to add: {refused}");
+}
+
 /// A fresh folder holding the fifo `gate` that fake_claude's backlog waits on (`flood`).
 fn flood_gate_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("amd-{tag}-gate-{}", std::process::id()));
