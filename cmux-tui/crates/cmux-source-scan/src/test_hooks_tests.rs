@@ -223,6 +223,52 @@ fn a_path_attribute_names_the_module_its_file_is() {
     );
 }
 
+/// Review of cmux#41761 F1: a `#[path]` declaration in a file a `#[path]` declaration moved names
+/// its child from the parent's declared module. With lib.rs `#[path = "actual.rs"] mod model;`
+/// and actual.rs `#[path = "leaf.rs"] mod child;`, rustc loads leaf.rs as `crate::model::child`,
+/// not `crate::actual::child`. One row per file: (file, its import of `Gate`, refused).
+#[test]
+fn a_nested_path_attribute_names_its_child_from_the_parents_module() {
+    let dir =
+        std::env::temp_dir().join(format!("cmux-source-scan-nested-path-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let write = |rel: &str, text: &str| {
+        let path = dir.join(rel);
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("make the dir");
+        std::fs::write(path, text).expect("write");
+    };
+    let rows: [(&str, &str, bool); 2] = [
+        // leaf.rs is crate::model::child, so this import is its own Gate.
+        ("leaf.rs", "crate::model::child::Gate", false),
+        // stray.rs is crate::model::stray; no crate::actual module exists, so this import is not
+        // its own Gate.
+        ("stray.rs", "crate::actual::stray::Gate", true),
+    ];
+    write("src/lib.rs", "#[path = \"actual.rs\"]\nmod model;\n");
+    write(
+        "src/actual.rs",
+        "#[path = \"leaf.rs\"]\nmod child;\n#[path = \"stray.rs\"]\nmod stray;\n",
+    );
+    for (file, import, _) in rows {
+        write(&format!("src/{file}"), &GATED_HOOK.replace("crate::model::Gate", import));
+    }
+    let found: Vec<String> = judge_tree(&dir).iter().map(ToString::to_string).collect();
+    let _ = std::fs::remove_dir_all(&dir);
+    let wrong: Vec<String> = rows
+        .iter()
+        .filter(|(file, _, refused)| {
+            let got = found.iter().any(|f| {
+                f.starts_with(&format!("{CRATE_REL}src/{file}:"))
+                    && f.contains("READ_HOOK")
+                    && f.contains("no `static HOOK_TEST: Mutex<()>`")
+            });
+            got != *refused
+        })
+        .map(|(file, import, refused)| format!("{file} (`use {import}`): want refused={refused}"))
+        .collect();
+    assert!(wrong.is_empty(), "rows judged wrong: {wrong:#?}\nfindings: {found:#?}");
+}
+
 /// The property, run by hand: ACPMUX_TEST_HOOKS_CHAINS names a directory of generated chains,
 /// `N.rs` each with `N.base` holding 1 when the python check refused it. Writes `N.new` (1 when
 /// this check refuses) and fails on a chain the python check refused that this one passes.
