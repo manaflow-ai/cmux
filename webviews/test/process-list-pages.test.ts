@@ -20,8 +20,11 @@ const process = (n: number) => ({
 
 /// A daemon whose chat ran `count` processes. `paged`: it answers `limit` and `cursor` as acpmux
 /// does (hub/processes.rs); unpaged it sends the newest `unpagedFits` and `omitted`. `stuckCursor`:
-/// every page names the same cursor.
-function fakeDaemon(count: number, mode: { paged: boolean; unpagedFits?: number; stuckCursor?: boolean }) {
+/// every page names the same cursor. `keepsNoList`: it answers `{}`, with no list at all.
+function fakeDaemon(
+  count: number,
+  mode: { paged: boolean; unpagedFits?: number; stuckCursor?: boolean; keepsNoList?: boolean },
+) {
   const all = Array.from({ length: count }, (_, n) => process(n));
   const asked: Record<string, unknown>[] = [];
   const session = {
@@ -44,6 +47,7 @@ function fakeDaemon(count: number, mode: { paged: boolean; unpagedFits?: number;
         return { session, lastSeq: 0, events: [], hasMore: false };
       case "_acpmux/process/list": {
         asked.push(params);
+        if (mode.keepsNoList) return {};
         if (!mode.paged || params?.limit === undefined) {
           const fits = Math.min(all.length, mode.unpagedFits ?? all.length);
           return {
@@ -94,7 +98,7 @@ async function client(daemon: ReturnType<typeof fakeDaemon>) {
 test("a chat's processes past one reply are all read, page by page, oldest first", async () => {
   const daemon = fakeDaemon(2_500, { paged: true, unpagedFits: 300 });
   const reply = await (await client(daemon)).listProcesses(CHAT);
-  expect(reply.processes.map((p: any) => p.id)).toEqual(daemon.all.map((p) => p.id));
+  expect(reply.processes?.map((p: any) => p.id)).toEqual(daemon.all.map((p) => p.id));
   expect(daemon.asked.map((params) => params.cursor ?? null)).toEqual([
     null,
     daemon.all[999]!.id,
@@ -114,4 +118,13 @@ test("a cursor the daemon gives twice ends the read instead of looping", async (
   const daemon = fakeDaemon(2_500, { paged: true, stuckCursor: true });
   await expect((await client(daemon)).listProcesses(CHAT)).rejects.toThrow("twice");
   expect(daemon.asked.length).toBeLessThanOrEqual(3);
+});
+
+// A daemon that keeps no process list answers `{}`, as the dev mock does (mock.ts): the read stays
+// unlisted, so a transcript's running background shell still shows (processes.ts `listed`).
+test("a daemon that keeps no list is answered with no list, not an empty one", async () => {
+  const daemon = fakeDaemon(0, { paged: true, keepsNoList: true });
+  const reply = await (await client(daemon)).listProcesses(CHAT);
+  expect(reply.processes).toBeUndefined();
+  expect(daemon.asked).toHaveLength(1);
 });

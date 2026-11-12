@@ -5269,9 +5269,12 @@ export class AcpmuxDirectClient {
   /// page by page with `limit` and each page's `nextCursor`, as `acpmux process list` reads them
   /// (cli/process.rs). One unpaged reply holds only the newest that fit it (`omitted` counts the
   /// rest), so older processes went missing from Session Info. An acpmux that pages nothing
-  /// answers the whole list with no cursor: one read, as before.
-  async listProcesses(sessionId: string): Promise<{ processes: unknown[] }> {
+  /// answers the whole list with no cursor: one read, as before. A daemon that keeps no list (its
+  /// reply has no `processes`) is answered with no list too, so Session Info still shows the
+  /// transcript's running commands (processes.ts `backgroundCommands`, `listed`).
+  async listProcesses(sessionId: string): Promise<{ processes?: unknown[] }> {
     const processes: unknown[] = [];
+    let listed = false;
     const read = new Set<string>();
     let cursor: string | undefined;
     for (;;) {
@@ -5280,10 +5283,14 @@ export class AcpmuxDirectClient {
         limit: PROCESS_LIST_PAGE,
         ...(cursor === undefined ? {} : { cursor }),
       })) as { processes?: unknown; nextCursor?: unknown } | undefined;
-      if (Array.isArray(page?.processes)) processes.push(...page.processes);
+      if (Array.isArray(page?.processes)) {
+        listed = true;
+        processes.push(...page.processes);
+      }
       const next = page?.nextCursor;
-      if (typeof next !== "string" || next === "") return { processes };
+      if (typeof next !== "string" || next === "") return listed ? { processes } : {};
       // A cursor given twice would read the same pages forever.
+      // l10n-allow: a daemon's bug for the list's readers, which drop a failed read; never shown.
       if (read.has(next)) throw new Error(`process list: the daemon gave cursor ${next} twice`);
       read.add(next);
       cursor = next;
