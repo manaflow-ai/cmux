@@ -113,13 +113,19 @@ extension AgentPaneView {
     public func owe(session: String, _ name: String, in views: some Sequence<AgentPaneView>, _ work: @escaping @MainActor () -> Void) {
         // NON-LANDING, the behavior of 1524b7e0f7a4: the work is owed to the panes that show the
         // chat at this moment, and to nothing when the chat has no pane.
-        var once: (@MainActor () -> Void)? = work
+        let once = Once(work)
         for view in views where view.model.sessionId == session {
-            view.whenSeen(name) {
-                let run = once
-                once = nil
-                run?()
-            }
+            view.whenSeen(name) { once.run() }
+        }
+    }
+
+    @MainActor private final class Once {
+        private var work: (@MainActor () -> Void)?
+        init(_ work: @escaping @MainActor () -> Void) { self.work = work }
+        func run() {
+            let owed = work
+            work = nil
+            owed?()
         }
     }
 
