@@ -188,7 +188,10 @@ try {
     expect(view.files).toEqual([]);
   });
 
-  test("a video sent without frames has no note: it stays the file chip it was", async () => {
+  // Leo, 2026-11-06: "how come this didn't give a preview and only has file name?" A video the
+  // agent got no frames for (its read failed or timed out, a remote chat, an agent that takes no
+  // images) is still a video: its tile, square, never a file chip.
+  test("a video sent without frames is its tile where it was put, square, never a file chip", async () => {
     await render({
       id: "user-4",
       version: 1,
@@ -196,19 +199,61 @@ try {
       kind: "user",
       text: "look",
       inlineParts: [
+        { kind: "file", name: "screen-demo.mov", uri: URI.replace(".mp4", ".mov") },
         { kind: "text", text: "look" },
-        { kind: "file", name: "screen-demo.mp4", uri: URI },
       ],
     } as AcpmuxRow);
     const view = shown();
-    expect(view.tile).toBeNull();
-    expect(view.files.join("")).toContain("screen-demo.mp4");
+    expect(view.tile).not.toBeNull();
+    expect(view.tile?.closest(".cv-user__bubble")).not.toBeNull();
+    expect(view.tile?.style.width).toBe("120px");
+    expect(view.title).toBe("screen-demo.mov");
+    expect(view.files.join("")).not.toContain("screen-demo.mov");
+    expect(view.bubble).toBe("look");
+  });
+
+  test("a frameless video's tile reads its poster and length from the file, at the size it had", async () => {
+    const mov = PATH.replace(".mp4", "-read.mov");
+    setChipHost(async (method, params) => {
+      calls.push({ method, params });
+      return method === "video.info" && params.src === mov
+        ? { durationMs: 42_000, width: 1920, height: 1080, poster: "data:image/jpeg;base64,cmVhZA==", frames: [] }
+        : null;
+    });
+    try {
+      await render({
+        id: "user-4r",
+        version: 1,
+        at: 0,
+        kind: "user",
+        text: "look",
+        inlineParts: [
+          { kind: "text", text: "look" },
+          { kind: "file", name: "screen-demo-read.mov", uri: `file://${encodeURI(mov)}` },
+        ],
+      } as AcpmuxRow);
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const view = shown();
+      expect(calls.filter((call) => call.method === "video.info" && call.params.src === mov)).toEqual([
+        { method: "video.info", params: { src: mov } },
+      ]);
+      expect(view.poster).toBe("data:image/jpeg;base64,cmVhZA==");
+      expect(view.length).toBe("0:42");
+      expect(view.tile?.style.width).toBe("120px");
+    } finally {
+      setChipHost(async (method, params) => {
+        calls.push({ method, params });
+        return null;
+      });
+    }
   });
 
   // withoutFrames (composer/videoPrompt.ts) sends a video to an agent that takes no images, or past
   // the prompt's budget, as its link alone: the pane's own row keeps that chip, frames emptied, and
-  // it stays the file chip acpmux's echo will draw, never a poster tile.
-  test("the pane's own row with a video sent without frames keeps its file chip, no tile", async () => {
+  // it is still the tile, with the chip's poster and length.
+  test("the pane's own row with a video sent without frames is its tile, with the chip's poster", async () => {
     const chip = {
       ...linkAttachment(PATH, false),
       mimeType: "video/mp4",
@@ -225,17 +270,23 @@ try {
       retryAttachments: [chip],
     } as AcpmuxRow);
     const view = shown();
-    expect(view.tile).toBeNull();
-    expect(view.files.join("")).toContain("screen-demo.mp4");
-    // Its frames are what make it a tile: the same chip with one is one.
-    const { sentVideosOf } = await import("../src/agent-session/acpmux/conversation/sentVideos");
-    expect(sentVideosOf({ text: "look", retryAttachments: [chip] })).toEqual([]);
-    expect(
-      sentVideosOf({
-        text: "look",
-        retryAttachments: [{ ...chip, video: { ...chip.video, frames: [{ atMs: 2_000, data: "AA==" }] } }],
-      }),
-    ).toHaveLength(1);
+    expect(view.tile).not.toBeNull();
+    expect(view.poster).toBe("data:image/jpeg;base64,cG9z");
+    expect(view.length).toBe("0:16");
+    expect(view.files.join("")).not.toContain("screen-demo.mp4");
+    // A chip the host never read is the square tile with no length.
+    const { video: _unread, ...bare } = chip;
+    await render({
+      id: "user-4c",
+      version: 1,
+      at: 0,
+      kind: "user",
+      text: promptText("look", [bare]),
+      retryAttachments: [bare],
+    } as AcpmuxRow);
+    expect(shown().tile).not.toBeNull();
+    expect(shown().length).toBeUndefined();
+    expect(shown().files.join("")).not.toContain("screen-demo.mp4");
   });
 
   test("a person's own line that only reads like a note, with no frame or link, draws no tile", async () => {

@@ -108,7 +108,9 @@ public struct StackAuthClient: AuthClient {
         var summaries: [CMUXAuthTeam] = []
         summaries.reserveCapacity(teams.count)
         for team in teams {
-            summaries.append(CMUXAuthTeam(id: team.id, displayName: await team.displayName))
+            // A cmux VM personal tenant is no team (CMUX-380): never listed, so never the selection either.
+            if await team.cmuxVmPersonalTenant { continue }
+            summaries.append(CMUXAuthTeam(id: team.id, displayName: await team.displayName, plan: await team.cmuxPlan))
         }
         return summaries
     }
@@ -216,5 +218,18 @@ extension CurrentUser {
         CMUXAuthUser.demonstrationContentEnabled(
             fromClientReadOnlyMetadata: clientReadOnlyMetadata
         )
+    }
+}
+
+extension Team {
+    /// The team's plan id, read inside the team actor so the non-`Sendable` metadata dictionary
+    /// never crosses an isolation boundary (``CMUXAuthTeam/plan(fromClientReadOnlyMetadata:)``).
+    var cmuxPlan: String? {
+        CMUXAuthTeam.plan(fromClientReadOnlyMetadata: clientReadOnlyMetadata)
+    }
+
+    /// Whether this is a cmux VM personal tenant (``CMUXAuthTeam/isVmPersonalTenant(clientReadOnlyMetadata:)``).
+    var cmuxVmPersonalTenant: Bool {
+        CMUXAuthTeam.isVmPersonalTenant(clientReadOnlyMetadata: clientReadOnlyMetadata)
     }
 }

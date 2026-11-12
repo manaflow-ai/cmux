@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextWakeups
 
 extension ActionRegistry {
@@ -8,8 +9,11 @@ extension ActionRegistry {
     /// - Parameters:
     ///   - runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
     ///   - mainWork: The app's main-thread scheduler; the warm batch is one ``FrameBatchQueue`` on it.
-    public static func standard(runTiming: any ActionRunTiming, warmingOn mainWork: MainWorkScheduler) -> ActionRegistry {
+    ///   - symbolOverride: Becomes ``ActionRegistry/symbolOverride`` (the App passes `NSImage.packOverride`).
+    public static func standard(runTiming: any ActionRunTiming, warmingOn mainWork: MainWorkScheduler,
+                                symbolOverride: (@MainActor (String, CGFloat) -> NSImage?)? = nil) -> ActionRegistry {
         let registry = standard(runTiming: runTiming)
+        registry.symbolOverride = symbolOverride
         let warm = FrameBatchQueue(owner: "KeyBindings.warm", budgeted: .background, on: mainWork)
         registry.warmBindingTable = { warm.enqueue($0) }
         return registry

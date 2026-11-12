@@ -204,7 +204,11 @@ describe("the transcript keeps no running card", () => {
         ["completed", "Subagent finished: Reviewer · 1m 20s"],
       ]);
       expect(root.querySelector(".cv-subagents")).toBeNull();
+      // Only its name chip opens it (Leo, 2026-11-05: "subagents need to have their clickable bit be
+      // highlighted instead of the whole line click").
       await act(async () => lines[1]!.click());
+      expect(opened).toEqual([]);
+      await act(async () => lines[1]!.querySelector<HTMLButtonElement>("button.cv-agent-tag.is-open")!.click());
       expect(opened).toEqual(["Reviewer"]);
     } finally {
       await done();

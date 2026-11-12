@@ -352,6 +352,7 @@ pub(super) fn parse_resource_layout_node(
                     seen_tabs,
                     tab_orders,
                 )?),
+                divider_hidden: false,
             }
         }
         "stack" => {

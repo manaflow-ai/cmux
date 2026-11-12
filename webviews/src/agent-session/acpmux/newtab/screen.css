@@ -11,7 +11,7 @@
    backdrop and rim are owned by .ui-glass. Keep the composer's edge/elevation aliases so focus,
    borders-none and Reduce Transparency preserve the existing card contract. */
 .nt-box{flex:none;display:flex;flex-direction:column;box-sizing:border-box;border-radius:20px;position:relative;--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) var(--acpmux-composer-edge);--glass-edge:var(--acpmux-composer-edge);--glass-elevation:var(--acpmux-composer-shadow,var(--elevation-1))}
-.nt-input{--nt-input-pad-block:var(--text-content);display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:52px;min-height:calc(1lh + 2 * var(--nt-input-pad-block));padding:0 18px}
+.nt-input{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-height:calc(1lh + 2 * var(--nt-input-pad-block));--nt-input-pad-inline:calc(18px * var(--acpmux-density, 1));padding:0 var(--nt-input-pad-inline)}
 :root[data-borders=none] .nt-box{--acpmux-card-ring:inset 0 0 0 var(--cmux-hairline,.5px) transparent}
 /* The field wraps a long draft and grows with it (field-sizing; NewTabScreen fits it only in an engine
    without field-sizing) to the shared twelve-line cap (markdownField.css), and never past 40% of the pane; then it scrolls.
@@ -73,6 +73,9 @@
 .nt-card-message{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .nt-card[data-state=error] .nt-card-message,.nt-card[data-state=failed] .nt-card-message{color:var(--agent-danger)}
 .nt-card-age{font-variant-numeric:tabular-nums}
+/* An archived chat (acpmux's cold archive): a muted badge beside its age, and its preview as quiet as the age; nothing else on the card moves. */
+.nt-card-badge{flex:none;padding:0 var(--ds-space-1);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--acpmux-composer-dim);font-size:var(--text-caption);line-height:1.6;white-space:nowrap}
+.nt-cards[data-variant="list"] .nt-card-badge{order:-1}
 .nt-card[data-state=input] .nt-card-message{color:var(--agent-warning,var(--agent-text))}
 /* Hover as Edge draws it (cx-f6i7): the fill eases in fast and clears at once (--agent-motion-hover-out, 0 by default). */
 @media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
@@ -363,7 +366,7 @@
 /* Under Increase Contrast the box's edge is already the text color: focus takes the shared ring,
    following the box's rounded corners (the field draws none, cx-ncc.57). */
 @media (prefers-contrast: more) {
-  .nt-box:focus-within {
+  .nt-box:is(:focus-visible, :has(:focus-visible)) {
     --acpmux-card-ring: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
@@ -397,15 +400,20 @@
 :root,
 .nt-composer,
 .nt-popover {
-  --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--text-content) - 28px) / 2));
+  /* The prompt's room over and under its text: the content size (48 px at Default with 14 px text, the
+     chat composer's box), so it grows with the text, and smaller at a compact density, where the box
+     was too tall. */
+  --nt-input-pad-block: calc(var(--text-content) * min(1, var(--cmux-density-scale, 1)));
+  --nt-composer-inset: max(0px, calc((var(--text-content--line-height) + 2 * var(--nt-input-pad-block) - 28px * var(--cmux-density-scale, var(--cmux-interface-scale, 1))) / 2));
 }
 /* The composer's control tokens (composerLocation.css), restated here so a page that loads only this
    sheet draws the same row. */
 .nt-screen .nt-composer {
-  --acpmux-composer-control: 28px;
-  --acpmux-composer-trail-glyph: 18px;
-  --acpmux-composer-trail-stroke: 1.35;
-  --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-interface-scale, 1));
+  --acpmux-composer-control: calc(28px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-composer-glyph: calc(16px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
+  --acpmux-composer-trail-glyph: var(--acpmux-composer-glyph);
+  --acpmux-composer-trail-stroke: 1.5;
+  --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
   --acpmux-text-drop: calc(var(--text-content) / 14);
   --acpmux-composer-inset: var(--nt-composer-inset);
 }
@@ -447,8 +455,8 @@
 }
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
-  width: 24px;
-  height: 24px;
+  width: calc(24px * var(--acpmux-density, 1));
+  height: calc(24px * var(--acpmux-density, 1));
 }
 /* Send is the mic's plain glyph at the mic's size and weight (Leo 2026-10-21: no disc;
    composerStates.css), the composer's trailing glyph tokens (composerLocation.css). */
@@ -1346,4 +1354,45 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   box-shadow:
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
     var(--acpmux-composer-shadow, var(--elevation-1));
+}
+/* App widgets (cmux.newtab.widget/1, ExtensionWidgets.tsx) sit in the widget row in its own inks and
+   type: a scene's default text is the row's muted caption, so an app's clock reads as the built-in one
+   does; a wide widget takes the row's whole width, as the greeting and the quote do. */
+.nt-ext-widget {
+  --acpmux-session-info-row-radius: var(--ds-radius-md);
+  min-width: 0;
+  color: inherit;
+}
+.nt-ext-widget[data-size="wide"],
+.nt-grid-cell-wide {
+  flex: 1 0 100%;
+}
+.nt-ext-widget .cmux-app-scene-root {
+  color: inherit;
+}
+/* A widget that failed or drew past its limits: its name and why, in the row's quiet ink. */
+.nt-ext-widget-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+/* A cell of the widget row in edit mode moves along the row: it keeps its own width. */
+.nt-extras[data-editing] {
+  align-items: center;
+  row-gap: var(--ds-space-3);
+}
+.nt-grid-frame {
+  width: auto;
+  align-items: flex-start;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: var(--ds-radius-md);
+}
+/* The drop mark is the focus ring's stroke, on the side the widget lands. */
+.nt-grid-frame[data-drop="before"] {
+  box-shadow: calc(-1 * var(--cmux-focus-ring-width, 1.5px)) 0 0 var(--agent-accent, var(--agent-text));
+}
+.nt-grid-frame[data-drop="after"] {
+  box-shadow: var(--cmux-focus-ring-width, 1.5px) 0 0 var(--agent-accent, var(--agent-text));
 }

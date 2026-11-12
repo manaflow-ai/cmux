@@ -5,7 +5,7 @@
 // if you do it for Claude". Lucas, 2026-11-06 (Codex parity): Claude, Gemini and Muse fold a finished
 // turn under "Worked for" as Codex does; Claude's in-place runs are the experiment's `runs` arm.
 import { afterEach, expect, test } from "bun:test";
-import type { AcpmuxRow } from "../model";
+import { SINCE_DIVIDER, type AcpmuxRow } from "../model";
 import { WORKED, turnView } from "./turns";
 import { CLAUDE_IN_PLACE, TURN_FOLD_STYLES, turnFoldStyle } from "./turnFoldStyle";
 
@@ -14,7 +14,7 @@ const inPlace = () => {
   globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
 };
 afterEach(() => {
-  globalThis.cmuxExperiments = undefined;
+  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
 });
 
 const call = (id: string) => ({
@@ -103,14 +103,14 @@ test("claude: Worked for over the conclusion, the chatter and runs folded under 
 
 // Leo, 2026-11-06: "your intermediate message got lost. that can never happen" (turn-fold-keeps-replies.test.ts).
 for (const family of ["claude", "codex", "gemini", "muse"])
-  test(`${family}: a closed fold keeps a reply between two runs in sight, each run on its own line`, () => {
+  test(`${family}: a closed fold keeps a reply between two runs in sight, both runs under it`, () => {
     const rows = drawn(family, new Set(), replied);
     const worked = rows.find((row) => row.kind === WORKED)!;
     expect(worked.foldOpen).toBe(false);
     // The fold hides only calls, so no header counts messages.
     expect(worked.previous).toBeUndefined();
-    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "w1", "n1", "w2", "a"]);
-    expect(rows.filter((row) => row.kind === "activity").every((row) => row.foldRun === true)).toBe(true);
+    // Every call stays under the closed line, as chatgpt.com draws it (turn-fold-hides-every-call.test.ts).
+    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "n1", "a"]);
   });
 
 test("claude, opened: its runs fold per run with the chatter between them", () => {
@@ -169,3 +169,37 @@ for (const family of ["gemini", "muse"])
     expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
     expect(rows.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
   });
+
+// Leo, 2026-11-10: the divider read "sometimes under, sometimes above" a turn's "Worked for".
+const since: AcpmuxRow = {
+  id: SINCE_DIVIDER,
+  version: 1,
+  at: 0,
+  kind: SINCE_DIVIDER,
+  since: { key: "s:1", seq: 1, turns: 1 },
+};
+const opened = new Set([`${WORKED}-p`]);
+
+test("New since you looked draws above Worked for wherever the person left the turn", () => {
+  const places = [
+    [prompt, since, work("w1", 1_000, 2), say("a", 50_000, "Done."), end],
+    [prompt, work("w1", 1_000, 2), since, say("a", 50_000, "Done."), end],
+    [prompt, work("w1", 1_000, 2), since, work("w2", 20_000, 1), say("a", 50_000, "Done."), end],
+  ];
+  for (const rows of places)
+    for (const folds of [new Set<string>(), opened]) {
+      const shown = ids(drawn("codex", folds, rows));
+      expect(shown.indexOf(SINCE_DIVIDER)).toBe(shown.indexOf(`${WORKED}-p`) - 1);
+    }
+});
+
+test("New since you looked goes above a Worked for with no reply after it, at the turn's end", () => {
+  const shown = ids(drawn("codex", new Set(), [prompt, work("w1", 1_000, 1), end, since]));
+  expect(shown.indexOf(SINCE_DIVIDER)).toBe(shown.indexOf(`${WORKED}-p`) - 1);
+});
+
+test("New since you looked stays under a reply the person read", () => {
+  const shown = ids(drawn("codex", new Set(), [prompt, work("w1", 1_000, 1), say("a", 50_000, "Done."), end, since]));
+  expect(shown.indexOf(SINCE_DIVIDER)).toBeGreaterThan(shown.indexOf("a"));
+  expect(shown.indexOf(`${WORKED}-p`)).toBeLessThan(shown.indexOf("a"));
+});

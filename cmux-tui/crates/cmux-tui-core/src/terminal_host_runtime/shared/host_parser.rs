@@ -126,8 +126,12 @@ pub(crate) fn run_host_parser(
     signals: ParserSignals,
 ) {
     let ParserSignals { pending_responses, title_changed, bell, program_status: _ } = signals;
+    // What the legacy (parser-ordered) stream last published. With no
+    // legacy client attached nothing is published, and these two go stale;
+    // the first chunk a legacy client sees reads them again first (below).
     let mut last_colors = initial_colors;
     let mut last_pwd = None;
+    let mut legacy_state_stale = false;
     // The title last sent: one rewritten unchanged is not sent again.
     let mut last_title: Option<String> = None;
     let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
@@ -148,18 +152,30 @@ pub(crate) fn run_host_parser(
     };
     while let Ok(command) = parser_command_receiver.recv() {
         match command {
-            ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
+            ParserCommand::Output { frame, source_cursor, accounted_bytes } => {
+                let bytes = frame.payload.as_slice();
                 let title = {
                     let mut term = parser_host.term.lock().recover_poison();
+                    // A legacy client joins only under this lock (its
+                    // snapshot is taken here), so the answer holds for the
+                    // whole chunk. The smart stream (the daemon) parses the
+                    // raw bytes itself and needs none of the legacy frames.
+                    let legacy = !parser_host.taps.lock().recover_poison().is_empty();
+                    if legacy && legacy_state_stale {
+                        // The new client's snapshot holds the state before
+                        // this chunk: compare this chunk's state with that.
+                        last_colors = term.color_overrides();
+                        last_pwd = term.pwd();
+                        legacy_state_stale = false;
+                    }
                     // A terminal that cannot report cursor activity reports
                     // no cursor change.
-                    let cursor_activity = term.cursor_activity().ok();
+                    let cursor_activity = legacy.then(|| term.cursor_activity().ok());
                     let normalized =
-                        crate::prompt_mode_reset::write_output(&mut term, &bytes, &mut shell_marks)
-                            .into_owned();
+                        crate::prompt_mode_reset::write_output(&mut term, bytes, &mut shell_marks);
                     {
                         let mut metadata = parser_host.terminal_metadata.lock().recover_poison();
-                        metadata.observe_output(&bytes);
+                        metadata.observe_output(bytes);
                         // Whether a running command took the terminal for
                         // interaction, so an adopting daemon still reads it
                         // `in_use` (cx-6so.59).
@@ -172,18 +188,26 @@ pub(crate) fn run_host_parser(
                     if let Some(title) = &title {
                         last_title = Some(title.clone());
                     }
-                    let pwd = term.pwd();
-                    let colors = term.color_overrides();
-                    let cursor_changed = term.cursor_activity().ok() != cursor_activity;
-                    let colors = if colors != last_colors || cursor_changed {
-                        let encoded = encode_terminal_color_overrides(&colors);
-                        last_colors = colors;
-                        Some(encoded)
+                    if let Some(cursor_activity) = cursor_activity {
+                        let pwd = term.pwd();
+                        let colors = term.color_overrides();
+                        let cursor_changed = term.cursor_activity().ok() != cursor_activity;
+                        let colors = if colors != last_colors || cursor_changed {
+                            let encoded = encode_terminal_color_overrides(&colors);
+                            last_colors = colors;
+                            Some(encoded)
+                        } else {
+                            None
+                        };
+                        let pwd = changed_pwd_frame(&mut last_pwd, pwd);
+                        parser_host.broadcast_frames(output_transition_frames(
+                            normalized.into_owned(),
+                            colors,
+                            pwd,
+                        ));
                     } else {
-                        None
-                    };
-                    let pwd = changed_pwd_frame(&mut last_pwd, pwd);
-                    parser_host.broadcast_frames(output_transition_frames(normalized, colors, pwd));
+                        legacy_state_stale = true;
+                    }
                     // After this chunk's Output, so the owner's mirror shows
                     // what the program printed before it asked.
                     parser_host.clipboard.dispatch(&mut term, &parser_host.broadcast_lock);

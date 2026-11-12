@@ -45,9 +45,24 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
+    # lane = "manual" (no new CI tests, CLAUDE.md). It reads the workflows only as data: that each job portable
+    # placement may put on a mini installs PyYAML before it runs Python tests. Run it by hand after adding
+    # such a job. Exit: as below.
+    "tests/test_portable_jobs_bring_their_python.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
+    # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
+    # when the script or that workflow changes. Exit: as below.
+    "tests/test_cargo_locks.py",
+    # lane = "manual" in tests/test-execution.d/ci.toml (no new CI tests, CLAUDE.md). It pins
+    # scripts/cmux-next/check-single-host-fallbacks.py, which the pre-push gate runs strictly and CI runs
+    # with --advisory; it reads the workflows only as that script's data. Exit: as below.
+    "tests/test_ci_single_host_fallbacks.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It checks pool reads against .github/runners.json and that
     # copy against main's; run it by hand when a pool read or the pools change. Exit: as below.
     "tests/test_ci_runner_pools_copy.py",
+    # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows and scripts only as data: which callers
+    # read reload.sh's App path after --build-only without --keep-app. Run it after adding such a caller. Exit: as below.
+    "tests/test_reload_build_only_app_path_readers.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It reads workflows only as data: which files exist and which
     # call a reusable declared workflow, for scripts/ci/hosted_light_rescue.py's scope. Exit: as below.
     "tests/test_ci_hosted_light_rescue.py",
@@ -78,6 +93,10 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It checks that generate-nightly-deltas checks out only scripts/ of the
     # build ref and that the reel's apt install retries; run it by hand after changing either.
     "tests/test_nightly_deltas_sparse_checkout.py",
+    # lane = "manual" for the same rule. It runs the warm nightly-next builder's checkout step from nightly.yml in
+    # a temp workspace that a sparse checkout was left in, and needs the whole tree after it; run it by hand after
+    # changing that step or a sparse checkout in a job that shares the builder's workspace.
+    "tests/test_nightly_warm_checkout_sparse.py",
     # lane = "manual" for the same rule. It reads nightly.yml only to keep the pinned Sparkle key of
     # nightly_next_artifact_check.py equal to NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY; run it by hand when that
     # helper or the workflows that call it change.

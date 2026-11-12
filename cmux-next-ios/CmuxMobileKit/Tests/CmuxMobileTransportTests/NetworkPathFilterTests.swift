@@ -15,6 +15,13 @@ import Testing
         #expect(filter.update(satisfied: true, signature: "en0 via 10.0.0.1") == .changed("en0 via 10.0.0.1"))
     }
 
+    @Test func launchWithNoNetworkIsLostThenChangedWhenItComes() {
+        var filter = NetworkPathFilter()
+        #expect(filter.update(satisfied: false, signature: "") == .lost)
+        #expect(filter.update(satisfied: false, signature: "") == nil)
+        #expect(filter.update(satisfied: true, signature: "en0 via 192.168.1.1") == .changed("en0 via 192.168.1.1"))
+    }
+
     @Test func airplaneModeIsLostThenChangedOnReturn() {
         var filter = NetworkPathFilter()
         _ = filter.update(satisfied: true, signature: "en0 via 192.168.1.1")

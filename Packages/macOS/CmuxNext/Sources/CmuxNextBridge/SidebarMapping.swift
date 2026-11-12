@@ -273,15 +273,6 @@ public struct SidebarMapping {
         name?.split(separator: "/", omittingEmptySubsequences: false).last.map(String.init)
     }
 
-    /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and
-    /// no name from its front tab (`label`, the auto name) beyond the home folder (Leo 2026-10-20:
-    /// "~", "workspace-11" and "workspace-29" rows clutter the sidebar).
-    public static func isUnnamed(_ workspace: WorkspaceModel, label: String?) -> Bool {
-        guard workspace.isUnnamed else { return false }
-        guard let label, !label.isEmpty else { return true }
-        return label == "~"
-    }
-
     /// A daemon checklist item as the sidebar draws it.
     static func checklistItem(_ item: WorkspaceChecklistItem) -> SidebarChecklistItem {
         let state: SidebarChecklistItem.State = switch item.state {
@@ -301,7 +292,7 @@ public struct SidebarMapping {
 
     /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id).
     public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        chatTab(faceTabs(workspace, selectedTab: selectedTab).front, workspace.screens.flatMap(\.panes).flatMap(\.tabs))
+        chatTab(frontTab(workspace, selectedTab: selectedTab), workspace.screens.flatMap(\.panes).flatMap(\.tabs))
     }
 
     static func tabKind(_ kind: TabKind) -> SidebarTabKind {

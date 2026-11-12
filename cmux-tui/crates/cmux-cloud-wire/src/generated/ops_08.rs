@@ -4,6 +4,169 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LinearTeamsListResult {
+    pub teams: Vec<LinearTeamsListResultTeamsItem>,
+}
+
+wire_errors! {
+    /// The error codes linear.teams.list declares.
+    LinearTeamsListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored.
+    MailGetOp {
+        name: "mail.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: MailGetParams,
+        result: Value,
+        error: MailGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailGetParams {
+    pub connection: ConnectionId,
+    pub message_id: String,
+}
+
+wire_errors! {
+    /// The error codes mail.get declares.
+    MailGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Change labels of Gmail messages or a thread (archive, mark read with remove_labels UNREAD).
+    MailModifyOp {
+        name: "mail.modify",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: MailModifyParams,
+        result: Value,
+        error: MailModifyError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailModifyParams {
+    pub connection: ConnectionId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub add_labels: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remove_labels: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive: Option<bool>,
+}
+
+wire_errors! {
+    /// The error codes mail.modify declares.
+    MailModifyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationUnavailable = "integration.unavailable",
+        MutationIndeterminate = "mutation.indeterminate",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Search the connected Gmail mailbox with Gmail query syntax; returns message and thread ids only.
+    MailSearchOp {
+        name: "mail.search",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: MailSearchParams,
+        result: Value,
+        error: MailSearchError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailSearchParams {
+    pub connection: ConnectionId,
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_results: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_token: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes mail.search declares.
+    MailSearchError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Send a plain-text email from the connected Gmail account.
+    MailSendOp {
+        name: "mail.send",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "send-external",
+        principals: [Session, Install],
+        params: MailSendParams,
+        result: Value,
+        error: MailSendError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailSendParams {
+    pub connection: ConnectionId,
+    pub to: Vec<EmailAddress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cc: Option<Vec<EmailAddress>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bcc: Option<Vec<EmailAddress>>,
+    pub subject: String,
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<String>,
+}
+
 wire_errors! {
     /// The error codes mail.send declares.
     MailSendError {
@@ -728,175 +891,6 @@ wire_errors! {
         AuthUnauthenticated = "auth.unauthenticated",
         IdempotencyConflict = "idempotency.conflict",
         RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Add a tapback or emoji reaction to a message part (one per author, part and kind).
-    ReactionAddOp {
-        name: "reaction.add",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: ReactionAddParams,
-        result: HomeConversationCommit,
-        error: ReactionAddError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ReactionAddParams {
-    pub conversation: ConversationId,
-    pub message_id: MessageId,
-    pub part_index: i64,
-    pub reaction: HomeReactionKind,
-}
-
-wire_errors! {
-    /// The error codes reaction.add declares.
-    ReactionAddError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        DuplicateReaction = "duplicate_reaction",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidPartIndex = "invalid_part_index",
-        InvalidReaction = "invalid_reaction",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        Retracted = "retracted",
-        UnknownConversation = "unknown_conversation",
-        UnknownMessage = "unknown_message",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Remove one of your reactions.
-    ReactionRemoveOp {
-        name: "reaction.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ReactionRemoveParams,
-        result: HomeConversationCommit,
-        error: ReactionRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ReactionRemoveParams {
-    pub conversation: ConversationId,
-    pub message_id: MessageId,
-    pub part_index: i64,
-    pub reaction: HomeReactionKind,
-}
-
-wire_errors! {
-    /// The error codes reaction.remove declares.
-    ReactionRemoveError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownMessage = "unknown_message",
-        UnknownReaction = "unknown_reaction",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Move your read cursor forward (monotonic, at most last_seq). Recommended key: read:<seq>.
-    ReadCursorSetOp {
-        name: "read_cursor.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: ReadCursorSetParams,
-        result: HomeConversationCommit,
-        error: ReadCursorSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ReadCursorSetParams {
-    pub conversation: ConversationId,
-    pub seq: i64,
-}
-
-wire_errors! {
-    /// The error codes read_cursor.set declares.
-    ReadCursorSetError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        CursorOutOfRange = "cursor_out_of_range",
-        CursorRegression = "cursor_regression",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Hide a message request; with block, also hide and never email later invites from its sender. The sender is not told.
-    RequestDismissOp {
-        name: "request.dismiss",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConversationDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: RequestDismissParams,
-        result: RequestDismissResult,
-        error: RequestDismissError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RequestDismissParams {
-    pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub block: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RequestDismissResult {
-    pub dismissed: bool,
-    pub blocked: bool,
-}
-
-wire_errors! {
-    /// The error codes request.dismiss declares.
-    RequestDismissError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownInvite = "unknown_invite",
         ValidationInvalid = "validation.invalid",
     }
 }

@@ -13,11 +13,13 @@
 # Needs the pinned bun and node 22.18+ (the fleet hosts and the web bundles CI
 # job have both).
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d)
 src="$TMP/src"
 cleanup() { git -C "$ROOT" worktree remove --force "$src" >/dev/null 2>&1 || true; rm -rf "$TMP"; }
-trap cleanup EXIT
+git_fixture_trap_exit cleanup
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 git_q() { git -c user.name=t -c user.email=t@example.com -c core.hooksPath=/dev/null "$@" >/dev/null 2>&1; }
 
@@ -25,7 +27,7 @@ git_q -C "$ROOT" worktree add --detach "$src" HEAD || fail "cannot add a scratch
 # The scripts under test come from this checkout, committed or not.
 for f in scripts/cmux-next/build-web-bundles.sh scripts/cmux-next/build-pages-web.sh \
   scripts/cmux-next/build-optchat-inspector-web.sh scripts/cmux-next/web-bundle-key.py \
-  scripts/check-webviews-bun-version.sh \
+  scripts/check-webviews-bun-version.sh scripts/webviews_bun_version.py \
   webviews/scripts/pages/gen-strings.mjs .gitignore; do
   cp "$ROOT/$f" "$src/$f"
 done

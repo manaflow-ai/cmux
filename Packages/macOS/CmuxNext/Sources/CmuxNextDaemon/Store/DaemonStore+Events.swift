@@ -293,8 +293,8 @@ extension DaemonStore {
             clearPresence()
             return .resync
 
-        case .titleChanged(let surface, let title):
-            tabsBySurface[surface]?.setTitle(title)
+        case .titleChanged(let surface, let title, let activity):
+            tabsBySurface[surface]?.setTitle(title, activity: activity)
             return .none
         case .surfaceResized(let surface, let size):
             tabsBySurface[surface]?.setSize(size)

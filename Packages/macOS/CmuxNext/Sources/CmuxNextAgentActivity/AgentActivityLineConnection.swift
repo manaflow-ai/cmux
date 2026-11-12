@@ -231,7 +231,13 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
 /// The cancel action of one `oneShot` call. `fire` may come before `arm` (a task cancelled before
 /// the call began): `arm` then runs the action at once and says so.
 private nonisolated final class CancelBox: Sendable {
-    private let state = Mutex<(fired: Bool, action: (@Sendable () -> Void)?)>((false, nil))
+    /// A struct, not a tuple: `withLock` would wrap a closure held in a tuple in two more thunks per call (#40144).
+    private nonisolated struct State: Sendable {
+        var fired = false
+        var action: (@Sendable () -> Void)?
+    }
+
+    private let state = Mutex(State())
 
     func arm(_ action: @escaping @Sendable () -> Void) -> Bool {
         let fired = state.withLock { state in

@@ -59,6 +59,8 @@ final class HoverCardPanel: NSPanel {
     /// The window's clear band around the card: the shadow band plus the slide's room.
     static var windowMargin: CGFloat { PopupStyle.standard.shadowMargin + travel }
     private(set) weak var body: NSView?
+    /// Hears the pointer in the window's clear band (``HoverCardPanel/pointerMovedInBand()``).
+    let bandTracker = HoverCardBandTracker()
     /// The body's edges pinned to the card (the card fits its body), and its fitted size, held
     /// while a morph lays the card out larger (`HoverCardPanel+Morph.swift`).
     var edgeConstraints: [NSLayoutConstraint] = []
@@ -70,8 +72,6 @@ final class HoverCardPanel: NSPanel {
     /// The current press began in the clear band around the card: it and its drags and release
     /// go to the parent window (`HoverCardPanel+ClickThrough.swift`).
     var forwardsPress = false
-    /// Recomputes the parent's hover on pointer moves in the clear band (`HoverCardPanel+PointerBand.swift`).
-    var bandRelay: HoverCardBandRelay?
     /// A `.beside` card sits left of its target (no room on its right: a sidebar on the right).
     private(set) var isLeading = false
     /// The card's frame on screen at rest, while a morph lays the window out larger.
@@ -109,6 +109,9 @@ final class HoverCardPanel: NSPanel {
         let host = adoptPopupStyle(card: glass)
         host.travelMargin = Self.travel
         host.cornerRadius = Self.cornerRadius
+        bandTracker.panel = self
+        host.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                                            owner: bandTracker))
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
         // A no-activate test run is never active; its cards must still show.
@@ -214,8 +217,6 @@ final class HoverCardPanel: NSPanel {
         isInteractive = interactive
         ignoresMouseEvents = !interactive
         acceptsMouseMovedEvents = interactive
-        // The pointer in the clear band hovers what is under it (`HoverCardPanel+PointerBand.swift`).
-        if interactive { installBandRelayIfNeeded() }
         // The card draws in the theme scope of the view it describes and
         // follows that scope's changes while it shows, at full strength even
         // over an unfocused pane's subtle strip.
@@ -333,10 +334,14 @@ final class HoverCardPanel: NSPanel {
     }
 
     /// The body's size changed (a resources row appeared).
-    func refit() {
+    func refit(animated: Bool = false) {
         guard isShowingCard else { return }
+        // What is drawn now, read before a morph in flight lays its card out at rest (as `present` does).
+        let previous = animated ? presentedCardFrame : nil
         finishMorph()
         place()
+        // The same morph a retarget to another size runs: the mask grows or folds about the fixed corner.
+        if let previous { _ = morph(from: previous) }
     }
 
     func place() {

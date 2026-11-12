@@ -162,6 +162,16 @@
     "class": "format",
     "source": "%1$@: %2$@"
   },
+  "appHealth.line": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
+  "sidebar.restoring.details": {
+    "source": "Details",
+    "identityLocales": {
+      "de": "Details is the standard German word for details; a translated entry is still required."
+    }
+  },
   "agent.kimi.displayName": {
     "source": "Kimi Code",
     "identityLocales": {
@@ -7403,6 +7413,20 @@
   "settings.choice.dictationSourceSuperwhisper": {
     "class": "brand",
     "source": "Superwhisper"
+  },
+  "argument.value.dividerInsertKind.terminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.value.dividerInsertKind.browser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
   },
   "settings.updates.liveWebReload": {
     "class": "brand",

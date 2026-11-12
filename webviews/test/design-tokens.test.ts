@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
+  findTokenOnlyViolations,
   hasRawColor,
   inlineStyleFindings,
   isOutsideScale,
   ratchetErrors,
   tokenLiteralKind,
+  tokenOnlyFindings,
+  tokenOnlyKind,
 } from "../scripts/check-design-tokens";
 
 describe("design token ratchet", () => {
@@ -101,5 +104,41 @@ describe("design token ratchet", () => {
     expect(ratchetErrors(new Map([[id, 1]]), new Map())[0]).toContain("new design token violation");
     expect(ratchetErrors(new Map([[id, 1]]), new Map([[id, 1]]))).toEqual([]);
     expect(ratchetErrors(new Map(), new Map([[id, 1]]))[0]).toContain("baseline can shrink");
+  });
+});
+
+// Token-only surfaces (check-design-tokens.ts TOKEN_ONLY_FILES): the unread marker and the jump
+// pair are built from tokens alone (cmuxterm-hq docs/handbook/feature-thrown-in-without-design.md).
+describe("token-only surfaces", () => {
+  test.each([
+    ["--cv-since-tint", "var(--cmux-status-unread, #3982f5)", "a colour literal"],
+    ["color", "rgba(0, 0, 0, 0.4)", "a colour literal"],
+    ["transition", "opacity 120ms ease-out", "a duration literal"],
+    ["transition", "opacity var(--agent-motion-in, 120ms) var(--agent-ease-out)", "a duration literal"],
+    ["transition", "opacity var(--agent-motion-in) cubic-bezier(0, 0, 0.58, 1)", "an easing literal"],
+    ["border-radius", "6px", "a radius that is not a token"],
+  ] as const)("refuses %s: %s", (property, value, why) => {
+    expect(tokenOnlyKind(property, value)).toBe(why);
+  });
+
+  test.each([
+    ["color", "var(--unread-accent-text)"],
+    ["--unread-wash", "color-mix(in srgb, var(--agent-text) 6%, transparent)"],
+    ["transition", "opacity var(--agent-motion-calm) var(--agent-ease-out)"],
+    ["border-radius", "var(--ds-radius-control)"],
+    ["border-top", "var(--cmux-hairline-ring) solid var(--unread-accent)"],
+  ] as const)("accepts %s: %s", (property, value) => {
+    expect(tokenOnlyKind(property, value)).toBeUndefined();
+  });
+
+  test("a component's colour literal is refused outside comments only", () => {
+    const source = `// #3982f5 in a comment\nconst style = { color: "#3982f5" };\n`;
+    const findings = tokenOnlyFindings("x.tsx", source);
+    expect(findings.map((finding) => finding.line)).toContain(2);
+    expect(findings.some((finding) => finding.line === 1)).toBe(false);
+  });
+
+  test("the unread marker and the jump pair use tokens only", () => {
+    expect(findTokenOnlyViolations().map((f) => `${f.file}:${f.line} ${f.property}: ${f.value}`)).toEqual([]);
   });
 });

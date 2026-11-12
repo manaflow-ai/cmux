@@ -145,7 +145,7 @@ import Testing
         let folder = SettingsSchemaExportTests.repoRoot.appending(path: "Resources/theme-files", directoryHint: .isDirectory)
         let home = try Home()
         let names = ThemeFileSetting.names(configDirectory: home.url, bundled: folder)
-        #expect(names.contains("harbor"))
+        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal"] { #expect(names.contains(look), "\(look)") }
         for name in names {
             let source = try #require(ThemeFileOverlay.source(named: name, configDirectory: home.url, bundled: folder))
             let overlay = ThemeFileOverlay(name: name, source: source, base: .object([:]), folder: home.themes)

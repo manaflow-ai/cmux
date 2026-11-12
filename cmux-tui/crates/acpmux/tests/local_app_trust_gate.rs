@@ -44,6 +44,7 @@ fn paths(d: &Path) -> Paths {
         record: d.join("home").join("trust.json"),
         agent_home: Some(d.join("agent-home")),
         cmux_worktrees: Some(d.join("home").join(".cmux").join("worktrees")),
+        peer_scratch: None,
     }
 }
 
@@ -549,5 +550,28 @@ async fn a_peer_request_for_the_app_waits_and_a_peers_own_does_not() {
     // The peer's own user (its unix socket): the peer judges, as today.
     let r = peer.call("session/prompt", p("peer-own-user", None)).await;
     assert!(r.get("error").is_none(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A side question a machine's cmux-tui asks for the app's pane (`agent-session-btw`, over the
+/// unix socket marked `via: app`) is held by the folder's trust as the app's own: in a pending
+/// or untrusted folder it opens no side session.
+#[tokio::test]
+async fn an_inline_side_question_for_the_app_waits_for_the_folders_trust() {
+    let d = dir("btw");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let work = d.join("work");
+    let s = local.new_session(&work, "fclaude").await;
+    let ask = json!({"sessionId": s, "question": "why?", "inline": true,
+                     "_meta": {"acpmux": {"via": "app"}}});
+    let before = hub.sessions().len();
+    let r = local.call("_acpmux/btw", ask.clone()).await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    app.trust(&work, "untrusted").await;
+    let r = local.call("_acpmux/btw", ask).await;
+    assert_eq!(reason(&r), "trust.untrusted", "{r}");
+    assert_eq!(hub.sessions().len(), before, "a held side question opens nothing");
     let _ = std::fs::remove_dir_all(&d);
 }

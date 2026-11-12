@@ -48,7 +48,14 @@ import "../../src/agent-session/acpmux/markdownField.css";
 
 const query = new URLSearchParams(location.search);
 const arm = query.get("arm");
-if (arm) globalThis.cmuxExperiments = { "follow-motion": arm };
+// `liveTurnWork=runs`: the arm of live-turn-work for a test of a finished run in a running turn
+// (test/support/liveTurnRuns.ts). This page loads when open120Hz makes it, before an init script can run.
+const liveTurnWork = query.get("liveTurnWork");
+if (arm || liveTurnWork)
+  globalThis.cmuxExperiments = {
+    ...(arm ? { "follow-motion": arm } : {}),
+    ...(liveTurnWork ? { "live-turn-work": liveTurnWork } : {}),
+  };
 if (query.get("motion") === "off") {
   document.documentElement.dataset.agentMotion = "off";
   document.documentElement.dataset.cmuxMotion = "off";
@@ -131,6 +138,8 @@ export type Sample = {
   eventAt: number;
   /// When the reader's scripted wheel landed, once it has (`run`'s `wheel`), ms.
   wheeledAt?: number;
+  /// When the reader scrolled back down to the latest row, once they have (`wheel.backMs`), ms.
+  backAt?: number;
   /// Finite animations running this frame, anywhere in the transcript (a looping shimmer is no motion).
   animations: number;
   /// Animations started since the run began (CSS animations and Web Animations), cumulative.
@@ -151,9 +160,18 @@ export type RowSample = {
   moving: boolean;
   /// The row's first words, for the report.
   text: string;
+  /// The row's top in the thread's layout, px: where it lies in the thread, no translate.
+  layoutTop?: number;
+  /// How far a translate on the row draws it from its layout this frame (a fold's or a glide's), px.
+  offset?: number;
 };
 
 const sampleRows = query.get("rows") === "1";
+/// `?rows=end` (send-stream-motion.test.ts): the rows only from the turn's end on, on the frame's one
+/// sampler, so the frames before it read as they always did; the frame before the end gets its rows
+/// as the end step begins (nothing has drawn since that frame).
+const rowsAtEnd = query.get("rows") === "end";
+const endPhase = (name: string) => name === "end" || name === "after";
 // `?tailGlide=`: how the rows under a change move (tailGlide.ts looks), for the arms' numbers.
 const tailLook = query.get("tailGlide");
 if (tailLook) document.documentElement.setAttribute("data-tail-glide", tailLook);
@@ -162,7 +180,7 @@ const foldLookParam = query.get("foldLook");
 if (foldLookParam) document.documentElement.setAttribute("data-fold-look", foldLookParam);
 
 /// The rows mounted this frame (RowSample's fields).
-function rowSamples(scroller: HTMLElement): RowSample[] {
+function rowSamples(scroller: HTMLElement, thread: HTMLElement): RowSample[] {
   const view = scroller.getBoundingClientRect();
   const animated = new Set<Element>();
   const moving = new Set<Element>();
@@ -178,7 +196,9 @@ function rowSamples(scroller: HTMLElement): RowSample[] {
   for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
     const box = row.getBoundingClientRect();
     if (box.height === 0) continue;
-    let opacity = Number.parseFloat(getComputedStyle(row).opacity);
+    const style = getComputedStyle(row);
+    let opacity = Number.parseFloat(style.opacity);
+    const offset = style.translate === "none" ? 0 : Number.parseFloat(style.translate.split(" ")[1] ?? "") || 0;
     const inner =
       row.querySelector<HTMLElement>(".acpmux-row__message-presentation") ?? row.firstElementChild?.nextElementSibling;
     if (inner instanceof HTMLElement) opacity *= Number.parseFloat(getComputedStyle(inner).opacity);
@@ -191,6 +211,8 @@ function rowSamples(scroller: HTMLElement): RowSample[] {
       moving: moving.has(row),
       inView: box.bottom > view.top && box.top < view.bottom,
       text: (row.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 48),
+      layoutTop: row.offsetTop - (row.offsetParent === thread ? 0 : thread.offsetTop),
+      offset,
     });
   }
   return out;
@@ -226,6 +248,8 @@ let phase: Phase = "idle";
 let eventAt = 0;
 /// When the reader's scripted wheel landed (`run`'s `wheel`), on the page's clock.
 let wheeledAt: number | undefined;
+/// When the reader scrolled back down to the latest row (`run`'s `wheel.backMs`).
+let backAt: number | undefined;
 let sampling = false;
 
 // The frame callback resizes a sentinel; its ResizeObserver runs after this frame's layout, after
@@ -272,10 +296,15 @@ const sampleFrame = () => {
     length,
     eventAt,
     ...(wheeledAt !== undefined && { wheeledAt }),
+    ...(backAt !== undefined && { backAt }),
     animations: document.getAnimations().filter((animation) => animation.playState === "running" && finite(animation))
       .length,
     started,
-    ...(sampleRows && { rows: rowSamples(scroller), composer: dock, line: lineSample() }),
+    ...((sampleRows || (rowsAtEnd && endPhase(phase))) && {
+      rows: rowSamples(scroller, thread),
+      composer: dock,
+      line: lineSample(),
+    }),
   });
 };
 // A row sample reads the rows where the frame paints them: its observer comes after the
@@ -345,8 +374,9 @@ async function run({
   settleMs?: number;
   /// The reader wheels up `px` px, `afterMs` after the step `at` begins (row-arrival-settle.test.ts:
   /// their input holds every motion where it is drawn): a wheel event on the transcript, then the
-  /// scroll it makes, in one task, as a wheel the page does not cancel scrolls.
-  wheel?: { at: string; afterMs: number; px: number };
+  /// scroll it makes, in one task, as a wheel the page does not cancel scrolls. With `backMs`, the
+  /// reader wheels back down to the latest row that long after (chat-scroll-back-still.test.ts).
+  wheel?: { at: string; afterMs: number; px: number; backMs?: number };
 }) {
   await loadHighlightedCode();
   // fixed-wait: the history's rows measure over the first frames
@@ -354,6 +384,7 @@ async function run({
   samples.length = 0;
   started = 0;
   wheeledAt = undefined;
+  backAt = undefined;
   if (sampleRows && !lateSampler) (lateSampler = new ResizeObserver(sampleFrame)).observe(sentinel);
   sampling = true;
   // fixed-wait: the frames before the turn are sampled as its rest
@@ -364,6 +395,14 @@ async function run({
     frame: nextFrame,
     step: (name) => {
       phase = name;
+      if (rowsAtEnd && name === "end" && sampling) {
+        const last = samples.at(-1);
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+        if (last && scroller && thread) last.rows = rowSamples(scroller, thread);
+      }
+      // A capture driving the page frame by frame (turn-end-stills.test.ts) hears each step.
+      (window as unknown as { __onStep?: (name: string) => void }).__onStep?.(name);
       eventAt = performance.now();
       if (wheel?.at === name)
         // fixed-wait: the reader's wheel lands at a scripted point in the step's motion
@@ -374,6 +413,21 @@ async function run({
           );
           scroller.scrollTop -= wheel.px;
           wheeledAt = performance.now();
+          if (wheel.backMs !== undefined)
+            // fixed-wait: the reader reads where they wheeled to, then wheels back down
+            setTimeout(() => {
+              const end = scroller.scrollHeight - scroller.clientHeight;
+              scroller.dispatchEvent(
+                new WheelEvent("wheel", {
+                  deltaY: end - scroller.scrollTop,
+                  deltaMode: 0,
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+              scroller.scrollTop = end;
+              backAt = performance.now();
+            }, wheel.backMs);
         }, wheel.afterMs);
     },
     chars,

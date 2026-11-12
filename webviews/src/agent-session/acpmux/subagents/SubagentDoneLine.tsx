@@ -4,7 +4,10 @@
 // (conversation/BackgroundTaskNote.tsx). A failure says so in the danger color; a subagent the
 // person stopped, or acpmux lost, says that, and a stopped one says why when the pane knows
 // ("stopped by you", "interrupted by Send now"; subagentFold.ts `stopReasonOf`), nothing when it
-// does not. A click opens the subagent's view, its whole run. On hover, a subagent that did not
+// does not. Its name is a link chip, the line's one control: a click on it opens the subagent's view,
+// its whole run, and pointing at it lights the chip alone, never the whole line (Leo, 2026-11-05:
+// "subagents need to have their clickable bit be highlighted instead of the whole line click sending
+// me to the subagent righ split"). On hover, a subagent that did not
 // finish offers Restart, which asks the chat to run it again with its prompt (restart.ts), in the
 // hover row's buttons (conversation/MessageActions.tsx). The line keeps the transcript's one row
 // grammar (design/chat-transcript.md "One row grammar"): the icon and the sentence, then the
@@ -30,7 +33,7 @@ import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRo
 import { spanDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
-import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
+import { ReactionMark } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { AgentIdentity } from "./AgentIdentity";
@@ -163,6 +166,7 @@ function DoneLine({
   // button's name still read the whole line with it.
   const whole = (waiting ? parts : [...head, ...(time ? [time] : []), ...(error ? [error] : [])]).join(" · ");
   const shown = note?.version === row.version ? note : undefined;
+  const openLabel = t("subagents.open", { name });
   // A failed line in the quiet looks (Leo, 2026-11-03: "this ui is pretty awkward looking"): its
   // title in plain text and its reason muted, red only on its mark; the grid arm also lines its
   // columns up from row to row: mark | title | short reason | Retry | time.
@@ -242,7 +246,6 @@ function DoneLine({
             </div>
           }
         />
-        <ReactionReply reaction={agent.reaction} />
       </div>
     );
   const inline = action && affordance !== "menu" && (
@@ -262,14 +265,12 @@ function DoneLine({
         className="cv-tool cv-subagent-done-row"
         attributes={{ "data-state": waiting ? "retrying" : agent.state, ...(look && { "data-look": look }) }}
       >
-        <button
-          type="button"
+        {/* No control itself: only its name opens the view (the chip below). */}
+        <div
           className="cv-tool cv-bgtask cv-subagent-done cv-agent-activity__control"
           data-state={waiting ? "retrying" : agent.state}
           {...(agent.stopReason && { "data-reason": agent.stopReason })}
           aria-label={whole}
-          disabled={!open}
-          onClick={() => open?.(agent.id)}
         >
           <span className="cv-tool__icon">
             <AgentIdentity
@@ -282,14 +283,23 @@ function DoneLine({
           {quiet ? (
             // tooltip-allow: the line cuts its title and reason; its whole text, the failure included
             <span className="cv-tool__text cv-subagent-failed__text" title={whole}>
-              <span className="cv-subagent-failed__title">{name}</span>
+              {open ? (
+                <AgentTag
+                  name={name}
+                  className="cv-subagent-failed__title"
+                  ariaLabel={openLabel}
+                  onClick={() => open(agent.id)}
+                />
+              ) : (
+                <span className="cv-subagent-failed__title">{name}</span>
+              )}
               {reason && <span className="cv-subagent-failed__reason">{reason}</span>}
             </span>
           ) : (
             /* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */
             <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
               {!waiting && before}
-              <AgentTag name={name} />
+              <AgentTag name={name} ariaLabel={openLabel} onClick={open && (() => open(agent.id))} />
               {!waiting && after}
               {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
               {parts.length > 1 && (
@@ -297,7 +307,7 @@ function DoneLine({
               )}
             </span>
           )}
-        </button>
+        </div>
         {inline}
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
         {(restart || action) && (
@@ -343,8 +353,9 @@ function DoneLine({
             <ChevronRight size={14} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
           </button>
         ) : (
-          /* The chevron only marks that the line opens; the line's button is the one control. Its
-             column holds on a line that opens nothing, so the columns still line up. */
+          /* The chevron only marks that the name opens; the chip is the one control, and the
+             chevron lights with it. Its column holds on a line that opens nothing, so the columns
+             still line up. */
           <span
             className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
             aria-hidden
@@ -363,9 +374,6 @@ function DoneLine({
         </div>
       )}
       {preview && shownReport && <ReportPreview report={shownReport} onOpenView={open && (() => open(agent.id))} />}
-      {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
-          never only in a tooltip (cmux#33538). */}
-      <ReactionReply reaction={agent.reaction} />
     </div>
   );
 }

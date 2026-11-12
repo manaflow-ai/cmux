@@ -634,8 +634,8 @@ def why(record):
 
 
 # A subagent's line, by what opens it: its finished transcript line (SubagentDoneLine.tsx), then its running-tray
-# line (AgentLine.tsx). Enabled ones only: a line with nothing to open is disabled and its click opens nothing.
-SUBAGENT_LINES = ("button.cv-subagent-done:not([disabled])", "button.acpmux-agent-line__button:not([disabled])")
+# line (AgentLine.tsx). A finished line opens from its name chip alone; a line with nothing to open has no chip button.
+SUBAGENT_LINES = (".cv-subagent-done button.cv-agent-tag.is-open", "button.acpmux-agent-line__button:not([disabled])")
 NO_MATCH = "no visible element matches"
 
 

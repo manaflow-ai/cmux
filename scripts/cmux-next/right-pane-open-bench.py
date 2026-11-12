@@ -122,7 +122,7 @@ APP_ON_PEER = "bench-mac"
 # The header's quick actions by id (webviews acpmux header/quickActions.ts, ChatHeaderTools `data-quick-action`).
 QUICK = {"terminal": "terminal", "browser": "browser", "changes": "changes", "files": "files", "new_tab": "newTab"}
 # A subagent's line in the transcript (chat-open-bench.py's SUBAGENT_LINES): by its name or task first.
-SUBAGENT_LINES = ("button.cv-subagent-done:not([disabled])", "button.acpmux-agent-line__button:not([disabled])")
+SUBAGENT_LINES = (".cv-subagent-done button.cv-agent-tag.is-open", "button.acpmux-agent-line__button:not([disabled])")
 NO_MATCH = "no visible element matches"
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import cliGenerated from "../data/next-docs/cli-reference.generated.json";
 import paletteGenerated from "../data/next-docs/palette-reference.generated.json";
 import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
-import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath } from "../data/next-docs/pages";
+import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
 import { sitemapEntries } from "../app/sitemap";
 import {
@@ -64,6 +64,21 @@ describe("cmux-next docs", () => {
     const broken = nextDocPages.flatMap((page) => (page.links ?? []).filter((slug) => !nextDocPage(slug)).map((slug) => `${page.slug} -> ${slug}`));
     expect(broken).toEqual([]);
     expect(nextDocHref("getting-started")).toBe("/docs/next");
+  });
+
+  // The architecture page points at folders and files; a move or rename must not leave it
+  // linking to nothing, and a file links under blob, a folder under tree.
+  test("every repository path a page links to exists and is the kind it says", () => {
+    const wrong = nextDocPages.flatMap((page) =>
+      page.body.flatMap((block) => ("files" in block ? block.files : []))
+        .filter((file) => {
+          const full = join(repo, file.path);
+          return !existsSync(full) || statSync(full).isDirectory() !== (file.kind === "folder");
+        })
+        .map((file) => `${page.slug}: ${file.path} (${file.kind})`));
+    expect(wrong).toEqual([]);
+    expect(repoSourceHref("cmux-tui/docs", "folder")).toBe("https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/cmux-tui/docs");
+    expect(repoSourceHref("cmux-tui/spec/resource-api-v2.md", "file")).toBe("https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/spec/resource-api-v2.md");
   });
 
   test("the settings reference is fresh against the settings schema", () => {

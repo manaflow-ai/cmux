@@ -26,13 +26,11 @@ final class SidebarUpdatedNotesPopover {
     static let id = HoverTargetID("sidebar:updated-notes")
     /// How long the pointer rests on the card before the popover opens.
     static var openDelay: Duration { .milliseconds(280) }
-    /// How often the close looks again while the pointer is in the seam between the card and the popover.
+    /// How often the close looks again while the pointer may still be on its way to the card or the popover.
     static var seamRecheck: Duration { .milliseconds(16) }
-    /// The longest a pointer resting in the seam keeps the popover open.
+    /// The longest the pointer may take on its way (in the seam, or aiming at the other one) before the
+    /// popover closes.
     static var seamLimit: Duration { .milliseconds(250) }
-    /// How far past the card's edge, toward the popover, the seam reaches (the popover's one-pixel gap
-    /// and a hand that overshoots it a little).
-    static var seamWidth: CGFloat { 4 }
     /// The popover is at most this share of its window's height; the page scrolls inside it.
     static var maxHeightFraction: CGFloat { 0.6 }
 
@@ -90,7 +88,7 @@ final class SidebarUpdatedNotesPopover {
             return
         }
         openTimer.cancel()
-        closeIfLeftBoth()
+        closeIfLeftBoth(from: screenPointer())
     }
 
     /// The popover shows (or is opening).
@@ -167,16 +165,33 @@ final class SidebarUpdatedNotesPopover {
     }
 
     /// What the popover does with the pointer at `pointer` (screen points), the card at `card` and the
-    /// popover at `notes`.
-    static func closeStep(pointer: CGPoint, card: CGRect, notes: CGRect) -> CloseStep {
+    /// popover at `notes`. `from` is where the pointer left the one it was on (`towardNotes`: the card): a
+    /// pointer inside the triangle from there to the facing edge of the other one is aiming at it (a slanted move from
+    /// the card up into a popover pushed above it, as the popover's rest clamps it into the window),
+    /// so the close waits for it; anywhere else (the sidebar's rows, the content) it closes now.
+    static func closeStep(pointer: CGPoint, card: CGRect, notes: CGRect, from: CGPoint? = nil, towardNotes: Bool = true) -> CloseStep {
         if card.contains(pointer) || notes.contains(pointer) { return .stay }
-        // The strip between the card's edge and the popover's facing edge, as tall as both overlap.
         let right = notes.minX >= card.midX
-        let minX = right ? card.maxX : notes.maxX
-        let maxX = right ? notes.minX : card.minX
-        let seam = CGRect(x: minX - seamWidth / 2, y: max(card.minY, notes.minY),
-                          width: max(0, maxX - minX) + seamWidth, height: max(0, min(card.maxY, notes.maxY) - max(card.minY, notes.minY)))
-        return seam.contains(pointer) ? .wait : .close
+        // The gap between the card's edge and the popover's facing edge, as tall as both overlap.
+        let gapMinX = right ? card.maxX : notes.maxX
+        let gapMaxX = right ? notes.minX : card.minX
+        let seam = CGRect(x: gapMinX - 1, y: max(card.minY, notes.minY), width: max(0, gapMaxX - gapMinX) + 2,
+                          height: max(0, min(card.maxY, notes.maxY) - max(card.minY, notes.minY)))
+        if seam.contains(pointer) { return .wait }
+        guard let from else { return .close }
+        // Aiming at the other one: the popover's facing edge from the card, or the card's from the popover.
+        let target = towardNotes ? notes : card
+        let edgeX = towardNotes ? (right ? notes.minX : notes.maxX) : (right ? card.maxX : card.minX)
+        let aim = (from, CGPoint(x: edgeX, y: target.minY), CGPoint(x: edgeX, y: target.maxY))
+        return Self.triangle(aim, contains: pointer) ? .wait : .close
+    }
+
+    /// `point` is inside (or on an edge of) the triangle `t`.
+    static func triangle(_ t: (CGPoint, CGPoint, CGPoint), contains point: CGPoint) -> Bool {
+        func side(_ a: CGPoint, _ b: CGPoint) -> CGFloat { (b.x - a.x) * (point.y - a.y) - (b.y - a.y) * (point.x - a.x) }
+        let d1 = side(t.0, t.1), d2 = side(t.1, t.2), d3 = side(t.2, t.0)
+        let negative = d1 < 0 || d2 < 0 || d3 < 0, positive = d1 > 0 || d2 > 0 || d3 > 0
+        return !(negative && positive)
     }
 
     private var cardScreenFrame: CGRect? {
@@ -188,22 +203,32 @@ final class SidebarUpdatedNotesPopover {
     /// geometry, not ``cardHovered``: the card's hover may hear the pointer arrive after this does.
     private func pointerLeftNotes() {
         guard !cardHovered else { return }
-        closeIfLeftBoth()
+        closeIfLeftBoth(from: screenPointer(), towardNotes: false)
     }
 
-    /// Closes the popover now when the pointer is on neither the card nor the popover; in the seam
-    /// between them it looks again each frame, up to ``seamLimit``.
-    private func closeIfLeftBoth(waited: Duration = .zero) {
+    /// Closes the popover now when the pointer is on neither the card nor the popover. On its way to
+    /// one of them (the seam, or aiming at it from `from`) it looks again each frame, up to
+    /// ``seamLimit`` from `since`. On the card while the card's hover says it is not (its hover can
+    /// lag the geometry), it keeps looking until the hover catches up or the pointer leaves: nothing
+    /// else would close it then.
+    private func closeIfLeftBoth(from: CGPoint? = nil, towardNotes: Bool = true, since: ContinuousClock.Instant = .now) {
         closeTimer.cancel()
         guard isShown, let notes = frame else { return }
-        let step = cardScreenFrame.map { Self.closeStep(pointer: screenPointer(), card: $0, notes: notes) } ?? .close
-        switch step {
-        case .stay: return
-        case .wait where waited < Self.seamLimit:
-            closeTimer.schedule(after: Self.seamRecheck) { @MainActor [weak self] in
+        let pointer = screenPointer()
+        let step = cardScreenFrame.map { Self.closeStep(pointer: pointer, card: $0, notes: notes, from: from, towardNotes: towardNotes) } ?? .close
+        let recheck = { [weak self] in
+            self?.closeTimer.schedule(after: Self.seamRecheck) { @MainActor [weak self] in
                 guard let self, !self.cardHovered else { return }
-                self.closeIfLeftBoth(waited: waited + Self.seamRecheck)
+                self.closeIfLeftBoth(from: from, towardNotes: towardNotes, since: since)
             }
+        }
+        switch step {
+        case .stay:
+            // In the popover its own exit takes over; on the card with its hover off, nothing would.
+            guard !notes.contains(pointer) else { return }
+            recheck()
+        case .wait where ContinuousClock.now - since < Self.seamLimit:
+            recheck()
         case .wait, .close:
             hoverCards()?.endOwned(Self.id)
         }

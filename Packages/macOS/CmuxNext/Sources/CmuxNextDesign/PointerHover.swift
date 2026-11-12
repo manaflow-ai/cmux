@@ -166,39 +166,27 @@ public final class PointerHover: NSObject {
 
     /// The topmost window that takes the mouse under the real pointer is
     /// `window` or one of `passThrough` (no other window or panel covers the
-    /// point). A window's clear band (a hover card's shadow and slide room,
-    /// ``PointerClearBandWindow``) covers nothing. A window server round trip:
-    /// ask only when a view is under the pointer.
+    /// point). A window server round trip: ask only when a view is under the
+    /// pointer.
     public static func isTopmost(_ window: NSWindow, passThrough: Set<Int> = []) -> Bool {
         #if DEBUG
         if debugPointer(in: window) != nil { return true }
         #endif
-        let top = topWindowNumber()
+        let mouse = NSEvent.mouseLocation
+        // A window clear under the pointer (a hover card's band) passes it to the window below.
+        let top = topmostWindow(passes: { number in
+            (NSApp.window(withWindowNumber: number) as? any PointerPassThroughWindow)?.passesPointer(atScreen: mouse) == true
+        }, below: { NSWindow.windowNumber(at: mouse, belowWindowWithWindowNumber: $0) })
         return top == window.windowNumber || passThrough.contains(top)
     }
 
-    /// The top window under the pointer, asked once per refresh pass: every target of the pass reads the
-    /// same pointer, and each answer is a synchronous window server round trip (a move in a hover card's
-    /// band refreshes the window, `HoverCardPanel+PointerBand`).
-    private static func topWindowNumber() -> Int {
-        let point = NSEvent.mouseLocation
-        if refreshing, let top = index.passTop, top.point == point { return top.number }
-        let number = PointerTopWindow.number(at: point)
-        if refreshing { index.passTop = (point, number) }
-        return number
-    }
-
-    /// `follower` hears the pointer move in a clear band over `window` (``PointerBandFollower``) until it
-    /// goes or follows another window.
-    public static func followBand(over window: NSWindow, with follower: any PointerBandFollower) {
-        index.follow(window, with: follower)
-    }
-
-    /// The pointer moved, entered or left a clear band over `window`: its chrome hover and its
-    /// followers recompute (the window hears no pointer event of its own there).
-    static func pointerMovedInBand(over window: NSWindow) {
-        refresh(in: window)
-        for follower in index.followers(of: window) { follower.pointerMovedInBand() }
+    /// The front window under the pointer that keeps it: from the front, every window that
+    /// `passes` the pointer is looked through to the one `below` it (0: none).
+    static func topmostWindow(passes: (Int) -> Bool, below: (Int) -> Int) -> Int {
+        var top = below(0)
+        // A handful of stacked hover windows at most; the bound only stops a cycle.
+        for _ in 0..<8 where top != 0 && passes(top) { top = below(top) }
+        return top
     }
 
     // MARK: The owner
@@ -223,10 +211,7 @@ public final class PointerHover: NSObject {
             return
         }
         refreshing = true
-        defer {
-            refreshing = false
-            index.passTop = nil
-        }
+        defer { refreshing = false }
         var queue = [window]
         // Bounded: a hover that moves its own view away and back must not spin.
         var passes = 0
@@ -306,22 +291,6 @@ private final class KeyWindowObserver {
 private final class TargetIndex {
     private struct Weak {
         weak var value: PointerHover?
-    }
-
-    /// The top window under the pointer for the refresh pass running now (`PointerHover.topWindowNumber`).
-    var passTop: (point: NSPoint, number: Int)?
-    /// The views of each window whose hover follows the pointer on its own (``PointerBandFollower``). Weak.
-    private let bandFollowers = NSMapTable<NSWindow, NSHashTable<AnyObject>>.weakToStrongObjects()
-
-    func follow(_ window: NSWindow, with follower: any PointerBandFollower) {
-        for case let table as NSHashTable<AnyObject> in bandFollowers.objectEnumerator()?.allObjects ?? [] { table.remove(follower) }
-        let table = bandFollowers.object(forKey: window) ?? NSHashTable<AnyObject>.weakObjects()
-        table.add(follower)
-        bandFollowers.setObject(table, forKey: window)
-    }
-
-    func followers(of window: NSWindow) -> [any PointerBandFollower] {
-        (bandFollowers.object(forKey: window)?.allObjects ?? []).compactMap { $0 as? any PointerBandFollower }
     }
 
     /// The targets of each view (one, now and then two), by the view's identifier.

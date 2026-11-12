@@ -2,11 +2,13 @@
 # Behavior fixture: a PR behind base is regenerated from its immutable merge
 # snapshot, so base defaults survive; a merge that keeps the PR input is red.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../scripts/cmux-next/tests/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 checker="$root/scripts/cmux-next/check-generator-inputs.sh"
 repo="$(mktemp -d "${TMPDIR:-/tmp}/cmux-generator-freshness.XXXXXX")"
-trap 'rm -rf "$repo"' EXIT
+git_fixture_trap_exit 'rm -rf "$repo"'
 
 git -C "$repo" init -q -b base
 git -C "$repo" config user.name fixture

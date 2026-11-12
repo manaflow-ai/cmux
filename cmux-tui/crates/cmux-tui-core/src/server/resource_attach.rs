@@ -972,8 +972,14 @@ pub(super) fn send_resource_response(
     let result = crate::resource_router::validate_operation_outcome(operation, result)
         .map_err(|error| with_internal_request_id(operation, error));
     let envelope = match result {
-        Ok(result) => ResourceResponseEnvelope::success(id, result),
-        Err(error) => ResourceResponseEnvelope::failure(id, error),
+        Ok(result) => {
+            crate::diagnostics::request_log::reply_follows(true, None);
+            ResourceResponseEnvelope::success(id, result)
+        }
+        Err(error) => {
+            crate::diagnostics::request_log::reply_follows(false, Some(error.code.as_str()));
+            ResourceResponseEnvelope::failure(id, error)
+        }
     };
-    serde_json::to_value(envelope).is_ok_and(|value| writer.send_control(&value).is_ok())
+    envelope.into_value().is_ok_and(|value| writer.send_control(&value).is_ok())
 }

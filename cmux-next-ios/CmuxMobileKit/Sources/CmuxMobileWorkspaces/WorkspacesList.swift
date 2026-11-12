@@ -157,6 +157,15 @@ public struct WorkspacesList: View {
     /// Refreshing: the team is loading, or the linked Mac's list has not arrived.
     private var isRefreshing: Bool { store.teamDataState == .loading || inbox.isUpdating }
 
+    /// The page's one state for the team's data (CMUX-49): first load, the list, no Mac, or failed.
+    private var launchState: WorkspacesLaunchState {
+        WorkspacesLaunchState.resolve(team: store.teamDataState, hasMacs: !macs.isEmpty,
+                                      hasWorkspaces: !store.activeWorkspaces.isEmpty, isOffline: store.isOffline)
+    }
+
+    /// The list's own placeholder rows fill the page (Macs known, no rows yet).
+    private var listShowsPlaceholder: Bool { inbox.isLoading && inbox.folds.isEmpty }
+
     public var body: some View {
         groupDialogs(page)
     }
@@ -268,7 +277,13 @@ public struct WorkspacesList: View {
         if let mac = scopedMac {
             return "\(displayName(mac)) · " + RelativeStamp(now: MinuteClock.shared.now).presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
         }
-        if showsUpdating && isRefreshing { return "Updating…" }
+        let state = launchState
+        // One loading indicator at a time: over the placeholder rows the page already says it loads.
+        if showsUpdating && isRefreshing && state.allowsUpdatingSubtitle && !listShowsPlaceholder { return "Updating…" }
+        // Rows are the last known only while none of their Macs is live (a live Mac's rows are current).
+        if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
+            return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
+        }
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
         if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
@@ -328,14 +343,17 @@ public struct WorkspacesList: View {
     }
 
     @ViewBuilder private var content: some View {
-        switch store.teamDataState {
-        case .loading where store.activeWorkspaces.isEmpty || macs.isEmpty:
-            skeleton
-        case .failed:
-            EmptyState(symbol: "cloud", title: "Couldn't load workspaces",
+        switch launchState {
+        case .firstLoad(let offline):
+            skeleton(offline ? "Waiting for a connection…" : "Loading workspaces…")
+        case .failed(let offline):
+            EmptyState(symbol: offline ? "wifi.slash" : "cloud", title: "Couldn't load workspaces",
+                       message: offline ? "This iPhone is offline. Workspaces load when it's back online."
+                           : "cmux couldn't reach the service. It tries again on its own.",
+                       // The offline pill is status only: Retry stays here (the one on screen).
                        retry: retryLoad == nil ? nil : retry)
                 .accessibilityIdentifier("workspaces.retry")
-        case .loading, .loaded:
+        case .noMacs, .content:
             if macs.isEmpty {
                 ConnectMacEmptyState(
                     email: accountEmail,
@@ -351,8 +369,9 @@ public struct WorkspacesList: View {
         }
     }
 
-    private var skeleton: some View {
-        ScrollView { SkeletonList(rows: 6, leadingSquare: nil).padding(.top, 8) }
+    /// The first load's placeholder rows, captioned with what they wait for.
+    private func skeleton(_ caption: LocalizedStringKey) -> some View {
+        ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption).padding(.top, 8) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
     }
@@ -369,7 +388,7 @@ public struct WorkspacesList: View {
             .overlay(alignment: .topLeading) { closeAnchor }
             .overlay {
                 if inbox.isLoading {
-                    if inbox.folds.isEmpty { skeleton }
+                    if inbox.folds.isEmpty { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
                 } else if inbox.isEmpty {
                     emptyState
                 }

@@ -104,8 +104,9 @@ impl LocalStore {
     /// When the log was last written, in ms: its newest segment's modification time. A record
     /// appended, a compaction put in place and a copy an import made all set it; a status write
     /// that logs nothing does not.
+    /// None for a cold-archived chat, which is not rehydrated to answer.
     pub(super) fn log_written_at(&self, id: &str) -> Option<u64> {
-        let (_, newest) = self.segments(id).ok()?.pop()?;
+        let (_, newest) = self.segment_files(id).ok()?.pop()?;
         let at = std::fs::metadata(newest).ok()?.modified().ok()?;
         let ms = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
         u64::try_from(ms).ok()
@@ -251,26 +252,26 @@ fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the record.
     let written = (|| -> Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
+        let mut options = crate::home_fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true).mode(0o600);
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        }
+        options.custom_flags(libc::O_NOFOLLOW);
         let mut file = options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
         file.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         file.sync_all().map_err(SyncFailed).with_context(|| format!("sync {}", tmp.display()))?;
         drop(file);
-        std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+        crate::home_fs::rename(&tmp, path)
+            .with_context(|| format!("rename to {}", path.display()))?;
         match path.parent() {
             Some(dir) => sync_directory(dir).with_context(|| format!("sync {}", dir.display())),
             None => Ok(()),
         }
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }

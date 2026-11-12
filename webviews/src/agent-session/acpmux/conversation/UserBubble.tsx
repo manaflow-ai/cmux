@@ -13,7 +13,9 @@
 // prompt sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished
 // once sent). A long prompt opens collapsed on its first twenty lines with Show more, and a pasted
 // block is the bubble's own text under that fold (PromptText.tsx); Copy still copies the whole prompt. A video
-// it sent with its frames is its poster and length among them, playing on a click (SentVideoTile.tsx).
+// it sent is its poster and length among them, playing on a click (SentVideoTile.tsx), frames or not.
+// A Cloud chat's prompt whose turn has a machine checkpoint taken before it ran adds Back to before
+// this turn after Fork (MessageActions.tsx RewindButton): one click puts the machine back there.
 import {
   Fragment,
   memo,
@@ -46,7 +48,15 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageTime,
+  PinButton,
+  PromptRetry,
+  RewindButton,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { NO_RETRY_TARGET, retryPlacement } from "./turns";
@@ -118,12 +128,9 @@ export function UserBubble({
   const files = (
     recorded?.length
       ? recorded
-      : // A video that went with its frames is its tile; one sent without them (`withoutFrames`:
-        // an agent that takes no images, a prompt past its budget) is the file chip its echo draws.
+      : // A video, with its frames or without, is its tile (sentVideos.ts), left out below.
         row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
-          file.kind === "link" && !(file.mimeType.startsWith("video/") && file.video?.frames.length)
-            ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
-            : [],
+          file.kind === "link" ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }] : [],
         )
   )?.filter((file) => !videos.some((video) => video.name === file.name && video.path === file.path));
   // Every recorded non-text part is an attachment, including documents, audio and pasted blocks
@@ -361,6 +368,7 @@ export function UserBubble({
               )}
               {retry}
               {forkButton}
+              <RewindButton rowId={row.id} />
               <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>
           </UserFooter>
@@ -424,7 +432,7 @@ export const SentImages = memo(function SentImages({
 });
 
 /// A prompt's videos, each at a sent image's height in its own shape.
-function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
+export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
   return videos.map((video) => (
     <SentVideoTile
       key={`${video.name}\n${video.path}`}

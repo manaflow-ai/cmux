@@ -44,15 +44,15 @@ struct CloudStartChat {
         }
     }
 
-    /// The page's reply: success with the machine's name, or a refusal in the person's words. The card
-    /// says a failure, with Retry when another try can help (the same start again under its key, so a
-    /// machine already made or a folder already copied is reused): no toast.
+    /// The page's reply: the machine's name, or a refusal the card says (no toast), with Retry when another try can help.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
     func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) {
             return AgentPaneReply.failure(code: refusal, message: CloudStrings.startRefusal(refusal))
         }
         do {
+            if let team = start.team { try await services.cloud.auth.activeTeam.select(team) } // the plan card's Switch to <team>, then only in it:
+            if let refused = CloudStartCore().refusal(cloudDisabled: false, signedIn: true, requestedTeam: start.team, activeTeam: services.cloud.auth.teamID) { return AgentPaneReply.failure(code: refused, message: refused, details: nil, retryable: true, origin: "native") }
             let account = services.cloud.account
             let origin = Origin(tab: tab, chat: start.cwd ?? tab.cwd, workspace: services.workspaceID(ofTab: tab.id), account: account) { [services] in
                 // This Mac's tab, which never started a chat: the chat is the machine's now.
@@ -72,9 +72,9 @@ struct CloudStartChat {
             let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat failed: \(message, privacy: .public)")
-            // A failure a retry can help (the machine didn't connect, a copy that timed out) gets the card's Retry (cloudRun.ts
-            // `cloudStartKeys`); a plan refusal keeps its own code, so the card offers Upgrade or This Mac (CloudStartView).
-            return AgentPaneReply.failure(code: CloudMachineCreation.proRefusal(error) == nil ? "cloud_start_failed" : "cloud_plan_required", message: message, details: nil, retryable: (error as? CloudMove.Failure)?.retry != nil, origin: "native")
+            // A failure a retry can help gets the card's Retry; a plan refusal keeps its code and the teams (CloudStartView).
+            let plan = CloudMachineCreation.proRefusal(error) != nil
+            return AgentPaneReply.failure(code: plan ? "cloud_plan_required" : "cloud_start_failed", message: message, details: plan ? services.cloud.auth.planRefusalTeams : nil, retryable: (error as? CloudMove.Failure)?.retry != nil, origin: "native")
         }
     }
 
@@ -84,14 +84,9 @@ struct CloudStartChat {
     /// CLI gets a connection beside the app's (``CloudMove/connected(_:_:)``). Not behind Labs (Leo,
     /// 2026-10-30: "that seems dumb. i dont like putting so much stuff in labs"): the person picked
     /// Cloud for this send.
-    static func refusal(_ services: AppServices) -> String? {
-        refusal(cloudDisabled: services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud,
-                signedIn: services.cloud.isSignedIn)
-    }
+    static func refusal(_ services: AppServices) -> String? { refusal(cloudDisabled: services.registry.disabledFeatures.contains(.cloud) || !services.cloud.mayCallCloud, signedIn: services.cloud.isSignedIn) }
 
-    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? { // the rule: cmux-cloud-start-core `start`
-        CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn)
-    }
+    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? { CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn) } // the rule: cmux-cloud-start-core `start`
 
     /// Where a start comes from: the tab that sent (this Mac's new tab, or for a repick the chat's tab on
     /// the machine it was on), the chat's folder on this Mac, the Mac workspace and account the send
@@ -150,7 +145,7 @@ struct CloudStartChat {
                          cloneState: copy.0.seedState, clonePhase: copy.0.seedPhase,
                          cloneStartedAt: copy.0.seedStartedAt, cloneFinishedAt: copy.0.seedFinishedAt,
                          start: .init(environmentId: plan.environmentId, setup: plan.setup)))
-            guard copy.0.ok else { throw await CloudMoveFolder.orGone(CloudMove.failure(syncing: copy.0, machine: name, retry: again), root: folder.root) }
+            guard copy.0.ok else { throw await CloudMoveFolder.orGone(CloudMoveFailure.syncing(copy.0, machine: name, retry: again), root: folder.root) }
             // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this Mac's tab stays.
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             _ = await loginPassed
@@ -235,15 +230,15 @@ struct CloudStartChat {
             _ = try Self.checked(await cli.startChatTargetPane(key: start.key, account: CloudStartCore().accountText(origin.account), machine: machine.machineID, pane: pane))
         }
         if let copy { services.cloud.movedChats.copied(copy) }
-        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(start.seed(cwd: cwd)),
-                                                 idempotencyKey: tabKey)
+        let (seed, handOff) = AgentPaneSeedSource.handingOffDraft(start.seed(cwd: cwd)) { [services] in services.agentTabs.unsentDrafts.draft(forTab: services.agentTabs.resolve(origin.tab.id), machine: services.agentTabs.daemonListing(origin.tab)?.machineID) }
+        defer { handOff(false) }
+        let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: seed, idempotencyKey: tabKey)
         let opened = try await pending.value()
-        await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(
-            appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
+        await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
-        services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace,
-                                                                                                                               account: origin.account, machineID: machine.machineID)
+        services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID)
+        handOff(true)
         await origin.close()
         return machine.machine.title
     }
@@ -337,7 +332,7 @@ extension CloudStartSession {
         } catch {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), await CloudMoveFolder.isFolder(folder.root) ? CloudMoveStrings.syncFailed(name, CloudStrings.errorText(error)) : CloudStartSessionStrings.fromFolderMissing(local))
         }
-        guard copy.0.ok else { throw ActionFailure(message: await CloudMoveFolder.isFolder(folder.root) ? CloudMove.failure(syncing: copy.0, machine: name, retry: .move(machineID: session.machineID)).message : CloudStartSessionStrings.fromFolderMissing(local)) }
+        guard copy.0.ok else { throw ActionFailure(message: await CloudMoveFolder.isFolder(folder.root) ? CloudMoveFailure.syncing(copy.0, machine: name, retry: .move(machineID: session.machineID)).message : CloudStartSessionStrings.fromFolderMissing(local)) }
         return (copy.1.chat, copy.1.sourceTrusted)
     }
 }
@@ -346,6 +341,6 @@ extension CloudStartRunKey {
     /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
     init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
         self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
-                  caller: caller, account: account, login: request.login.requested?.rawValue, fromFolder: request.fromFolder)
+                  caller: caller, account: account, login: request.login.requested?.rawValue, fromFolder: request.fromFolder, model: request.model)
     }
 }

@@ -285,8 +285,9 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// video carries none); the agent's pointer is drawn beside it.
     private func updateCursor() {
         updateAgentPointer()
-        let hostShape = !cursor.isEmpty && (session.preferences.localCursor || inputMode == .trackpad)
-        let local = hostShape || inputMode == .trackpad || pointerHovering
+        let relative = inputMode == .trackpad || trackpadPadActive
+        let hostShape = !cursor.isEmpty && (session.preferences.localCursor || relative)
+        let local = hostShape || relative || pointerHovering
         let remote = local ? nil : streamPixels(streamPerson)
         let visible = frameSize != .zero && (local || remote != nil)
         cursorLayer.isHidden = !visible
@@ -696,7 +697,19 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     // MARK: Trackpad mode
 
-    private func handleTrackpad(_ event: SingleTouchRecognizer.Event) {
+    /// Which finger the trackpad gesture follows: the screen's (trackpad
+    /// mode) or the overlay pad's. One gesture at a time: the other's
+    /// touches are ignored while it is down.
+    private enum TrackpadFinger { case screen, pad }
+    private var trackpadFinger: TrackpadFinger?
+
+    private func handleTrackpad(_ event: SingleTouchRecognizer.Event, from finger: TrackpadFinger = .screen) {
+        if case .down = event {
+            if lastTrackpadPoint != nil, trackpadFinger != finger { return }
+            trackpadFinger = finger
+        } else if trackpadFinger != finger {
+            return
+        }
         switch event {
         case let .down(point, time):
             lastTrackpadPoint = point
@@ -752,6 +765,44 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         }
     }
 
+    // MARK: Trackpad overlay
+
+    /// The trackpad overlay is open: its pad moves the pointer, so the cursor
+    /// shows (and a zoomed view follows it) in either input mode.
+    public var trackpadPadActive = false {
+        didSet {
+            guard trackpadPadActive != oldValue else { return }
+            // Closing the pad mid-gesture (a tap's window, a drag) lets the button go.
+            if !trackpadPadActive, trackpadFinger == .pad { endPadGesture() }
+            updateCursor()
+            followCursor()
+        }
+    }
+
+    /// One finger on the overlay's pad: the same gesture as trackpad mode's finger on the screen.
+    func padTouch(_ event: SingleTouchRecognizer.Event) {
+        handleTrackpad(event, from: .pad)
+    }
+
+    private func endPadGesture() {
+        lastTrackpadPoint = nil
+        trackpadFinger = nil
+        applyTrackpad(trackpad.cancel())
+        scheduleTrackpadDeadline()
+    }
+
+    /// Two fingers tapped on the pad: a right click where the pointer is.
+    func padRightClick() {
+        session.click(.right, modifiers: keyInput.takeModifiers())
+        updateCursor()
+    }
+
+    /// Two fingers dragged on the pad: scrolls what is under the pointer.
+    func padScroll(by translation: CGPoint, began: Bool) {
+        if began { scrollRemainder = .zero }
+        scroll(by: translation)
+    }
+
     /// A pointer position kept on the focused display (fitted mode) or the frame.
     private func clampedToFocus(_ point: CGPoint) -> CGPoint {
         let rect = fitToDisplay ? focusRect : CGRect(origin: .zero, size: frameSize)
@@ -761,7 +812,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     /// Trackpad mode, zoomed in: scrolls the view so the cursor stays clear of its edges.
     private func followCursor() {
-        guard inputMode == .trackpad, frameSize != .zero, view.bounds.width > 0 else { return }
+        guard inputMode == .trackpad || trackpadPadActive, frameSize != .zero, view.bounds.width > 0 else { return }
         let zoom = scrollView.zoomScale, bounds = scrollView.bounds.size
         let cursor = CGPoint(x: session.pointer.x * zoom, y: session.pointer.y * zoom)
         let margin = min(bounds.width, bounds.height) * 0.12

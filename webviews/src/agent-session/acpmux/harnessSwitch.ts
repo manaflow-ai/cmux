@@ -127,7 +127,11 @@ export type SwitchView = {
     cwd?: string;
   };
   /// A model picked in a live session, drawn until the session reports a model change.
-  model?: { sessionId: string; from?: string; model: string };
+  /// `answered`: the agent answered the pick. Until then the pick draws over any model the session
+  /// reports, an earlier pick's included (two picks in a row: the first one's report must not draw
+  /// as if the second were dropped). Once answered it draws only while the session still reports
+  /// `from`, so a model the agent reports under another id never stays masked.
+  model?: { sessionId: string; from?: string; model: string; answered?: boolean };
   /// A config option picked in a live session, drawn until the session reports the value.
   config?: { sessionId: string; configId: string; from?: string; value: string };
 };
@@ -432,12 +436,18 @@ export class HarnessSwitch {
     }
     const port = this.port;
     if (!port || !live) return Promise.resolve(false);
-    const pick = { sessionId: live.sessionId, from: live.model, model };
+    const pick: NonNullable<SwitchView["model"]> = { sessionId: live.sessionId, from: live.model, model };
     this.modelPick = pick;
     this.configPick = undefined;
     this.changed();
     return port.setModel(model).then(
-      () => true,
+      () => {
+        if (this.modelPick === pick) {
+          this.modelPick = { ...pick, answered: true };
+          this.changed();
+        }
+        return true;
+      },
       (error) => {
         if (this.modelPick !== pick) return false;
         this.modelPick = undefined;
@@ -765,7 +775,13 @@ export class HarnessSwitch {
       return;
     }
     intent.phase = "failed";
-    intent.error = errorText(error) || t("switch.unknownError");
+    // acpmux's spawn error says only the io error ("No such file or directory"), the same for a
+    // missing CLI and a gone folder; its `recovery` says which ("claude-agent-acp is not installed",
+    // "The folder … is gone"), so the card reads both: a missing agent gets Install, not a dead end.
+    const typed = error as { errorKind?: unknown; recovery?: unknown } | undefined;
+    const recovery =
+      typed?.errorKind === "spawn.failed" && typeof typed.recovery === "string" ? typed.recovery : undefined;
+    intent.error = [errorText(error) || t("switch.unknownError"), recovery].filter(Boolean).join("\n");
     const code = (error as { code?: unknown } | undefined)?.code;
     intent.code = typeof code === "string" ? code : undefined;
     if (intent.queued.length) {
@@ -854,7 +870,13 @@ export function applySwitch(
   if (!intent) {
     const pick = view.model;
     const summary = raw.summary;
-    if (pick && summary && summary.sessionId === pick.sessionId && summary.model === pick.from)
+    if (
+      pick &&
+      summary &&
+      summary.sessionId === pick.sessionId &&
+      summary.model !== pick.model &&
+      (summary.model === pick.from || !pick.answered)
+    )
       return { ...raw, summary: { ...summary, model: pick.model, confirmedModel: summary.model } };
     const config = view.config;
     if (!config || !summary || summary.sessionId !== config.sessionId) return raw;

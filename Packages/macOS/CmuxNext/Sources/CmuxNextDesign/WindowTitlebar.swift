@@ -151,7 +151,7 @@ public struct WindowTitlebar {
         guard let lights = trafficLightsFrame(in: window) else { return Metrics.windowEdgeInset(gutter, in: window) }
         let local = root.convert(lights, from: nil)
         if clearsTrafficLights {
-            let row = max(local.height, TitlebarBandButton.side)
+            let row = max(local.height, TopRowSpacing.buttonSide)
             return max(gutter, root.bounds.maxY - local.midY + row / 2 + gutter).rounded(.up)
         }
         // Floating panes keep the one even gap at the top too.

@@ -401,7 +401,16 @@ export class VmsGroup extends HttpApiGroup.make("vms")
       .addSuccess(VmPublicEgress)
       .addError(Forbidden).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
       .annotateContext(describe("Allow a VM's public egress", "vm:network",
-        "Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready.")),
+        "Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off (revokeVmPublicEgress does) and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready.")),
+  )
+  .add(
+    HttpApiEndpoint.del("revokeVmPublicEgress", "/v1/vms/:vmId/public-egress")
+      .setPath(VmPath)
+      .setHeaders(TeamHeaders)
+      .addSuccess(VmPublicEgress)
+      .addError(Forbidden).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Revoke a VM's public egress", "vm:network",
+        "Stops an existing VM reaching the public Internet, live: deletes every rule whose source is exactly this VM (or a create's inline rule) and whose destination is the whole public Internet, then reads the rules again and answers 503 unless none is left. Idempotent: a VM without such a rule changes nothing. It never deletes a narrower rule, an HTTPS proxy (the VM keeps those) or a shared-network rule.")),
   )
   .add(
     HttpApiEndpoint.get("getVm", "/v1/vms/:vmId")

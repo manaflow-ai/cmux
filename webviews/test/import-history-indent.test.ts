@@ -29,8 +29,12 @@ for (const selector of UNDER_THE_LINE) {
   });
 }
 
-test("the title inset is the checkbox, the mark and their gaps", () => {
-  expect(css).toContain(
-    "--history-title-inset: calc(var(--ds-icon-14) + var(--ds-space-2) + var(--ds-control-compact) + var(--ds-space-2));",
+test("the title inset is the checkbox and its gap", () => {
+  expect(css).toContain("--history-title-inset: calc(var(--ds-icon-14) + var(--ds-space-2));");
+});
+
+test("a tool's sources start at the tool name's edge", () => {
+  expect(css).toMatch(
+    /\.history-sources \{[^}]*padding: 0 var\(--ds-space-4\) var\(--ds-space-3\) var\(--history-tool-inset\);/,
   );
 });

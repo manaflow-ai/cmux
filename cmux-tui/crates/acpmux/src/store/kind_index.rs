@@ -78,6 +78,10 @@ const SCHEMA: &str = "acpmux.kind-index.v4";
 /// A scan that read this many bytes of a segment past its copy saves the copy again.
 pub(super) const COPY_AFTER: u64 = 1 << 20;
 
+/// The longest tail past a copy a page reads whole: past it the page seeks for its `before`
+/// (`offset_of_seq`, whose probes read 64 KiB each), as the read back from the end does.
+const TAIL_SEEK_BYTES: u64 = 256 * 1024;
+
 /// What a copy was read from: the segment file, and the bytes of it the copy covers.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -150,49 +154,12 @@ fn file_id(file: &std::fs::File, meta: &std::fs::Metadata) -> (u64, u64, u64) {
     }
 }
 
-/// The birth time Linux keeps for `file`, read with `statx`. Rust's `Metadata::created` asks
-/// `statx` only on glibc: on musl, the static build every Linux daemon runs, it always fails, so
-/// no copy was ever written or read there, and every log load read and parsed whole logs: four
-/// passes over each live chat's log on a restart, about 12 GB on a host with 3.1 GB of them. None: the kernel or
-/// file system keeps no birth time (the copy then stays off, as before).
-#[cfg(target_os = "linux")]
+/// The birth time Linux keeps for `file` ([`cmux_tui_platform::file_birth::birth_ns`]). Without
+/// it every log load read and parsed whole logs: four passes over each live chat's log on a
+/// restart, about 12 GB on a host with 3.1 GB of them. None: the kernel or file system keeps no
+/// birth time (the copy then stays off, as before).
 pub(super) fn birth_ns(file: &std::fs::File) -> Option<u64> {
-    use std::os::fd::AsRawFd;
-    /// The kernel's `struct statx` (`linux/stat.h`): `stx_mask` first, `stx_btime` at byte 80
-    /// (after `stx_atime`), padded to its full 256 bytes.
-    #[repr(C)]
-    struct Statx {
-        mask: u32,
-        head: [u32; 19],
-        btime_sec: i64,
-        btime_nsec: u32,
-        rest: [u32; 41],
-    }
-    const _: () = assert!(std::mem::size_of::<Statx>() == 256);
-    const _: () = assert!(std::mem::offset_of!(Statx, btime_sec) == 80);
-    const STATX_BTIME: u32 = 0x800;
-    let mut buf = Statx { mask: 0, head: [0; 19], btime_sec: 0, btime_nsec: 0, rest: [0; 41] };
-    // SAFETY: statx writes at most `sizeof(struct statx)` (256) bytes into `buf`, which is that
-    // size; the path is an empty C string and `AT_EMPTY_PATH` makes it read the open fd itself.
-    let result = unsafe {
-        libc::syscall(
-            libc::SYS_statx,
-            file.as_raw_fd(),
-            c"".as_ptr(),
-            libc::AT_EMPTY_PATH,
-            STATX_BTIME,
-            &mut buf as *mut Statx,
-        )
-    };
-    if result != 0 || buf.mask & STATX_BTIME == 0 || buf.btime_sec < 0 {
-        return None;
-    }
-    Some(buf.btime_sec as u64 * 1_000_000_000 + u64::from(buf.btime_nsec))
-}
-
-#[cfg(not(target_os = "linux"))]
-pub(super) fn birth_ns(_file: &std::fs::File) -> Option<u64> {
-    None
+    cmux_tui_platform::file_birth::birth_ns(file)
 }
 
 /// Whether a line belongs in a copy: its kind is indexed, or its head does not say (it is parsed
@@ -235,6 +202,88 @@ impl Scan<'_> {
 }
 
 impl LocalStore {
+    /// `scan_back` (`indexed`: `scan_back_indexed`, whose `skip` passes only [`INDEXED_KINDS`]).
+    /// Segments are read newest first; an indexed read takes a segment's copy where it is of that
+    /// very file and whole ([`Self::read_kind_index`]): the segment's bytes past the copy back from
+    /// the end, then the copy's lines newest first. Anywhere else (no copy yet, a copy a
+    /// compaction or an upgrade left stale, a file system with no birth time) it reads the segment
+    /// back from its end, as `scan_back` does. It never writes a copy: the log load does.
+    pub(super) fn scan_back_in(
+        &self,
+        id: &str,
+        after: u64,
+        before: u64,
+        skip: &dyn Fn(&[u8], &[u8]) -> bool,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+        indexed: bool,
+    ) -> Result<()> {
+        let done = std::cell::Cell::new(false);
+        // One line, newest first: false once the read is over (`visit` stopped, or `after`).
+        let mut line = |line: &[u8]| {
+            match record_seq(line) {
+                Some(seq) if seq >= before => return true,
+                Some(seq) if seq <= after => {
+                    done.set(true);
+                    return false;
+                }
+                _ => {}
+            }
+            if let (Some(dir), Some(kind)) = (record_dir(line), record_kind(line))
+                && skip(dir, kind)
+            {
+                return true;
+            }
+            let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+            if rec.seq >= before {
+                return true;
+            }
+            if rec.seq <= after || !visit(rec) {
+                done.set(true);
+                return false;
+            }
+            true
+        };
+        for (index, path) in self.segments(id)?.into_iter().rev() {
+            if first_seq(&path)?.is_some_and(|first| first >= before) {
+                continue;
+            }
+            let mut file = crate::config::private_state_file(&path)?;
+            let copy =
+                if indexed { self.read_kind_index(id, index, &Stamp::of(&file)?) } else { None };
+            match copy {
+                // A copy covers the segment's first `from` bytes, whole lines: what was written
+                // after them (none in a segment a log load sealed and copied, at most the segment
+                // in the one being written) is read from the segment, then the copy. A long tail
+                // is first cut at `before`, as `scan_back` cuts the segment; a short one is read
+                // whole, which costs less than the seek's probes.
+                Some((lines, from, _)) => {
+                    let len = std::io::Seek::seek(&mut file, std::io::SeekFrom::End(0))?;
+                    let end = if before != u64::MAX && len.saturating_sub(from) > TAIL_SEEK_BYTES {
+                        offset_of_seq(&mut file, before)?.max(from)
+                    } else {
+                        u64::MAX
+                    };
+                    for_each_line_rev_between(&mut file, from, end, &mut line)?;
+                    if !done.get() {
+                        for copied in lines.split(|b| *b == b'\n').rev() {
+                            if !copied.is_empty() && !line(copied) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                None => {
+                    let end = offset_of_seq(&mut file, before)?;
+                    for_each_line_rev_from(&mut file, end, &mut line)?;
+                }
+            }
+            if done.get() {
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
     fn kind_index_path(&self, id: &str, index: u32) -> PathBuf {
         self.dir(id).join(DIR).join(format!("{index:06}.ndjson"))
     }
@@ -259,6 +308,7 @@ impl LocalStore {
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then), as `scan_strict` does.
         if strict {
+            self.rehydrate(id)?;
             std::fs::read_dir(self.dir(id).join("events"))?;
         }
         let copied = kinds.iter().all(|k| INDEXED_KINDS.contains(k));

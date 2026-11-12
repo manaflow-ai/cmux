@@ -604,6 +604,7 @@ mod tests {
             doing: Default::default(),
             notice: false,
             persons: true,
+            accepted: true,
         });
         let before = session.cancels.load(Ordering::SeqCst);
         // The activity ended before pause arrived; it must not change even the

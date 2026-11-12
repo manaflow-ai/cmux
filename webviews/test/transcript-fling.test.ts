@@ -54,6 +54,8 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
     let blank = 0;
     let frames = 0;
     const blanks: string[] = [];
+    /// Viewports of rows mounted as each frame painted, the frame's built work.
+    const mounted: number[] = [];
     for (const step of steps) {
       // The frame's callback moves the view; the view is read as that frame painted it.
       await window.cmuxPaintFrame(() => {
@@ -70,6 +72,7 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
         if (at > 0 && row.index === rows[at - 1].index + 1) runs.at(-1)!.bottom = row.rect.bottom;
         else runs.push({ top: row.rect.top, bottom: row.rect.bottom });
       });
+      mounted.push(rows.reduce((sum, row) => sum + row.rect.height, 0) / scroller.clientHeight);
       const bottom = Math.min(view.bottom, view.top + scroller.scrollHeight - scroller.scrollTop);
       // The thread's own top padding is above its first row: a view at the top shows it, empty by
       // design (every up fling and drag ended on a "blank" frame at scrollTop 0 for its 16 px).
@@ -86,7 +89,9 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
       }
       if (scroller.scrollTop === (down ? end() : 0)) break;
     }
-    return { frames, blank, blanks };
+    const sorted = [...mounted].sort((a, b) => a - b);
+    const mountedViewports = Math.round((sorted[Math.floor(sorted.length / 2)] ?? 0) * 100) / 100;
+    return { frames, blank, blanks, mountedViewports };
   };
 
   test("mounted row heights read after sibling writes and settle before the first paint", async () => {
@@ -152,6 +157,7 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
         frames: number;
         blank: number;
         blanks: string[];
+        mountedViewports: number;
       }>;
     const repeat = (pattern: number[]) => Array.from({ length: 400 }, (_, frame) => pattern[frame % pattern.length]);
     // About the bench's capped fling (4-5 viewports a frame), with the few percent of frame-time
@@ -168,21 +174,35 @@ await requireBrowserLane("transcript-fling.test.ts", async () => {
       expect(result.frames).toBeGreaterThan(30);
       expect(result.blank / result.frames).toBeLessThanOrEqual(0.05);
     }
+    // A fling builds the view and the views the next frames reach, not the rows it jumps over or a
+    // warm window around a view the next frame has left (perf cron: 54 ms of React a fling frame):
+    // the rows mounted a frame stay a few viewports however far a frame jumps (a god session's fling
+    // moves tens of viewports a frame).
+    const jumping = await fling(repeat([30, 31.5, 29, 30.5]));
+    console.log(`transcript-fling jumping: ${JSON.stringify({ ...jumping, blanks: jumping.blanks.length })}`);
+    expect(results.up.mountedViewports).toBeLessThanOrEqual(5);
+    // Thirty viewports a frame is past what a frame's margin can predict: the view alone.
+    expect(jumping.mountedViewports).toBeLessThanOrEqual(2.5);
 
     // A stopped fling should release its directional lead after the idle timeout. Without the
     // decay, the mounted range stays several viewports wider than the settled view indefinitely.
-    const movingMounted = await page.evaluate(async () => {
+    // A jump far past the cap mounts the view alone (above); once the scroll's lead decays, the warm
+    // rows held through the fling come back around the settled view, a viewport either side, and
+    // nothing wider stays.
+    const mountedExtent = () => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+      return rows.reduce((sum, row) => sum + row.getBoundingClientRect().height, 0) / scroller.clientHeight;
+    };
+    await page.evaluate(async () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       scroller.scrollTop = Math.floor((scroller.scrollHeight - scroller.clientHeight) / 2);
       await window.cmuxPaintFrame();
-      return document.querySelectorAll<HTMLElement>(".acpmux-row").length;
     });
-    await page.waitForFunction((count) => document.querySelectorAll(".acpmux-row").length < count, movingMounted, {
-      timeout: 2_000,
-    });
+    await page.waitForFunction(`(${mountedExtent.toString()})() > 2.5`, undefined, { timeout: 2_000 });
     await page.evaluate(() => window.cmuxPaintFrame());
-    const settledMounted = await page.evaluate(() => document.querySelectorAll<HTMLElement>(".acpmux-row").length);
-    expect(settledMounted).toBeLessThan(movingMounted);
+    const settled = await page.evaluate(`(${mountedExtent.toString()})()`);
+    expect(settled as number).toBeLessThanOrEqual(4);
     await page.close();
   });
   // Leo, 2026-11-08: scrolling up and down quickly shows "hard cutoffs where there's no text at

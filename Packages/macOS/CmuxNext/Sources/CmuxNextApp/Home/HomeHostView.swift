@@ -25,7 +25,7 @@ import ImageIO
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
-final class HomeHostView: PaneMotionFollowingView {
+final class HomeHostView: NSView {
     let transcript: HomeNativeTranscriptView
     private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
@@ -107,7 +107,7 @@ final class HomeHostView: PaneMotionFollowingView {
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
         }
         loadAvatar()
-        // The header's top-right toggles (Memory, Right Sidebar): each runs its panel's action.
+        // The header's top-right toggles (Share Screen, Memory): each runs its panel's action.
         transcript.onHeaderPanel = { [weak self] id in
             if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
         }
@@ -363,7 +363,7 @@ final class HomeHostView: PaneMotionFollowingView {
             guard let self, !Task.isCancelled else { return }
             transcript.holdsFirstRun = false
             // A launch holds a Home still being made until here (WorkspaceContentController).
-            reveal.markReady(.home)
+            reveal.markReady(.home); DebugTimings.markLaunch("home.first_page")
         }
         wantsLayer = true
         clipsToBounds = true

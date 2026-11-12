@@ -17,6 +17,8 @@ public final class RemoteDesktopPaneView: NSView {
     private var state: RemotePaneState?
     private var settings = RemoteDesktopSettings()
     private var shownOverlay: RemotePaneOverlay?
+    /// The connecting reason the card shows (``RemoteViewStatus/connectingReason``).
+    private var shownReason: String?
     private var isHovering = false
 
     static let toolbarInset: CGFloat = 8
@@ -54,12 +56,14 @@ public final class RemoteDesktopPaneView: NSView {
         banner.isHidden = !state.showsLatencyBanner
         if state.showsLatencyBanner { banner.update(state: state, colors: colors) }
         upstreamIndicator.update(kinds: state.upstreamIndicator, colors: colors)
-        if state.overlay != shownOverlay || state.overlay == nil {
+        let reason = state.status?.connectingReason
+        if state.overlay != shownOverlay || state.overlay == nil || reason != shownReason {
             shownOverlay = state.overlay
+            shownReason = reason
             card.isHidden = state.overlay == nil
             if let overlay = state.overlay {
                 card.configure(overlay: overlay, host: state.hostName, viaCloudTunnel: state.viaCloudTunnel, reconnecting: state.reconnecting,
-                               colors: colors)
+                               reason: reason, colors: colors)
             }
         }
         setAccessibilityLabel(RemoteViewStrings.accessibilityPane(state.hostName))

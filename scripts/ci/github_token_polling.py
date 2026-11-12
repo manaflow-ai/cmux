@@ -472,9 +472,19 @@ def dotted(node: ast.AST) -> str:
     return ""
 
 
+def python_http_call(name: str) -> bool:
+    """Whether a dotted callable name makes an HTTP call: urlopen, or deadline_http.request or .stream (a
+    download read as it comes), the transport scripts/ci calls instead of urlopen
+    (tests/test_ci_no_bare_urlopen.py)."""
+    if name.endswith("urlopen"):
+        return True
+    return any(name == f"deadline_http.{call}" or name.endswith(f".deadline_http.{call}")
+               for call in ("request", "stream"))
+
+
 def python_call_is_api(call: ast.Call) -> bool:
     name = dotted(call.func)
-    if name.endswith("urlopen") or name.split(".")[-1] in ("gh_json", "gh_api", "gh_run", "gh_items"):
+    if python_http_call(name) or name.split(".")[-1] in ("gh_json", "gh_api", "gh_run", "gh_items"):
         return True
     for arg in call.args:
         if isinstance(arg, ast.List) and len(arg.elts) >= 2 and isinstance(arg.elts[0], ast.Constant) \
@@ -538,7 +548,7 @@ def python_polls(text: str) -> str | None:
             bodies += methods.get(last, [])
         for target in aliases.get(last, ()):
             short = target.split(".")[-1]
-            api = api or target.endswith("urlopen") or short in ("gh_json", "gh_api", "gh_run", "gh_items")
+            api = api or python_http_call(target) or short in ("gh_json", "gh_api", "gh_run", "gh_items")
             if short in functions:
                 bodies.append(functions[short])
             bodies += methods.get(short, [])

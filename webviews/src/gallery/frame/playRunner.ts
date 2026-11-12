@@ -4,9 +4,12 @@ import {
   isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
+  LONG_FRAME_PARTS,
+  longFramePart,
   overall,
   rectDelta,
   resolveTarget,
+  type LongFrameEntry,
   type Play,
   type PlayAction,
   type PlayChecks,
@@ -20,6 +23,7 @@ import {
 } from "../play";
 import { createMotionController } from "../motionEvidence";
 import { isExpansionShift, startBoxTracker } from "../shift";
+import { earnFocusRing } from "../../ui/focusModality";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
 export type GalleryInputAction = {
@@ -399,6 +403,8 @@ async function measured(
         });
   const shifts: Shift[] = [];
   const longFrames: number[] = [];
+  const longFrameParts: string[] = [];
+  const stepStart = performance.now();
   const loafSupported = PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame") ?? false;
   const observers: PerformanceObserver[] = [];
   if (PerformanceObserver.supportedEntryTypes?.includes("layout-shift")) {
@@ -443,7 +449,12 @@ async function measured(
   let rafRunning = !loafSupported;
   if (loafSupported) {
     const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) if (entry.duration > 16.7) longFrames.push(entry.duration);
+      for (const entry of list.getEntries()) {
+        if (entry.duration <= 16.7) continue;
+        longFrames.push(entry.duration);
+        if (longFrameParts.length < LONG_FRAME_PARTS)
+          longFrameParts.push(longFramePart(entry as LongFrameEntry, stepStart));
+      }
     });
     observer.observe({ type: "long-animation-frame", buffered: false });
     observers.push(observer);
@@ -500,6 +511,7 @@ async function measured(
     shifts,
     ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves } : {}),
     longFrames,
+    ...(longFrameParts.length ? { longFrameParts } : {}),
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),
     popupProblems: judgePopups(measurePopups(), { width: window.innerWidth, height: window.innerHeight }),
   };
@@ -562,9 +574,12 @@ export async function runPlay(
     focus: async (target) => {
       const element = find(target) as HTMLElement;
       await record(
-        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () =>
-          element.focus(),
-        ),
+        await measured(`focus ${describeTarget(target)}`, "focus", element, anchors, checks, async () => {
+          element.focus();
+          // FOCUS-RING: a staged focus stands in for the person's key, so its ring may show (a
+          // code focus alone earns none, and every "focused" stage would match its rest stage).
+          earnFocusRing(element.ownerDocument);
+        }),
       );
     },
     scroll: async (target, position) => {

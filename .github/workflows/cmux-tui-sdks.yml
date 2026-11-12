@@ -2,8 +2,13 @@ name: cmux-tui SDKs
 
 on:
   push:
+    # feat-cmux-next too: a pull request into it is judged against the base's own verdict
+    # (scripts/ci/base_red_excuse.py), and with main alone a contract red the base caused
+    # (b9783320dc5, create-workspace first_tab) had no feat-cmux-next verdict to excuse it
+    # with, so every cmux-tui pull request stalled behind it (cmux#41132).
     branches:
       - main
+      - feat-cmux-next
     paths:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"
@@ -40,6 +45,18 @@ on:
       - "web/public/tui/install-static.ps1"
       - "scripts/cmux-next/cmux-code-mode-runner"
       - "tests/test_cmux_code_mode_mcp.py"
+      - ".github/runners.json"
+      - "scripts/ci/cmux-tui-mark-daemon-tested.sh"
+      - "scripts/ci/publish-cmux-tui-tree.py"
+      - "scripts/cmux-next/pin-cmux-tui.sh"
+      - "scripts/cmux-next/request-nightly-next.sh"
+      - "scripts/cmux-next/tree-commit-marker.sh"
+      - "tests/blacksmith_linux_sizes.py"
+      - "tests/fleet-rule-allowlist.json"
+      - "tests/git_fixture_env.py"
+      - "tests/runs_on_labels.py"
+      - "tests/test_ci_fleet_rule_lints.py"
+      - "webviews/src/pages/shared/generated/pageRouter.ts"
   pull_request:
     paths:
       - "cmux-tui/**"
@@ -77,6 +94,18 @@ on:
       - "web/public/tui/install-static.ps1"
       - "scripts/cmux-next/cmux-code-mode-runner"
       - "tests/test_cmux_code_mode_mcp.py"
+      - ".github/runners.json"
+      - "scripts/ci/cmux-tui-mark-daemon-tested.sh"
+      - "scripts/ci/publish-cmux-tui-tree.py"
+      - "scripts/cmux-next/pin-cmux-tui.sh"
+      - "scripts/cmux-next/request-nightly-next.sh"
+      - "scripts/cmux-next/tree-commit-marker.sh"
+      - "tests/blacksmith_linux_sizes.py"
+      - "tests/fleet-rule-allowlist.json"
+      - "tests/git_fixture_env.py"
+      - "tests/runs_on_labels.py"
+      - "tests/test_ci_fleet_rule_lints.py"
+      - "webviews/src/pages/shared/generated/pageRouter.ts"
   workflow_dispatch:
 
 concurrency:

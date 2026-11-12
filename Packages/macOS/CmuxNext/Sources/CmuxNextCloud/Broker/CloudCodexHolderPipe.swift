@@ -115,6 +115,7 @@ actor CloudCodexHolderPipe {
         guard let input else { return false }
         var line = data
         line.append(0x0A)
+        // concurrency-allow: a short control line on this actor's executor, never the main thread
         do { try input.write(contentsOf: line) } catch { return false }
         return true
     }

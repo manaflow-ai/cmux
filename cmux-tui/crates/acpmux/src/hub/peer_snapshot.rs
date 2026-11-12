@@ -1436,7 +1436,7 @@ impl Hub {
         let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned() else {
             return;
         };
-        let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        let _rows = self.remote_sessions.fence();
         if self.peer_snapshots.allows(generation) && current.link_epoch() == link {
             send();
         }

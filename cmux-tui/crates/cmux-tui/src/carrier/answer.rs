@@ -390,6 +390,45 @@ pub(super) trait CarrierSource: Send + Sync {
     ) -> Result<SshEndpoint, SourceError> {
         Err(SourceError::fatal("this source mints no carrier ssh key"))
     }
+
+    /// Runs `command` (`bash -c`, as the image's work user) on `machine` through the
+    /// Cloud exec route (`POST /v1/cloud/machines/{id}/exec`), within `timeout`: what
+    /// [`super::adopt`] uses on a machine that never registers on the relay. A source
+    /// without it adopts nothing.
+    async fn exec(
+        &self,
+        _machine: &str,
+        _command: &str,
+        _timeout: Duration,
+    ) -> Result<ExecReply, SourceError> {
+        Err(SourceError::fatal("this source runs no command"))
+    }
+}
+
+/// What an exec answered: its exit code and output.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct ExecReply {
+    pub exit_code: i64,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// The exec route's answer: `{exitCode, stdout, stderr}`, else its refusal
+/// (`{ok: false, error: {code, message}}`) as an error.
+pub(super) fn read_exec(status: u16, body: &Value) -> Result<ExecReply, SourceError> {
+    if (200..300).contains(&status)
+        && let Some(exit_code) = body.get("exitCode").and_then(Value::as_i64)
+    {
+        let text = |key: &str| body.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        return Ok(ExecReply { exit_code, stdout: text("stdout"), stderr: text("stderr") });
+    }
+    let code = body.pointer("/error/code").and_then(Value::as_str).unwrap_or_default();
+    let detail = format!("exec answered HTTP {status} {code}");
+    if matches!(status, 408 | 429 | 500..=599) {
+        Err(SourceError::retry(detail))
+    } else {
+        Err(SourceError::fatal(detail))
+    }
 }
 
 /// The person's credential: re-read from the file on every fetch (it may be
@@ -465,10 +504,21 @@ impl HttpSource {
     /// (and the team header): the status and the JSON body (`Null` when the
     /// body is not JSON). No answer at all is a retry.
     pub(super) async fn post(&self, path: &str, body: &Value) -> Result<(u16, Value), SourceError> {
+        self.post_within(path, body, FETCH_TIMEOUT).await
+    }
+
+    /// [`Self::post`] with its own `timeout` (an exec runs longer than a fetch).
+    async fn post_within(
+        &self,
+        path: &str,
+        body: &Value,
+        timeout: Duration,
+    ) -> Result<(u16, Value), SourceError> {
         let credential = self.current()?;
         let mut request = self
             .client
             .post(format!("{}{path}", self.api))
+            .timeout(timeout)
             .bearer_auth(credential.as_str())
             .json(body);
         if let Some(team) = &self.team {
@@ -546,6 +596,25 @@ impl CarrierSource for HttpSource {
         let (status, body) =
             self.post(&format!("/v1/cloud/machines/{machine}/ssh-endpoint"), &body).await?;
         read_ssh_endpoint(status, &body, now_unix())
+    }
+
+    async fn exec(
+        &self,
+        machine: &str,
+        command: &str,
+        timeout: Duration,
+    ) -> Result<ExecReply, SourceError> {
+        let ms = u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX);
+        let body = json!({ "command": command, "timeoutMs": ms });
+        // The request outlives the command by a little: the answer still has to come back.
+        let (status, body) = self
+            .post_within(
+                &format!("/v1/cloud/machines/{machine}/exec"),
+                &body,
+                timeout + FETCH_TIMEOUT,
+            )
+            .await?;
+        read_exec(status, &body)
     }
 }
 

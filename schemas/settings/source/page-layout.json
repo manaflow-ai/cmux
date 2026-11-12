@@ -287,6 +287,7 @@
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
               "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
+              "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement",
               "agentPane.display.environment.placement"
@@ -450,6 +451,7 @@
               "browser.omnibar.remoteSuggestions", "announcements.fetch"
             ]},
             {"group": "settings.group.hangReports"},
+            {"group": "settings.group.usagePatterns", "note": "Opt-in local usage patterns (cmux-usage-patterns); `cmux usage-patterns` reads them."},
             {"group": "settings.group.sshLinks", "note": "The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate)."}
           ],
           "actions": ["home"],
@@ -481,6 +483,7 @@
           "title": {"section": "development"},
           "symbol": "hammer",
           "groups": [
+            {"group": "settings.group.internalDeveloperMode", "note": "Debug commands in the Command Palette (DEV and NIGHTLY)."},
             {"group": "settings.group.macScreen"},
             {"group": "settings.group.deviceHub"}
           ],

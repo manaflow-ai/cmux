@@ -194,7 +194,9 @@ export class BookmarksStore {
     const epoch = this.epoch;
     const subscribing = (async () => {
       const stops = [
-        await client.subscribe<ChangedEvent>(BookmarkOps.changed, (event) => {
+        await client.subscribe<ChangedEvent & { resync?: boolean }>(BookmarkOps.changed, (event) => {
+          // The relay lost events or reconnected: the tree may have changed in between.
+          if (event?.resync) return void this.relist();
           const { profile, revision } = this.snapshot;
           if (event.browser_profile_id === profile && event.bookmarks_revision > revision) void this.relist();
         }),

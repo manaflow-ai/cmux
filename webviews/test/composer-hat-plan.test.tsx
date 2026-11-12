@@ -118,7 +118,7 @@ describe("the composer hat shows the running turn's plan", () => {
     }
   });
 
-  test("with three background commands: the plan leads, then the newest command and a count", async () => {
+  test("with three background commands: the plan leads, then the longest-running command and a count", async () => {
     const bar = await hat(
       [
         command("c1", "bun run dev", 90_000, "Start the dev server"),
@@ -128,7 +128,7 @@ describe("the composer hat shows the running turn's plan", () => {
       plan,
     );
     try {
-      expect(bar.title()?.startsWith("2 of 5 · Run the tray tests · Watch the tests")).toBe(true);
+      expect(bar.title()?.startsWith("2 of 5 · Run the tray tests · Start the dev server")).toBe(true);
       await act(async () => bar.button()!.click());
       expect(bar.host.querySelectorAll(".acpmux-running-tray .cv-plan__item").length).toBe(5);
       expect(bar.host.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length).toBe(3);

@@ -144,8 +144,9 @@ final class PaneHostView: NSView, RestingPlacement {
         guard holdsUntilAfterLanding else { return }
         guard isOnLayoutSpring else { return releaseHeldContent() }
         (holdsUntilAfterLanding, heldPin) = (false, nil)
-        // The held size, not the content's frame: with only its area held (FRAME OWNER S1) the content is already at the pane's size.
-        heldContentSize = holdsContentInMotion() ? heldContentSize ?? content.frame.size : nil
+        // The content's size now: it followed its pane in each frame of the key hold (content held whole is still at the
+        // hold's size), so the takeover lays it out once, at the structural spring's rest, never first at the key hold's start.
+        heldContentSize = holdsContentInMotion() ? content.frame.size : nil
         // The structural spring starts here without a new spring flag: held content keeps the key hold's size until that
         // spring's rest reaches it (`announceRest`), then lays out at that rest, as any spring's start does.
         heldTakesNextRest = heldContentSize != nil
@@ -384,7 +385,7 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     /// The content's rounded corners and the ring's shape from the current
-    /// clip frame and the content's header and footer. Changes no frame.
+    /// clip frame and the content's header and footer, and the ground under held content. Changes no frame of the content.
     func applyChromeShape() {
         let framesContent = reporter?.paneFramesContent ?? true
         var style = LayoutStyle()
@@ -408,6 +409,16 @@ final class PaneHostView: NSView, RestingPlacement {
             (superview as? ScreenContentView)?.paneFramingDidChange()
         }
         chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
+        // Content held at its rest size does not fill a pane still larger than that rest (the pane a split halves): the
+        // pane shows that content's own ground where the content does not reach, in this same frame (SPLIT OPEN CHAT).
+        // A key hold and a closing pane have their own rules.
+        guard heldContentSize != nil, !holdsUntilAfterLanding, !showsClosingGround else { return clipView.showHeldGround(nil) }
+        // From where the content is, with its tabs (a strip at its top or bottom edge, a list at its leading edge): no
+        // backing behind the tabs, in a whole card too (Leo 2026-11-03). The clip rounds a whole card. The tabs' rows
+        // are the rows above the content's area, not `headerHeight`: a chat with no strip reports a header for
+        // its ring and paints those rows itself, so a Split Right or Left left a band of the window's color that high.
+        let tabs = content.paneGroundInsets
+        clipView.showHeldGround(content.paneGroundColor, around: content.frame, header: tabs?.top ?? headerHeight, footer: footerHeight, leading: tabs?.leading ?? 0)
     }
 
     /// Tells the content (every ``PaneMotionTargeting`` view in it) how much larger its area will rest than
@@ -537,32 +548,5 @@ final class PaneHostView: NSView, RestingPlacement {
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
                       attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
                       focused: focused, flashesFocus: flashesFocus, animated: animated)
-    }
-}
-
-/// The rounded clip around a pane's content. `masksToBounds` with a corner
-/// radius clips every sublayer, Metal layers included. Corners are circular
-/// (not continuous) so the Chromium page mask, a circular-arc path built
-/// from this layer's radius, matches them exactly.
-final class PaneClipView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.masksToBounds = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    nonisolated override var isFlipped: Bool { true }
-
-    func setCornerRadius(_ radius: CGFloat) {
-        guard let layer, layer.cornerRadius != radius else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.cornerRadius = radius
-        CATransaction.commit()
     }
 }
