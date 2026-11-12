@@ -13,6 +13,7 @@ import {
   TEXT_SWAP_SHOW_FROM,
   useTextSwap,
 } from "./useTextSwap";
+import { settleReact } from "../../../test/support/domTeardown";
 
 // The live line's words change as Claude desktop's do (Leo, 2026-11-05): the new words are in the
 // DOM on the commit, the old ones leave as an inert copy, what follows slides by the width change,
@@ -133,6 +134,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   played = [];
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
