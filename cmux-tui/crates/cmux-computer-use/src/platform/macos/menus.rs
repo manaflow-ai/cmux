@@ -329,9 +329,7 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
                 launch,
             };
             let denied = d.opened_item_known(&it);
-            // An untitled item is a separator, unless its title could not be
-            // read: then it is listed only to be counted as hidden.
-            if title.trim().is_empty() && !(title_failed && denied) {
+            if listed_row(&title, title_failed, denied) == Row::Separator {
                 return None;
             }
             Some(Item {
@@ -341,6 +339,40 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
             })
         })
         .collect()
+}
+
+/// How a menu listing takes one item.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Row {
+    /// An untitled item: a separator, left out.
+    Separator,
+    /// Hidden and counted in `hidden` (denied, protected, or a title that
+    /// could not be read: an unreadable title is never a separator).
+    Hidden,
+    Visible,
+}
+
+/// Pure, for tests.
+pub(super) fn listed_row(title: &str, title_failed: bool, denied: bool) -> Row {
+    if title_failed || denied {
+        Row::Hidden
+    } else if title.trim().is_empty() {
+        Row::Separator
+    } else {
+        Row::Visible
+    }
+}
+
+/// The note a menu left open carries while the app names load: its items
+/// are hidden until they can be checked. Pure, for tests.
+pub(super) fn loading_note(names_ready: bool) -> Option<&'static str> {
+    (!names_ready).then_some(menus::APP_NAMES_LOADING)
+}
+
+/// Whether a pick may choose an item now: not while the app names its
+/// items are checked against load. Pure, for tests.
+pub(super) fn pick_gate(names_ready: bool) -> Result<(), &'static str> {
+    if names_ready { Ok(()) } else { Err(menus::APP_NAMES_LOADING) }
 }
 
 impl Item {
@@ -867,6 +899,9 @@ impl MacDesktop {
             })
             .collect();
         let mut out = ActionOutcome::delivered(route);
+        if let Some(note) = loading_note(workspace::app_names_ready()) {
+            out.note = note.into();
+        }
         let mut report = MenuReport::open(shown, hidden);
         report.more = more;
         out.menu = Some(report);
@@ -991,8 +1026,8 @@ impl MacDesktop {
         // same checks as the item pressed.
         // Items are checked against the app names: none is chosen while they
         // load (the protected apps always apply).
-        if !workspace::app_names_ready() {
-            return refuse(menus::APP_NAMES_LOADING.into());
+        if let Err(why) = pick_gate(workspace::app_names_ready()) {
+            return refuse(why.into());
         }
         let path = menus::menu_path(value);
         let mut level = menu.clone();

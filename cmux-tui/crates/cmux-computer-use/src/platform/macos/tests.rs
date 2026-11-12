@@ -1295,3 +1295,34 @@ fn a_menu_holding_the_keyboard_is_left_open_only_when_nothing_can_hide_under_it(
     // A listed menu's report says so.
     assert_eq!(crate::menus::MenuReport::listed(vec![], 0).state, "listed");
 }
+
+#[test]
+fn an_unreadable_title_is_hidden_and_counted_never_a_separator() {
+    use menus::{Row, listed_row};
+    assert_eq!(listed_row("", true, false), Row::Hidden);
+    assert_eq!(listed_row("", true, true), Row::Hidden);
+    assert_eq!(listed_row("Copy", false, true), Row::Hidden);
+    assert_eq!(listed_row("  ", false, false), Row::Separator);
+    assert_eq!(listed_row("Copy", false, false), Row::Visible);
+}
+
+#[test]
+fn picks_wait_and_say_so_while_the_app_names_load() {
+    let loading = crate::menus::APP_NAMES_LOADING;
+    // pick_in and the closed pop-up pick share this gate.
+    assert_eq!(menus::pick_gate(false), Err(loading));
+    assert_eq!(menus::pick_gate(true), Ok(()));
+    // A menu left open while they load says so.
+    assert_eq!(menus::loading_note(false), Some(loading));
+    assert_eq!(menus::loading_note(true), None);
+}
+
+#[test]
+fn a_shortcut_blocked_only_while_names_load_says_they_are_loading() {
+    let loading = crate::menus::APP_NAMES_LOADING;
+    assert_eq!(roles::loading_instead(roles::REFUSE_BLOCKED, false), Some(loading));
+    // Names ready: the deny-list refusal stands.
+    assert_eq!(roles::loading_instead(roles::REFUSE_BLOCKED, true), None);
+    // Any other refusal is unchanged.
+    assert_eq!(roles::loading_instead(roles::REFUSE_LAYOUT, false), None);
+}

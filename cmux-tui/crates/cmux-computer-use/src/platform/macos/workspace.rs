@@ -290,16 +290,22 @@ pub fn launch_targets(app: &str) -> Vec<String> {
 /// Several ids for a shared name; none for an unknown one.
 ///
 /// The index is built on a background thread and rebuilt when an app
-/// folder changes; while the first build runs, `None` (the caller refuses,
-/// fail-closed). Answers that needed LaunchServices are kept per name for
-/// ANSWER_TTL and tagged with the index generation they came from.
+/// folder changes. Until the first build is done, the name is asked of
+/// LaunchServices alone (as launch_targets does), so the menu bar and key
+/// shortcuts are not held back meanwhile; `None` only when LaunchServices
+/// cannot be asked (the caller refuses, fail-closed). Answers that needed
+/// LaunchServices are kept per name for ANSWER_TTL and tagged with the index
+/// generation they came from.
 pub fn apps_named(name: &str) -> Option<Vec<String>> {
     let key = name.trim().to_lowercase();
     if key.is_empty() {
         return Some(Vec::new());
     }
     let index = names_index();
-    let (generation, by_name) = index.current()?;
+    let Some((generation, by_name)) = index.current() else {
+        shared_workspace().ok()?;
+        return Some(launch_services_id(name.trim()).into_iter().collect());
+    };
     if let Some(ids) = by_name.get(&key) {
         return Some(ids.clone());
     }
@@ -323,8 +329,11 @@ pub fn apps_named_indexed(name: &str) -> Option<Vec<String>> {
     Some(by_name.get(&key).cloned().unwrap_or_default())
 }
 
-/// Whether the app-name index has been built (menu items are checked
-/// against it; while it is not, they fail closed while anything is denied).
+/// Whether the app-name index has been built. Items of a menu the desktop
+/// opens, and their word runs, are checked against it alone (a font pop-up
+/// has hundreds of items): until it is, they fail closed whatever the deny
+/// list, and calls say the names are loading. The menu bar and shortcuts
+/// ask LaunchServices meanwhile ([`apps_named`]).
 pub fn app_names_ready() -> bool {
     names_index().current().is_some()
 }

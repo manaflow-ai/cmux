@@ -100,6 +100,9 @@ impl MacDesktop {
             return Err(DesktopError::Unsupported(why.into()));
         }
         if self.menu_item_blocked(el) {
+            if !workspace::app_names_ready() {
+                return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
+            }
             return Err(DesktopError::Unsupported(
                 "this menu item would open or hand data to an app on the Computer Use deny list"
                     .into(),
@@ -285,7 +288,7 @@ impl MacDesktop {
             el = current.element("AXParent");
         }
         if on_menu.is_some() && !found_item {
-            return Err(DesktopError::Unsupported(menus::denied_item_refusal(None)));
+            return Err(DesktopError::Unsupported(menus::NO_MENU_ITEM_AT_POINT.into()));
         }
         Ok(())
     }
@@ -732,6 +735,11 @@ pub(super) fn press_keys(
                 return Ok(ActionOutcome::delivered("ax_menu_shortcut"));
             }
             roles::ChordAction::Refuse(why) => {
+                // A block that only stands because names are still loading
+                // says so, not "the deny list".
+                if let Some(loading) = roles::loading_instead(why, workspace::app_names_ready()) {
+                    return Err(DesktopError::Unsupported(loading.into()));
+                }
                 // Name the menu item only when it is the reason.
                 let item = (why == roles::REFUSE_BLOCKED)
                     .then(|| matches.iter().find(|m| m.blocked))
@@ -923,9 +931,8 @@ fn pick_closed(
     }
     // Items are checked against the app names: none is chosen while they
     // load (the protected apps always apply).
-    if !workspace::app_names_ready() {
-        return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
-    }
+    super::menus::pick_gate(workspace::app_names_ready())
+        .map_err(|why| DesktopError::Unsupported(why.into()))?;
     let titles: Vec<String> = items.iter().map(|i| i.info.title.clone()).collect();
     let hidden: Vec<bool> = items.iter().map(|i| i.denied).collect();
     let mut items = items;
@@ -1162,11 +1169,11 @@ fn shortcut_matches(
                         (t, blocked, true)
                     }
                     // A title that cannot be read cannot be checked: blocked
-                    // while something is denied (as menu_item_blocked does),
-                    // and never pressed.
+                    // whatever the deny list (as menu_item_blocked does), and
+                    // never pressed.
                     Err(()) => {
                         complete = false;
-                        (String::new(), d.denies_any(), false)
+                        (String::new(), true, false)
                     }
                 };
                 found.push((

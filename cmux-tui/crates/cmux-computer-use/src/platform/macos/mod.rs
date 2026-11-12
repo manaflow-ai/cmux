@@ -57,12 +57,12 @@ impl MacDesktop {
     /// Whether the deny list hides and refuses this menu item (Recent Items,
     /// Open With and Services entries that reach a denied or protected app).
     fn menu_item_blocked(&self, item: &Ax) -> bool {
-        // A title that cannot be read cannot be checked: while something is
-        // denied, that is blocked.
+        // A title that cannot be read cannot be checked: blocked, whatever
+        // the deny list (the protected apps always apply).
         match item.attr("AXTitle") {
             Ok(v) => self
                 .menu_item_blocked_titled(item, &v.and_then(|v| v.as_string()).unwrap_or_default()),
-            Err(_) => self.denies_any(),
+            Err(_) => true,
         }
     }
 
@@ -100,7 +100,8 @@ impl MacDesktop {
         let Some(guard) = self.guard() else { return false };
         let title = match item.attr("AXTitle") {
             Ok(v) => v.and_then(|v| v.as_string()).unwrap_or_default(),
-            Err(_) => return guard.denies_any(),
+            // Unreadable: blocked, whatever the deny list.
+            Err(_) => return true,
         };
         if self.menu_item_blocked_titled(item, &title) {
             return true;
@@ -115,8 +116,9 @@ impl MacDesktop {
     /// index only.
     fn opened_item_known(&self, it: &ax::OpenedItem) -> bool {
         let Some(guard) = self.guard() else { return false };
+        // Unreadable: blocked, whatever the deny list.
         if it.title_failed {
-            return guard.denies_any();
+            return true;
         }
         let ctx = roles::MenuItemContext {
             title: it.title,

@@ -453,6 +453,13 @@ pub fn menu_item_blocked(
         && (ids.is_empty() || version || ids.len() > 1)
 }
 
+/// The refusal a chord gets: a menu item blocked only because the app names
+/// are still loading (every titled item counts as blocked then) says the
+/// names are loading, not "the deny list". Pure, for tests.
+pub fn loading_instead(why: &str, names_ready: bool) -> Option<&'static str> {
+    (why == REFUSE_BLOCKED && !names_ready).then_some(crate::menus::APP_NAMES_LOADING)
+}
+
 /// Why pressing a menu-bar element is refused, if it is: one that opens a
 /// submenu would open a menu over the person's screen.
 pub fn submenu_refusal(role: &str, has_submenu: bool) -> Option<&'static str> {

@@ -132,9 +132,12 @@ Prevention, in the desktop (macOS):
     an app fills when it opens. Otherwise, whether or not anything is
     denied (a protected app's item could sit under a submenu), it is closed
     again and its titles listed (`menu.state` `listed`, submenu parents
-    marked). While the app names are still loading (the protected apps
+    marked). While the app-name index is still loading (the protected apps
     always apply, whatever the deny list), a menu holding the keyboard is
-    closed, no menu item is picked, and the call says so (retry).
+    closed, no menu item is picked, an open menu's items stay hidden, and the
+    call says so (retry). The menu bar and key shortcuts are not held back
+    meanwhile: their item names are asked of LaunchServices until the index
+    is ready. A menu item whose title cannot be read is hidden and refused.
   - Picks run in one call: `click` with `menu_item` (a right click or
     control-click, a pop-up or menu button), with a path for a submenu's
     item ("Open With > TextEdit", "Sort By > Name"), or `set_value` on a
