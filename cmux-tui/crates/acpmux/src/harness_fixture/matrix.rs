@@ -19,8 +19,11 @@
 //! `absent` (not installed, the same as leaving it out). Each agent present
 //! is the profile discovery would add for it (`config/discover.rs`, the ACP
 //! Registry for Antigravity) and a health row in its state, so the daemon,
-//! and every surface reading it, sees that person's Mac. As with a file,
-//! nothing about these harnesses is read from the host, started or updated.
+//! and every surface reading it, sees that person's agents. As with a file,
+//! nothing about these harnesses is read from the host or updated, and each
+//! program is a path under `FIXTURE_BIN`, so one never starts the host's own
+//! CLI. Discovery's other harnesses (the bundled ones, Codex's aliases) are
+//! not part of a cell.
 
 use std::collections::BTreeMap;
 
@@ -32,6 +35,9 @@ use super::Fixture;
 
 /// What the variable starts with to name a cell instead of a file.
 pub const PREFIX: &str = "matrix:";
+
+/// Where a cell's programs claim to live: a folder no Mac has.
+pub const FIXTURE_BIN: &str = "/opt/fixture/bin";
 
 /// One agent CLI as discovery finds it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,11 +194,17 @@ pub fn fixture(cell: &str) -> Result<Fixture, String> {
     let mut fixture = Fixture::default();
     for (agent, auth) in parse(cell)? {
         let program = agent.argv[0];
+        // The row's path, never a bare name: a chat started on a cell's harness fails to
+        // start instead of finding this host's real CLI on PATH, signed in as its owner.
+        let path = format!("{FIXTURE_BIN}/{program}");
+        let argv = std::iter::once(path.clone())
+            .chain(agent.argv[1..].iter().map(|a| (*a).to_owned()))
+            .collect();
         fixture.harnesses.insert(
             agent.id.to_owned(),
             HarnessProfile {
                 kind: agent.kind,
-                argv: agent.argv.iter().map(|a| (*a).to_owned()).collect(),
+                argv,
                 env: BTreeMap::new(),
                 description: Some("found on PATH".into()),
                 fallback: None,
@@ -212,7 +224,7 @@ pub fn fixture(cell: &str) -> Result<Fixture, String> {
         fixture.health.push(HarnessHealth {
             id: agent.id.to_owned(),
             program: program.to_owned(),
-            path: Some(format!("/opt/fixture/bin/{program}")),
+            path: Some(path),
             channel: agent.channel,
             package: agent.package.map(str::to_owned),
             version: Some("1.0.0".into()),
@@ -307,6 +319,18 @@ mod tests {
             ] {
                 assert_eq!(auths(&format!("{}={word}", agent.name)), [(agent.name, auth)]);
             }
+        }
+    }
+
+    /// A start of a cell's harness can never find this host's real CLI on PATH.
+    #[test]
+    fn every_program_is_a_path_no_mac_has() {
+        let fixture = fixture("all-signed-in").unwrap();
+        for (id, profile) in &fixture.harnesses {
+            assert!(profile.argv[0].starts_with(FIXTURE_BIN), "{id}: {:?}", profile.argv);
+        }
+        for row in &fixture.health {
+            assert_eq!(row.path.as_deref(), Some(fixture.harnesses[&row.id].argv[0].as_str()));
         }
     }
 
