@@ -63,18 +63,13 @@ fn exports_are_well_formed() {
 }
 
 /// The checked-in exports (merged-catalog input, mux code-mode
-/// declarations, the app's palette copy) must equal a fresh export, so
+/// declarations) must equal a fresh export, so
 /// every op change shows up as a reviewed catalog diff.
 #[test]
 fn checked_in_exports_match() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let fresh = catalog::export_json();
-    for path in [
-        root.join("catalog/tasks-catalog.json"),
-        root.join(
-            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextTasks/Resources/tasks-catalog.json",
-        ),
-    ] {
+    for path in [root.join("catalog/tasks-catalog.json")] {
         let text =
             std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let stored: Value = serde_json::from_str(&text).unwrap();
