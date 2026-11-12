@@ -101,7 +101,8 @@ public final class AgentPaneLoadingView: NSView {
     func showMarkLater() {
         guard !isHidden else { return }
         markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in
-            guard let self else { return }
+            // Hidden since the timer claimed its fire (it claims off the main thread, then hops here): no mark.
+            guard let self, !isHidden else { return }
             addSubview(indicator)
         }
     }

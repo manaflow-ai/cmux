@@ -121,6 +121,7 @@ struct AgentPaneColdChatRevealTests {
     @Test func aHiddenCoverHasNoMarkAndNoDelay() async throws {
         let (view, window) = try Self.pane(newTab: AgentPaneNewTab(kind: .agent))
         defer { window.close() }
+        view.loadingView.paintCheckInterval = Self.hangBound * 2 // the give-up never ends the cover in this test
         view.showsLoadingState = false // as AgentTabStore.makeView does for a New Tab page
         #expect(view.loadingView.superview != nil && view.loadingView.isHidden, "fixture: the cover is in the pane, hidden")
         #expect(!view.loadingView.markIsPending, "a hidden cover's mark delay still runs: it will wake the main thread for a mark nobody sees")
@@ -139,6 +140,7 @@ struct AgentPaneColdChatRevealTests {
     @Test func aCoverThatHidesTakesItsMarkOut() async throws {
         let (view, window) = try Self.pane()
         defer { window.close() }
+        view.loadingView.paintCheckInterval = Self.hangBound * 2 // the give-up never ends the cover in this test
         try await Self.settle { Self.markShows(view) }
         try #require(Self.markShows(view), "fixture: the chat's mark never showed")
         view.standOverPicture()
