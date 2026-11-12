@@ -803,7 +803,13 @@ def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None, re
     values: set[str] = set()
     unresolved: set[str] = set()
     for cell in expanded:
-        bodies = expressions(cell)
+        # Keep the base tokenizer's strict unterminated-expression behavior while retaining
+        # this branch's caller tracing for every unresolved term.
+        try:
+            bodies = _EXPRESSION.findall(cell)
+        except gh_expressions.Unterminated:
+            unresolved.add(cell)
+            continue
         if not bodies:
             values.add(cell)
         elif len(bodies) == 1 and cell.startswith("${{") and cell.endswith("}}"):

@@ -322,6 +322,37 @@ class RustWorkspacesTests(unittest.TestCase):
                                                                      else "// changed\n"))
                 self.assertEqual(self.planned(), planned)
 
+    def test_a_member_beside_the_root_plans_the_root(self) -> None:
+        # As cmux-app-ffi's workspace takes in ../cmux-rd-ffi: a member named with "../" and no path dependency on it.
+        self.write("sib/root/Cargo.toml", '[package]\nname = "root"\n\n[workspace]\nmembers = ["../mem"]\n')
+        self.write("sib/mem/Cargo.toml", '[package]\nname = "mem"\nworkspace = "../root"\n')
+        self.write("sib/mem/src/lib.rs", "pub fn mem() {}\n")
+        self.write(".github/rust-workspaces.toml", (self.repo / ".github/rust-workspaces.toml").read_text()
+                   + '\n[[workspace]]\nroot = "sib/root"\nrun = true\n')
+        self.git("add", ".")
+        self.git("commit", "-qm", "sibling member")
+        self.base = self.head()
+        self.change("sib/mem/src/lib.rs")
+        self.assertEqual(self.planned(), ["sib/root"])
+        self.assertEqual(self.script("check").returncode, 0)
+
+    def test_a_member_beside_the_root_inherits_its_path_dependencies(self) -> None:
+        # cmux#42082 review F1: mem sits under ws's tree, but names sib/root as its workspace; its
+        # `{ workspace = true }` dependency resolves from sib/root's [workspace.dependencies], not ws's.
+        self.write("sib/root/Cargo.toml", '[package]\nname = "root"\n\n[workspace]\nmembers = ["../../ws/crates/mem"]\n\n'
+                   '[workspace.dependencies]\nlib = { path = "../lib" }\n')
+        self.write("sib/lib/Cargo.toml", '[package]\nname = "lib"\n\n[workspace]\n')
+        self.write("sib/lib/src/lib.rs", "pub fn lib() {}\n")
+        self.write("ws/crates/mem/Cargo.toml", '[package]\nname = "mem"\nworkspace = "../../../sib/root"\n\n'
+                   '[dependencies]\nlib = { workspace = true }\n')
+        self.write(".github/rust-workspaces.toml", (self.repo / ".github/rust-workspaces.toml").read_text()
+                   + '\n[[workspace]]\nroot = "sib/root"\nrun = true\n\n[[workspace]]\nroot = "sib/lib"\nskip = "test"\n')
+        self.git("add", ".")
+        self.git("commit", "-qm", "inherited path")
+        self.base = self.head()
+        self.change("sib/lib/src/lib.rs")
+        self.assertIn("sib/root", self.planned())
+
     def test_a_nested_workspaces_reads_are_not_the_outer_ones(self) -> None:
         # solo/tool's source reads tokens/t.json; solo does not.
         self.change("tokens/t.json", "{\"v\": 3}\n")

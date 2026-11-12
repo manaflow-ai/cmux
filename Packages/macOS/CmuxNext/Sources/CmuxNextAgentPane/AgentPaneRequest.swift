@@ -283,12 +283,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// chat's ask in place, with that ask's allow once or deny once (``AgentPaneAskAnswer``).
     case asksAnswer(AgentPaneAskAnswer)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
-    /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
-    case subagentPane(String, focus: Bool, title: String? = nil, tone: Int? = nil)
+    /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it. `mark`: the
+    /// harness whose mark its row draws, nil for the subagent mark (``SubagentTabTitles/icon(ofTab:)``).
+    case subagentPane(String, focus: Bool, title: String? = nil, tone: Int? = nil, mark: String? = nil)
     /// `chat.subagentShown {subagent?, title?, state?, sinceMs?, model?}`: a pane opened on a subagent
     /// now shows that subagent (named `title`, in state `facts`), or its chat again (no subagent): its
     /// tab's name and hover card follow (``SubagentTabTitles``).
-    case subagentShown(String?, title: String?, tone: Int? = nil, facts: SubagentTabFacts? = nil)
+    case subagentShown(String?, title: String?, tone: Int? = nil, facts: SubagentTabFacts? = nil, mark: String? = nil)
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)
