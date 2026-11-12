@@ -28,13 +28,10 @@ import os
 public nonisolated final class AgentPaneUnsentPrompts: Sendable {
     public static let directoryName = "agent-unsent-prompts"
     /// The app's store; nil keeps nothing (a test host, the gallery).
-    /// `<Application Support>/<bundle id>/agent-unsent-prompts`, beside the prompt journal. Nil
-    /// outside an app bundle (package tests, tools), so they never write the app's files.
-    public static let shared: AgentPaneUnsentPrompts? = {
-        guard Bundle.main.bundleURL.pathExtension == "app", let bundle = Bundle.main.bundleIdentifier, !bundle.isEmpty,
-              let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
-        return AgentPaneUnsentPrompts(directory: support.appending(path: bundle))
-    }()
+    /// `<Application Support>/<bundle id>/agent-unsent-prompts`, beside the prompt journal, which
+    /// owns it (one store, so one queue keeps each chat's writes in order). Nil outside an app
+    /// bundle (package tests, tools), so they never write the app's files.
+    public static var shared: AgentPaneUnsentPrompts? { AgentPanePromptJournal.shared?.unsentPrompts }
     /// How long an unsent prompt is kept; an older one goes the next time its chat is written.
     public static let maximumAge: TimeInterval = 30 * 24 * 60 * 60
 
