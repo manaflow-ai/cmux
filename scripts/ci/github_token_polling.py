@@ -16,8 +16,10 @@ those calls use is github.token. Each language is read by its own rules:
   matching `}`. Each loop's and function's commands are read by the shared
   reader, tests/shell_invocations.py (may_run_nested): through wrappers
   (`env`, `timeout`, `command`, `nice` ...), a path (`/usr/bin/gh`), a shell's
-  -c text, eval and substitutions, and content it cannot read may call the
-  API. A helper counts only when it is run as a command.
+  -c text, eval and substitutions. Content it cannot read (a script at a path
+  held in a variable, a sourced file, eval of a variable) may call the API and
+  may sleep: what it cannot classify is refused, never allowed. A helper counts
+  only when it is run as a command.
   A heredoc fed to python or node is read as that language.
 - Python (`shell: python`, or a heredoc fed to python): parsed with `ast`.
 - JavaScript (actions/github-script, or a heredoc fed to node or bun): strings
@@ -290,7 +292,8 @@ def shell_calls(text: str, names: Iterable[str]) -> set[str]:
 
 
 def shell_sleeps(text: str) -> bool:
-    return any(words and _program(words[0]) == "sleep" for words in _runs(text))
+    """Whether the shell TEXT may sleep: a `sleep` command, or content the reader cannot read (fail closed)."""
+    return any(not words or _program(words[0]) == "sleep" for words in _runs(text))
 
 
 def api_url_pattern(names: Iterable[str]) -> re.Pattern[str]:

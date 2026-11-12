@@ -215,6 +215,12 @@ class ShellTests(unittest.TestCase):
             with self.subTest(form):
                 script = f"state() {{ gh api x; }}\nwhile true; do\n  {body}\ndone\n"
                 self.assertTrue(shell_polls(script), script)
+        # Content the reader cannot read may call the API and may sleep (fail closed).
+        for form, body in (("a script at a variable path", 'bash "$probe" look; sleep 5'),
+                           ("a sourced file", 'source "$lib"; sleep 5'),
+                           ("eval of a variable, with a call", 'gh api x; eval "$wait"')):
+            with self.subTest(form):
+                self.assertTrue(shell_polls(f"while true; do\n  {body}\ndone\n"))
         for form, body in (("gh echoed", "echo gh api x; sleep 5"), ("sleep echoed", "gh api x; echo sleep 5"),
                            ("gh in a string", "printf '%s' 'gh api x'; sleep 5")):
             with self.subTest(form):
