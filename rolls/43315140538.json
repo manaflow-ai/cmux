@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43315140538",
+  "recorded_at": "2026-11-12T22:02:04Z",
+  "reason": "cmux-tui 252d378d926d changes the image's cmux-tui (pinned 288be5d3594e)",
+  "dry_run": false,
+  "cmux_tui": "252d378d926dfe6eb95850fa2217eedb8b297118",
+  "fixes": [
+    {
+      "sha": "252d378d926dfe6eb95850fa2217eedb8b297118",
+      "mergedAt": "2026-11-12T15:03:16-06:00",
+      "subject": "fix(cmux-tui): the puts fixture's seal accepts a range the maintenance worker sealed first"
+    },
+    {
+      "sha": "859a40a5be4930e5c2c58a0880b489c1c14b0d93",
+      "mergedAt": "2026-11-12T15:03:16-06:00",
+      "subject": "test(cmux-tui): the puts fixture's seal finishes when maintenance sealed its range first"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T22:02:04Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
