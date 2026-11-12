@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePopupHost } from "./UiProvider";
 import type { NativePopupTransport } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
+import { onVisualViewport } from "./visualViewportBox";
 
 export interface PopupItem {
   id: string;
@@ -317,7 +318,8 @@ export function useEscapingPopup(
       const at = anchorRef.current();
       if (!at) return null;
       const { items, highlighted } = popupItems(element, kind, active);
-      const box = at.getBoundingClientRect();
+      // Where the anchor shows under a trackpad pinch, so the App's popup opens beside it.
+      const box = onVisualViewport(at.getBoundingClientRect(), at.ownerDocument.defaultView);
       return {
         items,
         highlighted,
