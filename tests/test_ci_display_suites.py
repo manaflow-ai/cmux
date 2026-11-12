@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-"""scripts/ci/display-suites.txt declares the suites whose own display skip traits (or a test's) ask for a display,
-and scripts/ci/display_suites.py finds a suite by its own trait or a test's.
-
-cmux-ci reads the committed list at a step's ref to send a package-test-lane suite step that names a display
-suite to a display worker (the gui-session-v1 label), so a suite with a display trait missing from the list, or
-a listed suite that lost its trait, fails here.
+"""scripts/ci/display_suites.py derives the suites whose own display skip traits (or a test's) ask for a display,
+finding a suite by its own trait or a test's. The list is derived wherever it is read and never committed.
 """
 
 from __future__ import annotations
@@ -23,11 +19,31 @@ display_suites = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(display_suites)
 
 
-class ListInSyncTest(unittest.TestCase):
-    def test_the_committed_list_is_the_traits(self):
-        done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), "--check"],
-                              capture_output=True, text=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
+class DerivedNeverCommittedTest(unittest.TestCase):
+    """The list is derived from the suites' traits wherever it is read, never committed. A committed copy went
+    stale on every pull request that added a display test (generated_files_guard.py refuses a new committed
+    generated file, so the PR autofix could not write it) and stayed stale until the post-merge base autofix."""
+
+    def test_no_committed_list(self):
+        self.assertFalse((ROOT / "scripts/ci/display-suites.txt").exists(),
+                         "scripts/ci/display-suites.txt is committed: derive it with scripts/ci/display_suites.py")
+        tracked = subprocess.run(["git", "-C", str(ROOT), "ls-files", "--", "scripts/ci/display-suites*"],
+                                 capture_output=True, text=True)
+        if tracked.returncode == 0:
+            self.assertEqual(tracked.stdout.strip(), "", "a display suite list is tracked: derive it instead")
+
+    def test_no_mode_writes_or_checks_a_copy(self):
+        for mode in ("--fix", "--check"):
+            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), mode],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 2, f"display_suites.py {mode} still keeps a committed copy")
+
+    def test_the_derived_list_prints_the_rows(self):
+        done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py")],
+                              capture_output=True, text=True, check=True)
+        rows = [line for line in done.stdout.splitlines() if line and not line.startswith("#")]
+        self.assertEqual(rows, display_suites.display_suites(ROOT))
+        self.assertTrue(all(len(row.split()) == 2 and "." in row.split()[1] for row in rows), rows)
 
     def test_the_list_names_the_known_display_suites(self):
         rows = display_suites.display_suites(ROOT)
@@ -102,7 +118,7 @@ class DerivationTest(unittest.TestCase):
                   "}\n")
         self.assertEqual(display_suites.suites_in(source), set())
 
-    def test_check_reports_both_directions(self):
+    def test_root_derives_another_tree(self):
         tmp = Path(tempfile.mkdtemp(prefix="display-suites-"))
         self.addCleanup(shutil.rmtree, tmp, True)
         tests = tmp / "Packages/macOS/Pkg/Tests/PkgTests"
@@ -110,18 +126,16 @@ class DerivationTest(unittest.TestCase):
         (tmp / "Packages/macOS/Pkg/Package.swift").write_text("// swift-tools-version: 6.0\n")
         (tests / "A.swift").write_text('@Suite(.enabled(if: hasScreen, "zooming needs a screen: run on a GUI host"))\n'
                                        "struct ZoomTests {\n}\n")
-        (tmp / "scripts/ci").mkdir(parents=True)
-        (tmp / display_suites.LIST).write_text(display_suites.HEADER + "Packages/macOS/Pkg PkgTests.GoneTests\n")
-        done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), "--root", str(tmp),
-                               "--check"], capture_output=True, text=True)
-        self.assertEqual(done.returncode, 1)
-        self.assertIn("missing Packages/macOS/Pkg PkgTests.ZoomTests", done.stderr)
-        self.assertIn("lists Packages/macOS/Pkg PkgTests.GoneTests, which has no display skip trait", done.stderr)
-        subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), "--root", str(tmp), "--fix"],
-                       check=True)
-        self.assertEqual(subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), "--root",
-                                         str(tmp), "--check"]).returncode, 0)
-
+        # Tests of a folder with no Package.swift are no package's: not listed.
+        stray = tmp / "Packages/macOS/Loose/Tests/LooseTests"
+        stray.mkdir(parents=True)
+        (stray / "B.swift").write_text('@Suite(.enabled(if: hasScreen, "needs a display")) struct LooseTests {}\n')
+        done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), "--root", str(tmp)],
+                              capture_output=True, text=True, check=True)
+        self.assertEqual(done.stdout, display_suites.HEADER + "Packages/macOS/Pkg PkgTests.ZoomTests\n")
+        self.assertEqual(sorted(p.relative_to(tmp).as_posix() for p in tmp.rglob("*") if p.is_file()),
+                         ["Packages/macOS/Loose/Tests/LooseTests/B.swift", "Packages/macOS/Pkg/Package.swift",
+                          "Packages/macOS/Pkg/Tests/PkgTests/A.swift"], "deriving the list writes no file")
 
 if __name__ == "__main__":
     unittest.main()
