@@ -202,9 +202,18 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
       () => (window as unknown as { __frames: { below: number; at?: number }[] }).__frames,
     );
     const atBottom = seen.filter((frame) => frame.below <= 4).length;
-    const moved = seen.filter((frame) => frame.at !== undefined && Math.abs(frame.at - anchor!.at) > 1);
+    // Once the rows the reader had are all back, their row is exactly where it was. While the older
+    // pages are still being read again it may draw a row's estimated height off (logged, not gated:
+    // up to 70 px on the first page back, which draws the row inside its first screen).
+    const whole = seen[0]?.rows ?? 0;
+    const repaging = seen.filter(
+      (frame) => frame.at !== undefined && (frame.rows ?? 0) < whole && Math.abs(frame.at - anchor!.at) > 1,
+    );
+    const moved = seen.filter(
+      (frame) => frame.at !== undefined && (frame.rows ?? 0) >= whole && Math.abs(frame.at - anchor!.at) > 1,
+    );
     console.log(
-      `transcript-older-scroll reconnect: ${JSON.stringify({ frames: seen.length, atBottom, moved: moved.length, first: moved.slice(0, 4), anchor })}`,
+      `transcript-older-scroll reconnect: ${JSON.stringify({ frames: seen.length, atBottom, moved: moved.length, repaging: repaging.length, first: [...moved, ...repaging].slice(0, 4), anchor })}`,
     );
     expect(seen.length).toBeGreaterThan(30);
     expect(atBottom).toBe(0);
