@@ -54,6 +54,8 @@ chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
 cmux-json.workspace = true
+# The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
+cmux-config.workspace = true
 # NEXT Cloud's generated client: the join's hub calls (redeem, credentials/self).
 cmux-cloud-client.workspace = true
 # The event log's journal (R-DURABILITY S2; always on).

@@ -62,22 +62,6 @@ root = "Native/OptChat/optchat-chief"
 run = true
 
 [[workspace]]
-root = "Native/OptChat/chief-kernel"
-run = true
-
-[[workspace]]
-root = "Native/OptChat/optchat-core"
-run = true
-
-[[workspace]]
-root = "Native/OptChat/optchat-host"
-run = true
-
-[[workspace]]
-root = "Native/OptChat/optchat-wasm"
-run = true
-
-[[workspace]]
 root = "cmux-next-ios/rust"
 run = true
 
