@@ -275,6 +275,12 @@ public final class AgentChatStore {
         public var attachments: [AgentAttachment]
         /// The prompt's acpmux id: sending the same text again reuses it, so the Mac runs it once.
         public var promptID: String?
+
+        public init(text: String, attachments: [AgentAttachment], promptID: String?) {
+            self.text = text
+            self.attachments = attachments
+            self.promptID = promptID
+        }
     }
     /// A returned draft the Mac turned out to have run (its prompt id showed up in the
     /// transcript after the link came back): the composer takes it out again (then clears this).

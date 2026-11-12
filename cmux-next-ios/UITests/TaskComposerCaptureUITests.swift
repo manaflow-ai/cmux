@@ -36,8 +36,9 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     /// A short drag up inside the sheet (a fraction of a screen), to bring the next rows in.
     @MainActor
     private static func nudgeUp(_ app: XCUIApplication, by fraction: Double = 0.3) {
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
-            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7 - fraction)))
+        // From above the keyboard (its top is near 0.55): a drag there scrolls the form and puts the keyboard away.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: max(0.08, 0.45 - fraction))))
         pause(0.6)
     }
 
@@ -196,6 +197,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             // A4: another Mac: the two agents chosen go (Start 2 becomes Start).
             Scene(group: g, id: "mac-switched-clears-agents", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") },
+                         { Self.nudgeUp(app, by: 0.1); return nil },
                          { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
                          { app.swipeUp(); C.pause(0.6); return nil },
                          { C.tap(C.any(app, "taskComposer.mac"), "Mac picker") },
@@ -205,6 +207,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             // A8: Cancel keeps all of it: prompt, photos, agents (Start 2), then folder and name.
             Scene(group: g, id: "draft-full-kept-top", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
+                         { Self.nudgeUp(app, by: 0.1); return nil },
                          { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
                          { app.swipeUp(); C.pause(0.6); return nil },
                          { C.tap(C.any(app, "taskComposer.name"), "name field") },
@@ -214,6 +217,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             },
             Scene(group: g, id: "draft-full-kept-bottom", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
+                         { Self.nudgeUp(app, by: 0.1); return nil },
                          { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
                          { app.swipeUp(); C.pause(0.6); return nil },
                          { C.tap(C.any(app, "taskComposer.name"), "name field") },

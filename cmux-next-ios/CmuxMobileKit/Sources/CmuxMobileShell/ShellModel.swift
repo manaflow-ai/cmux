@@ -509,10 +509,14 @@ final class ShellModel {
         let text: String
         switch failure {
         case .notSent:
-            AgentSessionDirectory.shared.newChatDraft = AgentSessionDirectory.NewChatDraft(
-                workspaceID: workspace.id, text: task.prompt, expiresAt: Date().addingTimeInterval(600))
-            text = task.images.isEmpty ? "Your task didn't reach \(agent). It's in the chat, ready to send."
-                : "Your task didn't reach \(agent). Its text is in the chat; attach the photos again."
+            // Into that chat's composer, photos too, as a prompt that couldn't be sent comes back.
+            if let tab = workspace.tabs.first(where: \.isAgent) {
+                let mac = store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
+                let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
+                let photos = task.images.map { AgentAttachment(id: $0.id, kind: .image, name: "Photo.jpg", data: $0.data) }
+                chat.returnedDraft = AgentChatStore.ReturnedDraft(text: task.prompt, attachments: photos, promptID: nil)
+            }
+            text = "Your task didn't reach \(agent). It's in the chat, ready to send."
         case .uncertain:
             text = "The connection dropped while sending your task. Open \(workspace.title) to check that \(agent) got it."
         case .refused(let reason):
