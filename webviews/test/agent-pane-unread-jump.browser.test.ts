@@ -127,37 +127,25 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
         height: scroller.clientHeight,
       };
     });
-  /// Presses Jump up and waits for its glide to end: the scroll offset holds for three painted frames
-  /// (its length follows the theme's motion tokens, so a fixed frame count reads it mid-glide).
+  /// Presses Jump up and waits for its glide to end: the offset moved, then held for ten painted
+  /// frames. The glide may hold still for its first frames, so holding alone is not the end.
   const press = async (page: Page) => {
-    await page.evaluate(() => {
-      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const log: string[] = ((window as unknown as { __dbg: string[] }).__dbg = []);
-      const line = () => document.querySelector('[data-row-id="sinceDivider"]');
-      const tick = () => {
-        const l = line()?.getBoundingClientRect().top;
-        log.push(
-          `${Math.round(performance.now())} st=${Math.round(node.scrollTop)} sh=${node.scrollHeight} line=${l === undefined ? "-" : Math.round(l - node.getBoundingClientRect().top)}`,
-        );
-        if (log.length < 400) requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
+    const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
     await page.click(".acpmux-jump-up");
     await page.waitForFunction(
-      async () => {
+      async (from) => {
         const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const top = node.scrollTop;
-        for (let left = 3; left > 0; left -= 1) await window.cmuxPaintFrame();
+        if (Math.abs(top - from) < 1) return false;
+        for (let left = 10; left > 0; left -= 1) await window.cmuxPaintFrame();
         return node.scrollTop === top;
       },
-      undefined,
-      { timeout: 30_000 },
+      start,
+      { timeout: 30_000, polling: "raf" },
     );
   };
   /// The line near the top: inside the view's top fifth, the first unseen row right under it.
   const landedNearTop = (at: Awaited<ReturnType<typeof read>>) => {
-    console.log("DBG at", JSON.stringify(at));
     expect(at.line).toBeDefined();
     expect(at.line!).toBeGreaterThanOrEqual(0);
     expect(at.line!).toBeLessThanOrEqual(at.height / 5);
@@ -181,22 +169,6 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
           expect(before.jump).toBe("up");
           await press(page);
           const after = await read(page);
-          console.log(
-            "DBG rows",
-            await page.evaluate(() => {
-              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-              const top = scroller.getBoundingClientRect().top;
-              return [...document.querySelectorAll<HTMLElement>("[data-row-id]")]
-                .map((el) => `${el.dataset.rowId}@${Math.round(el.getBoundingClientRect().top - top)}`)
-                .join(" ");
-            }),
-          );
-          console.log(
-            "DBG trace",
-            (await page.evaluate(() => (window as unknown as { __dbg: string[] }).__dbg))
-              .filter((_, i, all) => i < 40 || i % 10 === 0 || i === all.length - 1)
-              .join("\n"),
-          );
           landedNearTop(after);
           // There, nothing unseen lies above the view: the same control is Jump to latest, and it
           // goes back down with its own glide.
