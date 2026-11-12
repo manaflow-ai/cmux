@@ -27,7 +27,7 @@ public final class AgentChatSurface {
     /// once-a-second card refresh).
     private(set) var heldRefresh = 0
     public func refreshHeldTranscript() { heldRefresh &+= 1 }
-    var attachments: [AgentAttachment] = []
+    public var attachments: [AgentAttachment] = []
     /// The transcript's scroll position. Writes that change nothing are
     /// dropped: SwiftUI writes the resolved position back through the
     /// binding, and an unconditional invalidation there can feed back into
@@ -598,12 +598,17 @@ struct AgentChatEmptyState: View {
 struct AgentChatLoadingState: View {
     let store: AgentChatStore
 
+    /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
+    static func startingText(_ summary: AgentSessionSummary) -> String {
+        summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
+    }
+
     var body: some View {
         VStack(spacing: 12) {
             CmuxSpinner()
             Text(store.summary.status == .disconnected
                  ? "Connecting to \(store.summary.macName)…"
-                 : store.isStarting ? "Starting \(store.summary.agentName)…" : "Loading chat…")
+                 : store.isStarting ? Self.startingText(store.summary) : "Loading chat…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }

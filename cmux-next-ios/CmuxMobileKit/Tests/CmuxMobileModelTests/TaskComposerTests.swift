@@ -233,3 +233,11 @@ import Testing
         #expect(TaskImage(data: Data(Array("ftypheic0000".utf8))).mimeType == nil)
     }
 }
+
+/// The workspace page finds a creating workspace's opening tab by this id (WorkspaceTabsSource.placeholderTabID).
+@MainActor @Suite struct PlaceholderTabIDTests {
+    @Test func theOpeningTabIsTheWorkspaceIDAndT1() {
+        let ws = WorkspaceCreator.placeholder(for: NewWorkspaceRequest(macID: "m", start: .agent("")), existing: [])
+        #expect(ws.tabs.first?.id == "\(ws.id)-t1")
+    }
+}

@@ -213,8 +213,10 @@ public final class AgentChatStore {
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
     /// shows them (kept from before) and says it is updating.
     public private(set) var isLoadingHistory = false
-    /// The Mac is starting this chat (``AgentSessionSource/isStarting``).
-    public var isStarting: Bool { source.isStarting }
+    /// The Mac is starting this chat (``AgentSessionSource/isStarting`` when the store was made):
+    /// read once, so its loading state says so until the history comes, whatever the source
+    /// notes meanwhile (the hub forgets a started session when its history attaches).
+    public let isStarting: Bool
     /// The chat is new: it holds no turns and none are on their way (the empty state shows).
     public var isNewChat: Bool { !hasTurns && !isLoadingHistory }
     /// The title the agent gave the session (`session_info_update`).
@@ -330,6 +332,7 @@ public final class AgentChatStore {
         self.source = source
         self.summary = source.summary
         self.isLoadingHistory = source.loadsHistory
+        self.isStarting = source.isStarting
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {

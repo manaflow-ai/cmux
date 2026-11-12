@@ -405,7 +405,8 @@ public final class StartingAgentSource: AgentSessionSource {
     }
 
     public func send(_ intent: AgentClientIntent) {
-        let reason = "\(summary.agentName) is still starting. Send again in a moment."
+        let reason = summary.harness.isEmpty ? "The chat is still starting. Send again in a moment."
+            : "\(summary.agentName) is still starting. Send again in a moment."
         let event: AgentSessionEvent
         if case .prompt(let text, let attachments, _, let promptID, _) = intent {
             event = .promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason)

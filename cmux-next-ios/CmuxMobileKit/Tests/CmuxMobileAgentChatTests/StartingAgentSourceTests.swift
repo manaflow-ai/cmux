@@ -1,0 +1,54 @@
+import Foundation
+import Testing
+@testable import CmuxMobileAgentChat
+
+/// A chat whose workspace this phone is still creating (New Task, New Agent Chat) says it is
+/// starting, names its agent only when it has one, and hands back what is sent meanwhile.
+@MainActor
+@Suite struct StartingAgentSourceTests {
+    func summary(harness: String, agent: String) -> AgentSessionSummary {
+        AgentSessionSummary(id: "new-1-t1", name: "New session", harness: harness, agentName: agent, cwd: "~/p",
+                            workspaceTitle: "w", macName: "Mac")
+    }
+
+    /// A source whose "starting" note goes away later, as the hub forgets a session once its
+    /// history attaches.
+    final class FlippingSource: AgentSessionSource {
+        let summary: AgentSessionSummary
+        var starting = true
+        init(summary: AgentSessionSummary) { self.summary = summary }
+        var isStarting: Bool { starting }
+        var loadsHistory: Bool { true }
+        func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
+        func send(_ intent: AgentClientIntent) {}
+    }
+
+    /// Live run 9: the chat read "Loading chat…" for a frame between "Starting Fake…" and the
+    /// reply, because the store read the hub's note on each draw and the note was dropped first.
+    @Test func theStoreKeepsTheStartingStateItWasMadeWith() {
+        let source = FlippingSource(summary: summary(harness: "claude", agent: "Claude"))
+        let store = AgentChatStore(source: source)
+        source.starting = false
+        #expect(store.isStarting)
+        #expect(!AgentChatStore(source: source).isStarting)
+    }
+
+    /// Live run 9 (New Agent Chat): the Mac's default agent is not named yet; its placeholder
+    /// tab is "Agent Chat", which is not an agent's name.
+    @Test func theDefaultAgentIsNotNamed() {
+        #expect(AgentChatLoadingState.startingText(summary(harness: "claude", agent: "Claude")) == "Starting Claude…")
+        #expect(AgentChatLoadingState.startingText(summary(harness: "", agent: "Agent Chat")) == "Starting chat…")
+    }
+
+    @Test func aSendWhileStartingComesBackWithWhy() async {
+        let source = StartingAgentSource(summary: summary(harness: "", agent: "Agent Chat"))
+        var events = source.events().makeAsyncIterator()
+        source.send(.prompt(text: "hi early", attachments: [], steer: false, promptID: "p1", resend: false))
+        guard case .promptNotSent(let text, _, let id, let reason) = await events.next() else {
+            Issue.record("the prompt was not handed back")
+            return
+        }
+        #expect(text == "hi early" && id == "p1")
+        #expect(reason == "The chat is still starting. Send again in a moment.")
+    }
+}
