@@ -91,6 +91,7 @@ import sys
 import time
 import uuid
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))  # made_workspace.py, also when this file is loaded by its path
 try:
     from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
@@ -1555,8 +1556,12 @@ def map_rows(args):
     real = sorted(name for name in ids if name and NAME.match(name))
     if len(real) < 44:
         raise SystemExit(f"session_real: the app shows {len(real)} workspaces of a `make` session; map needs it")
+    try:
+        from made_workspace import made_workspace  # noqa: PLC0415  (only this command needs it)
+    except ImportError:  # a copy of this script with no made_workspace.py beside it
+        raise SystemExit("session_real: map needs made_workspace.py (scripts/perf-bench) beside this file") from None
     made = app.act("workspace.newAtBottom")
-    bench = next((i for i in made.get("created", []) if str(i).startswith("ws_")), None)
+    bench = made_workspace(made, app.topology)
     if not bench:
         raise SystemExit(f"session_real: workspace.newAtBottom made no workspace: {str(made)[:300]}")
     app.step("goToWorkspace", workspace=bench)
