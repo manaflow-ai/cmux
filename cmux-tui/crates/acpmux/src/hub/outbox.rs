@@ -1141,13 +1141,12 @@ mod tests {
         d
     }
 
-    /// cmuxterm-hq#8660 (hang-watch `6159015094`): the bytes a change writes do not grow with
-    /// the deliveries kept. Small is 10 kept, god 25,000 (ten days of a busy machine, 52 MB);
-    /// "before" is what the whole-file rewrite wrote for each change, the snapshot's size.
-    #[test]
-    fn a_change_writes_the_same_bytes_with_ten_or_25000_deliveries_kept() {
-        let mut per_change = Vec::new();
-        for kept in [10, 25_000] {
+    /// The bytes each of 2,000 changes writes (a send's life, four changes each) with `kept`
+    /// delivered deliveries already in the outbox, for each size in `sizes`, after checking every
+    /// one reads back after a restart and that each change writes under a tenth of what the
+    /// whole-file rewrite did (the snapshot's size; `kept` 10 aside, whose snapshot is tiny).
+    fn bytes_per_change(sizes: [usize; 2]) -> [u64; 2] {
+        sizes.map(|kept| {
             let (dir, path) = temp_outbox();
             let all: BTreeMap<String, Delivery> =
                 (0..kept).map(|n| sized(n, State::Delivered)).map(|d| (d.id.clone(), d)).collect();
@@ -1167,7 +1166,6 @@ mod tests {
             }
             let after = (outbox.disk.lock().unwrap().written - start) / changes as u64;
             eprintln!("kept {kept}: before {before} B per change, after {after} B per change");
-            per_change.push(after);
             // Everything comes back after a restart, from the snapshot and the journal.
             let restarted = Outbox::default();
             assert!(restarted.open(&path).is_empty());
@@ -1175,12 +1173,37 @@ mod tests {
             assert_eq!(restarted.get(&format!("d-{kept}")).unwrap().attempts, 1);
             assert!(before > 10 * after || kept == 10);
             let _ = std::fs::remove_dir_all(&dir);
-        }
+            after
+        })
+    }
+
+    /// cmuxterm-hq#8660 (hang-watch `6159015094`): the bytes a change writes do not grow with
+    /// the deliveries kept. Small is 10 kept, large 2,500 (a day of a busy machine, 5 MB);
+    /// "before" is what the whole-file rewrite wrote for each change, the snapshot's size. A
+    /// count of bytes, so it holds at any size: a change that rewrote the file, or compacted it
+    /// more often as it grew, writes more at 2,500 as it would at 25,000. The full ten days,
+    /// `a_change_writes_the_same_bytes_with_25000_deliveries_kept`, runs on its own.
+    #[test]
+    fn a_change_writes_the_same_bytes_with_ten_or_2500_deliveries_kept() {
+        let [small, large] = bytes_per_change([10, 2_500]);
         assert!(
-            per_change[1] * 10 <= per_change[0] * 12,
-            "god {} B per change is over 1.2x small {} B",
-            per_change[1],
-            per_change[0]
+            large * 10 <= small * 12,
+            "large {large} B per change is over 1.2x small {small} B"
+        );
+    }
+
+    /// The same at 25,000 kept (ten days of a busy machine, 52 MB), the size hang-watch saw. A
+    /// debug build took 86 s alone on an idle 8-core CI runner and ran past nextest's 120 s hang
+    /// guard beside other work (3 of 3 loaded lib runs), so it is a check for its own run:
+    /// `cargo test -p acpmux --lib hub::outbox::tests::a_change_writes_the_same_bytes_with_25000_deliveries_kept -- --ignored --exact --test-threads=1 --nocapture`.
+    /// The default run keeps `a_change_writes_the_same_bytes_with_ten_or_2500_deliveries_kept`.
+    #[test]
+    #[ignore = "own run, one test at a time: 52 MB through a debug build, past the hang guard under load"]
+    fn a_change_writes_the_same_bytes_with_25000_deliveries_kept() {
+        let [small, large] = bytes_per_change([10, 25_000]);
+        assert!(
+            large * 10 <= small * 12,
+            "large {large} B per change is over 1.2x small {small} B"
         );
     }
 

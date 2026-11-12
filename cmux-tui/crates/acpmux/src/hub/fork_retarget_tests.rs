@@ -79,6 +79,11 @@ async fn a_fork_onto_another_harness_carries_the_conversation_and_switches_back(
         .unwrap();
     let said = replies(&hub, &fork);
     assert!(said.contains("restored_transcript"), "{said}");
+    // Briefed that it was forked from the chat, and whose the earlier replies are (Leo,
+    // 2026-11-11: "you were forked from this chat").
+    let from = format!("forked from fake chat {} ({})", parent.meta().name, parent.id);
+    assert!(said.contains(&from), "{said}");
+    assert!(said.contains("the earlier replies are fake's, not yours"), "{said}");
     assert!(said.contains("PARENT-WORDS"), "{said}");
     assert!(said.contains("FORK-WORDS"), "{said}");
     // The parent is untouched.
