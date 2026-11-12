@@ -393,6 +393,7 @@ def differences(texts: list[str]) -> list[tuple[str, object, object]]:
 
 class BashRunsWhatTheTreeReads(unittest.TestCase):
     def test_every_corpus_line(self):
+        require_oracle()
         bad = differences(corpus())
         report = "\n".join(f"{line!r}\n    bash ran: {ran}\n    shell_tree: {tree}" for line, ran, tree in bad)
         self.assertEqual(bad, [], f"{len(bad)} of {len(corpus())} lines differ:\n{report}")
@@ -412,6 +413,7 @@ class BashRunsWhatTheTreeReads(unittest.TestCase):
     def test_the_oracle_logs_what_bash_runs(self):
         """A stub bash runs is logged and one it skips is not, also when only bash knows the command (a variable's
         text run by eval)."""
+        require_oracle()
         self.assertEqual(bash_runs("c1 && c2"), ["c1", "c2"])
         self.assertEqual(bash_runs("false && c1"), [])
         self.assertEqual(bash_runs("command -v c1 >/dev/null"), [])
