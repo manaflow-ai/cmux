@@ -60,6 +60,16 @@ runs the workflow's actual aggregate shell with a failed bundle step. The nightl
 uses both tooling and caps from the workflow commit, so an older build checkout
 cannot silently select stale caps.
 
+The recovered-notarization path runs the same blocking app, component and DMG
+check before launch smoke and publication. Its job supplies `TRACK` and
+`NIGHTLY_VARIANT` as well as the recovered DMG path. Shared shell callers must
+supply every input: an optional download's fallback can hide an unset variable
+under `set -u` and silently drop the previous-DMG comparison.
+`RecoveryBudgetExecutionTests` executes the shared shell and real size harness
+with the workflow's actual job/step environment and no inherited workflow inputs.
+It checks the baseline URL and independently rejects app, resource and DMG
+overages; only mounting, HTTP and the unrelated native strip test are faked.
+
 ### Historical inventory (2026-10-20)
 
 The following table and the original stage estimates below describe the

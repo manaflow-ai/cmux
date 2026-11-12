@@ -5161,6 +5161,8 @@ jobs:
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
       STAPLED_APP_FALLBACK_ID: ${{ needs.recover-nightly-next-notarization.outputs.stapled_app_fallback_id }}
+      TRACK: ${{ needs.decide.outputs.track }}
+      NIGHTLY_VARIANT: arm64
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
