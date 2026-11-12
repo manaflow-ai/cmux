@@ -127,14 +127,15 @@ import Testing
         let shown = clip.bounds
         let labels = Self.all(try #require(scroll.documentView)).compactMap { $0 as? ChromeLabel }
         #expect(labels.count == lines.count)
-        let cut = labels.filter { label in
+        // Only the vertical edges count: a legacy scroller makes the clip narrower than each line.
+        func visible(_ label: ChromeLabel) -> CGFloat {
             let frame = label.convert(label.bounds, to: clip)
-            return shown.intersects(frame) && !shown.contains(frame)
+            return max(min(frame.maxY, shown.maxY) - max(frame.minY, shown.minY), 0)
         }
+        let cut = labels.filter { visible($0) > 0.5 && visible($0) < $0.bounds.height - 0.5 }
         #expect(cut.count == 1, "no line is cut at the box's edge \(shown)")
         if let line = cut.first {
-            let visible = line.convert(line.bounds, to: clip).intersection(shown).height
-            #expect(visible >= line.bounds.height * 0.3 && visible <= line.bounds.height * 0.7)
+            #expect(visible(line) >= line.bounds.height * 0.3 && visible(line) <= line.bounds.height * 0.7)
         }
     }
 }
