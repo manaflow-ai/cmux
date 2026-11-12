@@ -48,9 +48,13 @@ enum HistoryHandlers {
             }
             services.registry.track(Task { @MainActor in
                 await services.history.agents.refresh()
-                guard let session = services.history.agents.session(id: id) else { // one read; only a complete list says "no session"
-                    return services.history.agents.isComplete ? ActionWorkFailure(HistoryAppStrings.noSession)
-                        : ActionWorkFailure(refusal: .unavailable, reason: HistoryAppStrings.stillLoading)
+                // One read, then an answer at once: a list that is not complete has the session (it resumes) or it
+                // cannot say that the session does not exist. Only a complete list answers "no session".
+                guard let session = services.history.agents.session(id: id) else {
+                    guard services.history.agents.isComplete else {
+                        return ActionWorkFailure(refusal: .unavailable, reason: HistoryAppStrings.stillLoading)
+                    }
+                    return ActionWorkFailure(HistoryAppStrings.noSession)
                 }
                 HistoryRestorer(services: services).resume(session)
                 return nil

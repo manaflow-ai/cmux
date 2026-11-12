@@ -1,7 +1,7 @@
-import AppKit
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
 import CmuxNextPages
+import Foundation
 
 /// The vault's sessions from `AgentHistory`: the agent sessions of every
 /// connected machine, as its daemon lists them.
@@ -37,17 +37,11 @@ final class AgentHistorySource: VaultSessionSource {
 }
 
 extension SessionVault {
-    /// The app's vault: the general pasteboard, the link router and the localized row titles.
+    /// The app's vault: the link router and the localized row titles.
     convenience init(source: any VaultSessionSource, pullRequests: VaultPullRequests = VaultPullRequests(),
                      copyText: @escaping @MainActor (String) -> Void = SessionVault.writeGeneralPasteboard,
                      openURL: @escaping @MainActor (URL) -> Void = { _ = LinkRouter.shared.open($0) }) {
         self.init(source: source, pullRequests: pullRequests, copyText: copyText, openURL: openURL,
                   title: { HistoryAppStrings.agentTitle(provider: $0.provider, cwd: $0.cwd) })
-    }
-
-    /// The app's copy: `text` as the general pasteboard's only string.
-    static func writeGeneralPasteboard(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 }

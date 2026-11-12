@@ -59,11 +59,13 @@ enum VaultHandlers {
         })
     }
 
-    /// The invocation's `session`, else the vault's selection, from the list the app holds (no read). Only a complete list says "no session".
+    /// The invocation's `session`, else the vault's selection. It reads nothing: it answers from the list the app
+    /// holds. A session that a list that is not complete does not have can still exist: "still loading", not "no session".
     private static func session(_ invocation: ActionInvocation, _ services: AppServices) throws -> AgentSession {
         let id = invocation["session"]?.stringValue
         if let session = services.vault.session(id) { return session }
         guard id != nil else { throw ActionFailure(message: VaultStrings.noSessionSelected) }
-        throw services.vault.holdsWholeList ? ActionFailure.notFound(HistoryAppStrings.noSession) : ActionFailure(message: HistoryAppStrings.stillLoading)
+        guard services.vault.holdsWholeList else { throw ActionFailure(message: HistoryAppStrings.stillLoading) }
+        throw ActionFailure.notFound(HistoryAppStrings.noSession)
     }
 }

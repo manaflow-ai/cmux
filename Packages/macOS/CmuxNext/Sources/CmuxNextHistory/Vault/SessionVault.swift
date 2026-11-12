@@ -1,3 +1,4 @@
+import AppKit
 package import Foundation
 package import Observation
 
@@ -75,4 +76,10 @@ package final class SessionVault {
 
     /// Puts `text` on the pasteboard.
     package func copy(_ text: String) { copyText(text) }
+
+    /// The app's copy: `text` as the general pasteboard's only string.
+    package static func writeGeneralPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
 }
