@@ -100,7 +100,7 @@ test("Find opens the fold that holds the row", () => {
   ).toBe("worked-u");
 });
 
-test("short narration between tools folds with them", () => {
+test("short narration folds with the turn and remains separate from its tool groups when opened", () => {
   const rows = [
     row("u", "user"),
     ran("read"),
@@ -112,10 +112,12 @@ test("short narration between tools folds with them", () => {
     summary(),
   ];
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:final", "turnSummary:end"]);
-  // Opened, each short note joins the runs around it, as in a running turn (turns.ts mergeShortNotes).
   const open = turnView(rows, new Set(["worked-u"]));
-  expect(open.map((shaped) => shaped.id)).not.toContain("check");
-  expect(open.find((shaped) => shaped.id === "read")?.joined).toEqual(["read", "check", "grep", "running", "test"]);
+  expect(
+    open.filter((shaped) => shaped.kind === "activity" || shaped.kind === "assistant").map((shaped) => shaped.id),
+  ).toEqual(["read", "check", "grep", "running", "test", "final"]);
+  expect(open.find((shaped) => shaped.id === "check")?.text).toBe("Let me check the host next.");
+  expect(open.find((shaped) => shaped.id === "running")?.text).toBe("Both audits still running.");
 });
 
 test("long reply, then a tool, then 'Pushed.': the long reply folds with the work, 'Pushed.' ends the turn", () => {

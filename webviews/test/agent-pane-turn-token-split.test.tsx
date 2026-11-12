@@ -59,7 +59,7 @@ const worked: AcpmuxRow = {
 const workedMarkup = (row: AcpmuxRow) =>
   renderToStaticMarkup(<WorkedFor row={row} expanded={false} onToggle={() => {}} />);
 
-test("a finished turn's Worked for says its time alone, in the quieter span, as Codex does", () => {
+test("a finished turn's Worked for includes its duration in the same label", () => {
   // Lucas, 2026-11-06: "just have 'Worked for 22s'". The tokens stay on the running line.
   const html = workedMarkup({ ...worked, tokens: SPLIT });
   expect(text(html)).toBe("Worked for 1m 16s");
@@ -78,16 +78,21 @@ test("a finished turn's Worked for says its time alone, in the quieter span, as 
   expect(text(workedMarkup({ ...worked, status: "cancelled" }))).toBe("You stopped after 1m 16s");
 });
 
-test("the time and both token parts take the tertiary text token, in tabular numerals", () => {
+test("inline durations inherit their label colour while separate elapsed times remain secondary", () => {
   const css = readFileSync(
     path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
     "utf8",
   );
-  const at = css.indexOf("\n.cv-worked__time,\n.cv-worked__label-time {");
+  const at = css.indexOf("\n.cv-worked__time {");
   expect(at).toBeGreaterThan(-1);
   const rule = css.slice(at, css.indexOf("}", at));
   expect(rule).toContain("color: var(--cv-text-dim);");
   expect(rule).toContain("font-variant-numeric: tabular-nums;");
+  const labelAt = css.indexOf("\n.cv-worked__label-time {");
+  expect(labelAt).toBeGreaterThan(-1);
+  const labelRule = css.slice(labelAt, css.indexOf("}", labelAt));
+  expect(labelRule).toContain("color: inherit;");
+  expect(labelRule).toContain("font-variant-numeric: tabular-nums;");
 });
 
 // A finished connected turn has one Worked-for line, including its intermediate replies and

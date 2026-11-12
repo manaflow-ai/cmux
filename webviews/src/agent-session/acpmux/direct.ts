@@ -9320,6 +9320,7 @@ export class AcpmuxDirectClient {
         // turn_result follows with the turn's summary; a Stop it answers settles now.
         this.stopAnswered(event);
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
+        const turnStartedAtMs = this.turnStartedAtMs;
         // Only this turn's unfinished compaction needs a delayed-boundary fence. An unrelated
         // historical inferred row must not turn an ordinary forced Stop into a compaction Stop.
         const compactionWasRunning =
@@ -9387,6 +9388,7 @@ export class AcpmuxDirectClient {
             version: 1,
             at: event.at,
             kind: "turnSummary",
+            ...(turnStartedAtMs !== undefined && { turnStartedAtMs }),
             // A turn paged in from the transcript (`fetchNativeOlder`) is in no log: nothing forks or
             // edits through it, as acpmux forks only through a logged record (`fork_through.rs`).
             ...(event.seq >= 1 ? { seq: event.seq } : {}),
@@ -9425,12 +9427,23 @@ export class AcpmuxDirectClient {
       return;
     }
     const text = textFromContent(update.content);
-    if (event.kind === "agent_message_chunk" && text) {
-      acpmuxPerf.markAgent("firstToken");
-      // Subagents spawned after the session's own text form a new group.
-      this.subagents.closeBatch();
+    const phase = update._meta?.codex?.phase;
+    const assistantPhase = phase === "commentary" || phase === "final_answer" ? phase : undefined;
+    if (event.kind === "agent_message_chunk" && (text || assistantPhase)) {
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
+      const priorRows = messageId ? this.messageRows.get(messageId) : undefined;
+      if (!text && assistantPhase && priorRows?.length) {
+        for (const rowId of priorRows) {
+          const prior = this.rows.get(rowId);
+          if (prior && prior.assistantPhase !== assistantPhase)
+            this.rows.set(rowId, { ...prior, assistantPhase, version: prior.version + 1 });
+        }
+        return;
+      }
+      if (text) acpmuxPerf.markAgent("firstToken");
+      // Subagents spawned after the session's own text form a new group.
+      this.subagents.closeBatch();
       if (messageId && this.streamingAssistantMessageId && messageId !== this.streamingAssistantMessageId) {
         const prior = this.streamingAssistant ? this.rows.get(this.streamingAssistant) : undefined;
         if (prior) this.rows.set(prior.id, { ...prior, version: prior.version + 1, streaming: false });
@@ -9473,6 +9486,7 @@ export class AcpmuxDirectClient {
       // A message after the reply that was streaming when the steer went: the agent read it.
       if (!sameMessage) this.landSteer();
       const existing = this.rows.get(id);
+      const messageTurnStartedAtMs = existing?.turnStartedAtMs ?? this.turnStartedAtMs;
       // Text after tool calls is a new segment; the next tool call opens a new fold.
       this.streamingActivity = undefined;
       this.rows.set(id, {
@@ -9480,7 +9494,11 @@ export class AcpmuxDirectClient {
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
         kind: "assistant",
+        ...(messageTurnStartedAtMs !== undefined && { turnStartedAtMs: messageTurnStartedAtMs }),
         text: `${existing?.text ?? ""}${text}`,
+        ...((assistantPhase ?? existing?.assistantPhase) && {
+          assistantPhase: assistantPhase ?? existing?.assistantPhase,
+        }),
         streaming: true,
       });
       this.streamingAssistant = id;

@@ -83,7 +83,11 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         </>
       ) : (
         <span className="cv-worked__label">
-          <TimedLabel text={(time) => t("turn.working", { time })} time={Math.max(0, until - row.at)} />
+          {until - row.at < 1000 ? (
+            t("subsession.state.working")
+          ) : (
+            <TimedLabel text={(time) => t("turn.working", { time })} time={Math.max(0, until - row.at)} />
+          )}
         </span>
       )}
       {/* Over the work it says only the turn's time, as the Codex app's "Working for 32s". */}

@@ -190,6 +190,7 @@ import {
 } from "./jumpUp";
 import { topZoneOffset } from "./overlayLayout";
 import "./jumpPair.css";
+import { jumpUpButton } from "./jumpUp.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import { jumpPairLook } from "./jumpPair.experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
@@ -213,6 +214,11 @@ import {
   FOLLOW_BOTTOM_DEADBAND_PX,
   SCROLL_ANCHOR_SETTLE_MS,
 } from "./virtualTranscriptModel";
+
+/// A store subscription that hears nothing (Jump up off: the unread state is not read).
+const NO_SUBSCRIPTION = () => () => {};
+/// With Jump up off, the unread view it would read: one constant, so a scroll reads no unread state.
+const NO_UNREAD = () => undefined;
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
@@ -1506,6 +1512,9 @@ function TranscriptView({
   /// The follow motion's arm (followMotion.experiment.ts), read once per transcript. Every arm but
   /// `eased` (followGlide, the view before) chases each move of the rows in view (followChase.ts).
   const [followArm] = useState(() => experimentArm(followMotion));
+  /// Jump up's arm (jumpUp.experiment.ts), read once per transcript: `off` (the default) draws no
+  /// Jump up and keeps no place for it on a scroll.
+  const [jumpUpOn] = useState(() => experimentArm(jumpUpButton) === "on");
   const chasing = followArm !== "eased";
   const followChase = useRef<FollowChase>(undefined);
   followChase.current ??= createFollowChase(followArm);
@@ -5555,10 +5564,15 @@ function TranscriptView({
   // Jump up (jumpUp.ts): where the reader left off, while it is off screen. The unread "New" line
   // first while it is unread, else the mark their idle stretch pinned once a screen of new content
   // came in below it. Layout and rows only measure it; nothing here but the reader's acts moves it.
-  const unreadView = useSyncExternalStore(subscribeUnread, readUnread, readUnread);
+  const unreadView = useSyncExternalStore(
+    jumpUpOn ? subscribeUnread : NO_SUBSCRIPTION,
+    jumpUpOn ? readUnread : NO_UNREAD,
+    jumpUpOn ? readUnread : NO_UNREAD,
+  );
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
-  const ownPrompt = jumpButton ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
+  const jumpUp = jumpButton && jumpUpOn;
+  const ownPrompt = jumpUp ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
   // The stretch's place row is read each render: its hint keeps the lookup O(1) while rows append.
   const idleNow = idle.settle({
     topOf: (place) => {
@@ -5569,7 +5583,7 @@ function TranscriptView({
     viewHeight: height,
     lastPrompt: ownPrompt?.id,
   });
-  const upTarget = jumpButton
+  const upTarget = jumpUp
     ? jumpUpTarget(sinceRow && unreadPending(sinceKey, unreadView) ? SINCE_DIVIDER : undefined, idleNow.mark)
     : undefined;
   // The stretch's place and mark are kept for the chat's next load (a reload, an update, a restart),
@@ -5583,7 +5597,7 @@ function TranscriptView({
   // One control at a time: while Jump to latest shows, Jump up waits (Leo, 2026-11-12: the two
   // stacked are "a bit extra"). A held way back is still Esc's, and Jump to latest goes there too.
   const latestShown = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
-  const upShown = jumpButton && !latestShown && jumpUpShown(upOff, jumpBackHeld);
+  const upShown = jumpUp && !latestShown && jumpUpShown(upOff, jumpBackHeld);
   // What a press reads (`pressUp`), as of the last commit.
   const upTopRef = useRef({ top: upTop, place: upTarget });
   useLayoutEffect(() => {
@@ -5854,7 +5868,7 @@ function TranscriptView({
             />
           </div>
         )}
-        {jumpButton && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
+        {jumpUp && <JumpUp shown={upShown} back={jumpBackHeld} onJump={() => pressUp()} lift={dockSpace} />}
         {jumpButton && (
           <JumpToLatest
             // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.

@@ -379,6 +379,7 @@ import {
   viewChangesPatch,
   viewChangesTurn,
 } from "./turnChanges/viewChanges";
+import { sendPromptAgain, sendPromptAgainMenu, type SendPromptAgainState } from "./conversation/sendPromptAgain";
 import { resendToOwner, retryFailedTurn, sendUntilTaken } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
@@ -466,6 +467,7 @@ import {
   openReportedImage,
   setMessageMenuSource,
   switchForks,
+  withSendPromptAgain,
 } from "./conversation/messageMenu";
 import { actOnReportedImage } from "./conversation/imageMenuActions";
 import { callChipHost } from "./chips/host";
@@ -3978,6 +3980,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const turnActions = useMemo<TurnActions>(
     () => ({
       showCall,
+      canSendPromptAgain: restartChat !== undefined,
       queuedMessages: () => queuedMessageActionsRef.current,
       ...(stableBranches.size > 0 && {
         branches: {
@@ -5837,6 +5840,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     summaryCard,
     sessionInfo,
   };
+  const sendAgainConfig = useRef({
+    owner: restartChat,
+    rows: snapshot.rows,
+    models: retryModels,
+    harness: retryHarnessName,
+    top: retryTop,
+  });
+  sendAgainConfig.current = {
+    owner: restartChat,
+    rows: snapshot.rows,
+    models: retryModels,
+    harness: retryHarnessName,
+    top: retryTop,
+  };
   // A `?message=<id>` link's row (links.ts `revealMessageWhenShown`): the transcript scrolls it in
   // by its place in the chat, so a message far above the view works, where its element does not
   // exist yet. One message can span several rows (a tool call splits it): `messageRevealTarget`
@@ -6193,6 +6210,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useLayoutEffect(() => liveToolOutput.settle(toolOutputEpoch.current), [clientSnapshot]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
+  const readSendAgain = useCallback((): SendPromptAgainState => {
+    const current = snapshotRef.current;
+    const config = sendAgainConfig.current;
+    return {
+      sessionId: current?.sessionId,
+      selectedSessionId: directClient.current?.selectedSession,
+      drawnSessionId: sessionIdRef.current,
+      canSend: Boolean(
+        current &&
+        config.owner === current.sessionId &&
+        config.rows === current.rows &&
+        linkUp(current.connection) &&
+        !current.summary?.watching &&
+        remoteComposer(current).canSend &&
+        harnessSwitch.view().intent === undefined &&
+        !counted.current.childRows,
+      ),
+      rows: counted.current.transcriptRows,
+      models: config.models,
+      currentModel: current ? applySwitch(current, harnessSwitch.view(), catalogRef.current).summary?.model : undefined,
+      harness: config.harness,
+      top: config.top,
+    };
+  }, [harnessSwitch]);
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
@@ -8475,6 +8516,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           handedOn();
           return turn;
         };
+        let sendAgainPending = false;
         window.cmuxAcpmuxActions = {
           // `accepted` (in-page only): the composer holds the prompt until acpmux takes it.
           // `fromTrust` (in-page only): a prompt the folder's trust held, with its id and ticket.
@@ -8834,6 +8876,47 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             client.answerPresetApproval(String(rowId), approve === true),
           "chat.removeFailedPrompt": async ({ rowId, rowIds }) => {
             for (const id of failedRowIds(rowId, rowIds)) client.removeFailedPrompt(id);
+          },
+          "chat.sendPromptAgain": async ({ sessionId, rowId, model }) => {
+            if (
+              sendAgainPending ||
+              typeof sessionId !== "string" ||
+              typeof rowId !== "string" ||
+              (model !== undefined && typeof model !== "string")
+            )
+              return false;
+            sendAgainPending = true;
+            try {
+              return await sendPromptAgain(
+                { sessionId, rowId, ...(model !== undefined ? { model } : {}) },
+                {
+                  read: () => {
+                    const state = readSendAgain();
+                    return { ...state, canSend: state.canSend && directClient.current === client };
+                  },
+                  pickModel: (model, sessionId, currentModel) =>
+                    harnessSwitch.pickModel(model, { sessionId, model: currentModel }),
+                  restore: (promptId, prompt) => client.resendPrompt(promptId, prompt),
+                  send: (draft, owner) =>
+                    sendUntilTaken((taken) =>
+                      send(
+                        draft.input,
+                        draft.attachments,
+                        undefined,
+                        false,
+                        undefined,
+                        owner,
+                        false,
+                        undefined,
+                        undefined,
+                        taken,
+                      ),
+                    ),
+                },
+              );
+            } finally {
+              sendAgainPending = false;
+            }
           },
           // Retry with another model (cx-ncc.62): the chat moves to the model as the picker moves it,
           // then the prompt goes again with its attachments. A refused move sends nothing (its notice
@@ -9279,11 +9362,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // chat: its actions answer, so the switch attaches at once (NewTabSparePool.servesChat).
         if (!mock) void postNative("pane.clientReady", { ready: true }).catch(() => undefined);
         // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
-        setMessageMenuSource((rowId) =>
-          snapshotRef.current
-            ? messageMenuTarget(snapshotRef.current, rowId, opensSideChat.current, counted.current.childRows)
-            : undefined,
-        );
+        setMessageMenuSource((rowId) => {
+          const current = snapshotRef.current;
+          if (!current) return undefined;
+          const target = messageMenuTarget(current, rowId, opensSideChat.current, counted.current.childRows);
+          return withSendPromptAgain(target, rowId, readSendAgain(), translate);
+        });
         // The harness switch runs on this client; one waiting on a connection runs now.
         switchPort = {
           turnRunning: () => client.turnRunning(),
@@ -9527,6 +9611,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     connectedClients,
     folderContinuation,
     harnessSwitch,
+    readSendAgain,
     newChatPrewarm,
     queryClient,
     toggleInspector,
@@ -10312,6 +10397,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           if (outcome === "unavailable") ignoreFailure(copyText(markdown));
         }),
     );
+    const again = sendPromptAgainMenu(readSendAgain(), t);
+    const resend: ChatMenuItem[] = again
+      ? [
+          {
+            key: "sendPromptAgain",
+            label: again.label,
+            icon: "action.retry",
+            onSelect: () =>
+              ignoreFailure(callNative("chat.sendPromptAgain", { sessionId: again.sessionId, rowId: again.rowId })),
+          },
+        ]
+      : [];
     const share: ChatMenuItem | undefined =
       snapshot.sessionId && hasNativeHost()
         ? { key: "share", label: t("share.menu"), icon: "action.share", onSelect: () => setShareOpen(true) }
@@ -10457,7 +10554,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const remove = sessionId ? guarded(deleteChatRow(requestDelete, t)) : [];
     const moveRow = guarded(moveMachine);
     // Quick Chat's panel is not a tab: only the chat's own actions.
-    if (quick) return menuGroups(fork, continueIn, copy ? [copy] : [], moveRow, tools, remove);
+    if (quick) return menuGroups(fork, continueIn, resend, copy ? [copy] : [], moveRow, tools, remove);
     // ChatGPT's order: the chat's name and pin, new chats from it, Copy, where it shows, then Archive.
     return menuGroups(
       [
@@ -10478,6 +10575,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ],
       [...opensBeside, ...fork],
       continueIn,
+      resend,
       // Share… beside Copy (Leo, 2026-11-07: "put it in the dot dot dot area"): a started chat in the app.
       [...(share ? [share] : []), ...(copy ? [copy] : [])],
       [
@@ -11925,6 +12023,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // An existing chat being restored or opened (no handshake yet, or its session not
             // attached) draws no new chat's folder and environment strip.
             chatKnown={paneKnowsNewChat({ handshaken, newSession }, composerSnapshot)}
+            stackAbove={
+              (trayPlacement === "tray" && trayNode !== null) ||
+              goalNode !== null ||
+              statusCardOpen ||
+              hatShows(hatQuestionList)
+            }
             chips={ComposerChips}
             // The quiet row's Reconnect asks acpmux to reconnect the chat's peer.
             onReconnectMachine={(link) => reconnectPeer(link.machine)}

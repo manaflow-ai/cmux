@@ -459,6 +459,10 @@ export type AcpmuxRow = {
   /// transcript rows that belong to one turn use this identity when it is available.
   turnId?: string;
   text?: string;
+  /// Codex's explicit message phase; absent for harnesses and history without phase metadata.
+  assistantPhase?: "commentary" | "final_answer";
+  /// A reply or summary's actual turn start, retained after the snapshot's live clock clears.
+  turnStartedAtMs?: number;
   /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
   /// end (hub/claim_check.rs): each one's phrase draws a mark (conversation/ClaimMark.tsx).
   claims?: ClaimCheck[];
@@ -1534,10 +1538,8 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
-/// The bubble's vertical padding, both sides (`.cv-user__bubble`): what its line leaves of a 44px
-/// one-line bubble (transcriptSpacing.ts `BUBBLE.oneLine`), at least the 4px base each side.
-const userBubblePadding = () =>
-  2 * Math.max(gridLength("base") * chromeScale, (BUBBLE.oneLine * chromeScale - metrics().lineHeight) / 2);
+/// Codex's user bubble keeps 10px padding on each side at every reading size.
+const userBubblePadding = () => 5 * gridLength("base") * chromeScale;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
 /// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
@@ -1908,8 +1910,8 @@ export function visibleRowRange(
 /// without one (styles.css `.acpmux-edited`). A lone file with a diff is named in the head.
 export function editedCardHeight(files: number, plain = 0): number {
   const entries = files + plain;
-  if (entries <= 1 && plain === 0) return 58;
-  return 58 + 34 * Math.min(entries, 3) + (entries > 3 ? 34 : 0);
+  if (entries <= 1 && plain === 0) return 64;
+  return 64 + 36 * Math.min(entries, 3) + (entries > 3 ? 36 : 0);
 }
 
 /// What edits without a diff list as in the edited-files card: each path they name, once
@@ -2218,7 +2220,7 @@ function fallbackRowHeight(
     // Successful discovery normally leaves no rendered steps, but keep a mountable slot so Find
     // can reveal the original call before the row's ToolRows projection is expanded.
     if (row.items?.length && !items.length) return finish(toolRowHeight());
-    // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
+    // The edited-files card (conversation/EditedFilesCard.tsx): a 64px head, and 36px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
     // (`.cv-tools`: 2px above compact rows, with a small run gap), which is also how a copy inside
     // an open "Worked for" draws.
@@ -2415,12 +2417,13 @@ function fallbackRowHeight(
   // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
   if (row.kind === "sessionStart") return finish(0);
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
-  // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
+  // Ended, it folds to its one 24px progress line, with no card and no padding or margin
+  // (conversation.css `.cv-plan[data-ended]`), unless the reader opened it, which adds the items.
   if (row.kind === "plan" && row.plan) {
     const items = row.plan.length * 24;
     // An earlier turn's list adds its one "from before your last message" line.
     if (row.planEarlier) return finish(40 + 24 + items);
-    return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
+    return finish(row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : 40 + items);
   }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.

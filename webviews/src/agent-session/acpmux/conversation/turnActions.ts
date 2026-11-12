@@ -63,6 +63,8 @@ export type TurnActions = {
   /// with whether the send went (never rejecting): a failed turn's card says Retry could not run
   /// only for `false` (errorRecovery.ts); any other answer counts as sent.
   retry?: (rowId: string, prompt: string) => unknown;
+  /// A successful footer can expose Send prompt again through its native More menu.
+  canSendPromptAgain?: boolean;
   /// A failed last turn's Retry (turnRetry.ts): acpmux's turn retry of the chat the row was drawn
   /// for, else `retry` where the turn has a prompt to send (`rowId`, `prompt`). Settles with the
   /// note a refusal leaves on the failure's card.

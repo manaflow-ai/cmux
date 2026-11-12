@@ -4,7 +4,7 @@
 // place and eases the rest; the way back glides too. The place is set by idle detection (Leo,
 // 2026-11-12: "at least one full screen of idleness"), kept per chat across reloads, and Jump up
 // never shows with Jump to latest nor right after a press of it.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeEach, afterEach, expect, test } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -94,6 +94,13 @@ async function frames(scroller: HTMLElement): Promise<number[]> {
   }
   return seen;
 }
+
+beforeEach(() => {
+  globalThis.cmuxExperiments = { "jump-up": "on" };
+});
+afterEach(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const SESSION = "chat-jump-up";
 /// Renders the chat as it opens, with what it kept of the reader's idle stretch.

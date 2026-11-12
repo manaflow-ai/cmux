@@ -256075,7 +256075,139 @@
             "state": "translated",
             "value": "Bạn có thể bị kẹt: {diagnosis}. Hãy thử cách khác."
           }
-        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}}
+        },"zh-Hans":{"stringUnit":{"state":"translated","value":"你可能遇到阻碍：{diagnosis}。请尝试其他方法。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"你可能遇到阻礙：{diagnosis}。請嘗試其他方法。"}}}},
+    "subagents.finishedLine": {
+      "comment": "Agent pane: compact completion line naming the finished subagent; the name remains a link to its transcript.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} finished"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى {name}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} je završio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} er færdig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} ist fertig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} terminó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} a terminé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} ha terminato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} が完了しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} បានបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} er ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} zakończył pracę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} terminou"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} завершил работу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} เสร็จแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} tamamlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} завершив роботу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} đã hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{name} 已完成"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

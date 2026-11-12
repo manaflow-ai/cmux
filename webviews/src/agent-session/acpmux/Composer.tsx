@@ -40,7 +40,7 @@ import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
-import { chatHasFirstSend, showsLocationRow } from "./locationRow";
+import { chatHasFirstSend, showsLocationRow, stripSlot, type StripSlot } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
@@ -344,6 +344,11 @@ type Props = {
   /// False while the pane does not yet know which chat it shows (locationRow.ts paneKnowsNewChat):
   /// an existing chat being restored or opened draws no location strip. Unset: known.
   chatKnown?: boolean;
+  /// A part of the bottom stack stands right over the composer (the hat: plan, subagents, commands,
+  /// its pull tab, the goal, a question). The first send's kept strip slot goes for good then: it
+  /// stood as a 46px gap between that part and the card (Lucas, 2026-11-12: "its completely
+  /// detached"). The part's arrival moves the rows anyway, so the slot leaving adds no move.
+  stackAbove?: boolean;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
@@ -534,6 +539,7 @@ function ComposerFrame({
   queueImage,
   draft,
   chatKnown = true,
+  stackAbove = false,
   leading,
   accessory,
   dictating = false,
@@ -731,8 +737,7 @@ function ComposerFrame({
   const suppressedAttachmentCarry = useRef<{ from?: string } | undefined>(undefined);
   // Once a new chat has shown its location strip, keep its layout slot through the first send.
   // Resetting on a session key prevents a reopened chat from inheriting that reserved space.
-  const locationSlotSession = useRef<string | undefined>(undefined);
-  const locationSlotWasShown = useRef(false);
+  const locationSlot = useRef<StripSlot>({});
   const sendButton = useRef<HTMLButtonElement>(null);
   const { showContextUsage, composerRing, spellChecking, scrollToBottomOnSend, plainFooter, attachmentView } =
     useComposerSettings();
@@ -2462,16 +2467,14 @@ function ComposerFrame({
   // A gallery or a reopened pane can render an unselected snapshot before its session arrives.
   // Do not let that transient visible strip reserve space for a different, already-started chat.
   // A slot is meaningful only after the visible strip was observed for a known session identity.
-  const locationWasVisible =
-    locationSlotWasShown.current && locationKey !== undefined && locationSlotSession.current === locationKey;
-  if (locationVisible && locationKey !== undefined) {
-    locationSlotSession.current = locationKey;
-    locationSlotWasShown.current = true;
-  } else if (!locationWasVisible) {
-    locationSlotSession.current = undefined;
-    locationSlotWasShown.current = false;
-  }
-  const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
+  const stripNow = stripSlot(locationSlot.current, {
+    visible: locationVisible,
+    session: locationKey,
+    queued: ownQueue(snapshot.queue).length > 0,
+    stackAbove,
+  });
+  locationSlot.current = stripNow.slot;
+  const keepLocationSlot = stripNow.keep;
   // The page's route to its acpmux, for the machine chip's name (chatMachine.ts); ComposerContext
   // keys its lists on the name this gives, not on this object.
   const route = chatPlace(snapshot);

@@ -28,7 +28,6 @@ import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import {
-  footerLabel,
   isEmptyFooter,
   isStopped,
   NO_RETRY_TARGET,
@@ -41,22 +40,13 @@ import {
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { replyTimeDetail } from "./turnTokensModel";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
-import {
-  ForkButton,
-  MessageCopy,
-  MessageFooterRow,
-  MessageMore,
-  PinButton,
-  ReadAloudButton,
-  ReplyTime,
-} from "./MessageActions";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
-import { usePaneLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import {
   failureCopy,
   failureKind,
@@ -351,14 +341,10 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
 /// should always just be there left aligned". A turn without a "Worked for" line (a Claude turn,
 /// #30176; history paged in mid-turn) keeps its time and tokens in the time's tooltip, never in the
-/// row. Retry, with its model switch, is the last turn's: after Copy on the chat's last footer, failed
-/// or not, never under the prompt (Leo, 2026-11-04: "Today Retry is on your prompt bubble, and appears
-/// on the reply only after a failure. Put it, with the model switch, in the last turn's footer."). A
-/// failed turn's row always shows; so does the footer that ends the chat (#31503), so a finished
-/// reply's Copy and Retry are in sight.
+/// row. Successful replies offer Send prompt again and model choices through More. Failed replies
+/// retain their inline Retry and recovery controls; stopped replies keep Retry and Continue.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const language = usePaneLanguage();
   const messages = useContext(PresentationContext) === "messages";
   const readOnly = useTranscriptReadOnly();
   const {
@@ -368,6 +354,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     tryAnotherApproach,
     retry,
     retryFailed,
+    canSendPromptAgain,
     retryWith,
     reauthenticate,
     transferCloudCredentials,
@@ -394,13 +381,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A team Cloud machine refuses a personal login transfer: no Set up credentials, and no automatic one.
   const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
-  const label = footerLabel(t, row);
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
   // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
   // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  const detail = replyTimeDetail(t, language, [label, forced], row.tokens);
+  // No time at the row's end: the Codex app shows none (Lawrence, 2026-11-11 standup: "when I hover,
+  // the time shows up on the right, which I don't think is good").
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -485,8 +472,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             runRetry(async () => ((await retry(rowId, prompt)) === false ? "retry.failed" : undefined), "retry");
           }
         : undefined;
-  // The footer of the person's last prompt, when that turn ended well, sends it again as the
-  // prompt's Retry did, where turns.ts retryPlacement puts the chat's one Retry on this footer.
+  const menuRetry =
+    canSendPromptAgain === true &&
+    !failed &&
+    (row.status === undefined || row.status === "completed") &&
+    offersRetry(row) &&
+    !isEmptyFooter(row);
   const retryTarget = useContext(RetryTargetContext);
   const footerTarget = retryTarget
     ? retryTarget.footerId === row.id
@@ -495,19 +486,18 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     : offersRetry(row) && !isEmptyFooter(row)
       ? { promptId: row.retryRowId, footerId: row.id }
       : NO_RETRY_TARGET;
-  // An attachment-only prompt's `prompt` is empty (turns.ts offersRetry): its attachments go again.
-  const lastRetry =
-    !failed &&
+  const stoppedRetry =
+    isStopped(row) &&
     retryPlacement(footerTarget, { canRetry: Boolean(retry), readOnly, messages }) === "footer" &&
     retry &&
     prompt !== undefined &&
     row.retryRowId
       ? () => retry(row.retryRowId!, prompt)
       : undefined;
-  const footerRetry = failedRetry ?? lastRetry;
+  const footerRetry = failedRetry ?? stoppedRetry;
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
   const retryModels =
-    ((failed && prompt) || lastRetry) && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
+    ((failed && prompt) || stoppedRetry) && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.
@@ -595,7 +585,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
-            {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
+            {!messages && ((text && row.answerId) || menuRetry) && <MessageMore rowId={row.answerId ?? row.id} />}
             {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
               <button
                 type="button"
@@ -626,7 +616,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             </button>
           )}
           {stoppedLook === "trailing" && stoppedWord}
-          {!messages && <ReplyTime at={row.at} detail={detail} />}
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}

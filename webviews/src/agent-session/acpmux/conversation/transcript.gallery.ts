@@ -1053,17 +1053,20 @@ const loneToolCalls = () =>
     summary(2.6, { status: "completed", toolCount: 2, durationMs: 24_000 }),
   ]);
 
-/// Opens the turn's Worked for and its folded run ("Searched the web"). At rest the finished
-/// call's check and time are hidden and keep their room; the failure's red word shows.
+/// Opens the turn's Worked for and its folded run ("Searched the web"). A finished call draws no
+/// check and no time (Codex parity, 2026-11-11); the failure's word is for screen readers only.
+const noFinishedCallMarks = (ctx: PlayContext) => {
+  if (ctx.document.querySelector(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
+    throw new Error("a finished call draws a check or a time");
+};
 const loneToolMetaAtRest = async (ctx: PlayContext) => {
   await openWorked(ctx);
   // Each call between the agent's asides is its own run, so a lone call draws as its own row; a
   // folded run line, when there is one, opens too.
   if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-command__ok"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool .cv-tool__failed"));
   const view = ctx.document.defaultView!;
-  for (const node of ctx.document.querySelectorAll(".cv-tool .cv-command__ok, .cv-tool .cv-command__time"))
-    if (view.getComputedStyle(node).opacity !== "0") throw new Error("a finished call's check or time shows at rest");
+  noFinishedCallMarks(ctx);
   // For Codex parity a failure draws no word: it stays for screen readers, clipped away whole.
   const failed = ctx.find({ selector: ".cv-tool__failed" });
   const style = view.getComputedStyle(failed);
@@ -2790,7 +2793,7 @@ export default agentPaneEntry({
       },
     },
     "tool-hover-meta": {
-      note: "A finished command's check and run time show only while it is pointed at; a failed one draws no word (Codex parity), which a screen reader still reads. Play: hover the first command.",
+      note: "A finished command draws no check and no run time, pointed at or not, and a failed one draws no word (Codex parity), which a screen reader still reads. Play: hover the first command.",
       snapshot: chat([
         user("Run the checks", 3),
         activity(
@@ -2805,35 +2808,28 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await openGroupedRun(ctx);
-        const ok = () => ctx.find({ selector: ".cv-command .cv-command__ok" });
         const failed = ctx.document.defaultView!.getComputedStyle(
           ctx.find({ selector: ".cv-command .cv-command__failed" }),
         );
         if (failed.position !== "absolute" || failed.clipPath !== "inset(50%)")
           throw new Error("the failure word is drawn");
-        if (ctx.document.defaultView!.getComputedStyle(ok()).opacity !== "0")
-          throw new Error("the check shows at rest");
+        noFinishedCallMarks(ctx);
         await ctx.hover({ selector: ".cv-command" });
-        await ctx.waitFor(() => ctx.document.defaultView!.getComputedStyle(ok()).opacity === "1");
+        noFinishedCallMarks(ctx);
       },
     },
     "tool-hover-meta-lone": {
-      note: "Calls that are not shells, at rest: a finished fetch shows no check or time, a failed one draws no word (Codex parity). Play: open Worked for and its run.",
+      note: "Calls that are not shells, at rest: a finished fetch draws no check or time, a failed one draws no word (Codex parity). Play: open Worked for and its run.",
       snapshot: loneToolCalls(),
       play: loneToolMetaAtRest,
     },
     "tool-hover-meta-lone-hovered": {
-      note: "The same calls with the finished fetch pointed at: its green check and run time fade in; the failed call stays as it was. Play: open Worked for and its run, hover the fetch.",
+      note: "The same calls with the finished fetch pointed at: it still draws no check and no run time (Codex parity); the failed call stays as it was. Play: open Worked for and its run, hover the fetch.",
       snapshot: loneToolCalls(),
       play: async (ctx) => {
         await loneToolMetaAtRest(ctx);
-        const row = ctx.find({ selector: ".cv-tool:has(.cv-command__ok)" });
-        await ctx.hover({ selector: ".cv-tool:has(.cv-command__ok)" });
-        await ctx.waitFor(() =>
-          [...row.querySelectorAll(".cv-command__ok, .cv-command__time")].every(
-            (node) => getComputedStyle(node).opacity === "1",
-          ),
-        );
+        await ctx.hover({ selector: ".cv-tool:not(.is-toggle):not(:has(.cv-tool__failed))" });
+        noFinishedCallMarks(ctx);
       },
     },
     "mcp-calls": {

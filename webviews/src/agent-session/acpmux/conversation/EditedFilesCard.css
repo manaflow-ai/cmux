@@ -1,0 +1,95 @@
+/* The reference card uses the chat's reading size for its file list, with the header actions
+   and total counts one chrome step smaller. Its 64px header and 36px rows retain their height
+   contract with editedCardHeight; directory and diff colors keep the existing theme roles. */
+.acpmux-edited .acpmux-edited-title {
+  font-size: var(--text-content);
+  line-height: var(--text-title--line-height);
+}
+.acpmux-edited .acpmux-edited-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-3);
+  margin-inline-start: auto;
+}
+.acpmux-edited .acpmux-edited-title .acpmux-diff-counts,
+.acpmux-edited :is(.acpmux-edited-undo, .acpmux-review-changes) {
+  font-size: var(--text-content);
+  letter-spacing: normal;
+}
+.acpmux-edited :is(.acpmux-edited-file, .acpmux-edited-more) {
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
+  letter-spacing: normal;
+}
+
+div.acpmux-edited {
+  background: var(--agent-page-bg);
+}
+.acpmux-edited .acpmux-edited-head {
+  background: color-mix(in srgb, var(--agent-text) 3%, transparent);
+}
+.acpmux-edited .acpmux-edited-icon {
+  background: light-dark(
+    color-mix(in srgb, var(--agent-page-bg) 94%, black),
+    color-mix(in srgb, var(--agent-page-bg) 68%, black)
+  );
+  box-shadow: none;
+  color: var(--agent-muted);
+}
+.acpmux-edited .acpmux-edited-icon > svg {
+  width: var(--ds-space-5);
+  height: var(--ds-space-5);
+}
+.acpmux-edited .acpmux-edited-sub {
+  line-height: var(--text-body--line-height);
+}
+.acpmux-edited .acpmux-edited-base {
+  color: var(--agent-text);
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acpmux-edited .acpmux-edited-dir {
+  flex: 0 1000 auto;
+  color: var(--agent-muted);
+}
+.acpmux-edited-summary {
+  all: unset;
+  position: relative;
+  display: grid;
+  max-width: 100%;
+  min-width: 0;
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-muted);
+  cursor: default;
+  font-size: var(--text-content);
+  line-height: inherit;
+}
+.acpmux-edited-summary > span {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.acpmux-edited-summary-link {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  opacity: 0;
+  white-space: nowrap;
+}
+.acpmux-edited-summary-link > svg {
+  flex: none;
+}
+.acpmux-edited-summary:hover .acpmux-edited-summary-counts,
+.acpmux-edited-summary:focus-visible .acpmux-edited-summary-counts {
+  opacity: 0;
+}
+.acpmux-edited-summary:hover .acpmux-edited-summary-link,
+.acpmux-edited-summary:focus-visible .acpmux-edited-summary-link {
+  opacity: 1;
+}
+.acpmux-edited-summary:focus-visible {
+  outline: var(--cmux-hairline) solid var(--ds-color-focus);
+  outline-offset: var(--ds-space-1);
+}

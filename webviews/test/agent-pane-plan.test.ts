@@ -191,10 +191,15 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     expect(await summary.getAttribute("aria-expanded")).toBe("false");
     expect(await page.locator(".cv-plan__item").count()).toBe(0);
     expect(await page.locator(".cv-plan").evaluate((list) => getComputedStyle(list).boxShadow)).toBe("none");
-    // A click opens the steps again, in the card.
+    // A click opens the steps again, on the line's left edge, still with no card.
+    const markX = () =>
+      page.locator(".cv-plan__summary .cv-plan__mark").evaluate((mark) => mark.getBoundingClientRect().left);
+    const foldedX = await markX();
     await summary.click();
     await page.locator(".cv-plan__item").first().waitFor();
     expect(await summary.getAttribute("aria-expanded")).toBe("true");
+    expect(await page.locator(".cv-plan").evaluate((list) => getComputedStyle(list).boxShadow)).toBe("none");
+    expect(await markX()).toBe(foldedX);
     const lists = await page.evaluate(() =>
       [...document.querySelectorAll(".cv-plan")].map((list) => ({
         // An ended list says its progress on its summary line.

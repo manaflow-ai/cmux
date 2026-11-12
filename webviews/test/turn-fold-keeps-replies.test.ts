@@ -249,7 +249,8 @@ test("the runs arm splits the work after a reply where the open fold does, a dra
   globalThis.cmuxExperiments = { "turn-fold-replies": "runs" };
   const opened = turnView(rows, new Set([`${WORKED}-u-0`]), { agentFamily: "claude", now: START + 60_000 });
   const after = (view: AcpmuxRow[]) => outline(view).slice(outline(view).indexOf("a-middle") + 1, -1);
-  expect(after(closed("claude", rows))).toEqual(after(opened));
+  expect(after(closed("claude", rows))).toEqual(["run:2", "run:3"]);
+  expect(after(opened)).toEqual(["run:2", "note", "run:3"]);
 });
 
 test("by default a closed fold keeps only the final answer in sight, as Codex does", () => {

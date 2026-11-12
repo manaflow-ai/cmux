@@ -35,8 +35,7 @@ export function TurnTokens({ total, split }: { total?: number; split?: TurnToken
   return <span className="cv-worked__tokens">{workingTokens(t, language, total)}</span>;
 }
 
-/// "Worked for 1m 16s" with its time in the line's quieter color: the translated label split around
-/// its time, so the words keep their place in every language.
+/// A translated turn label split around its duration, so the words keep their place in every language.
 export function TimedLabel({ text, time }: { text: (time: string) => string; time: number }): ReactNode {
   const shown = formatDuration(time);
   const marker = "\u0000";

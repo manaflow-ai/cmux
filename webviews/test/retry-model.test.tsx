@@ -61,7 +61,7 @@ const lastTurn: AcpmuxRow = {
   version: 1,
   at: Date.now(),
   kind: "turnSummary",
-  status: "completed",
+  status: "failed",
   text: "Added it.",
   retryable: true,
   retryTarget: true,
@@ -75,7 +75,7 @@ const menuItem = (label: string) =>
     item.textContent?.includes(label),
   );
 
-test("Retry's model menu retries the prompt on the model picked there", async () => {
+test("a failed reply retains its model Retry menu", async () => {
   const retried: unknown[][] = [];
   const actions = {
     retry: (rowId: string, prompt: string) => retried.push([rowId, prompt]),
@@ -101,7 +101,7 @@ test("Retry's model menu retries the prompt on the model picked there", async ()
   expect(retried).toEqual([["user-1", "Add retry to the uploader", "claude-sonnet-5-5"]]);
 });
 
-test("a harness with one model offers Retry alone", async () => {
+test("a failed reply with one model offers Retry alone", async () => {
   const actions = {
     retry: () => {},
     retryWith: {
@@ -130,7 +130,7 @@ const rowName = (item: Element) => item.querySelector(".acpmux-menu-label")?.tex
 const shownRows = () =>
   [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')].map(rowName);
 
-test("Retry's model menu lists the top models, the rest under More models, one row per model", async () => {
+test("a failed reply keeps top models and More models, one row per model", async () => {
   const retried: unknown[][] = [];
   const actions = {
     retry: () => {},
@@ -173,4 +173,55 @@ test("Retry's model menu lists the top models, the rest under More models, one r
   expect(more, "older models fold under More models").toBeDefined();
   await act(async () => menuItem("Fable 5.1")!.click());
   expect(retried).toEqual([["user-1", "Add retry to the uploader", "claude-fable-5-1"]]);
+});
+
+test("a successful reply has no inline Retry or model split control", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: () => {},
+          retryWith: {
+            models: [
+              { id: "one", name: "One" },
+              { id: "two", name: "Two" },
+            ],
+            retry: () => {},
+          },
+        }}
+      >
+        <TurnFooter row={{ ...lastTurn, status: "completed", answerId: "answer-1" }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(button("Retry")).toBeUndefined();
+  expect(button("Retry with another model")).toBeUndefined();
+  expect(host.querySelector(".cv-turn-retry")).toBeNull();
+});
+
+test("an interrupted reply retains inline Retry and its model recovery control", async () => {
+  const retried: string[] = [];
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider
+        value={{
+          retry: (rowId) => {
+            retried.push(rowId);
+          },
+          retryWith: {
+            models: [
+              { id: "one", name: "One" },
+              { id: "two", name: "Two" },
+            ],
+            retry: () => {},
+          },
+        }}
+      >
+        <TurnFooter row={{ ...lastTurn, status: "interrupted" }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(button("Retry with another model")).toBeDefined();
+  await act(async () => button("Retry")!.click());
+  expect(retried).toEqual(["user-1"]);
 });
