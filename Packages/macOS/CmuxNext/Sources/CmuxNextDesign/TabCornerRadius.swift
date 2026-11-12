@@ -69,6 +69,7 @@ extension Metrics {
     /// tab's height. The sidebar's workspace rows and the omnibar read this radius too, so a row and
     /// the bar are as round as a tab.
     public static var tabCornerRadius: CGFloat {
+        if let set = ChromeLabToken.tabRadius.value { return min(set, tabHeight / 2) }
         let corners = Metrics.corners
         if usesChromeRowCorner, tabStripCardRadius == nil || mainPaneRoundsFromTabs || CornerFlush.current.isOn {
             return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight), radius: chromeRowCornerRadius(height: tabHeight))

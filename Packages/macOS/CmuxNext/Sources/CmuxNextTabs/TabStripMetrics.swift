@@ -180,7 +180,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
         // The first and last pills keep the gap above them to the strip's ends (the chrome line).
-        stripHorizontalPadding = Metrics.paneChromeInset
+        stripHorizontalPadding = ChromeLabToken.tabStripPadding.value ?? Metrics.paneChromeInset
         stripTopOutset = Metrics.stripTopOutset
         // The chrome's one button size (`TitlebarBandButton.side`), as the pane's tools beside it.
         newTabButtonWidth = TitlebarBandButton.side

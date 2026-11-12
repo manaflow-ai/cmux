@@ -71,7 +71,7 @@ public final class TabStripView: NSView {
     var showsTypeChooser: Bool { showsNewTabMenuButton && trailingButtons.showsTypeChooser }
     /// The room between the last tab and the + (Lucas 2026-11-11: the split +'s fill touched the last
     /// tab; then 2 px less, so 2 pt at Default).
-    var newTabLeadingGap: CGFloat { Metrics.space1 }
+    var newTabLeadingGap: CGFloat { ChromeLabToken.newTabGap.value ?? Metrics.space1 }
     var newTabControlsWidth: CGFloat {
         guard showsTypeChooser else { return metrics.newTabButtonWidth }
         // Circles: the ⌄ takes the +'s square, so both circles are one diameter. Split: classic's narrower segment.

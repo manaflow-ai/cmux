@@ -109,6 +109,7 @@ extension Metrics {
     /// on the frame above the card, not inside it.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
+        if let set = ChromeLabToken.cardRadius.value { return set }
         // The flush corner: concentric with the window across its 4 pt gap (12 pt in a 16 pt window).
         let flush = CornerFlush.current
         if flush.isOn { return windowCornerRadius > 0 ? max(0, windowCornerRadius - flush.gap) : flush.cardRadius }

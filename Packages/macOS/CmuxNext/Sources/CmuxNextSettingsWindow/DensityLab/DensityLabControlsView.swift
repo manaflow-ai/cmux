@@ -14,7 +14,14 @@ struct DensityLabControlsView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     ForEach(DensityLabControl.groups, id: \.title) { group in
                         VStack(alignment: .leading, spacing: 12) {
-                            Text(group.title).font(.headline)
+                            HStack {
+                                Text(group.title).font(.headline)
+                                Spacer()
+                                if group.title == "Roundness" {
+                                    Button("Match macOS window") { model.matchWindowCorners() }
+                                        .help("Auto for the card and the tabs: concentric with this Mac's \(Int(Metrics.standardWindowCornerRadius)) pt window corner")
+                                }
+                            }
                             ForEach(group.controls) { control in row(control) }
                         }
                     }

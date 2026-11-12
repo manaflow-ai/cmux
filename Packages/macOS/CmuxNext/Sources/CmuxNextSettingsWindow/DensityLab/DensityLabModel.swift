@@ -131,6 +131,16 @@ public final class DensityLabModel {
         scheduleRecapture()
     }
 
+    /// Clears the card and tab radii, so they are concentric with the macOS window corner again.
+    func matchWindowCorners() {
+        var density = selected
+        density.tokens[ChromeLabToken.cardRadius.rawValue] = nil
+        density.tokens[ChromeLabToken.tabRadius.rawValue] = nil
+        replaceSelected(density)
+        editingEnded()
+        status = "Corners are concentric with the \(Int(Metrics.standardWindowCornerRadius)) pt macOS window corner."
+    }
+
     /// Puts the selected density back to its shipped values (a custom density: its base's).
     func resetSelected() {
         guard let target = resetTarget else { return }
@@ -279,6 +289,6 @@ public final class DensityLabModel {
 }
 
 /// What Save writes.
-struct DensityLabFile: Codable, Sendable {
+nonisolated struct DensityLabFile: Codable, Sendable {
     var densities: [DensityTokens]
 }

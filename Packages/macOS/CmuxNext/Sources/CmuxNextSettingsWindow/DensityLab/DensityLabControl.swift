@@ -40,6 +40,17 @@ struct DensityLabControl: Identifiable {
             token(.x, "Move left / right", "Shifts icons only; the titles stay.", -12...12, nil),
             token(.y, "Move up / down", "Shifts icons only. Positive moves down.", -8...8, nil),
         ]),
+        ("Tab bar spacing", [
+            chrome(.tabStripPadding, "Tab bar padding", "Space before the first tab and after the last control.", 0...24),
+            chrome(.newTabGap, "Gap before +", "Space from the last tab to the + button.", 0...24),
+            chrome(.toolbarGap, "Gap between buttons", "Space between the buttons at the end of the tab bar (+, pins, ⋮).", 0...16),
+            chrome(.toolbarTrailing, "⋮ distance from edge", "How far the last button sits from the pane's right edge.", 0...24),
+        ]),
+        ("Roundness", [
+            chrome(.cardRadius, "Content card", "The corner of the main content card. Auto is concentric with the macOS window corner.", 0...32),
+            chrome(.tabRadius, "Tabs, omnibar and sidebar rows", "One radius for all of them. Auto nests inside the content card.", 0...20),
+            metric(MetricTunables.densityPaneCornerRadius, "Panes", 0...24),
+        ]),
         ("Sidebar rows", [
             metric(MetricTunables.sidebarRowHeight, "Row height", 16...56),
             metric(MetricTunables.sidebarRowHeightWithSubtitle, "Row height, two lines", 28...80),
@@ -52,7 +63,6 @@ struct DensityLabControl: Identifiable {
             metric(MetricTunables.controlHeight, "Button and field height", 16...52),
             metric(MetricTunables.iconSize, "Toolbar and tab icons", 10...32),
             metric(MetricTunables.smallIconSize, "Small icons", 8...28),
-            metric(MetricTunables.densityPaneCornerRadius, "Corner radius", 0...24),
         ]),
         ("Palette", [
             metric(MetricTunables.paletteRowHeight, "Palette row height", 20...60),
@@ -63,6 +73,27 @@ struct DensityLabControl: Identifiable {
                               _ metric: MetricTunable?) -> DensityLabControl {
         DensityLabControl(id: name.rawValue, title: title, help: help, kind: .token(name.rawValue, metric: metric),
                           range: range, step: 0.5, unit: "pt")
+    }
+
+    private static func chrome(_ token: ChromeLabToken, _ title: String, _ help: String, _ range: ClosedRange<Double>) -> DensityLabControl {
+        DensityLabControl(id: token.rawValue, title: title, help: help, kind: .token(token.rawValue, metric: nil),
+                          range: range, step: 0.5, unit: "pt")
+    }
+
+    /// The value the app draws now for a token with no metric pair, read live (the lab draws the app in the selected
+    /// density, so this is the selected density's automatic value while its token is unset).
+    @MainActor private static func live(_ name: String) -> Double? {
+        let value: CGFloat? = switch ChromeLabToken(rawValue: name) {
+        case .tabStripPadding: Metrics.paneChromeInset
+        case .newTabGap: Metrics.space1
+        case .toolbarGap: Metrics.space1 / 2
+        case .toolbarTrailing: max(0, Metrics.paneTrailingControlCenter - TitlebarBandButton.side / 2)
+        case .tabRadius: Metrics.tabCornerRadius
+        case .cardRadius: Metrics.mainPaneCornerRadius(windowCornerRadius: Metrics.standardWindowCornerRadius)
+        case nil: nil
+        }
+        if let value { return Double(value) }
+        return name == SidebarIconTokens.Name.x.rawValue || name == SidebarIconTokens.Name.y.rawValue ? 0 : nil
     }
 
     private static func metric(_ tunable: MetricTunable, _ title: String, _ range: ClosedRange<Double>) -> DensityLabControl {
@@ -81,7 +112,7 @@ struct DensityLabControl: Identifiable {
     }
 
     /// The value drawn at `density` when the control is automatic; nil when the lab cannot know it (a sidebar rule).
-    func automaticValue(in density: DensityTokens) -> Double? {
+    @MainActor func automaticValue(in density: DensityTokens) -> Double? {
         switch kind {
         case .level, .spacing: return nil
         case .fontSize: return Double(density.levelBodySize)
@@ -89,7 +120,7 @@ struct DensityLabControl: Identifiable {
             let value = metric.glyph ? density.resolveGlyph(compact: metric.compact, comfortable: metric.comfortable)
                 : density.resolve(compact: metric.compact, comfortable: metric.comfortable)
             return Double(value)
-        case .token(let name, nil): return name == SidebarIconTokens.Name.x.rawValue || name == SidebarIconTokens.Name.y.rawValue ? 0 : nil
+        case .token(let name, nil): return Self.live(name)
         }
     }
 
