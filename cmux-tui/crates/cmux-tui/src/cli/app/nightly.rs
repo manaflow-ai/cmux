@@ -152,7 +152,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
                         .replace("{build}", build.get_str("build").unwrap_or_default())
                         .replace("{version}", build.get_str("version").unwrap_or_default())
                         .replace("{date}", build.get_str("date").unwrap_or_default())
-                        .replace("{from}", &installed)
+                        .replace("{from}", installed)
                 );
             }
             let number = build.get("build").cloned().unwrap_or(Value::Null);
@@ -251,7 +251,7 @@ pub(super) fn pick<'a>(
                 )
             })
             .ok_or_else(|| {
-                ("nightly.no_previous", messages.no_previous.replace("{build}", &installed))
+                ("nightly.no_previous", messages.no_previous.replace("{build}", installed))
             }),
         Target::Build(number) => {
             let Some(build) =
@@ -272,7 +272,7 @@ pub(super) fn pick<'a>(
                 let reason = build.get_str("pulled_reason").unwrap_or_default();
                 return Err((
                     "nightly.pulled",
-                    messages.pulled.replace("{build}", number).replace("{reason}", &reason),
+                    messages.pulled.replace("{build}", number).replace("{reason}", reason),
                 ));
             }
             if build.get_bool("switchable") != Some(true) {
