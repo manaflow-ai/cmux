@@ -159,6 +159,10 @@ impl Carrier for LinkCarrier {
         Ok(())
     }
 
+    fn take_path_rtt_us(&mut self) -> Option<u64> {
+        self.rtt_us.take()
+    }
+
     fn send_datagram(&mut self, datagram: &[u8]) -> io::Result<()> {
         self.net.send_datagram(datagram.to_vec());
         Ok(())
