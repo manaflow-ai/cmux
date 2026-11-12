@@ -41,6 +41,10 @@ public final class ConversationComposeViewController: UIViewController {
     /// The docked keyboard's top edge: the composer sits on it.
     private var keyboardDock: MobileKeyboardDock?
     private let keyboardTracker = MobileKeyboardFrameTracker()
+    /// The sheet's keyboard tracker: a conversation shown under To:
+    /// (``existingConversation``) takes it, since the keyboard rose before that
+    /// conversation existed and a new tracker would not know it is up.
+    public var keyboard: MobileKeyboardFrameTracker { keyboardTracker }
 
     public init(directory: any ConversationDirectory) {
         session = ConversationComposeSession(directory: directory)

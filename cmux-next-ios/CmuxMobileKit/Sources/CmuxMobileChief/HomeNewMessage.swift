@@ -3,6 +3,7 @@ import CmuxConversationCore
 import CmuxConversationUI
 import CmuxMobileAgentChat
 import CmuxMobileModel
+import CmuxMobileSupport
 import Foundation
 import UIKit
 
@@ -152,7 +153,8 @@ public final class HomeNewMessage {
         // store's updates, so the blank page sends there instead of showing a second copy.
         if let id = session.conversationID, ChiefSession.conversationOnScreen == id { return nil }
         if !carrying.text.isEmpty { session.carryComposerText(carrying.text) }
-        let conversation = ConversationViewController(store: session.store, options: .chief)
+        // The sheet's keyboard tracker: the keyboard is already up, and the message box sits on it.
+        let conversation = ConversationViewController(store: session.store, options: .chief, keyboard: sheet?.keyboard)
         // New Message keeps its title and X.
         conversation.hidesNavigationBar = false
         // To: names it: no header of its own (its room stays, slid under To:).
