@@ -25,7 +25,9 @@
 //! which ran on whichever request crossed 1000 WAL pages: it copied the WAL
 //! into the database and synced it inside the committing request. The
 //! syncer runs that checkpoint instead, on its own connection, once the WAL
-//! passes [`CHECKPOINT_BYTES`]; a PASSIVE checkpoint never blocks a writer.
+//! holds more than [`CHECKPOINT_BYTES`] of frames (not once its file is that
+//! large: the file keeps its size when the WAL restarts); a PASSIVE
+//! checkpoint never blocks a writer.
 //!
 //! A PASSIVE checkpoint never shrinks the WAL file, and while a reader holds
 //! an old snapshot it cannot catch up, so the file grows with every commit
@@ -383,9 +385,17 @@ fn run(shared: &Shared) {
 /// A PASSIVE checkpoint on the syncer's own connection once the WAL is
 /// large: it copies what it can without waiting for a writer or reader.
 /// True when a checkpoint ran (it synced the WAL before copying it).
+///
+/// Large is the frames the WAL holds, not the size of its file: SQLite
+/// keeps the file's size when the WAL restarts from its first frame (up to
+/// `journal_size_limit`), so a file that passed [`CHECKPOINT_BYTES`] once
+/// stays above it while it holds a few frames. A file past the limit is
+/// one a reader pinned: a checkpoint lets the next commit cut it back.
 fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {
-    let size = wal_file_len(shared);
-    if size <= CHECKPOINT_BYTES {
+    let file = wal_file_len(shared);
+    let frames = shared.state.lock().recover_poison().wal_frames;
+    if frames.saturating_mul(shared.frame_bytes) <= CHECKPOINT_BYTES && file <= WAL_SIZE_LIMIT_BYTES
+    {
         return false;
     }
     if checkpointer.is_none() {
