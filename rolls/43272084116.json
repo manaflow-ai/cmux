@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43272084116",
+  "recorded_at": "2026-11-12T17:50:12Z",
+  "reason": "cmux-tui f4300d872896 changes the image's cmux-tui (pinned efc4e830d7ad)",
+  "dry_run": false,
+  "cmux_tui": "f4300d8728962b24bcbf31bedcc5edca9987c726",
+  "fixes": [
+    {
+      "sha": "f4300d8728962b24bcbf31bedcc5edca9987c726",
+      "mergedAt": "2026-11-12T09:12:02-08:00",
+      "subject": "cmux-source-scan: one syn scanner for the test-hooks and timing-ratio checks, replacing two hand tokenizers (#41523)"
+    },
+    {
+      "sha": "67380d793ccbdf822bb2314512d97d8da7eadcc1",
+      "mergedAt": "2026-11-12T09:07:33-08:00",
+      "subject": "acpmux: attach to a long chat reads only its page, not the whole journal (#42044)"
+    },
+    {
+      "sha": "822eafa8dbade944319ea2ff7fc5273e08a0e412",
+      "mergedAt": "2026-11-12T08:58:37-08:00",
+      "subject": "Rust: one accept backoff in cmux-tui-util (#42083)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T17:50:12Z",
+    "snapshot_id": "sh-2feb1842d9864c4fb4a50431f6ad4af7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43272084116): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0968266a74bf4fc6d46a6ff1d2c5bf992fce28cc",
+    "image": "cloud-native-auto-f4300d87-43272084116-1",
+    "revision": "ci-43272084116-1",
+    "at": "2026-11-12T17:50:12Z"
+  },
+  "rolled_back": false
+}
