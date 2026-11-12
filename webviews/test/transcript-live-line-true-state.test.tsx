@@ -5,7 +5,7 @@
 // what else you're actually doing so". The time beside Thinking ticks from when that stretch of
 // thinking began (turns.ts `liveClock`), and once nothing has arrived for SILENT_MS the line says
 // "Waiting", with the time since it last heard anything (Thinking.tsx).
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -15,6 +15,16 @@ import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { SILENT_MS } from "../src/agent-session/acpmux/conversation/thinkingModel";
 import { continuationStart, liveClock, THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// The line's two times (liveLineTimes.experiment.ts `labelled`) on the line itself
+// (liveTurnClock.experiment.ts `line`): this file reads the thinking time and the turn's clock.
+const TWO_TIMES = { "live-turn-clock": "line", "live-line-times": "labelled" };
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...TWO_TIMES };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 const verbs = (node: ReactNode) => (
   <StatusVerbContext.Provider value={{ mode: "thinking", verbs: ["Thinking"] }}>{node}</StatusVerbContext.Provider>
@@ -64,6 +74,7 @@ const drawn = (line: AcpmuxRow, now: number) =>
           heardAt={line.heardAt}
           heardKey={line.heardKey}
           turnTotal={line.turnTotal}
+          untimed={line.untimed}
           quietKey={line.quietKey}
           quietAt={line.quietAt}
         />,
@@ -128,6 +139,20 @@ test("the label changes when a tool starts", () => {
   const after = liveLine([prompt, ran, thinking, started]);
   expect(after.doing).toBe("cargo check");
   expect(drawn(after, T0 + 35_000)).toBe("Running cargo check 35s");
+});
+
+test("with the default arms (one clock, the turn's over the work) the line still says Waiting, with how long", () => {
+  globalThis.cmuxExperiments = {};
+  const line = liveLine([prompt, ran, thinking]);
+  const at = T0 + 33_000 + 14_000;
+  // The turn's clock stands over the work ("Working for"): the line has no clock of its own while it thinks.
+  expect(drawn({ ...line, untimed: true }, T0 + 34_000)).toBe("Thinking");
+  expect(drawn({ ...line, untimed: true }, at)).toBe("Waiting 14s");
+  // One clock on the line (`turn`): the turn's while it thinks, how long it heard nothing once it waits.
+  globalThis.cmuxExperiments = { "live-turn-clock": "line" };
+  const onLine = liveLine([prompt, ran, thinking]);
+  expect(drawn(onLine, T0 + 34_000)).toBe("Thinking 34s");
+  expect(drawn(onLine, at)).toBe("Waiting 14s");
 });
 
 // Leo, 2026-11-12, on "turn 19m 44s" for a coordinator whose turn stayed open while background

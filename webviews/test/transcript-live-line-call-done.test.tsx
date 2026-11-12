@@ -4,7 +4,7 @@
 // genuinely determine that there's no more seconds ticking, then why are we still showing it? Why
 // don't we just immediately switch to the thinking? I feel like this hangs on for a bit too much").
 // The line keeps its id (it never leaves and comes back), and the turn's clock goes on.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
@@ -31,6 +31,16 @@ const call = (status: string, extra: Partial<NonNullable<AcpmuxActivity["tool"]>
     ...extra,
   },
 });
+// The line's two times (liveLineTimes.experiment.ts `labelled`) on the line itself
+// (liveTurnClock.experiment.ts `line`): this file reads the thinking time and the turn's clock.
+const TWO_TIMES = { "live-turn-clock": "line", "live-line-times": "labelled" };
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...TWO_TIMES };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
+
 const prompt = row("u-1", "user", 0, { text: "Run the tests" });
 const view = (items: AcpmuxActivity[]) =>
   turnView([prompt, row("t-1", "activity", 10, { items })], new Set(), {

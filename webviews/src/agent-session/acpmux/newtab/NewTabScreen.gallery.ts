@@ -551,7 +551,7 @@ export default agentPaneEntry({
     },
     // The model button opens its columns menu, whole: the card does not clip it (Lawrence
     // 2026-10-13). Points near its top and bottom edges hit the menu, not the page. The models
-    // column ends on its Legacy models; Add harness… ends the rail.
+    // column ends on its Legacy models, with no caption; Add harness… ends the rail.
     "computer-first-setup": {
       note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Cloud (signed out, with Sign in for Cloud); Add Machine… and New Cloud Machine… are its right-click menu.",
       ready: { ...newTab(), machineName: "Studio Mac" },
@@ -574,7 +574,7 @@ export default agentPaneEntry({
       },
     },
     "model-picker-open": {
-      note: "The New Tab model button's columns, open down: the harness rail and the models, never cut by the card; Legacy models follow the top ones, and the rail ends on Add harness….",
+      note: "The New Tab model button's columns, open down: the harness rail and the models, never cut by the card; Legacy models follow the top ones with no caption, and the rail ends on Add harness….",
       ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
@@ -589,8 +589,8 @@ export default agentPaneEntry({
           return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
         const models = ctx.find({ selector: '.acpmux-cols [role="listbox"]' });
-        if (![...models.querySelectorAll(".acpmux-cols-caption")].some((node) => node.textContent === "Legacy models"))
-          throw new Error("the models column must list its Legacy models under their caption");
+        if (models.querySelector(".acpmux-cols-caption"))
+          throw new Error("the models column must be one plain list: no tab or Legacy models caption");
         if (models.querySelector('[aria-label="Add harness…"]'))
           throw new Error("the models column must contain models only; Add harness belongs in the rail");
         const rail = ctx.find({ selector: '.acpmux-cols [role="tablist"]' });

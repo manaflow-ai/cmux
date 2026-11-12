@@ -4,8 +4,9 @@
 // is cool but it always only shows 0s?". The fixture is one real Claude turn through acpmux
 // (test/fixtures/claude-subagent-launch.ndjson): a Bash call that ran 856ms, then a background
 // Agent call whose result is only its launch, 411ms after it started.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 import { mergeToolItem } from "../src/agent-session/acpmux/direct";
@@ -13,6 +14,16 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// The line's two times (liveLineTimes.experiment.ts `labelled`) on the line itself
+// (liveTurnClock.experiment.ts `line`): this file reads the thinking time and the turn's clock.
+const TWO_TIMES = { "live-turn-clock": "line", "live-line-times": "labelled" };
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...TWO_TIMES };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 type Event = { seq: number; at: number; kind: string; msg: { params: { update: Record<string, any> } } };
 const events: Event[] = readFileSync(new URL("./fixtures/claude-subagent-launch.ndjson", import.meta.url), "utf8")
@@ -135,7 +146,8 @@ test("no finished span is drawn with formatDuration, which floors under a second
   // ticking from its start may read "0s" for its first second; a finished one never does.
   const { readdirSync, statSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const root = new URL("../src", import.meta.url).pathname;
+  // A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
+  const root = fileURLToPath(new URL("../src", import.meta.url));
   const files = (dir: string): string[] =>
     readdirSync(dir).flatMap((name) => {
       const path = join(dir, name);

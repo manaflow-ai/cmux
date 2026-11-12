@@ -381,7 +381,10 @@ export function Thinking({
   // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
   const from = untimed ? undefined : since;
   const timed = !waiting && from !== undefined;
-  const time = useTicking(timed, now);
+  // The clock also runs on a line with no time of its own (the turn's clock over the work,
+  // liveTurnClock.experiment.ts `top`) while it could fall silent, so it can say "Waiting".
+  const listening = !waiting && turnTotal && heardAt !== undefined && doing === undefined;
+  const time = useTicking(timed || listening, now);
   const statusVerbConfig = useStatusVerbConfig();
   const thinkingVerbs = useContext(ThinkingVerbsContext);
   const verbs = useMemo(
@@ -409,7 +412,9 @@ export function Thinking({
   const heardChanged = useChangedAt(heardKey, now);
   const heard = heardAt === undefined ? undefined : Math.max(heardAt, heardChanged ?? heardAt);
   const thinkingNow = doing === undefined && !waitsOnAgents && !writing && !compacting;
-  const silent = thinkingNow && turnTotal && timed && heard !== undefined && time - heard >= SILENT_MS;
+  const silent = thinkingNow && listening && heard !== undefined && time - heard >= SILENT_MS;
+  // How long it has heard nothing: the one time on a waiting line, whichever clock the turn shows.
+  const silentFor = silent && heard !== undefined ? formatDuration(Math.max(0, time - heard)) : undefined;
   // This stretch of thinking began when the turn's rows say (`phaseAt`), or later, when the line
   // itself turned to Thinking (a reply gone quiet, a silence that ended).
   const stateChanged = useChangedAt(silent ? "waiting" : thinkingNow ? "thinking" : "other", now);
@@ -501,7 +506,9 @@ export function Thinking({
       : compactLook === "turn"
         ? (own ?? turnTime)
         : undefined
-    : (own ?? turnTime);
+    : silentFor !== undefined && own === undefined
+      ? silentFor
+      : (own ?? turnTime);
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
