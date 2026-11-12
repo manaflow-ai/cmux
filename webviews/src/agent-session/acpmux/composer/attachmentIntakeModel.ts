@@ -263,14 +263,18 @@ export function chipRemoved(state: {
 }
 
 /// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
+/// The chat a gesture was made in, with its options then (upload, local paths), for a gesture read
+/// after its own task: the person may have moved to another chat meanwhile.
+type GestureChat = { scope: string | undefined; options: AttachmentIntakeOptions };
+
 type Intake = (
   given: (File | MadeFile)[],
   uploads?: boolean,
   kind?: SourceKind,
   again?: string,
   needsOriginal?: boolean,
-  /// The chat the gesture was made in, when it is read later than its own task (filesOnce).
-  made?: { scope: string | undefined },
+  /// The gesture's chat, when it is read later than its own task (filesOnce).
+  made?: GestureChat,
 ) => Promise<void>;
 
 /// How many cancelled loading chips keep their file for an undo (`revive`).
@@ -305,7 +309,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   /// The gestures whose files are still read for twins (attachments.ts filesOnce), each with its chat.
-  const [twinReads, setTwinReads] = useState<{ scope: string | undefined }[]>([]);
+  const [twinReads, setTwinReads] = useState<GestureChat[]>([]);
   const pendingRef = useRef<PendingAttachment[]>([]);
   pendingRef.current = pending;
   const [attachError, setAttachError] = useState<string | undefined>();
@@ -434,8 +438,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // A pick in the file input too: a chat on this Mac links the picked files where they are, as it
     // does a Finder drop, instead of streaming a copy of each (an older host answers nothing).
     const dropped: DroppedKind | undefined = kind;
-    const { options: current } = live.current;
-    const batch = { scope: chat ? chat.scope : current.scope };
+    // The chat the gesture was made in, its upload and its paths, as the gesture's own task had them.
+    const current = chat?.options ?? live.current.options;
+    const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
     const shown: PendingAttachment[] = files.map((file) => ({
       id: again ?? crypto.randomUUID(),
@@ -505,7 +510,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     else {
       setPending((chips) => [...chips, ...shown]);
       // A gesture read after the person left its chat goes to that chat's strip, not this prompt.
-      if (batch.scope === current.scope) current.place?.(shown, dropped);
+      if (batch.scope === live.current.options.scope) current.place?.(shown, dropped);
     }
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
@@ -735,13 +740,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   const [attach] = useState(
     () =>
-      (
-        given: (File | MadeFile)[],
-        uploads = false,
-        kind?: SourceKind,
-        needs = false,
-        made?: { scope: string | undefined },
-      ) =>
+      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, needs = false, made?: GestureChat) =>
         given.length && refused() ? Promise.resolve() : intake(given, uploads, kind, undefined, needs, made),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
@@ -937,7 +936,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const attachOnce = (files: File[], uploads: boolean, kind: SourceKind) => {
       const once = filesOnce(files);
       if (Array.isArray(once)) return void attach(once, uploads, kind);
-      const made = { scope: live.current.options.scope };
+      const { options } = live.current;
+      const made = { scope: options.scope, options };
       setTwinReads((reads) => [...reads, made]);
       void once.then((files) => {
         setTwinReads((reads) => reads.filter((read) => read !== made));
