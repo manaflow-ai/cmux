@@ -14,11 +14,13 @@ What counts as publishing is read from the step, not its name:
 - a command it may run, direct or wrapped (tests/shell_invocations.may_run_nested: a substitution, eval, `bash -c`,
   xargs, sudo, env ... all count): `gh release create|upload|edit|delete`, a write through `gh api .../releases`
   (the method as gh reads it, tests/shell_invocations.gh_api_request: a field flag or --input is a POST),
-  `npm|pnpm|yarn|bun|cargo publish`, `twine upload`, `codesign` (other than a verify or display), `productsign`,
-  `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of a variable, a sourced
-  file), which may publish. Every one of these checks writes first: a write marker anywhere (codesign's --sign, -s
-  or --remove-signature, gh api's write method or --input, a write subcommand or `publish` after any options) wins,
-  and an exemption (a verify or display, a GET, a read subcommand) applies only when no write marker is present;
+  `npm|pnpm|yarn|bun|cargo publish`, `twine upload` (each subcommand read by position with its tool's option grammar,
+  so an option's value such as `--dir upload` or `-p publish` is no subcommand), `codesign` (other than a verify or
+  display), `productsign`, `xcrun notarytool`; and executable content it cannot read (a heredoc into a shell, eval of
+  a variable, a sourced file), which may publish. Every one of these checks writes first: a write marker (codesign's
+  --sign, -s or --remove-signature, gh api's write method or --input, a write subcommand in its position after any
+  options, or an option before it this does not know) wins, and an exemption (a verify or display, a GET, a read
+  subcommand) applies only when no write marker is present;
 - a step that reads a secret other than GITHUB_TOKEN (a signing certificate, an App key, a registry token), or a job
   that reads one in its own env/with/secrets, or a workflow-level env that does (it reaches every job).
 A call to a local reusable workflow counts as publishing at the call when anything it reaches publishes, followed
@@ -46,7 +48,7 @@ from typing import Any, Callable, Mapping, NamedTuple
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-from shell_invocations import gh_api_request, may_run_nested  # noqa: E402
+from shell_invocations import Options, first_operand, gh_api_request, may_run_nested  # noqa: E402
 
 WORKFLOWS = ROOT / ".github/workflows"
 
@@ -122,29 +124,130 @@ def gated(expression: Any, policy: Policy) -> bool:
 RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")
 
 
+def _options(values: str = "", flags: str = "") -> Options:
+    return Options(frozenset(values.split()), frozenset(flags.split()))
+
+
+# Each tool's options before its subcommand (its --help): those that take a value, then those that take none. The
+# subcommand is the first operand after them, so an option's value (`--dir upload`, `-p publish`) is never read as
+# one, and an option this does not know before it leaves the subcommand unknown, which counts as publishing.
+GH_ROOT = _options(flags="-h --help --version")
+GH_RELEASE = _options("-R --repo", "-h --help")
+PACKAGE_MANAGERS = {
+    "npm": _options("-w --workspace --registry --prefix -C --userconfig --loglevel --tag --access --otp --cache",
+                    "-ws --workspaces -g --global -s --silent -q --quiet -d -dd --verbose --dry-run --provenance "
+                    "--ignore-scripts --include-workspace-root -y --yes --no-audit --no-fund -h --help"),
+    "pnpm": _options("-C --dir -F --filter --registry --tag --access --otp --reporter --loglevel "
+                     "--workspace-concurrency",
+                     "-r --recursive -w --workspace-root -s --silent --dry-run --no-git-checks --frozen-lockfile "
+                     "--provenance -h --help"),
+    "yarn": _options("--cwd", "-s --silent --verbose -h --help"),
+    "bun": _options("--cwd -c --config", "--silent -h --help"),
+    "cargo": _options("--color --config -Z -C --explain",
+                      "-v -vv --verbose -q --quiet --locked --offline --frozen -h --help -V --version --list"),
+}
+# Scripts that run another subcommand by name: `npm run publish` runs the package's publish script.
+RUNS_SCRIPT = frozenset({"run", "run-script"})
+TWINE = _options(flags="--no-color -h --help --version")
+PYTHON = _options("-W -X", "-b -bb -B -d -E -h -i -I -O -OO -P -q -R -s -S -u -v -V -x")
+XCRUN = _options("--sdk --toolchain", "-v --verbose -l --log -n --no-cache -r --run -k --kill-cache")
+
+
+def subcommand(args: list[str], options: Options) -> tuple[str | None, list[str]]:
+    """The subcommand of ARGS read by position with OPTIONS, and the words after it. None when its position cannot
+    be read or the word is not readable (a caller counts that as publishing); "" when there is none."""
+    index = first_operand(args, options)
+    if index is None:
+        return None, []
+    if index >= len(args):
+        return "", []
+    word = args[index]
+    return (None if "$" in word or "\x00" in word or "`" in word else word), args[index + 1:]
+
+
+def _package_publishes(program: str, args: list[str]) -> bool:
+    if program == "cargo" and args[:1] and args[0].startswith("+"):
+        args = args[1:]  # `cargo +stable publish`: a toolchain before the subcommand
+    command, rest = subcommand(args, PACKAGE_MANAGERS[program])
+    if command is None or command == "publish":
+        return True
+    if command in RUNS_SCRIPT and program != "cargo":
+        script, _ = subcommand(rest, Options())
+        return script is None or script == "publish"
+    if program == "yarn" and command == "workspace":
+        return _package_publishes(program, rest[1:])  # `yarn workspace NAME COMMAND`
+    if program == "yarn" and command == "npm":
+        script, _ = subcommand(rest, Options())
+        return script is None or script == "publish"
+    if program == "yarn" and command == "workspaces":
+        return "publish" in rest  # `yarn workspaces foreach ... npm publish`: its own grammar; any publish counts
+    return False
+
+
+def _python_module(args: list[str]) -> tuple[str | None, list[str]]:
+    """The module `python ARGS` runs with -m (`-m twine`, `-mtwine`, `-Im twine`), and its arguments; "" for none,
+    None when an option before it is unknown."""
+    index = 0
+    while index < len(args):
+        word = args[index]
+        if word in ("-m",):
+            return (args[index + 1], args[index + 2:]) if index + 1 < len(args) else ("", [])
+        if not word.startswith("-") or word in ("-", "--") or word.startswith("-c"):
+            return "", []
+        if word in PYTHON.flags:
+            index += 1
+            continue
+        if word in PYTHON.values:
+            index += 2
+            continue
+        letters = word[1:]
+        if "m" in letters and all("-" + letter in PYTHON.flags for letter in letters[:letters.index("m")]):
+            module = letters[letters.index("m") + 1:]
+            if module:
+                return module, args[index + 1:]
+            return (args[index + 1], args[index + 2:]) if index + 1 < len(args) else ("", [])
+        return None, []
+    return "", []
+
+
 def publishing_command(words: list[str]) -> bool:
     if not words:
         return False
     program, rest = Path(words[0]).name, words[1:]
     if program == "gh":
-        # Writes first: a write subcommand anywhere after `release` (`gh release -R o/r upload`) is a write.
-        if rest[:1] == ["release"] and any(word in GH_RELEASE_WRITES for word in rest[1:]):
+        command, rest = subcommand(rest, GH_ROOT)
+        if command is None:
             return True
-        if rest[:1] != ["api"]:
+        if command == "release":
+            action, _ = subcommand(rest, GH_RELEASE)
+            return action is None or action in GH_RELEASE_WRITES
+        if command != "api":
             return False
-        request = gh_api_request(rest[1:])
+        request = gh_api_request(rest)
         # No endpoint it can read (xargs feeds it, a variable holds it): it may be a release path.
         return request.writes and (request.endpoint is None or bool(RELEASE_PATH.search(request.endpoint)))
-    if program in {"npm", "pnpm", "yarn", "bun", "cargo"}:
-        return "publish" in rest  # wherever options put it (`npm -w pkg publish`)
-    if program == "twine" or (program.startswith("python") and any(
-            rest[at:at + 2] == ["-m", "twine"] or rest[at] == "-mtwine" for at in range(len(rest)))):
-        return "upload" in rest
+    if program in PACKAGE_MANAGERS:
+        return _package_publishes(program, rest)
+    if program.startswith("python"):
+        module, rest = _python_module(rest)
+        if module is None:
+            return "twine" in rest or any("twine" in word for word in words[1:])
+        if module != "twine":
+            return False
+        program = "twine"
+    if program == "twine":
+        command, _ = subcommand(rest, TWINE)
+        return command is None or command == "upload"
     if program == "codesign":
         return codesign_signs_or_writes(rest)
     if program == "productsign":
         return True
-    return program == "xcrun" and "notarytool" in rest
+    if program == "xcrun":
+        if any(word in ("-f", "--find") for word in rest):
+            return False  # `xcrun --find TOOL` prints a path and runs nothing
+        command, _ = subcommand(rest, XCRUN)
+        return command == "notarytool" or (command is None and "notarytool" in rest)
+    return False
 
 
 def codesign_signs_or_writes(args: list[str]) -> bool:
@@ -613,6 +716,56 @@ STILL_READS = {
 }
 
 
+# #41133 review F1 and F2: absolute shell and wrapper paths, an unknown absolute program given -c, and a substitution
+# inside a parameter expansion.
+SHELL_FORM_ESCAPES = {
+    "/bin/bash -c": f"/bin/bash -c 'gh api {RELEASES} -f tag_name=v1'",
+    "/usr/bin/env bash -c": f"/usr/bin/env bash -c 'gh api {RELEASES} -f tag_name=v1'",
+    "/usr/bin/env /bin/sh -c": f"/usr/bin/env /bin/sh -c 'gh api {RELEASES} -XPOST'",
+    "/usr/bin/sudo gh api": f"/usr/bin/sudo gh api {RELEASES} -XPOST",
+    "/usr/bin/xargs gh release upload": "/usr/bin/xargs gh release upload v1 < files",
+    "an unknown absolute program with -c": f"/opt/tools/bin/fish -c 'gh api {RELEASES} -f tag_name=v1'",
+    "$( ) in ${x:-}": f'echo "${{x:-$(gh api {RELEASES} -f tag_name=v1)}}"',
+    "backticks in ${x:+}": "echo ${x:+`gh release create v1 dist/x`}",
+    "$( ) in a nested ${ }": f'echo "${{x:-${{y:-$(gh api {RELEASES} -XPOST)}}}}"',
+    # #41398 review F1: a substitution inside arithmetic, inside a parameter expansion or an array subscript, runs.
+    "$( ) in $(( )) in ${x:-}": 'echo "${x:-$(( $(gh release create v1 dist/x) + 1 ))}"',
+    "$( ) in $(( ))": "echo $(( $(gh release create v1 dist/x) + 1 ))",
+    "$( ) in an array subscript": 'echo "${arr[$(gh release create v1 dist/x)]}"',
+    "$( ) in $(( )) in a heredoc body": "cat <<EOF\n$(( $(gh release create v1 dist/x) + 1 ))\nEOF",
+    "an escaped $( ) in backticks": "echo `echo \\$(gh release create v1 dist/x)`",
+}
+# #41398 (folded in from the review of #41376, F1): the subcommand is read by position, with each tool's option
+# grammar, never anywhere in the line: an option's value is no subcommand.
+SUBCOMMAND_ESCAPES = {
+    "gh release -R before upload": "gh release -R o/r upload v1 dist/x",
+    "gh release --repo= before create": "gh release --repo=o/r create v1 dist/x",
+    "gh release -Ro/r before delete": "gh release -Ro/r delete v1",
+    "npm -w before publish": "npm -w pkg publish",
+    "npm --workspace= before publish": "npm --workspace=pkg publish --provenance",
+    "pnpm --filter before publish": "pnpm --filter pkg publish",
+    "cargo --locked before publish": "cargo --locked publish",
+    "cargo +toolchain before publish": "cargo +stable publish",
+    "cargo -Z value before publish": "cargo -Z unstable-options publish",
+    "yarn workspace NAME npm publish": "yarn workspace pkg npm publish",
+    "python -I -m twine upload": "python3 -I -m twine upload dist/*",
+    "twine --no-color upload": "twine --no-color upload dist/*",
+    "xcrun --sdk before notarytool": "xcrun --sdk macosx notarytool submit x.zip",
+}
+SUBCOMMAND_READS = {
+    "gh release download --dir upload": "gh release download v1 --dir upload",
+    "gh release download -D upload": "gh release download v1 -D upload",
+    "gh release view -R o/r create": "gh release view -R o/r create",
+    "cargo test -p publish": "cargo test -p publish",
+    "cargo build --package publish": "cargo build --package publish",
+    "npm test publish": "npm test publish",
+    "npm view pkg publish": "npm view pkg publish",
+    "twine check upload/x.whl": "twine check upload/x.whl",
+    "twine check upload": "twine check upload",
+    "xcrun --find notarytool": "xcrun --find notarytool",
+}
+
+
 class RealStepMutation:
     """Strip the release gate from a real signing step of coderouter-release.yml and give it an escape form: the
     detector must name it, and the same step with its real gate restored must pass."""
@@ -643,8 +796,19 @@ class RealStepMutation:
 
 
 class RealGateMutations(RealStepMutation, unittest.TestCase):
+    def test_absolute_paths_and_parameter_substitutions_without_the_real_gate_are_named(self) -> None:
+        self.assert_escape_caught(SHELL_FORM_ESCAPES)
+
     def test_every_gh_api_write_form_without_the_real_gate_is_named(self) -> None:
         self.assert_escape_caught(GH_API_WRITE_ESCAPES)
+
+    def test_a_subcommand_after_options_without_the_real_gate_is_named(self) -> None:
+        self.assert_escape_caught(SUBCOMMAND_ESCAPES)
+
+    def test_an_option_value_that_names_a_subcommand_stays_unnamed_without_the_gate(self) -> None:
+        for label, run in SUBCOMMAND_READS.items():
+            with self.subTest(label):
+                self.assertEqual(self.mutate(run, keep_gate=False), [], f"{label}: {run!r}")
 
     def test_unresolved_executable_content_without_the_real_gate_is_named(self) -> None:
         self.assert_escape_caught(UNRESOLVED_ESCAPES)
@@ -820,6 +984,26 @@ class WriteFirstRealMutations(RealStepMutation, unittest.TestCase):
     def test_a_write_marker_wins_over_an_exemption_on_the_real_step_without_its_gate(self) -> None:
         self.assert_escape_caught(WRITE_FIRST_ESCAPES)
 
+
+# #41398 review (reviewer's rows): the subcommand is the first operand after the tool's options, and -m counts only
+# before python's script operand. Each read has a near-miss counterpart that does publish.
+REVIEWER_SUBCOMMAND_ROWS = {
+    "gh release view create": ("gh release view create", False),
+    "gh release download upload": ("gh release download upload", False),
+    "npm view publish": ("npm view publish", False),
+    "python3 build.py -m twine upload": ("python3 build.py -m twine upload", False),
+    "gh release create v1": ("gh release create v1", True),
+    "npm publish": ("npm publish", True),
+    "python3 -m twine upload dist/*": ("python3 -m twine upload dist/*", True),
+}
+
+
+class ReviewerSubcommandRows(RealStepMutation, unittest.TestCase):
+    def test_each_row_has_the_verdict_by_position(self) -> None:
+        for label, (run, publishes_) in REVIEWER_SUBCOMMAND_ROWS.items():
+            with self.subTest(label):
+                self.assertEqual(publishing_command(run.split()), publishes_, run)
+                self.assertEqual(len(self.mutate(run, keep_gate=False)), 1 if publishes_ else 0, run)
 
 if __name__ == "__main__":
     unittest.main()

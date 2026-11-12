@@ -13,6 +13,12 @@ A caller asks one of two questions and the two fail closed in opposite direction
   shell, eval of a variable, a sourced file). Use it where a script is blamed for what a command may do
   (tests/test_ci_release_publish_tag_gate.py: "may this publish"), and count [] as yes.
 - gh_api_request(args): the method and endpoint `gh api` sends, read the way gh reads its flags.
+- first_operand(args, options): where a tool's subcommand is, read with its option grammar, so an option's value is
+  never taken for a subcommand.
+
+What an expansion's body runs (`${..}`, `$((..))`, an array subscript, an unquoted heredoc body) is read by the
+shared parser tests/shell_tree.py, to any depth; a body it cannot read stops the lexer, so what follows may run
+anything.
 
 An Invocation is `certain` only when nothing in or before the simple command is beyond this lexer: a command or
 process substitution (`$(..)`, backticks, `<(..)`), an arithmetic or parameter expansion in its program word, a
@@ -35,6 +41,8 @@ from __future__ import annotations
 
 import re
 from typing import NamedTuple
+
+import shell_tree  # the shared parser (tests/shell_tree.py): what an expansion's body runs is read from its tree
 
 # Longest first: the first operator in this list that matches at a position is the one read there.
 _OPERATORS = ("<<<", "<<-", "<<", "<&", "<>", "<", ">>", "&>>", "&>", ">&", ">|", ">", "&&", "&", "||", "|&", "|",
@@ -116,7 +124,7 @@ class Token(NamedTuple):
 class Lexed(NamedTuple):
     tokens: list[Token]
     complete: bool  # False: the lexer stopped at something it could not finish; later text is unread
-    heredoc_subs: list[str]  # scripts of `$(..)` and backticks in unquoted heredoc bodies
+    heredoc_subs: list[str]  # scripts of `$(..)` and backticks in unquoted heredoc bodies and arithmetic commands
 
 
 class Invocation(NamedTuple):
@@ -158,6 +166,20 @@ def _match_close(text: str, index: int, opener: str) -> int | None:
             depth += 1
             i += 2
             continue
+        # A substitution inside a parameter expansion (`${x:-$(a)}`), or a parameter expansion inside a substitution
+        # (`$(echo ${x:-)})`), closes on its own bracket: a `)` or `}` in it does not close this one.
+        if text.startswith("$(", i) and close == "}" or text.startswith("${", i) and close == ")":
+            end = _match_close(text, i, text[i:i + 2])
+            if end is None:
+                return None
+            i = end
+            continue
+        if c == "`" and close == "}":
+            end = _backtick_close(text, i)
+            if end is None:
+                return None
+            i = end
+            continue
         if c == "(" and close == ")":
             depth += 1
         elif c == close:
@@ -180,34 +202,114 @@ def _backtick_close(text: str, index: int) -> int | None:
     return None
 
 
-def _body_subs(body: str) -> list[str] | None:
-    """The scripts of the `$(..)` and backtick substitutions an unquoted heredoc body expands; None if one is
-    unfinished."""
-    found = []
-    i = 0
-    while i < len(body):
-        if body[i] == "\\":
-            i += 2
-        elif body.startswith("$((", i):
-            end = _match_close(body, i, "$(")
-            if end is None:
+def _backtick_script(body: str) -> str:
+    """The script a backtick substitution runs: inside backticks a backslash before $, ` or another backslash is
+    removed first, so `` `echo \\$(a)` `` runs $(a)."""
+    return re.sub(r"\\([$`\\])", r"\1", body)
+
+
+def _tree_subs(source: str, words: list) -> list[str] | None:
+    """The scripts of the command and process substitutions in WORDS (shell_tree Words of SOURCE), at any depth of
+    parameter expansion, arithmetic and array subscript; one inside another is in its outer script. None when a
+    ${..@P} (prompt expansion, which runs the substitutions in a variable's value) is among them."""
+    found: list[str] = []
+    for word in words:
+        if word is None:
+            continue
+        for sub in shell_tree.subs(word.parts):
+            if sub.form == "`":
+                found.append(_backtick_script(source[sub.start + 1:sub.end - 1]))
+            else:
+                found.append(source[sub.start + 2:sub.end - 1])
+        for part in _expansions(word.parts):
+            if isinstance(part, shell_tree.Param) and re.search(r"@P\}$", source[part.start:part.end]):
                 return None
-            i = end
-        elif body.startswith("$(", i):
-            end = _match_close(body, i, "$(")
-            if end is None:
-                return None
-            found.append(body[i + 2:end - 1])
-            i = end
-        elif body[i] == "`":
-            end = _backtick_close(body, i)
-            if end is None:
-                return None
-            found.append(body[i + 1:end - 1])
-            i = end
-        else:
-            i += 1
+            # bash reads an arithmetic body as double-quoted text, wherever the $(( )) is; shell_tree reads a ${ }
+            # inside one unquoted, so `$(( ${x:-'$(a)'} ))` is read again as bash does (a shorter text each time).
+            if isinstance(part, shell_tree.Arith) and source.startswith("$((", part.start):
+                inner = _body_subs(source[part.start + 3:part.end - 2])
+                if inner is None:
+                    return None
+                found.extend(script for script in inner if script not in found)
     return found
+
+
+def _expansions(parts: list):
+    for part in parts:
+        if isinstance(part, (shell_tree.Param, shell_tree.Arith)):
+            yield part
+            yield from _expansions(part.parts)
+
+
+def _expansion_subs(text: str, in_double: bool) -> list[str] | None:
+    """The scripts of the substitutions a `${..}` or `$((..))` expansion (TEXT, whole) may run, read by shell_tree.
+    Both readings count, because a context this lexer does not track can change which applies: unquoted, and as
+    bash reads it inside double quotes or arithmetic, where a ${ }'s single quote is literal (`(( ${x:-'`a`'} ))`
+    runs a). An arithmetic body is also read the way bash reads it, as double-quoted text. None when either reading
+    fails: the caller then stops, so whatever follows may run anything (fail closed)."""
+    found = _read_expansion(text, in_double)
+    other = _body_subs(text[3:-2]) if text.startswith("$((") else _read_expansion(text, not in_double)
+    if found is None or other is None:
+        return None
+    return found + [script for script in other if script not in found]
+
+
+def _read_expansion(text: str, in_double: bool) -> list[str] | None:
+    source = f'"{text}"' if in_double else text
+    try:
+        script = shell_tree.parse(source)
+    except shell_tree.Unparsed:
+        return None
+    if len(script.commands) != 1 or len(script.commands[0].words) != 1 or script.commands[0].redirects:
+        return None
+    return _tree_subs(source, script.commands[0].words)
+
+
+def _body_subs(body: str) -> list[str] | None:
+    """The scripts of the substitutions an unquoted heredoc body expands, at any depth of expansion, read by
+    shell_tree as a here-document; None if it cannot read one."""
+    lines = body.split("\n")
+    delimiter = "SHELL_INVOCATIONS_EOF"
+    while delimiter in lines:
+        delimiter += "_"
+    source = f": <<{delimiter}\n{body}\n{delimiter}\n"
+    try:
+        script = shell_tree.parse(source)
+    except shell_tree.Unparsed:
+        return None
+    return _tree_subs(source, [redirect.body for command in script.commands for redirect in command.redirects])
+
+
+def _bracket_close(text: str, index: int) -> int | None:
+    """The index just past the `]` closing the `$[` at `index`; None if it never closes. Substitutions and parameter
+    expansions inside are skipped whole."""
+    depth = 1
+    i = index + 2
+    while i < len(text):
+        c = text[i]
+        if c == "\\":
+            i += 2
+            continue
+        if text.startswith(("$(", "${"), i):
+            end = _match_close(text, i, text[i:i + 2])
+            if end is None:
+                return None
+            i = end
+            continue
+        if c == "`":
+            end = _backtick_close(text, i)
+            if end is None:
+                return None
+            i = end
+            continue
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
 
 
 def _skip_heredoc_bodies(text: str, index: int, pending: list[tuple[str, bool, bool]],
@@ -274,13 +376,18 @@ def lex(text: str) -> Lexed:
             if end is None:
                 return None
             dynamic = True
-            subs.append(text[at + 1:end - 1])
+            subs.append(_backtick_script(text[at + 1:end - 1]))
             buf.append("\x00")
             return end
         if text.startswith("$((", at):
             end = _match_close(text, at, "$(")
             if end is None:
                 return None
+            # `$(( $(a) + 1 ))` runs `a` (#41398 review F1): the substitutions inside arithmetic are commands.
+            inner = _expansion_subs(text[at:end], in_double)
+            if inner is None:
+                return None
+            subs.extend(inner)
             dynamic = True
             buf.append("\x00")
             return end
@@ -296,9 +403,24 @@ def lex(text: str) -> Lexed:
             end = _match_close(text, at, "${")
             if end is None:
                 return None
+            # `${x:-$(a)}` runs `a` (#41133 review F2), and so does `${x:-$(( $(a) ))}` or `${arr[$(a)]}` (#41398
+            # review F1): every substitution inside a parameter expansion, at any depth, is a command.
+            inner = _expansion_subs(text[at:end], in_double)
+            if inner is None:
+                return None
+            subs.extend(inner)
             dynamic = True
             buf.append(text[at:end])
             return end
+        if text.startswith("$[", at):
+            # `$[ .. ]`, bash's old arithmetic, reads its body as double-quoted text: its substitutions run whatever
+            # quotes surround them. The words go on to be read as usual too.
+            end = _bracket_close(text, at)
+            inner = None if end is None else _body_subs(text[at + 2:end - 1])
+            if inner is None:
+                return None
+            subs.extend(inner)
+            dynamic = True
         if _DOLLAR_NAME.match(text[at + 1:at + 2] or " "):
             dynamic = True
         buf.append("$")
@@ -382,6 +504,15 @@ def lex(text: str) -> Lexed:
             i = end
         elif c in ";&|()<>":
             end_word(i)
+            if text.startswith("((", i):
+                # An arithmetic command `(( .. ))` or `for (( .. ))` reads its body as double-quoted text, so a
+                # substitution inside runs whatever quotes surround it; its words are read as usual too.
+                end = _match_close(text, i, "$(")
+                if end is not None and text[end:end + 1] == ")":
+                    inner = _body_subs(text[i + 2:end - 1])
+                    if inner is None:
+                        return Lexed(tokens, False, heredoc_subs)
+                    heredoc_subs.extend(inner)
             operator = next(op for op in _OPERATORS if text.startswith(op, i))
             if operator in _HEREDOCS:
                 expect_delimiter = operator == "<<-"
@@ -474,6 +605,17 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
 
 def _opaque(word: Token) -> bool:
     return word.dynamic or "\x00" in word.text
+
+
+def _program_name(text: str) -> str:
+    """The name a program word is matched on: an absolute path by its basename (`/usr/bin/env` is env, `/bin/bash`
+    is bash); anything else as written (`./bash` is a script of that name, not the shell)."""
+    return text.rsplit("/", 1)[-1] if text.startswith("/") else text
+
+
+# An option that hands a program its command as text, as a shell's -c does: on an absolute program this does not
+# know, the program may run anything.
+_TEXT_OPTION = re.compile(r"-[A-Za-z]*c")
 
 
 def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | None, bool]:
@@ -578,7 +720,7 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     certain = not command.dynamic and not command.nested
     any_program = False
     while start < len(words) and not _opaque(words[start]):
-        name = words[start].text
+        name = _program_name(words[start].text)
         if name in _WRAPPERS:
             program, sure = _unwrap(words, start, _WRAPPERS[name])
         elif name in _SHELLS:
@@ -600,10 +742,14 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
     program = words[start]
+    name = _program_name(program.text)
     if program.dynamic or "\x00" in program.text or program.text.startswith("$"):
         certain, any_program = False, True
-    if program.text in _RUNS_ARGUMENTS or program.text in defined:
+    if name in _RUNS_ARGUMENTS or program.text in defined:
         certain, any_program = False, True
+    if program.text.startswith("/") and name not in _SHELLS and name not in _WRAPPERS \
+            and any(_TEXT_OPTION.fullmatch(word.text) for word in words[start + 1:]):
+        certain, any_program = False, True  # an absolute program this does not know, given -c: it may run anything
     return Invocation([program.text.removeprefix("./"), *(w.text for w in words[start + 1:])], certain, any_program)
 
 
@@ -731,6 +877,49 @@ def gh_api_request(args: list[str]) -> GhApiRequest:
     return GhApiRequest("POST" if posts else "GET", endpoint)
 
 
+class Options(NamedTuple):
+    """A tool's option grammar before its subcommand: the options that take a value (`-p X`, `-pX`, `--package X`,
+    `--package=X`) and those that take none. Short ones may cluster (`-vq`, `-Ro/r`)."""
+    values: frozenset[str] = frozenset()
+    flags: frozenset[str] = frozenset()
+
+
+def first_operand(args: list[str], options: Options) -> int | None:
+    """The index in ARGS of the first operand (the subcommand), read with OPTIONS: an option's value is never an
+    operand, and `--` ends the options. len(ARGS) when there is none; None when an option before it is one the
+    grammar does not know, or a word bash only knows at run time, so its position cannot be read (fail closed)."""
+    index = 0
+    while index < len(args):
+        word = args[index]
+        if _unreadable(word):
+            return None
+        if word == "--":
+            return index + 1
+        if word == "-" or not word.startswith("-"):
+            return index
+        if word in options.flags:
+            index += 1
+            continue
+        if word in options.values:
+            index += 2
+            continue
+        if word.startswith("--"):
+            if "=" in word and word.split("=", 1)[0] in options.values:
+                index += 1
+                continue
+            return None
+        for at in range(1, len(word)):
+            option = "-" + word[at]
+            if option in options.values:
+                index += 1 if at < len(word) - 1 else 2
+                break
+            if option not in options.flags:
+                return None
+        else:
+            index += 1
+    return len(args)
+
+
 # Past this many levels of one command running another, what it runs counts as unreadable.
 _NEST_LIMIT = 4
 _SOURCES = {"source", "."}
@@ -789,8 +978,8 @@ def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[l
     found.append(words)
     if not words or not invocation.any_program:
         return
-    program, args = words[0], words[1:]
-    if program in defined:
+    program, args = _program_name(words[0]), words[1:]
+    if words[0] in defined:
         return
     if depth >= _NEST_LIMIT or program in _SOURCES:
         found.append([])

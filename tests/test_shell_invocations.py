@@ -77,6 +77,31 @@ FIXTURES = [
     ("an alias is not expanded in a non-interactive shell", "alias sign=a\nb", {"b"}, set()),
     ("a variable as the program", "p=a\n$p", {"a"}, set()),
     ("a substitution as the program", "$(echo a)", {"a"}, set()),
+    # #41133 review F2: a substitution inside a parameter expansion runs.
+    ("a substitution in a parameter default runs", 'echo "${x:-$(a)}" >/dev/null', {"a"}, set()),
+    ("a backtick in a parameter alternative runs", "x=1\necho ${x:+`a`} >/dev/null", {"a"}, set()),
+    ("a substitution in a nested parameter default runs", 'echo "${x:-${y:-$(a)}}" >/dev/null', {"a"}, set()),
+    # #41398 review F1: a substitution inside an arithmetic expansion runs, wherever the arithmetic is: in a parameter
+    # default, an array subscript, a substring offset, a heredoc body; backticks unescape \\$ before their text runs.
+    ("a substitution in arithmetic in a parameter default runs", 'echo "${x:-$(( $(a) + 1 ))}" >/dev/null', {"a"},
+     set()),
+    ("a substitution in a bare arithmetic expansion runs", "echo $(( $(a) + 1 )) >/dev/null", {"a"}, set()),
+    ("a substitution in a legacy $[ ] runs", "echo $[ $(a) + 1 ] >/dev/null", {"a"}, set()),
+    ("a substitution in an array subscript runs", 'arr=(1 2)\necho "${arr[$(a)]}" >/dev/null', {"a"}, set()),
+    ("a substitution in a substring offset runs", 'y=abc\necho "${y:$(a)0:1}" >/dev/null', {"a"}, set()),
+    ("a substitution in an arithmetic command runs", "(( $(a) + 1 ))", {"a"}, set()),
+    ("a substitution in arithmetic in a heredoc body runs", "cat <<EOF >/dev/null\n$(( $(a) + 1 ))\nEOF\nb",
+     {"a", "b"}, {"b"}),
+    ("a quoted single quote in a parameter default does not hide a substitution",
+     "echo \"${x:-'$(a)'}\" >/dev/null", {"a"}, set()),
+    ("an escaped dollar in backticks is a substitution there", "echo `echo \\$(a)` >/dev/null", {"a"}, set()),
+    # Found by the grammar below: arithmetic reads its body as double-quoted text, so a ${ }'s single quote is literal.
+    ("a backtick in a single-quoted default in an arithmetic command runs", "(( \"\"${x:-'`a`'}\"\"0 ))", {"a"}, set()),
+    ("a backtick in a single-quoted default in $(( )) runs", "echo $(( ${x:-'`a`'}0 )) >/dev/null", {"a"}, set()),
+    ("a single-quoted default in $(( )) in a heredoc body runs", "cat <<EOF >/dev/null\n$(( \"\"${x:-'$(a)'}\"\"0 ))\nEOF",
+     {"a"}, set()),
+    ("a single-quoted default in $(( )) in ${:?} runs", "echo ${y:-$(( ${x:-\"\"${z:-'$(a)'}\"\"}0 + 1 ))} >/dev/null",
+     {"a"}, set()),
 ]
 
 
@@ -86,6 +111,12 @@ FIXTURES = [
 # as a script is never certain; a fixture bash runs but the model calls uncertain must still be allowed by may_run.
 SCRIPT_FIXTURES = [
     ("bash ./sign.sh", True, True),
+    # #41133 review F1: a shell or wrapper named by its absolute path is the same program.
+    ("/bin/bash ./sign.sh", True, True),
+    ("/bin/bash -n ./sign.sh", False, False),
+    ("/usr/bin/env ./sign.sh", True, True),
+    ("/usr/bin/env bash -e ./sign.sh", True, True),
+    ("/bin/bash -c ./sign.sh", True, False),
     ("bash -e ./sign.sh", True, True),
     ("bash -eux ./sign.sh 2>/dev/null", True, True),
     ("bash --noprofile --norc ./sign.sh", True, True),
@@ -300,9 +331,122 @@ class AgainstBash(unittest.TestCase):
                 self.assertNotIn([], may_run_nested(script))
                 self.assertFalse(any(words[:len(inner)] == inner for words in may_run_nested(script)), script)
 
+    def test_absolute_paths_and_parameter_substitutions_are_read_like_the_plain_forms(self) -> None:
+        from shell_invocations import may_run_nested
+        inner = ["gh", "api", "repos/o/r/releases", "-f", "tag_name=v1"]
+        for script in ("/bin/bash -c 'gh api repos/o/r/releases -f tag_name=v1'",
+                       "/usr/bin/env bash -c 'gh api repos/o/r/releases -f tag_name=v1'",
+                       "/usr/bin/sudo -E /bin/sh -c 'gh api repos/o/r/releases -f tag_name=v1'",
+                       "/usr/bin/xargs gh api repos/o/r/releases -f tag_name=v1 < f",
+                       'echo "${x:-$(gh api repos/o/r/releases -f tag_name=v1)}"',
+                       "echo ${x:+`gh api repos/o/r/releases -f tag_name=v1`}",
+                       'echo "${x:-${y:-$(gh api repos/o/r/releases -f tag_name=v1)}}"'):
+            with self.subTest(script):
+                self.assertTrue(any(words[:len(inner)] == inner for words in may_run_nested(script)), script)
+        # An absolute program this does not know, given -c, may run anything.
+        self.assertIn([], may_run_nested("/opt/tools/bin/fish -c 'gh api repos/o/r/releases -f tag_name=v1'"))
+        self.assertNotIn([], may_run_nested("/usr/bin/python3 ./build.py"))
+
     def test_there_is_no_default_reading(self) -> None:
         import shell_invocations
         self.assertFalse(hasattr(shell_invocations, "invocations"))
+
+
+# #41398 review F1: a generated grammar of nestings (parameter expansion > arithmetic > command substitution > a
+# release), each sample run in real bash with a fake gh on PATH that logs each call. The estimate must cover what ran:
+# a sample whose gh bash ran must have gh in may_run_program() and `gh release create` (or [], content it cannot
+# read) in may_run_nested(). Seeded and deterministic: NEST_SEEDS samples, no time budget.
+NEST_SEEDS = 20000
+NEST_LEAF = "gh release create v1 dist/x"
+NEST_PRELUDE = "unset x0 x1 x2 x3 x4 x5\ny=abc\narr=(0 1)\n"
+
+
+def _escape_for_backticks(text: str, escape_dollars: bool) -> str:
+    text = text.replace("\\", "\\\\").replace("`", "\\`")
+    return text.replace("$", "\\$") if escape_dollars else text
+
+
+def nest_word(rng, depth: int, level: int = 0) -> str:
+    """A word whose expansion runs NEST_LEAF, wrapped in DEPTH random expansion forms."""
+    if depth == 0:
+        return rng.choice((f"$({NEST_LEAF})", f"`{NEST_LEAF}`"))
+    inner = nest_word(rng, depth - 1, level + 1)
+    name = f"x{level}"
+    forms = (
+        f"${{{name}:-{inner}}}", f"${{{name}-{inner}}}", f"${{{name}:={inner}}}", f"${{{name}:?{inner}}}",
+        f"${{y:+{inner}}}", f"${{y+{inner}}}", f"${{y#{inner}}}", f"${{y%{inner}}}", f"${{y/{inner}/r}}",
+        f"${{y//b/{inner}}}", f"${{y:{inner}0:1}}", f"${{y:0:{inner}1}}", f"${{arr[{inner}0]}}",
+        f"${{#arr[{inner}0]}}", f"$(( {inner}0 + 1 ))", f"$[ {inner}0 + 1 ]", f"$((arr[{inner}0]))",
+        f"$(echo {inner})", f"`echo {_escape_for_backticks(inner, rng.random() < 0.5)}`", f'"{inner}"',
+        f"${{{name}:-\"{inner}\"}}", f"\"${{{name}:-'{inner}'}}\"",  # in double quotes a ${ }'s ' is literal
+    )
+    return rng.choice(forms)
+
+
+def nest_script(seed: int) -> str:
+    import random
+    rng = random.Random(seed)
+    word = nest_word(rng, rng.randint(1, 4))
+    statement = rng.choice((
+        f"echo {word} >/dev/null", f": {word}", f"v={word}", f"(( {word}0 ))", f"arr[{word}0]=1",
+        f"[[ -n {word} ]]", f"case {word} in *) ;; esac", f"cat <<EOF >/dev/null\n{word}\nEOF",
+        f"local_v=({word})", f"for i in {word}; do :; done", f"export v={word}",
+    ))
+    return NEST_PRELUDE + statement + "\n"
+
+
+def bash_runs_gh(scripts: list[str]) -> set[int]:
+    """The indexes of SCRIPTS whose gh call bash ran, each script run once by its own bash with a fake gh."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        log = root / "ran"
+        log.touch()
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "gh").write_text(f"#!/bin/sh\necho \"$SAMPLE\" >> '{log}'\n")
+        (bin_dir / "gh").chmod(0o755)
+        samples = root / "s"
+        samples.mkdir()
+        for index, script in enumerate(scripts):
+            (samples / f"{index}.sh").write_text(script)
+        driver = (f"cd '{samples}'\nfor n in $(seq 0 {len(scripts) - 1}); do\n"
+                  "  SAMPLE=$n timeout 10 bash --noprofile --norc ./$n.sh </dev/null >/dev/null 2>&1\ndone\n")
+        environment = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C"}
+        subprocess.run(["bash", "--noprofile", "--norc", "-c", driver], env=environment, capture_output=True,
+                       text=True, timeout=1800, stdin=subprocess.DEVNULL, check=True)
+        return {int(line) for line in log.read_text().split()}
+
+
+class NestingGrammarAgainstBash(unittest.TestCase):
+    maxDiff = None
+
+    def test_the_estimate_covers_every_release_bash_runs_in_a_generated_nesting(self) -> None:
+        from shell_invocations import may_run_nested
+        scripts = [nest_script(seed) for seed in range(NEST_SEEDS)]
+        ran = bash_runs_gh(scripts)
+        # The grammar is only a check if bash really runs most of it.
+        self.assertGreater(len(ran), NEST_SEEDS // 2, f"bash ran gh in only {len(ran)} of {NEST_SEEDS} samples")
+        missed = []
+        for index in sorted(ran):
+            script = scripts[index]
+            nested = may_run_nested(script)
+            if not may_run_program(script, "gh") or not any(
+                    words == [] or words[:3] == ["gh", "release", "create"] for words in nested):
+                missed.append(script)
+        self.assertEqual(missed, [], f"{len(missed)} of {len(ran)} samples bash ran gh in were estimated not to")
+
+    def test_the_reviewer_row(self) -> None:
+        from shell_invocations import may_run_nested
+        script = 'echo "${x:-$(( $(gh release create v1 dist/x) + 1 ))}"'
+        self.assertEqual(bash_runs_gh([script]), {0})
+        self.assertIn(["gh", "release", "create", "v1", "dist/x"], may_run_nested(script))
+
+    def test_an_expansion_it_cannot_parse_may_run_anything(self) -> None:
+        from shell_invocations import may_run_nested
+        for script in ('echo "${x:-$(( 1 + }"', "echo ${x:-$(( $(a) + 1 )"):
+            with self.subTest(script):
+                self.assertIn([], may_run_nested(script))
+                self.assertTrue(may_run_program(script, "anything"))
 
 
 if __name__ == "__main__":
