@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/desktop-lease",
     "crates/cmux-tailnet",
     "crates/acpmux-build-id",
     "crates/cmux-coderouter",
