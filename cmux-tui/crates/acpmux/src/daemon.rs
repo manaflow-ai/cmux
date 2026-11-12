@@ -408,6 +408,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;
     // The socket as bound, read at once: the home watch and the shutdown's removal use it.
     let bound_socket = home_watch::Owned::now(&[&socket_path()]);
+    // This is the benchmark's socket-ready boundary: the Unix endpoint is bound before any
+    // WebSocket, hub, store or per-chat setup. The serving task and public ready line remain
+    // below the hub's startup gate, so clients still observe `ready: false` until setup ends.
+    gauges.mark("socket ready");
     // Gone already: nothing can reach this daemon, so it stops before the startup.
     if cfg!(unix) && bound_socket.is_none() && socket_path().is_absolute() {
         anyhow::bail!("the acpmux socket {} went away as it was bound", socket_path().display());
@@ -538,7 +542,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
     #[cfg(not(unix))]
     let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
-    gauges.mark("socket ready");
     // Debug builds only: hold the listener after it is serving, so the lifecycle test proves
     // socket readiness does not wait for durable setup. Release builds have no seam.
     #[cfg(debug_assertions)]
