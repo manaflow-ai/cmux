@@ -334,17 +334,6 @@ pub(crate) fn legacy_hook_session_id(terminal_id: &str, sequence: u64) -> String
     format!("legacy:{terminal_id}:{sequence}")
 }
 
-/// When the hook helper observed a hook event (`normalized.observed_at_ms`,
-/// a decimal string stamped at invocation). Journal order says when an event
-/// arrived; this says when the agent emitted it, which is the only evidence
-/// that separates a late event of an ended incarnation from an event of a
-/// resumed incarnation that reuses the same session id. Events from older
-/// helpers and direct reports carry no stamp.
-pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
-    let value = payload.get("normalized")?.get("observed_at_ms")?;
-    decimal_string_u64(value)
-}
-
 /// Per-terminal hook session fence: the agent session that owns the
 /// terminal's hook state, the last journal sequence applied for it, whether
 /// that session ended, and when its latest incarnation ended. The hook
@@ -407,7 +396,7 @@ impl HookFence {
     /// Decide one journal hook event. `explicit_session_id` is the adapter's
     /// native session id; a session-less event continues the live legacy
     /// generation or starts a new one keyed by its sequence.
-    /// `observed_at_ms` is [`hook_observed_at_ms`] of the event.
+    /// `observed_at_ms` is [`crate::agent_hooks::hook_observed_at_ms`] of the event.
     pub(crate) fn journal_transition(
         current: Option<&Self>,
         terminal_id: &str,
@@ -849,7 +838,7 @@ impl AgentRoster {
             // keeps the existing entry, exactly like the projector.
             let explicit_session_id =
                 event.normalized("agent_session_id").filter(|session_id| !session_id.is_empty());
-            let observed_at_ms = hook_observed_at_ms(event.payload);
+            let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(event.payload);
             let current = self.hook_fences.get(terminal_id);
             let JournalHookTransition::Apply(session_id) = HookFence::journal_transition(
                 current,
@@ -920,10 +909,11 @@ impl AgentRoster {
                 // with `HookFence::last_observed_at_ms`). Do not add a second
                 // order check here: one keyed by another session id would
                 // let the roster and the agent rows disagree.
-                if let Some(existing) = self.entries.get(terminal_id)
-                    && existing.agent_source() == AgentSource::Hook
-                    && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
-                {
+                let stale_hook_report = self.entries.get(terminal_id).is_some_and(|existing| {
+                    existing.agent_source() == AgentSource::Hook
+                        && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
+                });
+                if stale_hook_report {
                     return Vec::new();
                 }
             }

@@ -266,7 +266,7 @@ impl Mux {
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty());
         let is_session_start = ingress.kind == "agent.session.started";
-        let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
+        let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(&ingress.payload);
         let previous_fence = fences.get(&terminal_id).cloned();
         let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
             previous_fence.as_ref(),
