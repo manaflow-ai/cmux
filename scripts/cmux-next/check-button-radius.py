@@ -43,7 +43,7 @@ ALLOW_CSS = re.compile(r"/\*\s*radius-allow:\s*\S")
 # A button file: its name, or a button type it declares.
 BUTTON_TYPE = re.compile(
     r"\b(?:struct|class|enum)\s+\w*Button(?:View|Style|Cell)?\b"
-    r"|:\s*(?:[\w.]+\s*,\s*)*(?:PrimitiveButtonStyle|ButtonStyle|NSButton)\b")
+    r"|\b(?:struct|class|enum)\s+\w+\s*:\s*(?:[\w.]+\s*,\s*)*[\w.]*(?:ButtonStyle|Button)\b")
 # A line that rounds a button directly, in any file: `button.layer?.cornerRadius = ...`.
 BUTTON_RECEIVER = re.compile(r"\b\w*(?:button|Button)\b[\w?.]*\.(?:layer\??\.)?cornerRadius\s*=")
 RADIUS_SITE = re.compile(
@@ -58,7 +58,10 @@ NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
 # A button radius token declared anywhere (`OmnibarStyle.buttonCornerRadius`).
 BUTTON_DECL = re.compile(r"\b(?:var|let|func)\s+\w*[Bb]utton\w*Radius\b")
 DECLARATION = re.compile(r"(?:var|let|func)\s+\w+(?:\([^)]*\))?\s*(?::\s*[\w.?]+)?\s*")
-BUTTON_TOKEN = re.compile(r"\b(?:buttonCornerRadius|tabCornerRadius)\b")
+# The token, or a button token declared from it (`chipButtonCornerRadius`; BUTTON_DECL checks each declaration).
+BUTTON_TOKEN = re.compile(r"\b(?:\w*[bB]uttonCornerRadius|tabCornerRadius)\b")
+# A parameter or property typed as a radius (`cornerRadius: CGFloat`) holds no value of its own.
+TYPED = re.compile(r"\b\w*[cC]ornerRadius\s*:\s*(?:CGFloat|Double|Float)\b")
 STRING = re.compile(r'"(?:\\.|[^"\\])*"')
 
 
@@ -74,6 +77,8 @@ def swift_findings(rel, text):
             continue
         site = BUTTON_DECL.search(code) or RADIUS_SITE.search(code) or BUTTON_RECEIVER.search(code)
         value = STRING.sub('""', code[site.start():])
+        if TYPED.match(value):
+            continue
         declared = DECLARATION.match(value)
         if declared:
             # `static var buttonCornerRadius: CGFloat { 8 }` names the token; its body is what it rounds by.
@@ -88,7 +93,9 @@ def swift_findings(rel, text):
 
 
 CSS_COMMENT = re.compile(r"/\*.*?\*/", re.S)
-BUTTON_SUBJECT = re.compile(r'(?:^|[\s>+~(,])button\b|\[role=["\']?button|[#.][\w-]*(?:button|btn|Button)(?![\w-])')
+# A segment of a segmented control (`.segment`, `.cu-segment-button`) is a button too.
+BUTTON_SUBJECT = re.compile(r'(?:^|[\s>+~(,])button\b|\[role=["\']?button|[#.][\w-]*(?:button|btn|Button)(?![\w-])'
+                            r'|\.segment(?![\w-])')
 RADIUS_DECL = re.compile(r"(?<![\w-])border(?:-(?:top|bottom|start|end)-(?:left|right|start|end))?-radius\s*:\s*([^;}]*)")
 CSS_PASS = re.compile(r"--ds-radius-control\b|--cmux-button-radius\b")
 CSS_KEYWORD = re.compile(r"^\s*(?:0|0px|inherit|unset|initial)\s*(?:!important)?\s*$")
