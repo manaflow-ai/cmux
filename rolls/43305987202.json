@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43305987202",
+  "recorded_at": "2026-11-12T21:09:52Z",
+  "reason": "cmux-tui 63a0515234ee changes the image's cmux-tui (pinned 240f86bb43ac)",
+  "dry_run": false,
+  "cmux_tui": "63a0515234ee2ddb298a81737a71290a91f1b44e",
+  "fixes": [
+    {
+      "sha": "63a0515234ee2ddb298a81737a71290a91f1b44e",
+      "mergedAt": "2026-11-12T12:33:45-08:00",
+      "subject": "acpmux: ten local JSON getters read through cmux-json's JsonGet; #42064 F1 (#42072)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T21:09:52Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
