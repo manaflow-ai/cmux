@@ -7,7 +7,13 @@
 // Gallery: agent-pane.one-fold-per-turn.
 import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { toggleTurnFold, turnFoldFor, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import {
+  NEXT_STEP,
+  toggleTurnFold,
+  turnFoldFor,
+  turnView,
+  WORKED,
+} from "../src/agent-session/acpmux/conversation/turns";
 
 const START = Date.UTC(2026, 10, 11, 21, 0, 0);
 const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -129,6 +135,52 @@ test("another agent's message with no reply before it folds in place, in the tur
       quiet.findIndex((shown) => shown.id === "t-2"),
     ),
   ).toBe(`${WORKED}-u-0`);
+});
+
+test("a message that draws nothing splits nothing: Find opens the fold the turn draws", () => {
+  const dot = messaged.map((shown) => (shown.id === "m-1" ? { ...shown, text: "." } : shown));
+  const drawn = view(dot, "codex");
+  expect(drawn.filter((shown) => shown.kind === WORKED).map((shown) => shown.id)).toEqual([`${WORKED}-u-0`]);
+  expect(
+    turnFoldFor(
+      dot,
+      dot.findIndex((shown) => shown.id === "t-2"),
+    ),
+  ).toBe(`${WORKED}-u-0`);
+});
+
+test("a wrap-up after the steer draws its card once, under the answer before the steer", () => {
+  const recap = "The fold fix is in review.";
+  const wrap: AcpmuxRow = row("w-1", "activity", 290, {
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: {
+          id: "w-1-0",
+          title: "mcp__acpmux__wrap_up",
+          kind: "other",
+          status: "completed",
+          inputSummary: JSON.stringify({ recap, ask: "Merge it?", actions: ["Merge", "Not now"] }),
+        },
+      },
+    ],
+  });
+  const answered: AcpmuxRow[] = [
+    steered[0]!,
+    steered[1]!,
+    row("a-answer", "assistant", 120, {
+      text: "The fix is up for review.\n\nBoth builds passed, and the nightly is next.",
+    }),
+    row("s-1", "user", 130, { text: "Also check the nightly", steer: "landed" }),
+    steered[4]!,
+    wrap,
+    steered[6]!,
+  ];
+  for (const family of FAMILIES) {
+    const cards = view(answered, family).filter((shown) => shown.kind === NEXT_STEP);
+    expect(cards).toHaveLength(1);
+  }
 });
 
 test("the one-fold arm keeps the turn's single Worked for at its top", () => {

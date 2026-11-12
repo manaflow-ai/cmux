@@ -1175,8 +1175,11 @@ export type FoldSegment = {
 };
 
 /// A message that came into the running turn and splits its fold (`inOrder`): the person's steer, or
-/// another agent's message the turn went on to answer. A hidden one (bookkeeping) draws nothing.
-const splitsFold = (row: AcpmuxRow) => row.kind === "user" && continuesTurn(row) && row.incoming?.kind !== "hidden";
+/// another agent's message the turn went on to answer. A hidden one (bookkeeping) or one that draws
+/// nothing (a lone ".", which shapeTurn drops from the turn's body) splits nothing, so the fold keys
+/// read off the raw rows (`foldStarts`) split where the drawn turn does.
+const splitsFold = (row: AcpmuxRow) =>
+  row.kind === "user" && continuesTurn(row) && row.incoming?.kind !== "hidden" && !isVisiblyEmptyMessage(row);
 /// The person's own steer, which stays in sight; another agent's message folds like work.
 const isOwnSteer = (row: AcpmuxRow) => !row.incoming && !row.received;
 /// Whether `row` starts a new fold, `replied`: a reply to the person drew since the last one started.
@@ -1478,6 +1481,8 @@ function shapeTurn(
   // The turn's last browser walkthrough, read once the turn has ended; drawn once, under the answer.
   const walked = live ? undefined : lastWalkthrough(worked);
   let walkedDrawn = false;
+  // The next-step card draws once per turn: under the answer, in its fold, or after the turn's last.
+  let cardDrawn = false;
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -1664,6 +1669,7 @@ function shapeTurn(
       else if (nextStep!.rest) shaped.push({ ...said!, text: nextStep!.rest, version: said!.version * 2 + 1 });
       if (stripUnder) shaped.push(strip(said!.at));
       shaped.push(card(said!.at));
+      cardDrawn = true;
     } else if (said) {
       shaped.push(said);
       if (stripUnder) shaped.push(strip(said.at));
@@ -1672,7 +1678,7 @@ function shapeTurn(
     shaped.push(...[...before, ...after].filter(isPlan).map(endedPlan));
     // A wrap-up in a turn with no answer to hang under goes after the turn's last row, under its
     // walkthrough: the strip always draws before the card.
-    if (nextStep && wrapUp && !underAnswer && final) {
+    if (nextStep && wrapUp && !cardDrawn && final) {
       if (walked && !walkedDrawn) shaped.push(strip(summary.at));
       shaped.push(card(summary.at));
     }
