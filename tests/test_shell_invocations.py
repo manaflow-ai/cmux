@@ -347,6 +347,22 @@ class AgainstBash(unittest.TestCase):
         self.assertIn([], may_run_nested("/opt/tools/bin/fish -c 'gh api repos/o/r/releases -f tag_name=v1'"))
         self.assertNotIn([], may_run_nested("/usr/bin/python3 ./build.py"))
 
+    def test_a_shell_option_value_after_c_is_not_the_script(self) -> None:
+        # #41133 BLOCK at aa1c6f09, F2: `bash -co pipefail TEXT` took pipefail as the script, so the release went unseen.
+        from shell_invocations import may_run_nested
+        inner = ["gh", "release", "create", "v1"]
+        for script in ("bash -co pipefail 'gh release create v1'", "bash -oc pipefail 'gh release create v1'",
+                       "bash -c -o pipefail 'gh release create v1'", "bash -ceo pipefail 'gh release create v1'",
+                       "bash -cO extglob 'gh release create v1'", "bash +O extglob -c 'gh release create v1'",
+                       "bash -coo pipefail errexit 'gh release create v1'", "sh -c -- 'gh release create v1'",
+                       "/bin/bash -euco pipefail 'gh release create v1'"):
+            with self.subTest(script):
+                self.assertTrue(any(words[:len(inner)] == inner for words in may_run_nested(script)), script)
+        # -c with its text missing, or held in a variable: it may run anything.
+        for script in ("bash -co pipefail", "bash -co pipefail \"$cmd\""):
+            with self.subTest(unreadable=script):
+                self.assertIn([], may_run_nested(script))
+
     def test_there_is_no_default_reading(self) -> None:
         import shell_invocations
         self.assertFalse(hasattr(shell_invocations, "invocations"))
