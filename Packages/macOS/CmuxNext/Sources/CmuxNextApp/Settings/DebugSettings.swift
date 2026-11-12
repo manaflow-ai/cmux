@@ -23,6 +23,7 @@ extension AppControl {
                 .value(HostPressureIndicatorView.debug(call.params))
             },
         ])
+        registerDensityLabDebugMethod(services)
         #endif
     }
 }
