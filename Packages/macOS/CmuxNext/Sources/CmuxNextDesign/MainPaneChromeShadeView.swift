@@ -1,4 +1,5 @@
 public import AppKit
+import Observation
 
 /// The shade over the chrome around the curved main pane: the window minus
 /// the pane's rounded rect, filled with black at a low alpha. It sits on
@@ -23,6 +24,8 @@ public final class MainPaneChromeShadeView: NSView {
     /// The divider's line, in `Palette.chromeDivider` at ``Metrics/tabRowDividerStrength``, less the folders.
     private let dividerLayer = CAShapeLayer()
     private var cardsObservation: AnyObject?
+    /// A watch on `chrome.dividerStrength` is armed, so a Debug change repaints the divider live.
+    private var watchesDividerStrength = false
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
         didSet {
@@ -97,8 +100,22 @@ public final class MainPaneChromeShadeView: NSView {
         var line: CGPath = CGPath(rect: CGRect(x: divider.minX, y: divider.minY, width: divider.width, height: weight), transform: nil)
         for folder in folders { line = line.subtracting(folder) }
         dividerLayer.path = line
-        let ink = Palette.chromeDivider
+        let ink = watchDividerStrength { Palette.chromeDivider }
         dividerLayer.fillColor = ink.withAlphaComponent(ink.alphaComponent * strength).cgColor
+    }
+
+    /// `read`, with a one-shot watch on `chrome.dividerStrength` that repaints the divider when it changes and
+    /// arms again; one watch at a time, armed on a paint, so the active store registers it (#36058).
+    private func watchDividerStrength<T>(_ read: () -> T) -> T {
+        guard !watchesDividerStrength else { return read() }
+        watchesDividerStrength = true
+        return withObservationTracking { read() } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.watchesDividerStrength = false
+                self.rebuildDivider()
+            }
+        }
     }
 
     private func rebuild() {
