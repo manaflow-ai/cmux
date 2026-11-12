@@ -5,6 +5,7 @@
 #
 #   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--resolve] [--base REF] [--tree DIR] [--stale-grace SECONDS]
 #   scripts/cmux-next/check-app-ffi-pin.sh --list-inputs [--tree DIR]
+#   scripts/cmux-next/check-app-ffi-pin.sh --list-excluded [--tree DIR]
 #
 # With --resolve (a Mac with the Swift 6.2 tools: a fleet step) it also evaluates
 # the manifest with `swift package dump-package`, fails unless the CCmuxAppFFI
@@ -40,6 +41,7 @@ set -euo pipefail
 verify=0
 resolve=0
 list_inputs=0
+list_excluded=0
 base_ref=""
 tree=""
 stale_grace=0
@@ -49,6 +51,7 @@ while [[ $# -gt 0 ]]; do
     --resolve) resolve=1 ;;
     --base) base_ref="${2:?--base needs a ref}"; shift ;;
     --list-inputs) list_inputs=1 ;;
+    --list-excluded) list_excluded=1 ;;
     --tree) tree="${2:?--tree needs a directory}"; shift ;;
     --stale-grace)
       stale_grace="${2:?--stale-grace needs seconds}"; shift
@@ -119,6 +122,15 @@ list_inputs HEAD
 if [[ "$list_inputs" -eq 1 ]]; then
   printf '%s\n' "${paths[@]}"
   [[ "$narrowed" -eq 1 ]] && printf '%s\n' ":(literal)$workspace_manifest"
+  exit 0
+fi
+# --list-excluded prints the walk's excluded paths, the :(exclude,literal) entries above as plain paths: each input
+# crate's tests/, benches/ and examples/ that nothing built names, and the TEST_ONLY files (#41555's readers took this
+# list from its own not_built(); the walk is now the one definition, app_ffi_pin.py).
+if [[ "$list_excluded" -eq 1 ]]; then
+  for input in "${paths[@]}"; do
+    [[ "$input" == ":(exclude,literal)"* ]] && printf '%s\n' "${input#":(exclude,literal)"}"
+  done
   exit 0
 fi
 

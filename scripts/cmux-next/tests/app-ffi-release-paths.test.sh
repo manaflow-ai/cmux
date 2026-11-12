@@ -7,11 +7,22 @@
 # files, build-app-ffi.sh and this workflow itself, which the list holds). The hand list lacked cmux-remote-browser, so the
 # rb-client push cf25b525a03b started no build (2026-10-07); a whole-crate glob
 # built a release, and the repin bot opened a repin, for a change only a test
-# reads (#39027, 2026-11-09).
+# reads (#39027, 2026-11-09). Its --list-excluded (the walk's excluded paths,
+# which #41555's readers take) is exactly the excluded entries of --list-inputs,
+# so each is a negative pattern here too.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 workflow="$root/.github/workflows/app-ffi-release.yml"
+check="$root/scripts/cmux-next/check-app-ffi-pin.sh"
+inputs="$(bash "$check" --list-inputs)"
+listed_excluded="$(bash "$check" --list-excluded)"
+excluded_inputs="$(sed -n 's/^:(exclude,literal)//p' <<<"$inputs")"
+if [[ "$listed_excluded" != "$excluded_inputs" ]]; then
+  echo "FAIL: check-app-ffi-pin.sh --list-excluded is not the excluded entries of --list-inputs:" >&2
+  diff <(echo "$excluded_inputs") <(echo "$listed_excluded") >&2 || true
+  exit 1
+fi
 want="$(
   while IFS= read -r input; do
     # Each input is a `:(literal)` pathspec (no glob or magic in a found path); an excluded one, `:(exclude,literal)`, is a
@@ -27,7 +38,7 @@ want="$(
       .cargo) echo "\"$negate$input/**\"" ;;
       *) [[ -d "$root/$input" ]] && echo "\"$negate$input/**\"" || echo "\"$negate$input\"" ;;
     esac
-  done < <(bash "$root/scripts/cmux-next/check-app-ffi-pin.sh" --list-inputs)
+  done <<<"$inputs"
 )"
 # The push paths: the list under `on: push: paths:`, up to the next key.
 have="$(awk '/^on:/ {on=1} on && /^    paths:/ {in_paths=1; next} in_paths && /^      - / {sub(/^      - /, ""); print; next}

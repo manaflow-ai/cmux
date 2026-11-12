@@ -1044,6 +1044,33 @@ def merge(walks: list[tuple[list[str], list[str], list[str]]]) -> tuple[list[str
     return crates, [f":(literal){p}" for p in includes] + [f":(exclude,literal){p}" for p in excludes]
 
 
+# The walk above is the one definition of the app FFI inputs (lead decision, 2026-11-11, merging #41555, whose
+# app_ffi_pin.NOT_BUILT and not_built() it replaces). Every reader takes its output: check-app-ffi-pin.sh (`inputs`;
+# --list-inputs, --list-excluded), pin-app-ffi-on-base.sh and the release workflow's push paths through it, and the
+# router (cmux_next_route: app_ffi_inputs, app_ffi_excluded, app_ffi_input; build_class.py and the dev-loop apply
+# tools through it) and base_red_excuse.py (ffi_input) through listed() and is_input() here.
+#
+# A reader that cannot fail when the walk refuses (the router, base_red_excuse.py) counts REFUSED_INPUTS as inputs and
+# nothing as excluded: all of cmux-tui and everything above the crates the build reads. The check itself refuses.
+REFUSED_INPUTS = ("cmux-tui",) + ABOVE
+
+
+def listed(root: Path, *revs: str) -> tuple[list[str], list[str]]:
+    """(the inputs, the excluded paths) of the union of the walks of REVS (HEAD when none) in the repository at ROOT, as
+    plain paths: `check-app-ffi-pin.sh --list-inputs` without the workspace manifest it adds, and its --list-excluded.
+    Raises Unresolved."""
+    _, specs = merge([walk(Path(root), rev) for rev in revs or ("HEAD",)])
+    inputs = [spec[len(":(literal)"):] for spec in specs if spec.startswith(":(literal)")]
+    excluded = [spec[len(":(exclude,literal)"):] for spec in specs if spec.startswith(":(exclude,literal)")]
+    return inputs, excluded
+
+
+def is_input(path: str, inputs: list[str], excluded: list[str]) -> bool:
+    """PATH is an app FFI input: it is one of INPUTS or inside one (a trailing / is ignored), and it is none of EXCLUDED
+    and inside none of them."""
+    return any(_under(path, i.rstrip("/")) for i in inputs) and not any(_under(path, e.rstrip("/")) for e in excluded)
+
+
 # What the FFI build reads of the cmux-tui workspace manifest (cmux-tui/Cargo.toml). cmux-app-ffi has its own
 # [workspace] table, so cargo builds it as its own workspace root: its own [patch], [profile] and Cargo.lock
 # (cmux-tui/crates/cmux-app-ffi/Cargo.lock, a crate input, built with --locked) apply, never those of cmux-tui. A crate
