@@ -1,9 +1,7 @@
-//! Chief leaves every subagent's workspace open when it finishes (a
-//! teammate's complaint: "too many workspaces"; Lawrence's sidebar, Oct 27:
-//! 822 workspaces open). A short task's workspace now closes when its
-//! subagent finishes: a run of less than `SHORT_TASK` that left nothing
-//! unlanded. A longer task, or one whose report says it did not land, keeps
-//! its workspace. The subagent's chat stays readable (`zoom("aN")`).
+//! Chief once closed a short task's workspace when it finished (a teammate's complaint: "too
+//! many workspaces"; Lawrence's sidebar, Oct 27: 822 workspaces open). That made Chief-made agents
+//! vanish (Aziz, 2026-11-11), so no subagent's workspace closes on its own now: errands sit in the
+//! collapsed "Chief's workspaces" group instead. Only the user's close-on-finish setting closes one.
 
 mod common;
 
