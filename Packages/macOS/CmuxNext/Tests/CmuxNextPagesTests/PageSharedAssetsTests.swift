@@ -62,11 +62,18 @@ struct PageSharedAssetsTests {
         #expect(reply.body == Data("export const loaded = true;".utf8))
         #expect(reply.response.value(forHTTPHeaderField: "Content-Type") == "text/javascript")
         #expect(reply.response.value(forHTTPHeaderField: "Content-Security-Policy") == PageDescriptor.settings.csp.header)
+        // Chromium's shim serves the bundled document outside the live loop. Its shared files
+        // use that exact root too, rather than selecting a currently active web update.
+        let chromium = await PageWebView.liveChromiumResource(url, range: nil, page: .settings, root: root, bundledOnly: true)
+        #expect(chromium.body == reply.body)
+        #expect(chromium.mimeType == "text/javascript")
+        #expect(chromium.csp == PageDescriptor.settings.csp.header)
         let outside = temp.appendingPathComponent("private.js")
         try Data("private".utf8).write(to: outside)
         try FileManager.default.createSymbolicLink(at: shared.appendingPathComponent("escape.js"), withDestinationURL: outside)
         let escape = try #require(URL(string: "cmux-page://cmux.settings/__shared/escape.js"))
         #expect(PageSchemeHandler.fileURL(for: escape, page: .settings, root: root) == nil)
+        #expect(await PageWebView.liveChromiumResource(escape, range: nil, page: .settings, root: root, bundledOnly: true).status == 404)
         // A symlink for the shared directory itself must not expand the mount.
         try FileManager.default.removeItem(at: shared)
         try FileManager.default.createSymbolicLink(at: shared, withDestinationURL: temp)
