@@ -331,6 +331,7 @@ impl Hub {
         if sub.stream.as_str() != "list" {
             return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
         }
+        validate_window(sub)?;
         let cursor = sub.cursor.map_or(0, |cursor| cursor.0);
         let subscriber = Arc::new(Subscriber::new(0));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
@@ -379,10 +380,7 @@ impl Hub {
         if sub.stream.as_str() != "list" {
             return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
         }
-        let requested = usize::from(sub.window.unwrap_or(DEFAULT_WINDOW_ROWS as u16));
-        if requested == 0 || requested > MAX_WINDOW_ROWS {
-            return Err(HubError::InvalidWindow);
-        }
+        validate_window(sub)?;
         let index = self.snapshot();
         self.window_frame_at_cursor(sub, &index, index.seq())
     }
@@ -438,6 +436,14 @@ impl Hub {
         };
         Frame::json(FrameKind::Window, &window).map_err(HubError::from)
     }
+}
+
+fn validate_window(sub: &Sub) -> Result<usize, HubError> {
+    let requested = usize::from(sub.window.unwrap_or(DEFAULT_WINDOW_ROWS as u16));
+    if requested == 0 || requested > MAX_WINDOW_ROWS {
+        return Err(HubError::InvalidWindow);
+    }
+    Ok(requested)
 }
 
 impl HubWriter {
@@ -689,6 +695,14 @@ mod tests {
             hub.list_window(&Sub::new("sidebar", "list").around(crate::wire::Anchor::End, 0)),
             Err(HubError::InvalidWindow)
         ));
+    }
+
+    #[test]
+    fn subscribe_rejects_oversized_window_before_registration() {
+        let (hub, _) = Hub::new(SummaryIndex::new());
+        let sub = Sub::new("oversized", "list").around(crate::wire::Anchor::End, u16::MAX);
+        assert!(matches!(hub.subscribe(&sub), Err(HubError::InvalidWindow)));
+        assert_eq!(hub.subscriber_count(), 0);
     }
 
     #[tokio::test(flavor = "current_thread")]
