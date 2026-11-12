@@ -30,6 +30,7 @@ use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
 
 #[derive(Default)]
 pub(super) struct BoundedOutbound {
@@ -303,6 +304,36 @@ impl BoundedOutbound {
         Self::push_control_locked(&mut state, text)?;
         self.changed.notify_one();
         Ok(())
+    }
+
+    /// [`Self::push_control`] for a sender that may wait: when the control
+    /// queue has no room for `text` now, it waits until `deadline` for the
+    /// writer to take what is queued. Only then is the queue "overflowed".
+    /// For a thread that has more than one large message for a connection at
+    /// one time (`git_lane.rs`: the copies of a shared reply), never for a
+    /// reader thread.
+    pub(super) fn push_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        let mut state = self.state.lock().recover_poison();
+        loop {
+            let result = Self::push_control_locked(&mut state, text.clone());
+            let full =
+                matches!(&result, Err(error) if error.kind() == std::io::ErrorKind::WouldBlock);
+            let left = deadline.saturating_duration_since(Instant::now());
+            // A message above the whole reserve never fits: no wait helps it.
+            if !full || left.is_zero() || text.len() > OUTBOUND_CONTROL_BYTE_RESERVE {
+                drop(state);
+                // All: the writer thread and other senders wait on this one condition.
+                self.changed.notify_all();
+                return result;
+            }
+            let wait = left.min(BACKPRESSURE_RECHECK);
+            let (next, _) = self.changed.wait_timeout(state, wait).recover_poison();
+            state = next;
+        }
     }
 
     pub(super) fn flush_control(&self, timeout: Duration) -> std::io::Result<()> {
@@ -804,6 +835,14 @@ impl MessageSink for QueuedSink {
 
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         self.outbound.push_control(text)
+    }
+
+    fn send_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.outbound.push_control_backpressured(text, deadline)
     }
 
     fn send_terminal(
