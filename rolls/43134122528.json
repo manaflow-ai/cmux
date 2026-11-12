@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43134122528",
+  "recorded_at": "2026-11-12T01:28:18Z",
+  "reason": "cmux-tui a64226b19501 changes the image's cmux-tui (pinned f6c4a05d742b)",
+  "dry_run": false,
+  "cmux_tui": "a64226b195016bbdd39915a4083c2c33fdd385b6",
+  "fixes": [
+    {
+      "sha": "a64226b195016bbdd39915a4083c2c33fdd385b6",
+      "mergedAt": "2026-11-11T17:06:35-08:00",
+      "subject": "acpmux: every write under the home goes through the held home, and a test finds any that doesn't (#41462)"
+    },
+    {
+      "sha": "1ef4f4124cea8925092520b4f177635cb0d2a759",
+      "mergedAt": "2026-11-11T16:38:30-08:00",
+      "subject": "cmux-server: make a Cloud connect that hangs again after 2 s (#41487)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T01:28:18Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
