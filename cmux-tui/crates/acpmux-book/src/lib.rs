@@ -17,6 +17,7 @@
 //! tree of a row (`serde_json` is not a dependency). The chat actor (`acpmux-core`) owns one
 //! [`log::Log`] per hydrated chat and is its only writer.
 
+pub mod blobs;
 pub mod folds;
 mod fsio;
 mod json;
