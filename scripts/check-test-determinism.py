@@ -8145,6 +8145,28 @@ def _self_test() -> int:
             "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
             "subprocess.run(args=['bash', '-c', 'git -c maintenance.auto=false init -q \"$0\"', d])\n",
         ),
+        # Review of hq#9900 (the same reader): F1, NAME=value words before a function call are in the environment of
+        # every command in its body.
+        (
+            "scripts/ci/temp_repo_prefix_env_function_call.sh",
+            "f() {\n  git -C \"$d\" init -q\n}\nd=$(mktemp -d)\n"
+            "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false f\n",
+        ),
+        # F2: `global NAME` in a nested function is the module's NAME, not the enclosing function's.
+        (
+            "scripts/ci/temp_repo_global_args_in_nested_function.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\nargs = ['-c', 'maintenance.auto=false', 'init', d]\n"
+            "def outer(*args):\n    def inner():\n        global args\n        subprocess.run(['git', *args])\n"
+            "    inner()\nouter()\n",
+        ),
+        # F3: unittest calls a module's load_tests hook.
+        (
+            "tests/test_load_tests_hook_loads_fixture.py",
+            "import importlib.util, subprocess, tempfile\ndef load_tests(loader, tests, pattern):\n"
+            "    importlib.util.spec_from_file_location('git_fixture_env', 'tests/git_fixture_env.py')\n"
+            "    return tests\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d])\n",
+        ),
         (
             "scripts/ci/temp_repo_opt_out_config.py",
             "import subprocess, tempfile\nd = tempfile.mkdtemp()\ngit('config', 'maintenance.auto', 'false')\n"
