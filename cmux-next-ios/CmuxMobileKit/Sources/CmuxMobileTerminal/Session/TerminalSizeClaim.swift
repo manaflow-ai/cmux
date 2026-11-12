@@ -8,12 +8,20 @@ import Foundation
 ///
 /// Leaving the page (back, another tab, the grid, a sheet) releases after
 /// `delay`, so switching away and back quickly never resizes the Mac's pane
-/// twice; the app going to the background releases at once. Coming back
-/// claims at once.
+/// twice. The app going to the background (another app, the lock screen)
+/// releases only after `backgroundDelay`: an app switch, a lock and unlock
+/// or a link blip must not move the Mac's PTY and make the phone redraw
+/// twice (Leo, 2026-11-12: "surely this calculation of sort is doable on the
+/// phone itself? it projection of text"). A suspended app cannot release at
+/// all; the Mac's size lease (`size-lease-v1`) bounds how long its size
+/// counts. Coming back claims at once.
 public struct TerminalSizeClaimDebounce<Instant: InstantProtocol>: Sendable where Instant.Duration == Duration {
     public static var defaultDelay: Duration { .seconds(1) }
+    public static var defaultBackgroundDelay: Duration { .seconds(300) }
 
     public let delay: Duration
+    /// How long the claim outlives the app leaving the foreground.
+    public let backgroundDelay: Duration
     public var pageShown = false
     public var appActive = true
     public var covered = false
@@ -22,8 +30,9 @@ public struct TerminalSizeClaimDebounce<Instant: InstantProtocol>: Sendable wher
     /// When a pending release goes out.
     public private(set) var releaseAt: Instant?
 
-    public init(delay: Duration = .seconds(1)) {
+    public init(delay: Duration = .seconds(1), backgroundDelay: Duration = .seconds(300)) {
         self.delay = delay
+        self.backgroundDelay = backgroundDelay
     }
 
     public var wanted: Bool { pageShown && appActive && !covered }
@@ -41,7 +50,10 @@ public struct TerminalSizeClaimDebounce<Instant: InstantProtocol>: Sendable wher
             releaseAt = nil
             return (nil, nil)
         }
-        let at = appActive ? (releaseAt ?? now.advanced(by: delay)) : now
+        // The page left (or a sheet covers it): `delay`. Only the app is
+        // away, the page still up under it: `backgroundDelay`.
+        let due = now.advanced(by: pageShown && !covered ? backgroundDelay : delay)
+        let at = releaseAt.map { min($0, due) } ?? due
         guard now < at else {
             releaseAt = nil
             claims = false
@@ -61,10 +73,11 @@ public final class TerminalSizeClaimer<C: Clock> where C.Duration == Duration {
     private let apply: @MainActor (Bool) -> Void
     private var pending: Task<Void, Never>?
 
-    public init(clock: C, delay: Duration = .seconds(1), apply: @escaping @MainActor (Bool) -> Void) {
+    public init(clock: C, delay: Duration = .seconds(1), backgroundDelay: Duration = .seconds(300),
+                apply: @escaping @MainActor (Bool) -> Void) {
         self.clock = clock
         self.apply = apply
-        debounce = TerminalSizeClaimDebounce(delay: delay)
+        debounce = TerminalSizeClaimDebounce(delay: delay, backgroundDelay: backgroundDelay)
         // A session starts claiming; a page that is never shown gives it up
         // after the delay (its page's appearance sets it shown first).
         recheck()

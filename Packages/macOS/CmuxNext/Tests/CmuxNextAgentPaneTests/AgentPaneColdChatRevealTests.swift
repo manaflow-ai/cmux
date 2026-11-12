@@ -112,6 +112,67 @@ struct AgentPaneColdChatRevealTests {
         #expect(!Self.markShows(view), "the busy mark stayed while the page faded in")
     }
 
+    #if DEBUG
+    /// G (BrowserPaneMotionPointerAreasTests, feat tip 2026-11-12): a New Tab page keeps its loading cover hidden
+    /// (AgentTabStore.makeView), and the cover's delay still ran: 0.8 s after each such page was made, a timer woke
+    /// the main thread and put the busy mark in a cover nobody sees, and AppKit invalidates a view's cursor rects at
+    /// each `addSubview` (3 hidden covers did it inside one key resize, display step cff05190268c). A hidden cover
+    /// has no mark and no delay; shown, its delay starts.
+    @Test func aHiddenCoverHasNoMarkAndNoDelay() async throws {
+        let (view, window) = try Self.pane(newTab: AgentPaneNewTab(kind: .agent))
+        defer { window.close() }
+        view.loadingView.paintCheckInterval = Self.hangBound * 2 // the give-up never ends the cover in this test
+        view.showsLoadingState = false // as AgentTabStore.makeView does for a New Tab page
+        #expect(view.loadingView.superview != nil && view.loadingView.isHidden, "fixture: the cover is in the pane, hidden")
+        #expect(!view.loadingView.markIsPending, "a hidden cover's mark delay still runs: it will wake the main thread for a mark nobody sees")
+        // Past the delay in real time, as the app's timer runs: one-sided, a slow host only waits longer.
+        try await Task.sleep(for: AgentPaneLoadingView.markDelay + .milliseconds(200))
+        #expect(view.loadingView.indicator.superview == nil, "a hidden cover got a busy mark after the delay")
+
+        view.showsLoadingState = true
+        #expect(view.loadingView.markIsPending, "a cover that shows again never gets its busy mark")
+        try await Self.settle { Self.markShows(view) }
+        #expect(Self.markShows(view), "a cover shown after it was hidden showed no busy mark after the beat")
+    }
+
+    /// A picture comes to stand under a chat whose mark already shows (``AgentPaneView/standOverPicture()``): the
+    /// mark leaves with the cover, and no delay is left to put one back.
+    @Test func aCoverThatHidesTakesItsMarkOut() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        view.loadingView.paintCheckInterval = Self.hangBound * 2 // the give-up never ends the cover in this test
+        try await Self.settle { Self.markShows(view) }
+        try #require(Self.markShows(view), "fixture: the chat's mark never showed")
+        view.standOverPicture()
+        #expect(view.loadingView.isHidden, "fixture: the cover is hidden over the picture")
+        #expect(view.loadingView.indicator.superview == nil, "a cover hidden over a picture kept its busy mark")
+        #expect(!view.loadingView.markIsPending, "a cover hidden over a picture kept a mark delay")
+
+        view.pictureBelowWent()
+        #expect(!Self.markShows(view), "the busy mark popped up the moment the picture went")
+        try await Self.settle { Self.markShows(view) }
+        #expect(Self.markShows(view), "a chat still loading after its picture went showed no busy mark after the beat")
+    }
+    #endif
+
+    /// The mark's timer claims its fire off the main thread and then hops to the main actor. A cover that hid in
+    /// between (``AgentPaneView/standOverPicture()``) gets no mark from that fire, and neither does the cover when
+    /// it shows again: its own new delay puts the mark in.
+    @Test func aDelayThatEndedBeforeItsCoverHidPutsNoMarkIn() throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        let claimed = view.loadingView.markTurn // the delay the pane started with its cover
+        view.standOverPicture()
+        view.loadingView.markDelayEnded(claimed)
+        #expect(view.loadingView.indicator.superview == nil, "a fire claimed before the cover hid put a busy mark in the hidden cover")
+
+        view.pictureBelowWent()
+        view.loadingView.markDelayEnded(claimed)
+        #expect(!Self.markShows(view), "a fire claimed before the cover hid put the busy mark in the moment the cover showed again")
+        view.loadingView.markDelayEnded(view.loadingView.markTurn)
+        #expect(Self.markShows(view), "the cover's own delay ended and no busy mark showed")
+    }
+
     /// cx-txnr: after a relaunch a page that never reported its first paint (WebKit holds an
     /// occluded window's animation frames) kept the pane on its loading state, a spinner over a
     /// clear page, for good. Seen unpainted at two checks in a row, the page counts as painted.

@@ -17,20 +17,17 @@ use super::tab_state_fields::{
 };
 use super::*;
 
-/// The statements `operation` compiles, and how many workspaces the session lists.
-fn statements_of(mux: &Arc<Mux>, operation: &str) -> (usize, usize) {
+/// The statements `operation` compiles, and how many workspaces the session lists. `holder` reads
+/// the sidebar document first, so the process-wide cached copy is of its registry: the count of
+/// `mux` itself, or of another registry (then the request reads the rows of `mux` again).
+fn statements_of(mux: &Arc<Mux>, operation: &str, holder: &Arc<Mux>) -> (usize, usize) {
+    resource(holder, "workspace.list", json!({}));
     let statements = selects_of(mux, || {
         resource(mux, operation, json!({}));
     });
     let listed = resource(mux, "workspace.list", json!({}));
     (statements, listed.as_array().map_or(0, Vec::len))
 }
-
-/// The statements of one read of the sidebar document (`state/sidebar_doc_store.rs`: its
-/// revision, the table check, the sections and the items). A request reads the document when the
-/// process's one cached copy is of another registry, and the tests that run at the same time take
-/// that copy for their own registries; the read is the same at any number of workspaces.
-const SIDEBAR_DOCUMENT_READ: usize = 4;
 
 fn check_statements(
     operation: &str,
@@ -42,19 +39,31 @@ fn check_statements(
         "workspaces listed: {few_workspaces}, then {many_workspaces}"
     );
     assert!(few > 0, "the count sees the statements of {operation}");
-    assert!(
-        many.abs_diff(few) <= SIDEBAR_DOCUMENT_READ,
+    assert_eq!(
+        many, few,
         "{operation} compiled {few} statements for {few_workspaces} workspaces and {many} for \
          {many_workspaces} workspaces: it reads state fields with statements of each value; one \
          statement set reads them for the whole session"
     );
 }
 
+/// The few workspaces are counted with their own sidebar document cached, the many with another
+/// registry's cached: the counts must not depend on the process-wide cache.
+fn few_and_many(
+    operation: &str,
+    few: &Arc<Mux>,
+    many: &Arc<Mux>,
+) -> ((usize, usize), (usize, usize)) {
+    let other = session_of(1);
+    let counts = (statements_of(few, operation, few), statements_of(many, operation, &other));
+    other.shutdown();
+    counts
+}
+
 /// `workspace.list` reads the workspaces' state fields with one statement set, at any size.
 #[test]
 fn a_workspace_list_runs_one_statement_set_at_any_number_of_workspaces() {
-    let few = statements_of(&session_of(4), "workspace.list");
-    let many = statements_of(&session_of(32), "workspace.list");
+    let (few, many) = few_and_many("workspace.list", &session_of(4), &session_of(32));
     check_statements("workspace.list", few, many);
 }
 
@@ -63,8 +72,7 @@ fn a_workspace_list_runs_one_statement_set_at_any_number_of_workspaces() {
 fn a_workspace_list_runs_one_statement_set_on_a_file_registry() {
     let (few_mux, few_root) = file_session_of("workspace-statements-few", 4);
     let (many_mux, many_root) = file_session_of("workspace-statements-many", 32);
-    let few = statements_of(&few_mux, "workspace.list");
-    let many = statements_of(&many_mux, "workspace.list");
+    let (few, many) = few_and_many("workspace.list", &few_mux, &many_mux);
     close_file_session(few_mux, few_root);
     close_file_session(many_mux, many_root);
     check_statements("workspace.list", few, many);
@@ -74,8 +82,7 @@ fn a_workspace_list_runs_one_statement_set_on_a_file_registry() {
 /// any size (a registry in memory builds the snapshot on each read).
 #[test]
 fn a_session_snapshot_runs_one_statement_set_at_any_number_of_workspaces() {
-    let few = statements_of(&session_of(4), "session.snapshot");
-    let many = statements_of(&session_of(32), "session.snapshot");
+    let (few, many) = few_and_many("session.snapshot", &session_of(4), &session_of(32));
     check_statements("session.snapshot", few, many);
 }
 

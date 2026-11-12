@@ -68,7 +68,7 @@ const atLatest =
     if (off && ctx.document.querySelector(".acpmux-since-jump")) throw new Error("the banner draws while it is off");
   };
 
-/// Scrolled to the middle by hand: the stop is the reader's place, so Jump up waits for the line.
+/// Scrolled to the middle by hand: Jump to latest shows, and Jump up stays away while it does.
 const midChat: Play = async (ctx) => {
   await settle(ctx);
   await ctx.scroll({ selector: ".acpmux-scroll" }, 1_400);
@@ -142,12 +142,12 @@ export default agentPaneEntry({
       },
     },
     "jump-pair": {
-      note: "Mid-chat: Jump up (to the New line) stacked on Jump to latest, one column on the composer's center line.",
+      note: 'Mid-chat: Jump to latest alone; Jump up never stacks on it (Leo, 2026-11-12: "a bit extra").',
       snapshot,
       play: midChat,
     },
     "jump-back": {
-      note: "After Jump up: the view is at the line and the button points down; a second press or Esc goes back.",
+      note: "After Jump up: the view is at the line and Jump to latest takes over; Esc goes back.",
       snapshot,
       play: jumpedUp,
     },

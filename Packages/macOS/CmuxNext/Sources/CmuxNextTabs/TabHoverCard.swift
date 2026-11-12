@@ -263,6 +263,17 @@ final class TabHoverCardController: HoverCardSource {
         bodyID = nil
     }
 
+    /// The strip's theme changed: the kept pictures show the old theme, so the next card asks again.
+    func themeChanged() {
+        thumbnails.removeAll()
+        noThumbnail.removeAll()
+        // A card on screen takes its tab's picture in the new theme now (it fades in).
+        if let id = bodyID, coordinator.isShowing(id), let tab = tabID(id), !tab.isGroupChip,
+           TabTunables.hoverPreviews.value == .full {
+            loadThumbnail(for: tab)
+        }
+    }
+
     /// `id`'s title, badges or members changed.
     func refresh(_ id: TabID) {
         coordinator.contentChanged(Self.targetID(id))
