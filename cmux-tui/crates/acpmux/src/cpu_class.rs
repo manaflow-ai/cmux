@@ -374,7 +374,8 @@ impl std::fmt::Display for HarnessState {
 /// one: a group already at or past it is left, and an unprivileged process cannot lower a nice.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn lower_group(pid: u32) -> bool {
-    let Ok(group) = libc::id_t::try_from(pid) else { return false };
+    // `id_t` is the pid's own width on both platforms.
+    let group: libc::id_t = pid;
     if group == 0 {
         return false;
     }
