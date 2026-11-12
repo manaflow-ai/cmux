@@ -1,7 +1,9 @@
 import XCTest
 
-/// CMUX-10: the terminal's Jump to bottom button sits centered above the
-/// composer (as it first shipped, and as the agent chat's jump circle does),
+/// CMUX-10: the terminal's Jump to bottom button sits centered (as it first
+/// shipped, and as the agent chat's jump circle does), in its own row above
+/// the key row and below the terminal's rows, not between the key row and the
+/// composer,
 /// and Settings → Terminal → Jump to Bottom Button removes it. Runs on a
 /// workspace's zsh tab with the mock session, whose intro (ls, git log, a
 /// build log) leaves scrollback to scroll up into. The full-screen app rule
@@ -23,6 +25,10 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         XCTAssertLessThan(jump.frame.width, window.width / 2, "the element is the pill, not the full-width row")
         XCTAssertEqual(jump.frame.midX, window.midX, accuracy: 2, "Jump to bottom is centered (was trailing)")
         XCTAssertLessThan(jump.frame.maxY, field.frame.minY, "it sits above the composer field")
+        let keyRow = app.descendants(matching: .any)["terminal.key.keyboard"]
+        XCTAssertTrue(keyRow.exists, "the key row shows\n\(app.debugDescription)")
+        XCTAssertLessThanOrEqual(jump.frame.maxY, keyRow.frame.minY,
+                                 "Jump to bottom sits above the key row (was between it and the composer): jump \(jump.frame) keys \(keyRow.frame)")
         attach(app, "scrolled-up-centered")
 
         jump.tap()
