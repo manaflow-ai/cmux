@@ -18,6 +18,7 @@
 //! [`log::Log`] per hydrated chat and is its only writer.
 
 pub mod blobs;
+pub mod checkpoint;
 pub mod folds;
 mod fsio;
 mod json;
