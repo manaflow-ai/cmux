@@ -130,9 +130,10 @@ _git_fixture_quote() {
 # backslash ran into the appended exit).
 # The first step, _git_fixture_exit_prep, gets the script's status and the caller's DEBUG trap as arguments, expanded
 # where the trap runs (inside a function bash hides DEBUG), read by _git_fixture_read_traps. Its first step, when a
-# DEBUG trap is set, sets it to `:`, so the caller's DEBUG trap does not run for the dispatcher's own steps (review of
-# cmux#41772 F2: it ran seven times before the caller's action and once after). `:`, not '': bash keeps an "ignored"
-# mark on a signal once it was ignored, and a later `trap '' DEBUG` then does nothing (review of hq#9835 F1). It then turns errexit off (a test that failed under `set
+# DEBUG trap is set to an action (not ignored: see _git_fixture_debug_ignored), sets it to `:`, so the caller's DEBUG
+# trap does not run for the dispatcher's own steps (review of cmux#41772 F2: it ran seven times before the caller's
+# action and once after). `:`, not '': bash keeps an "ignored" mark on a signal once it was ignored, and a later
+# `trap '' DEBUG` then does nothing (review of hq#9835 F1). It then turns errexit off (a test that failed under `set
 # -e` would otherwise end the trap at its first failing step, before the folders went: Codex F1 on cmux#41195), and
 # removes the folders. Then _git_fixture_resume turns errexit back on as the caller had it, and returns the saved
 # status, so the caller's action sees $? as the script's status (a function's return, not a subshell's exit:
@@ -143,7 +144,7 @@ _git_fixture_quote() {
 # dispatcher_step holds. Under set -T the caller's DEBUG and RETURN traps would see every function: prep turns -T off
 # and keeps the RETURN trap aside, and the same last step puts both back.
 _git_fixture_exit_prep() {
-  "${_git_fixture_suspend_cmd[${#2} > 0]}" trap -- : DEBUG
+  "${_git_fixture_suspend_cmd[${#2} > ${#_git_fixture_debug_ignored}]}" trap -- : DEBUG
   _git_fixture_status=$1
   _git_fixture_exit_debug=
   case $2 in *"$_git_fixture_mark"*) _git_fixture_exit_debug=${2#*"$_git_fixture_mark"} ;; esac
@@ -189,6 +190,13 @@ _git_fixture_resumed() {
 # text and the wrapper's next step exited 127).
 _git_fixture_mark=${_git_fixture_mark:-"<git-fixture-$RANDOM$RANDOM$RANDOM>"}
 _git_fixture_suspend_cmd=(true builtin)
+# What a read of DEBUG holds when DEBUG is ignored. A DEBUG trap is suspended only when the read is longer: one set to
+# an action reads as `trap -- '<action>' DEBUG` after the mark, never shorter, plus whatever its own runs printed
+# before the mark, while an ignored one runs nothing and needs no suspending. Suspending it with `:` cleared bash's
+# "ignored" mark, so after `trap - DEBUG` a second `trap '' DEBUG` took effect where plain bash's does nothing
+# (review of cmux#41922 F1). The length is compared because the suspension is one simple command (each step the
+# wrapper adds is one more run of the caller's DEBUG trap), and an array index is arithmetic.
+_git_fixture_debug_ignored="${_git_fixture_mark}trap -- '' DEBUG"
 _git_fixture_read_traps='[[ -n "$(builtin trap -p ${_git_fixture_traps_sig:+"$_git_fixture_traps_sig"})" ]] || builtin exit 0
 _git_fixture_fd=9
 while _git_fixture_fd=$((_git_fixture_fd + 1)); [[ "$_git_fixture_fd" == "${BASH_XTRACEFD-}" ]] || { : >&"$_git_fixture_fd"; } 2>/dev/null; do :; done
@@ -323,7 +331,8 @@ _git_fixture_return_probe() {
 # shellcheck disable=SC2064  # the caller's own trap text, passed through unchanged
 trap() {
   # Under set -T the caller's DEBUG trap runs for this function's steps: the first statement reads it (and RETURN,
-  # and the whole listing) with _git_fixture_read_traps, and the second, when a DEBUG trap is set, sets it to `:`
+  # and the whole listing) with _git_fixture_read_traps, and the second, when a DEBUG trap is set to an action
+  # (an ignored one runs nothing, and `:` would clear its mark: review of cmux#41922 F1), sets it to `:`
   # (never '', which leaves bash's sticky "ignored" mark: review of hq#9835 F1), so it runs for those two steps alone,
   # and it is put back exactly as it was as the wrapper returns. Without set -T bash has already hidden it here, and
   # the second step is `true`. So is it in a subshell: setting any trap there drops the parent's traps that `trap -p`
@@ -335,7 +344,7 @@ trap() {
     _git_fixture_t_debug=$( { [[ $- != *T* ]] || { _git_fixture_traps_sig=DEBUG; builtin eval "$_git_fixture_read_traps"; }; } 2>/dev/null ) \
     _git_fixture_t_return=$( { [[ $- != *T* ]] || { _git_fixture_traps_sig=RETURN; builtin eval "$_git_fixture_read_traps"; }; } 2>/dev/null ) \
     _git_fixture_t_list=$( { [[ $- != *T* ]] || { _git_fixture_traps_sig=; builtin eval "$_git_fixture_read_traps"; }; } 2>/dev/null )
-  "${_git_fixture_suspend_cmd[${#_git_fixture_t_debug} > 0 && BASH_SUBSHELL == 0]}" trap -- : DEBUG
+  "${_git_fixture_suspend_cmd[${#_git_fixture_t_debug} > ${#_git_fixture_debug_ignored} && BASH_SUBSHELL == 0]}" trap -- : DEBUG
   local -a _git_fixture_other=() _git_fixture_on_return=()
   case $- in
     *T*)
