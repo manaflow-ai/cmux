@@ -401,7 +401,9 @@ def expand_matrix(job: Mapping[str, Any], text: str, reads: "VarReads | None" = 
     shape = _matrix_shape(text)
     if shape is None or shape[1]:
         return None
-    wholes = shape[0]
+    # A context's keys are one key in any case (`matrix.os` and `matrix.OS` read one axis), so each cell gives every
+    # spelling of a key the same value: keys are compared lowercased, never as written.
+    wholes = [(start, end, key.lower()) for start, end, key in shape[0]]
     keys = list(dict.fromkeys(key for _, _, key in wholes))
     if not keys:
         return [text]
