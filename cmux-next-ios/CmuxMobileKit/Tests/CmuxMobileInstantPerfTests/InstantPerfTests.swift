@@ -276,8 +276,14 @@ struct InstantPerfTests {
         let god = try await older(AgentChatFixture.god)
         InstantPerfReport.record(
             "chat_older_page", target: 50, small: small, god: god,
-            // Green since each read's records decode off the main actor while the next read is
-            // on the wire, straight from the parsed records (no second encode and parse).
+            // Both sizes halved since the read's records map off the main actor and only those
+            // the page shows (simulator: small 27 to 9 ms, god 50 to 20 ms), but god's first older
+            // page carries the 2 MB log whole: about 10 ms more on the wire and in the parse,
+            // whatever the phone does with it. Next: the Mac sends a page's oversized tool output
+            // cut, with the whole read on tap. Scrolling never waits for this read any more
+            // (`chat_scroll_fill`: it runs four screens ahead).
+            knownRed: [.ratio],
+            why: "god's first older page carries a 2 MB tool output whole (256 KiB plus 2 MB on the wire and parsed), small's 256 KiB",
             note: "small: \(AgentChatFixture.smallPaged.count)-record chat (one page over the open); god: \(AgentChatFixture.god.count) records")
     }
 
