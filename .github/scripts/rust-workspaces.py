@@ -165,7 +165,9 @@ class Tree:
         return seen
 
     def read_paths(self, directories: set[str]) -> set[str]:
-        """Repository paths outside `directories` that their Rust sources read by literal path."""
+        """Repository paths outside `directories`' own trees that their Rust sources read by literal path. A file
+        inside a nested workspace below one of them is outside its own tree, so it counts (cmux#41767 review F2:
+        `include_str!("../tool/data.txt")` in solo read a file of the nested solo/tool workspace)."""
         found = set()
         for directory in directories:
             for source in self.sources:
@@ -183,7 +185,7 @@ class Tree:
                         if path in self.tracked:
                             paths.add(path)
                 for path in paths:
-                    if not path.startswith("..") and not any(under(path, d) for d in directories):
+                    if not path.startswith("..") and not any(self.owns(d, path) for d in directories):
                         found.add(path)
         return found
 
@@ -263,8 +265,11 @@ def plan(repo: Path, base: str) -> list[dict]:
         if paths is not None:
             # A dependency outside the workspace may inherit from its own workspace's manifest.
             watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
-            watched |= tree.read_paths(reach) | set(entry.get("inputs", []))
-            if not any(tree.owns(directory, path) for path in paths for directory in watched):
+            # Files named explicitly (read by literal path, or listed as inputs) count wherever they are, inside a
+            # nested workspace too: no workspace boundary stops a file a source reads (cmux#41767 review F2).
+            explicit = tree.read_paths(reach) | set(entry.get("inputs", []))
+            if not any(tree.owns(directory, path) for path in paths for directory in watched) \
+                    and not any(under(path, named) for path in paths for named in explicit):
                 continue
         jobs.append({
             "root": root,
