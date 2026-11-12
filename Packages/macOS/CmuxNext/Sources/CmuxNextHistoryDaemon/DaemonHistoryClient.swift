@@ -20,7 +20,7 @@ public struct DaemonHistoryClient: Sendable {
         relay = ResourceRelayClient(connection: connection)
     }
 
-    public func list(kinds: Set<HistoryEntry.Kind>, text: String, range: HistoryRange, limit: Int?) async throws -> [DaemonHistoryEntry] {
+    public func list(kinds: Set<HistoryEntry.Kind>, text: String, range: HistoryRange, limit: Int?) async throws -> DaemonHistoryList {
         var params: [String: JSONValue] = [
             "kinds": .array(kinds.map(\.rawValue).sorted().map(JSONValue.string)),
             "range": .string(range.rawValue),
@@ -29,7 +29,7 @@ public struct DaemonHistoryClient: Sendable {
         if !text.isEmpty { params["text"] = .string(text) }
         if let limit { params["limit"] = .number(Double(min(max(limit, 1), 5_000))) }
         let result = try await relay.send(operation: "history.entries.list", params: params, idempotencyKey: nil)
-        return try await Self.decode(DaemonHistoryList.self, from: result).entries
+        return try await Self.decode(DaemonHistoryList.self, from: result)
     }
 
     /// Runs `read` up to `attempts` times, spaced by `backoff` (a busy daemon times out once, then
@@ -44,6 +44,16 @@ public struct DaemonHistoryClient: Sendable {
             do { try await backoff.wait(owner: "history.read") } catch { break }
         }
         return nil
+    }
+
+    /// Waits before the next read of a list that is not complete (`pending_kinds`), after `reads` reads:
+    /// 1 s, 2 s, 4 s, then 8 s each time. `history-changed` does not replace it: that event comes only when a
+    /// fold changes an entry of the kind. Throws `CancellationError` when the reader goes away.
+    public static func waitForPending(afterReads reads: Int, clock: any Clock<Duration> = ContinuousClock()) async throws {
+        var backoff = Backoff(initial: .seconds(1), maximum: .seconds(8), multiplier: 2, jitter: 0)
+        for _ in 1..<max(1, reads) { _ = backoff.next() }
+        // concurrency-allow: Backoff.wait is an async clock sleep (the task suspends, no thread blocks), one per read of a list that is not complete
+        try await backoff.wait(owner: "history.pending", clock: clock)
     }
 
     public func remove(ids: [String], key: String = DaemonHistoryClient.key()) async throws {
