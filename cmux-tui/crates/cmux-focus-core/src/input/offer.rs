@@ -24,13 +24,12 @@ use super::{InputEffect, InputId, OfferEnd, Via};
 use crate::state::{FocusState, Resolved};
 use std::sync::Arc;
 
-/// Navigation actions a page may own too: Find and its neighbors.
-const PAGE_OWNABLE_ACTIONS: [&str; 4] = ["find", "findNext", "findPrevious", "useSelectionForFind"];
-
-/// Actions that act on the window before any page, whatever chord they have
-/// (Shift-Cmd-L, like Chrome's Cmd-T; #32789).
-const OPENS_BROWSER_ACTIONS: [&str; 3] =
-    ["openBrowser", "openBrowser.chromium", "openBrowser.webkit"];
+/// The actions a page may own: Find and its neighbors (Google Sheets' own
+/// Cmd-F). Every other cmux shortcut runs before the page unless browser
+/// focus mode is on (Lawrence 2026-11-11: Linear's Cmd-B swallowed Toggle
+/// Sidebar; the app's `KeyRouter.pageOwnableActions`).
+const PAGE_OWNABLE_ACTIONS: [&str; 5] =
+    ["find", "findNext", "findPrevious", "browser.findPrevious", "useSelectionForFind"];
 
 /// A key offered to a page, with the action its unhandled report runs.
 pub(super) struct Offer {
@@ -69,14 +68,7 @@ impl InputRouter {
         if DEV_TOOLS_ACTIONS.contains(&action) {
             return None;
         }
-        let owns = match binding.tier {
-            Tier::Content => true,
-            Tier::Navigation => {
-                PAGE_OWNABLE_ACTIONS.contains(&action)
-                    || (!OPENS_BROWSER_ACTIONS.contains(&action) && key.page_editing_chord)
-            }
-            Tier::System => false,
-        };
+        let owns = binding.tier != Tier::System && PAGE_OWNABLE_ACTIONS.contains(&action);
         let takes_now = key.reaches.as_ref() == Some(page)
             && !self.lanes.contains_key(page)
             && self.deliverable(page, key.reaches.as_ref(), false) == Ok(Via::Responder);

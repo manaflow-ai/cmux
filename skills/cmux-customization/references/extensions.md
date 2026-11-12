@@ -11,8 +11,10 @@ what they asked for and these primitives: [ideas.md](ideas.md).
 
 An extension of its own (an id `local/NAME` beside the customize app, built from
 TypeScript) starts with `cmux ext new NAME` and loads with `cmux ext dev`; an
-agent runs `cmux ext dev --once --json` after each edit and reads its exit code
-and errors ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
+agent runs `cmux ext dev --once --json` after each edit and reads its exit code,
+errors and `scene` (an outline of what rendered). Before saying it is done, it runs
+`cmux ext shot --json` and looks at `shot.path`, a picture of the cmux window that
+shows the extension ([docs/cmux-next/extensions/dev-loop.md](../../../docs/cmux-next/extensions/dev-loop.md)).
 
 ## Start from a template
 

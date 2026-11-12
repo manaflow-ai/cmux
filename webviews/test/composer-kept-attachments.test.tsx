@@ -10,6 +10,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { KEPT_ATTACHMENTS_SETTLE_MS, type KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -71,12 +72,8 @@ afterEach(() => {
   localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {

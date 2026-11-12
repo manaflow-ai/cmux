@@ -309,7 +309,9 @@ export function VideoViewer({
             <Close />
           </button>
         </div>
-        {/* The scrim: a click beside the video closes; Escape closes from the dialog. */}
+        {/* A click beside the video closes the viewer, as beside an image in its viewer (Leo, 2026-11-12:
+            "I need to be able to, like, click outside of the video and have that exit as well"); a scrub
+            dragged off the video does not (ui/scrimClose.ts). Escape and Close are its keys. */}
         {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
         <div className="cv-media-stage" {...scrim.props}>
           {/* Never autoplay on its own: only Play (or the ▶ that opened it) starts it with sound. */}

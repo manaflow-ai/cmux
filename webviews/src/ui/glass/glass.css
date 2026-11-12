@@ -125,18 +125,30 @@
    and chip (the tooltip rule below). A popup is glass of its own: it never inherits the tint of the
    surface it opens from (the composer's solid card on an opaque window would make a slash or mention
    menu opaque).
-   - popover: every popup and hover card (popovers, pickers, the combobox, the omnibar, a link's or a
-     session's hover card);
-   - menu: menus, context menus, a select's menu and the toolbar and page menus.
-   While the lens draws, every level takes the lens's clearer tint and frost (the mode, below). */
+   - menu: every floating popup and card is ONE material, the menu level: menus, context menus, a
+     select's menu, the toolbar and page menus, popovers, pickers (the model picker included), the
+     combobox, the omnibar, the slash and @ lists, a link's or a session's hover card and the
+     context ring's card. Leo, 2026-11-11, on the context card beside the model picker and the
+     native menus: "Like, man, it's really f***ing ugly when it mixes like this, you know?" and "The
+     whole point is to have things show through to show off the f***ing art. The point is, the
+     styles mix and they don't look good." Before, popovers were the popover level (70%, 24 px) and
+     menus the menu level (78%, 32 px), and three surfaces kept a tint of their own (the model menu
+     92%, the + menu and New Tab's suggestions 86%), so two popups open side by side were two
+     materials. No surface sets its own tint or blur; design/surface-materials.md "One floating
+     material".
+   The popover level stays for glass in the page that is not a popup (the composer, Session Info,
+   the running tray, side tabs). While the lens draws, every level takes the lens's clearer tint and
+   frost (the mode, below). */
 .ui-popup.ui-glass,
 .ui-card.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
-  --glass-backdrop: var(--ds-glass-popover-blur);
-}
-.ui-popup.ui-glass:is(.ui-menu, .ui-context-menu, .ui-select-popup, .toolbar-menu, .page-menu, .acpmux-menu, .acpmux-slash-menu) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint), transparent);
   --glass-backdrop: var(--ds-glass-menu-blur);
+  /* On the App's glass (HOST GLASS, below) every popup and card lays the same veil of the theme
+     surface: the model menu's since cmux#37794 (gallery ui.host-glass model-40: 0% let the
+     wallpaper's color into the row text, 70% read solid). Before, only the model menus had it and
+     every other popup was clear, so the model picker and the context card read as two materials
+     side by side (gallery ui.menu-material). */
+  --host-glass-fill: color-mix(in srgb, var(--glass-surface) 40%, transparent);
 }
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
@@ -315,9 +327,9 @@
        a surface closing, which fades out with its content on the page's glass) keeps the page's glass above, as does one over the composer (data-glass-keeps-underlay,
        seeThroughBlur.ts): no filter may blur the composer, so its underlay hides it there. A cover
        surface (data-host-glass-cover: menus, popovers) goes clear only where the page under it blurs
-       in place (data-glass-over), so no text reads crisp through it. --host-glass-fill and
-       --host-glass-edge are the gallery's knobs (HostGlass.gallery.tsx); the shipped look is none of
-       either. */
+       in place (data-glass-over), so no text reads crisp through it. --host-glass-fill is the one
+       veil every popup and card lays on the App's glass (GLASS LEVELS, above); --host-glass-edge is
+       the gallery's knob (HostGlass.gallery.tsx), none shipped. */
     :root[data-host-glass-on] [data-host-glass]:not([data-host-glass-drawn]) {
       filter: opacity(0);
     }

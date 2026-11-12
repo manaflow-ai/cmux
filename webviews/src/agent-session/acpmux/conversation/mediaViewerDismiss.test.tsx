@@ -135,6 +135,34 @@ test("a click on the paused video's play button does not close the video viewer"
   expect(closed).toBe(0);
 });
 
+test("a scrub that starts on the video and ends beside it does not close the video viewer", () => {
+  let closed = 0;
+  const document = render(
+    <VideoViewer src="clip.mp4" name="clip.mp4" autoPlay onError={() => {}} onClose={() => closed++} />,
+  );
+  const view = document.defaultView!;
+  act(() => {
+    video(document).dispatchEvent(new view.MouseEvent("mousedown", { bubbles: true, detail: 1, button: 0 }));
+    videoStage(document).dispatchEvent(new view.MouseEvent("mouseup", { bubbles: true, detail: 1, button: 0 }));
+    videoStage(document).dispatchEvent(new view.MouseEvent("click", { bubbles: true, detail: 1, button: 0 }));
+  });
+  expect(closed).toBe(0);
+});
+
+test("a pan that starts on the image and ends beside it does not close the image viewer", () => {
+  let closed = 0;
+  const document = render(
+    <ImageViewer images={[{ src: "a.png", alt: "A" }]} index={0} onIndex={() => {}} onClose={() => closed++} />,
+  );
+  const view = document.defaultView!;
+  const stage = document.querySelector(".acpmux-image-viewer-stage")!;
+  act(() => {
+    document.querySelector(".acpmux-image-viewer-image")!.dispatchEvent(new view.MouseEvent("mousedown", { bubbles: true, detail: 1, button: 0 }));
+    stage.dispatchEvent(new view.MouseEvent("click", { bubbles: true, detail: 1, button: 0 }));
+  });
+  expect(closed).toBe(0);
+});
+
 test("Escape closes the video viewer", () => {
   let closed = 0;
   const document = render(<VideoViewer src="clip.mp4" name="clip.mp4" onError={() => {}} onClose={() => closed++} />);

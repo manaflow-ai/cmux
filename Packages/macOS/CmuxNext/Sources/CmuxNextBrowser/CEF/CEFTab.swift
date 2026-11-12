@@ -301,7 +301,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// The page can take keys from now on: Chromium created its browser and stopped loading with a real document loaded
     /// (or an error page). Before that a key reached the empty document a restore then replaced, a page whose script
-    /// had not run, or a document the next navigation of the same load replaced. Once per browser.
+    /// had not run, or a document the next navigation of the same load replaced. Once per browser, and again each time
+    /// a focus ask that waited for the page to show is granted (``grantPendingFocusIfShown()``).
     @ObservationIgnored public var onReadyForKeys: (@MainActor () -> Void)?
     /// ``onReadyForKeys`` was reported for this browser.
     @ObservationIgnored var hasDocument = false
@@ -672,6 +673,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         pendingFocus = false
         host.lifecycleTrace.record(id, "focus(pending) granted")
         grantFocus(browserID)
+        // The page has the keys now: a key hold that waited for the grant ends (``BrowserTab/pageReady``).
+        if !pendingFocus, hasDocument { onReadyForKeys?() }
     }
 
     /// Shows the page window (and a docked DevTools) at once, or hides it by

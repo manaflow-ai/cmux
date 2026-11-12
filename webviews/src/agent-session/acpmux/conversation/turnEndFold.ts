@@ -24,7 +24,7 @@ import { currentChatMetrics } from "../chatDisplay";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { clippedBottom, ghostOf } from "./turnFold";
-import { LIVE_THINKING } from "./turns";
+import { ACTIVITY_LINE, LIVE_THINKING, WORKED, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow } from "../model";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
@@ -50,7 +50,7 @@ const LIVE_LINE = LIVE_THINKING;
 /// Whether `rows` holds a running turn's line near its end.
 export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
   for (let index = rows.length - 1; index >= 0 && index >= rows.length - LINE_TAIL; index -= 1)
-    if (rows[index]!.id === LIVE_LINE) return true;
+    if (rows[index]!.id === LIVE_LINE || rows[index]!.kind === ACTIVITY_LINE) return true;
   return false;
 }
 
@@ -72,7 +72,15 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
 /// A row drawn at the swap: where its top was in the view, and its copy when the swap takes it away.
 /// `clip`: how much of its bottom a clip hid then (tailGlide.ts clips the row above a row gliding down
 /// under it at that row's drawn top), with `shown`, the bottom of what it drew.
-type Drawn = { id: string; top: number; copy?: HTMLElement; clip?: number; shown?: number };
+type Drawn = {
+  id: string;
+  top: number;
+  height?: number;
+  replacesHeader?: boolean;
+  copy?: HTMLElement;
+  clip?: number;
+  shown?: number;
+};
 
 /// How far into the fold (0 to 1, of its progress) a copy of a row that goes has faded out.
 const COPY_GONE_AT = 0.6;
@@ -109,7 +117,8 @@ export function captureTurnEnd(
 ): TurnEndCapture | undefined {
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
-  if (!nodes.some((node) => node.dataset.rowId === LIVE_LINE)) return undefined;
+  if (!nodes.some((node) => node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`)))
+    return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(
     0,
@@ -122,13 +131,20 @@ export function captureTurnEnd(
     if (!after[index]!.merged) kept.add(after[index]!.id);
   const rows = nodes.map((node) => {
     const box = node.getBoundingClientRect();
-    const id = node.dataset.rowId!;
+    const priorId = node.dataset.rowId!;
+    // The live header becomes the ended header in the same slot, rather than leaving a second clock.
+    const workedId = node.classList.contains(`acpmux-${WORKING}`)
+      ? `${WORKED}-${priorId.slice(WORKING.length + 1)}`
+      : undefined;
+    const id = workedId && kept.has(workedId) ? workedId : priorId;
     // A row clipped over the row gliding under it (tailGlide.ts) draws only down to that row's top:
     // the fold goes on from what it drew, never from its whole box (one read, only while clipped).
     const clip = clippedBottom(node);
     return {
       id,
       top: box.top,
+      height: box.height,
+      ...(id !== priorId && { replacesHeader: true }),
       ...(clip > 0 && { clip, shown: box.bottom - clip }),
       ...(!kept.has(id) && { copy: ghostOf(node) }),
     };
@@ -306,7 +322,7 @@ function layoutTops(nodes: readonly HTMLElement[]): number[] {
 }
 
 /// What one row of the fold plays now: how far from its place it started, and its animations.
-type Moving = { delta: number; fades: boolean; animations: Animation[]; clip?: number; end?: number };
+type Moving = { delta: number; fades: boolean; animations: Animation[]; clip?: number; end?: number; crop?: string };
 
 /// Plays the fold the swap after `capture` makes, from the pass that placed the new rows. Each row
 /// drawn then and drawn now slides from where it was to its place, a copy of each row the swap took
@@ -353,6 +369,7 @@ export function playTurnEnd(
   // a new row (the edits card), which comes in as one.
   const was = new Map(capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]));
   const gone = capture.rows.filter((row) => row.copy);
+  const goneByCopy = new Map(gone.map((row) => [row.copy!, row]));
   const moving = new Map<HTMLElement, Moving>();
   const copyMoves = new Map<HTMLElement, Moving>();
   /// Where each row's or copy's motion on the current clock starts (a top in the view, as `tops`),
@@ -375,7 +392,9 @@ export function playTurnEnd(
     const tops = layoutTops(nodes);
     const copyTops = layoutTops(copies);
     // The folded line: the first row the swap added (the turn's "Worked for"). Copies tuck under it.
-    const line = tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
+    const line =
+      tops.find((_, index) => was.get(nodes[index]!.dataset.rowId!)?.replacesHeader) ??
+      tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
     const startTop = (node: HTMLElement, fallback: number) => starts.get(node)?.top ?? fallback;
     const longestMove = () => {
       let longest = 0;
@@ -385,7 +404,7 @@ export function playTurnEnd(
       });
       if (look === "tuck" && line !== undefined)
         copies.forEach((copy) => {
-          const row = gone.find((entry) => entry.copy === copy)!;
+          const row = goneByCopy.get(copy)!;
           longest = Math.max(longest, Math.abs(line - startTop(copy, row.top)));
         });
       return longest;
@@ -446,7 +465,7 @@ export function playTurnEnd(
     /// The rows that start clipped this pass: where each starts, the bottom it draws, its bottom at rest.
     const covers: { top: number; bottom: number }[] = [];
     /// Where each copy starts drawn (a top in the view, as `tops`).
-    const copyStarts = copies.map((copy) => startTop(copy, gone.find((entry) => entry.copy === copy)!.top));
+    const copyStarts = copies.map((copy) => startTop(copy, goneByCopy.get(copy)!.top));
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
       if (!before) {
@@ -473,13 +492,34 @@ export function playTurnEnd(
       const height = node.offsetHeight;
       let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
       for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
-      if (clip >= 0.5) covers.push({ top: from, bottom: tops[index]! + height });
+      // Work stays below the header as it moves into the closed turn's place. Both share this
+      // clock, so keeping their start and end ordered keeps every frame ordered too.
+      if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
+        covers.push({ top: from, bottom: tops[index]! + height });
       if (Math.abs(delta) < 0.5 && clip < 0.5 && !moving.has(node)) return;
       restart(node, moving, { delta, fades: false, animations: [], clip }, () => [
         [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
         ...(clip >= 0.5 ? [[{ clipPath: clipBottom(Math.ceil(clip)) }, { clipPath: clipBottom(0) }]] : []),
       ]);
     });
+    const placedById = new Map(nodes.map((node, index) => [node.dataset.rowId!, { node, index }]));
+    type Boundary = { row: Drawn; node: HTMLElement; index: number };
+    const boundaries = new Map<HTMLElement, { above?: Boundary; below?: Boundary }>();
+    for (const step of [1, -1]) {
+      let boundary: Boundary | undefined;
+      for (let at = step === 1 ? 0 : capture.rows.length - 1; at >= 0 && at < capture.rows.length; at += step) {
+        const row = capture.rows[at]!;
+        if (row.copy) {
+          const pair = boundaries.get(row.copy) ?? {};
+          if (step === 1) pair.above = boundary;
+          else pair.below = boundary;
+          boundaries.set(row.copy, pair);
+        } else {
+          const placed = placedById.get(row.id);
+          if (placed) boundary = { row, ...placed };
+        }
+      }
+    }
     copies.forEach((copy, order) => {
       const from = copyStarts[order]!;
       const at = from - copyTops[order]!;
@@ -489,9 +529,35 @@ export function playTurnEnd(
       // is linear in the fold's progress on both, so where it holds at the first and last frame it
       // holds on every frame between.
       for (const cover of covers) if (cover.top < from) end = Math.max(end, cover.bottom - copyTops[order]!);
+      // The work fades only between the surviving rows that surrounded it. Those rows can
+      // move over its former place, so crop the copy on their shared clock rather than drawing
+      // its text through the header or the final answer.
+      const { above, below } = boundaries.get(copy) ?? {};
+      const height = copy.offsetHeight;
+      const topFrom = above
+        ? Math.max(0, startTop(above.node, above.row.top) + (above.row.height ?? above.node.offsetHeight) - from)
+        : 0;
+      const topTo = above ? Math.max(0, tops[above.index]! + above.node.offsetHeight - (copyTops[order]! + end)) : 0;
+      const bottomFrom = Math.max(
+        goneByCopy.get(copy)!.clip ?? 0,
+        below ? from + height - startTop(below.node, below.row.top) : 0,
+      );
+      const bottomTo = below ? Math.max(0, copyTops[order]! + end + height - tops[below.index]!) : 0;
+      const cropFrom = `inset(${topFrom}px -4096px ${Math.max(0, bottomFrom)}px -4096px)`;
+      const cropTo = `inset(${topTo}px -4096px ${bottomTo}px -4096px)`;
+      const crop = [topFrom, topTo, bottomFrom, bottomTo].some((value) => value >= 0.5)
+        ? `${cropFrom}|${cropTo}`
+        : undefined;
       const ink = starts.get(copy)?.opacity ?? 1;
       const last = copyMoves.get(copy);
-      if (!grew && last && Math.abs(last.delta - at) < 0.5 && Math.abs((last.end ?? at) - end) < 0.5) return;
+      if (
+        !grew &&
+        last &&
+        Math.abs(last.delta - at) < 0.5 &&
+        Math.abs((last.end ?? at) - end) < 0.5 &&
+        last.crop === crop
+      )
+        return;
       for (const animation of last?.animations ?? []) {
         animation.cancel();
         fold.animations.delete(animation);
@@ -511,13 +577,13 @@ export function playTurnEnd(
       const motion = play(
         copy,
         [
-          { translate: `0 ${at}px`, opacity: ink },
+          { translate: `0 ${at}px`, opacity: ink, ...(crop && { clipPath: cropFrom }) },
           { offset: COPY_GONE_AT, opacity: 0 },
-          { translate: `0 ${end}px`, opacity: 0 },
+          { translate: `0 ${end}px`, opacity: 0, ...(crop && { clipPath: cropTo }) },
         ],
         timing,
       );
-      copyMoves.set(copy, { delta: at, fades: true, animations: [motion], end });
+      copyMoves.set(copy, { delta: at, fades: true, animations: [motion], end, crop });
     });
     nodes.forEach((node, index) => laid.set(node, tops[index]!));
     copies.forEach((copy, order) => laid.set(copy, copyTops[order]!));

@@ -222,6 +222,13 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   leads (an address, a tab's exact name, a command, a row the arrows picked), Cmd-Return sends the
   typed text to the agent on the chip. The Ask row shows `⌘↵` when it is not the selected row.
   In shell mode (`!`) it runs the command, as Return does.
+- Return navigates (Lawrence 2026-11-11: "we should instead just open it as replacement of current page, so a
+  navigation"): a browser pick (a typed address, a web search, a visited page, a profile pick) takes the page's
+  own tab, also beside another tab with `newTab.picksFollowLinks` on; terminals and chats still go where links
+  do. Option-Return, or an Option- or Cmd-click on a row, sends `tab.open {beside: true}`: a new tab where links
+  go, as Chrome's Alt-Enter. Cmd-Return still asks; Shift-Return still adds a line. A page in the chat dock keeps
+  opening beside the dock (Leo 2026-10-30). The bench command is `instant-new-surfaces --commands
+  newtab_url,newtab_url_beside`.
 - Pick history (lens review 2026-11-05, Slack/Firefox frecency): the Commands palette's FrecencyStore
   is the one history. The host sends its counts for `tab:`, `workspace:` and `action:` keys
   (`omnibar.uses`); the rows order matches of one kind by them, never above a better text match. A

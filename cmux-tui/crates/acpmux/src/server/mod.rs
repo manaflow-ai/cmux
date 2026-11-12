@@ -47,6 +47,9 @@ pub struct SubOpts {
     /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
     /// for the same raw id is never its (`hub/presence.rs`).
     pub remote: bool,
+    /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
+    /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
+    pub rows: Option<Arc<crate::rows::Following>>,
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -2191,6 +2194,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 method::MUX_PERMISSION_PENDING,
                 routed(permission_pending(&ev.session_id, rec, "attach")),
             ));
+        }
+        if let Some(following) = &sub.rows
+            && ev.remote.is_none()
+            && let Some((notice, params)) = crate::rows::live(hub, &ev.session_id, rec, following)
+        {
+            conn.send(&Message::notification(notice, params));
         }
     }
     if watching {
