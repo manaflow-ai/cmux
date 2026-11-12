@@ -28,9 +28,13 @@ import Testing
         return try body()
     }
 
-    /// The flush corner on for `body` (a Debug Settings pick of the default, goo), so the tests of its frame
-    /// always assert instead of returning early when the run's chrome left it off.
+    /// The flush corner on for `body` (a Debug Settings pick of the default, goo, at Default density), so the
+    /// tests of its frame always assert instead of returning early when the run's chrome left it off.
     func withFlushCorner<T>(_ body: () throws -> T) rethrows -> T {
+        // Compact density keeps the pill before any override is read (`CornerFlush.current`): pin Default's.
+        let density = DesignSettings.shared.densityTokens
+        DesignSettings.shared.densityTokens = DensityPreset.cozy.tokens
+        defer { DesignSettings.shared.densityTokens = density }
         let store = TunableStore.shared
         store.register([CornerFlush.tunable.descriptor])
         if !store.isActive { store.activate(file: nil) }

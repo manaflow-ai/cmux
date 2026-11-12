@@ -16,6 +16,10 @@ import Testing
         let saved = (design.titleAreaTone, design.titleAreaContrast, design.borders)
         (design.titleAreaTone, design.titleAreaContrast, design.borders) = (tone, 1, borders)
         defer { (design.titleAreaTone, design.titleAreaContrast, design.borders) = saved }
+        // Compact density keeps the pill before any override is read (`CornerFlush.current`): pin Default's.
+        let density = DesignSettings.shared.densityTokens
+        DesignSettings.shared.densityTokens = DensityPreset.cozy.tokens
+        defer { DesignSettings.shared.densityTokens = density }
         let store = TunableStore.shared
         store.register([CornerFlush.tunable.descriptor])
         if !store.isActive { store.activate(file: nil) }
