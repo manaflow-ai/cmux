@@ -138,14 +138,49 @@ class Invocation(NamedTuple):
     any_program: bool  # it may also run programs the words do not name
 
 
+_CASE_BOUNDARY = frozenset(" \t\n;&|()")
+_CASE_KEYWORD = re.compile(r"(case|in|esac)(?=[ \t\n;&|()]|$)")
+
+
 def _match_close(text: str, index: int, opener: str) -> int | None:
     """The index just past the `)` or `}` closing the construct whose opener (`$(`, `<(`, `>(`, `${`) starts at
     `index`; None if it never closes. Quotes and nested brackets are skipped."""
     close = "}" if opener == "${" else ")"
     depth = 1
     i = index + len(opener)
+    # Open `case` commands in a `$( )` body, each [state, depth]: "word" (before `in`), "pattern" or "arm". A
+    # pattern's `(` and `)` are no brackets, so `$(case x in x) a;; esac)` closes at its last `)` (#41768 F2: it
+    # closed at the pattern's). A case this cannot follow to its `esac` leaves the body unread (None: fail closed).
+    cases: list[list] = []
     while i < len(text):
         c = text[i]
+        if close == ")" and (i == index + len(opener) or text[i - 1] in _CASE_BOUNDARY):
+            keyword = _CASE_KEYWORD.match(text, i)
+            word = keyword.group(1) if keyword else None
+            top = cases[-1] if cases and cases[-1][1] == depth else None
+            if word == "case" and not (top and top[0] == "pattern"):
+                cases.append(["word", depth])
+                i = keyword.end(1)
+                continue
+            if word == "in" and top and top[0] == "word":
+                top[0] = "pattern"
+                i = keyword.end(1)
+                continue
+            if word == "esac" and top and top[0] in ("pattern", "arm"):
+                cases.pop()
+                i = keyword.end(1)
+                continue
+        if close == ")" and cases and cases[-1][1] == depth:
+            top = cases[-1]
+            if top[0] == "pattern" and c in "()":
+                if c == ")":
+                    top[0] = "arm"
+                i += 1
+                continue
+            if top[0] == "arm" and text.startswith(";;", i) or top[0] == "arm" and text.startswith(";&", i):
+                top[0] = "pattern"
+                i += 3 if text.startswith(";;&", i) else 2
+                continue
         if c == "\\":
             i += 2
             continue
@@ -190,7 +225,7 @@ def _match_close(text: str, index: int, opener: str) -> int | None:
         elif c == close:
             depth -= 1
             if depth == 0:
-                return i + 1
+                return None if cases else i + 1
         i += 1
     return None
 
@@ -609,6 +644,11 @@ class _Flow:
                     self.lost = True
                 else:
                     self.frames.pop()
+            elif text == "function":
+                # A function's body runs only where it is called: fail closed, nothing after it is reached.
+                self.lost = True
+                index += 2
+                continue
             elif text != "!":
                 break
             index += 1
@@ -847,10 +887,15 @@ def _shell_script(words: list[Token], index: int) -> tuple[int | None, bool]:
 def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     words = command.words
     start = 0
-    while start < len(words) and (
-            _ASSIGNMENT.match(words[start].text)
-            or (words[start].text in _KEYWORDS and not words[start].quoted)):
-        start += 1
+    while start < len(words):
+        if _ASSIGNMENT.match(words[start].text) or (words[start].text in _KEYWORDS and not words[start].quoted):
+            start += 1
+        elif words[start].text == "function" and not words[start].quoted:
+            # `function NAME { BODY` / `function NAME if ..`: the definition's words are no command, its body's are
+            # (#41133 BLOCK F1: `function publish { gh release create ..; }` hid the gh).
+            start += 2
+        else:
+            break
     certain = not command.dynamic and not command.nested and command.reached
     any_program = False
     while start < len(words) and not _opaque(words[start]):
