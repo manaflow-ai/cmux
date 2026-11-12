@@ -19,6 +19,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Repick.swift	cm
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat+Repick.swift	main-actor	2	lane:cloud-start
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat.swift	cmux-cli	6	lane:cloud-start
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat.swift	main-actor	6	lane:cloud-start
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSession.swift	cmux-cli	1	lane:cloud-move
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSession.swift	main-actor	1	lane:cloud-move
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift	cmux-cli	1	lane:cloud-machine
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppControl+Cloud.swift	main-actor	1	lane:cloud-machine
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+Account.swift	cmux-cli	2	lane:cloud-account

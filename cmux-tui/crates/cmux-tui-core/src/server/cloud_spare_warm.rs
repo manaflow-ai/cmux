@@ -172,7 +172,8 @@ pub trait CopyGuard: Send + Sync {
     /// Whether `account` is still the leased person and nothing since (a sign-out, a switch of
     /// account, a change of consent) ended the copy: false ends it as abandoned.
     fn still(&self, account: &str) -> bool;
-    /// The person's consent now: the app's latest, else the one its warm carried.
+    /// The person's consent now: the stricter of the app's latest and the one its warm carried
+    /// (no is stricter than ask, ask than yes), so a held yes never overrides a warm's own no.
     fn consent(&self) -> Option<bool>;
 }
 
@@ -216,7 +217,17 @@ impl CopyGuard for LiveGuard {
     }
 
     fn consent(&self) -> Option<bool> {
-        self.control.now().consent.unwrap_or(self.consent)
+        // Fails closed: a consent push that never reached the daemon leaves its older value held,
+        // and a held yes must not copy a login the warm itself was sent with no for.
+        let strictness = |consent: Option<bool>| match consent {
+            Some(false) => 0,
+            None => 1,
+            Some(true) => 2,
+        };
+        match self.control.now().consent {
+            Some(held) if strictness(held) < strictness(self.consent) => held,
+            _ => self.consent,
+        }
     }
 }
 

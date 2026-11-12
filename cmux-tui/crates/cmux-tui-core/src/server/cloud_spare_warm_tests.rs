@@ -104,6 +104,19 @@ fn a_sign_out_ends_the_copy_and_no_lease_fails_closed() {
 }
 
 #[test]
+fn a_held_yes_never_overrides_the_warms_own_no() {
+    // The app's consent push failed, so the daemon still holds an earlier yes; the warm itself
+    // carries the person's no. The copy reads no.
+    let control = Arc::new(SpareWarmControl::default());
+    assert!(control.set_consent(3, 1, Some(true)));
+    let opted_out =
+        LiveGuard::new(Some(leased("user_a")), control.clone(), &params_for("user_a", Some(false)));
+    assert_eq!(opted_out.consent(), Some(false));
+    let asks = LiveGuard::new(Some(leased("user_a")), control, &params_for("user_a", None));
+    assert_eq!(asks.consent(), None, "a held yes does not answer a warm that asks");
+}
+
+#[test]
 fn a_stale_consent_read_never_overwrites_a_later_one() {
     let control = Arc::new(SpareWarmControl::default());
     let guard =
