@@ -113,6 +113,15 @@ def test_nightly_bundle_budget_step_is_blocking(tmp: Path) -> None:
     assert "verify-final-dmg-bundle-size-budget.sh" in body
 
 
+def test_pr_budget_step_is_blocking(tmp: Path) -> None:
+    del tmp
+    workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+    step = workflow.split("      - name: Check web bundle size budget\n", 1)[1].split("\n\n", 1)[0]
+    assert "continue-on-error:" not in step
+    assert "steps.bundles.outcome == 'success'" in step
+    assert "run: bash scripts/cmux-next/check-web-bundle-size.sh" in step
+
+
 def test_unknown_variant_fails(tmp: Path) -> None:
     app = make_app(tmp)
     r = run("check", str(app), "--budget", str(budget(tmp)), "--variant", "x86_64")

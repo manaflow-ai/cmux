@@ -46,8 +46,8 @@ this change does not turn on that variant.
 
 `check-web-bundle-size.sh` stages the generated Pages and AgentPane directories
 and invokes the existing `bundle-size.py report` and `check`. The PR's existing
-`ci-web.yml` **Build the web bundles** step runs it; **Fail on the gate checks**
-propagates that step's failure even when style checks warn. Routing includes the
+`ci-web.yml` **Check web bundle size budget** step runs it after other diagnostics
+and fails the shard directly, with no `continue-on-error`. Routing includes the
 budget, harness and wrapper so changing only a cap also selects this check.
 The PR check reserves 150,000 Pages bytes and 700,000 AgentPane bytes for native
 metadata (measured 123,504 and 656,163); it cannot certify native binaries or DMGs.

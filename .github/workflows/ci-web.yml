@@ -406,9 +406,7 @@ jobs:
       - name: Build the web bundles
         id: bundles
         continue-on-error: true
-        run: |
-          ./scripts/cmux-next/build-web-bundles.sh --force
-          bash scripts/cmux-next/check-web-bundle-size.sh
+        run: ./scripts/cmux-next/build-web-bundles.sh --force
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
@@ -656,6 +654,10 @@ jobs:
             fi
           done
           exit "$failed"
+
+      - name: Check web bundle size budget
+        if: ${{ !cancelled() && steps.bundles.outcome == 'success' }}
+        run: bash scripts/cmux-next/check-web-bundle-size.sh
 
   # A pull request's base comparison is deliberately separate from the head
   # shards. Replaying the base's failed files requires its own install and bundle
