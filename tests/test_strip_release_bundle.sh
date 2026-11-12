@@ -31,7 +31,10 @@ for path in \
   "$APP/Contents/PlugIns/CmuxDockTilePlugin.plugin/Contents/MacOS/CmuxDockTilePlugin" \
   "$APP/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS/cmuxTunnel" \
   "$APP/Contents/Frameworks/libcmux_command_palette_nucleo_ffi.dylib" \
-  "$APP/Contents/Frameworks/Sparkle.framework"
+  "$APP/Contents/Frameworks/Sparkle.framework" \
+  "$APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host" \
+  "$APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper (GPU).app/Contents/MacOS/cmux-remote-browser-host Helper (GPU)" \
+  "$APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/Resources/launch.sh"
 do
   mkdir -p "$(dirname "$path")"
   printf '#!/bin/sh\nexit 0\n' > "$path"
@@ -75,7 +78,7 @@ cp "$STRINGS_DIR/Broken.strings" "$TMP_DIR/Broken.before"
 cat > "$TMP_DIR/tools/file" <<'EOF'
 #!/usr/bin/env bash
 case "$1" in
-  *"/Contents/MacOS/cmux"|*"/Contents/Resources/bin/cmux"|*"/Contents/Resources/bin/cmux-tui"|*"/Contents/Resources/bin/acpmux"|*"/Contents/Resources/bin/cmux-diff-sidecar"|*"CmuxDockTilePlugin"|*"/Contents/MacOS/cmuxTunnel"|*"libcmux_"*|*"-apple-darwin"|*"/bin/ghostty"|*"/bin/cmux-app-host"|*"/bin/cmux-browser-host"|*"/bin/cmux-cloud"|*"/libexec/cmux-server-helper"|*"/Contents/MacOS/cmux Helper"*)
+  *"/Contents/MacOS/cmux"|*"/Contents/Resources/bin/cmux"|*"/Contents/Resources/bin/cmux-tui"|*"/Contents/Resources/bin/acpmux"|*"/Contents/Resources/bin/cmux-diff-sidecar"|*"CmuxDockTilePlugin"|*"/Contents/MacOS/cmuxTunnel"|*"libcmux_"*|*"-apple-darwin"|*"/bin/ghostty"|*"/bin/cmux-app-host"|*"/bin/cmux-browser-host"|*"/bin/cmux-cloud"|*"/libexec/cmux-server-helper"|*"/Contents/MacOS/cmux Helper"*|*"/Contents/MacOS/cmux-remote-browser-host"*)
     printf '%s: Mach-O universal binary\n' "$1"
     ;;
   *)
@@ -116,6 +119,8 @@ printf '%s\n' \
   "-S -x $APP/Contents/Frameworks/cmux Helper (GPU).app/Contents/MacOS/cmux Helper (GPU)" \
   "-S -x $APP/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper" \
   "-S -x $APP/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS/cmuxTunnel" \
+  "-S -x $APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/cmux-remote-browser-host" \
+  "-S -x $APP/Contents/Helpers/cmux-remote-browser-host.app/Contents/Frameworks/cmux-remote-browser-host Helper (GPU).app/Contents/MacOS/cmux-remote-browser-host Helper (GPU)" \
   | LC_ALL=C sort > "$expected"
 LC_ALL=C sort "$TMP_DIR/strip.log" > "$TMP_DIR/strip.sorted.log"
 

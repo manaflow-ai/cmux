@@ -115,6 +115,16 @@ if [ -d "$APP_PATH/Contents/Frameworks" ]; then
   done < <(find "$APP_PATH/Contents/Frameworks" -maxdepth 4 -path '*/cmux Helper*.app/Contents/MacOS/*' -type f -print0 | sort -z)
 fi
 
+# The remote browser host app in Contents/Helpers: one Rust executable copied
+# as the host and its five CEF helper apps, each shipped with its local symbols
+# (~0.5 MB of each 3.6 MB copy). It keeps its global symbols, as the cmux
+# Helper apps do. The release signer signs it after this pass.
+if [ -d "$APP_PATH/Contents/Helpers" ]; then
+  while IFS= read -r -d '' binary; do
+    strip_if_macho "$binary"
+  done < <(find "$APP_PATH/Contents/Helpers" -path '*.app/Contents/MacOS/*' -type f -print0 | sort -z)
+fi
+
 if [ -d "$APP_PATH/Contents/Library/SystemExtensions" ]; then
   while IFS= read -r -d '' binary; do
     strip_if_macho "$binary"
