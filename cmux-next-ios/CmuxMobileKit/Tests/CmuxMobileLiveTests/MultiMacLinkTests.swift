@@ -145,7 +145,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
 /// one of its workspaces) closed the first Mac's link, so its workspaces said
 /// "Can't connect" and its terminals ended until it was chosen again.
 @MainActor
-@Suite(.serialized) struct MultiMacLinkTests {
+@Suite(.serialized, .timeLimit(.minutes(2))) struct MultiMacLinkTests {
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
 
@@ -174,7 +174,9 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     }
 
     func settle(_ done: () -> Bool) async {
-        for _ in 0..<3000 where !done() { try? await Task.sleep(for: .milliseconds(1)) }
+        // No deadline of its own: 3000 sleeps ended before a busy kit run's main actor had
+        // applied the state waited for (cmux#40635). The suite's time limit bounds a hang.
+        while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
     }
 
     func drain() async {

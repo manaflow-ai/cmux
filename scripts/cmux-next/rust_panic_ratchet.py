@@ -40,14 +40,37 @@ only for hits it adds. A base run that did not finish excuses nothing.
 """
 import argparse
 import collections
+import functools
 import json
 import os
 import re
 import sys
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 BASELINE = os.path.join(HERE, "rust-panic-baseline.json")
+
+
+@functools.lru_cache(maxsize=None)
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's, once per process); a failed fetch is said on
+    stderr, once: _changed_first asks for every failing crate/lint group."""
+    import importlib.util
+    push_range = os.path.join(HERE, "push_range.py")
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(Path(root), ref)
+    if note:
+        print(f"rust-panic-ratchet: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
 
 # Lints whose zero makes a crate "deny" (a panic in production code).
 DENY_LINTS = [
@@ -220,6 +243,7 @@ def _changed_first(root, locations, base_locations=None):
         grown = {name for name, count in per_file(locations).items() if count > on_base[name]}
     try:
         import subprocess
+        refresh_base(root, "origin/feat-cmux-next")
         out = subprocess.run(["git", "-C", root, "diff", "--name-only", "origin/feat-cmux-next...HEAD"],
                              capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):

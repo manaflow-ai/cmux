@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""Tools that measure "this branch's own change" fetch the shared base first, so a stale copy never widens it.
+
+Each tool here takes where HEAD meets this clone's origin/feat-cmux-next. That ref is only as new as the clone's
+last fetch of it: a branch that merged a newer base (a stacked parent fetched alone, `git fetch origin lane/parent`,
+after the parent merged feat-cmux-next) had that base's files counted as its own. cmux#41310 fixed the pre-push gate
+(scripts/cmux-next/push_range.py refresh_upstream); these are the readers left: affected tests, the Rust panic
+ratchet, build_class, gate-plan, the test-determinism scan, codebase-health and a manual arch-ratchet run (the
+gate and the web lint run by hand take the same push_range.manual_range). Each test builds one fixture: the topic
+adds own files and merges a base that has base-only files, while the clone's origin/feat-cmux-next stays old.
+
+Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23): run
+`python3 -I tests/test_stale_base_readers.py` after changing one of these tools (a few seconds, no build).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import importlib.util
+import io
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+import unittest.mock
+from pathlib import Path
+
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
+ROOT = Path(__file__).resolve().parents[1]
+# A CI or pull-request environment would point the tools elsewhere (GITHUB_BASE_REF) or turn the fetch off.
+CLEARED = ("GITHUB_ACTIONS", "GITHUB_BASE_REF", "CI", "CMUX_PREPUSH_RUN")
+
+
+def load(name: str, relative: str):
+    spec = importlib.util.spec_from_file_location(name, ROOT / relative)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # dataclasses resolve their module through sys.modules
+    spec.loader.exec_module(module)
+    return module
+
+
+class StaleBaseFixture(unittest.TestCase):
+    """The topic adds own files and merges a base that has base-only files; the clone's origin/feat-cmux-next stays old."""
+
+    OWN = ("cmux-tui/z_own.rs", "plans/cmux-next/own.md", "tests/test_own_change.py")
+    BASE = ("cmux-tui/a_base.rs", "plans/cmux-next/base.md", "tests/test_base_change.py")
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        env = {k: v for k, v in os.environ.items() if k not in CLEARED and not k.startswith("GIT_")}
+        patcher = unittest.mock.patch.dict(os.environ, git_fixture_env.fixture_env(env), clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        origin = git_fixture_env.init_repo(self.tmp / "origin.git", "--bare", "-b", "feat-cmux-next")
+        seed = self.seed = git_fixture_env.init_repo(self.tmp / "seed", "-b", "feat-cmux-next")
+        self.git(seed, "remote", "add", "origin", str(origin))
+        self.write(seed, "README.md", "base\n")
+        self.commit(seed, "base")
+        self.git(seed, "push", "--quiet", "origin", "feat-cmux-next")
+
+        self.work = git_fixture_env.clone_repo(origin, self.tmp / "work")
+        self.git(self.work, "checkout", "--quiet", "-b", "topic", "origin/feat-cmux-next")
+        for path in self.OWN:
+            self.write(self.work, path, "own\n")
+        self.commit(self.work, "the branch's own change")
+
+        # feat-cmux-next moves on; the stacked parent merges it; this clone fetches only the parent.
+        for path in self.BASE:
+            self.write(seed, path, "base\n")
+        self.fresh_base = self.commit(seed, "a base change this clone never fetched")
+        self.git(seed, "push", "--quiet", "origin", "feat-cmux-next", "feat-cmux-next:lane/parent")
+        self.stale_base = self.git(self.work, "rev-parse", "origin/feat-cmux-next")
+        self.git(self.work, "fetch", "--quiet", "origin", "lane/parent")
+        self.git(self.work, "merge", "--quiet", "--no-edit", "--no-ff", "origin/lane/parent")
+        self.assertNotEqual(self.stale_base, self.fresh_base)
+        self.assertEqual(self.git(self.work, "rev-parse", "origin/feat-cmux-next"), self.stale_base)
+
+    def git(self, repo: Path, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.name=fixture",
+                               "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *args],
+                              check=True, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.strip()
+
+    def write(self, repo: Path, relative: str, text: str) -> None:
+        path = repo / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def commit(self, repo: Path, message: str) -> str:
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "--quiet", "-m", message)
+        return self.git(repo, "rev-parse", "HEAD")
+
+    def assert_fetched(self) -> None:
+        self.assertEqual(self.git(self.work, "rev-parse", "origin/feat-cmux-next"), self.fresh_base,
+                         "the tool fetched the shared base first")
+
+
+class StaleBaseReaders(StaleBaseFixture):
+    def test_affected_tests_plans_from_the_fresh_base(self):
+        affected = load("stale_base_affected_tests", "scripts/ci/affected_tests.py")
+        seen = {}
+
+        def plan(root, base, head, files, shards, everything):
+            seen["base"] = base
+            return {"base": base}
+
+        out = io.StringIO()
+        with unittest.mock.patch.object(affected, "plan", plan), contextlib.redirect_stdout(out):
+            self.assertEqual(affected.main(["--root", str(self.work)]), 0)
+        self.assertEqual(seen["base"], self.fresh_base, "BASE...HEAD would hold the base's files as the change's")
+        self.assertEqual(json.loads(out.getvalue())["base"], self.fresh_base)
+
+    def test_rust_panic_ratchet_lists_the_branch_s_own_hits_first(self):
+        ratchet = load("stale_base_rust_panic_ratchet", "scripts/cmux-next/rust_panic_ratchet.py")
+        ordered = ratchet._changed_first(str(self.work), ["a_base.rs:1", "z_own.rs:1"])
+        self.assertEqual(ordered, ["z_own.rs:1", "a_base.rs:1"], "a base file's hit is not the change's")
+
+    def test_build_class_classifies_only_the_branch_s_own_files(self):
+        build_class = load("stale_base_build_class", "scripts/ci/build_class.py")
+        with unittest.mock.patch.object(build_class, "ROOT", self.work):
+            changed = build_class.changed_files("origin/feat-cmux-next")
+        self.assertEqual(sorted(changed), sorted(self.OWN))
+
+    def test_gate_plan_routes_only_the_branch_s_own_files(self):
+        gate_plan = load("stale_base_gate_plan", "scripts/cmux-next/gate-plan.py")
+
+        class Routed(Exception):
+            pass
+
+        def route(root, event, changed, labels):
+            raise Routed(changed)
+
+        hq = self.tmp / "hq"
+        hq.mkdir()
+        with unittest.mock.patch.object(gate_plan, "ROOT", self.work), \
+                unittest.mock.patch.dict(os.environ, {"HQ_ROOT": str(hq)}), \
+                unittest.mock.patch.object(gate_plan.route_mod, "route", route), \
+                self.assertRaises(Routed) as routed:
+            gate_plan.main([])
+        self.assertEqual(sorted(routed.exception.args[0]), sorted(self.OWN))
+
+    def test_the_determinism_scan_reads_only_the_branch_s_own_tests(self):
+        scan = load("stale_base_check_test_determinism", "scripts/check-test-determinism.py")
+        self.assertEqual(scan._changed_python_tests(self.work), ["tests/test_own_change.py"])
+
+    def test_codebase_health_names_only_the_tree_s_own_measured_changes(self):
+        health = load("stale_base_codebase_health", "scripts/cmux-next/codebase-health.py")
+        where = health.measured_at(self.work)
+        self.assertIn(self.fresh_base[:11], where)
+        self.assertIn("own.md", where)
+        self.assertNotIn("base.md", where)
+
+    def test_a_manual_arch_ratchet_run_judges_from_the_fresh_base(self):
+        arch = load("stale_base_arch_ratchet", "scripts/cmux-next/arch-ratchet.py")
+        out = io.StringIO()
+        with unittest.mock.patch.object(arch, "run_push", lambda *args, **kwargs: []), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(arch.main(["--repo", str(self.work)]), 0)
+        self.assertIn(f"over {self.fresh_base[:11]}", out.getvalue())
+        self.assert_fetched()
+
+
+class BaseFetchOnce(StaleBaseFixture):
+    """The fetch itself (cmux#41310 and #41662 review): once per hook run and once per process, never a prompt.
+
+    A stamp that outlived its hook run let a retried push skip the fetch after the base moved; a reader that ran per
+    failing group fetched per group (a stalled remote cost 30 s each); and GIT_TERMINAL_PROMPT=0 alone left an
+    askpass helper free to open a credential window or wait out the limit."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.push_range = load("stale_base_push_range", "scripts/cmux-next/push_range.py")
+        self.key = f"refs/heads/topic {self.git(self.work, 'rev-parse', 'HEAD')} refs/heads/topic {'0' * 40}"
+
+    def count_fetches(self) -> list[list[str]]:
+        fetches: list[list[str]] = []
+        real = subprocess.run
+
+        def counting(args, *rest, **kwargs):
+            if isinstance(args, (list, tuple)) and "fetch" in args:
+                fetches.append(list(args))
+            return real(args, *rest, **kwargs)
+
+        patcher = unittest.mock.patch.object(subprocess, "run", counting)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return fetches
+
+    def advance_base(self, name: str) -> str:
+        self.write(self.seed, name, "later\n")
+        sha = self.commit(self.seed, f"the base moves again ({name})")
+        self.git(self.seed, "push", "--quiet", "origin", "feat-cmux-next")
+        return sha
+
+    def refresh(self, run: str | None) -> str:
+        env = {"CMUX_PREPUSH_RUN": run} if run is not None else {}
+        with unittest.mock.patch.dict(os.environ, env):
+            if run is None:
+                os.environ.pop("CMUX_PREPUSH_RUN", None)
+            return self.push_range.refresh_upstream(self.work, "origin", key=self.key)
+
+    def tracked(self) -> str:
+        return self.git(self.work, "rev-parse", "origin/feat-cmux-next")
+
+    def test_the_checks_of_one_hook_run_fetch_once(self):
+        fetches = self.count_fetches()
+        for _ in range(3):
+            self.assertEqual(self.refresh("run-1"), "")
+        self.assertEqual(len(fetches), 1, fetches)
+        self.assert_fetched()
+
+    def test_a_retried_push_fetches_again_after_the_base_moved(self):
+        self.assertEqual(self.refresh("run-1"), "")
+        self.assert_fetched()
+        later = self.advance_base("later.md")
+        self.git(self.work, "update-ref", "refs/remotes/origin/feat-cmux-next", self.stale_base)
+        self.assertEqual(self.refresh("run-2"), "")
+        self.assertEqual(self.tracked(), later, "the retry's own hook run fetched the base again")
+
+    def test_a_hook_that_names_no_run_fetches_every_time(self):
+        self.assertEqual(self.refresh(None), "")
+        later = self.advance_base("later.md")
+        self.assertEqual(self.refresh(None), "")
+        self.assertEqual(self.tracked(), later, "with no run to scope it to, no stamp skips the fetch")
+
+    def test_the_base_fetch_never_opens_a_credential_prompt(self):
+        record = self.tmp / "ssh-record"
+        fake_ssh = self.tmp / "fake-ssh"
+        fake_ssh.write_text("#!/bin/sh\n{ printf 'args=%s\\n' \"$*\"; printf 'GIT_ASKPASS=%s\\n' \"$GIT_ASKPASS\";"
+                            " printf 'SSH_ASKPASS=%s\\n' \"$SSH_ASKPASS\";"
+                            " printf 'SSH_ASKPASS_REQUIRE=%s\\n' \"$SSH_ASKPASS_REQUIRE\"; }"
+                            f" >> '{record}'\nexit 255\n")
+        fake_ssh.chmod(0o755)
+        asker = self.tmp / "askpass"
+        asker.write_text(f"#!/bin/sh\ntouch '{self.tmp / 'asked'}'\necho secret\n")
+        asker.chmod(0o755)
+        self.git(self.work, "remote", "set-url", "origin", "ssh://fixture.invalid/origin.git")
+        with unittest.mock.patch.dict(os.environ, {"GIT_SSH_COMMAND": str(fake_ssh), "GIT_ASKPASS": str(asker),
+                                                   "SSH_ASKPASS": str(asker), "SSH_ASKPASS_REQUIRE": "force"}):
+            note = self.push_range.refresh_base(self.work, "origin/feat-cmux-next")
+        self.assertIn("could not be fetched", note)
+        seen = record.read_text()
+        self.assertIn("BatchMode=yes", seen, "ssh must fail instead of asking")
+        self.assertNotIn(str(asker), seen, "no askpass helper reaches the fetch or its ssh")
+        self.assertIn("SSH_ASKPASS_REQUIRE=never", seen)
+        self.assertFalse((self.tmp / "asked").exists())
+
+    def test_the_rust_panic_ratchet_fetches_once_for_every_failing_group(self):
+        ratchet = load("stale_base_rust_panic_ratchet_once", "scripts/cmux-next/rust_panic_ratchet.py")
+        fetches = self.count_fetches()
+        for _ in range(3):  # three crate/lint groups over their baseline
+            self.assertEqual(ratchet._changed_first(str(self.work), ["a_base.rs:1", "z_own.rs:1"]),
+                             ["z_own.rs:1", "a_base.rs:1"])
+        self.assertEqual(len(fetches), 1, fetches)
+
+    def test_a_failed_base_fetch_is_not_retried_by_the_next_reader(self):
+        self.git(self.work, "remote", "set-url", "origin", str(self.tmp / "gone.git"))
+        ratchet = load("stale_base_rust_panic_ratchet_gone", "scripts/cmux-next/rust_panic_ratchet.py")
+        build_class = load("stale_base_build_class_gone", "scripts/ci/build_class.py")
+        fetches = self.count_fetches()
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), unittest.mock.patch.object(build_class, "ROOT", self.work):
+            ratchet._changed_first(str(self.work), ["z_own.rs:1"])
+            ratchet._changed_first(str(self.work), ["z_own.rs:1"])
+            build_class.changed_files("origin/feat-cmux-next")
+        self.assertEqual(len(fetches), 1, f"one process, one fetch of the base, failed or not: {fetches}")
+        self.assertIn("could not be fetched", stderr.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
