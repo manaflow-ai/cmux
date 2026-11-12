@@ -146,7 +146,7 @@ try:
         check(False, "timed out: the app's socket")
         raise SystemExit(1)
     listed = action("phone.list")
-    print("phone.list", json.dumps(listed)[:600], flush=True)
+    safe_print("phone.list", json.dumps(listed)[:600], flush=True)
     rows = json.loads(((listed or {}).get("result") or listed or {}).get("devices", "[]")) if isinstance(listed, dict) else []
     row = next((r for r in rows if r.get("id") == device), None)
     check(row is not None and row.get("ready"), f"phone list has the booted simulator {device}")
@@ -164,7 +164,7 @@ try:
         with open(light, "rb") as a, open(dark, "rb") as b:
             check(a.read() != b.read(), "the live screen changed after dark mode and a swipe")
     shot = action("phone.screenshot", {"device": device, "path": os.path.join(opts.out, "phone-screenshot.png")})
-    print("phone.screenshot", json.dumps(shot)[:300], flush=True)
+    safe_print("phone.screenshot", json.dumps(shot)[:300], flush=True)
     check(os.path.exists(os.path.join(opts.out, "phone-screenshot.png")), "phone screenshot wrote its PNG")
     action("phone.appearance", {"appearance": "light", "device": device})
 finally:

@@ -172,6 +172,15 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
@@ -2907,14 +2916,14 @@ def advisory_finish(started, summary: str | None, seconds: float) -> None:
             process.wait(timeout=GRACE_SECONDS + 5)
         except subprocess.TimeoutExpired:
             pass
-        print(f"::warning title=prepush advisory timed out::the hook-only checks gave no result in {seconds:g}s and "
-              "were stopped; this step's result is unchanged. Run the pre-push hook (or prepush-gate.py) locally.",
-              flush=True)
+        safe_print(f"::warning title=prepush advisory timed out::the hook-only checks gave no result in {seconds:g}s and "
+                   "were stopped; this step's result is unchanged. Run the pre-push hook (or prepush-gate.py) locally.",
+                   flush=True)
         _summary(summary, [(name, f"incomplete: timed out after {seconds:g}s") for name in ADVISORY_LAYERS])
         return
     if code != 0:
-        print(f"::warning title=prepush advisory incomplete::the advisory pass exited {code}; this step's result is "
-              "unchanged.", flush=True)
+        safe_print(f"::warning title=prepush advisory incomplete::the advisory pass exited {code}; this step's result is "
+                   "unchanged.", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
