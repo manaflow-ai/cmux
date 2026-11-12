@@ -494,6 +494,8 @@ impl Hub {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
+        #[cfg(test)]
+        self.summaries_built.fetch_add(1, Ordering::SeqCst);
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();

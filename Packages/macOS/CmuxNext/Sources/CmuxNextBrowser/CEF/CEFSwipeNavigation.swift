@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextDesign
 
+/// Not started (2026-11-11): Chromium's own history swiper handles the swipe, and this second handler drew a
+/// second arrow on every swipe (plans/cmux-next/history.md). Kept only until its files are deleted.
+///
 /// A two-finger horizontal swipe over a Chromium page goes Back or Forward, as in Safari and
 /// Chrome (plans/cmux-next/history.md 4.2). A local monitor sees each scroll event before
 /// Chromium does. `BrowserSwipeGesture` decides from the page's own answer

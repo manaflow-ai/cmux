@@ -15,7 +15,12 @@ extension TerminalSurfaceView {
         // `onInput`, but never pass through here.
         if actions.contains(where: \.isUserInput) { onUserInput?() }
         let wasEncodingUserInput = isEncodingUserInput
-        defer { isEncodingUserInput = wasEncodingUserInput }
+        let wasPerformingInput = isPerformingInput
+        isPerformingInput = true
+        defer {
+            isEncodingUserInput = wasEncodingUserInput
+            isPerformingInput = wasPerformingInput
+        }
         for action in actions {
             isEncodingUserInput = action.isUserInput
             switch action {
@@ -51,6 +56,10 @@ extension TerminalSurfaceView {
     func scrollWheel(at point: CGPoint, deltaY: CGFloat, momentum: TerminalTUIScroll.Momentum) {
         guard let surface else { return }
         let scale = window?.screen.scale ?? contentScaleFactor
+        // The person's own scroll: its reports are input, not a reply.
+        let wasPerformingInput = isPerformingInput
+        isPerformingInput = true
+        defer { isPerformingInput = wasPerformingInput }
         ghostty_surface_mouse_pos(surface, Double(point.x), Double(point.y), GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, Double(deltaY * scale), ghostty_input_scroll_mods_t(TerminalTUIScroll.mods(momentum)))
     }
@@ -69,6 +78,10 @@ extension TerminalSurfaceView {
     @discardableResult
     func click(at point: CGPoint) -> Bool {
         guard let surface, ghostty_surface_mouse_captured(surface) else { return false }
+        // The person's own tap: its click reports are input, not a reply.
+        let wasPerformingInput = isPerformingInput
+        isPerformingInput = true
+        defer { isPerformingInput = wasPerformingInput }
         ghostty_surface_mouse_pos(surface, Double(point.x), Double(point.y), GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)

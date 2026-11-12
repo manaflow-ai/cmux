@@ -309,7 +309,9 @@ for (const [harness, call] of [
     await render([item]);
     await click(toggles()[0]!);
     expect(host.querySelector(".cv-tool-output__markdown h2")?.textContent).toBe("Sample section");
-    expect([...host.querySelectorAll("button")].some((node) => node.textContent === "Show all 61 lines")).toBe(true);
+    // Its 61 lines scroll in the box, with no Show all row under it.
+    expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("cut");
+    expect([...host.querySelectorAll("button")].some((node) => node.textContent?.startsWith("Show all"))).toBe(false);
     expect([...host.querySelectorAll("button")].some((node) => node.textContent?.trim() === "Raw")).toBe(true);
     expect(activityText(item)).toContain("The service is healthy.");
     const { menuPartAt } = await import("../src/agent-session/acpmux/conversation/menuParts");

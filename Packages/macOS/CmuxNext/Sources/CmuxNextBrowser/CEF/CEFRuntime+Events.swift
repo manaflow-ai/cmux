@@ -259,7 +259,6 @@ extension CEFRuntime {
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
-        swipeNavigation.start()
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
         accessibility.attached(browser)

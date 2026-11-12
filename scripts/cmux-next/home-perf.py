@@ -21,6 +21,7 @@ import home_classic  # noqa: E402
 # The shared launch helper's socket paths and session check (bench_launch.py); this bench keeps its own launch
 # (its scratch working folder, its own session).
 from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -169,4 +170,4 @@ finally:
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
     with open(opts.out, "w") as handle:
         json.dump(results, handle, indent=1)
-    print("wrote", opts.out, flush=True)
+    safe_print("wrote", opts.out, flush=True)
