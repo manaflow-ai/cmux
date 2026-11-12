@@ -169,7 +169,7 @@ final class QuitCoordinator {
     /// The quit's steps after the decision `choice` (`QuitSteps.run`).
     func quitSteps(_ choice: QuitSessionsChoice) -> QuitSteps {
         let services = services, steps = steps // Restart to Update: acpmux goes to the new build after the saves and the drafts on their way to it (QuitSteps.handOffAcpmux).
-        let handOff: (@MainActor () async -> Void)? = services.updater.relaunchesIntoUpdate && !choice.ends ? { _ = await steps.run("acpmux_update_handoff", limit: AcpmuxUpdateHandoff.quitLimit) { await AcpmuxUpdateHandoff(QuitAgents.environment(services)).handOffForQuit() } } : nil
+        let handOff: (@MainActor () async -> Void)? = services.updater.relaunchesIntoUpdate && !choice.ends ? { @MainActor in _ = await steps.run("acpmux_update_handoff", limit: AcpmuxUpdateHandoff.quitLimit) { await AcpmuxUpdateHandoff(QuitAgents.environment(services)).handOffForQuit() } } : nil
         return QuitSteps(
             prepareWindows: { [steps] in
                 let incognito = AgentQuitFiles.incognitoTabs(services.agentTabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
