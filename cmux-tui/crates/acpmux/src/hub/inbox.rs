@@ -127,6 +127,9 @@ use std::sync::atomic::Ordering;
 
 /// The provenance kind of a notice.
 pub const NOTICE_KIND: &str = "inbox_notice";
+
+/// What every notice's prompt id starts with (`deliver_notice`).
+const NOTICE_ID_PREFIX: &str = "inbox-notice-";
 /// On a chat's first work's provenance (module docs): set by acpmux only, as no client's
 /// provenance keeps a field it does not name (`prompt_provenance.rs`).
 pub const FIRST_WORK: &str = "firstWork";
@@ -1662,7 +1665,7 @@ impl Hub {
     /// Sends the notice of every new message, as a steer or (`steer` false) a turn of its own,
     /// and answers their waiting `session/prompt`s with how it went in.
     fn deliver_notice(self: &Arc<Self>, session: &Arc<Session>, steer: bool) {
-        let notice_id = format!("inbox-notice-{}", uuid::Uuid::now_v7());
+        let notice_id = format!("{NOTICE_ID_PREFIX}{}", uuid::Uuid::now_v7());
         let (text, whole, parts, ids) = {
             let mut inbox = session.inbox.lock().unwrap_or_else(|e| e.into_inner());
             if inbox.in_flight.is_some() {
@@ -1850,6 +1853,10 @@ impl Hub {
         notice_id: &str,
         result: &super::queue::Answer,
     ) {
+        // Every notice's prompt id has the prefix: another turn's end reads no log.
+        if !notice_id.starts_with(NOTICE_ID_PREFIX) {
+            return;
+        }
         let (mut ids, mut answered) = (None::<Vec<String>>, false);
         let kinds = ["inbox_noticed", "inbox_answered"];
         let scanned = self.store.scan_kinds(&session.id, &kinds, &mut |e: EventRecord| {
