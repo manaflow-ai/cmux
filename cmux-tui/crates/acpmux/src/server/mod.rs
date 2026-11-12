@@ -1273,7 +1273,10 @@ pub async fn serve_ws_until(
             }
             // Binary frames are upload data (`upload_frames.rs`), written in order by their own
             // worker; it refuses them on any connection but the local app's.
-            let frames = upload_frames::spawn(hub.clone(), origin, proof, out_tx.clone());
+            // Answered through the connection's outbound queue once it is made, in order with
+            // every other line and counted against its byte bound (`outbound.rs`).
+            let (uploads, replies) = tokio::sync::watch::channel(None);
+            let frames = upload_frames::spawn(hub.clone(), origin, proof, replies);
             let read_shutdown = shutdown.clone();
             let reader = tokio::spawn(async move {
                 tokio::select! {
@@ -1336,8 +1339,21 @@ pub async fn serve_ws_until(
                 }
                 None => (origin, proof, None),
             };
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire), None)
-                .await;
+            serve_connection_from(
+                hub,
+                in_rx,
+                out_tx,
+                origin,
+                proof,
+                None,
+                false,
+                SocketPeer::Unknown,
+                device,
+                Some(wire),
+                None,
+                Some(uploads),
+            )
+            .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -1522,6 +1538,7 @@ pub(super) async fn serve_outbox_connection(
         None,
         None,
         None,
+        None,
     )
     .await
 }
@@ -1545,6 +1562,7 @@ pub async fn serve_connection_authed(
         None,
         false,
         SocketPeer::Unknown,
+        None,
         None,
         None,
         None,
@@ -1575,6 +1593,7 @@ async fn serve_connection_from(
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
     carrier: Option<carrier::Attested>,
+    uploads: Option<upload_frames::Replies>,
 ) {
     // A carrier proof comes with the person the carrier socket read, and only with it.
     let carried = matches!(auth, ConnAuth::CarrierOwner | ConnAuth::CarrierTeam);
@@ -1587,6 +1606,11 @@ async fn serve_connection_from(
     let client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
     let (out, gate) = outbound::start(&hub.scope, hub.store.durability(), out);
+    // The upload worker's answers (`upload_frames.rs`) go into the same queue: it holds no sender
+    // of the transport, so the pump stays its only one.
+    if let Some(uploads) = &uploads {
+        uploads.send_replace(Some(Arc::downgrade(&out)));
+    }
     // The listener's own peer link: the only transport with a writer that compresses (`wire`)
     // and a peer token checked at its upgrade; not a paired machine, nor an in-process carrier.
     let dual_principal = (wire.is_some() && auth == ConnAuth::PeerToken && device.is_none())

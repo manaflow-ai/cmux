@@ -16,10 +16,10 @@
 //! Before this a slow reader cost up to 4,096 lines of up to 31 MiB each, plus every reply waiting
 //! for room, with no bound at all.
 //!
-//! The transport's channel is counted by its lines: the pump is its only sender, so the lines it
-//! sent minus the room the channel has again are the ones still there, oldest first. One slot is
-//! kept free for the last line. (A WebSocket's upload replies, `upload_frames.rs`, also go into
-//! its channel; while one is there the count reads high, never low, and corrects as it drains.)
+//! The transport's channel is counted by its lines: the pump is its only sender (a WebSocket's
+//! upload replies, `upload_frames.rs`, come through this queue too), so the lines it sent minus the
+//! room the channel has again are the ones still there, oldest first. One slot is kept free for
+//! the last line, which no other sender can take.
 
 use super::*;
 use std::collections::VecDeque;
