@@ -51,6 +51,13 @@ takes the two newest NEXT NIGHTLYs from the feed and swaps the daemon the
 older one bundles for the newer one's, so a scheduled run swaps real builds.
 Old and new must differ in bytes; two local builds may report the same
 version and no commit stamp, so the new daemon is recognized by its process.
+The report's "binaries" gives, for every binary the check runs (cmux-tui,
+the `cmux-tui-host` beside it that the build's hosts run from, and acpmux;
+old and new), its path, sha256 and the build identity the binary itself
+prints. `--expect-new SHA` fails the check before any swap unless every new
+binary's identity is that commit with no local changes (`<commit>`, not
+`<commit>-dirty.<hash>`). The last stderr line is `daemon-swap-check: PASS`
+or `FAIL` with each binary's identity and sha256.
 
 Cleanup SIGKILLs only host processes this check claimed from their records,
 through a pidfd (Linux): a process that started after its record was
@@ -331,6 +338,60 @@ def digest(binary: Path) -> str:
 def version(binary: Path) -> str:
     out = subprocess.run([str(binary), "--version"], capture_output=True, text=True, timeout=20)
     return (out.stdout or out.stderr).strip().splitlines()[0] if (out.stdout or out.stderr) else "?"
+
+
+HOST_SIBLING = "cmux-tui-host"
+
+
+def build_identity(binary: Path, cli: bool) -> str:
+    """The build identity the binary prints itself: `cmux-tui --version --json`
+    (build_identity; offline, it reaches no daemon or app), else the last word
+    of `--version` (`cmux-tui-host <identity>`). "?" when it prints neither."""
+    if cli:
+        try:
+            out = subprocess.run([str(binary), "--version", "--json"], capture_output=True, text=True,
+                                 timeout=20, stdin=subprocess.DEVNULL)
+            found = json.loads(out.stdout).get("build_identity")
+            if isinstance(found, str) and found:
+                return found
+        except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+            pass
+    try:
+        words = version(binary).split()
+    except (OSError, subprocess.SubprocessError):
+        return "?"
+    return words[-1] if len(words) >= 2 else "?"
+
+
+def binaries(side: str, cmux_tui: Path | None, acpmux: Path | None) -> list[dict]:
+    """Every binary one side of the swap runs, each with its sha256 and identity."""
+    found = []
+    if cmux_tui:
+        host = cmux_tui.parent / HOST_SIBLING
+        found.append((f"{side}.cmux-tui", cmux_tui, True))
+        if host.is_file():
+            found.append((f"{side}.cmux-tui-host", host, False))
+    if acpmux:
+        found.append((f"{side}.acpmux", acpmux, False))
+    return [{"name": name, "path": str(path), "sha256": digest(path), "build_identity": build_identity(path, cli)}
+            for name, path, cli in found]
+
+
+def wrong_identity(entries: list[dict], sha: str) -> list[str]:
+    """New binaries whose identity is not `sha` (a full or abbreviated commit) with no local changes."""
+    want = sha.strip().lower()
+    wrong = []
+    for entry in entries:
+        identity = entry["build_identity"].lower()
+        if len(want) < 7 or not re.fullmatch(r"[0-9a-f]{7,40}", identity) or not (
+                identity.startswith(want) or want.startswith(identity)):
+            wrong.append(f"{entry['name']} reports {entry['build_identity']}, not {sha}")
+    return wrong
+
+
+def identity_line(passed: bool, entries: list[dict]) -> str:
+    parts = [f"{e['name']} {e['build_identity']} sha256 {e['sha256']}" for e in entries]
+    return f"daemon-swap-check: {'PASS' if passed else 'FAIL'} " + "; ".join(parts)
 
 
 # ---------------------------------------------------------------- fetching
@@ -1315,6 +1376,8 @@ def main() -> int:
     parser.add_argument("--fullscreen-gap-host", type=Path, action="append", metavar="BINARY",
                         help="report, not fail, a lost primary screen under a full-screen program whose host "
                              "BINARY's daemon started (a build before the alternate-screen replay fix); repeatable")
+    parser.add_argument("--expect-new", metavar="SHA",
+                        help="fail unless every new binary reports this commit as its build identity, not dirty")
     parser.add_argument("--drill", action="store_true",
                         help="the update drill: --rollback --hidden --fullscreen --flood 4 --typist --typist-shell, "
                              "24 terminals")
@@ -1343,6 +1406,17 @@ def main() -> int:
         parser.error("give --old and --new, or --fetch")
     report["old"] = version(args.old)
     report["new"] = version(args.new)
+    old_bins = binaries("old", args.old, args.old_acpmux)
+    new_bins = binaries("new", args.new, args.new_acpmux)
+    report["binaries"] = old_bins + new_bins
+    if args.expect_new:
+        report["expect_new"] = args.expect_new
+        wrong = wrong_identity(new_bins, args.expect_new)
+        if wrong:
+            report.update(passed=False, error="; ".join(wrong))
+            print(json.dumps(report, indent=2))
+            print(identity_line(False, report["binaries"]), file=sys.stderr, flush=True)
+            return 1
     # A restart of one build is not a swap: refuse identical bytes instead of
     # passing. Two local builds can report the same version and no commit.
     same = [name for name, a, b in (("cmux-tui", args.old, args.new),
@@ -1351,6 +1425,7 @@ def main() -> int:
     if same:
         report.update(passed=False, error=f"old and new {' and '.join(same)} are the same build")
         print(json.dumps(report, indent=2))
+        print(identity_line(False, report["binaries"]), file=sys.stderr, flush=True)
         return 1
 
     args.work_root.mkdir(parents=True, exist_ok=True)
@@ -1396,6 +1471,7 @@ def main() -> int:
     report["passed"] = bool(phases) and all(
         p.get("passed") and p.get("swap_secs", 1e9) < args.budget for p in phases)
     print(json.dumps(report, indent=2))
+    print(identity_line(report["passed"], report["binaries"]), file=sys.stderr, flush=True)
     return 0 if report["passed"] else 1
 
 
