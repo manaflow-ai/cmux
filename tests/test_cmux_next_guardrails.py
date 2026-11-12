@@ -171,12 +171,6 @@ class Fixture(unittest.TestCase):
     def refused(self, *args):
         return [(r.id, [f"{h.path.rsplit('/', 1)[-1]}: {h.text.strip()}" for h in hits]) for r, hits in self.check(*args)[0]]
 
-    def rebase_on(self, files, message="more base debt"):
-        for relative, text in files.items():
-            self.write(relative, text)
-        self.commit(message)
-        self.base = self.git("rev-parse", "HEAD").stdout.strip()
-
     def report(self, skip, refusals):
         os.environ[guardrails.SKIP_ENV] = skip
         try:
@@ -186,6 +180,26 @@ class Fixture(unittest.TestCase):
 
 
 class RuleTests(Fixture):
+    def test_phone_width_reads_the_iphone_app_only(self):
+        tile = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/Tiles.swift"
+        bad = ("import SwiftUI\nstruct Tiles: View {\n    var body: some View {\n"
+               "        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3)) { EmptyView() }\n"
+               "        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) { EmptyView() }\n"
+               "        Color.clear.frame(width: 402)\n    }\n}\n")
+        good = ("import SwiftUI\nstruct Tiles: View {\n    var body: some View {\n"
+                "        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 160))]) { EmptyView() }\n"
+                "        // width-allow: a placeholder frame the representable resizes at layout\n"
+                "        Color.clear.frame(width: 402)\n    }\n}\n")
+        for path, text, refused in ((tile, bad, 3), (tile, good, 0),
+                                    ("Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/Grid.swift", bad, 3),
+                                    (f"{KIT}/Tiles.swift", bad, 0)):
+            with self.subTest(path=path, refused=refused):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, text)
+                self.commit("tiles")
+                hits = [h for r, hs in self.check()[0] if r.id == "phone-width" for h in hs]
+                self.assertEqual(len(hits), refused, [h.text for h in hits])
+
     def test_raw_observation_is_allowed_in_the_tracked_wrappers_only(self):
         wrapper = "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/SingleArmedTracking.swift"
         self.git("reset", "--quiet", "--hard", self.base)
@@ -2495,11 +2509,6 @@ class HookTests(Fixture):
         # Retention is by use, not by age or position: a push holds its copy (the test below); with none running
         # the replaced copy goes, so copies never pile up.
         self.assertFalse(before.exists(), "no push holds the replaced copy")
-
-    def install(self):
-        result = subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo, env=self.env, text=True,
-                                capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_push_running_on_an_old_checks_copy_keeps_it_through_later_installs(self):
         # The gate resolves the checks link once. A push that started on a days-old copy and is still in swiftlint

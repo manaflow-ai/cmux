@@ -36,6 +36,13 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+# The scratch repositories below are git writes: the helper drops an inherited GIT_DIR and turns maintenance off.
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 DIRS = ("scripts", ".github")
@@ -139,7 +146,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "66622eabfdc5edc74eb8b4b2ffda9c48500eb6ebad290b8340d25693b6a4495b"
+SHELL_TREE_SHA256 = "b7c1cf41d30eae39a099f54bafd92449e0d948f50d5e7f1388efe24cab227aeb"
 
 
 def without_templates(line: str) -> str:

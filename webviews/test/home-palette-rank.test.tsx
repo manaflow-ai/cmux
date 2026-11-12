@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import table from "../src/pages/home-channels/generated/strings.json";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -54,7 +55,8 @@ afterEach(async () => {
   host.replaceChildren();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;

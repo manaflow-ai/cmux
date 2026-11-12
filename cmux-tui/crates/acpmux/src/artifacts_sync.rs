@@ -342,11 +342,11 @@ impl ArtifactsSync {
             return Ok(());
         }
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+            crate::home_fs::create_dirs(parent)?;
         }
         let temporary = path.with_extension("json.tmp");
-        fs::write(&temporary, &bytes)?;
-        fs::rename(&temporary, path)?;
+        crate::home_fs::write(&temporary, &bytes)?;
+        crate::home_fs::rename(&temporary, path)?;
         self.saved_state = bytes;
         Ok(())
     }

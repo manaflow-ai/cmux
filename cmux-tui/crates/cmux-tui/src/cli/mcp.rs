@@ -29,6 +29,7 @@ mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
+mod customize_tools;
 mod keybinding_tools;
 mod live_code_tools;
 mod messages;
@@ -218,6 +219,16 @@ pub(super) trait Backend {
         ))
     }
 
+    /// One `cmux customize WORDS…` verb, run by the CLI's own code
+    /// (`customize_tools`).
+    fn customize(&self, _words: &[String]) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "customize.unavailable",
+            "this server cannot reach the customization files",
+        ))
+    }
+
     /// Cloud chat repo actions run on the selected machine daemon.
     fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
@@ -351,6 +362,15 @@ impl Backend for LiveBackend {
             kind: if unknown { FailureKind::InProgress } else { FailureKind::Rejected },
             error,
             idempotency_key: idempotency_key.map(str::to_owned),
+        })
+    }
+
+    #[cfg(unix)]
+    fn customize(&self, words: &[String]) -> Result<Value, CallFailure> {
+        super::customize::run_json(words, "mcp").map_err(|error| CallFailure {
+            kind: FailureKind::Rejected,
+            error,
+            idempotency_key: None,
         })
     }
 
@@ -824,6 +844,7 @@ impl<B: Backend> Server<B> {
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
         tools.extend(automation_tools::descriptors());
+        tools.extend(customize_tools::descriptors());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -1081,6 +1102,9 @@ impl<B: Backend> Server<B> {
             return Ok(tool.call(&self.backend, &arguments));
         }
         if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
+        }
+        if let Some(result) = customize_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
         }
         if let Some(tool) = remote_tools::find(name) {

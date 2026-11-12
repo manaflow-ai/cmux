@@ -122,10 +122,13 @@ pub fn path_in(home: &Path) -> PathBuf {
 /// Makes the token file in `home` when there is none: 32 random bytes, hex, owner-only, written
 /// to a temporary file and linked into place, so a reader never sees half of it and a file
 /// already there (another daemon's) is never replaced. Leaves a file it does not trust
-/// ([`read_trusted`]) as it is and says so.
+/// ([`read_trusted`]) as it is and says so. Under the home this daemon holds, the file is made
+/// through that folder (`home_fs`): a home replaced after the check never gets this host's
+/// token (#41372 review F1).
 pub fn ensure(home: &Path) -> anyhow::Result<()> {
     let path = path_in(home);
-    if std::fs::symlink_metadata(&path).is_ok() {
+    crate::config::refuse_lost_home(&path)?;
+    if crate::home_fs::exists_nofollow(&path) {
         if read_trusted(&path).is_none() {
             tracing::warn!(
                 "{} is not a regular owner-only file of this user: no send is verified by it",
@@ -139,23 +142,22 @@ pub fn ensure(home: &Path) -> anyhow::Result<()> {
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     let tmp = home.join(format!(".{FILE}.tmp-{}", std::process::id()));
     let made = write_new(&tmp, token.as_bytes()).and_then(|()| {
-        match std::fs::hard_link(&tmp, &path) {
+        match crate::home_fs::hard_link(&tmp, &path) {
             Ok(()) => Ok(()),
             // Another daemon made it first: its token stands.
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
             Err(e) => Err(e.into()),
         }
     });
-    let _ = std::fs::remove_file(&tmp);
+    let _ = crate::home_fs::remove_file(&tmp);
     made
 }
 
 #[cfg(unix)]
 fn write_new(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let _ = std::fs::remove_file(path);
-    let mut f = std::fs::OpenOptions::new()
+    let _ = crate::home_fs::remove_file(path);
+    let mut f = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
