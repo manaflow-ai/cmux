@@ -868,6 +868,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     var isHoldingFold: Bool { foldHolding }
 
     private func scroll(to target: CGPoint, animated: Bool) {
+        // A flick's momentum kept moving the page under the animation, so Jump to Bottom
+        // stopped short (Leo, 2026-11-12). Stop it first; the move starts from where it is now.
+        scrollView.haltScrollMomentum()
         if animated, !reducesMotion() {
             // A long jump animated the offset across pages SwiftUI had not drawn yet (a
             // blank band and stale fragments for ~300 ms). Cut to one screen short of the
