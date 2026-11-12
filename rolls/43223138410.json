@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43223138410",
+  "recorded_at": "2026-11-12T13:16:30Z",
+  "reason": "cmux-tui 27641d8ffb4c changes the image's cmux-tui (pinned b5fb849f7f3f)",
+  "dry_run": false,
+  "cmux_tui": "27641d8ffb4c06360d55252c6db84e7058405b83",
+  "fixes": [
+    {
+      "sha": "27641d8ffb4c06360d55252c6db84e7058405b83",
+      "mergedAt": "2026-11-12T06:46:31-06:00",
+      "subject": "fix(acpmux): Linux clippy: RootEntries is sent only on macOS"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T13:16:30Z",
+    "snapshot_id": "sh-9fbfeb375b194f42a4e2b23373b327a9",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43223138410): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c31b67ffab018abb2d7b7a1cdc98f261797a3432",
+    "image": "cloud-native-auto-27641d8f-43223138410-1",
+    "revision": "ci-43223138410-1",
+    "at": "2026-11-12T13:16:30Z"
+  },
+  "rolled_back": false
+}
