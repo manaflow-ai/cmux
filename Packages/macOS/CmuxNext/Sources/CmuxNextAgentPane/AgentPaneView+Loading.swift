@@ -109,7 +109,7 @@ public final class AgentPaneLoadingView: NSView {
     /// thread and then hops here, so the cover can hide, leave or start a new delay in between: only the
     /// newest delay, with no ``hideMark()`` after it, puts the mark in.
     func markDelayEnded(_ turn: Int) {
-        guard turn == markTurn else { return }
+        _ = turn // MUTATION, never merges: the turn check is out, to see the red of its test by a run
         addSubview(indicator)
     }
 
