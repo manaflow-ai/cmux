@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -121,6 +122,7 @@ class RunAllTests(unittest.TestCase):
                 check=False,
                 capture_output=True,
                 text=True,
+                env={**os.environ, "CMUX_TUI_CORE_TEST_JOBS": "1"},
             )
             ran_log = root / "ran.log"
             ran = ran_log.read_text(encoding="utf-8").split() if ran_log.exists() else []
@@ -161,6 +163,104 @@ class RunAllTests(unittest.TestCase):
         code, output, ran = self.run_runner(set())
         self.assertEqual(ran, ["a_red_test", "b_green_test"], output)
         self.assertEqual(code, 0, output)
+
+
+def write_pool_core(root: Path, cases: dict[str, str]) -> tuple[Path, Path]:
+    """A fake core test binary whose tests are CASES (name to shell body), listed in name order.
+
+    Each test records its name in `ran.log` when it starts. Returns (messages, core_root).
+    """
+    core_root = root / "crates" / "cmux-tui-core"
+    (core_root / "src").mkdir(parents=True)
+    binary = root / "cmux_tui_core-pool"
+    listing = "".join(f"{name}: test\\n" for name in sorted(cases))
+    bodies = "".join(f"  {name}) {body} ;;\n" for name, body in sorted(cases.items()))
+    binary.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [ "$1" = --list ]; then\n'
+        '  [ "$2" = --ignored ] && exit 0\n'
+        f"  printf '{listing}'\n"
+        "  exit 0\n"
+        "fi\n"
+        f'echo "$1" >> "{root / "ran.log"}"\n'
+        'case "$1" in\n'
+        f"{bodies}"
+        "esac\n",
+        encoding="utf-8",
+    )
+    binary.chmod(0o755)
+    messages = root / "messages.jsonl"
+    messages.write_text(
+        json.dumps({
+            "reason": "compiler-artifact",
+            "profile": {"test": True},
+            "target": {"kind": ["lib"], "src_path": str(core_root / "src" / "lib.rs")},
+            "executable": str(binary),
+        }) + "\n",
+        encoding="utf-8",
+    )
+    return messages, core_root
+
+
+def wait_for(path: Path) -> str:
+    """A fake-test step that goes on once PATH exists, and exits 1 if it never comes (20 s)."""
+    return (
+        f'for _ in $(seq 200); do [ -e "{path}" ] && break; sleep 0.1; done; '
+        f'[ -e "{path}" ] || exit 1'
+    )
+
+
+class PoolTests(unittest.TestCase):
+    def run_pool(self, root: Path, cases: dict[str, str], jobs: str) -> tuple[int, str, list[str]]:
+        messages, core_root = write_pool_core(root, cases)
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), str(messages), str(core_root)],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "CMUX_TUI_CORE_TEST_JOBS": jobs},
+        )
+        ran_log = root / "ran.log"
+        ran = ran_log.read_text(encoding="utf-8").split() if ran_log.exists() else []
+        return result.returncode, result.stdout + result.stderr, ran
+
+    def test_tests_run_at_the_same_time_each_in_its_own_process(self) -> None:
+        # `a_waits` passes only if `b_marks` starts while it runs: one test after another,
+        # it waits for a test that has not started and fails.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            mark = root / "b.started"
+            cases = {"a_waits": wait_for(mark) + "; exit 0", "b_marks": f'touch "{mark}"; exit 0'}
+            code, output, ran = self.run_pool(root, cases, "2")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(sorted(ran), ["a_waits", "b_marks"], output)
+
+    def test_a_cancel_stops_every_worker(self) -> None:
+        # `a_cancelled` ends as a cancelled job does; `b_running` runs beside it and would wait
+        # 20 s. The runner must end `b_running`, start no other test, and exit with the cancel.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            started = root / "b.started"
+            cases = {
+                "a_cancelled": wait_for(started) + "; exit 130",
+                "b_running": f'touch "{started}"; ' + wait_for(root / "never"),
+                "c_after": "exit 0",
+                "d_after": "exit 0",
+            }
+            code, output, ran = self.run_pool(root, cases, "2")
+        self.assertEqual(code, 130, output)
+        self.assertNotIn("c_after", ran, output)
+        self.assertNotIn("d_after", ran, output)
+
+    def test_every_red_is_listed_and_the_first_in_test_order_is_returned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = {"a_red": "exit 3", "b_green": "exit 0", "c_red": "exit 4", "d_green": "exit 0"}
+            code, output, ran = self.run_pool(root, cases, "2")
+        self.assertEqual(code, 3, output)
+        self.assertEqual(sorted(ran), ["a_red", "b_green", "c_red", "d_green"], output)
+        self.assertIn("a_red", output)
+        self.assertIn("c_red", output)
 
 
 if __name__ == "__main__":
