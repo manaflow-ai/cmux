@@ -1,5 +1,11 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-10: the one list has no "Workspaces" heading again (cx-mdo0's bare list). The user, verbatim: "remove the
+  "Workspaces" section header in the sidebar (shown under "Home" at the top of the sidebar). The user wants it gone
+  entirely; the workspace list should sit directly under Home with proportional spacing." The heading row
+  (`SidebarListHeader.workspaces`), its layout option and its Debug toggle (`sidebar.listHeading`) are removed, not
+  defaulted off: the first workspace row starts at `topPadding` under the top band, as every list did before #39984.
+  Projects and Recents keep their headers. Regression: `SidebarCodexMatchTests.oneListHasNoHeading`.
 - 2026-11-09: at Default density the sidebar matches the Codex desktop sidebar
   (https://github.com/manaflow-ai/cmux/issues/39956; measured in https://github.com/manaflow-ai/cmux/issues/28793 and the
   Codex stylesheet). The user, verbatim: "the sidebar colour is too bright (bright grey selection pill on Recents row).
@@ -9,10 +15,10 @@
   other density keeps its rows, its `space1` gap and the tab radius. At every density: titles in `Palette.sidebarTitle`
   (the primary text 12% toward the ground, 4.5:1 on every fill), detail lines tertiary, section and list headings at the
   row size, regular, secondary ink (`SidebarStyle.headerFont`, was 12 pt semibold); the neutral hover, selection and
-  pressed fills are Codex's 5/8/12% dark and 4/6/10% light (`ThemeTokens`). Two take back earlier calls and each has a
+  pressed fills are Codex's 5/8/12% dark and 4/6/10% light (`ThemeTokens`). One takes back an earlier call and has a
   Debug toggle: a dim layer over the sidebar (`sidebar.surfaceDim.dark`, `.light`; off since 2026-11-11, see below;
-  Lawrence 2026-10-19 had one surface; skipped under `appearance.surfaces.sidebar` or a separate chrome shade) and a quiet "Workspaces" heading over
-  the one list (`sidebar.listHeading`; cx-mdo0 had none). What paints the sidebar's own color (badge cutout rings, the
+  Lawrence 2026-10-19 had one surface; skipped under `appearance.surfaces.sidebar` or a separate chrome shade). The quiet
+  "Workspaces" heading it also drew over the one list is gone (2026-11-10, below). What paints the sidebar's own color (badge cutout rings, the
   Needs-You tray backing, favicon grounds) reads `SidebarStyle.ground`, the background under the dim. The softer fills
   also move every theme's secondary and tertiary inks (theme-ink-vectors.json regenerated). Regression:
   `SidebarCodexMatchTests`.

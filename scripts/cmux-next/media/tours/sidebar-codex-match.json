@@ -128,21 +128,8 @@
    "optional": "debug.appearance is DEBUG only"
   },
   {
-   "title": "Dark, Default density: Codex rows (30 pt, no gap, 8 pt padding, 10 pt corner), soft titles, Workspaces heading, dimmed sidebar",
+   "title": "Dark, Default density: Codex rows (30 pt, no gap, 8 pt padding, 10 pt corner), soft titles, dimmed sidebar",
    "wait": 2
-  },
-  {
-   "title": "Dark, no Workspaces heading (sidebar.listHeading off)",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "sidebar.listHeading",
-     "value": false
-    }
-   },
-   "wait": 2,
-   "optional": "debug.tunables is DEBUG only"
   },
   {
    "title": "Dark, no sidebar dim (sidebar.surfaceDim.dark 0)",
@@ -203,7 +190,7 @@
    "optional": "debug.appearance is DEBUG only"
   },
   {
-   "title": "Light, Default density: Codex rows, soft titles, Workspaces heading, dimmed sidebar",
+   "title": "Light, Default density: Codex rows, soft titles, dimmed sidebar",
    "wait": 2
   },
   {
