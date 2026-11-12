@@ -73,6 +73,8 @@ final class PageState {
     private(set) var items: [PaletteItem] = []
     private(set) var sections: [PaletteSection] = []
     private(set) var entries: [PaletteSearchEntry] = []
+    /// The rows a typed query never filters out (`PaletteItem.showsForEveryQuery`), in item order. Empty for nearly every page.
+    private(set) var notices: [PaletteItem] = []
     private(set) var version = 0
     /// Versions are unique across pages: the searcher keeps one index and
     /// must never mistake another page's snapshot for this one.
@@ -156,6 +158,7 @@ final class PageState {
         self.items = items
         self.entries = entries
         self.sections = sections
+        notices = items.filter(\.showsForEveryQuery)
         Self.versionCounter += 1
         version = Self.versionCounter
     }

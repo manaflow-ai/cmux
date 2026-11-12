@@ -201,7 +201,8 @@ extension PaletteModel {
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
                 let found = Self.leading(queryItems?(request.query), state.resolve(result.sections))
-                self.deliver(Self.orNoMatch(found, noMatchItems, trails: trails, query: request.query, state: state), to: state, generation: generation)
+                let shown = Self.orNoMatch(found, noMatchItems, trails: trails, query: request.query, state: state)
+                self.deliver(Self.withNotices(shown, state.notices), to: state, generation: generation)
                 self.closeIfPending()
             }
         }
@@ -282,6 +283,24 @@ extension PaletteModel {
         guard let items, !items.isEmpty else { return sections }
         let rows = items.map { PaletteRow(item: $0, highlights: [], score: 0) }
         return [PaletteResultSection(section: items[0].section, rows: rows)] + sections
+    }
+
+    /// `sections` with each of the page's `notices` (`PaletteItem.showsForEveryQuery`) that the typed query did
+    /// not find, after the rows of its section, or in a last section of its own. A page with no notice (nearly
+    /// every page) costs one check.
+    static func withNotices(_ sections: [PaletteResultSection], _ notices: [PaletteItem]) -> [PaletteResultSection] {
+        guard !notices.isEmpty else { return sections }
+        let found = Set(sections.lazy.flatMap(\.rows).map(\.id))
+        var sections = sections
+        for notice in notices where !found.contains(notice.id) {
+            let row = PaletteRow(item: notice, highlights: [], score: 0)
+            if let index = sections.firstIndex(where: { $0.section.id == notice.section.id }) {
+                sections[index] = PaletteResultSection(section: sections[index].section, rows: sections[index].rows + [row])
+            } else {
+                sections.append(PaletteResultSection(section: notice.section, rows: [row]))
+            }
+        }
+        return sections
     }
 
     /// `sections`, or the page's no-match rows first when the typed query found no row and no provider

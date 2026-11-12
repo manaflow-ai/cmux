@@ -34,6 +34,9 @@ extension PaletteModel {
             if state.liveReads > 0 {
                 state.cancelReads()
                 state.needsLoad = true
+                // The reads that ended give no rows: the page waits for none, until it loads again.
+                state.pendingProviders = []
+                if state === current { isLoading = state.answersQuery }
             }
             leave(state)
         }

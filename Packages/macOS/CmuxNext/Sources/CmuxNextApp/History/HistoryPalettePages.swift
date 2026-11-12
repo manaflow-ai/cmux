@@ -66,7 +66,8 @@ enum HistoryPalettePages {
 
     /// A page's status row (`HistoryRead.status`): Try Again reloads the page, and the palette shows its spinner meanwhile.
     static func statusItem(_ status: HistoryRead.Status) -> PaletteItem {
-        PaletteItem(id: status.id, title: status.title, subtitle: status.detail, symbol: status.symbol, isEnabled: status.canRetry,
+        PaletteItem(id: status.id, title: status.title, subtitle: status.detail, symbol: status.symbol,
+                    isEnabled: status.canRetry, showsForEveryQuery: status.staysWhenFiltered,
                     primary: PaletteCommand(id: "retry", title: HistoryRead.tryAgain, symbol: "arrow.clockwise", effect: .performKeepingOpen {}))
     }
 
@@ -106,9 +107,8 @@ enum HistoryPalettePages {
         if !entry.isAvailable { accessory = HistoryAppStrings.offline }
         secondary.append(PaletteCommand(id: "remove", title: HistoryAppStrings.remove, symbol: "trash", isDestructive: true,
                                         effect: .performKeepingOpen { services.history.remove(entry) }))
-        let subtitle = [entry.detail, entry.machineName].compactMap { $0 }.joined(separator: " · ")
         return PaletteItem(
-            id: entry.id, title: entry.title, subtitle: subtitle.isEmpty ? nil : subtitle, accessory: accessory,
+            id: entry.id, title: entry.title, subtitle: entry.detailLine, accessory: accessory,
             symbol: entry.kind.symbol, brand: entry.agentBrand, keywords: [entry.searchText], isEnabled: entry.isAvailable,
             primary: PaletteCommand(id: "open", title: primaryTitle, symbol: "return", effect: .perform { restorer.open(entry) }),
             secondary: secondary)
