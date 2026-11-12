@@ -595,5 +595,22 @@ class GhShimTests(unittest.TestCase):
                     self.assertEqual(fb.gh_shim(["api", "repos/manaflow-ai/cmux/actions/runs"]), 1)
 
 
+class OriginTests(unittest.TestCase):
+    """The checkout's origin is the mirror's upstream, so a step asking origin for a tag the mirror does not fetch
+    (the notices step's cmux-rbh-src-* check) sees GitHub's answer, not a false red (tip loop, 2026-11-12)."""
+
+    def test_origin_is_the_mirrors_upstream_or_the_mirror(self) -> None:
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as base:
+            mirror = Path(base) / "cmux.git"
+            git(Path(base), "init", "-q", "--bare", str(mirror))
+            here = SimpleNamespace(git_dir=str(mirror))
+            self.assertEqual(fb.Interpreter.origin_url(here), str(mirror.resolve()))
+            git(Path(base), "--git-dir", str(mirror), "remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git")
+            self.assertEqual(fb.Interpreter.origin_url(here), "https://github.com/manaflow-ai/cmux.git")
+            git(Path(base), "--git-dir", str(mirror), "remote", "set-url", "origin", "/elsewhere/cmux.git")
+            self.assertEqual(fb.Interpreter.origin_url(here), str(mirror.resolve()))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -818,7 +818,10 @@ class Interpreter:
             alternates = dest / ".git" / "objects" / "info" / "alternates"
             alternates.parent.mkdir(parents=True, exist_ok=True)
             alternates.write_text(os.path.join(os.path.abspath(self.git_dir), "objects") + "\n")
-            subprocess.run(git + ["remote", "add", "origin", os.path.abspath(self.git_dir)], check=True)
+            # origin is the mirror's own upstream when it has one, as actions/checkout's origin is GitHub: a step
+            # that asks origin for a ref the mirror does not fetch (tags: the notices step's cmux-rbh-src-* check)
+            # sees what the nightly sees, instead of a false red. Objects still come from the mirror (alternates).
+            subprocess.run(git + ["remote", "add", "origin", self.origin_url()], check=True)
         subprocess.run(git + ["-c", "advice.detachedHead=false", "checkout", "-q", "--force", "--detach", ref],
                        check=True)
         if submodules in (True, "true", "recursive"):
@@ -826,6 +829,14 @@ class Interpreter:
             if submodules == "recursive":
                 command.append("--recursive")
             subprocess.run(command, check=True)
+
+    def origin_url(self) -> str:
+        """The mirror's remote.origin.url when it is a network address, else the mirror's own path."""
+        upstream = subprocess.run(["git", "--git-dir", self.git_dir, "config", "--get", "remote.origin.url"],
+                                  capture_output=True, text=True).stdout.strip()
+        if re.match(r"^(https://|ssh://|git@)", upstream):
+            return upstream
+        return os.path.abspath(self.git_dir)
 
     def setup_node(self, version: str) -> str:
         """The bin directory of node VERSION, put there by ensure-setup-node.sh in a tool cache kept across runs."""
