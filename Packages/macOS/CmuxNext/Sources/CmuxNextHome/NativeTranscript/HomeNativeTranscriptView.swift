@@ -361,6 +361,10 @@ public final class HomeNativeTranscriptView: NSView {
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
 
+    /// Where the keyboard goes when Home gets focus or a key typed elsewhere in it: the picture viewer while it is
+    /// open over the chat (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { transcript.keyboardTarget }
+
     /// The home (`$MUX_HOME`) of the Chief that answers here, when its host runs on this Mac: `/` in the
     /// message box then lists its skills, the person's Claude Code skills and their plugins' skills (the
     /// folders its host reads, slash_skills.rs). Nil: no `/` menu.

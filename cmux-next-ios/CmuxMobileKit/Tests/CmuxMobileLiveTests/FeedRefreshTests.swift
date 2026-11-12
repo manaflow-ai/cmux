@@ -61,8 +61,9 @@ final class WatchReply: @unchecked Sendable {
     }
 
     /// A list past acpmux's reply budget comes in pages: the watch's first rows and a
-    /// `nextCursor`, the rest from `_acpmux/sessions {cursor}` (no `enabled`). The hub's
-    /// bind and a refresh both see every session.
+    /// `nextCursor`, the rest from `_acpmux/sessions {cursor}` (no `enabled`). The hub is
+    /// ready with the first page and reads the rest after it (CMUX-563); then the hub and a
+    /// refresh both see every session.
     @Test func bindAndRefreshFollowTheWatchCursor() async throws {
         let mac = MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -81,6 +82,8 @@ final class WatchReply: @unchecked Sendable {
         }
         let hub = AcpmuxHub()
         await hub.bind(try await mac.openChannel(service: "acpmux", args: [:]))
+        await hub.restOfList?.value
+        #expect(hub.listWhole)
         #expect(Set(hub.sessions.keys) == ["s1", "s2"])
 
         let store = FeedStore(items: [])
