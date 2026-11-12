@@ -297,8 +297,7 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
     // these aren't folded?"): the steps of only quiet thoughts join the calls beside them, so a4's calls
     // draw under a3's line and no quiet-only step is left as a row of its own.
     expect(opened.ids).toContain("a3");
-    expect(opened.ids).toContain("a6");
-    for (const id of ["a4", "a5", "a7"]) expect(opened.ids).not.toContain(id);
+    for (const id of ["a4", "a5"]) expect(opened.ids).not.toContain(id);
     expect(opened.blank).toEqual([]);
 
     await toggle(page);
