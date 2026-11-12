@@ -114,6 +114,13 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// Where a fork branched off its parent.
     pub fork_seq: Option<u64>,
+    /// Whether the chat forks, and edits, through any completed turn, not only its latest: its
+    /// harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+    /// family name its profile carries. Absent from a peer on an older acpmux, where a client
+    /// falls back to the family.
+    #[serde(default)]
+    #[schemars(default)]
+    pub forks_any_turn: bool,
     /// The session whose agent started this one, kept only while that parent
     /// is listed and is a root itself: one level, for lists that fold one level.
     /// `parent` without those rules, else an older client's `spawnedBy` tag.

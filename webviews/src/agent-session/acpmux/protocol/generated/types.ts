@@ -1417,6 +1417,13 @@ export type SessionDetail = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * Whether the chat forks, and edits, through any completed turn, not only its latest: its
+   * harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+   * family name its profile carries. Absent from a peer on an older acpmux, where a client
+   * falls back to the family.
+   */
+  forksAnyTurn?: boolean;
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own
@@ -1744,6 +1751,13 @@ export type SessionSummary = {
   family?: (string | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
+  /**
+   * Whether the chat forks, and edits, through any completed turn, not only its latest: its
+   * harness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever
+   * family name its profile carries. Absent from a peer on an older acpmux, where a client
+   * falls back to the family.
+   */
+  forksAnyTurn?: boolean;
   harness: string;
   /**
    * Unix milliseconds when its harness first refused a command because the harness's own

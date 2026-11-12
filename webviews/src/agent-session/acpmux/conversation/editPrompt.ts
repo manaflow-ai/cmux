@@ -4,12 +4,14 @@
 // first prompt has no turn before it, and a failed or queued prompt was never answered.
 import type { AcpmuxRow } from "../model";
 
-const canEditThrough = (family: string | undefined) => family === "claude" || family === "codex";
+// `family`: the chat's family, or acpmux's own answer (`forksAnyTurn`, messageMenu.ts) when it gave one.
+const canEditThrough = (family: string | boolean | undefined) =>
+  typeof family === "boolean" ? family : family === "claude" || family === "codex";
 
 const isEditablePrompt = (row: AcpmuxRow) =>
   row.kind === "user" && !!row.text && !row.failed && !row.queued && !row.pending && row.steer !== "waiting";
 
-export function editableTurns(rows: readonly AcpmuxRow[], family: string | undefined): Map<string, number> {
+export function editableTurns(rows: readonly AcpmuxRow[], family: string | boolean | undefined): Map<string, number> {
   const seqs = new Map<string, number>();
   if (!canEditThrough(family)) return seqs;
   let through: number | undefined;
@@ -26,7 +28,7 @@ export function editableTurns(rows: readonly AcpmuxRow[], family: string | undef
 /// caller can use it as a memo key.
 export type EditableTurns = {
   rows: readonly AcpmuxRow[];
-  family: string | undefined;
+  family: string | boolean | undefined;
   /// Each turn summary with a seq (its row index and seq), to find the turn a resumed read is in.
   summaries: { index: number; seq: number }[];
   /// Each editable prompt (its row index, id and the turn its edit forks through).
@@ -36,7 +38,7 @@ export type EditableTurns = {
 
 export function trackEditableTurns(
   rows: readonly AcpmuxRow[],
-  family: string | undefined,
+  family: string | boolean | undefined,
   previous?: EditableTurns,
 ): EditableTurns {
   if (previous && previous.rows === rows && previous.family === family) return previous;

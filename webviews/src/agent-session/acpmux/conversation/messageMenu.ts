@@ -9,6 +9,7 @@
 import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import { findSession } from "../sessionIndex";
 import { menuPartAt, type MenuPart } from "./menuParts";
 import { retryHelps, sendCause } from "../sendFailure";
 import { withoutSkillDollars } from "../slashCommands";
@@ -104,7 +105,17 @@ export function forkToTarget(snapshot: AcpmuxSnapshot): { live: true } | { throu
 
 /// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
 /// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
-export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
+/// acpmux says so per chat (`forksAnyTurn` on its session row: the harness cuts a conversation at a
+/// turn, by kind), so a Claude Code profile under its own family name (`claude-sr2`) forks every turn
+/// too; only an older acpmux that does not say is read by family.
+export function forksAnyTurn(snapshot: Pick<AcpmuxSnapshot, "summary" | "sessions" | "sessionId">): boolean {
+  const id = snapshot.summary?.sessionId ?? snapshot.sessionId;
+  const listed = id ? findSession(snapshot.sessions ?? [], id)?.forksAnyTurn : undefined;
+  return listed ?? familyForksAnyTurn(snapshot.summary?.family);
+}
+
+/// An older acpmux's answer: only the `claude` and `codex` families fork through any turn.
+export const familyForksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
 
 /// Every turn a fork can start from, newest first: its seq and the prompt that began it (on one
 /// line). A steer later in the turn does not rename it, nor does a prompt that failed or is still
@@ -170,7 +181,7 @@ export function messageMenuTarget(
   const forkSeq =
     canFork(snapshot) &&
     completedTurnSeq !== undefined &&
-    (forksAnyTurn(snapshot.summary?.family) || completedTurnSeq === latestForkSeq(snapshot.rows))
+    (forksAnyTurn(snapshot) || completedTurnSeq === latestForkSeq(snapshot.rows))
       ? completedTurnSeq
       : undefined;
   // Assistant bodies mark the turn's summary row in the rail. Prompts keep their own user row.

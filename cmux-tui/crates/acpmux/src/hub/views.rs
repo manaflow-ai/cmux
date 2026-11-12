@@ -529,6 +529,16 @@ impl Hub {
         self.summary_with_tools(session, false)
     }
 
+    /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
+    /// profile cuts a conversation at a turn (`config::turn_cut`), by kind, not by family name (a
+    /// Claude Code profile named `claude-sr2` with that family is Claude Code too). False while the
+    /// configuration is being written, as the other summary reads of it.
+    pub(crate) fn forks_any_turn(&self, m: &crate::store::SessionMeta) -> bool {
+        self.config.try_read().ok().is_some_and(|cfg| {
+            cfg.profile(&m.harness).and_then(|p| crate::config::turn_cut(&m.harness, p)).is_some()
+        })
+    }
+
     fn summary_with_tools(&self, session: &Session, with_tools: bool) -> Value {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
@@ -603,6 +613,7 @@ impl Hub {
             parent_id: m.parent_id.clone(),
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
+            forks_any_turn: self.forks_any_turn(&m),
             spawned_by: self.spawned_by(&m),
             parent: lineage.as_ref().map(|l| l.parent.clone()),
             root: lineage.as_ref().map_or_else(|| m.id.clone(), |l| l.root.clone()),
@@ -1007,6 +1018,38 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[cfg(test)]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
+
+#[cfg(test)]
+mod forks_any_turn_tests {
+    use serde_json::json;
+
+    fn meta(harness: &str) -> crate::store::SessionMeta {
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": harness,
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2
+        }))
+        .unwrap()
+    }
+
+    /// Leo, 2026-11-11: "why are only some chats forkable". A Claude Code profile under its own
+    /// family name forks through any turn, as `fork.rs` does by kind; an ACP agent that is not
+    /// Codex forks only at its end. The summary says which.
+    #[test]
+    fn a_claude_code_profile_under_any_family_forks_every_turn() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({"harnesses": {
+            "claude-sr2": {"argv": ["claude-sr2"], "kind": "claude-stdio", "family": "claude-sr2"},
+            "codex": {"argv": ["codex-acp"]},
+            "opencode": {"argv": ["opencode", "acp"], "family": "opencode"},
+        }}))
+        .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let hub = crate::hub::Hub::new(config, Box::new(crate::store::MemoryStore::default()));
+        assert!(hub.forks_any_turn(&meta("claude-sr2")));
+        assert!(hub.forks_any_turn(&meta("codex")));
+        assert!(!hub.forks_any_turn(&meta("opencode")));
+        assert!(!hub.forks_any_turn(&meta("gone")));
+    }
+}
 
 /// `true` when this daemon runs in the user's login session (its agents read the
 /// login keychain), `false` when it does not, `"unknown"` when its security session

@@ -585,9 +585,14 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                 )}
               </span>
             )}
-            {!messages && fork && seq !== undefined && (forkAny || seq === forkSeq) && (
-              <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
-            )}
+            {!messages &&
+              fork &&
+              seq !== undefined &&
+              (forkAny || seq === forkSeq ? (
+                <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+              ) : (
+                <ForkButton onFork={() => undefined} unavailable={t("turn.forkLatestOnly")} />
+              ))}
             {tryAnotherApproach && seq !== undefined && seq === forkSeq && (
               <TryAnotherApproachButton onTry={() => tryAnotherApproach(seq)} />
             )}

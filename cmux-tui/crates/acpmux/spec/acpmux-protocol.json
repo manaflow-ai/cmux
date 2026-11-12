@@ -5633,6 +5633,11 @@
             "null"
           ]
         },
+        "forksAnyTurn": {
+          "default": false,
+          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent from a peer on an older acpmux, where a client\nfalls back to the family.",
+          "type": "boolean"
+        },
         "harness": {
           "type": "string"
         },
@@ -6341,6 +6346,11 @@
             "integer",
             "null"
           ]
+        },
+        "forksAnyTurn": {
+          "default": false,
+          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent from a peer on an older acpmux, where a client\nfalls back to the family.",
+          "type": "boolean"
         },
         "harness": {
           "type": "string"

@@ -228,9 +228,14 @@ export function UserBubble({
     (messagesView || promptRetry) && !row.pending && row.delivery?.state !== "sending" ? (
       <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} />
     ) : null;
+  // An answered prompt of an agent that forks only from its latest reply keeps the control and says
+  // why, rather than drawing it on the latest prompt alone (Leo, 2026-11-11: "why are only some
+  // chats forkable").
   const forkButton =
     forkThrough !== undefined ? (
       <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+    ) : fork && own !== undefined ? (
+      <ForkButton onFork={() => undefined} unavailable={t("turn.forkLatestOnly")} />
     ) : null;
   // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
   // bubble under them read as a lost message; Leo 2026-10-21).

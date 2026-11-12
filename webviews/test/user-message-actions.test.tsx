@@ -243,12 +243,19 @@ test("Fork shows success when the live host returns a new session id", async () 
   }
 });
 
-test("a chat that cannot fork at a prompt hides Fork there rather than showing it disabled", async () => {
+// An answered prompt of an agent that forks only from its latest reply keeps Fork, dimmed, and says
+// why, rather than the control vanishing from some messages only (Leo, 2026-11-11: "why are only
+// some chats forkable").
+test("a chat that cannot fork at an earlier prompt shows Fork there dimmed, saying why", async () => {
   await draw(
     { id: "user-2", version: 1, at: Date.now(), kind: "user", seq: 2, text: "First" },
     { fork: () => {}, forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
   );
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Fork from here: This agent can fork only from its latest reply"]);
+  const fork = host.querySelector<HTMLButtonElement>(".cv-fork-button")!;
+  expect(fork.dataset.forkState).toBe("unavailable");
+  expect(fork.getAttribute("aria-disabled")).toBe("true");
+  expect(fork.title).toBe("This agent can fork only from its latest reply");
 });
 
 test("a prompt still being sent has no receipt, and one that cannot fork offers no Fork", async () => {

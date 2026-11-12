@@ -5397,6 +5397,12 @@ a.cv-sha:focus-visible {
   opacity: 0.5;
   pointer-events: none;
 }
+/* A message its agent cannot fork from (MessageActions.tsx ForkButton `unavailable`): dimmed, and
+   still hovered so its tooltip says why. */
+.cv-iconbtn.cv-fork-button[data-fork-state="unavailable"] {
+  opacity: 0.5;
+  cursor: default;
+}
 /* Recovery actions are the one footer content allowed to wrap on narrow panes. The shared rail
    stays centered for glyph controls without clipping sign-in or credential-transfer copy. */
 .cv-message-footer-row .cv-turn-auth-action {
