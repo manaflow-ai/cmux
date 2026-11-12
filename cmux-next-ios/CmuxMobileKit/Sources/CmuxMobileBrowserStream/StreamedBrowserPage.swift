@@ -705,7 +705,7 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
 
 /// The bar above the keyboard of a streamed page.
 final class StreamKeyBar: UIInputView {
-    init(target: StreamView) {
+    init(target: StreamView?) {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 46), inputViewStyle: .keyboard)
         allowsSelfSizing = true
         let scroll = UIScrollView()
