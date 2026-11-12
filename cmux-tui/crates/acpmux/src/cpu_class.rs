@@ -162,15 +162,19 @@ impl CpuClass {
     }
 
     /// Puts the running harness `pid` in this class once its session's start is over, and only
-    /// lowers: `Background` in background class (macOS), `Normal` at the agent tier's nice value
-    /// (`qos::AGENT_NICE`; on macOS the processes it started too, on Linux its host's session),
-    /// unless `ACPMUX_QOS=off`. The start itself ran at the daemon's tier (`qos.rs`). `pid` must
+    /// lowers: its process group at the agent tier's nice value (`qos::AGENT_NICE`; on Linux its
+    /// host's session too) unless `ACPMUX_QOS=off`, then for `Background` the harness in
+    /// background class (macOS). The start itself ran at the daemon's tier (`qos.rs`). `pid` must
     /// be a harness its caller holds (a direct child not reaped yet, or one its agent host reports
     /// alive): a pid that another process took would be lowered instead. True when it was lowered.
     pub fn enter(self, pid: u32) -> bool {
+        // Both classes leave the start's priority for the agent tier: on Linux that is all the
+        // lowering there is (it has no background class), and on macOS it takes the processes the
+        // harness started during its start (its MCP servers) with it, as the utility clamp did.
+        let tier = crate::qos::enabled() && imp::to_agent_tier(pid);
         match self {
-            Self::Background => imp::set_background(pid, true),
-            Self::Normal => crate::qos::enabled() && imp::to_agent_tier(pid),
+            Self::Background => imp::set_background(pid, true) || tier,
+            Self::Normal => tier,
         }
     }
 }

@@ -102,8 +102,21 @@ fn nice_of(pid: u32) -> Option<i32> {
     }
 }
 
+/// `normal`: what the hermetic environment gives a stand-in (`daemon_env::vars`).
 #[test]
 fn a_harness_starts_at_the_daemons_priority_and_yields_once_started() {
+    starts_at_the_daemons_priority_and_yields("normal");
+}
+
+/// `background`: the product's default for every harness but a Claude Code launcher
+/// (`cpu_class::DEFAULT`). Linux has no background class, so the agent tier's nice is all the
+/// lowering it gets there; on macOS the harness is also in background class.
+#[test]
+fn a_background_class_harness_also_yields_to_the_agent_tier() {
+    starts_at_the_daemons_priority_and_yields("background");
+}
+
+fn starts_at_the_daemons_priority_and_yields(class: &str) {
     let scratch = std::env::temp_dir().join(format!(
         "amx-startpri-{}-{}",
         std::process::id(),
@@ -117,7 +130,7 @@ fn a_harness_starts_at_the_daemons_priority_and_yields_once_started() {
     let config = json!({
         "harnesses": {"fake": {
             "argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")],
-            "env": {"FAKE_CLASS_LOG": log}
+            "env": {"FAKE_CLASS_LOG": log, "ACPMUX_SESSION_CPU_CLASS": class}
         }},
         "defaultHarness": "fake", "permissionPolicy": "approve-all"
     });
