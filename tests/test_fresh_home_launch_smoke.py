@@ -14,6 +14,7 @@ arm "not-run" and the first arm's verdict standing.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import importlib.util
 import json
 import os
@@ -638,6 +639,54 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                         "Parent Process:        launchd [1]\n")
         self.assertIn("this run's earlier launch", why(text))
 
+    def test_a_daemons_report_is_found_by_a_release_apps_name_and_counts_only_from_this_run(self):
+        # A Release or NIGHTLY app's executable is `cmux`, so the name match (`cmux-*.ips`) also finds a report of
+        # its daemon, `cmux-tui`. The daemon is detached (its parent is pid 1): only its path and its start time
+        # say whose it is. The same daemon of another copy (the installed app, another build's copy under /tmp,
+        # another run's home) crashes on the same host: that report must never fail this launch.
+        root = self.dir / "root"
+        app = root / "app" / "cmux NIGHTLY.app"
+        bundled = app / "Contents" / "Resources" / "bin" / "cmux-tui"
+        bundled.parent.mkdir(parents=True)
+        bundled.write_text("")
+        reports = self.dir / "reports"
+        reports.mkdir()
+        found = reports / "cmux-tui-2026-11-11-090004.ips"
+        started = datetime(2026, 11, 11, 9, 0, 0, tzinfo=timezone.utc).timestamp()
+        after, before = "2026-11-11 09:00:01.0000 +0000", "2026-11-11 08:59:20.5000 +0000"
+
+        def look(where: str, born: str = after) -> tuple[list[str], str]:
+            body = {"pid": 300, "parentPid": 1, "procPath": where, "procName": "cmux-tui", "procLaunch": born,
+                    "captureTime": "2026-11-11 09:00:04.0000 +0000"}
+            found.write_text(json.dumps({"app_name": "cmux-tui", "bug_type": "309"}) + "\n" + json.dumps(body) + "\n")
+            crashes, others = smoke.launch_crash_reports(reports, "cmux", 0, False, 200, app, frozenset({100}),
+                                                         started, root)
+            return [path.name for path in crashes], " ".join(others.values())
+
+        # The name: `cmux-` takes the daemon's report; a Debug executable's name (`cmux DEV`) does not.
+        look(str(bundled))
+        self.assertEqual([path.name for path in smoke.crash_reports(reports, "cmux", 0)], [found.name])
+        self.assertEqual(smoke.crash_reports(reports, "cmux DEV", 0), [])
+        # Counted: the daemon of this run's copy (the full path, and the path as macOS writes it under /tmp), and
+        # one that the app put in this launch's home.
+        for where in (str(bundled), "/tmp/*/cmux NIGHTLY.app/Contents/Resources/bin/cmux-tui",
+                      str(root / "h" / ".cmux" / "bin" / "cmux-tui")):
+            self.assertEqual(look(where), ([found.name], ""), where)
+        # Not counted: the daemon of each other copy.
+        for where in ("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux-tui",
+                      "/Applications/cmux.app/Contents/Resources/bin/cmux-tui",
+                      "/tmp/*/cmux DEV capfeedface00.app/Contents/Resources/bin/cmux-tui",
+                      "/private/tmp/cmux-fresh-other00/h/.cmux/bin/cmux-tui",
+                      str(self.dir / "other-root" / "h" / ".cmux" / "bin" / "cmux-tui")):
+            crashes, why = look(where)
+            self.assertEqual(crashes, [], where)
+            self.assertIn("not this run's copy of the app and not this launch's files", why, where)
+        # Nor one of a copy with this copy's NAME that was started before this launch (another run's, or an
+        # earlier launch's). Started after it, the path cannot tell such a copy from this run's: the limit of the rule.
+        crashes, why = look("/tmp/*/cmux NIGHTLY.app/Contents/Resources/bin/cmux-tui", before)
+        self.assertEqual(crashes, [])
+        self.assertRegex(why, r"its process was started at 08:59:20Z, 39\.5s before this launch started")
+
     def real_app_copy(self, name: str = "cmux DEV cap2616865988.app", whole: bool = True) -> Path:
         app = self.dir / name.replace(" ", "-") / "app" / name
         (app / "Contents" / "MacOS").mkdir(parents=True)
@@ -747,28 +796,40 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_a_run_that_is_cut_while_it_waits_for_a_late_report_has_told_the_failure(self):
         # The gate's watchdog cuts an attempt that takes too long. The wait for a late report is the last thing a
         # failed launch does: the report on disk and the log have the failure before it, in each arm.
-        late = {**self.env, "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "30"}
+        # The late look says when it begins (a caller script, then the real look), and the run is cut there: the
+        # look then waits far longer than this test, so the run cannot end by itself.
+        late = {**self.env, "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "600"}
+        begins = "the late look begins"
+        caller = ("import importlib.util, sys\n"
+                  f"spec = importlib.util.spec_from_file_location('smoke', {str(SCRIPT)!r})\n"
+                  "smoke = importlib.util.module_from_spec(spec); spec.loader.exec_module(smoke)\n"
+                  "real_look = smoke.late_crash_reports\n"
+                  f"smoke.late_crash_reports = lambda *a, **k: smoke.log({begins!r}) or real_look(*a, **k)\n"
+                  "sys.exit(smoke.main(sys.argv[1:]))\n")
         for mode, arms, arm, told in (("crash", (), None, "FAIL: the app exited"),
                                       ("sync-crash", ("--arms", "empty,seeded", "--seeded-seconds", "2"), "seeded",
                                        "FAIL: seeded home: the app exited")):
             with self.subTest(mode=mode):
                 app, out = make_app(self.dir / f"cut-{mode}", mode), self.dir / f"out-cut-{mode}"
-                harness = subprocess.Popen([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out),
+                harness = subprocess.Popen([sys.executable, "-c", caller, "--app", str(app), "--out", str(out),
                                             "--seconds", "2", "--startup-timeout", "10", *arms],
                                            env=late, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-                lines = []
+                lines, before_the_look = [], None
                 try:
                     for line in harness.stdout:
-                        lines.append(line)
-                        if line.startswith(told):
+                        if line.startswith(begins) and before_the_look is None:
+                            before_the_look = list(lines)
                             harness.terminate()
+                        lines.append(line)
                     status = harness.wait(timeout=60)
                 finally:
                     if harness.poll() is None:
                         harness.kill()
                     harness.stdout.close()
                 output = "".join(lines)
-                # The run ended AT the cut: a run that reached the end of its wait exits 1, not 128 + SIGTERM.
+                self.assertIsNotNone(before_the_look, f"the late look did not begin:\n{output}")
+                self.assertTrue(any(line.startswith(told) for line in before_the_look),
+                                f"the failure was not told before the late look began:\n{output}")
                 self.assertEqual(status, 128 + signal.SIGTERM, output)
                 report = json.loads((out / "report.json").read_text())
                 self.assertEqual((report["verdict"], report["exit"], report.get("arm"), report["crash_reports_late"]),
@@ -840,10 +901,13 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def test_only_a_launch_whose_app_ended_waits_for_a_late_report(self):
         # A pass, and a failure of an app that stayed up (no Home), must not get slower: no crash, no report to come.
         # The late look itself says when it runs (no clock): it does for an app that ended, and only for that.
+        # The evidence wait is far longer than run_smoke's bound: a wait for a report in ANY other place stops there.
         told = "smoke.late_crash_reports = lambda *a, **k: smoke.log('the late look ran') or []"
+        long_wait = {**self.env, "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "600"}
         for mode, verdict, looked in (("healthy", "pass", False), ("no-home", "fail", False), ("crash", "fail", True)):
             with self.subTest(mode=mode):
-                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "3", setup=told)
+                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "3",
+                                                        env=long_wait, setup=told)
                 self.assertEqual(report["verdict"], verdict, output)
                 self.assertEqual("the late look ran" in output, looked, output)
                 self.assertEqual(report.get("crash_reports_late", []), [])
