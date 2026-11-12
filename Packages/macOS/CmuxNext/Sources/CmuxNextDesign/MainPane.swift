@@ -151,7 +151,7 @@ extension Metrics {
     /// The least chrome shade under which a selected folder tab in the content's surface still reads
     /// (``Palette/folderTabFill``): Subtle Tone's light frame (0.045 × ``TitleAreaTone/subtleShare``) still
     /// clears it at a title area contrast of 0.5; under it the tab keeps the selection fill.
-    public static let folderTabMinimumShade: CGFloat = 0.012
+    public static let folderTabMinimumShade: CGFloat = 0.011
 
     /// How strongly the tab row's divider draws (a share of `Palette.separator`): the line takes over from the
     /// tone as `appearance.titleAreaContrast` drops, so the tab row stays marked at any contrast. 0 at a

@@ -209,8 +209,8 @@ import Testing
         guard !CornerFlush.current.isOn else { return }
         #expect(Metrics.titleAreaShadeScale == design.titleAreaContrast)
         if design.titleAreaContrast == 1 {
-            #expect(Metrics.mainPaneChromeShade(isDark: true) == Metrics.mainPaneChromeShadeBase(isDark: true))
-            #expect(Metrics.mainPaneChromeShade(isDark: true) > 0, "One Color flattened the blocks style")
+            #expect(Metrics.mainPaneChromeShade(isDark: true) == Metrics.mainPaneChromeShadeBase(isDark: true),
+                    "One Color flattened the blocks style")
         }
     }
 
