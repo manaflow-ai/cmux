@@ -104,7 +104,18 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var loadSinceCreation: URL?
     /// Focus cmux asked for while the page could not take it (no browser yet, or not shown):
     /// granted once the page shows (``grantPendingFocusIfShown()``).
-    @ObservationIgnored var pendingFocus = false
+    @ObservationIgnored var pendingFocus = false {
+        didSet {
+            guard pendingFocus != oldValue else { return }
+            if pendingFocus { pendingFocusSince = .now } else if let since = pendingFocusSince {
+                // How long the ask waited (a key typed meanwhile is held, ``BrowserTab/pageReady``): read from the input journal.
+                let waited = ContinuousClock.now - since
+                host.lifecycleTrace.record(id, "focus-wait ms=\(Int((waited / .milliseconds(1)).rounded())) loaded=\(hasDocument)")
+            }
+        }
+    }
+    /// When ``pendingFocus`` last became true.
+    @ObservationIgnored private var pendingFocusSince: ContinuousClock.Instant?
     /// The page's view became shown in this main-thread turn (``pageDidAppear()``): it takes no key focus before the turn's frame commits.
     @ObservationIgnored var appearedThisTurn = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
