@@ -173,12 +173,17 @@ struct CloudListMachinesTests {
         #expect(names().isEmpty, "a create that ended can make nothing more")
     }
 
-    /// A person's palette run shows the Cloud sidebar instead; it leaves no result to capture.
-    @Test func aPersonsRunAnswersNoResult() async throws {
+    /// A person's run of List Cloud Machines returns the list like every other run (#41025):
+    /// the same fields a CLI run gets from the same store, here a store that has not loaded yet.
+    @Test func aPersonsRunAnswersTheList() async throws {
         let services = Self.services()
         _ = MachineIconTests.cloudMachine(services, id: "vm-list-user-\(UUID().uuidString.prefix(8))")
-        let fields = try await Self.run(services, origin: .user)
-        #expect(fields == nil)
+        let fields = try #require(try await Self.run(services, origin: .user), "a person's run tracked no result")
+        #expect(fields["loaded"] == .bool(false))
+        #expect(fields["machines"] == .array([]))
+        #expect(fields["count"] == .int(0))
+        #expect(Self.members(fields["account"])?["signed_in"] == .bool(false))
+        #expect(fields == (try await Self.run(services, origin: .cli)), "a person's run answers what a CLI run does")
     }
 }
 
