@@ -138,6 +138,13 @@ test("an earlier card's View changes waits for hover; the latest card's shows at
   expect(shown(latest, ".acpmux-review-changes")).toBe(true);
 });
 
+test("keyboard focus on an earlier card shows its buttons", async () => {
+  const { earlier } = await renderCards(() => undefined);
+  await act(async () => earlier.querySelector<HTMLElement>(".acpmux-review-changes")!.focus());
+  expect(shown(earlier, ".acpmux-review-changes")).toBe(true);
+  expect(shown(earlier, ".acpmux-second-opinion")).toBe(true);
+});
+
 test("Second opinion waits for hover on every card", async () => {
   const asked: string[] = [];
   const { earlier, latest } = await renderCards((rowId) => asked.push(rowId));
