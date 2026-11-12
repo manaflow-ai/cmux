@@ -6,9 +6,26 @@
 // the order they were sent, each once acpmux took the one before. A refused one comes back to the
 // composer with every prompt behind it, so nothing is lost and nothing goes out of order.
 import type { ComposerAttachment } from "./attachments";
+import { attachedImages } from "./direct";
 import type { SendGesture } from "./heldPrompt";
+import { carryInline, inlinePlainText } from "./inlinePrompt";
+import type { QueuedPrompt } from "./model";
 
 export type StartingSend = { id: string; text: string; attachments: ComposerAttachment[] };
+
+/// A prompt waiting for the new chat as its queued row draws it, as a prompt acpmux queued draws:
+/// its words, and its images under them from the pane's own bytes. Never the draft's text as it is,
+/// whose attachments are tokens of their ids: an image pasted into a new chat's first prompt read as
+/// its UUID until the chat took it (#41016).
+export function startingQueueEntry(row: StartingSend): QueuedPrompt {
+  const images = attachedImages(row.attachments);
+  return {
+    id: row.id,
+    prompt: inlinePlainText(row.text, row.attachments),
+    sending: true,
+    ...(images.length ? { images } : {}),
+  };
+}
 /// `lost`: an edit saved while the prompt was going, which comes back only once it went.
 /// `gesture`: the Enter or click the composer bound to it while it held it for its files.
 type Item = StartingSend & { going: boolean; lost?: string; gesture?: SendGesture };
@@ -82,11 +99,19 @@ export class StartingSends {
     return true;
   }
 
-  /** Changes the text of a prompt that has not gone yet; false once it went. */
+  /**
+   * Changes the text of a prompt that has not gone yet (its row's words, `startingQueueEntry`): its
+   * attachments keep their places in it. False once it went.
+   */
   edit(id: string, text: string): boolean {
     const item = this.items.find((each) => each.id === id && !each.going);
     if (!item) return false;
-    item.text = text;
+    item.text = carryInline(item.text, text, item.attachments);
+    // A pasted or text chip's text is in the edited words now (the row shows it inline): its chip
+    // goes, or the prompt would carry that text twice, the chip's copy after the words.
+    item.attachments = item.attachments.filter(
+      (attachment) => attachment.kind !== "pasted" && attachment.kind !== "text",
+    );
     this.emit();
     return true;
   }

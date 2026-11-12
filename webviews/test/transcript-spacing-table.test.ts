@@ -15,6 +15,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { BUBBLE, FOOTER, TRANSCRIPT_SPACING } from "../src/agent-session/acpmux/transcriptSpacing";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
@@ -227,6 +228,8 @@ await requireBrowserLane("transcript-spacing-table.test.ts", async () => {
 
   const open = async (theme: string) => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 1100 }, deviceScaleFactor: 2 });
+    // Measure the status rows without the optional header between them.
+    await pinArms(page, CLOCK_ON_LINE);
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: "shipped", width: 1100, theme, reducedMotion: "true" })}`,
