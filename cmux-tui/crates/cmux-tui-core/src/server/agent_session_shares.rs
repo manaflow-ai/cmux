@@ -449,6 +449,9 @@ pub(in crate::server) struct LinkShares {
     /// Every write fails while set (tests).
     #[cfg(test)]
     pub(super) refuse_writes: std::sync::atomic::AtomicBool,
+    /// Told each write that `refuse_writes` failed (tests: a test waits for a refused save).
+    #[cfg(test)]
+    pub(super) refused_write: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     /// Moving an unreadable file aside fails while set (tests).
     #[cfg(test)]
     pub(super) refuse_set_aside: std::sync::atomic::AtomicBool,
@@ -761,6 +764,11 @@ impl LinkShares {
     fn save(&self, directory: Option<&Path>, shares: &[LinkShare]) -> Option<std::io::Result<()>> {
         #[cfg(test)]
         if self.refuse_writes.load(Ordering::Relaxed) {
+            if let Some(told) =
+                self.refused_write.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+            {
+                let _ = told.send(());
+            }
             return Some(Err(std::io::Error::other("writes refused (test)")));
         }
         let directory = directory?;
