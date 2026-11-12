@@ -1,5 +1,5 @@
 name: Cloud chat proof (staging and production, tagged DEV app)
-run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('Cloud workspace matrix ({0}, {1}){2}', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
+run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.met && format('Cloud V0 item 1 measured (staging, spare claims){0}', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('Cloud workspace matrix ({0}, {1}){2}', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
 # One manual trip through a Cloud chat from one tagged DEV build of the dispatched commit, signed in as
 # the agent test account on staging and production. The bundle is built (or downloaded) once per backend job,
@@ -30,6 +30,15 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # `cloud pause-machine`, opens the Cloud page, fails unless the machine's row says "a month while paused"
 # (cmux-platform#1150's paused_hourly_rate_usd, webviews/src/pages/cloud/cost.ts), uploads the page and window
 # images as cloud-paused-price-staging and kills the machine, as the chat proof kills its own.
+# met: no proof chat, staging only, build=tagged only, claude only: Leo's Cloud V0 item 1 ("A chat starts in a few
+# seconds: ready spare, harness login attached in advance, no 10 s relay credential timeout, no first-boot
+# self-update") measured on the product path. scripts/cmux-next/cloud-spare-met.py keeps the tagged app up, signed in as
+# the staging agent account, for 10 person-session claims 150 s apart (`cloud start-chat --login machine --wait`, a
+# first chat each), and records per claim whether it took the warmed running spare, whether the app had already copied
+# the login onto it (the guest credential mark, login_on_spare_at_claim), create / bound / reply / reply_turn, bound -
+# create and reply - bound. The login is made up and the model is the shared stub on the spare; the summary goes to the
+# job summary and the cloud-spare-met-staging artifact. It runs only on an ephemeral macOS runner (a Blacksmith label
+# or GitHub-hosted, never an owned Mac): runs-on takes no owned pool in this mode, and the job fails on any other.
 # Claude login: nobody answers the start's login question in CI (cmux-cloud-start-core harness_login.rs), so the
 # chat and matrix lines pass --grant-claude-login (the launched app's own scratch cmux.json says yes to the one-time
 # consent a Release-rules build, build=published, waits for) and --login none (no login copied: Claude runs on the
@@ -86,6 +95,11 @@ on:
         required: false
         default: ""
         type: string
+      met:
+        description: "Instead of the proof chat (staging, build=tagged, claude): Cloud V0 item 1 measured, 10 spare claims 150 s apart with the login attached at spare-ready, each timed"
+        required: false
+        default: false
+        type: boolean
       paused_capture:
         description: "Instead of the proof chat (staging, build=tagged): pause one new machine and capture the Cloud page's paused price ('a month while paused'), then kill it"
         required: false
@@ -247,7 +261,8 @@ jobs:
     needs: [resolve, pick-proof-runner]
     # Attempt 1 takes pick-proof-runner's ephemeral Blacksmith macOS 26 label; a re-run, or a failed
     # pick, takes the declared macos_26 pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # met takes only an ephemeral label: the picker's Blacksmith one, else blacksmith-6vcpu-macos-26, never the declared pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.met && (needs.pick-proof-runner.outputs.label || 'blacksmith-6vcpu-macos-26') || github.run_attempt == 1 && needs.pick-proof-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
@@ -263,6 +278,10 @@ jobs:
           MATRIX: ${{ inputs.matrix }}
           FROM_FOLDER: ${{ inputs.from_folder }}
           BUILD: ${{ inputs.build }}
+          MET: ${{ inputs.met }}
+          AGENT: ${{ inputs.agent }}
+          # The repository's own pool reading (cmux-next.yml's pool= line): owned runners carry -glaeda.
+          RUNNER_POOL: ${{ contains(runner.name, '-glaeda') && 'owned' || startsWith(runner.name, 'blacksmith-') && 'blacksmith' || runner.environment == 'github-hosted' && 'hosted' || 'other' }}
         run: |
           if [ "$REF" != refs/heads/feat-cmux-next ]; then
             echo "::error::cloud-chat-proof runs on feat-cmux-next only (got $REF)"
@@ -278,6 +297,18 @@ jobs:
               echo "::error::paused_capture takes build=tagged and no cleanup_machine, matrix or from_folder"
               exit 1
             fi
+          fi
+          if [ "$MET" = true ]; then
+            if [ -n "$CLEANUP_MACHINE" ] || [ "$MATRIX" = true ] || [ "$FROM_FOLDER" = true ] || [ "$PAUSED_CAPTURE" = true ] \
+              || [ "$BUILD" != tagged ] || [ "$AGENT" != claude ]; then
+              echo "::error::met takes build=tagged, agent=claude and no cleanup_machine, matrix, from_folder or paused_capture"
+              exit 1
+            fi
+            # Only an ephemeral macOS runner: never an owned Mac (Leo's, huge-blue, big-red or a fleet mini).
+            case "$RUNNER_POOL" in
+              blacksmith|hosted) echo "met runs on an ephemeral $RUNNER_POOL runner ($RUNNER_NAME)" ;;
+              *) echo "::error::met runs only on an ephemeral macOS runner; this is '$RUNNER_NAME' ($RUNNER_POOL)"; exit 1 ;;
+            esac
           fi
 
       - name: Checkout cmux
@@ -452,13 +483,13 @@ jobs:
 
 
       - name: Package the tagged app for the production job
-        if: env.CMUX_PROOF_BUILD != 'published' && !inputs.paused_capture
+        if: env.CMUX_PROOF_BUILD != 'published' && !inputs.paused_capture && !inputs.met
         run: |
           set -euo pipefail
           ditto -c -k --sequesterRsrc --keepParent "$CMUX_PROOF_APP" "$RUNNER_TEMP/cloud-chat-proof-app.zip"
 
       - name: Upload the tagged app
-        if: env.CMUX_PROOF_BUILD != 'published' && !inputs.paused_capture
+        if: env.CMUX_PROOF_BUILD != 'published' && !inputs.paused_capture && !inputs.met
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cloud-chat-proof-app
@@ -467,7 +498,7 @@ jobs:
           retention-days: 1
 
       - name: Staging Cloud chat and reply
-        if: inputs.cleanup_machine == '' && !inputs.matrix && !inputs.paused_capture
+        if: inputs.cleanup_machine == '' && !inputs.matrix && !inputs.paused_capture && !inputs.met
         timeout-minutes: 30
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
@@ -498,6 +529,42 @@ jobs:
         with:
           name: cloud-paused-price-staging
           path: ${{ runner.temp }}/cloud-chat-proof/paused-price/*.png
+          if-no-files-found: warn
+          retention-days: 3
+
+      # The only step past 30 minutes of chats: 10 claims 150 s apart, each with its spare's warm and login wait.
+      - name: Staging Cloud V0 item 1, measured (spare claims)
+        if: inputs.cleanup_machine == '' && inputs.met
+        timeout-minutes: 60
+        env:
+          MET_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          MET_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cloud-chat-proof/met-staging"
+          status=0
+          python3 -I scripts/cmux-next/cloud-spare-met.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
+            --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --claims 10 --gap 150 --out "$out" || status=$?
+          # The evidence step's scan: a secret-shaped value keeps the summary out of the job summary and the artifact.
+          for file in "$out/met.json" "$out/met.md"; do
+            if [ -s "$file" ] && grep -Eiq '(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+|((api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential)[[:space:]]*[:=])' "$file"; then
+              echo "::error::$(basename "$file") holds a secret-shaped value; it is not published"
+              rm -f "$out/met.json" "$out/met.md"
+              exit 1
+            fi
+          done
+          [ -s "$out/met.md" ] && cat "$out/met.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the met summary
+        if: always() && inputs.met
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-spare-met-staging
+          path: |
+            ${{ runner.temp }}/cloud-chat-proof/met-staging/met.json
+            ${{ runner.temp }}/cloud-chat-proof/met-staging/met.md
           if-no-files-found: warn
           retention-days: 3
 
@@ -584,7 +651,7 @@ jobs:
           rm -f "$HOME/Library/Application Support/cmux/com.cmuxterm.app.debug.next/454ecd03-1db2-4050-845e-4ce5b0cd9895/credentials.json"
 
   proof-prod:
-    if: ${{ !cancelled() && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped') && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' && inputs.cleanup_machine == '' && !inputs.paused_capture }}
+    if: ${{ !cancelled() && (needs.resolve.result == 'success' || needs.resolve.result == 'skipped') && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' && inputs.cleanup_machine == '' && !inputs.paused_capture && !inputs.met }}
     # Production half. cmux-next-cloud-journey is limited to feat-cmux-next by GitHub's branch policy and holds the
     # production agent account. It runs after proof-staging even when that failed (the build=tagged app bundle comes
     # from its upload), so one run reports both backends.
@@ -787,7 +854,7 @@ jobs:
           rm -f "$HOME/Library/Application Support/cmux/com.cmuxterm.app.debug.next/454ecd03-1db2-4050-845e-4ce5b0cd9895/credentials.json"
 
   verdict:
-    # The proof passes only when both backends did (or, for cleanup_machine and paused_capture, the staging job that does it).
+    # The proof passes only when both backends did (or, for cleanup_machine, paused_capture and met, the staging job that does it).
     if: ${{ always() && github.ref == 'refs/heads/feat-cmux-next' && inputs.signin_pubkey == '' }}
     needs: [proof-staging, proof-prod]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
@@ -799,8 +866,9 @@ jobs:
           PROD: ${{ needs.proof-prod.result }}
           CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
           PAUSED_CAPTURE: ${{ inputs.paused_capture }}
+          MET: ${{ inputs.met }}
         run: |
           echo "proof-staging: $STAGING; proof-prod: $PROD"
           if [ "$STAGING" != success ]; then echo "::error::the staging proof did not pass ($STAGING)"; exit 1; fi
-          if [ -n "$CLEANUP_MACHINE" ] || [ "$PAUSED_CAPTURE" = true ]; then exit 0; fi
+          if [ -n "$CLEANUP_MACHINE" ] || [ "$PAUSED_CAPTURE" = true ] || [ "$MET" = true ]; then exit 0; fi
           if [ "$PROD" != success ]; then echo "::error::the production proof did not pass ($PROD)"; exit 1; fi
