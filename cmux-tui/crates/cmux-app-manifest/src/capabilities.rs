@@ -411,15 +411,21 @@ pub fn cross_check(capabilities: &Capabilities, classes_json: &str) -> Vec<Strin
     let scopes: BTreeSet<String> =
         capabilities.ops().flat_map(|(_, op)| op.scope.examples()).collect();
     for scope in &scopes {
-        let matching: Vec<usize> =
-            rules.iter().enumerate().filter(|(_, r)| r.1.is_match(scope)).map(|(i, _)| i).collect();
-        let Some(&first) = matching.first() else {
+        let matching: Vec<(usize, &str)> = rules
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, re, _))| re.is_match(scope))
+            .map(|(i, (pattern, _, _))| (i, *pattern))
+            .collect();
+        let Some(&(first, first_pattern)) = matching.first() else {
             problems.push(format!("{scope} matches no rule in scope-classes.json"));
             continue;
         };
-        used[first] = true;
-        if matching.len() > 1 && !literal(rules[first].0) {
-            let patterns: Vec<&str> = matching.iter().map(|&i| rules[i].0).collect();
+        if let Some(flag) = used.get_mut(first) {
+            *flag = true;
+        }
+        if matching.len() > 1 && !literal(first_pattern) {
+            let patterns: Vec<&str> = matching.iter().map(|(_, pattern)| *pattern).collect();
             problems.push(format!(
                 "{scope} matches {} rules {patterns:?}; the first is generic, so rule order decides its class: add a literal rule for it first",
                 matching.len()
