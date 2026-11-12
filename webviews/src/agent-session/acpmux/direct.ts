@@ -381,6 +381,10 @@ const LIMIT_READS = 3;
 /// The waits before each new read of the events a lag dropped, after a failed one
 /// (`readMissedAfterLag`): about 15 s in all, then the pane reports the failure.
 const LAG_RETRY_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
+/// How long a lag read may be out before the stall check stops leaving the hole to it
+/// (`checkStall`): every retry's wait plus a margin. A read whose reply never comes (an acpmux
+/// replaced under the bridge drops it) no longer holds the chat's recovery off.
+const LAG_READ_HOLDS_STALL_MS = LAG_RETRY_MS.reduce((sum, ms) => sum + ms, 0) + 5_000;
 /// The longest wait between reconnects (`scheduleReconnect`): a pane that kept failing while the
 /// laptop slept or the network was down tries again within this once it is back, never minutes or
 /// hours later. A wake (`online`, the page shown again) reconnects at once (`reconnectNow`).
@@ -3089,7 +3093,7 @@ export class AcpmuxDirectClient {
   private lagReadOwed?: { sessionId: string; generation: number; afterSeq: number };
   /// The read of what a lag dropped that is out or waits to try again (`readMissedAfterLag`), and
   /// the oldest cursor of the lags heard meanwhile (`again`), read once it lands.
-  private lagRead?: { sessionId: string; generation: number; again?: number };
+  private lagRead?: { sessionId: string; generation: number; again?: number; at: number };
   private gapReadKeys = 0;
   private turnOpen = false;
   /// The open turn's daemon start (its `turn_started`, or the summary's `turn.startedAt` when that
@@ -3847,7 +3851,7 @@ export class AcpmuxDirectClient {
           reject(new Error(translate("error.closedBeforeConnect")));
           return;
         }
-        this.connectionEnded(socket);
+        this.connectionEnded(socket, `close ${event?.code ?? "?"}${event?.reason ? ` ${event.reason}` : ""}`);
       };
       // A socket this client replaced still answers what was asked on it (an export that watches for
       // the swap rejects on that answer); only its peer notes, about a connection that is gone, drop.
@@ -4891,8 +4895,10 @@ export class AcpmuxDirectClient {
   /// The established socket `socket` is gone (it closed, or the pane gave up on it in
   /// `recoverStall`): what it carried ends, and the pane connects again (a fresh handshake from its
   /// host, or a reconnect of its own). Once per socket: a close that comes after the pane gave up on
-  /// it changes nothing more.
-  private connectionEnded(socket: WebSocket): void {
+  /// it changes nothing more. `cause` names why (the close's code and reason, `stalled`, `liveness`):
+  /// the wire log counts each lost connection by it, so how often a chat reconnects, and why, is read
+  /// from the Inspector and the page log instead of guessed.
+  private connectionEnded(socket: WebSocket, cause: string): void {
     this.endedSocket = socket;
     // Taken before anything of the connection is torn down: the next client starts from it. The
     // page's own tail of the chat moves up to what this client read too: it held the tail from the
@@ -4920,7 +4926,7 @@ export class AcpmuxDirectClient {
     this.emit("disconnected");
     if (!this.hasConnected || this.closed) return;
     if (this.onLost) {
-      this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
+      this.wire.lifecycle("lost", { cause, message: "asking for a fresh handshake" });
       const onLost = this.onLost;
       this.close();
       onLost();
@@ -5172,7 +5178,7 @@ export class AcpmuxDirectClient {
       out.again = Math.min(out.again ?? Infinity, afterSeq);
       return;
     }
-    if (attempt === 0) this.lagRead = { sessionId, generation };
+    if (attempt === 0) this.lagRead = { sessionId, generation, at: Date.now() };
     const read = this.lagRead;
     const settle = () => {
       if (this.lagRead !== read) return undefined;
@@ -5270,8 +5276,24 @@ export class AcpmuxDirectClient {
         // Its age when the check asked: a slow answer does not make a record in flight look missed.
         const line = stallLine(sessionId, paneSeq, newer, asked, connection, cause);
         if (!line) return done?.(false);
+        // A lag's read of what acpmux dropped is out, or waits to try again (`readMissedAfterLag`, up
+        // to ~16 s): the record this check found is that read's to draw, not a sign the stream died.
+        // Reconnecting here rebuilt the whole chat (a new client, the transcript replaced and the
+        // reader sent to the bottom) for a hole a read already being made fills; most often when a
+        // hidden tab that fell behind was shown again (`wake`).
+        const lag = this.lagRead;
+        if (lag?.sessionId === sessionId && lag.generation === generation && asked - lag.at < LAG_READ_HOLDS_STALL_MS)
+          return done?.(false);
+        // A lag read that gave up while the socket stayed open: acpmux just answered this check's
+        // read, so the hole is read again on this connection instead of rebuilding the chat.
+        const owed = this.lagReadOwed;
+        if (owed?.sessionId === sessionId && owed.generation === generation && this.socket === socket) {
+          this.lagReadOwed = undefined;
+          this.readMissedAfterLag(sessionId, generation, owed.afterSeq, 0);
+          return done?.(false);
+        }
         console.error(line);
-        this.recoverStall(socket, sessionId, generation);
+        this.recoverStall(socket, sessionId, generation, cause);
         done?.(true);
       },
       (error: unknown) => {
@@ -5287,7 +5309,7 @@ export class AcpmuxDirectClient {
   /// The stall check proved socket `socket` no longer carries the chat's events: the pane gives up on
   /// it and connects again, as when it closes. Nothing when the pane moved on meanwhile (another
   /// chat, another socket, closed).
-  private recoverStall(socket: WebSocket | undefined, sessionId: string, generation: number): void {
+  private recoverStall(socket: WebSocket | undefined, sessionId: string, generation: number, cause: StallCause): void {
     if (!socket || this.closed || this.socket !== socket || this.endedSocket === socket) return;
     if (this.selectedSessionId !== sessionId || generation !== this.selectionGeneration) return;
     if (socket.readyState !== WebSocket.OPEN) return;
@@ -5297,7 +5319,7 @@ export class AcpmuxDirectClient {
     // A send still waiting on this socket gets the lost connection's answer, as when it drops: a
     // prompt this Mac's acpmux took is sent again under its promptId (lostPrompt.ts), so it runs once.
     this.wire.lifecycle("stalled", { sessionId, message: "the chat's events stopped; connecting again" });
-    this.connectionEnded(socket);
+    this.connectionEnded(socket, `stalled ${cause}`);
     try {
       socket.close();
     } catch {
@@ -6481,7 +6503,7 @@ export class AcpmuxDirectClient {
   private daemonGone(socket: WebSocket, now: number): void {
     this.daemonProbe = undefined;
     this.wire.lifecycle("liveness timeout", { quietForMs: now - this.daemonLastFrameAt });
-    this.connectionEnded(socket);
+    this.connectionEnded(socket, "liveness");
     try {
       socket.close();
     } catch {

@@ -222,6 +222,10 @@ pub const CAPABILITIES: &[Capability] = &[
     // A subagent's entry carries `retryInFlight` (`hub/subagent_retry.rs`): an attempt fired
     // and the subagent not running again yet, so the pane shows it retrying, not a Retry.
     Capability { id: "subagent-retry-v2", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
+    // `_acpmux/retry` with `subagentId` also resumes a stopped Claude subagent, or one lost with
+    // its harness, from its transcript and brief; its entry carries `resumable`, `resumes` and
+    // `resumedBy` (`hub/subagent_resume.rs`). The pane shows Resume only under it.
+    Capability { id: "subagent-resume-v1", wire: &[method::MUX_RETRY, method::SESSION_UPDATE] },
     // Stop one of a chat's background subagents. acpmux takes the method for
     // every harness, but only the Claude stdio adapter acts on it
     // (`claude_stdio/outbound.rs`); others pass it on to the agent.

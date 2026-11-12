@@ -147,6 +147,82 @@ def test_summary_under_budget_without_a_previous_nightly(tmp: Path) -> None:
     assert "Over budget" not in r.stdout, r.stdout
 
 
+def macho(text: int, unwind: int, symbols: int, strsize: int) -> bytes:
+    """A minimal arm64 Mach-O: __TEXT with __text and __eh_frame, and a symbol table."""
+    import struct
+    sect = lambda name, size: (name.ljust(16, b"\0") + b"__TEXT".ljust(16, b"\0")
+                               + struct.pack("<QQIIIIIIII", 0, size, 0, 0, 0, 0, 0, 0, 0, 0))
+    seg = struct.pack("<II", 0x19, 72 + 2 * 80) + b"__TEXT".ljust(16, b"\0") + struct.pack(
+        "<QQQQiiII", 0, 0, 0, text + unwind, 5, 5, 2, 0) + sect(b"__text", text) + sect(b"__eh_frame", unwind)
+    symtab = struct.pack("<IIIIII", 0x2, 24, 0, symbols, 0, strsize)
+    header = struct.pack("<IiiIIIII", 0xFEEDFACF, 0x0100000C, 0, 2, 2, len(seg) + len(symtab), 0, 0)
+    body = header + seg + symtab
+    return body + b"\0" * (text + unwind + symbols * 16 + strsize)
+
+
+def test_tree_splits_binaries_kinds_and_duplicates(tmp: Path) -> None:
+    app = make_app(tmp)
+    (app / "Contents/Resources/bin/cmux").write_bytes(macho(text=4000, unwind=1000, symbols=10, strsize=40))
+    for page in ("a", "b"):
+        write(app, f"Contents/Resources/pages/{page}/vendor.js", 2048)
+    write(app, "Contents/Resources/fr.lproj/Localizable.strings", 300)
+    write(app, "Contents/Resources/fonts/x.woff2", 50)
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "2")
+    assert r.returncode == 0, r.stderr
+    data = json.loads(out.read_text())
+    cmux = next(b for b in data["binaries"] if b["path"] == "Contents/Resources/bin/cmux")
+    assert cmux["parts"]["code and data"] == 4000 and cmux["parts"]["unwind tables"] == 1000, cmux
+    assert cmux["parts"]["symbols"] == 10 * 16 + 40, cmux
+    assert sum(cmux["parts"].values()) == cmux["bytes"], cmux
+    kinds = {k["kind"]: k["bytes"] for k in data["kinds"]}
+    assert kinds["JS"] == 4096 and kinds["localizations"] == 300 and kinds["fonts"] == 50, kinds
+    dup = data["duplicates"]
+    assert dup["extra_bytes"] == 2048, dup  # the second vendor.js
+    assert any(g["paths"] == ["Contents/Resources/pages/a/vendor.js", "Contents/Resources/pages/b/vendor.js"]
+               for g in dup["groups"]), dup
+    assert data["app_bytes"] == sum(c["bytes"] for c in data["components"])
+    assert 0 < data["dmg_estimate_bytes"] < data["app_bytes"], data["dmg_estimate_bytes"]
+    assert "| `Contents/Resources/bin/cmux` |" in r.stdout, r.stdout
+
+
+def fat(slices: list[bytes], wide: bool) -> bytes:
+    """A fat Mach-O (FAT_MAGIC, or FAT_MAGIC_64 when wide) with each slice at a 4 KiB boundary."""
+    import struct
+    entry = 32 if wide else 20
+    off = 4096
+    archs, body = b"", b""
+    for sl in slices:
+        if wide:
+            archs += struct.pack(">IIQQII", 0x0100000C, 0, off, len(sl), 12, 0)
+        else:
+            archs += struct.pack(">IIIII", 0x0100000C, 0, off, len(sl), 12)
+        pad = -len(sl) % 4096
+        body += sl + b"\0" * pad
+        off += len(sl) + pad
+    head = struct.pack(">II", 0xCAFEBABF if wide else 0xCAFEBABE, len(slices)) + archs
+    assert len(head) == 8 + entry * len(slices)
+    return head + b"\0" * (4096 - len(head)) + body
+
+
+def test_tree_counts_fat_headers_and_padding(tmp: Path) -> None:
+    app = make_app(tmp)
+    sl = macho(text=1000, unwind=200, symbols=2, strsize=8)
+    for name, wide in (("fat32", False), ("fat64", True)):
+        (app / f"Contents/MacOS/{name}").write_bytes(fat([sl, sl], wide))
+    # A Java class file starts 0xCAFEBABE too; its version (52) is no fat slice count.
+    (app / "Contents/Resources/Thing.class").write_bytes(bytes.fromhex("cafebabe00000034") + b"\0" * 56)
+    out = tmp / "t.json"
+    r = run("tree", str(app), "--json", str(out), "--jobs", "1")
+    assert r.returncode == 0, r.stderr
+    data = json.loads(out.read_text())
+    for name in ("fat32", "fat64"):
+        b = next(x for x in data["binaries"] if x["path"] == f"Contents/MacOS/{name}")
+        assert b["parts"]["code and data"] == 2000 and b["parts"]["unwind tables"] == 400, b
+        assert sum(b["parts"].values()) == b["bytes"], b  # the fat header and padding are counted
+    assert not any(x["path"].endswith("Thing.class") for x in data["binaries"]), data["binaries"]
+
+
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
