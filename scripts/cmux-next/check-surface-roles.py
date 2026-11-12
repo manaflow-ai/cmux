@@ -28,7 +28,7 @@ INPUTS = (SOURCE, DESIGN_SCALE, CSS_FILE, SWIFT_FILE)
 BEGIN = "/* surface-roles:begin. Follows " + SOURCE + " (scripts/cmux-next/check-surface-roles.py checks it). */"
 END = "/* surface-roles:end */"
 # The neutral glass's gray levels (FloatingGlassStyle.look): dark veil, light veil. The web reads them
-# as the design scale's glass material tokens (--ds-glass-neutral-*, --ds-glass-rim-*), so every
+# as the design scale's glass material tokens (--ds-material-neutral-*, --ds-material-rim-*), so every
 # neutral role mixes the one material at its own opacity and names no color of its own.
 DARK_GRAY, LIGHT_GRAY = 0.11, 0.99
 FIELDS = {"name", "for", "tone", "cornerDepth", "webRadius", "castsShadow", "reduceTransparency"}
@@ -177,8 +177,8 @@ def material():
         glass = json.load(handle)["glassMaterial"]
     assert (glass["neutralLight"], glass["neutralDark"], glass["rimLit"], glass["rimShade"]) == (
         LIGHT_GRAY, DARK_GRAY, 1, 0), "%s glassMaterial differs from FloatingGlassStyle.look's grays" % DESIGN_SCALE
-    return {LIGHT_GRAY: "--ds-glass-neutral-light", DARK_GRAY: "--ds-glass-neutral-dark", 1: "--ds-glass-rim-lit",
-            0: "--ds-glass-rim-shade"}
+    return {LIGHT_GRAY: "--ds-material-neutral-light", DARK_GRAY: "--ds-material-neutral-dark", 1: "--ds-material-rim-lit",
+            0: "--ds-material-rim-shade"}
 
 
 def gray(white, alpha):
@@ -198,7 +198,7 @@ def css_block(data):
         "   veil and rim here; popovers and menus are .ui-popup.ui-glass (--ui-popup-radius, the tint above).",
         "   Glass, never opaque: a fill on an overlay covers less than --surface-near-opaque; Reduce",
         "   Transparency is the one opaque path (--glass-opaque). A neutral role's veil and rims are one",
-        "   material, the design scale's (--ds-glass-neutral-*, --ds-glass-rim-*), at the role's opacities. */",
+        "   material, the design scale's (--ds-material-neutral-*, --ds-material-rim-*), at the role's opacities. */",
         ":root {",
         "  --surface-near-opaque: %s%%;" % num(round(data["nearOpaque"] * 100, 2)),
     ]

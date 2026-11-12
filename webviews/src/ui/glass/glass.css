@@ -433,24 +433,24 @@
    veil and rim here; popovers and menus are .ui-popup.ui-glass (--ui-popup-radius, the tint above).
    Glass, never opaque: a fill on an overlay covers less than --surface-near-opaque; Reduce
    Transparency is the one opaque path (--glass-opaque). A neutral role's veil and rims are one
-   material, the design scale's (--ds-glass-neutral-*, --ds-glass-rim-*), at the role's opacities. */
+   material, the design scale's (--ds-material-neutral-*, --ds-material-rim-*), at the role's opacities. */
 :root {
   --surface-near-opaque: 90%;
   --surface-card-radius: 10px; /* the sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass */
-  --surface-card-veil: light-dark(color-mix(in srgb, var(--ds-glass-neutral-light) 45%, transparent), color-mix(in srgb, var(--ds-glass-neutral-dark) 42%, transparent));
-  --surface-card-rim-top: light-dark(color-mix(in srgb, var(--ds-glass-rim-lit) 80%, transparent), color-mix(in srgb, var(--ds-glass-rim-lit) 22%, transparent));
-  --surface-card-rim-bottom: light-dark(color-mix(in srgb, var(--ds-glass-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-glass-rim-lit) 4%, transparent));
+  --surface-card-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 45%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 42%, transparent));
+  --surface-card-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 80%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 22%, transparent));
+  --surface-card-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 4%, transparent));
   --surface-group-radius: 6px; /* the sidebar's group headers and a group's pane behind its members, over the sidebar's own glass: the group's color tints the veil */
-  --surface-group-veil: light-dark(color-mix(in srgb, var(--ds-glass-neutral-light) 20%, transparent), color-mix(in srgb, var(--ds-glass-neutral-dark) 6%, transparent));
-  --surface-group-rim-top: light-dark(color-mix(in srgb, var(--ds-glass-rim-lit) 75%, transparent), color-mix(in srgb, var(--ds-glass-rim-lit) 24%, transparent));
-  --surface-group-rim-bottom: light-dark(color-mix(in srgb, var(--ds-glass-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-glass-rim-lit) 4%, transparent));
+  --surface-group-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 20%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 6%, transparent));
+  --surface-group-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 75%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 24%, transparent));
+  --surface-group-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 4%, transparent));
   --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */
   --surface-toast-veil: light-dark(color-mix(in srgb, var(--glass-surface) 55%, transparent), color-mix(in srgb, var(--glass-surface) 42%, transparent));
-  --surface-toast-rim-top: light-dark(color-mix(in srgb, var(--ds-glass-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-glass-rim-lit) 30%, transparent));
-  --surface-toast-rim-bottom: light-dark(color-mix(in srgb, var(--ds-glass-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-glass-rim-lit) 6%, transparent));
+  --surface-toast-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 30%, transparent));
+  --surface-toast-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 6%, transparent));
   --surface-sheet-radius: 14px; /* dialogs, confirms, prompt bars and sheets: a little denser veil for longer text */
-  --surface-sheet-veil: light-dark(color-mix(in srgb, var(--ds-glass-neutral-light) 62%, transparent), color-mix(in srgb, var(--ds-glass-neutral-dark) 48%, transparent));
-  --surface-sheet-rim-top: light-dark(color-mix(in srgb, var(--ds-glass-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-glass-rim-lit) 28%, transparent));
-  --surface-sheet-rim-bottom: light-dark(color-mix(in srgb, var(--ds-glass-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-glass-rim-lit) 5%, transparent));
+  --surface-sheet-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 62%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 48%, transparent));
+  --surface-sheet-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 28%, transparent));
+  --surface-sheet-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 5%, transparent));
 }
 /* surface-roles:end */
