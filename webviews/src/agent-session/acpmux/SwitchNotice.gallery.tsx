@@ -5,8 +5,19 @@ import type { Play } from "../../gallery/play";
 import { NativeError } from "./nativeError";
 import { SwitchNotice } from "./SwitchNotice";
 
-/// `share`: how the fixture's Share with Me answers (a team admin's share, or the creator-or-admin refusal).
-type Props = { error: string; code?: string; share?: "shared" | "forbidden" };
+/// `share`: how the fixture's Share with Me answers: a team admin's share, or each refusal the card names
+/// (machineShare.ts): the creator-or-admin refusal, a private machine, no answer from the platform, and any
+/// other refusal with its own words.
+type Share = "shared" | "forbidden" | "private" | "unavailable" | "failed";
+type Props = { error: string; code?: string; share?: Share };
+
+/// The native `machine.share.self` refusal of each `share` (the platform's code, or the call's failure kind).
+const refusals: Record<Exclude<Share, "shared">, ConstructorParameters<typeof NativeError>[0]> = {
+  forbidden: { code: "machine.creator_or_admin" },
+  private: { code: "machine.private" },
+  unavailable: { code: "timed_out" },
+  failed: { code: "machine.not_found", userMessage: "build-box was deleted." },
+};
 
 function GallerySwitchNotice({ error, code, share }: Props) {
   const [ran, setRan] = useState<string>();
@@ -20,7 +31,7 @@ function GallerySwitchNotice({ error, code, share }: Props) {
           share: {
             machine: "build-box",
             call: async () => {
-              if (share === "forbidden") throw new NativeError({ code: "machine.creator_or_admin" });
+              if (share !== "shared") throw new NativeError(refusals[share]);
               return { shared: true };
             },
           },
@@ -39,6 +50,22 @@ const shareRefused: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Share with Me" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Ask the Owner" }) !== null);
 };
+
+/// Share with Me answered with a refusal line under the sentence (the button stays Share with Me).
+const shareFailed: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Share with Me" });
+  await ctx.waitFor(() => ctx.find({ selector: ".acpmux-host-error-hint" }) !== null);
+};
+
+/// Ask the Owner copied its request: the line says so, and Retry now looks for the owner's share first.
+const askedOwner: Play = async (ctx) => {
+  await shareRefused(ctx);
+  await ctx.click({ role: "button", name: "Ask the Owner" });
+  await ctx.waitFor(() => ctx.find({ text: /Copied a request/ }) !== null);
+};
+
+const teammate =
+  "build-box is a teammate's machine, so its owner starts chats there. Pick your own machine, or create one with New Cloud Machine.";
 
 export default componentEntry<Props>({
   id: "agent-pane.switch-notice",
@@ -70,6 +97,26 @@ export default componentEntry<Props>({
       },
       play: shareRefused,
       note: "Share with Me refused (only the creator or a team admin shares): the same button becomes Ask the Owner, which copies a request naming the machine.",
+    },
+    "teammate-machine-owner-asked": {
+      props: { error: teammate, code: "agent_session.team_vm_blocked", share: "forbidden" },
+      play: askedOwner,
+      note: "Ask the Owner copied its request: the line says to paste it to them, and Retry first looks for their share (a fresh grant), then starts again.",
+    },
+    "teammate-machine-share-private": {
+      props: { error: teammate, code: "agent_session.team_vm_blocked", share: "private" },
+      play: shareFailed,
+      note: "The machine is private (machine.private): no share can help, so the line says only its creator starts chats; Share with Me stays for after the owner changes it.",
+    },
+    "teammate-machine-share-unavailable": {
+      props: { error: teammate, code: "agent_session.team_vm_blocked", share: "unavailable" },
+      play: shareFailed,
+      note: "The platform did not answer (timed_out, transport, no_backend): sharing is unavailable right now, try again in a moment.",
+    },
+    "teammate-machine-share-failed": {
+      props: { error: teammate, code: "agent_session.team_vm_blocked", share: "failed" },
+      play: shareFailed,
+      note: "Any other refusal keeps the platform's own words after \"Couldn't share this machine\".",
     },
     "no-folder": {
       props: {

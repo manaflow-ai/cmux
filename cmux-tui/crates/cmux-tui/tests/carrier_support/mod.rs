@@ -51,13 +51,14 @@ pub fn now() -> u64 {
 }
 
 /// The platform's grant key, the service the grants it signs name, and
-/// their `vmk` claim (none when `None`).
-pub struct Signer(Ed25519KeyPair, &'static str, Option<&'static str>);
+/// their `vmk` claim (none when `None`; [`World::set_vmk`] changes it, as a
+/// share changes the person's grant).
+pub struct Signer(Ed25519KeyPair, &'static str, Mutex<Option<&'static str>>);
 
 impl Signer {
     fn generate(service: &'static str, vmk: Option<&'static str>) -> Self {
         let pkcs8 = Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new()).unwrap();
-        Self(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap(), service, vmk)
+        Self(Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap(), service, Mutex::new(vmk))
     }
 
     fn keyset(&self) -> Keyset {
@@ -79,7 +80,7 @@ impl Signer {
             "iat": now() - 5,
             "exp": now() + 60,
         });
-        if let Some(vmk) = self.2 {
+        if let Some(vmk) = *self.2.lock().unwrap() {
             claims["vmk"] = json!(vmk);
         }
         let message = format!(
@@ -622,6 +623,12 @@ async fn parking_proxy(
 static HANDED_OVER: AtomicUsize = AtomicUsize::new(1_000_000);
 
 impl World {
+    /// The `vmk` claim of the grants the platform signs from now on: the
+    /// person's grant changed (an owner shared the machine with them).
+    pub fn set_vmk(&self, vmk: Option<&'static str>) {
+        *self.signer.2.lock().unwrap() = vmk;
+    }
+
     /// A create's `carrier` for the device whose Noise key is `noise_key`
     /// (base64url), as the dial or serve takes it on a line:
     /// `{"carrier_answer":{…}}`, with the platform's `daemon_key` when

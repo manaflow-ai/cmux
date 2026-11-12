@@ -44,6 +44,10 @@ public struct CloudCarrierResolver: CloudLinkResolver {
         await serve?.observeOwnership(update)
     }
 
+    public func regrant(_ key: CloudLinkKey, unlessAnsweredWithin fresh: Duration) async -> CloudCallerOwnership? {
+        await serve?.regrant(unlessAnsweredWithin: fresh)
+    }
+
     /// Stops the session's `carrier serve` (machine paused or removed, sign-out, quit); a later `open` starts another.
     public func close(_ key: CloudLinkKey) async { await serve?.stop() }
 }
@@ -76,6 +80,12 @@ public actor CloudCarrierServe {
     /// without one (never owner). Nil until that child answered once; a new child starts with none.
     private(set) var answer: CloudCallerOwnership?
     private var ownershipObserver: (@Sendable (CloudCallerOwnership) async -> Void)?
+    /// When ``answer`` last came (a connection's or a regrant's line).
+    private var answeredAt: ContinuousClock.Instant?
+    /// ``regrant(unlessAnsweredWithin:)`` calls waiting for the current child's next regrant line.
+    private var regrantWaiters: [AsyncStream<CloudCallerOwnership?>.Continuation] = []
+    /// How long a regrant waits for its line: one dial, whose ticket and handshake fit well inside it.
+    static let regrantDeadline: Duration = .seconds(30)
     /// The last token the child got (environment or stdin).
     private var sentToken: String?
     /// The current child's hold in its connector's ``CloudCarrierStreams``: an account end stops it at once.
@@ -162,6 +172,7 @@ public actor CloudCarrierServe {
         refresher.cancel()
         refreshing = false
         release()
+        finishRegrants(with: nil)
     }
 
     /// Whether `child` exits within `limit`. A waiter that outlives the limit ends with the child's exit.
@@ -185,11 +196,53 @@ public actor CloudCarrierServe {
         guard serving === child else { return }
         let caller = CloudCallerOwnership(vmk: vmk) ?? .unknown
         answer = caller
+        answeredAt = .now
         await ownershipObserver?(caller)
+    }
+
+    /// Asks the running child for a fresh grant (cmux#40201 F1): its held session answers every connection
+    /// with its first dial's `vmk`, so a teammate an owner shared the machine with stays `team` until it is
+    /// gone. Serve retires that session and dials once with a fresh grant; its answer becomes ``answer`` and
+    /// reaches the live link (the ownership observer) before this returns it. `fresh`: an answer younger than
+    /// this is current enough, and nothing is asked. Nil when no child serves, its dial was refused, or no
+    /// line came within ``regrantDeadline``.
+    public func regrant(unlessAnsweredWithin fresh: Duration = .zero) async -> CloudCallerOwnership? {
+        guard ready, let child, child.isRunning, !connector.isFenced else { return nil }
+        if let answeredAt, let answer, answeredAt.duration(to: .now) < fresh { return answer }
+        let (answers, waiter) = AsyncStream.makeStream(of: CloudCallerOwnership?.self, bufferingPolicy: .bufferingNewest(1))
+        regrantWaiters.append(waiter)
+        guard child.writeInput(line: CloudCarrierDial.regrantLine) else {
+            finishRegrants(with: nil)
+            return nil
+        }
+        let answered = try? await withDeadline(Self.regrantDeadline, label: "carrier regrant") { () -> CloudCallerOwnership? in
+            for await answer in answers { return answer }
+            return nil
+        }
+        return answered ?? nil
+    }
+
+    private func noteRegranted(vmk: String?, refused: String?, from serving: ChildProcess) async {
+        guard serving === child else { return }
+        var caller: CloudCallerOwnership?
+        if refused == nil {
+            caller = CloudCallerOwnership(vmk: vmk) ?? .unknown
+            answer = caller
+            answeredAt = .now
+            if let caller { await ownershipObserver?(caller) }
+        }
+        finishRegrants(with: caller)
+    }
+
+    private func finishRegrants(with caller: CloudCallerOwnership?) {
+        let waiters = regrantWaiters
+        regrantWaiters = []
+        for waiter in waiters { waiter.yield(caller); waiter.finish() }
     }
 
     private func childExited(_ exited: ChildProcess) {
         guard exited === child else { return }
+        finishRegrants(with: nil)
         refresher.cancel()
         refreshing = false
         release()
@@ -229,6 +282,7 @@ public actor CloudCarrierServe {
         let child = ChildProcess(executable: connector.cli, arguments: connector.dial.serveArguments(socket: socket), environment: environment)
         self.child = child
         answer = nil
+        answeredAt = nil
         sentToken = environment["CMUX_CLOUD_ACCESS_TOKEN"]
         let (answers, answer) = AsyncStream.makeStream(of: CloudCarrierDial.ServeLine.self, bufferingPolicy: .bufferingNewest(1))
         // One reader for all of stderr: the first answer, then one line per refused connection.
@@ -242,6 +296,7 @@ public actor CloudCarrierServe {
                 case .refused(let code, let detail):
                     if let refusal = CloudCarrierDial.serveRefusal(code: code, detail: detail) { await self?.noteRefused(refusal) }
                 case .connected(let vmk): await self?.noteConnected(vmk: vmk, from: child)
+                case .regranted(let vmk, let refused): await self?.noteRegranted(vmk: vmk, refused: refused, from: child)
                 case .ready: break
                 }
             }
@@ -270,7 +325,7 @@ public actor CloudCarrierServe {
             case .ready(let served)?:
                 guard served == socket else { throw CloudLinkError.invalidAnswer("served another socket") }
                 try check(served)
-            case .connected?:
+            case .connected?, .regranted?:
                 throw CloudLinkError.invalidAnswer("no ready line")
             case .refused(let code, let detail)?:
                 throw CloudCarrierDial.serveStartError(code: code, detail: detail, socket: socket)

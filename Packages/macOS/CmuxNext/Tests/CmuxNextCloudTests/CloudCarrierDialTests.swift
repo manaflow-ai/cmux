@@ -29,6 +29,38 @@ import Testing
         #expect(CloudCarrierDial.serveLine(#"{"ok":true,"route":"carrier","vmk":"owner"}"#) == .connected(vmk: "owner"))
         #expect(CloudCarrierDial.serveLine(#"{"ok":true,"route":"carrier"}"#) == .connected(vmk: nil))
         #expect(CloudCarrierDial.serveLine("carrier: listening") == nil)
+        #expect(CloudCarrierDial.serveLine(#"{"ok":true,"route":"carrier","vmk":"owner","regrant":true}"#) == .regranted(vmk: "owner", refused: nil))
+        #expect(CloudCarrierDial.serveLine(#"{"ok":false,"error_code":"ticket","route":"carrier","regrant":true}"#) == .regranted(vmk: nil, refused: "ticket"))
+    }
+
+    /// cmux#40201 F1: the carrier's held session answers every connection with its first grant's `vmk`, so a
+    /// teammate an owner shared the machine with stays `team`. A regrant asks serve for a fresh grant, and
+    /// its answer moves the live link before the regrant returns; an answer younger than the bound asks nothing.
+    @Test func aRegrantMovesTheLinkToTheFreshGrant() async throws {
+        let cli = try Self.standIn("""
+        d=$(dirname "$0")
+        printf '{"ok":true,"socket":"%s","route":"carrier"}\\n' "$6" >&2
+        printf '{"ok":true,"route":"carrier","vmk":"team"}\\n' >&2
+        while read -r l; do
+          case "$l" in *regrant*) echo x >> "$d/regrants"; printf '{"ok":true,"route":"carrier","vmk":"owner","regrant":true}\\n' >&2 ;; esac
+        done
+
+        """)
+        let folder = cli.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let socket = folder.appendingPathComponent("cmux-link-0123456789ab.sock").path
+        let connector = CloudCarrierDial.Connector(cli: cli, dial: try #require(CloudCarrierDial(machine: "vm_abc123", service: .mux))) { [:] }
+        let serve = CloudCarrierServe(connector: connector, socket: socket) { _ in }
+        let link = CloudLinkSession(key: CloudLinkKey(machine: "vm_abc123"), resolver: CloudCarrierResolver(serve: serve) { .unknown })
+        _ = try await link.connect(origin: .user)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await link.callerOwnership != .team, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await link.callerIsTeammate)
+        #expect(await link.regrant(unlessAnsweredWithin: .seconds(60)) == .team, "a fresh answer asks nothing")
+        #expect(await link.regrant() == .owner)
+        #expect(await link.ownerLink != nil)
+        #expect(try String(contentsOf: folder.appendingPathComponent("regrants"), encoding: .utf8) == "x\n")
+        await link.close()
     }
 
     /// A refused connection's step reads as the sidebar's existing link wording.

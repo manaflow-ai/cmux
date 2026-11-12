@@ -175,6 +175,10 @@ pub(super) enum StdinLine {
     /// `{"carrier_answer":{relay, slot, ticket, expires_at, grant,
     /// daemon_key?}}`: the next dial's first attempt uses it.
     Answer(Box<super::answer::CarrierAnswer>),
+    /// `{"regrant":true}`: the person's grant changed under the same
+    /// credential (a share): the held session takes no new stream and one
+    /// dial asks the platform for a fresh grant now ([`regrant_line`]).
+    Regrant,
     /// Anything else, and why.
     Invalid(&'static str),
 }
@@ -182,7 +186,7 @@ pub(super) enum StdinLine {
 impl PartialEq for StdinLine {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Blank, Self::Blank) => true,
+            (Self::Blank, Self::Blank) | (Self::Regrant, Self::Regrant) => true,
             (Self::Token(a), Self::Token(b)) => a == b,
             (Self::Invalid(a), Self::Invalid(b)) => a == b,
             _ => false,
@@ -194,6 +198,7 @@ impl std::fmt::Debug for StdinLine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Blank => f.write_str("Blank"),
+            Self::Regrant => f.write_str("Regrant"),
             Self::Token(_) => f.write_str("Token(..)"),
             Self::Answer(answer) => f.debug_tuple("Answer").field(answer).finish(),
             Self::Invalid(why) => f.debug_tuple("Invalid").field(why).finish(),
@@ -217,7 +222,8 @@ pub(super) fn answer_line(bytes: &[u8]) -> Result<super::answer::CarrierAnswer, 
 
 /// Reads one stdin line (without its newline). The token is 1 to 8192
 /// visible ASCII bytes; other keys are ignored. A line with
-/// `carrier_answer` is a handed-over answer ([`answer_line`]).
+/// `carrier_answer` is a handed-over answer ([`answer_line`]); one with
+/// `regrant` asks for a fresh grant, and only `true` is taken.
 pub(super) fn stdin_line(bytes: &[u8]) -> StdinLine {
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return StdinLine::Blank;
@@ -231,6 +237,13 @@ pub(super) fn stdin_line(bytes: &[u8]) -> StdinLine {
         return match answer_line(bytes) {
             Ok(answer) => StdinLine::Answer(Box::new(answer)),
             Err(why) => StdinLine::Invalid(why),
+        };
+    }
+    if let Some(regrant) = object.get("regrant") {
+        return if regrant == &serde_json::Value::Bool(true) {
+            StdinLine::Regrant
+        } else {
+            StdinLine::Invalid("regrant is true or left out")
         };
     }
     match object.get("access_token").and_then(serde_json::Value::as_str).map(str::trim) {
@@ -250,6 +263,21 @@ pub(super) fn stdin_line(bytes: &[u8]) -> StdinLine {
 /// [`connected_line`].
 pub(super) fn served_line(vmk: Option<Vmk>) -> String {
     ok_line(&[], vmk)
+}
+
+/// The line `carrier serve` writes when the dial a `{"regrant":true}` stdin
+/// line started ends: [`served_line`] with the fresh grant's `vmk`, or the
+/// dial's [`failure_line`], each with `"regrant":true` so a reader tells it
+/// from a connection's line.
+pub(super) fn regrant_line(outcome: Result<Option<Vmk>, (&str, &str)>) -> String {
+    let line = match outcome {
+        Ok(vmk) => served_line(vmk),
+        Err((code, detail)) => failure_line(code, Some(detail)),
+    };
+    let mut value: serde_json::Value =
+        serde_json::from_str(line.trim()).unwrap_or_else(|_| json!({}));
+    value["regrant"] = json!(true);
+    cmux_link::dial::line(&value)
 }
 
 /// The ready line of `carrier serve`, once it listens at `socket`.

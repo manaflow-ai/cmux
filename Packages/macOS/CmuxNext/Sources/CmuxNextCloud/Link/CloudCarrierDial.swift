@@ -76,12 +76,18 @@ public struct CloudCarrierDial: Equatable, Sendable {
         /// One connection's dial got through; `vmk` is the grant's `owner` or `team`, nil when it had none.
         case connected(vmk: String?)
         case refused(code: String, detail: String?)
+        /// The dial a ``CloudCarrierDial/regrantLine`` asked for ended: `vmk` is the fresh grant's (`owner` or
+        /// `team`, nil when it had none), or `refused` names the step it did not get past.
+        case regranted(vmk: String?, refused: String?)
     }
 
     /// Reads `{"ok":true,"socket":PATH,"route":"carrier"}`, `{"ok":true,"route":"carrier","vmk"?:…}` or
-    /// `{"ok":false,"error_code":…,"error_detail"?:…}`.
+    /// `{"ok":false,"error_code":…,"error_detail"?:…}`, each with `"regrant":true` when it answers a regrant.
     public static func serveLine(_ line: String) -> ServeLine? {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { return nil }
+        if object["regrant"] as? Bool == true, let ok = object["ok"] as? Bool {
+            return .regranted(vmk: ok ? object["vmk"] as? String : nil, refused: ok ? nil : object["error_code"] as? String ?? "")
+        }
         if object["ok"] as? Bool == true {
             if let socket = object["socket"] as? String, !socket.isEmpty { return .ready(socket: socket) }
             return .connected(vmk: object["vmk"] as? String)
@@ -142,6 +148,10 @@ public struct CloudCarrierDial: Equatable, Sendable {
 
     /// Another `carrier serve` holds the session's socket.
     static let socketTaken = CloudLinkError.failed(code: "socket", message: "another cmux is serving this machine's connection socket")
+
+    /// The JSON line that asks `carrier serve` for a fresh grant (cmux#40201 F1): its held session keeps the
+    /// first dial's grant, and with it the caller's `vmk`, until it is gone. Serve answers with a regrant line.
+    public static let regrantLine = #"{"regrant":true}"#
 
     /// The JSON line `carrier serve` reads on stdin to take a new access token for its next dials.
     public static func tokenLine(_ accessToken: String) -> String {
