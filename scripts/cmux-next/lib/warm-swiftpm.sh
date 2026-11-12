@@ -22,6 +22,18 @@
 #   guard's 75 (fetch failed, nothing built) or the build's status.
 # cmux_next_swift_args
 #   The flags every later build and test of PKGDIR passes.
+#
+# CMUX_NEXT_JOB_BUILT=plain: the calling CI job already built PKGDIR with a
+# plain `swift build --build-tests` (cmux-next.yml's generated-files, swift-test
+# and daemon-test jobs; the fast-tier seed is the same build). The warm
+# contract's flags differ from that build's and its guard finds no header
+# digest in it, so under the contract the first export threw the job's whole
+# build away and built cold again: 23.5 min, then the settings check's base
+# export, then its restore, past the job's 40 min cap on every pull request
+# that changes CmuxNextSettings (cmuxterm-hq#9678, cmux#41472). With it the
+# build and test flags are the job's own (only the CPU grant's --jobs is kept,
+# which leaves the outputs alone) and the guard is skipped, as the job's own
+# build skipped it, so a build here is incremental on the job's build.
 
 # The helpers live in scripts/ci. The pull request autofix runs the base's
 # scripts/cmux-next from a copy that has no scripts/ci beside it, so they then
@@ -34,6 +46,15 @@ source "$cmux_next_warm_ci_dir/swift-test-debug-info.sh" || return 2
 # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
 source "$cmux_next_warm_ci_dir/swiftpm-binary-module-guard.sh" || return 2
 cmux_next_swift_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
+if [ "${CMUX_NEXT_JOB_BUILT:-}" = plain ]; then
+  cmux_next_swift_args=()
+  if [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]]; then
+    cmux_next_swift_args=(--jobs "$CMUX_CI_CPU_BUDGET")
+  fi
+elif [ -n "${CMUX_NEXT_JOB_BUILT:-}" ]; then
+  echo "CMUX_NEXT_JOB_BUILT must be plain or unset (got '${CMUX_NEXT_JOB_BUILT}')" >&2
+  return 2
+fi
 
 cmux_next_warm_build() {
   local pkgdir="$1" built_ref="$1/.build/.cmux-ci-built-ref"
@@ -43,7 +64,9 @@ cmux_next_warm_build() {
   else
     echo "ci-phase .build has no earlier build (cold or first use)"
   fi
-  swiftpm_binary_module_guard "$pkgdir" || return $?
+  if [ "${CMUX_NEXT_JOB_BUILT:-}" != plain ]; then
+    swiftpm_binary_module_guard "$pkgdir" || return $?
+  fi
   swift build ${cmux_next_swift_args[@]+"${cmux_next_swift_args[@]}"} --package-path "$pkgdir" --build-tests "$@" || return $?
   git -C "$pkgdir" rev-parse HEAD > "$built_ref"
 }
