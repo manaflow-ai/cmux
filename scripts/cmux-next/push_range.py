@@ -55,6 +55,16 @@ refused for release-notes/next/highlights/ios-screen-sharing-paste-image.md, a h
 without the ref is left to the fallbacks below, and a fetch that fails or runs past its limit is said in the report
 and the stale copy bounds the walk as before.
 
+Every other tool that measures "this branch's own change" from where HEAD meets a remote-tracking base has the same
+bug, so it fetches the same way first: a run outside a push (the gate, the arch ratchet and the web lint run by
+hand) takes manual_range, and a tool that takes a merge base itself calls refresh_base(repo, ref) before it
+(affected tests and its replay, the Rust panic ratchet, gate-plan, build_class, the test-determinism scan,
+codebase-health). 2026-11-12: these were the readers left after the pre-push fix; tests/test_stale_base_readers.py
+pins each. One fetch per run, on the same 30 s limit; a ref that is not a remote-tracking ref of a configured remote
+(a sha, a CI checkout's origin with no such refspec) is left alone, and nothing is fetched on GitHub Actions (each
+workflow fetches the base it diffs against). Each tool loads this file by path, from its own tree, and calls
+refresh_base.
+
 Fallbacks:
 - none of those refs is in the clone (a first push from a single-branch clone, a remote named otherwise), or the
   walk reaches a shallow root or a root commit before any of them: the walk is bounded again by every ref of the
@@ -418,7 +428,8 @@ UPSTREAM_FETCH_SECONDS = 30
 UPSTREAM_REFRESH_FILE = "upstream-refresh"
 
 
-def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREAM, key: str = "") -> str:
+def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREAM, key: str = "",
+                     whose: str = "the push's own", then: str = "push again") -> str:
     """Fetch UPSTREAM_REF (`origin/feat-cmux-next`) from REMOTE into this clone, once per KEY (the pushed-refs lines:
     every check of one push calls this, and only the first fetches). Returns "" when it is fresh, or was left alone (a
     push to a URL, a remote whose refspecs do not map the branch there, a clone without the ref: the fallbacks), else
@@ -455,7 +466,7 @@ def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREA
         why = str(error)
     if why:
         return (f"; {upstream_ref} could not be fetched ({why[:200]}), so what a base merge brought in past this "
-                f"clone's copy counts as the push's own: run `git fetch {name} {branch}` and push again")
+                f"clone's copy counts as {whose}: run `git fetch {name} {branch}` and {then}")
     if key and stamp is not None:
         try:
             stamp.parent.mkdir(parents=True, exist_ok=True)
@@ -465,6 +476,28 @@ def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREA
         except OSError:
             pass
     return ""
+
+
+def refresh_base(repo: Path | str, ref: str, remote: str | None = DEFAULT_REMOTE) -> str:
+    """Fetch REF (`origin/feat-cmux-next`, `refs/remotes/origin/main`) from REMOTE before a tool measures a branch's
+    own change from where HEAD meets it (see the module docstring); refresh_upstream once, with no per-push stamp.
+    Returns "" when it is fresh or left alone (a sha, another remote, a remote that does not map it), else the note
+    on why the stale copy is used. Never on GitHub Actions: a CI checkout fetches the base it diffs against itself,
+    and a fetch there would deepen a shallow clone."""
+    if os.environ.get("GITHUB_ACTIONS"):
+        return ""
+    if ref.startswith("refs/remotes/"):
+        ref = ref[len("refs/remotes/"):]
+    return refresh_upstream(Path(repo), remote, ref, whose="this branch's own", then="run this again")
+
+
+def manual_range(repo: Path, head: str = "HEAD", upstream_ref: str = UPSTREAM,
+                 remote: str | None = DEFAULT_REMOTE) -> OwnRange:
+    """own_range for a run outside a push (no pre-push stdin): the shared base is fetched first (refresh_base), as
+    pushed_ranges does for a push, and a fetch that fails is said in the note."""
+    stale = refresh_base(repo, upstream_ref, remote)
+    own = own_range(repo, head, [], upstream_ref, remote)
+    return dataclasses.replace(own, note=own.note + stale) if stale else own
 
 
 def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REMOTE,
