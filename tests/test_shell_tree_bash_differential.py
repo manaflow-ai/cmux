@@ -162,6 +162,26 @@ NESTABLE = (
     "eval $'c1\\x200'",
     "eval $'c1\\cAx; c2'",
     "eval $'c\\U7FFFFFFF; c1'",
+    # A Codex review of cmux#41781 (F1): a backslash that ends the text an eval, a -c string or a trap action runs
+    # (nothing after it: the text's end, or a NUL in a $'...' string) has no character to escape, and bash keeps it:
+    # `c1\` is a command named c1\, never c1. Then the rows that must keep running c1: the backslash in an argument,
+    # after the last command, escaped (\\), or before a newline in the text (a line continuation).
+    "eval $'c1\\\\\\0'",
+    "bash -c $'c1\\\\\\0'",
+    "trap $'c1\\\\\\0' EXIT",
+    "eval 'c1\\'",
+    "bash -c 'c1\\'",
+    "trap 'c1\\' EXIT",
+    "eval 'c2; c1\\'",
+    "eval c1\\\\",
+    "eval 'c1 a\\'",
+    "eval 'c1 \\'",
+    "eval c1 '\\'",
+    "eval 'c1; c2\\'",
+    "eval 'c1 a\\\\\\'",
+    "eval $'c1\\\\\\n'",
+    "bash -c 'c1 a\\'",
+    "trap 'c1 \\' EXIT",
 )
 WHOLE = (
     "exec c1",
@@ -175,6 +195,11 @@ WHOLE = (
     # \c takes both backslashes of a \\ after it, so the 0 that follows is text, never a \0 (cmux#41745 F1).
     "eval $'c1\\c\\\\0; c2'",
     "eval $'c1\\c'; c2",
+    # A backtick substitution's body is text bash parses as a script of its own (cmux#41781 F1's sweep): a backslash
+    # that ends it, once \\ is unescaped, has nothing to escape either.
+    "y=`c1\\\\`",
+    "y=`c2; c1\\\\`",
+    "y=`c1 a\\\\`",
 )
 
 
