@@ -250,7 +250,7 @@ reason = "Lawrence 2026-10-23: no new CI tests. Checks the one-mini routing (var
 [[test]]
 path = "tests/test_nightly_next_one_job.py"
 lane = "manual"
-reason = "Lawrence 2026-10-23: no new CI tests. Checks the one-job nightly-next path (vars.NIGHTLY_NEXT_ONE_JOB, the nightly-next-one job on vars.CI_NIGHTLY_ONE_RUNNER) of nightly.yml: its gate, label, concurrency, signing admission, no app artifact hop, and that the split jobs skip only when it is on; run python3 tests/test_nightly_next_one_job.py yourself after changing either path (about 2 s, no Mac)."
+reason = "Lawrence 2026-10-23: no new CI tests. Checks the one-job nightly-next path (vars.NIGHTLY_NEXT_ONE_JOB, the nightly-next-one job on cmux15's signer label) of nightly.yml: its gate, label, concurrency, signing admission, no app artifact hop, and that the split jobs skip only when it is on; run python3 tests/test_nightly_next_one_job.py yourself after changing either path (about 2 s, no Mac)."
 
 [[test]]
 path = "tests/test_nightly_owned_minis_only.py"

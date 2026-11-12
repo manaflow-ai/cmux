@@ -146,6 +146,16 @@ def keeps_state(runner: str) -> bool:
     return owned(runner) or dedicated(runner)
 
 
+KEEP_STATE_FLAG = 'CMUX_NIGHTLY_KEEP_STATE'
+
+
+def flagged() -> bool:
+    """nightly-next-one sets CMUX_NIGHTLY_KEEP_STATE=1: its runner, its own macOS user, keeps an incremental
+    DerivedData, SourcePackages and compilation cache of its own under $HOME (0700), whatever the runner's name,
+    and never builds in the Mac's shared host build root."""
+    return os.environ.get(KEEP_STATE_FLAG) == '1'
+
+
 def git(workspace: Path, *args: str) -> str:
     return subprocess.run(['git', '-C', str(workspace), *args], check=True, capture_output=True, text=True).stdout
 
@@ -280,7 +290,7 @@ def mark_built(workspace: Path, home: Path, runner: str) -> bool:
     """Record that the build prepared on this workspace finished, so the next one may build on it (the workflow
     step runs only when prepare chose a mode)."""
     derived = workspace / 'build-universal'
-    if not dedicated(runner) or not derived.is_symlink():
+    if not (dedicated(runner) or flagged()) or not derived.is_symlink():
         return False
     state_file = derived.resolve().parent / INCREMENTAL_STATE
     if (home / STATE_ROOT / runner).resolve() not in state_file.parents:
@@ -355,14 +365,18 @@ def notices_cache(home: Path, runner: str) -> Path:
 
 
 def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str) -> bool:
-    if not keeps_state(runner) or track != 'nightly-next':
+    if not (keeps_state(runner) or flagged()) or track != 'nightly-next':
         return False
     runner_state = home / STATE_ROOT / runner
+    if flagged():
+        runner_state.mkdir(parents=True, exist_ok=True)
+        for private in (home / STATE_ROOT, runner_state):
+            private.chmod(0o700)
     derived = workspace / 'build-universal'
     remove(derived)
     identity = hashlib.sha256(f'{workspace.resolve()}\n{toolchain}'.encode()).hexdigest()[:32]
     incremental = None
-    if dedicated(runner):
+    if dedicated(runner) or flagged():
         try:
             incremental = prepare_incremental(workspace, runner_state, identity, input_key(workspace, toolchain))
         except (OSError, ValueError, subprocess.CalledProcessError) as error:
@@ -483,7 +497,7 @@ def main(argv: list[str]) -> int:
     workspace = Path(os.environ.get('GITHUB_WORKSPACE', '.')).resolve()
     if len(argv) == 3 and argv[1] == 'prepare':
         runner = os.environ.get('RUNNER_NAME', '')
-        if keeps_state(runner) and argv[2] == 'nightly-next':
+        if (keeps_state(runner) or flagged()) and argv[2] == 'nightly-next':
             if prepare(workspace, Path.home(), runner, argv[2], toolchain_identity()):
                 cache = notices_cache(Path.home(), runner)
                 print(f'NEXT third-party notices read crate sources kept in {cache}')
@@ -491,7 +505,7 @@ def main(argv: list[str]) -> int:
                 if github_env:
                     with open(github_env, 'a', encoding='utf-8') as env:
                         env.write(f'CMUX_NEXT_NOTICES_CACHE={cache}\n')
-                        if dedicated(runner):
+                        if dedicated(runner) and not flagged():
                             # The Release build step may take the host build root (app-host-build-root.sh).
                             env.write('CMUX_NIGHTLY_HOST_BUILD_ROOT=1\n')
         return 0

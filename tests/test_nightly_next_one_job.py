@@ -4,7 +4,7 @@
 Leo, 2026-11-12: "Why isn't it just like the single machine does the thing end to end? I thought we were
 already doing that, and then we stopped doing that." With the repository variable NIGHTLY_NEXT_ONE_JOB set
 to `on`, a nightly-next push (or the loop's retry) runs decide and resolve, then one job on cmux15
-(vars.CI_NIGHTLY_ONE_RUNNER, else the glaeda-nightly-one label) that compiles warm, prepares, signs,
+(cmux15's signer label, glaeda-trusted-next-signing) that compiles warm, prepares, signs,
 notarizes, verifies and writes the feed in one workspace: no artifact hop of the app. The split
 build/sign pipeline jobs skip in that mode, and with the variable unset they run exactly as before.
 """
@@ -89,8 +89,9 @@ class NightlyNextOneJobTests(unittest.TestCase):
 
     def test_it_runs_on_the_one_job_label(self) -> None:
         runs_on = one_line(self.job.get("runs-on"))
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                  "vars.CI_NIGHTLY_ONE_RUNNER || 'glaeda-nightly-one' }}")
+        # cmux15's signer label, a literal (no variable chooses where signing secrets go).
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && "
+                                  "'glaeda-trusted-next-signing' || 'glaeda-trusted-next-signing' }}")
         self.assertEqual(self.job.get("environment"), "${{ needs.decide.outputs.environment }}")
 
     def test_no_artifact_carries_the_app_into_or_out_of_it(self) -> None:
@@ -108,7 +109,10 @@ class NightlyNextOneJobTests(unittest.TestCase):
                                     f"{step.get('name')} uploads the app")
 
     def test_it_holds_its_own_concurrency_group_and_never_cancels_a_started_run(self) -> None:
-        self.assertEqual(self.job.get("concurrency"), {"group": "nightly-next-one", "cancel-in-progress": False})
+        # Scoped to the run: a shared group would let a newer run replace this one's pending job
+        # (tests/test_nightly_delivery_concurrency.py); the push group already runs one nightly-next at a time.
+        self.assertEqual(self.job.get("concurrency"), {"group": "${{ format('nightly-next-one-{0}', github.run_id) }}",
+                                                       "cancel-in-progress": False})
 
     def test_it_is_admitted_as_a_signing_job(self) -> None:
         self.assertIn(JOB, signing_runner.SIGNING_JOBS["nightly.yml"])
@@ -133,7 +137,7 @@ class NightlyNextOneJobTests(unittest.TestCase):
                      "Recheck the recovered build against both feeds", "Guard nightly-next publication",
                      "Final publication gate", "Upload nightly-next appcasts to R2",
                      "Read the live nightly-next feed back", "Release the nightly-next publish lease",
-                     "Webview checks on the build commit", "Wait for the build commit's tree-commit marker"):
+                     "Finish the webview checks before any signing secret", "Wait for the build commit's tree-commit marker"):
             self.assertIn(name, names)
         notarize = next(s for s in self.job["steps"] if s.get("name") == "Notarize app ticket through final DMG")
         # As today: the app, its staple, the DMG around the stapled app, its staple.
@@ -146,9 +150,9 @@ class NightlyNextOneJobTests(unittest.TestCase):
             condition = one_line(self.jobs[name].get("if"))
             if condition.startswith("${{") and condition.endswith("}}"):
                 condition = condition[3:-2].strip()
-            self.assertTrue(condition.endswith(f"&& {GATE_OFF}"), f"{name} if does not end with && {GATE_OFF}")
-            # Unchanged with the variable unset: the gate is the only mention, appended at the top level.
-            before = condition[: -len(f" && {GATE_OFF}")]
+            self.assertEqual(condition.count(f" && {GATE_OFF}"), 1, f"{name} if has no && {GATE_OFF}")
+            # Unchanged with the variable unset: the gate is the only mention, one top-level conjunct.
+            before = condition.replace(f" && {GATE_OFF}", "")
             self.assertNotIn("one_job", before)
             self.assertNotIn("||", re.sub(r"\([^()]*\)", "", re.sub(r"\([^()]*\)", "", before)),
                              f"{name}: an `||` outside parentheses would bind looser than the appended gate")

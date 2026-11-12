@@ -424,6 +424,43 @@ class DedicatedBuilder(unittest.TestCase):
         self.assertIn("steps.release-derived-data.outputs.mode == ''", sanitize)
 
 
+class FlaggedBuilder(DedicatedBuilder):
+    """nightly-next-one's runner: a name nightly_only() refuses, warm by CMUX_NIGHTLY_KEEP_STATE=1 alone."""
+    RUNNER = 'cmux15-xl-2'
+
+    def setUp(self):
+        super().setUp()
+        saved = os.environ.get(state.KEEP_STATE_FLAG)
+        os.environ[state.KEEP_STATE_FLAG] = '1'
+        self.addCleanup(lambda: os.environ.pop(state.KEEP_STATE_FLAG, None) if saved is None
+                        else os.environ.__setitem__(state.KEEP_STATE_FLAG, saved))
+
+    # By runner name only; the flag keeps state on any name and never offers the host build root (below).
+    test_only_the_dedicated_builder_keeps_derived_data = None
+    test_prepare_offers_the_host_build_root_to_a_plain_nightly_only_slot = None
+
+    def test_the_runner_name_alone_keeps_nothing(self):
+        os.environ.pop(state.KEEP_STATE_FLAG)
+        self.assertFalse(state.keeps_state(self.RUNNER))
+        self.assertFalse(state.prepare(self.workspace, self.home, self.RUNNER, 'nightly-next', 'Xcode 26.6'))
+
+    def test_its_kept_root_is_its_users_alone(self):
+        self.build()
+        for private in (self.home / state.STATE_ROOT, self.home / state.STATE_ROOT / self.RUNNER):
+            self.assertEqual(private.stat().st_mode & 0o777, 0o700, private)
+
+    def test_it_never_takes_the_macs_shared_host_build_root(self):
+        env_file = self.root / 'github-env'
+        env_file.write_text('')
+        with mock.patch.dict(os.environ, {'GITHUB_ENV': str(env_file), 'GITHUB_WORKSPACE': str(self.workspace),
+                                          'RUNNER_NAME': self.RUNNER}), \
+                mock.patch.object(state.Path, 'home', return_value=self.home), \
+                mock.patch.object(state, 'toolchain_identity', return_value='Xcode 26.6'):
+            self.assertEqual(state.main(['nightly_build_state.py', 'prepare', 'nightly-next']), 0)
+        self.assertNotIn('CMUX_NIGHTLY_HOST_BUILD_ROOT', env_file.read_text())
+        self.assertIn('CMUX_NEXT_NOTICES_CACHE=', env_file.read_text())
+
+
 class HostBuildRoot(unittest.TestCase):
     """Both dedicated slots of a nightly Mac build in one root (app-host-build-root.sh), so the
     compilation cache keys and the kept DerivedData are the same whichever slot builds."""
