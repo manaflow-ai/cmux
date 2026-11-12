@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextTerminal
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
 /// readiness acknowledgement: every key typed from the shortcut on waits here, in order, and goes to
@@ -123,7 +124,7 @@ final class NewTabInputCoordinator {
         // One opening at a time per window: an earlier one ends here, and its keys wait for this page.
         let earlier = entry(for: window)?.buffer.takeKeys() ?? []
         release(in: window)
-        let keyboard = NewTabHoldKeyboard(in: window)
+        let keyboard = NewTabHoldKeyboard(in: window, standIn: TerminalHostView.keyboardOwner)
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak pane, weak window] in
@@ -177,7 +178,7 @@ final class NewTabInputCoordinator {
         guard let router, let window else { return nil }
         let earlier = entry(for: window)?.buffer.takeKeys() ?? []
         release(in: window)
-        let keyboard = NewTabHoldKeyboard(in: window)
+        let keyboard = NewTabHoldKeyboard(in: window, standIn: TerminalHostView.keyboardOwner)
         let target = IncomingPage()
         target.followsNewWindow = followsNewWindow
         let services = router.services
@@ -379,8 +380,7 @@ final class NewTabInputCoordinator {
         let focus = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         note("release: \(why), \(entry.buffer.hasPending ? "keys" : "no keys") to \(focus)", entry)
         entry.deadline?.cancel()
-        // No field is ready. A drain (`flush`) never comes here: the field it found ready gets every key.
-        entry.keyboard.endedUnready = true
+        entry.keyboard.endedUnready = true // no field is ready; a drain (`flush`) never comes here: its field gets every key
         entry.buffer.release()
         if entry.keyboard.dropped > 0 { note("dropped \(entry.keyboard.dropped) keys (\(why)): what had the keyboard at the opening still has it", entry) }
     }

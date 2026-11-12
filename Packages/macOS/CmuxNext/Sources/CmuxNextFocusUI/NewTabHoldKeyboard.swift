@@ -6,26 +6,33 @@ public import AppKit
 /// page start in a pane that is not the focused one, a Cmd-N that failed; in the nightly from 2026-10-11).
 @MainActor
 public final class NewTabHoldKeyboard {
+    /// What a responder stands for when its own object can be made again while the hold lives; nil: itself.
+    public typealias StandIn = @MainActor (NSResponder) -> AnyObject?
+
     private weak var owner: AnyObject?
+    private let standIn: StandIn
     /// The hold ended with no field ready. Its owner sets this before the keys go on.
     public var endedUnready = false
     /// The keys that were not given on. A count: the text of a key is never kept or logged.
     public private(set) var dropped = 0
 
-    public init(in window: NSWindow) {
+    /// `standIn`: a terminal makes its surface view again at a replay, so that view stands for the terminal's host view.
+    public init(in window: NSWindow, standIn: @escaping StandIn = { _ in nil }) {
+        self.standIn = standIn
         // A page in Chromium has the keys in its own window, a child of the shell.
-        if let key = NSApp.keyWindow, key !== window, key.parent === window { owner = key } else { owner = Self.owner(of: window.firstResponder) }
+        if let key = NSApp.keyWindow, key !== window, key.parent === window { owner = key } else { owner = whatStands(for: window.firstResponder) }
     }
 
     /// A field editor stands for its field: one editor serves every field of a window.
-    private static func owner(of responder: NSResponder?) -> AnyObject? {
+    private func whatStands(for responder: NSResponder?) -> AnyObject? {
         if let editor = responder as? NSTextView, editor.isFieldEditor, let field = editor.delegate { return field }
+        if let responder, let stand = standIn(responder) { return stand }
         return responder
     }
 
     /// Whether a held key that `responder` would get is dropped. It counts the key.
     public func drops(keyFor responder: NSResponder?) -> Bool {
-        guard endedUnready, let owner, Self.owner(of: responder) === owner else { return false }
+        guard endedUnready, let owner, whatStands(for: responder) === owner else { return false }
         dropped += 1
         return true
     }

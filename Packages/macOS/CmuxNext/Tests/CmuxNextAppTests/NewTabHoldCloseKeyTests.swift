@@ -72,10 +72,12 @@ struct NewTabHoldCloseKeyTests {
         let token: String
         var input: NewTabInputCoordinator { services.keyRouter.newTabInputCoordinator }
 
-        /// A view that takes the keyboard after the opening (the new page's or the new terminal's).
+        /// A view that takes the keyboard after the opening (the new page's or the new terminal's). It is in the
+        /// page's pane, which is the focused pane in each test that uses it: the window gives the keyboard back
+        /// to the focused pane's terminal when a view outside every pane takes it.
         func laterKeyboardView() throws -> KeyProbe {
             let later = KeyProbe(frame: CGRect(x: 20, y: 0, width: 10, height: 10))
-            try #require(window.contentView).addSubview(later)
+            pane.view.addSubview(later)
             try #require(window.makeFirstResponder(later) && window.firstResponder === later, "the second probe did not get the keyboard")
             return later
         }
@@ -145,8 +147,10 @@ struct NewTabHoldCloseKeyTests {
         // The focus model names the first pane, and the view that had the keyboard before the opening still has it.
         controller.focus.send(.focusPane(focused.paneKey, source: .programmatic))
         try #require(controller.focus.state.pane == focused.paneKey, "the first pane does not have focus")
+        // The probe is in the focused pane, as that pane's terminal is: the focus model takes its keyboard for the
+        // pane's content and leaves it there (a view outside every pane loses the keyboard to the pane's terminal).
         let probe = KeyProbe(frame: CGRect(x: 0, y: 0, width: 10, height: 10))
-        content.contentView.addSubview(probe)
+        focused.view.addSubview(probe)
         try #require(window.makeFirstResponder(probe) && window.firstResponder === probe, "the probe did not get the keyboard (first responder \(String(describing: window.firstResponder)))")
 
         // The opening's hold, as NewTabPage.open (or Cmd-N) begins it, and the line typed before the field is ready.
@@ -295,6 +299,39 @@ struct NewTabHoldCloseKeyTests {
         let later = try #require(window.firstResponder as? NSTextView, "the second field has no field editor")
         try #require(later === editor && later.delegate === second, "the second field does not use the same field editor: this run proves nothing")
         #expect(!keyboard.drops(keyFor: window.firstResponder), "a key for a field that took the keyboard after the opening was dropped")
+        #expect(keyboard.dropped == 1, "the count of the dropped keys is \(keyboard.dropped), not 1")
+    }
+
+    /// A terminal makes its surface view again at a replay. A view stands for what holds it (the stand-in rule), so
+    /// the view made again in the same place is still what had the keyboard at the opening: its key is dropped.
+    /// A view in another place gets its key. (A test of the rule's own type, as the one above.)
+    @Test func aViewMadeAgainInTheSamePlaceIsStillWhatHadTheKeyboardAtTheOpening() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let host = NSView(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        let otherHost = NSView(frame: CGRect(x: 120, y: 0, width: 100, height: 100))
+        content.addSubview(host)
+        content.addSubview(otherHost)
+        let first = KeyProbe(frame: host.bounds)
+        host.addSubview(first)
+        try #require(window.makeFirstResponder(first) && window.firstResponder === first, "the first view did not take the keyboard")
+
+        let keyboard = NewTabHoldKeyboard(in: window, standIn: { ($0 as? KeyProbe)?.superview })
+        keyboard.endedUnready = true
+
+        first.removeFromSuperview()
+        let again = KeyProbe(frame: host.bounds)
+        host.addSubview(again)
+        try #require(window.makeFirstResponder(again) && window.firstResponder === again, "the view made again did not take the keyboard")
+        #expect(keyboard.drops(keyFor: window.firstResponder), "a key for the view made again in the same place was not dropped")
+
+        let elsewhere = KeyProbe(frame: otherHost.bounds)
+        otherHost.addSubview(elsewhere)
+        try #require(window.makeFirstResponder(elsewhere) && window.firstResponder === elsewhere, "the view in the other place did not take the keyboard")
+        #expect(!keyboard.drops(keyFor: window.firstResponder), "a key for a view in another place was dropped")
         #expect(keyboard.dropped == 1, "the count of the dropped keys is \(keyboard.dropped), not 1")
     }
 }
