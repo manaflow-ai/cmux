@@ -493,6 +493,11 @@ pub enum Command {
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     AcpmuxMcp,
+    /// acpmux's own agent tool servers (secrets, offers, sub-sessions, forum, acpmux) in one
+    /// MCP stdio process for one agent session: `cmux mcp serve` runs it once per chat
+    /// (tools_mcp.rs; not for people).
+    #[command(hide = true)]
+    ToolsMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {

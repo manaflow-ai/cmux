@@ -355,8 +355,8 @@ impl Dismissed {
         list.drain(..over);
         if let Ok(bytes) = serde_json::to_vec(&all) {
             let tmp = self.path.with_extension("json.tmp");
-            if std::fs::write(&tmp, bytes).is_ok() {
-                let _ = std::fs::rename(&tmp, &self.path);
+            if crate::home_fs::write(&tmp, bytes).is_ok() {
+                let _ = crate::home_fs::rename(&tmp, &self.path);
             }
         }
     }

@@ -377,3 +377,4 @@ Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests/CloudCarrierDialTests.swift	sle
 tests/test_ci_noclobber_sweep.py	assert-on-duration	the bash timeout is the behavior under test: an endless loop with timeout=1 must come back as an unavailable answer, and 8 s is the slack above that timeout
 tests/test_lint_process_gone_checks.py	sleep-then-assert	both hits are source text of fixture tests that the linter under test reads; this test does not sleep
 tests/test_lint_process_gone_checks.py	assert-on-duration	died(within=5) must find an unreaped child and not run to its timeout; the 4 s bound tells found from timed out, which is the behavior under test
+tests/git_history.py	git-write-without-fixture	fetches missing commits into the real checkout from origin, not a fixture; needs the user's git config for auth
