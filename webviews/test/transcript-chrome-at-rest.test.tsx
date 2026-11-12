@@ -183,29 +183,30 @@ test("a failed run offers Retry once: on the line with no menu, or only in the m
   expect(host.textContent).not.toContain("parent");
 });
 
-test.each(["cancelled", "disconnected"] as const)(
-  "a %s helper keeps one Resume and its refusal note",
-  async (state) => {
-    const agent = ranAndFailed({ state, resumable: true });
-    const resumed: string[] = [];
-    const host = render([agent], "button", {
-      resumeAgent: async (target) => {
-        resumed.push(target.id);
-        return "retry.busy";
-      },
-    });
-    const row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
-    expect(row.hasAttribute("data-refused")).toBe(false);
-    const button = row.querySelector<HTMLButtonElement>("button.cv-subagent-resume")!;
-    expect(button.getAttribute("aria-label")).toBe("Resume");
-    expect(row.querySelectorAll(".cv-subagent-restart")).toHaveLength(1);
-    expect(row.querySelector(".cv-subagent-retry, .cv-subagent-retry-link, [data-menu]")).toBeNull();
-    await act(async () => button.click());
-    expect(resumed).toEqual([agent.id]);
-    expect(row.querySelector(".cv-subagent-resume__note")?.textContent).toBeTruthy();
-    expect(button.disabled).toBe(false);
-  },
-);
+test.each(
+  (["cancelled", "disconnected"] as const).flatMap((state) =>
+    (["button", "link", "menu"] as const).map((affordance) => [state, affordance] as const),
+  ),
+)("a %s helper keeps one Resume and its refusal note with the %s affordance", async (state, affordance) => {
+  const agent = ranAndFailed({ state, resumable: true });
+  const resumed: string[] = [];
+  const host = render([agent], affordance, {
+    resumeAgent: async (target) => {
+      resumed.push(target.id);
+      return "retry.busy";
+    },
+  });
+  const row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
+  expect(row.hasAttribute("data-refused")).toBe(false);
+  const button = row.querySelector<HTMLButtonElement>("button.cv-subagent-resume")!;
+  expect(button.getAttribute("aria-label")).toBe("Resume");
+  expect(row.querySelectorAll(".cv-subagent-restart")).toHaveLength(1);
+  expect(row.querySelector(".cv-subagent-retry, .cv-subagent-retry-link, [data-menu]")).toBeNull();
+  await act(async () => button.click());
+  expect(resumed).toEqual([agent.id]);
+  expect(row.querySelector(".cv-subagent-resume__note")?.textContent).toBeTruthy();
+  expect(button.disabled).toBe(false);
+});
 
 test("a failed line's Retry waits for the pointer or keyboard focus", () => {
   const css = readFileSync(new URL("../src/agent-session/acpmux/subagents/subagents.css", import.meta.url), "utf8");

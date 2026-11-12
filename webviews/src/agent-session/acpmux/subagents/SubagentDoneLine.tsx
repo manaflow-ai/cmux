@@ -145,7 +145,8 @@ function DoneLine({
   // The row's retry, as every surface reads it (retryState.ts ``subagentRetry``).
   const phase = subagentRetry(agent, retryCapabilities, child);
   const waiting = phase.kind === "retrying" ? phase.retry : undefined;
-  const action = retryAgent && phase.kind === "failed" ? phase.action : undefined;
+  // A lost helper that can resume already has its one recovery control.
+  const action = !resumed.offered && retryAgent && phase.kind === "failed" ? phase.action : undefined;
   // What it was asked to do (Claude's Agent `description`) first, as the running tray names it;
   // then its name, its prompt's first line, its kind; "Subagent" only when nothing names it. A
   // task that is only acpmux's placeholder ("Workflow", "Agent") keeps the name a run gave it. A
