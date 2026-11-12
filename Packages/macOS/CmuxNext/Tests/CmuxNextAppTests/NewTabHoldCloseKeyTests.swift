@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextCompat
 @testable import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextFocusUI
@@ -172,6 +173,9 @@ struct NewTabHoldCloseKeyTests {
             secondContent.contentView.layoutSubtreeIfNeeded()
             let secondWindow = try #require(second.window)
             try #require(secondWindow !== window, "the second workspace opened in the first window")
+            // The hold table's key is the window number. A host with no window session gives a window no number: the 2
+            // windows then have ONE key, and a test of which window has the hold proves nothing.
+            try #require(secondWindow.windowNumber != window.windowNumber, "the 2 windows have the same window number (\(window.windowNumber)): this host gives a window no number, and this fixture proves nothing")
             let firstPanes = store.workspaces.compactMap { $0.screens.first?.panes.first }
             let secondPane = try #require(firstPanes.compactMap { secondContent.paneController(key: $0.id) }.first, "the second window has no pane controller")
             try #require(secondPane !== focused && secondPane !== pane && secondPane.view.window === secondWindow, "the second window's pane is not its own")
@@ -256,6 +260,31 @@ struct NewTabHoldCloseKeyTests {
             // The hold is over: the next key is the window's again.
             let next = try Self.keyDown("x", keyCode: 7, in: held.window)
             #expect(!held.input.capture(next, in: held.window), "a key typed after the limit was held: \(held.input.log)")
+        }
+    }
+
+    /// The same limit, and a menu tracks at that moment (the menu bar's, or a right-click's). The keys of the line run
+    /// again through the router, where the menu-pick hold (`KeyRouter.menuPickKeys`) takes each key-down while a menu
+    /// tracks and sends it on after the menu's end. The line was typed before the menu: it comes to the hold's rule,
+    /// which drops it. It does not wait in the menu-pick hold for the view that had the keyboard at the opening.
+    @Test func aLineHeldForAPageBesideTheFocusedPaneGoesToNoTerminalWhenTheHoldLimitPassesWhileAMenuTracks() async throws {
+        try await Self.withAHeldLine(besideTheFocusedPane: true) { held in
+            let menu = NSMenu()
+            // A key-down with no character: the menu-pick hold sends it on after the menu's end, and it types nothing.
+            let control = try Self.keyDown("", keyCode: 255, in: held.window)
+            // From the first notice to the last, nothing throws and no turn of the main actor ends: each other reader
+            // of the process sees a menu of this test's own that began and ended with no key between.
+            // global-notice-allow: the router's menu-pick hold (KeyRouter.menuPickKeys) reads the default center and takes no center; the object is this test's own menu
+            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+            // The control: the router's menu-pick hold takes a key now. If not, the notice did not reach it, and the
+            // asserts below are true for a wrong reason.
+            let tracks = held.services.keyRouter.menuPickKeys.capture(control)
+            held.passTheLimit()
+            // global-notice-allow: the end of the same menu, in the same call as its begin (see above)
+            NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+            #expect(tracks, "the menu's notice did not reach the router's menu-pick hold: this run proves nothing (hold log \(held.input.log))")
+            Self.expectNoKeyReachedTheOldView(held, "the hold's limit while a menu tracks")
+            #expect(held.input.log.contains { $0.hasPrefix("dropped 3 keys (limit)") }, "the hold's rule did not drop the 3 keys of the line while a menu tracked (the menu-pick hold took them, and sends them on after the menu's end): \(held.input.log)")
         }
     }
 
