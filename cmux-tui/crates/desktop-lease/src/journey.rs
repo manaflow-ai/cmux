@@ -7,11 +7,12 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
+use cmux_process::{Child, Command, Stdio};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{ChildStdin, ChildStdout};
 use std::time::{Duration, Instant};
 
 #[derive(Deserialize)]

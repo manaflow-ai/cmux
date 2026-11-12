@@ -11,9 +11,9 @@
 
 use crate::backend::{ActOutput, Action, Backend, Desktop, SlotSpec, SuspendReport};
 use anyhow::{Context, Result, anyhow, bail};
+use cmux_process::{Child, Command, Stdio};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -141,20 +141,23 @@ fn spawn_desktop(b: &LinuxXvfb, id: &str, spec: &SlotSpec, display: u32) -> Resu
         destroyed: false,
     };
     let deadline = Instant::now() + Duration::from_secs(10);
-    let pid = desk.child.as_ref().map(Child::id).unwrap_or_default();
+    // The scope's cgroup, as the user manager names it (no process scan).
     loop {
-        let line = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).unwrap_or_default();
-        if let Some(path) = line.lines().find_map(|l| l.strip_prefix("0::"))
-            && path.ends_with(&format!("{unit}.scope"))
-        {
+        let path = Command::new("systemctl")
+            .args(["--user", "show", "-P", "ControlGroup", &format!("{unit}.scope")])
+            .stdin(Stdio::null())
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+            .unwrap_or_default();
+        if path.ends_with(&format!("{unit}.scope")) {
             desk.cgroup = PathBuf::from("/sys/fs/cgroup").join(path.trim_start_matches('/'));
             break;
         }
         if Instant::now() > deadline {
             desk.destroy();
-            bail!("slot {id}: the scope {unit} never appeared (pid {pid})");
+            bail!("slot {id}: the scope {unit} never appeared");
         }
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(20));
     }
     // Suspended pages stay compressed in RAM until `evict`.
     desk.write("memory.zswap.writeback", "0")?;
@@ -356,7 +359,17 @@ impl Desktop for LinuxDesktop {
         // write every compressed page out (measured: 56 -> 21 MB resident, zswap 30 -> 0 MB).
         self.write("memory.zswap.writeback", "1")?;
         self.write("memory.zswap.max", "0")?;
-        self.reclaim();
+        // Writing a compressed page out first decompresses it into the swap cache, so one pass
+        // grows the cgroup (measured 55 -> 83 MB); the next frees the now-clean cache (-> 35 MB).
+        let mut last = u64::MAX;
+        for _ in 0..4 {
+            self.reclaim();
+            let now = self.read_u64("memory.current");
+            if now >= last {
+                break;
+            }
+            last = now;
+        }
         Ok(self.report(before, 0.0, ms(t)))
     }
 
@@ -381,6 +394,9 @@ impl Desktop for LinuxDesktop {
             std::thread::sleep(Duration::from_millis(10));
         }
         let _ = std::fs::remove_dir_all(&self.dir);
+        // A killed Xvfb leaves its lock and socket behind; they are this slot's own.
+        let _ = std::fs::remove_file(format!("/tmp/.X{}-lock", self.display));
+        let _ = std::fs::remove_file(format!("/tmp/.X11-unix/X{}", self.display));
         give_display(self.display);
     }
 

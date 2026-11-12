@@ -57,7 +57,7 @@ pub fn default_socket() -> PathBuf {
     std::env::var_os("DESKTOP_LEASE_SOCKET").map(PathBuf::from).unwrap_or_else(|| {
         let dir = std::env::var_os("XDG_RUNTIME_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir());
+            .unwrap_or_else(std::env::temp_dir);
         dir.join("desktop-lease.sock")
     })
 }
@@ -72,17 +72,21 @@ pub fn serve(pool: Arc<Pool>, socket: &Path) -> Result<()> {
     let stop = Arc::new(AtomicBool::new(false));
     eprintln!("desktop-lease: serving on {}", socket.display());
     for conn in listener.incoming() {
+        if stop.load(Ordering::SeqCst) {
+            break;
+        }
         let Ok(conn) = conn else { continue };
         let (pool, stop) = (Arc::clone(&pool), Arc::clone(&stop));
         let socket = socket.to_path_buf();
         std::thread::spawn(move || {
             if handle(&pool, conn, &stop).is_ok() && stop.load(Ordering::SeqCst) {
                 pool.destroy_all();
-                let _ = std::fs::remove_file(&socket);
-                std::process::exit(0);
+                // Wake the accept loop so `serve` returns.
+                let _ = UnixStream::connect(&socket);
             }
         });
     }
+    let _ = std::fs::remove_file(socket);
     Ok(())
 }
 

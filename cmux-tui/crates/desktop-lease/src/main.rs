@@ -55,7 +55,7 @@ fn main() -> Result<()> {
                 out.join("summary.md").display()
             );
             if r["cells"][0]["outcome"] != "pass" {
-                std::process::exit(1);
+                bail!("the journey has reds: {}", out.join("results.json").display());
             }
             Ok(())
         }

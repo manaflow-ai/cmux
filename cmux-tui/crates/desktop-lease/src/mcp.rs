@@ -104,7 +104,7 @@ impl Server {
         if self.client.is_none() {
             self.client = Some(Client::connect(&self.socket)?);
         }
-        Ok(self.client.as_mut().expect("connected above"))
+        self.client.as_mut().ok_or_else(|| anyhow::anyhow!("no desktop pool connection"))
     }
 
     fn call_tool(&mut self, name: &str, args: &Value) -> Result<Value> {
