@@ -197,7 +197,7 @@ rm -f "$helper"
 if [[ "${#slices[@]}" -eq 1 ]]; then
   cp "${slices[0]}" "$helper"
 else
-  lipo -create -output "$helper" "${slices[@]}"
+  lipo -create -output "$helper" ${slices[@]+"${slices[@]}"}
 fi
 chmod 0755 "$helper"
 

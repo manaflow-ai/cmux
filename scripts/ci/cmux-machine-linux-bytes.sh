@@ -57,14 +57,14 @@ def sha(n):
             h.update(chunk)
     return h.hexdigest()
 sys.stdout.write(json.dumps({n: sha(n) for n in names}, sort_keys=True, separators=(",", ":")) + "\n")
-' "$assets" "${files[@]}" > "$tmp/early-claim.json"
+' "$assets" ${files[@]+"${files[@]}"} > "$tmp/early-claim.json"
   rc=0
   r2 --write-once --conflict-exit-code 75 --file "$tmp/early-claim.json" --key "cmux-tui/$GITHUB_SHA/early-claim.json" \
     --cache-control "public, max-age=31536000, immutable" || rc=$?
   if [[ $rc == 75 ]]; then skip early-claim.json; fi
   [[ $rc == 0 ]] || exit "$rc"
   pids=()
-  for file in "${files[@]}"; do
+  for file in ${files[@]+"${files[@]}"}; do
     r2 --write-once --conflict-exit-code 75 --file "$assets/$file" --key "cmux-tui/$GITHUB_SHA/$file" \
       --cache-control "public, max-age=31536000, immutable" &
     pids+=("$!")

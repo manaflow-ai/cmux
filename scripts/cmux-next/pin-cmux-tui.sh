@@ -538,10 +538,10 @@ for run in active:
     # One fetch for all of them from origin, then from the public repository (a
     # fleet step's origin may be a local warm checkout or the controller's depot,
     # which lack other commits; 2026-10-25: a same-tree run went unseen).
-    bounded_run_fetch "$deadline" origin "${missing[@]}" \
-      || bounded_run_fetch "$deadline" "$public" "${missing[@]}" || true
+    bounded_run_fetch "$deadline" origin ${missing[@]+"${missing[@]}"} \
+      || bounded_run_fetch "$deadline" "$public" ${missing[@]+"${missing[@]}"} || true
   fi
-  for candidate in "${candidates[@]}"; do
+  for candidate in ${candidates[@]+"${candidates[@]}"}; do
     if ! GIT_NO_LAZY_FETCH=1 git -C "$repo_root" cat-file -e "$candidate^{commit}" 2>/dev/null; then
       # A batch fails as a whole when one commit is gone; fetch the rest alone.
       if ! bounded_run_fetch "$deadline" origin "$candidate" \
@@ -1889,10 +1889,10 @@ PY
       fallback_refs+=("$(git -C "$repo_root" rev-parse HEAD)")
       [[ -z "$(git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}")" ]] \
         || fallback_refs+=("+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base")
-      git -C "$repo_root" fetch -q --no-tags --depth="$fallback_depth" "$fallback_remote" "${fallback_refs[@]}" \
+      git -C "$repo_root" fetch -q --no-tags --depth="$fallback_depth" "$fallback_remote" ${fallback_refs[@]+"${fallback_refs[@]}"} \
         || echo "fallback-key: could not deepen the shallow checkout; using the history it has" >&2
     elif (( ${#fallback_refs[@]} )); then
-      git -C "$repo_root" fetch -q --no-tags "$fallback_remote" "${fallback_refs[@]}" \
+      git -C "$repo_root" fetch -q --no-tags "$fallback_remote" ${fallback_refs[@]+"${fallback_refs[@]}"} \
         || echo "fallback-key: could not fetch $fallback_base" >&2
     fi
     if ! fallback_rev="$(git -C "$repo_root" merge-base HEAD "$fallback_base" 2>/dev/null)"; then

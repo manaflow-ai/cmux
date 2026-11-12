@@ -52,7 +52,7 @@ for arch in ${CMUX_APP_FFI_ARCHS:-$(uname -m)}; do
   done
 done
 installed="$(cd "$crate_dir" && rustup target list --installed)"
-for target in "${targets[@]}"; do
+for target in ${targets[@]+"${targets[@]}"}; do
   grep -Fxq "$target" <<<"$installed" || { echo "error: Rust target $target is not installed" >&2; exit 1; }
 done
 
@@ -87,7 +87,7 @@ done
 
 mkdir -p "$out_root/slices" "$out_root/macos"
 libs=()
-for target in "${targets[@]}"; do
+for target in ${targets[@]+"${targets[@]}"}; do
   echo "==> cargo build cmux-app-ffi ($target)" >&2
   (cd "$crate_dir" && cargo build --locked --release --target "$target")
   arch="${target%%-*}"; [[ "$arch" == aarch64 ]] && arch=arm64
@@ -103,7 +103,7 @@ done
 if ((${#libs[@]} == 1)); then
   cp -f "${libs[0]}" "$out_root/macos/$lib_name"
 else
-  lipo -create "${libs[@]}" -output "$out_root/macos/$lib_name"
+  lipo -create ${libs[@]+"${libs[@]}"} -output "$out_root/macos/$lib_name"
 fi
 rm -rf "$out_root/CCmuxAppFFI.xcframework"
 xcodebuild -create-xcframework -library "$out_root/macos/$lib_name" -headers "$headers" \

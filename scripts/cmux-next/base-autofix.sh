@@ -406,8 +406,8 @@ if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
   if [[ -n "$outside" ]]; then
     echo "left: the webviews formatting patch reaches $outside; nothing applied (vp fmt in webviews by hand)"
   elif (( ${#include[@]} )); then
-    git -C "$repo" apply "${include[@]}" "$webviews_patch"
-    for arg in "${include[@]}"; do
+    git -C "$repo" apply ${include[@]+"${include[@]}"} "$webviews_patch"
+    for arg in ${include[@]+"${include[@]}"}; do
       if [[ "${arg#--include=}" == "$inspector_page" ]]; then
         echo "fixed: rebuilt $inspector_page"
       else

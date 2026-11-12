@@ -90,7 +90,7 @@ for attempt in 1 2 3 4 5; do
   inputs=()
   while IFS= read -r path; do inputs+=("$path"); done < <(bash scripts/cmux-next/check-app-ffi-pin.sh --list-inputs)
   # The crates' tests/, benches/ and examples/ are not inputs (check-app-ffi-pin.sh --list-excluded).
-  specs=("${inputs[@]}")
+  specs=(${inputs[@]+"${inputs[@]}"})
   while IFS= read -r path; do specs+=(":(exclude,literal)$path"); done < <(bash scripts/cmux-next/check-app-ffi-pin.sh --list-excluded)
   behind=0
   if ! git diff --quiet "$sha" "$tip" -- "${specs[@]}"; then
@@ -113,7 +113,7 @@ for attempt in 1 2 3 4 5; do
     git merge-base --is-ancestor "$pinned" "$sha" 2>/dev/null \
       || finish newer "the FFI sources at ${tip:0:12} are not those of $tag, and $tag is not newer than the current pin ${pinned:0:12}"
   fi
-  rc=0; additive="$(python3 -I scripts/cmux-next/app_ffi_additive.py "$pinned" "$sha" -- "${inputs[@]}" 2>&1)" || rc=$?
+  rc=0; additive="$(python3 -I scripts/cmux-next/app_ffi_additive.py "$pinned" "$sha" -- ${inputs[@]+"${inputs[@]}"} 2>&1)" || rc=$?
   echo "$additive"
   (( rc == 0 )) || finish pr "the FFI does not only add over the current pin ${pinned:0:12}; the re-pin pull request's app compile proves them first"
   bash scripts/cmux-next/repin-app-ffi.sh "$sha" "$checksum"

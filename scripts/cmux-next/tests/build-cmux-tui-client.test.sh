@@ -38,7 +38,7 @@ cat > "$TMP/bin/cargo" <<'EOF'
 names=()
 while [[ $# -gt 0 ]]; do case "$1" in --bin) names+=("$2"); shift ;; esac; shift; done
 mkdir -p "$CARGO_TARGET_DIR/release"
-for name in "${names[@]}"; do
+for name in ${names[@]+"${names[@]}"}; do
   printf '#!/bin/sh\necho "%s 0.1.0 (%s 2026-10-08)"\n' "$name" "${CMUX_TUI_BUILD_COMMIT:-0000000000000000000000000000000000000000}" > "$CARGO_TARGET_DIR/release/$name"
   chmod 755 "$CARGO_TARGET_DIR/release/$name"
 done

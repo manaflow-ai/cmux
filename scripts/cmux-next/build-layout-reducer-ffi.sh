@@ -24,7 +24,7 @@ for arch in ${archs//,/ }; do
   esac
 done
 installed="$(rustup target list --installed)"
-for target in "${targets[@]}"; do
+for target in ${targets[@]+"${targets[@]}"}; do
   grep -Fxq "$target" <<<"$installed" || { echo "error: Rust target $target is not installed; repair via REPAIR.md" >&2; exit 1; }
 done
 export CARGO_TARGET_DIR="$out_root/cargo"
@@ -34,7 +34,7 @@ export CARGO_TARGET_DIR="$out_root/cargo"
 export CARGO_PROFILE_RELEASE_LTO="${CARGO_PROFILE_RELEASE_LTO:-off}"
 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
-for target in "${targets[@]}"; do
+for target in ${targets[@]+"${targets[@]}"}; do
   (cd "$crate_dir" && cargo build --release --target "$target")
   lib="$out_root/cargo/$target/release/libcmux_layout_reducer_ffi.a"
   arch="${target%%-*}"; [[ "$arch" == aarch64 ]] && arch=arm64
@@ -49,7 +49,7 @@ done
 if ((${#libs[@]} == 1)); then
   cp "${libs[0]}" "$out_root/macos/libcmux_layout_reducer_ffi.a"
 else
-  lipo -create "${libs[@]}" -output "$out_root/macos/libcmux_layout_reducer_ffi.a"
+  lipo -create ${libs[@]+"${libs[@]}"} -output "$out_root/macos/libcmux_layout_reducer_ffi.a"
 fi
 headers="$out_root/headers/CCmuxLayoutReducerFFI"
 mkdir -p "$headers"

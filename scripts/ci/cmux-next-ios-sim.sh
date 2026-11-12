@@ -558,7 +558,7 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   xcodebuild test -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui" \
     -resultBundlePath "$work/ui.xcresult" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
-    -quiet "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
+    -quiet ${ui_suites[@]+"${ui_suites[@]}"} >"$work/ui-test.log" 2>&1
   ui_status=$?
   if [[ -n "$recorder" ]]; then
     # recordVideo finishes the file on SIGINT.

@@ -35,11 +35,11 @@ while IFS= read -r package; do args+=(-p "$package"); done <<<"$packages"
 
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
-if ! (cd "$repo/cmux-tui" && cargo clippy --fix --allow-dirty --allow-staged --locked --all-targets "${args[@]}" >"$log" 2>&1); then
+if ! (cd "$repo/cmux-tui" && cargo clippy --fix --allow-dirty --allow-staged --locked --all-targets ${args[@]+"${args[@]}"} >"$log" 2>&1); then
   tail -n 40 "$log" >&2
   echo "left: cargo clippy --fix could not build $(tr '\n' ' ' <<<"$packages")(see the job log)"
   git -C "$repo" checkout --quiet -- cmux-tui
   exit 0
 fi
-(cd "$repo/cmux-tui" && cargo fmt "${args[@]}")
+(cd "$repo/cmux-tui" && cargo fmt ${args[@]+"${args[@]}"})
 git -C "$repo" diff --name-only -- cmux-tui | sed 's/^/fixed: cargo clippy --fix /'

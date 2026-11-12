@@ -40,5 +40,5 @@ while read -r pid responsible; do
     echo "EXPOSED: GPU helper $pid inherits TCC responsibility of $responsible ($owner)"
     exposed=1
   fi
-done < <("$work/responsible_pid" "${pids[@]}")
+done < <("$work/responsible_pid" ${pids[@]+"${pids[@]}"})
 exit "$exposed"

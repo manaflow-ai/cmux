@@ -37,7 +37,7 @@ while IFS= read -r line; do settings_exports+=("$line"); done < <(
 
 allowed() { # repository-relative path -> 0 when an autofix repair writes it
   local export
-  for export in "${settings_exports[@]}"; do
+  for export in ${settings_exports[@]+"${settings_exports[@]}"}; do
     [[ "$1" == "$export" ]] && return 0
   done
   case "$1" in
@@ -84,9 +84,9 @@ done < <(git -C "$repo" apply --numstat "$patch")
 excludes=(${bot_excludes[@]+"${bot_excludes[@]}"})
 if [[ -n "$changed" ]]; then
   # The ownership table sits beside this script (the base's copy, like this one).
-  dropped="$(printf '%s\n' "${files[@]}" | python3 -I "$(dirname "$0")/generated_outputs.py" drop --changed "$changed")"
+  dropped="$(printf '%s\n' ${files[@]+"${files[@]}"} | python3 -I "$(dirname "$0")/generated_outputs.py" drop --changed "$changed")"
   kept=()
-  for rel in "${files[@]}"; do
+  for rel in ${files[@]+"${files[@]}"}; do
     if grep -qxF -- "$rel" <<<"$dropped"; then
       echo "dropped: $rel (the pull request did not change it or its inputs; the base autofix owns it)"
       excludes+=(--exclude="$rel")
@@ -95,7 +95,7 @@ if [[ -n "$changed" ]]; then
     fi
   done
   (( ${#kept[@]} )) || exit 0
-  files=("${kept[@]}")
+  files=(${kept[@]+"${kept[@]}"})
 fi
 git -C "$repo" apply ${excludes[@]+"${excludes[@]}"} "$patch"
-printf 'applied: %s\n' "${files[@]}"
+printf 'applied: %s\n' ${files[@]+"${files[@]}"}

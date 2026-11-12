@@ -21,7 +21,7 @@ warm_build() {
     ONLY_ACTIVE_ARCH=NO \
     COMPILATION_CACHE_ENABLE_CACHING=YES \
     COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
-    "${fleet_cache_settings[@]}" \
+    ${fleet_cache_settings[@]+"${fleet_cache_settings[@]}"} \
     COMPILER_INDEX_STORE_ENABLE=NO \
     CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 }

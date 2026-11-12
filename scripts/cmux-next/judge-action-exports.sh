@@ -96,7 +96,7 @@ if ((${#changed[@]})); then
   restore() {
     ((restored)) && return 0
     restored=1
-    for path in "${changed[@]}" "${stale[@]}" "${EXPORTS[@]}"; do
+    for path in ${changed[@]+"${changed[@]}"} ${stale[@]+"${stale[@]}"} "${EXPORTS[@]}"; do
       if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
     done
     for file in ${present[@]+"${present[@]}"}; do cp "$temp/head/$file" "$file"; done
@@ -109,23 +109,23 @@ if ((${#changed[@]})); then
   trap 'restore || true' EXIT
   # The stale files start from the base's committed bytes too, so a file the base's export does not
   # rewrite is never read back as HEAD's fresh one.
-  for path in "${changed[@]}" "${stale[@]}"; do
+  for path in ${changed[@]+"${changed[@]}"} ${stale[@]+"${stale[@]}"}; do
     if git cat-file -e "HEAD^1:$path" 2>/dev/null; then git checkout -q HEAD^1 -- "$path"; else restore_absent "$path"; fi
   done
   build > "$temp/base-build.log" 2>&1 || { cat "$temp/base-build.log" >&2; echo "::error::the base parent's package does not build here; the stale exports count as this change's: ${stale[*]}"; restore || true; exit 1; }
   regen > "$temp/base-regen.log" 2>&1 || true
-  for file in "${stale[@]}"; do
+  for file in ${stale[@]+"${stale[@]}"}; do
     mkdir -p "$temp/base/${file%/*}"
     if [[ -f "$file" ]]; then cp "$file" "$temp/base/$file"; else : > "$temp/base/$file"; fi
   done
   restore || exit 1
 else
   # The generator's inputs are the base's: HEAD's fresh export is the base's fresh export.
-  for file in "${stale[@]}"; do mkdir -p "$temp/base/${file%/*}" && cp "$temp/head/$file" "$temp/base/$file"; done
+  for file in ${stale[@]+"${stale[@]}"}; do mkdir -p "$temp/base/${file%/*}" && cp "$temp/head/$file" "$temp/base/$file"; done
 fi
 
 own=()
-for file in "${stale[@]}"; do
+for file in ${stale[@]+"${stale[@]}"}; do
   committed="$temp/committed"; based="$temp/based"
   git show "HEAD:$file" > "$committed" 2>/dev/null || : > "$committed"
   git show "HEAD^1:$file" > "$based" 2>/dev/null || : > "$based"
@@ -144,7 +144,7 @@ if ((${#own[@]})); then
   exit 1
 fi
 # Only the base's drift: put the committed files back, so nothing collects the base's repair here.
-for file in "${stale[@]}"; do
+for file in ${stale[@]+"${stale[@]}"}; do
   if git cat-file -e "HEAD:$file" 2>/dev/null; then git checkout -q HEAD -- "$file"; else restore_absent "$file"; fi
 done
 echo "::warning title=Action exports stale on the base::base drift: stale on the base $(git rev-parse --short=12 HEAD^1) too, for inputs not changed here (the base autofix regenerates them): ${stale[*]}"

@@ -108,14 +108,14 @@ done
 echo "==> ensuring Rust targets ${rust_targets[*]} for the cmux-next-ios toolchain"
 # shellcheck source=scripts/lib/rust-targets.sh
 source "$repo_root/scripts/lib/rust-targets.sh"
-(cd "$rust_root" && ensure_rust_targets "${rust_targets[@]}")
+(cd "$rust_root" && ensure_rust_targets ${rust_targets[@]+"${rust_targets[@]}"})
 
 # A persistent target dir in the tree's own (ignored) cmux-next-ios/rust/target, so
 # the next build of a warm slot is incremental. Cargo locks it.
 build_root="${CMUX_NEXT_MOBILE_HOST_TARGET_DIR:-$rust_root/target/cmux-mobile-host-app}"
 mkdir -p "$build_root" "$cache_dir"
 slices=()
-for target in "${rust_targets[@]}"; do
+for target in ${rust_targets[@]+"${rust_targets[@]}"}; do
   echo "==> building cmux-mobile-host ($source_key, $target)"
   (cd "$rust_root" && CARGO_TARGET_DIR="$build_root" cargo build --locked --release --package cmux-mobile-host --bin cmux-mobile-host --target "$target")
   slice="$build_root/$target/release/cmux-mobile-host"
@@ -125,7 +125,7 @@ done
 
 staged="$cache_bin.tmp.$$"
 rm -f "$staged"
-if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create "${slices[@]}" -output "$staged"; fi
+if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create ${slices[@]+"${slices[@]}"} -output "$staged"; fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
 printf '%s\n' "key=$source_key" "commit=$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)" "archs=$archs" \

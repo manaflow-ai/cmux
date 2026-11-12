@@ -46,7 +46,7 @@ case "${RUNNER_NAME:-}" in
       fi
     done
     if [ "${#stale[@]}" -gt 0 ]; then
-      scripts/ci/clear-dirs.sh "${stale[@]}"
+      scripts/ci/clear-dirs.sh ${stale[@]+"${stale[@]}"}
     fi
     ;;
 esac

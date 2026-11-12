@@ -34,7 +34,7 @@ while read -r commit; do
   candidates=("$commit" ${candidates[@]+"${candidates[@]}"})
 done < <(git rev-list --first-parent -n 40 HEAD)
 ended=0 publisher=""
-for commit in "${candidates[@]}"; do
+for commit in ${candidates[@]+"${candidates[@]}"}; do
   case "$(bash scripts/cmux-next/pin-cmux-tui.sh runs-state "$commit" 2>/dev/null || echo unknown)" in
     active) publisher="$commit"; break ;;
     unknown) publisher=unknown ;;

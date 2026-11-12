@@ -7,7 +7,7 @@ dmg="${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"
 # before it installs it (What's New and Settings' Install this version, `cmux nightly install`).
 feeds=()
 for feed in $NIGHTLY_FEEDS; do feeds+=(--feed "nightly-out/$feed"); done
-python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" signature "${feeds[@]}" --name "$dmg" \
+python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" signature ${feeds[@]+"${feeds[@]}"} --name "$dmg" \
   --out "nightly-out/$dmg.signature.json"
 python3 "$PUBLISH_TOOLING/ci/publish-nightly-next-r2.py" upload --file "nightly-out/$dmg" --file "nightly-out/$dmg.signature.json"
 for feed in $NIGHTLY_FEEDS; do

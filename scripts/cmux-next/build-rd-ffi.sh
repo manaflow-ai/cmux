@@ -59,7 +59,7 @@ ios_targets=()
 [[ "$with_ios" -eq 0 ]] || ios_targets=(aarch64-apple-ios aarch64-apple-ios-sim)
 
 installed="$(cd "$crate_dir" && rustup target list --installed)"
-for target in "${mac_targets[@]}" ${ios_targets[@]+"${ios_targets[@]}"}; do
+for target in ${mac_targets[@]+"${mac_targets[@]}"} ${ios_targets[@]+"${ios_targets[@]}"}; do
   grep -Fxq "$target" <<<"$installed" || {
     echo "error: Rust target $target is not installed on this host; ask the host owner (no installs from jobs)" >&2
     exit 1
@@ -132,13 +132,13 @@ hide_rust_symbols() {
 
 # Prelink work directories, removed on any exit (a failed step included).
 work_dirs=()
-cleanup_work_dirs() { (( ${#work_dirs[@]} == 0 )) || rm -rf -- "${work_dirs[@]}"; }
+cleanup_work_dirs() { (( ${#work_dirs[@]} == 0 )) || rm -rf -- ${work_dirs[@]+"${work_dirs[@]}"}; }
 trap cleanup_work_dirs EXIT
 
 args=()
 mac_libs=()
 mkdir -p "$out_root/macos" "$out_root/slices"
-for target in "${mac_targets[@]}"; do
+for target in ${mac_targets[@]+"${mac_targets[@]}"}; do
   arch="${target%%-*}"; [[ "$arch" == aarch64 ]] && arch=arm64
   hide_rust_symbols "$(build "$target")" "$arch-apple-macos$MACOSX_DEPLOYMENT_TARGET" "$out_root/slices/$target.a"
   mac_libs+=("$out_root/slices/$target.a")
@@ -146,7 +146,7 @@ done
 if [[ ${#mac_libs[@]} -eq 1 ]]; then
   cp -f "${mac_libs[0]}" "$out_root/macos/$lib_name"
 else
-  lipo -create "${mac_libs[@]}" -output "$out_root/macos/$lib_name"
+  lipo -create ${mac_libs[@]+"${mac_libs[@]}"} -output "$out_root/macos/$lib_name"
 fi
 check_symbols "$out_root/macos/$lib_name"
 args+=(-library "$out_root/macos/$lib_name" -headers "$headers")
@@ -160,7 +160,7 @@ for target in ${ios_targets[@]+"${ios_targets[@]}"}; do
 done
 
 rm -rf "$xcframework"
-xcodebuild -create-xcframework "${args[@]}" -output "$xcframework" >&2
+xcodebuild -create-xcframework ${args[@]+"${args[@]}"} -output "$xcframework" >&2
 source_commit="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || echo unknown)"
 dirty="$(git -C "$repo_root" status --porcelain -- cmux-tui/crates/cmux-rd-ffi cmux-tui/crates/cmux-rd-core cmux-tui/crates/cmux-rd-proto 2>/dev/null | wc -l | tr -d ' ')"
 printf '%s\n' "commit=$source_commit" "dirty_rd_files=$dirty" "macos=${mac_targets[*]}" "ios=${ios_targets[*]:-none}" \

@@ -35,8 +35,8 @@ cargo nextest run -p acpmux --lib --profile ci --no-run "$@"
 pids=()
 stop_load() {
   local pid
-  for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
-  for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+  for pid in ${pids[@]+"${pids[@]}"}; do kill "$pid" 2>/dev/null || true; done
+  for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid" 2>/dev/null || true; done
 }
 trap stop_load EXIT
 for _ in $(seq 1 "$loops"); do

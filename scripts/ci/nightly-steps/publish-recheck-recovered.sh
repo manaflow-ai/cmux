@@ -24,7 +24,7 @@ if [ "${TRACK:-}" = nightly-next ]; then
   for ((i = 0; i < ${#feeds[@]}; i += 2)); do
     [[ "${feeds[i+1]}" == https://files.cmux.com/nightly/* ]] || next_feeds+=("${feeds[i]}" "${feeds[i+1]}")
   done
-  feeds=("${next_feeds[@]}")
+  feeds=(${next_feeds[@]+"${next_feeds[@]}"})
 fi
 # cmux NEXT builds run side by side and publication is latest-wins: a build a newer one already
 # published past is superseded, a no-op like an already published one, not a failure (run
@@ -32,7 +32,7 @@ fi
 # floor check.
 superseded=()
 [ "${TRACK:-}" = nightly-next ] && superseded=(--superseded-ok)
-result="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" check-build --already-published-ok ${superseded[@]+"${superseded[@]}"} --build "$NIGHTLY_BUILD" "${feeds[@]}")"
+result="$(python3 "$PUBLISH_TOOLING/ci/nightly_version.py" check-build --already-published-ok ${superseded[@]+"${superseded[@]}"} --build "$NIGHTLY_BUILD" ${feeds[@]+"${feeds[@]}"})"
 printf '%s\n' "$result"
 if [ "$(tail -n 1 <<< "$result")" = superseded=true ]; then
   echo "::notice title=Superseded::build $NIGHTLY_BUILD is older than what the feed already serves; a newer build published first, so nothing to do"

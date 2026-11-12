@@ -36,7 +36,7 @@ mirror="${CMUX_CI_STEP_GLAEDA_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cm
 sources+=("${CMUX_IOS_SIM_COMMIT_REMOTE:-https://github.com/manaflow-ai/cmux.git}")
 
 tried=()
-for src in "${sources[@]}"; do
+for src in ${sources[@]+"${sources[@]}"}; do
   # Protocol v2 serves any commit the source holds, not only its branch tips.
   if git -c protocol.version=2 fetch -q --no-tags --no-write-fetch-head ${depth[@]+"${depth[@]}"} "$src" "$sha" 2>/dev/null && have; then
     echo "commit $sha: fetched from $src"

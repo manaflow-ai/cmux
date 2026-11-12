@@ -79,7 +79,7 @@ if [[ ! "$HOST_REPO" =~ ^[A-Za-z0-9._/-]+$ ]]; then
 fi
 HOST=""
 TRIED=()
-for spec in "${HOSTS[@]}"; do
+for spec in ${HOSTS[@]+"${HOSTS[@]}"}; do
     candidate="${spec%%:*}"
     repo="$HOST_REPO"
     [[ "$spec" != *:* ]] || repo="${spec#*:}"

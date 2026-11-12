@@ -97,7 +97,7 @@ source scripts/cmux-next/lib/compilation-cache.sh
 # build root and the nightly's other work (60 GiB free); glaeda's prune empties a CAS past 20 GiB.
 cas_limit_bytes=3221225472
 cas_dir=/Users/Shared
-for setting in "${fleet_cache_settings[@]}"; do
+for setting in ${fleet_cache_settings[@]+"${fleet_cache_settings[@]}"}; do
   case "$setting" in COMPILATION_CACHE_CAS_PATH=*) cas_dir="${setting#*=}" ;; esac
 done
 while [[ ! -d "$cas_dir" && "$cas_dir" == /?* ]]; do cas_dir="${cas_dir%/*}"; done
@@ -113,9 +113,9 @@ run_release_build() (
   local disable_fleet_cache="${1:-0}"
   local settings=()
   if [[ "$disable_fleet_cache" != 1 ]]; then
-    settings=("${fleet_cache_settings[@]}")
+    settings=(${fleet_cache_settings[@]+"${fleet_cache_settings[@]}"})
   else
-    settings=("${local_cache_settings[@]}")
+    settings=(${local_cache_settings[@]+"${local_cache_settings[@]}"})
   fi
   cd "$build_root"
   python3 scripts/ci/run-with-helper-prebuild.py \

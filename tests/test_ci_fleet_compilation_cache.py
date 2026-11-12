@@ -319,7 +319,7 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn('"$release_status" -ne 0 && "$build_cache" == fleet', step)
         self.assertIn("local_cache_settings=()", step)
         self.assertIn("local_cache_settings+=(\"$setting\")", step)
-        self.assertIn('settings=("${local_cache_settings[@]}")', step)
+        self.assertIn('settings=(${local_cache_settings[@]+"${local_cache_settings[@]}"})', step)
         self.assertIn('${settings[@]+"${settings[@]}"}', step)
         self.assertIn('run_release_build 1', step)
         self.assertIn("retrying the Release build once with the local cache", step)

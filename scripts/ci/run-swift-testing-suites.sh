@@ -30,7 +30,7 @@ if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
     echo "scripts/cmux-next/settings-exports.txt lists no export" >&2
     exit 1
   }
-  for file in "${settings_exports[@]}"; do
+  for file in ${settings_exports[@]+"${settings_exports[@]}"}; do
     echo "BEGIN_ARTIFACT:$file"
     base64 < "$file" | tr -d "\n"
     echo
@@ -129,7 +129,7 @@ if repo_root="$(git -C "$package_path" rev-parse --show-toplevel 2>/dev/null)"; 
   done < <(python3 "$script_dir/swift_package_submodules.py" "$repo_root" "$package_path")
   if [ "${#empty_submodules[@]}" -gt 0 ]; then
     echo "Populating submodules this package reaches: ${empty_submodules[*]}" >&2
-    git -C "$repo_root" submodule update --init --depth 1 -- "${empty_submodules[@]}" >&2
+    git -C "$repo_root" submodule update --init --depth 1 -- ${empty_submodules[@]+"${empty_submodules[@]}"} >&2
   fi
 fi
 # Fixed-cost profile: `phase NAME` ends the running phase and starts NAME, and
@@ -287,7 +287,7 @@ if [ "${#only_suites[@]}" -gt 0 ]; then
   # A filter is ^Target\.Suite/ (require_swift_test_execution.py --list-filters);
   # its plain name is Target.Suite.
   : > "$evidence_dir/named-filters.txt"
-  for name in "${only_suites[@]}"; do
+  for name in ${only_suites[@]+"${only_suites[@]}"}; do
     matched=0
     while IFS= read -r filter; do
       plain="${filter#^}"
@@ -334,7 +334,7 @@ attempt_suite() {
   local command
   if [ "$direct" -eq 1 ]; then
     command=(python3 "$script_dir/run_swift_test_bundle.py"
-      "${bundle_args[@]}" --xctest "$xctest_tool" --helper "$testing_helper"
+      ${bundle_args[@]+"${bundle_args[@]}"} --xctest "$xctest_tool" --helper "$testing_helper"
       --platform "$platform_path" --sdk "$sdk_path" --cwd "$package_dir"
       --tests "$evidence_dir/discovered-tests.txt" --xctest-tests "$evidence_dir/xctest-tests.txt"
       --filter "$suite")

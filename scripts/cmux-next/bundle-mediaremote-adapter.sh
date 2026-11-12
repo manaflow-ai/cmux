@@ -55,7 +55,7 @@ done
 
 rm -rf "$framework"
 mkdir -p "$framework/Versions/A/Resources"
-xcrun lipo -create "${slices[@]}" -output "$framework/Versions/A/MediaRemoteAdapter"
+xcrun lipo -create ${slices[@]+"${slices[@]}"} -output "$framework/Versions/A/MediaRemoteAdapter"
 cat > "$framework/Versions/A/Resources/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

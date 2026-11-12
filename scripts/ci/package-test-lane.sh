@@ -720,7 +720,7 @@ linux_suite_setup() {
     exit 2
   fi
   read -r dir targets envs <<< "$row"
-  for filter in "${suite_filters[@]}"; do
+  for filter in ${suite_filters[@]+"${suite_filters[@]}"}; do
     ok=0
     IFS=, read -r -a linux_targets <<< "$targets"
     for target in "${linux_targets[@]}"; do
@@ -853,7 +853,7 @@ run_suite() {
   # display (CMUX_TEST_REQUIRE_GUI=1, or cmux-ci's --display marks it CMUX_CI_DISPLAY_ROUTED=1).
   local log filter status started result failed=0 first_failure_status=0 display_only=0 rows=()
   local ran skipped reason reasons daemon_skips display_skips hint display_step_skips
-  for filter in "${suite_filters[@]}"; do
+  for filter in ${suite_filters[@]+"${suite_filters[@]}"}; do
     echo "::group::swift test --filter $filter"
     log="$(mktemp -t swift-suite-test.XXXXXX)"
     started=$SECONDS
@@ -942,7 +942,7 @@ run_suite() {
     rows+=("$(printf '%-48s %-24s %6ss' "$filter" "$result" "$((SECONDS - started))")")
   done
   local table
-  table="$(printf '%-48s %-24s %7s\n' suite result time; printf '%s\n' "${rows[@]}")"
+  table="$(printf '%-48s %-24s %7s\n' suite result time; printf '%s\n' ${rows[@]+"${rows[@]}"})"
   printf 'Swift suite results (%s):\n%s\n' "$suite_package" "$table"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '### Swift suites (%s)\n\n```\n%s\n```\n' "$suite_package" "$table" >> "$GITHUB_STEP_SUMMARY"
@@ -1019,7 +1019,7 @@ run_compile_tests() {
       [ -n "$(ls -A "$submodule" 2>/dev/null)" ] || submodules+=("$submodule")
     done < <(python3 scripts/ci/swift_package_submodules.py "$PWD" "$compile_pkgdir")
     if [ "${#submodules[@]}" -gt 0 ]; then
-      git submodule update --init --depth 1 -- "${submodules[@]}"
+      git submodule update --init --depth 1 -- ${submodules[@]+"${submodules[@]}"}
     fi
     swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch" || exit $? # 75: fetch failed, nothing compiled
     if [ "${#words[@]}" -gt 1 ]; then
@@ -1063,7 +1063,7 @@ run_compile_tests() {
   done 9< "$plan"
   rm -f "$log"
   local table
-  table="$(printf '%-34s %-30s %-10s %7s\n' package target result time; printf '%s\n' "${rows[@]}")"
+  table="$(printf '%-34s %-30s %-10s %7s\n' package target result time; printf '%s\n' ${rows[@]+"${rows[@]}"})"
   printf 'compile-tests results:\n%s\n' "$table"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '### Test target compile\n\n```\n%s\n```\n' "$table" >> "$GITHUB_STEP_SUMMARY"

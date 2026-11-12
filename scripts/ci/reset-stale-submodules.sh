@@ -53,7 +53,7 @@ drop_dangling() {
 }
 
 if [[ "$mode" == reuse ]]; then
-  for path in "${paths[@]}"; do
+  for path in ${paths[@]+"${paths[@]}"}; do
     # Refuse typos instead of silently skipping a path that was meant to be
     # reconciled. The .gitmodules file is the source of truth for valid paths.
     if ! git -C "$repo" config -f .gitmodules --get-regexp '^submodule\..*\.path$' \

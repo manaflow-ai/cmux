@@ -472,7 +472,7 @@ if ((compare)); then
   [[ -x "$compare_script" ]] || fail "gallery compare helper is missing or not executable: $compare_script" 1
   compare_args=()
   [[ -z "$entry" ]] || compare_args+=(--entry "$entry")
-  compare_output="$(bash "$compare_script" "${compare_args[@]}" 2>&1)" || fail "$compare_output" 1
+  compare_output="$(bash "$compare_script" ${compare_args[@]+"${compare_args[@]}"} 2>&1)" || fail "$compare_output" 1
   compare_url="$(printf '%s\n' "$compare_output" | grep -E '^https://' | tail -1)"
   [[ -n "$compare_url" ]] || fail "gallery compare returned no URL: $compare_output" 1
   open_url "$compare_url" "cmux-next gallery compare · ${entry:-all} · ${sha:0:12}"

@@ -22,9 +22,9 @@ set -euo pipefail
 expect=()
 names=()
 read -ra names <<<"$UPLOADED_ASSETS"
-for name in "${names[@]}"; do expect+=(--expect-asset "$name"); done
+for name in ${names[@]+"${names[@]}"}; do expect+=(--expect-asset "$name"); done
 python3 "$PUBLISH_TOOLING/ci/finalize-release.py" publish \
   --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --release-id "$RELEASE_ID" \
   --name "$RELEASE_NAME" --target-commitish "$BUILD_SHA" \
   --body-file "$RUNNER_TEMP/nightly-release-body.md" \
-  --prerelease true --make-latest false "${expect[@]}"
+  --prerelease true --make-latest false ${expect[@]+"${expect[@]}"}

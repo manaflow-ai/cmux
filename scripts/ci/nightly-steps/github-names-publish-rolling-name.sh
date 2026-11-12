@@ -16,5 +16,5 @@ cp -c "$dmg" "$rolling" 2>/dev/null || cp "$dmg" "$rolling"
 python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
   --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
   --immutable "$dmg" --alias "$rolling" \
-  --replace-feeds "${feeds[@]}"
+  --replace-feeds ${feeds[@]+"${feeds[@]}"}
 echo "newest=true" >> "$GITHUB_OUTPUT"

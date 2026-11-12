@@ -266,7 +266,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       moved_areas="$(grep -vx settings <<<"$moved_areas" || true)"
       if grep -qx settings <<<"$settings_areas"; then moved_areas+=$'\n'settings; fi
       moved_areas="$(grep . <<<"$moved_areas" | sort -u || true)"
-      todo="$( { printf '%s\n' "$repaired"; git diff --name-only --no-renames "$settings_from" "$repair" -- "${settings_exports[@]}"; } | grep . | sort -u)"
+      todo="$( { printf '%s\n' "$repaired"; git diff --name-only --no-renames "$settings_from" "$repair" -- ${settings_exports[@]+"${settings_exports[@]}"}; } | grep . | sort -u)"
     fi
     newer_actions="$newer"
     if [[ "$actions_from" != "$base" ]]; then
@@ -366,7 +366,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     if [[ -n "$held" ]] && grep -qxF -- "$snapshot" <<<"$todo" && ! grep -qxF -- "$snapshot" <<<"$held"; then
       held+="$snapshot"$'\n'
       still=()
-      for path in "${kept[@]}"; do
+      for path in ${kept[@]+"${kept[@]}"}; do
         [[ "$path" == "$snapshot" ]] || still+=("$path")
       done
       kept=(${still[@]+"${still[@]}"})
@@ -383,7 +383,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     fi
     echo "$branch moved to ${tip:0:12} after ${base:0:12} (attempt $attempt of $attempts); writing ${#kept[@]} repaired file(s) onto it."
     git checkout --quiet --detach "$tip"
-    for path in "${kept[@]}"; do
+    for path in ${kept[@]+"${kept[@]}"}; do
       if [[ "$path" == "$snapshot" ]]; then
         continue
       elif git cat-file -e "$repair:$path" 2>/dev/null; then
@@ -393,7 +393,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
         rm -f -- "$path"
       fi
     done
-    if printf '%s\n' "${kept[@]}" | grep -qxF -- "$snapshot"; then
+    if printf '%s\n' ${kept[@]+"${kept[@]}"} | grep -qxF -- "$snapshot"; then
       if [[ -f scripts/ci/defaults_guard.py ]] && python3 scripts/ci/defaults_guard.py snapshot >/dev/null; then
         git add -- "$snapshot"
       else

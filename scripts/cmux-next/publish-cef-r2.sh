@@ -142,8 +142,8 @@ for path in "${assets[@]}"; do
   keys+=("$name $sha $key")
 done
 
-printf '%s\n' "${keys[@]}"
+printf '%s\n' ${keys[@]+"${keys[@]}"}
 
 if [[ -n "$manifest" ]]; then
-  printf '%s\n' "${keys[@]}" | /usr/bin/python3 "$(dirname "$0")/cef_manifest_r2.py" "$manifest" "$bucket"
+  printf '%s\n' ${keys[@]+"${keys[@]}"} | /usr/bin/python3 "$(dirname "$0")/cef_manifest_r2.py" "$manifest" "$bucket"
 fi

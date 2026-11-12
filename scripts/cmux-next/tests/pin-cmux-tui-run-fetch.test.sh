@@ -52,7 +52,7 @@ git_q -C "$TMP/src" commit -m app
 git_q -C "$TMP/src" push "$TMP/origin.git" job
 git_q clone --depth=1 --branch job "file://$TMP/origin.git" "$TMP/job"
 [[ "$(git -C "$TMP/job" rev-parse --is-shallow-repository)" == true ]] || fail "setup: the job checkout is not shallow"
-for sha in "${lane_shas[@]}" "$publisher"; do
+for sha in ${lane_shas[@]+"${lane_shas[@]}"} "$publisher"; do
   ! git -C "$TMP/job" cat-file -e "$sha^{commit}" 2>/dev/null || fail "setup: the job checkout already has $sha"
 done
 
@@ -118,7 +118,7 @@ fetch=$(cat "$TMP/fetches.log")
 for flag in --no-tags --no-recurse-submodules --no-write-fetch-head --depth=1 --filter=blob:none; do
   grep -qF -- " $flag " <<<"$fetch " || fail "(a) the run-commit fetch lacks $flag: $fetch"
 done
-for sha in "${lane_shas[@]}" "$publisher"; do
+for sha in ${lane_shas[@]+"${lane_shas[@]}"} "$publisher"; do
   grep -qF " origin " <<<"$fetch" && grep -qF " $sha" <<<"$fetch" || fail "(a) the batched fetch misses $sha: $fetch"
 done
 # No refspec, branch name or wildcard: only the run commits' SHAs follow the remote.
@@ -137,7 +137,7 @@ fresh_job
 probe CMUX_TUI_TREE_RUN_FETCH_SECONDS=0
 [[ "$status" == 0 && -n "$state" ]] || fail "(b) the probe wrote no state (exit $status)" "$out"
 [[ ! -s "$TMP/fetches.log" ]] || fail "(b) a fetch ran with no budget:" "$(cat "$TMP/fetches.log")"
-for sha in "${lane_shas[@]}" "$publisher"; do
+for sha in ${lane_shas[@]+"${lane_shas[@]}"} "$publisher"; do
   ! GIT_NO_LAZY_FETCH=1 git -C "$TMP/job" cat-file -e "$sha^{commit}" 2>/dev/null || fail "(b) $sha was fetched (lazily) with no budget" "$out"
 done
 grep -qF "7 active run commits were not fetched within 0s" <<<"$out" || fail "(b) the unread runs were not reported" "$out"

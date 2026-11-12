@@ -23,7 +23,7 @@ while IFS= read -r -d '' catalog; do
 done < <(find "$bin" -path '*.bundle/*' -name '*.xcstrings' -print0)
 if [ "${#catalogs[@]}" -gt 0 ]; then
   # xargs exits nonzero when any compile failed, which fails this script.
-  printf '%s\0' "${catalogs[@]}" \
+  printf '%s\0' ${catalogs[@]+"${catalogs[@]}"} \
     | xargs -0 -n 1 -P "$jobs" sh -c 'xcrun xcstringstool compile "$1" --output-directory "$(dirname "$1")"' sh
 fi
 echo "compiled ${#catalogs[@]} string catalogs"

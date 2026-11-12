@@ -49,7 +49,7 @@ if [[ "$made_stamp" != "$tip_stamp" ]]; then
   exit 0
 fi
 stale=()
-for file in "${exports[@]}"; do
+for file in ${exports[@]+"${exports[@]}"}; do
   if [[ -f "$dir/$file" ]]; then
     git cat-file -e "$tip:$file" 2>/dev/null && cmp -s "$dir/$file" <(git cat-file blob "$tip:$file") && continue
   else
