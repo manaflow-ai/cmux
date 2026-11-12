@@ -136,8 +136,10 @@ pub enum PageSide {
 pub struct Page {
     pub sid: String,
     pub stream: Stream,
-    pub side: PageSide,
-    pub row_id: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<u64>,
     #[serde(default = "default_page_bytes")]
     pub max_bytes: u32,
 }
@@ -159,8 +161,8 @@ impl Page {
         Self {
             sid: sid.into(),
             stream: stream.into(),
-            side,
-            row_id,
+            before: (side == PageSide::Before).then_some(row_id),
+            after: (side == PageSide::After).then_some(row_id),
             max_bytes: default_page_bytes(),
         }
     }
@@ -168,6 +170,14 @@ impl Page {
     pub fn with_max_bytes(mut self, max_bytes: u32) -> Self {
         self.max_bytes = max_bytes;
         self
+    }
+
+    pub fn side(&self) -> Option<(PageSide, u64)> {
+        match (self.before, self.after) {
+            (Some(row_id), None) => Some((PageSide::Before, row_id)),
+            (None, Some(row_id)) => Some((PageSide::After, row_id)),
+            _ => None,
+        }
     }
 }
 
@@ -346,6 +356,7 @@ mod tests {
         let text = serde_json::to_string(&sub).unwrap();
         assert_eq!(text, r#"{"sid":"s1","stream":"list","cursor":42,"window":100}"#);
         let page = Page::new("s1", "list", PageSide::After, 11);
+        assert_eq!(serde_json::to_value(&page).unwrap().get("after"), Some(&serde_json::json!(11)));
         assert_eq!(
             serde_json::to_value(page).unwrap().get("maxBytes"),
             Some(&serde_json::json!(262_144))
