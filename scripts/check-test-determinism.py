@@ -89,6 +89,15 @@ Detectors (all line/regex heuristics, never an AST):
   GIT_CONFIG_GLOBAL folder is never removed (Codex F2 on cmux#40939:
   web-bundles-readonly-sources.test.sh's `trap cleanup EXIT`). Call
   `git_fixture_trap_exit CMD` instead; it runs CMD after the helper's cleanup.
+- git-write-without-fixture: a test (tests/, tests_v2/, scripts/**/tests/)
+  that runs a writing git command (init, commit, clone, fetch, push, ...)
+  through subprocess or the shell without loading tests/git_fixture_env.py
+  or scripts/cmux-next/tests/lib/git-fixture.sh. The helper is the one
+  place a fixture's git environment is built: it drops what an inherited
+  GIT_DIR, GIT_INDEX_FILE, GIT_CONFIG and friends point at (a test run from
+  a git hook would otherwise commit into the hook's repository) and turns
+  auto maintenance off. Unlike git-temp-repo-maintenance, a temp folder is
+  not required and setting maintenance.auto by hand does not count.
 - wall-clock-expiry (Rust): a test sets something to expire a few seconds
   or less ahead on the real clock (`now_ms() + 50`, under 10 s) and then waits
   the expiry out on that clock: a `while ... now_ms()` loop, or a sleep at the
@@ -201,6 +210,7 @@ RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
 RULE_ISOLATED_IMPORT = "isolated-import"
 RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
 RULE_GIT_FIXTURE_EXIT_TRAP = "git-fixture-exit-trap"
+RULE_GIT_WRITE_WITHOUT_FIXTURE = "git-write-without-fixture"
 RULE_WALL_CLOCK_EXPIRY = "wall-clock-expiry"
 RULE_FLOCK_RELEASED_BY_CLOSE = "flock-released-by-close"
 RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS = "exec-of-a-file-written-in-process"
@@ -219,6 +229,7 @@ ALL_RULES = (
     RULE_ISOLATED_IMPORT,
     RULE_PREDICTABLE_TMP_PATH,
     RULE_GIT_FIXTURE_EXIT_TRAP,
+    RULE_GIT_WRITE_WITHOUT_FIXTURE,
     RULE_WALL_CLOCK_EXPIRY,
     RULE_FLOCK_RELEASED_BY_CLOSE,
     RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS,
@@ -232,6 +243,7 @@ GIT_FIXTURE_RULES = (
     RULE_PREDICTABLE_TMP_PATH,
     RULE_GIT_FIXTURE_EXIT_TRAP,
     RULE_EXIT_TRAP_RERAISE_ORDER,
+    RULE_GIT_WRITE_WITHOUT_FIXTURE,
 )
 
 # ---------------------------------------------------------------------------
@@ -4188,6 +4200,36 @@ def detect_git_temp_repo_maintenance(code_lines: list[str], text: str, path_suff
     return None
 
 
+_LOADS_GIT_FIXTURE = re.compile(r"git_fixture_env|git-fixture\.sh")
+# A git wrapper called with a writing verb: `git("init")`, `self.git("-C", d, "commit")`, `fixture_git(d, "init")`.
+_PY_GIT_WRAPPER_WRITE = re.compile(r"""\b(?:\w*_)?git\([^\n]*['"]""" + _GIT_WRITE_VERBS + r"""['"]""")
+
+
+def detect_git_write_without_fixture(code_lines: list[str], text: str, rel_posix: str) -> Optional[int]:
+    """0-based line of the first writing git command in a test that never loads the fixture helper, else None."""
+    in_scope = (
+        rel_posix.startswith(("tests/", "tests_v2/"))
+        or (rel_posix.startswith("scripts/") and "/tests/" in rel_posix)
+    )
+    kind = pathlib.PurePosixPath(rel_posix).suffix
+    if not in_scope or kind not in (".py", ".sh") or _LOADS_GIT_FIXTURE.search("\n".join(code_lines)):
+        return None
+    if kind == ".py":
+        # The writing verb must belong to a git call: a `git <verb>` string, an argv list naming git with the
+        # verb within its next lines, or a git wrapper called with the verb (`run_git("commit", ...)`). A
+        # "push" event name elsewhere in a file whose only git is `git show` is not a write.
+        for index, line in enumerate(code_lines):
+            if _PY_GIT_WRITE_STRING.search(line) or _PY_GIT_WRAPPER_WRITE.search(line):
+                return index
+            if _PY_GIT_ARGV.search(line) and _PY_GIT_WRITE_TOKEN.search("\n".join(code_lines[index:index + 4])):
+                return index
+        return None
+    for index, line in enumerate(code_lines):
+        if _SH_GIT_WRITE.search(line):
+            return index
+    return None
+
+
 def _makes_temp_git_repos(code: str, path_suffix: str) -> bool:
     if path_suffix != ".py" or not _PY_TEMP_DIR.search(code):
         return False
@@ -4503,7 +4545,8 @@ def collect_predictable_tmp_extra_findings(repo_root: pathlib.Path) -> list[Find
             if is_ignored_path(rel_posix) or _predictable_tmp_scope(rel_posix) is None:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            findings += [f for f in scan_text(rel_posix, text) if f.rule == RULE_PREDICTABLE_TMP_PATH]
+            findings += [f for f in scan_text(rel_posix, text)
+                         if f.rule in (RULE_PREDICTABLE_TMP_PATH, RULE_GIT_WRITE_WITHOUT_FIXTURE)]
     return findings
 
 def collect_isolated_import_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
@@ -4918,6 +4961,11 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
     for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
         findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
+    write_line = detect_git_write_without_fixture(code_lines, text, rel_posix)
+    if write_line is not None:
+        findings.append(
+            Finding(rel_posix, write_line + 1, RULE_GIT_WRITE_WITHOUT_FIXTURE, raw_lines[write_line].strip())
+        )
     for trap_line in detect_git_fixture_exit_trap(code_lines, suffix):
         findings.append(Finding(rel_posix, trap_line + 1, RULE_GIT_FIXTURE_EXIT_TRAP, raw_lines[trap_line].strip()))
     for trap_line in detect_exit_trap_reraise_order(code_lines, rel_posix):
@@ -5219,6 +5267,34 @@ def _self_test() -> int:
             "set -e\ntmp=$(mktemp -d)\nkeep_status() { return \"$1\"; }\n"
             "trap 's=$?; keep_status \"$s\"; rm -rf \"$tmp\"' EXIT\n",
             {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        # A test that writes with git and never loads the helper: an inherited GIT_DIR takes the commit.
+        (
+            "tests/git_write_plain.py",
+            "import subprocess\nsubprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_plain.test.sh",
+            'w=$(mktemp -d)\ngit -C "$w" init -q && git -C "$w" commit -q --allow-empty -m x\n',
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_wrapper.py",
+            "import subprocess\ndef run_git(*a):\n    return subprocess.run(['git', *a], check=True)\n\n\n\n\n"
+            "run_git('-C', repo, 'commit', '-qm', 'x')\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_comment_only.py",
+            "import subprocess\n# uses git_fixture_env somewhere\nsubprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_hand_opt_out.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
         ),
         # An EXIT trap after sourcing the helper replaces its cleanup: the GIT_CONFIG_GLOBAL folder leaks (cmux#40939 F2).
         (
@@ -6363,6 +6439,25 @@ def _self_test() -> int:
     ]
 
     negatives: list[tuple[str, str]] = [
+        # Git writes through the helper; git reads only; a git hook helper (not a test).
+        (
+            "tests/git_write_helper.py",
+            "import git_fixture_env\nsubprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+        ),
+        (
+            "scripts/ci/tests/git_write_helper.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nw=$(mktemp -d)\ngit_fixture_init "$w"\n'
+            'git -C "$w" commit -q --allow-empty -m x\n',
+        ),
+        (
+            "tests/git_read_only_event_names.py",
+            "import subprocess\ntext = subprocess.run(['git', '-C', root, 'show', 'origin/main:x.py'],\n"
+            "                      capture_output=True).stdout\n\n\n\n\ndef run(event='push'):\n    return event\n",
+        ),
+        (
+            "tests/git_read_only_plain.py",
+            "import subprocess\nsubprocess.run(['git', 'rev-parse', 'HEAD'], check=True)\n",
+        ),
         # Exit cleanup through the helper; an EXIT trap set before sourcing; INT alone; `trap -p EXIT`.
         # Cleanup first, then re-raise; a status call only after set +e; no re-raise at all.
         (

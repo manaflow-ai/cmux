@@ -29,6 +29,28 @@
 
 _git_fixture_opt_out=(maintenance.auto=false gc.auto=0 receive.autogc=false)
 
+# Variables that point git at another repository, index, object store or config file (GIT_DIR, GIT_INDEX_FILE,
+# GIT_CONFIG and so on): a test run from inside a git hook inherits them, and a fixture's `git -C "$tmp" commit`
+# then writes the hook's repository. Same rule as tests/git_fixture_env.py REPO_REDIRECTS: git's own list
+# (`git rev-parse --local-env-vars`) without the -c pairs (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT), unset here
+# for everything this shell runs.
+_git_fixture_redirects=()
+if _git_fixture_names=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git rev-parse --local-env-vars 2>/dev/null) \
+  && [[ -n "$_git_fixture_names" ]]; then
+  read -r -d '' -a _git_fixture_redirects <<<"$_git_fixture_names" || true
+else
+  _git_fixture_redirects=(GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_OBJECT_DIRECTORY GIT_DIR GIT_WORK_TREE
+    GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE GIT_INDEX_FILE GIT_NO_REPLACE_OBJECTS GIT_REPLACE_REF_BASE GIT_PREFIX
+    GIT_SHALLOW_FILE GIT_COMMON_DIR)
+fi
+for _git_fixture_name in "${_git_fixture_redirects[@]}"; do
+  case "$_git_fixture_name" in
+    GIT_CONFIG_PARAMETERS | GIT_CONFIG_COUNT) ;;
+    *) unset "$_git_fixture_name" ;;
+  esac
+done
+unset _git_fixture_names _git_fixture_name _git_fixture_redirects
+
 _git_fixture_count=${GIT_CONFIG_COUNT:-0}
 for _git_fixture_pair in "${_git_fixture_opt_out[@]}"; do
   export "GIT_CONFIG_KEY_${_git_fixture_count}=${_git_fixture_pair%%=*}" \
@@ -147,8 +169,23 @@ git_fixture_init() {
   local dir=${!#} pair
   git_q init -q "$@" || return
   for pair in "${_git_fixture_opt_out[@]}"; do
-    git_q -C "$dir" config "${pair%%=*}" "${pair#*=}" || return
+    _git_fixture_write_config "$dir" "${pair%%=*}" "${pair#*=}" || return
   done
+}
+
+# _git_fixture_write_config DIR KEY VALUE: `git config --local` in DIR with no redirect, no inherited -c pair and no
+# global or system config (tests/git_fixture_env.py write_env), so nothing the caller set takes the write.
+_git_fixture_write_config() {
+  local name err status=0
+  local -a strip=(-u GIT_CONFIG -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_DIR
+    -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE)
+  for name in $(compgen -e); do
+    [[ "$name" == GIT_CONFIG_KEY_* || "$name" == GIT_CONFIG_VALUE_* ]] && strip+=(-u "$name")
+  done
+  err=$(env "${strip[@]}" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    git -C "$1" config --local "$2" "$3" 2>&1 >/dev/null) || status=$?
+  (( status == 0 )) || printf 'git config --local %s in %s: exit %d\n%s\n' "$2" "$1" "$status" "$err" >&2
+  return "$status"
 }
 
 # git_fixture_clone [git clone options...] SOURCE DEST: the clone's config gets the opt-out before it runs.
