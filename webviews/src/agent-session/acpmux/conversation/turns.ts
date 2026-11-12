@@ -690,8 +690,8 @@ type NextStepAt = {
 /// went after the card in its own turn. Read from the turns themselves, never from the drawn rows,
 /// where a folded prompt (`foldsPrompt`) or a batch of other agents' messages (laneNoticeBatches.ts)
 /// leaves no prompt row behind: the composer hat and the pinned stack read this one answer, so a
-/// waiting card is in exactly one of them (#38964). Only a card of the last turn reads rows, so this
-/// costs the cards and the last turn's rows.
+/// waiting card is in exactly one of them (#38964). A card in the last turn, or one whose later turns
+/// drew nothing, reads the rows from its turn on; any other card reads none.
 function markLaterTurns(
   cards: NextStepAt[],
   rows: readonly AcpmuxRow[],

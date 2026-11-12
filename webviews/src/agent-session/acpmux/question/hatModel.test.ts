@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP, turnViewFrom, waitingAsks } from "../conversation/turns";
-import { askKey } from "../conversation/waitingAskStore";
+import { askKey, shownAsks } from "../conversation/waitingAskStore";
 import { hatSeenKey, unseenHatQuestions } from "./hatSeen";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import type { WatchedAsk } from "../needsYou/model";
@@ -383,12 +383,17 @@ describe("a waiting tagged ask is in the hat or pinned above the composer, never
   });
 
   test("a question the person dismissed never comes back in the hat", () => {
-    const view = turnViewFrom(asked, new Set());
+    const folds = new Set<string>();
+    const view = turnViewFrom(asked, folds);
     const hat = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", turns: view, sessions: [], asks: [] });
     // The pinned card's Dismiss and the hat's × record the same key (hatSeen.ts `hatSeenKey`).
     const dismissed = new Set([askKey(view.rows[view.nextSteps[0]!.at]!)]);
     expect(hat.map((question) => hatSeenKey(question))).toEqual([...dismissed]);
     expect(unseenHatQuestions(hat, dismissed)).toEqual([]);
+    // Another agent's message then moves it to the pinned stack: the same key keeps it hidden there.
+    const moved = turnViewFrom([...asked, peer("m1", "Pushed abc123.")], folds, {}, view);
+    expect(shownAsks(waitingAsks(moved), dismissed)).toEqual([]);
+    expect(waitingAsks(moved).map(questionOf)).toEqual([QUESTION]);
   });
 
   test("the person's reply after it: in neither", () => {

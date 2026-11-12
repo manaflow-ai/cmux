@@ -3087,8 +3087,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     shownSessionId,
     callRelease,
   ]);
-  // The questions the agent asked the person that still wait on them once another turn came after
-  // (turns.ts `waitingAsks`): pinned in the asks stack above the composer (PendingAsks.tsx) until
+  // The questions the agent asked the person that still wait on them once any prompt came after
+  // (turns.ts `waitingAsks`, `markLaterTurns`): pinned in the asks stack above the composer (PendingAsks.tsx) until
   // answered, said anything after, or dismissed. Leo, 2026-11-06, on a question another agent's
   // message pushed out of reach: "perhaps persistent at the bottom".
   const waitingAskRows = useMemo(
