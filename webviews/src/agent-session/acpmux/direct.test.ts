@@ -1,6 +1,29 @@
 import { expect, test } from "bun:test";
-import { mergeToolItem } from "./direct";
+import { mergeToolItem, preserveRowsDuringRefresh } from "./direct";
 import { isDraftCall } from "./conversation/toolGroups";
+
+const row = (id: string, kind: string, text?: string) => ({ id, kind, text, version: 1, at: 1 });
+
+test("a partial same-chat refresh keeps every previously visible row", () => {
+  const previous = [row("assistant-1", "assistant", "The complete answer"), row("tool-1", "activity")];
+  const partial = [row("tool-1", "activity")];
+
+  const held = preserveRowsDuringRefresh(previous, partial, true);
+
+  expect(held.map((item) => item.id)).toEqual(["assistant-1", "tool-1"]);
+  expect(held.find((item) => item.id === "assistant-1")?.text).toBe("The complete answer");
+  expect(preserveRowsDuringRefresh(previous, partial, false)).toEqual(partial);
+});
+
+test("a refresh does not resurrect notice rows or replace a complete assistant body with a prefix", () => {
+  const previous = [row("assistant-1", "assistant", "The complete answer"), row("notice-1", "notice", "finished")];
+  const partial = [row("assistant-1", "assistant", "The complete")];
+
+  const held = preserveRowsDuringRefresh(previous, partial, true);
+
+  expect(held.map((item) => item.id)).toEqual(["assistant-1"]);
+  expect(held[0]?.text).toBe("The complete answer");
+});
 
 test("an empty rawInput update keeps a draft tool call's command", () => {
   const draft = mergeToolItem(

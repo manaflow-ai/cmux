@@ -80,6 +80,22 @@ test("a completed reply replaced by its full historical text does not re-reveal"
   expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
 });
 
+test("a truncated reconnect snapshot never hides already visible assistant text", () => {
+  root = createRoot(container);
+  render("", true);
+  const reply = "The checks on the merged head are green and the notes are ready to send.";
+  render(reply, true);
+  const before = frames(0, 18).at(-1)!;
+  expect(before.length).toBeGreaterThan(0);
+
+  render(reply.slice(0, 12), true);
+  expect(container.querySelector(".cv-md")?.textContent?.length ?? 0).toBeGreaterThanOrEqual(before.length);
+
+  render(reply, true);
+  frames(18 * 16, 4);
+  expect(container.querySelector(".cv-md")?.textContent?.length ?? 0).toBeGreaterThanOrEqual(before.length);
+});
+
 test("a streaming reply grows by whole words with nothing after the last one", () => {
   root = createRoot(container);
   render("", true);
