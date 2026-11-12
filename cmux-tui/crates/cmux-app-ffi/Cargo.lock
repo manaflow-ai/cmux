@@ -314,6 +314,7 @@ dependencies = [
 name = "cmux-sdk-ffi"
 version = "0.1.0"
 dependencies = [
+ "cbindgen",
  "cmux-sdk",
  "serde_json",
 ]

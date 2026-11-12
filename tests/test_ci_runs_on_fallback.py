@@ -47,6 +47,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import runs_on_labels  # noqa: E402
 import workflow_jobs  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 # Blacksmith's 12 vCPU macOS 26 label: 5 slots, and stalled for hours on 2026-10-20, -26 and -28.
 LARGE_MAC = "blacksmith-12vcpu-macos-26"
@@ -110,7 +112,7 @@ SUPERSEDE_KEY = re.compile(r"(?<![\w.])(?:github\.(?:head_ref|ref|ref_name|run_i
 # An alternative taken only on one named branch (`github.ref == 'refs/heads/main' && 'main'`) is a group per
 # branch tip, like a github.ref key: a newer tip of that branch is what replaces its pending run.
 PINNED_REF = re.compile(r"github\.(?:ref|ref_name)\s*==\s*'[^']+'")
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+EXPRESSION = gh_expressions.EXPRESSION
 
 
 def unwrap(text: str) -> str:

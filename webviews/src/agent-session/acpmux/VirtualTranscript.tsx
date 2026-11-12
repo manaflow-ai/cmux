@@ -175,12 +175,12 @@ import { readUnread, subscribeUnread, unreadPending } from "./conversation/unrea
 import {
   jumpUpShown,
   jumpUpTarget,
-  IdleTracker,
   lastOwnPrompt,
   placeOffView,
   pressJumpUp,
   type JumpBack,
   type PromptScan,
+  IdleTracker,
 } from "./jumpUp";
 import { topZoneOffset } from "./overlayLayout";
 import "./jumpPair.css";
@@ -1049,6 +1049,8 @@ export function JumpUp({
   const t = useT();
   const label = t(back ? "transcript.jumpBack" : "transcript.jumpUp");
   const [look] = useState(() => experimentArm(jumpPairLook));
+  // The single look draws Jump to latest alone; where Jump up would go (and its Esc back) is unchanged.
+  if (look === "single") return null;
   return (
     <button
       type="button"
