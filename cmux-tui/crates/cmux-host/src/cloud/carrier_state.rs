@@ -281,9 +281,17 @@ impl<B, C> Core<B, C> {
     /// The machine is bound (again): the bind's generation starts now, not
     /// when the fetch thread takes it.
     pub(super) fn bind(&mut self, next: B) {
+        self.bind_with(next, None);
+    }
+
+    /// A bind that already holds its first ticket (the bind answer's): it is
+    /// the bind's generation's kept ticket from this same transition, so an
+    /// ask right after it takes it with no request.
+    pub(super) fn bind_with(&mut self, next: B, warm: Option<Warm>) {
         self.new_generation();
         self.bound_at = self.generation;
         self.next = Some(next);
+        self.warm = warm;
     }
 
     /// The machine resumed: the kept ticket and anything on its way from
