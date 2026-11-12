@@ -182,8 +182,6 @@ fn is_test_panic_thread(thread: &str) -> bool {
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 
 pub async fn run(opts: DaemonOptions) -> Result<()> {
-    // The start every startup phase in `daemon status` is timed from (`gauges.rs`).
-    let gauges = crate::gauges::global();
     crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
     // daemon must not die when its launcher or a client goes away mid-write:
@@ -747,7 +745,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         "listen": bound,
         "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
-    gauges.mark("socket ready");
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(
         "acpmux ready pid={} socket={} listen={}",
@@ -826,7 +823,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let metadata = {
         let loading = hub.clone();
         crate::supervise::once("store load", &hub.fatal, async move {
-            let _phase = gauges.phase("store load");
             loading.load_store_async().await;
         })
     };
@@ -835,10 +831,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         let (hub, fatal) = (hub.clone(), hub.fatal.clone());
         // A startup that panicked can never finish: the daemon stops for a restart.
         crate::supervise::once("startup", &fatal, async move {
-            {
-                let _phase = gauges.phase("wait for store");
-                hub.wait_store().await;
-            }
+            hub.wait_store().await;
             #[cfg(debug_assertions)]
             test_panic_in("startup");
             // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
@@ -851,57 +844,36 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
             }
-            // Debug builds only: `ACPMUX_TEST_HOLD_STARTUP` holds the same step until the test
-            // removes its file (`hub/log_load.rs` `test_hold`). Release builds have no seam.
-            #[cfg(debug_assertions)]
-            if std::env::var_os("ACPMUX_TEST_HOLD_STARTUP").is_some() {
-                let held = tokio::task::spawn_blocking(|| {
-                    crate::hub::test_hold("ACPMUX_TEST_HOLD_STARTUP")
-                });
-                let _ = held.await;
-            }
-            // Agents that outlived the previous daemon come back first: their chats' logs
-            // (tails, queues), then adoption. Every other chat's log is read in the background
-            // after it, or first by a request for that chat (`hub/log_load.rs`).
-            {
-                let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
+            // What an agent start needs (login environment, catalog, launcher checks, vault)
+            // runs beside the chats: a new chat waits for it alone, and a chat's own start for it
+            // and its own adoption, never for every host's adoption (`hub/startup.rs`).
+            let chats = async {
+                // Agents that outlived the previous daemon come back first: their chats' logs
+                // (tails, queues), then adoption. Every other chat's log is read in the background
+                // after it, or first by a request for that chat (`hub/log_load.rs`).
                 {
-                    let _phase = gauges.phase("live chat logs");
+                    let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
                     hub.load_live_logs_async().await;
-                }
-                {
-                    let _phase = gauges.phase("adopt agent hosts");
                     hub.adopt_agent_hosts().await;
+                    hub.settle_unadopted().await;
                 }
-                let _phase = gauges.phase("settle unadopted");
-                hub.settle_unadopted().await;
-            }
-            {
-                let _phase = gauges.phase("recover workflows");
                 hub.recover_workflows().await;
-            }
-            {
-                let hub = hub.clone();
-                tokio::spawn(async move {
-                    {
-                        let _phase = gauges.phase("all chat logs");
+                {
+                    let hub = hub.clone();
+                    tokio::spawn(async move {
                         hub.load_logs_async().await;
-                    }
-                    hub.finish_clone_boot(&home());
-                    // Once every log is read: a pass reads only chats whose log is loaded.
-                    let _worker = hub.retention_worker();
-                });
-            }
-            // A chat a machine's Full-access setting moved out of its policy's mode goes back:
-            // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
-            {
-                let _phase = gauges.phase("hold policies");
+                        hub.finish_clone_boot(&home());
+                        // Once every log is read: a pass reads only chats whose log is loaded.
+                        let _worker = hub.retention_worker();
+                    });
+                }
+                // A chat a machine's Full-access setting moved out of its policy's mode goes back:
+                // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
+                // A chat started before this runs in its policy's mode already (`hold_policy_mode`).
                 hub.hold_policies_again().await;
-            }
-            {
-                let _phase = gauges.phase("finish startup");
-                hub.finish_startup().await;
-            }
+            };
+            let (reloaded, ()) = tokio::join!(hub.prepare_spawns(), chats);
+            hub.finish_startup(reloaded).await;
             // An agent the previous daemon left, started from a profile changed since or running
             // from a binary that an update moved, restarts on the profile and binary installed now,
             // between turns (`hub/profile_respawn.rs`, `hub/stale_host_respawn.rs`).
@@ -1346,12 +1318,7 @@ async fn take_over_holder(socket: &std::path::Path) {
         pid = status.get("pid").and_then(serde_json::Value::as_u64),
         "another daemon of this home serves its socket; asking it to hand over"
     );
-    let _ = client
-        .request(
-            crate::rpc::method::MUX_SHUTDOWN,
-            serde_json::json!({"reason": "handover: another daemon of this home starts"}),
-        )
-        .await;
+    let _ = client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})).await;
 }
 
 /// Whether two paths name the same file: equal, or equal once canonical (a missing file through

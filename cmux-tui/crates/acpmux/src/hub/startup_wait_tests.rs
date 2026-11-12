@@ -40,9 +40,30 @@ async fn a_slow_startup_that_ends_within_the_wait_is_waited_for() {
     let finisher = hub.clone();
     tokio::spawn(async move {
         tokio::time::sleep(NEW_SESSION_STARTUP_WAIT / 2).await;
-        finisher.startup_ready.send_replace(true);
+        finisher.spawn_ready.send_replace(true);
     });
-    hub.wait_startup_within(NEW_SESSION_STARTUP_WAIT).await.expect("a slow startup is waited for");
+    hub.wait_spawn_ready_within(NEW_SESSION_STARTUP_WAIT)
+        .await
+        .expect("a slow startup is waited for");
+}
+
+/// Leo, 2026-11-12: "everything waits on everything". A startup whose adoption never ends (one
+/// agent host that never answers) holds no new chat once what an agent start needs is ready: it
+/// answers at once, whatever it answers, never the startup's deadline.
+#[tokio::test(start_paused = true)]
+async fn a_new_session_does_not_wait_for_another_chats_adoption() {
+    let hub = hub();
+    hub.begin_startup(false);
+    hub.adoption_ready.send_replace(false);
+    hub.spawn_ready.send_replace(true);
+    let started = tokio::time::Instant::now();
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let answer = hub.new_session(req).await;
+    assert!(started.elapsed() < NEW_SESSION_STARTUP_WAIT, "the new session waited for adoption");
+    if let Err(error) = answer {
+        let data = error.data.clone().unwrap_or_default();
+        assert_ne!(data["reason"], "deadline_exceeded", "it waited for startup: {error:?}");
+    }
 }
 
 #[test]

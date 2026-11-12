@@ -18,7 +18,48 @@ pub fn verify_launchers(cfg: &mut Config) {
     let env_route =
         std::env::var("SUBROUTER_URL").ok().or_else(|| crate::login_env::var("SUBROUTER_URL"));
     let route = subrouter_route(env_route.as_deref(), &servers);
-    verify_launchers_with(cfg, route);
+    let cache = home().join(CHECKS_FILE);
+    verify_launchers_checked(cfg, route, &|argv| cached_launcher_ok(&cache, argv));
+}
+
+/// The launchers whose `--version` passed, by argv and binary (`cached_launcher_ok`).
+const CHECKS_FILE: &str = "launcher-checks.json";
+
+/// [`launcher_ok`], answered from `cache` when this argv's binary passed before and has not
+/// changed since (its size and modification time). A daemon start ran `sr --version` and its
+/// kin every time, up to 20 s each, before any chat could start; now only a new or changed
+/// binary is run. A failure is never kept: it may have been a loaded machine's slow start.
+fn cached_launcher_ok(cache: &std::path::Path, argv: &[String]) -> std::result::Result<(), String> {
+    let key = launcher_key(argv);
+    let read = || -> Option<std::collections::BTreeSet<String>> {
+        serde_json::from_slice(&std::fs::read(cache).ok()?).ok()
+    };
+    if let Some(key) = &key
+        && read().is_some_and(|passed| passed.contains(key))
+    {
+        return Ok(());
+    }
+    launcher_ok(argv)?;
+    if let Some(key) = key {
+        let mut passed = read().unwrap_or_default();
+        passed.insert(key);
+        if let Ok(bytes) = serde_json::to_vec(&passed)
+            && let Err(e) = write_atomic(cache, &bytes)
+        {
+            tracing::debug!("launcher checks not saved: {e:#}");
+        }
+    }
+    Ok(())
+}
+
+/// What a launcher check is of: its argv and its binary's size and modification time. None when
+/// the binary is not found: it is checked every time.
+fn launcher_key(argv: &[String]) -> Option<String> {
+    let bin = argv.first()?;
+    let path = if bin.contains('/') { bin.clone() } else { which(bin)? };
+    let meta = std::fs::metadata(&path).ok()?;
+    let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
+    Some(format!("{}\0{path}\0{}\0{modified}", argv.join("\u{1f}"), meta.len()))
 }
 
 /// The subrouter server Claude traffic goes to when `sr` has no `claude proxy`:
@@ -50,6 +91,16 @@ pub fn subrouter_route(env_url: Option<&str>, servers_json: &std::path::Path) ->
 /// is one and it is acpmux's own adapter (`claude-stdio`), else it is
 /// marked unavailable.
 pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
+    verify_launchers_checked(cfg, route, &launcher_ok);
+}
+
+/// [`verify_launchers_with`], each launcher checked by `check`, all at once: one slow launcher
+/// holds no other.
+fn verify_launchers_checked(
+    cfg: &mut Config,
+    route: Option<String>,
+    check: &(dyn Fn(&[String]) -> std::result::Result<(), String> + Sync),
+) {
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
         .iter()
@@ -60,8 +111,15 @@ pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
         })
         .map(|(n, p)| (n.clone(), p.argv.clone()))
         .collect();
-    for (name, argv) in candidates {
-        if let Err(reason) = launcher_ok(&argv) {
+    let checked: Vec<_> = std::thread::scope(|scope| {
+        let runs: Vec<_> =
+            candidates.iter().map(|(_, argv)| scope.spawn(move || check(argv))).collect();
+        runs.into_iter()
+            .map(|run| run.join().unwrap_or_else(|_| Err("the launcher check panicked".into())))
+            .collect()
+    });
+    for ((name, argv), result) in candidates.into_iter().zip(checked) {
+        if let Err(reason) = result {
             // Only acpmux's own adapter takes over: claude-sr never becomes
             // an ACP adapter (`claude` imported from ~/.acpx, say).
             if is_subrouter_proxy(&argv)
