@@ -49,7 +49,9 @@ import UIKit
         }
         let p50 = samples.isEmpty ? nil : samples[samples.count / 2]
         let p95 = samples.isEmpty ? nil : samples[min(samples.count - 1, samples.count * 95 / 100)]
-        print("drag-latency less wheels=60 scrolled=\(samples.count) missed=\(missed) p50_ms=\(ms(p50)) p95_ms=\(ms(p95)) max_ms=\(ms(samples.last)) bytes=\(sink.sent.count)")
+        let line = "drag-latency less wheels=60 scrolled=\(samples.count) missed=\(missed) p50_ms=\(ms(p50)) p95_ms=\(ms(p95)) max_ms=\(ms(samples.last)) bytes=\(sink.sent.count)"
+        print(line)
+        Attachment.record(line, named: "drag-latency-less.txt")
         Self.check(missed: missed)
     }
 
