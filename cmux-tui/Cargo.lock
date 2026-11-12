@@ -44,6 +44,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-source-scan",
  "cmux-tailnet",
  "cmux-transport",
  "cmux-tui-platform",
@@ -1125,6 +1126,7 @@ dependencies = [
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
+ "base64",
  "chacha20poly1305",
  "cmux-json",
  "getrandom 0.3.4",
@@ -1975,6 +1977,17 @@ dependencies = [
  "crossterm",
  "ratatui",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-source-scan"
+version = "1.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.119",
+ "toml",
 ]
 
 [[package]]
