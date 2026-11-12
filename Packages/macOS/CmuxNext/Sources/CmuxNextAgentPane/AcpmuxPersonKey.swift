@@ -127,7 +127,8 @@ nonisolated enum AcpmuxPersonKey {
                        retryDelays: [Duration] = enrollRetryDelays) async -> Bool {
         let key = enrollKey(for: environment.socketPath, pid: status.pid)
         var delays = retryDelays[...]
-        while true {
+        // One attempt, then one more per delay: every pass returns or uses up a delay.
+        for _ in 0...retryDelays.count {
             do {
                 // Sent only to a server peer that is the acpmux this app runs (cx-fcaq).
                 _ = try await AcpmuxServerPeer.call(socketPath: environment.socketPath, method: "_acpmux/person_enroll",
@@ -157,6 +158,7 @@ nonisolated enum AcpmuxPersonKey {
                 return false
             }
         }
+        return false
     }
 
     /// Whether a peer refusal may pass on a later try: the daemon did not answer, closed, was
