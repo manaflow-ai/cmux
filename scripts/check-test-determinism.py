@@ -83,6 +83,9 @@ Detectors (all line/regex heuristics, never an AST):
     while errexit may still be on, or that runs a cleanup step after re-raising. Under `set -e` the status restore
     ends the trap there, so the caller's cleanup never runs and a failing test leaks its temp repos (cmux#41195 F1).
     Run every cleanup first, then `exit "$s"`; restore $? with a function's `return` only after `set +e`.
+    The action is read in any quoting, from an assignment anywhere on an earlier line or on the trap's own line, for
+    `trap` and git_fixture_trap_exit alike; an action it cannot resolve (an unassigned or substituted variable) fails
+    the rule (Codex F1 on cmux#41677).
 - git-fixture-exit-trap: a shell test that sources
   scripts/cmux-next/tests/lib/git-fixture.sh and then sets `trap ... EXIT`
   itself. That replaces the helper's EXIT trap, so its private
@@ -92,7 +95,13 @@ Detectors (all line/regex heuristics, never an AST):
 - git-write-without-fixture: a test (tests/, tests_v2/, scripts/**/tests/)
   that runs a writing git command (init, commit, clone, fetch, push, ...)
   through subprocess or the shell without loading tests/git_fixture_env.py
-  or scripts/cmux-next/tests/lib/git-fixture.sh. The helper is the one
+  or scripts/cmux-next/tests/lib/git-fixture.sh. Loading is code: a Python
+  import or loader call (spec_from_file_location, run_path, ...) naming
+  git_fixture_env, or a shell `source`/`.` command; a child script in a
+  Python string that loads it covers the writes in that string. A comment,
+  docstring, echo, string or here-document naming the helper loads nothing
+  (Codex F2 on cmux#41447); git-temp-repo-maintenance and
+  git-fixture-exit-trap read loads the same way. The helper is the one
   place a fixture's git environment is built: it drops what an inherited
   GIT_DIR, GIT_INDEX_FILE, GIT_CONFIG and friends point at (a test run from
   a git hook would otherwise commit into the hook's repository) and turns
@@ -4174,33 +4183,213 @@ _PY_GIT_WRITE_STRING = re.compile(r"""['"]git (?:-C \S+ )?(?:-c \S+ )*""" + _GIT
 _PY_TEMP_DIR = re.compile(r"\b(?:TemporaryDirectory|mkdtemp|tmp_path)\b")
 _SH_GIT_WRITE = re.compile(r"(?:^|[\s;&|(`])(?:git|git_q)\s+(?:-C\s+\S+\s+)?(?:-c\s+\S+\s+)*" + _GIT_WRITE_VERBS + r"\b")
 _SH_TEMP_DIR = re.compile(r"\bmktemp\b")
-_GIT_MAINTENANCE_OPT_OUT = re.compile(r"git_fixture_env|git-fixture\.sh|maintenance\.auto")
+# Setting maintenance.auto by hand (a `-c maintenance.auto=false`, a config write) also opts out, in code only.
+_GIT_MAINTENANCE_OPT_OUT = re.compile(r"maintenance\.auto")
 
 
 def detect_git_temp_repo_maintenance(code_lines: list[str], text: str, path_suffix: str) -> Optional[int]:
     """0-based line of the first git write in a temp-dir test with no auto-maintenance opt-out, else None."""
-    if _GIT_MAINTENANCE_OPT_OUT.search(text):
-        return None
     code = "\n".join(code_lines)
+    if _GIT_MAINTENANCE_OPT_OUT.search(code):
+        return None
+    covered = _git_fixture_load_cover(text, path_suffix)
+    if covered is None:
+        return None
     if path_suffix == ".py":
         if not _PY_TEMP_DIR.search(code):
             return None
         if not (_PY_GIT_WRITE_STRING.search(code) or (_PY_GIT_ARGV.search(code) and _PY_GIT_WRITE_TOKEN.search(code))):
             return None
         for index, line in enumerate(code_lines):
-            if _PY_GIT_ARGV.search(line) or _PY_GIT_WRITE_STRING.search(line):
+            if index not in covered and (_PY_GIT_ARGV.search(line) or _PY_GIT_WRITE_STRING.search(line)):
                 return index
-        return 0
+        return None if covered else 0
     if path_suffix == ".sh":
         if not _SH_TEMP_DIR.search(code):
             return None
         for index, line in enumerate(code_lines):
-            if _SH_GIT_WRITE.search(line):
+            if index not in covered and _SH_GIT_WRITE.search(line):
                 return index
     return None
 
 
-_LOADS_GIT_FIXTURE = re.compile(r"git_fixture_env|git-fixture\.sh")
+# The helpers themselves: they are what a test loads, so they cannot load themselves.
+_GIT_FIXTURE_HELPERS = frozenset({"tests/git_fixture_env.py", "scripts/cmux-next/tests/lib/git-fixture.sh"})
+# Calls that load a Python module by path or name: the helper is loaded when one of them names git_fixture_env.
+_PY_LOADER_CALLS = frozenset(
+    {"spec_from_file_location", "SourceFileLoader", "run_path", "import_module", "__import__", "load_source"}
+)
+# A shell word that runs the next word as a script in this shell, at a command's start.
+_SH_COMMAND_START = re.compile(r"(?:^|[;&|({!]|\b(?:then|do|else|elif|if|while|until|time)\b)\s*$")
+_SH_SOURCE_WORD = re.compile(r"(?<![\w./-])(?:(?:builtin|command)\s+)?(source|\.)(?=\s)")
+_SH_HEREDOC = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_]\w*)\2")
+
+
+def _shell_code_view(text: str) -> tuple[str, list[bool]]:
+    """The text with comments and here-document bodies blanked (offsets kept), and which offsets are quoted."""
+    out = list(text)
+    quoted = [False] * len(text)
+    state = ""  # "", "'" or '"'
+    heredocs: list[tuple[str, bool]] = []
+    index = 0
+    line_start = True
+    while index < len(text):
+        char = text[index]
+        if line_start and heredocs and state == "":
+            end = text.find("\n", index)
+            end = len(text) if end == -1 else end
+            line = text[index:end]
+            delimiter, strip_tabs = heredocs[0]
+            for blank in range(index, end):
+                out[blank] = " "
+            if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                heredocs.pop(0)
+            index = end + 1
+            continue
+        line_start = False
+        if state == "'":
+            quoted[index] = True
+            if char == "'":
+                state = ""
+        elif state == '"':
+            quoted[index] = True
+            if char == "\\":
+                if index + 1 < len(text):
+                    quoted[index + 1] = True
+                index += 2
+                continue
+            if char == '"':
+                state = ""
+        elif char == "\\":
+            index += 2
+            continue
+        elif char in "'\"":
+            state = char
+            quoted[index] = True
+        elif char == "#" and (index == 0 or text[index - 1] in " \t\n;&|()"):
+            end = text.find("\n", index)
+            end = len(text) if end == -1 else end
+            for blank in range(index, end):
+                out[blank] = " "
+            index = end
+            continue
+        elif char == "<" and text.startswith("<<", index) and not text.startswith("<<<", index):
+            match = _SH_HEREDOC.match(text, index)
+            if match:
+                heredocs.append((match.group(3), match.group(1) == "-"))
+        if char == "\n":
+            line_start = True
+        index += 1
+    return "".join(out), quoted
+
+
+def _shell_source_lines(text: str) -> list[int]:
+    """0-based lines that run `source FILE` or `. FILE` naming git-fixture.sh as a command (not in a string,
+    a comment or a here-document)."""
+    code, quoted = _shell_code_view(text)
+    lines: list[int] = []
+    for match in _SH_SOURCE_WORD.finditer(code):
+        start = match.start()
+        if quoted[start] or not _SH_COMMAND_START.search(code[code.rfind("\n", 0, start) + 1:start]):
+            continue
+        end = start
+        while end < len(code) and code[end] != "\n" and not (code[end] in ";&|" and not quoted[end]):
+            end += 1
+        if "git-fixture.sh" in code[match.end():end]:
+            lines.append(code.count("\n", 0, start))
+    return lines
+
+
+def _py_strings(node: object) -> list[str]:
+    import ast
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, ast.JoinedStr):
+        return ["".join(value.value if isinstance(value, ast.Constant) else "X" for value in node.values)]
+    return []
+
+
+def _py_loads_git_fixture(tree: object) -> bool:
+    """True when the module imports git_fixture_env or calls a loader whose arguments (or the names they use,
+    followed through their assignments) hold a string naming it."""
+    import ast
+
+    assigned: dict[str, list[object]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    assigned.setdefault(target.id, []).append(node.value)
+        if isinstance(node, ast.Import) and any(alias.name.split(".")[-1] == "git_fixture_env" for alias in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and (
+            (node.module or "").split(".")[-1] == "git_fixture_env"
+            or any(alias.name == "git_fixture_env" for alias in node.names)
+        ):
+            return True
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+        # The stdlib loaders, or a test's own wrapper around them (`_load("git_fixture_env", path)`).
+        if name not in _PY_LOADER_CALLS and "load" not in name.lower():
+            continue
+        pending = list(node.args) + [keyword.value for keyword in node.keywords]
+        seen: set[str] = set()
+        while pending:
+            for part in ast.walk(pending.pop()):
+                if any("git_fixture_env" in value for value in _py_strings(part)):
+                    return True
+                if isinstance(part, ast.Name) and part.id not in seen:
+                    seen.add(part.id)
+                    pending.extend(assigned.get(part.id, []))
+    return False
+
+
+def _git_fixture_load_cover(text: str, path_suffix: str) -> Optional[set[int]]:
+    """None when the file loads the git fixture helper as code: a Python import or loader call, a shell `source`
+    or `.` command. Otherwise the 0-based lines of child scripts it runs that load the helper themselves (a Python
+    string holding a loader or a source command); a git write elsewhere runs without it. A name in a comment, a
+    docstring, an echo or a here-document loads nothing (Codex F2 on cmux#41447)."""
+    if path_suffix == ".sh":
+        return None if _shell_source_lines(text) else set()
+    if path_suffix != ".py":
+        return set()
+    import ast
+
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return set()
+    if _py_loads_git_fixture(tree):
+        return None
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.body and isinstance(node.body[0], ast.Expr)
+    }
+    covered: set[int] = set()
+    for node in ast.walk(tree):
+        if id(node) in docstrings:
+            continue
+        for value in _py_strings(node):
+            if "git_fixture_env" not in value and "git-fixture.sh" not in value:
+                continue
+            loads = bool(_shell_source_lines(value))
+            if not loads:
+                try:
+                    loads = _py_loads_git_fixture(ast.parse(value))
+                except (SyntaxError, ValueError):
+                    loads = False
+            if loads:
+                covered.update(range(node.lineno - 1, (node.end_lineno or node.lineno)))
+    return covered
+
+
 # A git wrapper called with a writing verb: `git("init")`, `self.git("-C", d, "commit")`, `fixture_git(d, "init")`.
 _PY_GIT_WRAPPER_WRITE = re.compile(r"""\b(?:\w*_)?git\([^\n]*['"]""" + _GIT_WRITE_VERBS + r"""['"]""")
 
@@ -4212,13 +4401,19 @@ def detect_git_write_without_fixture(code_lines: list[str], text: str, rel_posix
         or (rel_posix.startswith("scripts/") and "/tests/" in rel_posix)
     )
     kind = pathlib.PurePosixPath(rel_posix).suffix
-    if not in_scope or kind not in (".py", ".sh") or _LOADS_GIT_FIXTURE.search("\n".join(code_lines)):
+    if not in_scope or kind not in (".py", ".sh") or rel_posix in _GIT_FIXTURE_HELPERS:
+        return None
+    covered = _git_fixture_load_cover(text, kind)
+    if covered is None:
         return None
     if kind == ".py":
         # The writing verb must belong to a git call: a `git <verb>` string, an argv list naming git with the
         # verb within its next lines, or a git wrapper called with the verb (`run_git("commit", ...)`). A
-        # "push" event name elsewhere in a file whose only git is `git show` is not a write.
+        # "push" event name elsewhere in a file whose only git is `git show` is not a write. A write inside a
+        # child script that loads the helper itself is covered.
         for index, line in enumerate(code_lines):
+            if index in covered:
+                continue
             if _PY_GIT_WRITE_STRING.search(line) or _PY_GIT_WRAPPER_WRITE.search(line):
                 return index
             if _PY_GIT_ARGV.search(line) and _PY_GIT_WRITE_TOKEN.search("\n".join(code_lines[index:index + 4])):
@@ -4314,21 +4509,24 @@ def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str) -> l
 
 
 
-# The path may hold spaces inside a substitution: source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh".
-_SH_SOURCES_GIT_FIXTURE = re.compile(r"(?:^|[\s;&|(])(?:source|\.)\s+[^;&|\n]*git-fixture\.sh\b")
 _SH_TRAP = re.compile(r"(?:^|[\s;&|(])trap\s+(?!-[pl]\b)(.*)")
 _SH_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
 _SH_EXIT_SIGNAL = re.compile(r"(?:^|\s)(?:EXIT|SIGEXIT|0)(?=\s|[;&|)]|$)")
 
 
-def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str) -> list[int]:
-    """0-based lines that set an EXIT trap after the file sources lib/git-fixture.sh (it replaces the helper's)."""
+def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str, text: str = "") -> list[int]:
+    """0-based lines that set an EXIT trap after the file sources lib/git-fixture.sh (it replaces the helper's).
+    Sourcing is a `source`/`.` command, not the name in an echo, a string or a here-document."""
     if path_suffix != ".sh":
         return []
     hits: list[int] = []
+    source_lines = set(_shell_source_lines(text or "\n".join(code_lines)))
+    first = min(source_lines, default=None)
+    if first is None:
+        return []
     sourced = False
     for index, line in enumerate(code_lines):
-        if _SH_SOURCES_GIT_FIXTURE.search(line):
+        if index in source_lines:
             sourced = True
             continue
         if not sourced:
@@ -4344,9 +4542,23 @@ def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str) -> lis
 
 
 _EXIT_TRAP_SCOPE = "scripts/cmux-next/tests/"
-_SH_SINGLE_QUOTED_ASSIGN = re.compile(r"^\s*(?:local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?(\w+)='([^']*)'\s*$")
+# An assignment anywhere on a line (`a='...'; trap "$a" EXIT` too): single-quoted, double-quoted or one bare word.
+_SH_ASSIGN = re.compile(
+    r"""(?:^|[\s;&|(])(?:(?:local|readonly|export|declare(?:\s+-\w+)?)\s+)?(\w+)="""
+    r"""('[^']*'|"(?:\\.|[^"\\])*"|[^\s;&|()'"]*)(?=$|[\s;&|)])"""
+)
 _SH_FUNCTION_START = re.compile(r"^\s*(?:function\s+)?([\w.-]+)\s*\(\)\s*\{?(.*)$")
-_SH_FIXTURE_TRAP_EXIT = re.compile(r"(?:^|[\s;&|(])git_fixture_trap_exit\s+'([^']*)'")
+# git_fixture_trap_exit's one argument, in any quoting.
+_SH_FIXTURE_TRAP_EXIT = re.compile(
+    r"""(?:^|[\s;&|(])git_fixture_trap_exit\s+('[^']*'|"(?:\\.|[^"\\])*"|[^\s;&|()]+)"""
+)
+# The action word of a trap: single-quoted, double-quoted or bare.
+_SH_ACTION_WORD = re.compile(r"""'([^']*)'|"((?:\\.|[^"\\])*)"|(\S+)""")
+_SH_VARIABLE_ONLY = re.compile(r"\$\{?(\w+)\}?")
+# A value that is a caller's argument passed on (the helper's own `trap` wrapper): checked where it is written.
+_SH_FORWARDED = re.compile(r"\$\{?(?:[0-9]|@|\*)\}?")
+_UNRESOLVED = object()
+_FORWARDED = object()
 # Puts a saved status back as $?: a subshell exit, or a call/return that hands the status back.
 _TRAP_STATUS_RESTORE = re.compile(r"\(\s*exit\b|^\s*return\s+\S|^\s*\w*(?:return|status)\w*\s+[\"']?\$")
 _TRAP_RERAISE = re.compile(r"\(\s*exit\b|^\s*(?:exit|return)\b")
@@ -4377,16 +4589,58 @@ def _trap_action_problem(action: str) -> bool:
     return False
 
 
+def _sh_unquote_double(text: str) -> str:
+    return re.sub(r"\\([$`\"\\\n])", r"\1", text)
+
+
+def _sh_value(word: str) -> object:
+    """An assigned word's text, _FORWARDED for a caller's argument, or _UNRESOLVED (a substitution, an expansion)."""
+    if word.startswith("'"):
+        return word[1:-1]
+    if word.startswith('"'):
+        inner = word[1:-1]
+        if _SH_FORWARDED.fullmatch(inner):
+            return _FORWARDED
+        if "$(" in inner or "`" in inner.replace("\\`", ""):
+            return _UNRESOLVED
+        return _sh_unquote_double(inner)
+    if _SH_FORWARDED.fullmatch(word):
+        return _FORWARDED
+    if "$" in word or "`" in word:
+        return _UNRESOLVED
+    return word
+
+
+def _sh_trap_action(word: str, assigned: dict[str, object], functions: dict[str, str]) -> object:
+    """The text a trap's action word runs: a literal, a variable's assigned text, a function's body; _FORWARDED for a
+    caller's argument; _UNRESOLVED when the rule cannot know it (an unassigned or substituted variable)."""
+    match = _SH_ACTION_WORD.fullmatch(word)
+    if not match:
+        return _UNRESOLVED
+    single, double, bare = match.groups()
+    if single is not None:
+        return single
+    text = double if double is not None else bare
+    if _SH_FORWARDED.fullmatch(text):
+        return _FORWARDED
+    variable = _SH_VARIABLE_ONLY.fullmatch(text)
+    if variable:
+        return assigned.get(variable.group(1), _UNRESOLVED)
+    if bare is not None and bare in functions:
+        return functions[bare]
+    if "$(" in text or "`" in text:
+        return _UNRESOLVED
+    return _sh_unquote_double(text) if double is not None else text
+
+
 def detect_exit_trap_reraise_order(code_lines: list[str], rel_posix: str) -> list[int]:
-    """0-based lines of EXIT traps under scripts/cmux-next/tests whose action re-raises before (or instead of) cleanup."""
+    """0-based lines of EXIT traps under scripts/cmux-next/tests whose action re-raises before (or instead of) cleanup,
+    or whose action the rule cannot resolve (it fails closed: Codex F1 on cmux#41677)."""
     if not rel_posix.startswith(_EXIT_TRAP_SCOPE) or not rel_posix.endswith(".sh"):
         return []
-    assigned: dict[str, str] = {}
+    assigned: dict[str, object] = {}
     functions: dict[str, str] = {}
     for index, line in enumerate(code_lines):
-        match = _SH_SINGLE_QUOTED_ASSIGN.match(line)
-        if match:
-            assigned[match.group(1)] = match.group(2)
         start = _SH_FUNCTION_START.match(line)
         if start:
             body = [start.group(2)]
@@ -4399,24 +4653,20 @@ def detect_exit_trap_reraise_order(code_lines: list[str], rel_posix: str) -> lis
             functions[start.group(1)] = "\n".join(body).rstrip().rstrip("}")
     hits: list[int] = []
     for index, line in enumerate(code_lines):
-        actions: list[str] = []
+        # Assignments first, in line order: `a='...'; trap "$a" EXIT` sets the action the trap reads.
+        for assignment in _SH_ASSIGN.finditer(line):
+            assigned[assignment.group(1)] = _sh_value(assignment.group(2))
+        actions: list[object] = []
         fixture = _SH_FIXTURE_TRAP_EXIT.search(line)
         if fixture:
-            actions.append(fixture.group(1))
+            actions.append(_sh_trap_action(fixture.group(1), assigned, functions))
         match = _SH_TRAP.search(line)
         if match:
             rest = re.sub(r"^--\s+", "", match.group(1).strip())
-            quoted = re.match(r"""'([^']*)'|"((?:\\.|[^"\\])*)"|(\S+)""", rest)
+            quoted = _SH_ACTION_WORD.match(rest)
             if quoted and _SH_EXIT_SIGNAL.search(rest[quoted.end():].split(";")[0]):
-                text = next(group for group in quoted.groups() if group is not None)
-                variable = re.fullmatch(r"\$\{?(\w+)\}?", text)
-                if variable:
-                    actions.append(assigned.get(variable.group(1), ""))
-                elif quoted.group(3) is not None and text in functions:
-                    actions.append(functions[text])
-                else:
-                    actions.append(text)
-        if any(_trap_action_problem(action) for action in actions):
+                actions.append(_sh_trap_action(quoted.group(0), assigned, functions))
+        if any(action is _UNRESOLVED or (isinstance(action, str) and _trap_action_problem(action)) for action in actions):
             hits.append(index)
     return hits
 
@@ -4966,7 +5216,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(
             Finding(rel_posix, write_line + 1, RULE_GIT_WRITE_WITHOUT_FIXTURE, raw_lines[write_line].strip())
         )
-    for trap_line in detect_git_fixture_exit_trap(code_lines, suffix):
+    for trap_line in detect_git_fixture_exit_trap(code_lines, suffix, text):
         findings.append(Finding(rel_posix, trap_line + 1, RULE_GIT_FIXTURE_EXIT_TRAP, raw_lines[trap_line].strip()))
     for trap_line in detect_exit_trap_reraise_order(code_lines, rel_posix):
         findings.append(Finding(rel_posix, trap_line + 1, RULE_EXIT_TRAP_RERAISE_ORDER, raw_lines[trap_line].strip()))
