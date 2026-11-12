@@ -176,12 +176,13 @@ fn finish_a1(report: &str, ran: Duration) -> (Vec<String>, Option<String>) {
 }
 
 #[test]
-fn a_short_task_that_landed_closes_its_workspace_when_it_finishes() {
+fn a_short_task_that_landed_keeps_its_workspace_when_it_finishes() {
+    // Aziz, 2026-11-11: Chief-made agents vanished from the sidebar. A finished subagent's
+    // workspace stays where it is (the sidebar, or the collapsed "Chief's workspaces" group);
+    // only the user's own close-on-finish setting closes it.
     let (closed, workspace) = finish_a1("Done: renamed the button.", Duration::from_secs(5 * 60));
-    assert_eq!(closed.len(), 1, "the short task's workspace closes");
-    // Its closed key is forgotten, so `control show` opens a new one
-    // instead of answering that it already has one.
-    assert_eq!(workspace, None, "a closed workspace's key stays recorded");
+    assert!(closed.is_empty(), "nothing closes on its own: {closed:?}");
+    assert!(workspace.is_some(), "it keeps its workspace");
 }
 
 #[test]

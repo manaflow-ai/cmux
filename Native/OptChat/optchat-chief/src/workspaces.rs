@@ -58,6 +58,11 @@ pub trait Workspaces: Send + Sync {
     fn close_idle(&self, _key: &str) -> Result<bool, String> {
         Ok(false)
     }
+    /// Moves workspace `key` into ``CHIEF_GROUP_NAME`` (`into_chief_group`), or out of any group
+    /// to the top of the sidebar: `control hide` and `control show` of a subagent.
+    fn move_to(&self, _key: &str, _into_chief_group: bool) -> Result<(), String> {
+        Err("moving a workspace between groups is not supported here".into())
+    }
     /// Where its workspaces live, for the Chief to tell the user (for
     /// example "the cmux app on this Mac").
     fn place(&self) -> String;
