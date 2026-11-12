@@ -689,7 +689,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             "no Blacksmith twin": {k: v for k, v in both.items() if k != twin_name},
             "must carry claim": {**both, "build-sign-notarize": {**good, "outputs": {}}},
             "must have the same steps": {**both, twin_name: {**both[twin_name], "steps": good["steps"][1:]}},
-            "must take Blacksmith only": {**both, twin_name: {**both[twin_name], "runs-on": good["runs-on"]}},
+            "must take Blacksmith only": {**both, twin_name: {**both[twin_name], "runs-on": workflow_jobs.single_runs_on(good)}},
             "if must be exactly": {**both, twin_name: {**both[twin_name], "if": "always()"}},
             "needs must be": {**both, twin_name: {**both[twin_name], "needs": ["pick"]}},
             "but not build-sign-notarize-blacksmith": {**both, "publish": workflow_jobs.copy_job(reader, {"needs": ["build-sign-notarize"]})},
@@ -1314,7 +1314,7 @@ class ClassificationTests(unittest.TestCase):
         documents = workflows()
         base = copy.deepcopy(documents["release.yml"]["jobs"]["build-sign-notarize"])
         base = keychain_guard.bracketed(base)
-        base["runs-on"] = re.sub(r"needs\.([\w-]+)\.outputs\.([\w-]+)", r"needs['\1'].outputs['\2']", str(base["runs-on"]))
+        base["runs-on"] = re.sub(r"needs\.([\w-]+)\.outputs\.([\w-]+)", r"needs['\1'].outputs['\2']", workflow_jobs.single_runs_on(base))
         found, _, _ = classification_failures(self._with(documents, "release.yml", "sign-split-fixture", base))
         self.assertTrue(any(why.startswith("release.yml sign-split-fixture:") and "not in GLAEDA_EXCLUSIVE_JOBS" in why
                             for why in found), found)

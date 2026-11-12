@@ -58,6 +58,9 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
 # The longest socket path every host binds (src/acpmux_daemon.rs).
 cmux-unix-socket = { path = "../../../cmux-tui/crates/cmux-unix-socket" }
+# The settings file's path and JSONC dialect (src/agent_memory/settings.rs),
+# the daemon's own reader.
+cmux-config = { path = "../../../cmux-tui/crates/cmux-config" }
 # The MCP hub (src/mcp_hub): URL, command and OAuth rules, tool screening.
 cmux-mcp-connect = { path = "../../../cmux-tui/crates/cmux-mcp-connect" }
 

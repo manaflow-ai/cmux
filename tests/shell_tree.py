@@ -322,41 +322,51 @@ class _Parser:
         bare = frozenset(k for k, (a, b) in enumerate(spans) if s[a:b] == argv[k])
         where: list = []
         run = unwrap(argv, None, where, names, bare)
-        if not run or any(spans_ is not None for _, spans_ in where) or [k for k, _ in where] != list(
-                range(len(argv) - len(run), len(argv))):
+        if not run or len(where) != len(run):
             return
-        k, prog = len(argv) - len(run), run[0].rsplit("/", 1)[-1]
-        picks: list[int] = []
+        prog = run[0].rsplit("/", 1)[-1]
+        picks: list[int] = []  # indexes in RUN
         # eval and trap read their options as bash's builtins do: one -- ends them, and the word after it is an
         # operand whatever it starts with (trap -- '-x; c1' EXIT runs c1: upstream #4620 review, F1). Before any --,
         # a word that starts with - (other than - alone) is an option: eval takes none, so it refuses it and runs
         # nothing; trap's -l, -p and -P print, and any other it refuses. A lone - is trap's reset (trap - SIG,
         # trap -- - SIG), and eval's first word.
-        j = k + 1
-        if prog in ("eval", "trap") and j < len(argv) and argv[j] != "-" and argv[j].startswith("-"):
-            j = j + 1 if argv[j] == "--" else len(argv)
+        j = 1
+        if prog in ("eval", "trap") and j < len(run) and run[j] != "-" and run[j].startswith("-"):
+            j = j + 1 if run[j] == "--" else len(run)
         if prog == "eval":
-            picks = list(range(j, len(argv)))
+            picks = list(range(j, len(run)))
         elif prog == "trap":
-            if j < len(argv) and argv[j] != "-":
+            if j < len(run) and run[j] != "-":
                 picks = [j]
         elif prog in SHELLS:
             j = _script_index(run)
             if isinstance(j, int):
-                picks = [k + j]
-        if not picks or any(values[j] is None for j in picks):
+                picks = [j]
+        if not picks:
             return
-        body, origin, prev = "", [], 0
-        for j in picks:
-            a, b = spans[j]
-            text, at = values[j]
-            if body:  # the space between two arguments: at the end of the one before it
+        # Each picked word is one of the command's own words, or a word of an env -S string (where: per character
+        # the range of that -S word's value it comes from). env -S 'bash' -c c1 runs c1, and so does
+        # env -S 'bash -c c1': the script is read from wherever its word comes from (upstream #4620 review, F2).
+        body, origin, prev = "", [], None
+        for r in picks:
+            index, chars = where[r]
+            if values[index] is None or "\0" in run[r]:
+                return  # only a run can tell what it holds
+            a, b = spans[index]
+            text, at = values[index]
+            if chars is None:
+                word, starts, end = text, [self.o[a + x] for x in at], self.o[b]
+            else:
+                word, starts = run[r], [self.o[a + at[lo]] for lo, _ in chars]
+                end = self.o[a + at[chars[-1][1]]] if chars and chars[-1][1] < len(at) else self.o[b]
+            if prev is not None:  # the space between two arguments: at the end of the one before it
                 body += " "
-                origin.append(self.o[prev])
-            prev = b
-            body += text
-            origin += [self.o[a + x] for x in at]
-        origin.append(self.o[spans[picks[-1]][1]])
+                origin.append(prev)
+            prev = end
+            body += word
+            origin += starts
+        origin.append(prev)
         level = self.level[0]
         try:  # comments in the string are not the text's: code() must never cut them out of it
             script, _ = self.nested(_Parser(body, origin, [], self.level, True).script, 0, None)
@@ -1426,6 +1436,13 @@ DYNAMIC = {"source", ".", "eval", "enable"}
 # variable's whole value is one of FOLDER_OF's forms, bound once (Sources).
 _ARG0 = r'(?:"\$0"|\$0|"\$\{0\}"|"\$\{BASH_SOURCE\[0\]\}"|"\$\{BASH_SOURCE\}"|"\$BASH_SOURCE")'
 _UP = r'(?:/\.\.)*/?'
+
+
+def _is_arg0(arg: str) -> bool:
+    """Whether ARG, one of _ARG0's forms, is $0 (the script a run starts, also inside a sourced file), not one of
+    BASH_SOURCE's (the file being read). ${BASH_SOURCE[0]} holds a 0 too: a test for one read it as $0, so a source
+    inside a sourced file resolved against the script's folder (cmux#41809 review, F1)."""
+    return arg.replace('"', "") in ("$0", "${0}")
 _DIRNAME = r'\$\(\s*dirname\s+(?P<arg>' + _ARG0 + r')\s*\)'
 FOLDER_OF = (
     # "$(cd "$(dirname "$0")/.." && pwd)", with -P on either, the ../ inside the quotes or after them
@@ -1535,7 +1552,7 @@ def _folder(value: str, sources: Sources) -> str | None:
             continue
         if "arg" not in form.groupindex:
             return sources.root  # the repository's top (a run inside it)
-        base = sources.script if "0" in m.group("arg") else sources.file
+        base = sources.script if _is_arg0(m.group("arg")) else sources.file
         up = (m.group("up") + m.group("up2")).replace("/", " ").split()
         return os.path.normpath(os.path.join(os.path.dirname(base), *up))
     return None
@@ -1586,7 +1603,7 @@ def _target(text: str, word: Word, sources: Sources) -> str | None:
             folder = sources.bound.get(m.group("name"))
             sources.used.add(m.group("name"))
         else:
-            folder = os.path.dirname(sources.script if "0" in m.group("arg") else sources.file)
+            folder = os.path.dirname(sources.script if _is_arg0(m.group("arg")) else sources.file)
         if folder is None:
             return None
         path = os.path.realpath(os.path.join(folder, m.group("rest").lstrip("/")))
@@ -2601,7 +2618,9 @@ PROCESS_BUDGET = 64
 # Runs bash (argv[3:]) in a session of its own, writes its pid to argv[2], and waits for it and every process it
 # leaves: as the child subreaper (Linux), every orphan of the run is its child, a setsid one included, so it waits
 # until none is left. Past argv[1] seconds it kills every process below it, and exits 124. Elsewhere it kills bash's
-# process group and what /proc or ps shows below it.
+# process group and what /proc or ps shows below it. It waits for SIGCHLD with sigtimedwait where the host has it, and
+# else sleeps a few milliseconds between reaps (macOS has no sigtimedwait: cmux#41809 review, F2). It exits 0 when
+# every process is reaped and 124 past its time; any other status (a crash) is no answer (bash_writes()).
 REAPER = r"""
 import ctypes, os, signal, subprocess, sys, time
 deadline = time.monotonic() + float(sys.argv[1])
@@ -2609,7 +2628,9 @@ try:
     ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0)  # PR_SET_CHILD_SUBREAPER
 except (AttributeError, OSError):
     pass
-signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGCHLD])
+wait = getattr(signal, "sigtimedwait", None)
+if wait:
+    signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGCHLD])
 bash = subprocess.Popen(sys.argv[3:], start_new_session=True, env=dict(os.environ, SHELL_TREE_ROOT=str(os.getpid())))
 with open(sys.argv[2], "w") as f:
     f.write(str(bash.pid))
@@ -2662,7 +2683,10 @@ while reap(False):
                     pass
             if not reap(True):
                 os._exit(124)
-    signal.sigtimedwait([signal.SIGCHLD], min(left, 0.05))
+    if wait:
+        wait([signal.SIGCHLD], min(left, 0.05))
+    else:
+        time.sleep(min(left, 0.005))
 os._exit(0)
 """
 # How long past its own deadline the reaper may take to stop before its own group is killed.
@@ -2710,6 +2734,23 @@ def kill_below(root: int, seconds: float = REAPER_GRACE) -> list[int]:
             except OSError:
                 pass
         time.sleep(0.01)
+
+
+def stop_run(pidfile: str) -> None:
+    """SIGKILL the bash run whose pid PIDFILE holds (none when it is empty or missing), what is below it, and its
+    process group: what a reaper that failed left running."""
+    try:
+        with open(pidfile) as f:
+            pid = int(f.read() or 0)
+    except (OSError, ValueError):
+        return
+    if pid <= 0:
+        return
+    kill_below(pid)
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        pass
 
 
 class OracleUnavailable(RuntimeError):
@@ -2851,12 +2892,17 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
     if need > MAX_BASH_PROCESSES:
         raise OracleUnavailable(f"needs {need} processes at once, past MAX_BASH_PROCESSES ({MAX_BASH_PROCESSES})", text)
     bash = shutil.which("bash")
+    if not bash:
+        raise OracleUnavailable("no bash on this host", text)
     try:
-        if subprocess.run([bash, "-O", "extglob", "-n"], input=text, text=True, capture_output=True,
-                          timeout=timeout).returncode:
-            return None
+        refused = subprocess.run([bash, "-O", "extglob", "-n"], input=text, text=True, capture_output=True,
+                                 timeout=timeout).returncode
     except subprocess.TimeoutExpired:
         raise BashTimeout(text, timeout, 0) from None
+    if refused < 0:  # killed by a signal: no answer, never "bash -n refuses it"
+        raise OracleUnavailable(f"bash -n was killed by signal {-refused}", text)
+    if refused:
+        return None
     root = tempfile.mkdtemp(prefix="shell-tree-")
     try:
         tmp, bindir, work = (os.path.join(root, d) for d in ("t", "bin", "work"))
@@ -2924,6 +2970,12 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         if code == 124:
             with open(pidfile) as f:
                 raise BashTimeout(text, timeout, int(f.read() or 0)) from None
+        if code != 0:
+            # The reaper failed (it raised, or was killed): bash and what it left may still run, and the scratch
+            # folder holds no answer. Stop them, and answer nothing: a crash is never a verdict (cmux#41809 review,
+            # F2: macOS has no signal.sigtimedwait, and its exit status 1 was read as "bash wrote nothing").
+            stop_run(pidfile)
+            raise OracleUnavailable(f"the reaper exited {code}, not 0 or 124: it gave no answer", text)
         if os.path.exists(errors):
             with open(errors, errors="replace") as f:
                 if re.search(r"\bfork: ", f.read()):
