@@ -1,7 +1,7 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 public import CmuxMobileRealtime
-import CmuxMobileDesign
+public import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -32,6 +32,15 @@ public final class TerminalModel {
     /// Whether the screen shows the Mac's terminal; anything else draws the
     /// connecting placeholder over it.
     public internal(set) var connectionState: TerminalConnectionState
+    /// Says when a dropped connection may show its line (after 10 s).
+    @ObservationIgnored public let quietStatus: QuietStatusGate
+    /// The one quiet status line by the composer: nil while attached and for
+    /// the first ``QuietStatusGate/threshold`` of an outage (the page keeps
+    /// showing its last frame meanwhile), then what is going on. Retry sits
+    /// beside it (``reconnect``).
+    public var connectionLine: String? {
+        quietStatus.isShown ? connectionState.quietLine : nil
+    }
     var sticky = TerminalStickyModifiers()
 
     // Composer
@@ -143,12 +152,15 @@ public final class TerminalModel {
     /// Set by the controller.
     weak var controller: TerminalViewController?
 
-    public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh") {
+    public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh",
+                quietStatus: QuietStatusGate = QuietStatusGate()) {
+        self.quietStatus = quietStatus
         self.session = session
         self.artifactSource = artifactSource
         self.title = title
         self.programName = session.programName
         self.connectionState = session.connectionState
+        quietStatus.update(down: !session.connectionState.isAttached)
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
@@ -230,7 +242,10 @@ public final class TerminalModel {
 
     func ingest(_ event: TerminalSessionEvent) {
         let connection = connectionState.applying(event)
-        if connection != connectionState { connectionState = connection }
+        if connection != connectionState {
+            connectionState = connection
+            quietStatus.update(down: !connection.isAttached)
+        }
         switch event {
         case .output:
             // The bytes are scanned once per display frame (`scanOutput`).

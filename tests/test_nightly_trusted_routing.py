@@ -809,7 +809,7 @@ class NightlyTrustedRouting(unittest.TestCase):
             for name in TAIL_CONTROL_JOBS:
                 with self.subTest(job=name):
                     self.assertEqual(check(runs_on_text(DOC['jobs'][name], name)), 0)
-            route = DOC['jobs'][TAIL_CONTROL_JOBS[0]]['runs-on']
+            route = workflow_jobs.single_runs_on(DOC['jobs'][TAIL_CONTROL_JOBS[0]])
             for old, new in (("github.repository == 'manaflow-ai/cmux'", "github.repository == 'manaflow-ai/other'"),
                              ("track == 'nightly-next'", "track == 'nightly'"),
                              ("github.run_attempt == 1", "github.run_attempt >= 1"),

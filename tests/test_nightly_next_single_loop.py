@@ -21,6 +21,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 TEXT = (ROOT / ".github" / "workflows" / "nightly.yml").read_text()
 DOC = yaml.safe_load(TEXT)
@@ -54,7 +57,7 @@ else:
     # the retry then runs at that newer head, so resuming this run's unsigned app would publish the older one.
     if "nightly_next_unsigned_run" in body:
         failures.append("retry-nightly-next must build the head again, never resume this run's unsigned app")
-    runs_on = str(retry.get("runs-on", ""))
+    runs_on = workflow_jobs.single_runs_on(retry)
     if "blacksmith" in runs_on.lower() or "ubuntu-24.04' ||" in runs_on.replace("'ubuntu-24.04' || vars", ""):
         failures.append("retry-nightly-next stays on the nightly mini")
 
