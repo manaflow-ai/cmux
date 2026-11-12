@@ -2416,8 +2416,14 @@ function TranscriptView({
   const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
   /// The latest send came while a turn ran (a steer): its row lands above the running work, an
   /// arrival like any other (followChase's arrival step), not the send's rise from the composer.
-  const steered = useRef(false);
-  if (sends !== seenSends.current) steered.current = working;
+  /// Set while rendering, as React adjusts state on a prop change, so the passes after this
+  /// render read it (`sendsAt`: the sends it was last set for).
+  const [sendsAt, setSendsAt] = useState(sends);
+  const [steered, setSteered] = useState(false);
+  if (sends !== sendsAt) {
+    setSendsAt(sends);
+    setSteered(working);
+  }
   // Under the scrollbar fade (the host theme sets it, applyPaneTheme), the scrollbar fades in and
   // out with the scrolling marks (scrollers.ts).
   useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
@@ -3823,7 +3829,7 @@ function TranscriptView({
             const arrived = now - arrivedAt.current < ARRIVAL_PASS_MS;
             tailAnchor = chaseAnchor.current?.id;
             // A send's own rows rise on the send motion, one clock with the bubble's entrance.
-            chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentRows && !steered.current);
+            chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentRows && !steered);
             tailGlides = !atOnce && followChase.current?.arm !== "instant";
           }
         }
@@ -4492,8 +4498,7 @@ function TranscriptView({
       // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
       // the send's glide too.
       if (chasing) {
-        if (fromLatest)
-          chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, !steered.current);
+        if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, !steered);
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
     }
     // The kept place is the latest message again: a relaunch opens there.
