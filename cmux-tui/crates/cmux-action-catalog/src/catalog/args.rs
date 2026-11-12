@@ -291,8 +291,6 @@ pub const APP: Argument = Argument { name: "app", title: t("Localizable", "argum
 #[rustfmt::skip]
 pub const RANGE: Argument = Argument { name: "range", title: t("HistoryActions", "argument.history.range", "Time Range"), kind: ArgKind::Enumeration(CASES_HOUR_TODAY), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
-pub const JOINED_MACHINE: Argument = Argument { name: "machine", title: t("RemoteActions", "argument.machine.joined", "Joined Machine"), kind: ArgKind::Target("machine"), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: true, asked_in_palette: false };
-#[rustfmt::skip]
 pub const PROXY_SCHEME: Argument = Argument { name: "scheme", title: t("BrowserProfileActions", "argument.browserProfile.proxyScheme", "Proxy Type"), kind: ArgKind::Enumeration(CASES_PROXY_SCHEME), required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
 #[rustfmt::skip]
 pub const PROXY_HOST: Argument = Argument { name: "host", title: t("BrowserProfileActions", "argument.browserProfile.proxyHost", "Proxy Host"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };

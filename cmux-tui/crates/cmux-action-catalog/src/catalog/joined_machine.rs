@@ -1,7 +1,6 @@
 // cmux NEXT action catalog data. Edit by hand: this is the source of truth.
 //! The `JoinedMachineActionCatalog` actions.
 
-use super::args;
 use crate::model::*;
 use crate::text::t;
 
@@ -29,9 +28,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["machine", "joined", "join", "credential", "rotate", "key", "token", "secret"],
         category: "remote",
         symbol: "key",
-        surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("joinedMachine", "connection", 1).label(t("RemoteActions", "menu.machine.joined.rotate", "Rotate Credential"))], ..SurfacePlan::DEFAULT },
-        arguments: &[args::JOINED_MACHINE],
+        surfaces: CONTEXT_MENU,
+        surface_plan: SurfacePlan { palette: Decision::Exempt("guiOnly"), cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("joinedMachine", "connection", 1).label(t("RemoteActions", "menu.machine.joined.rotate", "Rotate Credential"))], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
         cli_name: "action machine-joined-rotate",
         ..Action::DEFAULT
@@ -43,9 +41,8 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["machine", "joined", "join", "revoke", "remove", "disconnect", "access", "team"],
         category: "remote",
         symbol: "xmark.circle",
-        surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("joinedMachine", "close", 0).label(t("RemoteActions", "menu.machine.joined.revoke", "Revoke…"))], ..SurfacePlan::DEFAULT },
-        arguments: &[args::JOINED_MACHINE],
+        surfaces: CONTEXT_MENU,
+        surface_plan: SurfacePlan { palette: Decision::Exempt("guiOnly"), cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("joinedMachine", "close", 0).label(t("RemoteActions", "menu.machine.joined.revoke", "Revoke…"))], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
         cli_name: "action machine-joined-revoke",
         ..Action::DEFAULT
