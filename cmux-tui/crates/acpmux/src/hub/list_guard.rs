@@ -179,6 +179,8 @@ pub(crate) struct Snapshot {
     /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
     /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
     full: StdMutex<Option<Arc<FullRows>>>,
+    #[cfg(test)]
+    lazy_build_hold: StdMutex<Option<Arc<(std::sync::Barrier, std::sync::Barrier)>>>,
 }
 
 /// Every summary with its tools, serialized as [`Snapshot::whole`] is, with where each row is
@@ -229,6 +231,8 @@ impl Snapshot {
             keys,
             made,
             full: Default::default(),
+            #[cfg(test)]
+            lazy_build_hold: Default::default(),
         }
     }
 
@@ -279,6 +283,13 @@ impl Snapshot {
     pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
+            #[cfg(test)]
+            if let Some(hold) =
+                self.lazy_build_hold.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                hold.0.wait();
+                hold.1.wait();
+            }
             let began = Instant::now();
             let (whole, spans, keys) = if self.live_only {
                 let mut rows = Rows::default();
@@ -1631,6 +1642,46 @@ mod tests {
         // 3 s of work: a window of MAX_WINDOW (PACE times 3 s, at most 15 s) from when it was made.
         tokio::time::sleep(MAX_WINDOW - Duration::from_secs(4)).await;
         assert!(guard.state.lock().await.last.is_none(), "kept past its part's window");
+    }
+
+    /// Expiry must not detach a snapshot while its lazy rows are being made: the next page still
+    /// uses that snapshot instead of rebuilding the whole list for every page.
+    #[tokio::test(start_paused = true)]
+    async fn expiry_during_lazy_build_keeps_the_snapshot_for_follow_up_pages() {
+        const PAGES: usize = 6;
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        let entered = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+        *held.lazy_build_hold.lock().unwrap() = Some(entered.clone());
+        guard.expire(held.serial, Duration::from_secs(1));
+
+        let building = {
+            let held = held.clone();
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || held.full_rows(&hub))
+        };
+        tokio::task::spawn_blocking({
+            let entered = entered.clone();
+            move || entered.0.wait()
+        })
+        .await
+        .unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        assert!(guard.state.lock().await.last.is_some(), "expiry detached a lazy build");
+        tokio::task::spawn_blocking(move || entered.1.wait()).await.unwrap();
+        building.await.unwrap();
+
+        // The lazy build took longer than the base window, so its own window keeps the live entry.
+        held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
+        let before = guard.builds_for_tests();
+        for page in 0..PAGES {
+            let snapshot = guard.snapshot(&hub).await;
+            snapshot.page(None, &json!({"cursor": format!("s:page-{page}")}), 1024).unwrap();
+        }
+        let builds = guard.builds_for_tests() - before;
+        assert!(builds <= PAGES / 3 + 3, "{builds} builds for {PAGES} follow-up pages");
     }
 }
 

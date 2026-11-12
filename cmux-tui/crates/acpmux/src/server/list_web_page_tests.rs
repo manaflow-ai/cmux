@@ -280,6 +280,11 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
             sizes.len(),
             began.elapsed().as_millis()
         );
+        assert!(
+            builds as usize <= sizes.len() / 3 + 3,
+            "{origin:?} session/list: {builds} builds for {} pages",
+            sizes.len()
+        );
         let most = sizes.iter().max().copied().unwrap_or_default();
         assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} session/list: {most} bytes");
     }
