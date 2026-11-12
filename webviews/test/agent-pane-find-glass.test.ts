@@ -89,6 +89,13 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           const bar = document.querySelector<HTMLElement>(".acpmux-find__bar")!;
           const style = getComputedStyle(scroller);
+          // Over an opaque page the edges are a still veil in the page's color, not a mask on the
+          // scroller (conversation.css .acpmux-edges): the hole is cut from whichever draws them.
+          const veil = scroller.querySelector<HTMLElement>(".acpmux-edges");
+          const drawn =
+            veil && getComputedStyle(veil).display !== "none"
+              ? getComputedStyle(veil.querySelector<HTMLElement>(".acpmux-edges__veil")!, "::before")
+              : style;
           const box = bar.getBoundingClientRect();
           const view = scroller.getBoundingClientRect();
           return {
@@ -99,8 +106,8 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
             width: parseFloat(scroller.style.getPropertyValue("--acpmux-find-width")),
             barX: box.left - view.left,
             barWidth: box.width,
-            masks: (style.maskImage || style.webkitMaskImage).match(/linear-gradient/g)?.length ?? 0,
-            sizes: style.maskSize || style.webkitMaskSize,
+            masks: (drawn.maskImage || drawn.webkitMaskImage).match(/linear-gradient/g)?.length ?? 0,
+            sizes: drawn.maskSize || drawn.webkitMaskSize,
           };
         });
         // The fade stays: it used to drop to 0px while Find was open.
@@ -112,7 +119,8 @@ await requireBrowserLane("agent-pane-find-glass.test.ts", async () => {
         expect(read.y).toBeGreaterThan(0);
         expect(Math.abs(read.width - read.barWidth)).toBeLessThanOrEqual(0.5);
         expect(read.width).toBeGreaterThan(100);
-        expect(read.masks).toBeGreaterThanOrEqual(3);
+        // The bar's hole, cut from a full layer (the scroller's mask adds the edge ramp and the scrollbar's lane).
+        expect(read.masks).toBeGreaterThanOrEqual(2);
         expect(read.sizes).toContain(`${read.width + 32}px`);
 
         await page.keyboard.press("Escape");

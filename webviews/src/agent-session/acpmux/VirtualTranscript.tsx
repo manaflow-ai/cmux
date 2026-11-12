@@ -344,6 +344,11 @@ export const RowContent = React.memo(
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
 /// (a font that loads, a custom renderer that grows).
+/// A prompt row that enters with the message entrance (a sent prompt), not a hidden or notice line.
+function entersAsSend(row: AcpmuxRow): boolean {
+  return row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice";
+}
+
 const RowFrame = React.memo(function RowFrame({
   row,
   kind,
@@ -366,6 +371,7 @@ const RowFrame = React.memo(function RowFrame({
   observer,
   queueDrawn,
   enter,
+  sendPaced,
   onEntered,
   loadFade,
   onLoadFaded,
@@ -423,6 +429,8 @@ const RowFrame = React.memo(function RowFrame({
   queueDrawn: QueueDrawn;
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
+  /// A thinking line that enters after a prompt entering as a send: it takes the send's clock.
+  sendPaced: boolean;
   onEntered: (id: string) => void;
   /// The row arrived while the chat loaded and mounts now, its first time: it fades in once.
   loadFade: boolean;
@@ -450,15 +458,13 @@ const RowFrame = React.memo(function RowFrame({
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const [entering] = useState(enter);
+  const [paced] = useState(sendPaced);
   // Prompts and replies get the message-specific entrance. Tool/status rows keep the existing
   // generic rise, while the row's reserved height and absolute placement stay unchanged.
   // Hidden user rows render no content and keep the empty-row geometry. Notice rows are user-kind
   // status lines whose `.cv-tools` strip row CSS targets as the article's direct child, so they keep
   // the generic entrance too. Only real prompts and replies get the presentation wrapper.
-  const messageEntering =
-    entering &&
-    (row.kind === "assistant" ||
-      (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
+  const messageEntering = entering && (row.kind === "assistant" || entersAsSend(row));
   const [olderFade] = useState(older);
   const [loadFading] = useState(loadFade);
   // A prompt sent from the latest row: what the composer drew of it moves into this row's bubble and
@@ -551,7 +557,7 @@ const RowFrame = React.memo(function RowFrame({
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
       data-opens-turn={opensTurn ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
+      className={`acpmux-row acpmux-${kind}${isLineRow(row) ? " acpmux-row--line" : ""}${row.below ? " acpmux-row--below" : ""}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${beforeIndicator ? " acpmux-row--before-indicator" : ""}${replyActions ? " acpmux-row--reply-room" : ""}${status ? ` acpmux-row--${status}` : ""}${lastFooter ? " acpmux-row--last-footer" : ""}${finalFooter ? " acpmux-row--final-footer" : ""}${continuationFooter ? " acpmux-row--continuation-footer" : ""}${lastTurn ? " acpmux-row--last-turn" : ""}${messageEntering ? " acpmux-row--message-enter" : entering ? ` acpmux-row--enter${paced ? " acpmux-row--send-paced" : ""}` : ""}${olderFade ? " acpmux-row--older" : ""}${loadFading ? ` ${LOAD_FADE_CLASS}` : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -5279,6 +5285,9 @@ function TranscriptView({
   // (conversation/olderReserve.ts), a frame at a time, and placing each row under it rewrote the top
   // of every mounted row, and rendered each, on every such frame (Leo, 2026-11-11: "scrolling up is
   // slow and it layout shift and everythng lag"). Now such a frame moves one element.
+  // A prompt entering as a send has been drawn above: the thinking lines entering after it take the
+  // send's clock (RowFrame `sendPaced`), in the order the rows render.
+  let sendEntering = false;
   const roomAbove = layout.origin ?? 0;
   const threadRoom = Math.floor(roomAbove);
   const threadRoomFraction = roomAbove - threadRoom;
@@ -5345,6 +5354,12 @@ function TranscriptView({
     foot: height - topInset - (restingDock.current.space || dockSpace),
     live: height - topInset - dockSpace,
   };
+  // How deep each soft edge draws (threadMinimap/model.ts transcriptFadeReach): none at that end of
+  // the chat, deeper the farther the view is from it.
+  const fadeReach = {
+    "--acpmux-fade-top-reach": transcriptFadeReach(renderScroll.top - origin),
+    "--acpmux-fade-bottom-reach": renderFollowing ? 0 : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
+  };
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -5384,15 +5399,18 @@ function TranscriptView({
           // scroll restyles the scroller alone.
           style={
             {
-              "--acpmux-fade-top-reach": transcriptFadeReach(renderScroll.top - origin),
-              "--acpmux-fade-bottom-reach": renderFollowing
-                ? 0
-                : transcriptFadeReach(below - FOLLOW_BOTTOM_DEADBAND_PX),
+              ...fadeReach,
               ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
               ...(pinnedPill ? { "--acpmux-view-top": `${pinAt.pad + topInset + SUBAGENT_OF_HEIGHT}px` } : {}),
             } as React.CSSProperties
           }
         >
+          {/* The soft edges over an opaque page: a still veil in the page's color, not a mask on the
+              scroller (conversation.css .acpmux-edges). It takes the reach itself: the reach does not
+              inherit. Its box is the view's, so a scroll moves nothing in it. */}
+          <div className="acpmux-edges" aria-hidden="true">
+            <div className="acpmux-edges__veil" style={{ height, ...fadeReach } as React.CSSProperties} />
+          </div>
           {showMinimap && (
             <ThreadMinimap
               rows={rows}
@@ -5463,6 +5481,9 @@ function TranscriptView({
                 {mountedRanges.flatMap(({ first, last }) =>
                   rows.slice(first, last).map((row, index) => {
                     const absoluteIndex = first + index;
+                    const enter = !sessionChanged && enteringRows.current.has(rowFrameKey(row));
+                    const sendPaced = enter && row.kind === THINKING && sendEntering;
+                    if (enter && entersAsSend(row)) sendEntering = true;
                     const next = nextDrawnRow(rows, absoluteIndex);
                     const actions = hasReplyActions(row, next);
                     const kind = rowKind(row);
@@ -5501,7 +5522,8 @@ function TranscriptView({
                         queueDrawn={queueDrawn}
                         // A session switch is a load, not a live arrival. The reset effect runs after
                         // this render, so gate it here as well to avoid a reused row id animating once.
-                        enter={!sessionChanged && enteringRows.current.has(rowFrameKey(row))}
+                        enter={enter}
+                        sendPaced={sendPaced}
                         onEntered={onEntered}
                         loadFade={!sessionChanged && loadFade.current!.fades(row.id)}
                         onLoadFaded={onLoadFaded}

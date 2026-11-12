@@ -132,8 +132,11 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const style = getComputedStyle(node);
       const mask = style.maskImage || style.webkitMaskImage || "none";
-      const fades = (edge: string) =>
-        mask !== "none" && parseFloat(style.getPropertyValue(`--acpmux-fade-${edge}`)) > 0;
+      // Over an opaque page the edges are a still veil in the page's color (conversation.css
+      // .acpmux-edges); over a see-through one, the scroller's mask.
+      const veil = node.querySelector<HTMLElement>(".acpmux-edges");
+      const drawn = mask !== "none" || (veil !== null && getComputedStyle(veil).display !== "none");
+      const fades = (edge: string) => drawn && parseFloat(style.getPropertyValue(`--acpmux-fade-${edge}`)) > 0;
       const box = node.getBoundingClientRect();
       return {
         top: fades("top"),
@@ -228,8 +231,9 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     });
 
     // A floating jump button must not erase several extra text lines above the composer.
-    // Paint a solid probe through the real scroller's alpha mask: 30px above the dock stays fully
-    // legible, while the short edge still softens and everything below the dock stays hidden.
+    // Paint a solid probe in the scroller over a black page: 30px above the dock stays fully legible,
+    // while the short edge still softens and everything below the dock stays hidden. The page's color
+    // is black too, so the probe reads the same through the scroller's mask or under the veil.
     await scrollTo(page, "middle");
     await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]").waitFor();
     const probe = await page.evaluate(() => {
@@ -237,6 +241,7 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
       const style = getComputedStyle(node);
       const box = node.getBoundingClientRect();
       document.querySelector<HTMLElement>(".acpmux-main")!.style.background = "black";
+      document.documentElement.style.setProperty("--cmux-surface-background", "black");
       node.style.background = "red";
       const foot = box.bottom - parseFloat(style.getPropertyValue("--acpmux-dock-space"));
       // In the right-hand gutter, past the rows' column and short of the scrollbar's lane: the rail's
@@ -251,6 +256,7 @@ await requireBrowserLane("agent-pane-soft-edges.test.ts", async () => {
     expect(redAt(probe.foot + 4), "rows stay hidden beneath the dock").toBeLessThan(10);
     await page.evaluate(() => {
       document.querySelector<HTMLElement>(".acpmux-main")!.style.removeProperty("background");
+      document.documentElement.style.removeProperty("--cmux-surface-background");
       document.querySelector<HTMLElement>(".acpmux-scroll")!.style.removeProperty("background");
     });
 
