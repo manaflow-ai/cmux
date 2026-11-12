@@ -2610,7 +2610,7 @@ def warn_only_steps(view: "FailedView | Unplaced") -> frozenset[str]:
         return frozenset()
     found: set[str] = set()
     for step, lines in section_lines(view):
-        if step.get("name") != FFI_PIN_ROLLUP_STEP:
+        if step.get("name") != FFI_PIN_ROLLUP_STEP:  # step-name: classify
             continue
         listing = False
         for line in lines:
