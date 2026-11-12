@@ -842,6 +842,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
    (test/spinner-period.test.ts). */
 :root {
   --cmux-breath-period: 2.4s;
+  /* The breath's curve: in and out alike, so it never snaps at either end (the Apps skeleton's, now ui/Skeleton's). */
+  --cmux-breath-ease: ease-in-out;
   --cmux-shimmer-period: 2.8s;
 }
 @keyframes cmux-spin {
