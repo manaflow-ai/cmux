@@ -101,19 +101,67 @@ async fn reply(
                 if live_only { guard.snapshot_live(hub).await } else { guard.snapshot(hub).await }
             }
         };
-        let text = make(&list)?;
-        let Ok((id, method, claim)) = REPLY.try_with(|r| {
-            let r = r.borrow();
-            (r.id.clone(), r.method, r.claim.clone())
-        }) else {
-            return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
+        // A build may parse the whole list (masking it, a delta): one of a few at once
+        // (`parse_budget.rs`).
+        let text = {
+            let _parse = crate::parse_budget::permit().await;
+            make(&list)?
         };
-        hub.request_hold(RequestStage::ListBuilt, method.unwrap_or_default(), &id).await;
-        let last = reads == REBUILDS;
-        if let Some(whole) = conn.send_serialized(&id, method, claim.as_ref(), text, seen, last) {
-            REPLY.with(|r| r.borrow_mut().sent = Some(whole));
-            hub.request_hold(RequestStage::ListQueued, method.unwrap_or_default(), &id).await;
-            break;
+        if let Some(done) = send_list(hub, conn, text, seen, reads == REBUILDS).await {
+            return Ok(done);
+        }
+    }
+    Ok(Value::Null)
+}
+
+/// Sends `text` as this request's list reply, unless a `session_changed` notice was queued on the
+/// connection since `seen` (its count before the list was read) and this is not the `last` read:
+/// then `None`, and the list is read again. Sent, the request's result is null (its reply is
+/// queued already); outside a request task, the result is `text` parsed.
+async fn send_list(
+    hub: &Hub,
+    conn: &Conn,
+    text: Arc<String>,
+    seen: u64,
+    last: bool,
+) -> Option<Value> {
+    let Ok((id, method, claim)) = REPLY.try_with(|r| {
+        let r = r.borrow();
+        (r.id.clone(), r.method, r.claim.clone())
+    }) else {
+        return Some(serde_json::from_str(&text).unwrap_or(Value::Null));
+    };
+    hub.request_hold(RequestStage::ListBuilt, method.unwrap_or_default(), &id).await;
+    let whole = conn.send_serialized(&id, method, claim.as_ref(), text, seen, last)?;
+    REPLY.with(|r| r.borrow_mut().sent = Some(whole));
+    hub.request_hold(RequestStage::ListQueued, method.unwrap_or_default(), &id).await;
+    Some(Value::Null)
+}
+
+/// A page by `limit`, or a census in its own order (`orderBy`): its own rows, picked before any is
+/// built (`Hub::session_page_rows`), at most `limit` of them and at most [`LIST_PAGE_BYTES`]
+/// (`list_guard::cut_page`, as the whole list's page cuts them). It reads no list snapshot, and
+/// the list pace charges it its rows' share of the list (`ListGuard::share_rows`): a page of five
+/// costs next to nothing, one of every row about a list. A page whose list a notice overtook is
+/// read again, as a list is ([`send_list`]).
+async fn page(hub: &Hub, conn: &Conn, params: &Value, tools: bool) -> Result<Value, RpcError> {
+    use crate::hub::list_guard::{cut_page, serialize_in_order};
+    let raw = conn.raw_text;
+    let guard = &hub.list_guard;
+    let limit = params.get("limit").and_then(Value::as_u64);
+    let wait = guard.reserve(&conn.list_pace, guard.share_rows(limit)).map_err(busy)?;
+    tokio::time::sleep(wait).await;
+    for reads in 0..=REBUILDS {
+        // Read before the rows are: a notice counted after it may tell a change they lack.
+        let seen = conn.notices.load(Ordering::SeqCst);
+        let (rows, next) = hub.session_page_rows(params, tools)?;
+        let (text, spans, keys) = serialize_in_order(&rows);
+        drop(rows);
+        let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
+            Ok(cut_page((text.as_str(), spans.as_slice()), &keys, next.clone(), params, budget))
+        })?;
+        if let Some(done) = send_list(hub, conn, text, seen, reads == REBUILDS).await {
+            return Ok(done);
         }
     }
     Ok(Value::Null)
@@ -133,36 +181,34 @@ fn with_tools(params: &Value) -> Result<bool, RpcError> {
     }
 }
 
-/// `_acpmux/sessions`: the whole list shared, or a page or filter cut from it. One with no
-/// `limit` goes whole, newest first, as before, when it fits in [`LIST_PAGE_BYTES`] as the
-/// client reads it; one larger goes in pages, each with the `nextCursor` of the rest
+/// `_acpmux/sessions`: the whole list shared, or a filter cut from it, or a page of its own rows.
+/// One with no `limit` goes whole, newest first, as before, when it fits in [`LIST_PAGE_BYTES`]
+/// as the client reads it; one larger goes in pages, each with the `nextCursor` of the rest
 /// (`Snapshot::bounded`), rather than as one message too large to send. A page by `limit`, or a
 /// census in its own order (`orderBy`), holds at most `limit` rows and at most
-/// [`LIST_PAGE_BYTES`] (`Snapshot::page`): no reply here is too large to send.
+/// [`LIST_PAGE_BYTES`], and builds only those rows ([`page`]): no reply here is too large to
+/// send, and none costs every chat for a few.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let raw = conn.raw_text;
     if crate::hub::session_pages::bool_filter(params, "pendingOnly")? {
         return pending(hub, raw, params);
     }
-    let limit = params.get("limit").and_then(Value::as_u64);
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
     let by_bytes = unset("limit") && unset("orderBy");
     let tools = with_tools(params)?;
-    let (most, guard) = (page_bytes(conn), &hub.list_guard);
-    // A byte page costs its bytes' share of the list on a connection whose pages are small.
-    let by_size = |share: f64| if most < LIST_PAGE_BYTES { guard.share_bytes(most) } else { share };
+    if !by_bytes {
+        return page(hub, conn, params, tools).await;
+    }
+    let (most, guard) = (LIST_PAGE_BYTES, &hub.list_guard);
+    // A byte page costs its bytes' share of the list: a whole list read in pages costs about one
+    // list in all, not one per page.
     if tools || !whole(params) {
-        let share = if by_bytes { by_size(guard.share(None)) } else { guard.share(limit) };
-        return reply(hub, conn, share, excludes_closed(params), |list| {
-            if by_bytes {
-                return within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget));
-            }
-            let full = tools.then(|| list.full_rows(hub));
-            within_limit(raw, most, |budget| list.page(full.as_deref(), params, budget))
+        return reply(hub, conn, guard.share_bytes(most), excludes_closed(params), |list| {
+            within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget))
         })
         .await;
     }
-    reply(hub, conn, by_size(guard.share(None)), excludes_closed(params), |list| {
+    reply(hub, conn, guard.share_bytes(most), excludes_closed(params), |list| {
         // The cached whole list, as the client reads it (masked for a peer, which may lengthen
         // it), when that fits in one message; else its pages.
         if list.whole.len() <= most {
@@ -185,26 +231,40 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 /// chats, so it costs no list build and waits on no list pace. It takes no other filter, and its
 /// reply is never paged: rows that would pass the message budget are left out, newest kept.
 fn pending(hub: &Hub, raw: bool, params: &Value) -> Result<Value, RpcError> {
-    const OTHERS: [&str; 8] =
-        ["limit", "cursor", "peer", "status", "localOnly", "excludeStatus", "orderBy", "withTools"];
+    const OTHERS: [&str; 7] =
+        ["limit", "peer", "status", "localOnly", "excludeStatus", "orderBy", "withTools"];
     if let Some(name) = OTHERS.into_iter().find(|k| params.get(*k).is_some_and(|v| !v.is_null())) {
         return Err(RpcError::invalid_params(format!("pendingOnly takes no {name}")));
     }
-    let rows: Vec<String> =
-        hub.pending_session_summaries().iter().map(|row| row.to_string()).collect();
+    let cursor = match params.get("cursor").filter(|v| !v.is_null()) {
+        None => None,
+        Some(Value::String(cursor)) => Some(cursor.as_str()),
+        Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
+    };
+    let rows = hub.pending_session_summaries();
+    // Pages of at most `LIST_PAGE_BYTES`, as every list on the connection is, with the
+    // `nextCursor` of the rest: the chats with an open ask are few, but each holds its summary,
+    // and before this one reply held them all up to the message limit. The pages go in
+    // `byte_page`'s stable order, so an ask answered while a client pages moves no other row.
     let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
-        let (mut kept, mut used) = (Vec::new(), 0_usize);
-        for row in &rows {
-            let total = used.saturating_add(row.len()).saturating_add(1);
-            if !kept.is_empty() && total > budget {
-                break;
-            }
-            used = total;
-            kept.push(row.as_str());
-        }
-        Ok(format!("{{\"sessions\":[{}]}}", kept.join(",")))
+        let (page, next) = crate::hub::session_pages::byte_page(
+            &rows,
+            cursor,
+            budget,
+            |at| rows.get(at).map(Value::to_string).unwrap_or_default(),
+            String::len,
+        )?;
+        // The last page, the only one most reads see, has no `nextCursor`, as before.
+        let next =
+            next.map(|c| format!(",\"nextCursor\":{}", Value::String(c))).unwrap_or_default();
+        Ok(format!("{{\"sessions\":[{}]{next}}}", page.join(",")))
     })?;
-    serde_json::from_str(&text).map_err(|error| RpcError::internal(error.to_string()))
+    let mut reply: Value =
+        serde_json::from_str(&text).map_err(|error| RpcError::internal(error.to_string()))?;
+    if let Some(rows) = reply.get_mut("sessions").and_then(Value::as_array_mut) {
+        crate::hub::session_pages::sort_session_summaries(rows);
+    }
+    Ok(reply)
 }
 
 /// `_acpmux/watch`: turns the watch on before it reads the list, so no change is missed.
@@ -228,7 +288,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
             Some(Value::Object(known)) => Some(known),
             Some(_) => return Err(RpcError::invalid_params("known must be an object")),
         };
-        let most = page_bytes(conn);
+        let most = LIST_PAGE_BYTES;
         return reply(hub, conn, hub.list_guard.share_bytes(most), false, |list| {
             let name = match (tools, raw) {
                 (true, true) => "own tools",
@@ -267,7 +327,7 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         Some(Value::String(text)) => Some(text.as_str()),
         Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
     };
-    reply(hub, conn, hub.list_guard.share(None), excludes_closed(params), |list| {
+    reply(hub, conn, hub.list_guard.share_bytes(LIST_PAGE_BYTES), excludes_closed(params), |list| {
         let full = list.full_rows(hub);
         // An ACP row holds its summary whole, so rows already over the budget are no whole
         // reply: that one is not made only to be dropped.
@@ -305,7 +365,7 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
     .await
 }
 
-/// The page `page` cuts to `most` bytes ([`page_bytes`]), as the client reads it: a peer reads
+/// The page `page` cuts to `most` bytes ([`LIST_PAGE_BYTES`]), as the client reads it: a peer reads
 /// it masked (`peer_text.rs`), which may make it longer than the budget it was cut to; then it
 /// is cut again, smaller. A raw page takes the same check.
 fn within_limit(
@@ -353,23 +413,17 @@ fn acp_row_within(s: &Value, budget: usize) -> Value {
 /// The longest id or `cwd` a stub row keeps.
 const STUB_TEXT_BYTES: usize = 4 << 10;
 
-/// The most a session list result may hold (`session/list`, `_acpmux/sessions` and
-/// `_acpmux/watch`): a megabyte under the message limit, for the reply's own frame and what
-/// masking a peer's text may add, the bound of every reply fitted whole (`hub/reply_fit.rs`).
-const LIST_PAGE_BYTES: usize = crate::hub::reply_fit::REPLY_BYTES;
-
-/// The most a list reply holds on a Web or peer connection (a phone, a browser, another
-/// acpmux): past it a whole list goes in pages with the `nextCursor` of the rest, which each of
-/// them follows (the phone's `AcpmuxConnection.wholeList`, the pane's `SessionPager.whole`,
-/// `peer.rs` `watch_pages`). One Mac sent a 24.8 MB watch list to such a connection, read again
-/// about every minute for hours (2026-11-06). The app's own connections (the Unix socket, the
-/// agent pane) keep [`LIST_PAGE_BYTES`]: its watch feeds read their list in one reply.
-pub(super) const WEB_LIST_PAGE_BYTES: usize = 4 << 20;
-
-/// The most one list reply holds on `conn`.
-fn page_bytes(conn: &Conn) -> usize {
-    if conn.origin.web_class() { WEB_LIST_PAGE_BYTES } else { LIST_PAGE_BYTES }
-}
+/// The most a session list result holds (`session/list`, `_acpmux/sessions`, `_acpmux/watch`), on
+/// every connection: [`REPLY_PAGE_BYTES`](crate::rpc::REPLY_PAGE_BYTES) less room for the reply
+/// line's frame. Past it a whole list goes in pages with the `nextCursor` of the rest, which every
+/// client follows (the pane's `SessionPager.whole`, the app's `AgentTurnStateFeed` pages, the
+/// phone's `AcpmuxConnection.wholeList`, `Client::whole_list`, `peer.rs` `watch_pages`). Before,
+/// the app's own connections read up to 30 MB in one reply: a Mac sent a 31 MB watch list near
+/// the 32 MB frame cap 9,208 times in 11 days, and every small reply on that connection, a
+/// prompt's acknowledgement too, waited behind it (2026-11-11). Web and peer connections had
+/// 4 MB pages since 2026-11-06 (one Mac's 24.8 MB list to its phone host, read about every
+/// minute). Detector: `reply_size_tests.rs`.
+pub(super) const LIST_PAGE_BYTES: usize = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
 
 fn acp_row(s: &Value) -> Value {
     let text = |k: &str| s.get(k).and_then(Value::as_str).map(str::to_owned);

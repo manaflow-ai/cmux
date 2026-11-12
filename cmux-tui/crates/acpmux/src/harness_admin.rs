@@ -315,8 +315,7 @@ fn user_dir(sources: &ProfileSources) -> Result<PathBuf, AdminError> {
 
 #[cfg(unix)]
 fn ensure_dir(dir: &Path) -> Result<(), AdminError> {
-    use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir).map_err(failed)
+    crate::home_fs::create_dir_all(dir, 0o700).map_err(failed)
 }
 /// Windows: an owner-only folder when made here (`owner_only.rs`).
 #[cfg(windows)]
@@ -482,7 +481,7 @@ impl EndpointKey<'static> {
 /// closes.
 fn lock_endpoint_adds(dir: &Path) -> Result<std::fs::File, AdminError> {
     ensure_dir(dir)?;
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
@@ -902,11 +901,11 @@ fn unix_millis() -> u128 {
 
 /// Moves `from` to `to`; across file systems, copies then deletes.
 fn move_file(from: &Path, to: &Path) -> Result<(), AdminError> {
-    if std::fs::rename(from, to).is_ok() {
+    if crate::home_fs::rename(from, to).is_ok() {
         return Ok(());
     }
-    std::fs::copy(from, to).map_err(failed)?;
-    std::fs::remove_file(from).map_err(failed)
+    crate::home_fs::copy(from, to).map_err(failed)?;
+    crate::home_fs::remove_file(from).map_err(failed)
 }
 
 /// Moves the user profile file of `id` into the backups. `cfg` says where

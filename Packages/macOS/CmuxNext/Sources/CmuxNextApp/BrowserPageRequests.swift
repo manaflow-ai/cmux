@@ -325,12 +325,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
         let profile = services.browserProfiles.profileID(ofTab: tab)
         let address = child == nil ? (url?.absoluteString ?? "about:blank") : BrowserNewTabPage.blankURL
-        WorkspaceHandlers.createAndShow(services: services, newWindow: newWindow, window: window, room: room) { [weak self] connection, terminal in
-            guard let pane = terminal.pane else { return }
-            let surface = try await browserTabs.open(choice, in: pane, on: daemon, url: address, profile: profile)
-            if let child { await self?.adopt(child, surface: surface) }
-            if let terminal = terminal.surface { try await connection.closeTab(terminal) }
-        }
+        WorkspaceHandlers.show(.browser(WorkspaceFirstBrowserTab(url: address, engine: choice.engine, profileID: profile), profile: room) { [weak self] _, created in
+            await browserTabs.opened(choice, created.surface, on: daemon)
+            if let child { await self?.adopt(child, surface: created.surface) }
+        }, services: services, newWindow: newWindow, window: window)
     }
 
     /// A sized popup opens in a popup window of its own, placed from the

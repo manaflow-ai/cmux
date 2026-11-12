@@ -1,6 +1,6 @@
 //! `<home>/ledger/turns.jsonl`: the fold at start, the writer thread, and compaction.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
@@ -45,7 +45,10 @@ pub(crate) fn fold(path: &Path, state: &mut State) -> u64 {
     }
     let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(whole);
     if size > whole {
-        let cut = OpenOptions::new().write(true).open(path).and_then(|f| f.set_len(whole));
+        let cut = crate::home_fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .and_then(|f| f.set_len(whole));
         match cut {
             Ok(()) => tracing::warn!("ledger: cut a torn last line off {}", path.display()),
             Err(e) => tracing::warn!("ledger: cannot cut a torn line off {}: {e}", path.display()),
@@ -194,7 +197,7 @@ impl Writer {
                 file.sync_all()?;
                 Ok(())
             })
-            .and_then(|()| std::fs::rename(&tmp, &self.path).map_err(anyhow::Error::from));
+            .and_then(|()| crate::home_fs::rename(&tmp, &self.path).map_err(anyhow::Error::from));
         match written {
             Ok(()) => {
                 self.file = None;
@@ -204,7 +207,7 @@ impl Writer {
                 true
             }
             Err(e) => {
-                let _ = std::fs::remove_file(&tmp);
+                let _ = crate::home_fs::remove_file(&tmp);
                 tracing::warn!("ledger: compaction failed: {e:#}");
                 // Try again only after as much again has been appended.
                 self.floor = self.size;

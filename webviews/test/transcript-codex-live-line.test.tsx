@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture commands and replies, not shipped UI.
 // The running turn as the Codex app draws it (Leo 2026-10-20, stack-224..226.png): finished runs
-// keep their calls in sight until the turn ends (cmux#38339), and ONE live line at the bottom of the turn is replaced in place by each step: Thinking
+// fold, and ONE live line at the bottom of the turn is replaced in place by each step: Thinking
 // (shimmer) -> Running <short label> 13s -> Thinking. It is the turn's one live block: no "Working
 // for" over the turn's work (Leo 2026-10-21, on nightly 3a63d6d: a "Working for 18s" header at the
 // top, then tool rows, then a separate "Thinking" far below, past his steers).
@@ -17,12 +17,13 @@ import { shortCommand } from "../src/agent-session/acpmux/conversation/shortComm
 import type { ReactNode } from "react";
 import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
 
-// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
-// runs in sight until it ends. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
+// run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
 // turn) is covered by live-turn-one-line.test.ts.
 const liveTurnArmsBefore = globalThis.cmuxExperiments;
 beforeAll(() => {
-  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+  // The clock on the live line, as before: "Working for" over the work is live-turn-clock.test.ts.
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs", "live-turn-clock": "line" };
 });
 afterAll(() => {
   globalThis.cmuxExperiments = liveTurnArmsBefore;
@@ -64,7 +65,7 @@ test("before any output the turn is one Thinking line, timed from the prompt", (
   expect(shaped.at(-1)!.untimed).toBeUndefined();
 });
 
-test("a call in flight is the live line at the bottom, under the open runs, with no line over the turn", () => {
+test("a call in flight is the live line at the bottom, under the folded runs, with no line over the turn", () => {
   const shaped = codex([
     row("u", "user"),
     row("a", "assistant", { text: "On it." }),
@@ -73,10 +74,10 @@ test("a call in flight is the live line at the bottom, under the open runs, with
   expect(kinds(shaped)).toEqual(["user", "assistant", "activity", THINKING]);
   const line = shaped.at(-1)!;
   expect(line).toMatchObject({ id: "thinking-live", doing: "bun test src/net", doingShell: true });
-  // The run holds only the finished call, in sight: nothing folds until the turn ends (cmux#38339).
+  // The run holds only the finished call, folded.
   const run = shaped.find((entry) => entry.id === "run")!;
   expect(run.items?.map((item) => item.tool?.id)).toEqual(["git log"]);
-  expect(run.foldRun).toBe(false);
+  expect(run.foldRun).toBe(true);
   expect(shaped.some((entry) => entry.kind === WORKING)).toBe(false);
 });
 
@@ -251,37 +252,25 @@ test("shortCommand drops environment set in front of the command, quoted values 
   expect(shortCommand("A=1 B='x y' bun test src")).toBe("bun test src");
 });
 
-test("two runs with only a short note between them stay apart while the turn runs, and draw as one run, the note folded in, once it ends", () => {
-  const working = [
+test("two runs with only a short note between them draw as one run, the note folded in", () => {
+  const shaped = codex([
     row("u", "user"),
     row("r1", "activity", { items: [call("acpmux ls"), call("gh pr list")] }),
     row("n", "assistant", { text: "Relay the decisions, then answer." }),
     row("r2", "activity", { items: [call("gh pr view 1"), call("acpmux send", "in_progress")] }),
-  ];
-  // While it runs, nothing regroups: the note stays its own row between the runs (cmux#38339).
-  const shaped = codex(working);
-  expect(kinds(shaped)).toEqual(["user", "activity", "assistant", "activity", THINKING]);
-  expect(shaped.at(-1)!.doing).toBe("acpmux send");
-  // Ended, the opened "Worked for" joins them into one run with the note among its calls.
-  const ended = [
-    ...working.slice(0, 3),
-    row("r2", "activity", { items: [call("gh pr view 1"), call("acpmux send")] }),
-    row("ans", "assistant", { text: "Done: the decisions are relayed." }),
-    row("s", "turnSummary", { status: "completed", toolCount: 4 }),
-  ];
-  const open = turnView(ended, new Set(["worked-u"]));
-  expect(kinds(open)).toEqual(["user", "worked", "activity", "assistant", "turnSummary"]);
-  const run = open.find((entry) => entry.kind === "activity")!;
+  ]);
+  expect(kinds(shaped)).toEqual(["user", "activity", THINKING]);
+  const run = shaped.find((entry) => entry.kind === "activity")!;
   expect(run.id).toBe("r1");
   expect(run.items?.map((item) => item.tool?.id ?? item.text)).toEqual([
     "acpmux ls",
     "gh pr list",
     "Relay the decisions, then answer.",
     "gh pr view 1",
-    "acpmux send",
   ]);
   const html = renderToStaticMarkup(<ToolRows row={{ ...run, foldRun: false }} />);
   expect(html).toContain('<p class="cv-tool-note">Relay the decisions, then answer.</p>');
+  expect(shaped.at(-1)!.doing).toBe("acpmux send");
 });
 
 test("a long note, or one with code, stays its own paragraph between the runs", () => {
@@ -328,10 +317,8 @@ test("Find and a shell's count reach every row a merged run absorbed", async () 
   expect(open[merged]!.joined).toEqual(["x", "n", "y"]);
   for (const id of ["x", "n", "y"]) expect(findRowIndex(open, id)).toBe(merged);
   expect(isRevealRow(open[merged]!, { rowId: "y", card: false })).toBe(true);
-  // While the turn runs the note is a row of its own (cmux#38339): Find lands on it.
   const live = codex(rows.slice(0, 4));
-  expect(findRowIndex(live, "n")).toBe(live.findIndex((entry) => entry.id === "n"));
-  expect(findRowIndex(live, "n")).toBeGreaterThanOrEqual(0);
+  expect(findRowIndex(live, "n")).toBe(live.findIndex((entry) => entry.id === "x"));
 });
 
 test("shortCommand splits only outside quotes", () => {

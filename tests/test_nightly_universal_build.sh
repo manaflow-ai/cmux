@@ -8,7 +8,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # nightly.yml with its scripts/ci/nightly-steps/ step scripts inline (tests/nightly_workflow_text.py).
 WORKFLOW_FILE="$(mktemp "${TMPDIR:-/tmp}/nightly-expanded.XXXXXX")"
 python3 "$ROOT_DIR/tests/nightly_workflow_text.py" > "$WORKFLOW_FILE"
-trap 'rm -f "$WORKFLOW_FILE"' EXIT
+git_fixture_trap_exit 'rm -f "$WORKFLOW_FILE"'
 
 if ! awk '
   /^      - name: Build nightly app \(Release\)/ { in_build=1; next }
@@ -934,12 +934,18 @@ NOT_PIPELINED="needs.decide.outputs.pipeline != 'true'"
 # The macOS signer is the fallback when the signer jobs did not produce the DMG (#26335); its
 # prefix only adds conjuncts, so the build_only exclusion still holds.
 SIGN_FALLBACK="!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.pick-nightly-sign-runner.result == 'success'"
-if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
-  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
-  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $BUILD_GATE && $NOT_PIPELINED" ] \
+# The build jobs and prepare start with !cancelled() and their own needs' success, so a timed-out
+# continue-on-error pick-nightly-build-runner cannot skip a started build (2026-11-12); these are
+# only more conjuncts, so the build_only exclusion still holds.
+APP_NEEDS_OK="\"!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success'"
+HELPER_NEEDS_OK="$APP_NEEDS_OK && needs.resolve-nightly-ghostty-cli-helper.result == 'success'"
+PREPARE_NEEDS_OK="\"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success'"
+if [ "$(job_if build-nightly-app)" != "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE\"" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: $HELPER_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE\"" ] \
+  || [ "$(job_if prepare-nightly-variant-primary)" != "    if: $PREPARE_NEEDS_OK && $BUILD_GATE && $NOT_PIPELINED\"" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"$SIGN_FALLBACK && $BUILD_GATE && $NOT_OVERTAKEN\"" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
-  || [ "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
+  || [ "    if: $APP_NEEDS_OK && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE\"" != "$(job_if build-nightly-app)" ] \
   || [ "$(job_if publish-nightly)" != "    if: \"always() && !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success') || needs.republish-nightly-next.result == 'success')\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
@@ -1039,7 +1045,7 @@ done
 # already has. A cmux NIGHTLY-identity submission still in Apple's queue is
 # continued (never resubmitted) until it is resolved or 6 hours old.
 legacy_dir="$(mktemp -d)"
-trap 'rm -rf "$legacy_dir" "$WORKFLOW_FILE"' EXIT
+git_fixture_trap_exit 'rm -rf "$legacy_dir" "$WORKFLOW_FILE"'
 legacy_feed() {  # <file> <build>...
   local file="$1"; shift
   {

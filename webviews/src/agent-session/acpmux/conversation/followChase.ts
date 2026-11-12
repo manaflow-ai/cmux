@@ -34,9 +34,12 @@
 import { MOTION_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { currentChatMetrics } from "../chatDisplay";
+import { bezierAt, parseBezier } from "../../../ui/cubicBezier";
+import { MAX_FRAME_STEP_MS } from "../threadMinimap/scrollMotion";
 import { cssTimeMs } from "./fold";
 import { FOLLOW_GLIDE_OFF } from "./followGlide";
 import type { FollowMotionArm } from "./followMotion.experiment";
+import { drawPinned } from "./pinnedLiveLine";
 
 /// The spring's response: the motion scale's standard step (180 ms, the glide it replaces), damping 1
 /// (critically damped), as the native `move` spring (motion.md, 150 ms) is.
@@ -103,13 +106,14 @@ const CATCH_UP_S = 0.15;
 /// At rest: drawn within this of its layout and moving slower than REST_SPEED px/s.
 const REST_PX = 0.25;
 const REST_SPEED = 4;
-/// A frame gap longer than this (a hidden page, a long task) integrates as this long.
-const MAX_STEP_S = 1 / 30;
+/// A frame gap longer than this (a hidden page, a long task) integrates as this long: the shared
+/// scroll clock's paced rides use the same bound (scrollMotion.ts).
+const MAX_STEP_S = MAX_FRAME_STEP_MS / 1000;
 /// A frame asked for this long ago (ms) and still not run: the page draws no frames (its workspace
 /// switched away covers or parks its view while it still reads visible). What lands meanwhile moves
 /// at once, so the first frame back draws the rows where they rest instead of a chase held back the
 /// whole time away (Leo, 2026-11-11: "austin was navigating between workspaces ... a sliver of
-/// space at the bottom"; agent-pane-reveal-in-place.test.ts). A busy page still runs a frame well
+/// space at the bottom"; agent-pane-reveal-in-place.shared.ts). A busy page still runs a frame well
 /// within it.
 const FRAMELESS_MS = 150;
 /// The fixed-duration arm's step: the standard step, eased out (MOTION_EASE_OUT's start slope).
@@ -138,6 +142,12 @@ export type FollowChase = {
   hold(following?: () => boolean): void;
   /// Followed again: a held chase goes on home from where it is drawn.
   resume(): void;
+  /// The reader took the view while another motion of the thread (the composer growth's rise,
+  /// VirtualTranscript `rowsMove`) still drew it `px` from its layout: that motion ends, and the chase
+  /// draws the thread there instead, so it holds where it was painted (with `hold`) and goes home
+  /// from there if the view is followed again (`resume`), in every arm: on the spring in `eased` and
+  /// the chasing arms, in one frame in `instant`.
+  carry(thread: HTMLElement, px: number): void;
   /// A held chase hands `px` of what it draws to the scroll offset (VirtualTranscript's quiet fold): the
   /// thread is drawn `px` nearer its layout, at once and with no frame loop; what is left stays held.
   /// False, and nothing changes, while its frame loop runs (it is not held).
@@ -146,7 +156,70 @@ export type FollowChase = {
   /// CHASE_LAND_LINES; else within BURST_S at no more than a line a frame (a snap of the whole trail
   /// moved the rows up to two lines in a frame, and a snap on top of a frame that had moved, 26-40 px).
   land(): void;
+  /// Other motion that moves the rows the chase moves, on Web Animations (the turn's end fold,
+  /// turnEndFold.ts): each of the chase's frames reads how far they move the rows in that frame, on
+  /// the same clock, and moves at most what is left of ARRIVAL_FRAME_LINES (`alongsideMove`). Kept
+  /// until replaced; animations that ended move nothing.
+  alongside(animations: ReadonlySet<Animation> | undefined): void;
 };
+
+/// What `alongsideMove` reads of one animation once: how far its keyframes move a row's `translate`
+/// (px, the y span) and its easing.
+type Slide = { span: number; ease: (progress: number) => number };
+const slides = new WeakMap<Animation, Slide | null>();
+const NAMED_EASES: Record<string, readonly [number, number, number, number]> = {
+  ease: [0.25, 0.1, 0.25, 1],
+  "ease-in": [0.42, 0, 1, 1],
+  "ease-out": [0, 0, 0.58, 1],
+  "ease-in-out": [0.42, 0, 0.58, 1],
+};
+function slideOf(animation: Animation): Slide | null {
+  const known = slides.get(animation);
+  if (known !== undefined) return known;
+  const effect = animation.effect as KeyframeEffect | null;
+  const ys = (effect?.getKeyframes?.() ?? [])
+    .map((frame) => (typeof frame.translate === "string" ? frame.translate : undefined))
+    .filter((value): value is string => value !== undefined)
+    .map((value) => (value === "none" ? 0 : Number.parseFloat(value.trim().split(/\s+/)[1] ?? "0")))
+    .filter(Number.isFinite);
+  let slide: Slide | null = null;
+  if (ys.length > 1) {
+    const easing = (effect?.getTiming().easing ?? "linear").trim();
+    const curve = parseBezier(easing) ?? NAMED_EASES[easing];
+    slide = {
+      span: Math.max(...ys) - Math.min(...ys),
+      // A curve this cannot read (steps()) may move its whole span in any frame.
+      ease: easing === "linear" ? (p) => p : curve ? (p) => bezierAt(curve, p) : (p) => (p > 0 ? 1 : 0),
+    };
+  }
+  slides.set(animation, slide);
+  return slide;
+}
+
+/// How far `animations` move a row in the display frame at `now` (the document timeline's time, which
+/// a frame callback gets and the animations are drawn at), from the frame `dt` s before: the most any
+/// one of them moves, from each one's own timing and easing, with no style or layout read. One still
+/// waiting for its start time (it starts in this frame or the next) counts its first `dt`. O(animations).
+export function alongsideMove(animations: Iterable<Animation> | undefined, dt: number): number {
+  let most = 0;
+  for (const animation of animations ?? []) {
+    if (animation.playState === "idle" || animation.playState === "finished" || animation.playState === "paused")
+      continue;
+    const slide = slideOf(animation);
+    if (!slide || slide.span < 0.5) continue;
+    const timing = animation.effect?.getComputedTiming();
+    const duration = typeof timing?.duration === "number" ? timing.duration : 0;
+    if (!(duration > 0)) continue;
+    const delay = timing?.delay ?? 0;
+    const local = typeof timing?.localTime === "number" ? timing.localTime : 0;
+    const pending = animation.startTime === null;
+    const to = pending ? local + dt * 1000 : local;
+    const from = to - dt * 1000;
+    const at = (time: number) => slide.ease(Math.min(1, Math.max(0, (time - delay) / duration)));
+    most = Math.max(most, slide.span * Math.abs(at(to) - at(from)));
+  }
+  return most;
+}
 
 /// The host's motion speed as a factor of the standard step (`--agent-motion-move`), 0 with motion
 /// off, Reduce Motion or a hidden page.
@@ -213,6 +286,20 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   /// before the frame's step, after it in the frame's measuring pass, or both: counting only the
   /// step moved one frame of the send 34.5 px, its landings before and after the step together).
   let stepped = 0;
+  /// Other motion on the rows (`alongside`): the turn's end fold.
+  let along: ReadonlySet<Animation> | undefined;
+  /// What a frame `dt` s long may still move after that motion's own move in it (px): the fold keeps
+  /// each frame to ARRIVAL_FRAME_LINES, and the reply's last lines draining on the chase moved on top
+  /// of it, the two summed past the two thirds of a line no transition's frame may move (the fold's
+  /// first frame 11.5 px and the drain's 3.8 px: 15.3 px, turn-transition-jumps `thought-text` end).
+  /// Infinite with nothing else moving.
+  const leftBeside = (dt: number, slots: number) => {
+    if (!along?.size) return Number.POSITIVE_INFINITY;
+    const other = alongsideMove(along, dt);
+    return other > 0
+      ? Math.max(0, ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight * slots - other)
+      : Number.POSITIVE_INFINITY;
+  };
   /// While it chases the thread is its own compositor layer, so a frame's step moves it without
   /// painting its rows again (a `translate` on an unpromoted thread repainted every row each frame).
   const draw = () => {
@@ -224,6 +311,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       thread.style.willChange = "translate";
       thread.style.translate = `0 ${x}px`;
     }
+    // The live line held at the bottom moves against the thread in the same frame (pinnedLiveLine.ts).
+    drawPinned(thread, x);
   };
   const stop = () => {
     cancelRecheck();
@@ -243,6 +332,14 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   };
   const step = (now: number) => {
     frame = undefined;
+    // This frame came FRAMELESS_MS or more after it was asked for: the page drew nothing meanwhile
+    // (covered by another workspace), so nobody saw the chase start. It lands before this frame
+    // paints instead of sliding in from where it was held: one block that arrived while away, with
+    // nothing after it to move the rows, drew 79 px off on the first frame back (#41252).
+    if (performance.now() - askedAt >= FRAMELESS_MS) {
+      stop();
+      return;
+    }
     const dt = last === undefined ? 1 / 120 : Math.min(MAX_STEP_S, Math.max(0, (now - last) / 1000));
     last = now;
     const from = x;
@@ -280,8 +377,16 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       askedAt = performance.now();
       frame = thread?.ownerDocument.defaultView?.requestAnimationFrame(step);
       return;
-    } else if (arm === "spring" || arm === "blocks") {
+    } else if (arm === "instant") {
+      // At once, as every move in this arm: what another motion left with the chase (`carry`, the
+      // composer growth's rise the reader froze) lands in the first frame it goes home in.
+      x = 0;
+      v = 0;
+    } else if (arm === "spring" || arm === "blocks" || arm === "eased") {
       // Critically damped toward 0, exact over the step: x(t) = (x0 + (v0 + w x0) t) e^(-w t).
+      // The `eased` arm chases nothing of its own (followGlide.ts moves its rows); what it holds is
+      // only what `carry` handed it, which springs home as in the default arm (it fell through to
+      // the `linear` approach below before).
       const w = (2 * Math.PI) / (RESPONSE_S * scale);
       const decay = Math.exp(-w * dt);
       const carry = v + w * x;
@@ -293,9 +398,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       const frameMost = CHASE_MAX_FRAME_LINES * line * slots;
       // A frame that already moved at once keeps to CHASE_LAND_LINES in all, unless a burst is
       // bringing the trail back (those frames move up to a line in all, as before).
-      const cap = Math.max(
-        0,
-        (spent > 0 && !(burst > 0) ? Math.min(frameMost, CHASE_LAND_LINES * line) : frameMost) - spent,
+      // And with what other motion moves the rows in this frame (`alongside`), no more than its bound.
+      const cap = Math.min(
+        Math.max(0, (spent > 0 && !(burst > 0) ? Math.min(frameMost, CHASE_LAND_LINES * line) : frameMost) - spent),
+        leftBeside(dt, slots),
       );
       const most = Math.min(limit * dt, cap);
       if (Math.abs(nextX - x) > most) {
@@ -322,7 +428,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       x = nextX;
     } else {
       // `linear`: a steady approach at the speed limit, then a stop.
-      const most = limit * dt;
+      const most = Math.min(limit * dt, leftBeside(dt, Math.max(1, Math.round(dt * 120))));
       const nextX = Math.abs(x) <= most ? 0 : x - Math.sign(x) * most;
       v = (nextX - x) / Math.max(dt, 1e-3);
       x = nextX;
@@ -372,6 +478,19 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       });
     },
     resume,
+    alongside(animations) {
+      along = animations;
+    },
+    carry(node, px) {
+      if (!(Math.abs(px) >= 0.01)) return;
+      if (thread && thread !== node) stop();
+      thread = node;
+      x += px;
+      v = 0;
+      chunk = { from: x, at: 0, duration: CHUNK_S };
+      arrival = undefined;
+      draw();
+    },
     release(px) {
       if (frame !== undefined || recheck !== undefined) return false;
       x -= px;
@@ -419,7 +538,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (thread && thread !== node) stop();
       // No frame ran since one was asked for FRAMELESS_MS ago: nobody sees the chase, so the rows
       // move at once, and what it held lands with them. One frame running again ends it.
-      if (frameless || (frame !== undefined && performance.now() - askedAt > FRAMELESS_MS)) {
+      if (frameless || (frame !== undefined && performance.now() - askedAt >= FRAMELESS_MS)) {
         stop();
         thread = node;
         if (!frameless) {
@@ -455,7 +574,7 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       if (arm === "blocks" && !held && below !== Number.POSITIVE_INFINITY && x > 0) {
         const line = currentChatMetrics().lineHeight;
         const hold = arrived ? CHASE_ARRIVAL_HOLD_LINES : CHASE_HOLD_LINES;
-        const atOnce = Math.min(x - hold * line, CHASE_LAND_LINES * line - spent - stepped);
+        const atOnce = Math.min(x - hold * line, CHASE_LAND_LINES * line - spent - stepped, leftBeside(1 / 120, 1));
         if (atOnce > 0) {
           x -= atOnce;
           spent += atOnce;

@@ -47,6 +47,9 @@ pub struct SubOpts {
     /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
     /// for the same raw id is never its (`hub/presence.rs`).
     pub remote: bool,
+    /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
+    /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
+    pub rows: Option<Arc<crate::rows::Following>>,
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -187,6 +190,8 @@ pub struct Conn {
     outbound_gap_pending: Arc<AtomicBool>,
     /// Responses waiting for a queue slot; notifications cannot consume these slots.
     outbound_pending_controls: Arc<AtomicUsize>,
+    /// The bytes its queue holds, for `daemon status` (`queue_gauge.rs`).
+    queued: queue_gauge::Queued,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
@@ -577,6 +582,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
     }
 
@@ -619,6 +625,7 @@ impl Conn {
                     &self.outbound_gap_pending,
                     &self.outbound_lock,
                     &self.outbound_pending_controls,
+                    &self.queued,
                 );
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
@@ -642,6 +649,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
@@ -667,12 +675,19 @@ impl Conn {
         seen: u64,
         anyway: bool,
     ) -> Option<bool> {
-        let mut line = list_reply::reply_line_in(id, result);
-        let bytes = line.len();
-        let whole = bytes <= crate::rpc::MAX_MESSAGE_BYTES;
-        if !whole {
-            line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
-        }
+        // A result past the cap alone is refused before its line is made: no copy of it.
+        let (line, bytes, whole) = if result.len() > crate::rpc::MAX_MESSAGE_BYTES {
+            let error = Message::err(id.clone(), RpcError::too_large(result.len())).to_line();
+            (error, result.len(), false)
+        } else {
+            let line = list_reply::reply_line_in(id, result);
+            let bytes = line.len();
+            if bytes <= crate::rpc::MAX_MESSAGE_BYTES {
+                (line, bytes, true)
+            } else {
+                (Message::err(id.clone(), RpcError::too_large(bytes)).to_line(), bytes, false)
+            }
+        };
         let lag = || {
             let lag = json!({"watch": true, "dropped": 0, "reason": "list_changed"});
             Message::notification("_acpmux/lagged", lag).to_line()
@@ -688,18 +703,41 @@ impl Conn {
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
+        // Each client's share of the list it is sent (`list_bytes.rs`), by its name and origin.
+        if matches!(method, Some(crate::rpc::method::MUX_WATCH | crate::rpc::method::MUX_SESSIONS))
+        {
+            let name = self.name.lock_or_recover().clone();
+            let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
+            crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
+        }
+        let line_bytes = line.len();
         match self.out.try_send(line) {
-            Ok(()) if stale => self.enqueue_control_locked(lag()),
-            Ok(()) => {}
+            Ok(()) => {
+                self.queued.queued(line_bytes, &self.out);
+                if stale {
+                    self.enqueue_control_locked(lag());
+                }
+            }
             Err(mpsc::error::TrySendError::Closed(_)) => return Some(false),
             // No room: it waits for some, and a notice may go first; then the lag follows it.
             Err(mpsc::error::TrySendError::Full(line)) => {
                 let (out, notices) = (self.out.clone(), self.notices.clone());
                 let pending = self.outbound_pending_controls.clone();
                 pending.fetch_add(1, Ordering::AcqRel);
+                // Counted in `daemon status` while it waits (`queue_gauge.rs`), then as queued.
+                let waiting = self.queued.waiting(line_bytes);
+                let queued = self.queued.clone();
                 self.scope.spawn_named("conn-reply-waits-for-room", async move {
-                    if out.send(line).await.is_ok() && notices.load(Ordering::SeqCst) != seen {
-                        let _ = out.send(lag()).await;
+                    if out.send(line).await.is_ok() {
+                        queued.queued(line_bytes, &out);
+                        drop(waiting);
+                        if notices.load(Ordering::SeqCst) != seen {
+                            let lag = lag();
+                            let lag_bytes = lag.len();
+                            if out.send(lag).await.is_ok() {
+                                queued.queued(lag_bytes, &out);
+                            }
+                        }
                     }
                     pending.fetch_sub(1, Ordering::AcqRel);
                 });
@@ -727,6 +765,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
         if !queued {
             return Err(RpcError::new(-32000, "the link to that client is backed up; try again")
@@ -744,6 +783,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
@@ -803,8 +843,7 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     cmux_unix_socket::check_path(path)?;
     if let Some(parent) = path.parent() {
         // Owner-only when created here, like the /tmp fallback directory.
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+        crate::home_fs::create_dir_all(parent, 0o700)?;
     }
     if path.exists() {
         // Refuse to steal a live socket.
@@ -820,14 +859,14 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
             );
         }
         crate::config::refuse_lost_home(&crate::config::home())?;
-        std::fs::remove_file(path)?;
+        crate::home_fs::remove_file(path)?;
     }
     crate::config::refuse_lost_home(&crate::config::home())?;
     let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
     tracing::info!("listening on {}", path.display());
     Ok(listener)
@@ -1306,6 +1345,12 @@ pub async fn serve_ws_until(
                 if auth.is_local_app(&hello) {
                     origin = Origin::LocalApp;
                     proof = ConnAuth::LocalApp;
+                } else if auth.from_page(&hello) {
+                    // The pane read no token or another launch's: every Claude chat of this
+                    // machine refuses it (D13). Said here, so the log explains the refusal.
+                    tracing::warn!(
+                        "a pane connection from {peer} without this launch's LocalApp token: served as remote-origin"
+                    );
                 }
                 first = frame.map(|f| local_app::strip_token(&f));
             }
@@ -1595,6 +1640,16 @@ pub async fn serve_connection_authed(
     .await
 }
 
+/// The usage-patterns key of a listener.
+fn origin_usage_key(origin: Origin) -> &'static str {
+    match origin {
+        Origin::Local => "local",
+        Origin::Web => "web",
+        Origin::LocalApp => "app",
+        Origin::Peer => "peer",
+    }
+}
+
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
 async fn serve_connection_from(
     hub: Arc<Hub>,
@@ -1624,6 +1679,14 @@ async fn serve_connection_from(
     // and a peer token checked at its upgrade; not a paired machine, nor an in-process carrier.
     let dual_principal = (wire.is_some() && auth == ConnAuth::PeerToken && device.is_none())
         .then_some(dual_requests::PEER_LINK);
+    // Opt-in usage patterns: connections by listener, and distinct paired machines (an opaque
+    // stand-in for the device id, never the id).
+    if cmux_usage_patterns::enabled() {
+        cmux_usage_patterns::count("acpmux-connection", origin_usage_key(origin));
+        if let Some(device) = device.as_deref() {
+            cmux_usage_patterns::count("machine", &cmux_usage_patterns::opaque_id(device));
+        }
+    }
     let conn = Arc::new(Conn {
         scope: hub.scope.child("acpmux conn"),
         id: uuid::Uuid::now_v7().to_string(),
@@ -1640,6 +1703,7 @@ async fn serve_connection_from(
         outbound_dropped: Arc::new(AtomicU64::new(0)),
         outbound_gap_pending: Arc::new(AtomicBool::new(false)),
         outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
+        queued: Default::default(),
         subs: StdMutex::new(HashMap::new()),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
@@ -1679,6 +1743,7 @@ async fn serve_connection_from(
         wire,
         dual_principal,
     });
+    queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
@@ -1840,6 +1905,13 @@ async fn serve_connection_from(
                         );
                         return;
                     };
+                    // Opt-in usage patterns: methods this daemon serves (an unknown name a client
+                    // made up is no key), `/` as `.` so `_acpmux/chat/list` is one key.
+                    if cmux_usage_patterns::enabled()
+                        && result.as_ref().err().is_none_or(|e| e.code != -32601)
+                    {
+                        cmux_usage_patterns::count("acpmux-method", &m.replace('/', "."));
+                    }
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
@@ -2032,8 +2104,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         return;
     }
-    // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`. Not a
-    // logged record, so nothing but this notice goes out for it.
+    // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`; or
+    // another unlogged row change (`row_notice`). Not a logged record, so nothing but this
+    // notice goes out for it.
     if ev.record.dir == crate::hub::COLD_CHANGED {
         let attached = conn.sub_opts(&ev.session_id).is_some();
         if (attached || conn.watch_all.load(Ordering::SeqCst))
@@ -2046,7 +2119,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             };
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": session, "kind": crate::hub::COLD_CHANGED, "recordKind": crate::hub::COLD_CHANGED, "seq": s.meta().last_seq}),
+                json!({"sessionId": ev.session_id, "session": session, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq}),
             ));
         }
         return;
@@ -2147,6 +2220,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 method::MUX_PERMISSION_PENDING,
                 routed(permission_pending(&ev.session_id, rec, "attach")),
             ));
+        }
+        if let Some(following) = &sub.rows
+            && ev.remote.is_none()
+            && let Some((notice, params)) = crate::rows::live(hub, &ev.session_id, rec, following)
+        {
+            conn.send(&Message::notification(notice, params));
         }
     }
     if watching {
@@ -2291,6 +2370,7 @@ mod outbound;
 mod plan_build;
 mod project_new;
 mod prompt_coach;
+pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 use outbound::{
@@ -2365,6 +2445,14 @@ mod list_pending_tests;
 #[cfg(test)]
 #[path = "list_web_page_tests.rs"]
 mod list_web_page_tests;
+
+#[cfg(test)]
+#[path = "ack_latency_bench.rs"]
+mod ack_latency_bench;
+
+#[cfg(test)]
+#[path = "reply_size_tests.rs"]
+mod reply_size_tests;
 
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]

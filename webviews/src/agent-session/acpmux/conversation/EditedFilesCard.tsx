@@ -63,16 +63,21 @@ export function EditedFilesCard({
   if (settings.show === "never" || (settings.scope === "session" && sessionEdits && latest !== row.id))
     return <ToolRows row={row} sessionId={sessionId} />;
   const rows = settings.scope === "session" && sessionEdits ? sessionEdits : own;
-  return <Card row={row} rows={rows} onOpenDiff={onOpenDiff} />;
+  // Only the chat's latest card shows its buttons at rest; an earlier one shows them on hover or
+  // keyboard focus, as an earlier reply's footer does (Leo, 2026-11-11: "holy fuck it's so shitty to
+  // look at the transcript right now"). With no session rows (a lone card) it is the latest.
+  return <Card row={row} rows={rows} earlier={Boolean(latest) && latest !== row.id} onOpenDiff={onOpenDiff} />;
 }
 
 function Card({
   row,
   rows,
+  earlier,
   onOpenDiff,
 }: {
   row: AcpmuxRow;
   rows: readonly AcpmuxRow[];
+  earlier: boolean;
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const t = useT();
@@ -167,7 +172,12 @@ function Card({
   const status = (file: TurnFile) =>
     fileStatus(undoState, changes.files.find((edited) => edited.key === pathKey(file))?.path ?? file.path);
   return (
-    <div className="acpmux-edited">
+    <div
+      className="acpmux-edited"
+      data-earlier={earlier ? "" : undefined}
+      // An Undo under way, or its result, stays in sight on an earlier card too.
+      data-undo={undoState.phase === "idle" ? undefined : undoState.phase}
+    >
       {/* The whole header is a wider mouse target for the chevron's toggle, edge to edge
           (headerToggle.ts); the chevron is the keyboard and screen reader control. */}
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
@@ -202,7 +212,7 @@ function Card({
         {secondOpinion && files.length > 0 && (
           <button
             type="button"
-            className="acpmux-review-changes"
+            className="acpmux-review-changes acpmux-second-opinion"
             onClick={() =>
               secondOpinion(
                 row.id,

@@ -144,17 +144,52 @@ nonisolated enum AcpmuxVersionHandoff {
         }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts; its chats resume from disk", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
-            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
+            try await handOffShutdown(environment, pid: pid)
             AgentPaneLaunchTimings.shared.mark("acpmux.handoff_shutdown_sent")
         } catch {
-            logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
-            daemons.mark(home: environment.home, restarting: false)
+            logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public); the next lookup tries again")
+            // A request that never reached the daemon used nothing up: the socket's one handoff
+            // stays for the next lookup. Kept used, it left the replaced daemon running for the
+            // whole launch, and every chat's person proof with it ("Unverified sender", 2026-11-10).
+            handedOff.withLock { keys in
+                keys.remove(key)
+                daemons.mark(home: environment.home, restarting: false)
+            }
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.
         let exited = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         if !exited { daemons.mark(home: environment.home, restarting: false) }
         return exited
+    }
+
+    /// Stops `environment`'s daemon `pid` for a handoff: `_acpmux/shutdown` (agents kept), and when
+    /// that ask misses its `deadline` (a busy daemon's request path waits behind a slow chat), SIGTERM,
+    /// which acpmux takes as the same restart handoff (``AcpmuxDaemonStop/finishHandOff(_:pid:)``).
+    /// Without it the old build's daemon ran on until it answered (over a minute at Leo's 08:05Z
+    /// restart) while the new app waited for it. Throws the ask's failure when nothing was sent.
+    @concurrent static func handOffShutdown(
+        _ environment: AcpmuxEnvironment, pid: Int32, deadline: Duration = .seconds(2),
+        shutdown: @Sendable (AcpmuxEnvironment, Duration) async throws -> Void = AcpmuxVersionHandoff.askShutdown,
+        finish: @Sendable (AcpmuxEnvironment, Int32) async -> Bool = AcpmuxVersionHandoff.finishBySignal
+    ) async throws {
+        do {
+            try await shutdown(environment, deadline)
+        } catch let missed as AgentPaneDeadlineExceeded {
+            guard await finish(environment, pid) else { throw missed }
+            logger.notice("acpmux \(pid): \(missed.description, privacy: .public); stopped by SIGTERM instead")
+        }
+    }
+
+    // Named functions, not async closure literals, as default arguments (crash ratchet, cx-bsue).
+    /// `_acpmux/shutdown` to `environment`'s daemon within `deadline` (``handOffShutdown``'s ask).
+    @Sendable static func askShutdown(_ environment: AcpmuxEnvironment, deadline: Duration) async throws {
+        try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home, deadline: deadline)
+    }
+
+    /// SIGTERM to `environment`'s daemon `pid` (``handOffShutdown``'s fallback).
+    @Sendable static func finishBySignal(_ environment: AcpmuxEnvironment, pid: Int32) async -> Bool {
+        await AcpmuxDaemonStop().finishHandOff(environment, pid: pid)
     }
 
     /// What a lookup would do with the daemon `status` describes (Settings' daemon line,
@@ -276,6 +311,7 @@ public nonisolated struct AcpmuxUpdateHandoff: Sendable {
     /// How long the update's quit waits for the daemon to stop and exit: inside the keep quit's 4 s
     /// (`QuitDeadline.keepQuitLimit`). A daemon still running past it is left to the new build's
     /// version handoff.
+    // timeout: the share of the app's quit that the daemon stop may take; a daemon that runs past it is left to the new build's handoff
     public static let quitLimit: Duration = .milliseconds(1500)
 
     /// The app's daemon, or nil when it has none (``handOff(within:)`` answers ``Outcome/noDaemon``).
@@ -308,6 +344,7 @@ public nonisolated struct AcpmuxUpdateHandoff: Sendable {
         guard let environment, FileManager.default.fileExists(atPath: environment.socketPath) else { return .noDaemon }
         let status: AcpmuxStatus
         do {
+            // timeout: a local socket status read during an update relaunch; no answer means no handoff, the relaunch must not wait
             status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(1))
         } catch AcpmuxStatusClient.Failure.unreachable {
             return .noDaemon
@@ -320,7 +357,8 @@ public nonisolated struct AcpmuxUpdateHandoff: Sendable {
         }
         Self.logger.notice("update relaunch: handing acpmux \(pid) (build \(status.build ?? "?", privacy: .public)) to the new build")
         do {
-            try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home, deadline: .seconds(1))
+            // timeout: a local socket shutdown ask during an update relaunch; a daemon that does not answer gets SIGTERM instead
+            try await AcpmuxVersionHandoff.handOffShutdown(environment, pid: pid, deadline: .seconds(1))
         } catch {
             return .failed(String(describing: error))
         }

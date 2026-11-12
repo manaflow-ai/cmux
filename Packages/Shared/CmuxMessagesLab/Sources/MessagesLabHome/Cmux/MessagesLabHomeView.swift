@@ -30,18 +30,15 @@ public final class MessagesLabHomeView: NSView {
     ///   - wake: the engine clock's one-shot timer (CmuxNext: DemandTimer).
     ///   - diagrams: draws ```` ```mermaid ```` fences as diagram bubbles (CmuxNext: the
     ///     JavaScriptCore Ondine renderer); nil keeps them as text.
-    ///   - widgets: runs chat widgets (an agent's `widget` parts) natively (CmuxNext: the app host);
-    ///     nil shows them as their fallback text.
     ///   - replies: how an agent's running reply shows: ``HomeReplyDisplay/wholeMessages`` (default:
     ///     typing dots, then each message whole) or the older token-by-token stream bubble.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler,
-                diagrams: (any HomeDiagramRendering)? = nil, widgets: (any HomeWidgetHosting)? = nil,
+                diagrams: (any HomeDiagramRendering)? = nil,
                 replies: HomeReplyDisplay = .wholeMessages) {
         MessagesLabHomeView.liveFormatting()
         HomeMarkdownPolicy.install()
         // Before the projection maps its first messages, so a diagram never shows as text first.
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
-        if let widgets { HomeWidgetRowProvider.install(widgets) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()
         // Agent-message folds as muted caption lines, not bubbles (user 2026-10-31).
@@ -472,6 +469,10 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
+
+    /// Where the pane's keyboard goes when it gets focus or a key typed elsewhere in it: the open picture viewer
+    /// (its Esc, arrows and letters are its own), else ``primaryInput``.
+    public var keyboardTarget: NSView { controller.keyboardTarget ?? self }
 
     /// Whether focusing this view should move the keyboard from `responder`
     /// to ``primaryInput``.
