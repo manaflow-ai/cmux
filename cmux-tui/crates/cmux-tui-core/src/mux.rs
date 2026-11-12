@@ -1434,10 +1434,10 @@ struct HookFence {
     session_id: String,
     sequence: u64,
     ended: bool,
-    /// When the hook of the last applied event started (`observed_at_ms`),
-    /// if it said. In memory only: a restart orders by journal sequence until
-    /// the next stamped event.
-    observed_at_ms: Option<u64>,
+    /// The latest hook stamp among the applied events of `session_id`
+    /// ([`crate::agent_hooks::HookOrderStamp`]). It is stored with the hook
+    /// state, so the order holds across a session restart.
+    order: crate::agent_hooks::HookOrderStamp,
 }
 
 enum DirectHookTransition {
@@ -1498,6 +1498,7 @@ impl HookFence {
                     agent_session_id: session_id.to_owned(),
                     applied_sequence: self.sequence,
                     ended: false,
+                    order: crate::agent_hooks::HookOrderStamp::default(),
                 },
             ));
         }
@@ -6671,18 +6672,15 @@ impl Mux {
         // connection and each connection has its own thread, so the journal
         // can take them out of order. The hook's start time orders what the
         // agent did; the journal sequence orders transport.
-        let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(&ingress.payload);
-        let last_observed_at_ms = previous_fence
+        let stamp = crate::agent_hooks::HookOrderStamp::of(&ingress.payload);
+        let last_order = previous_fence
             .as_ref()
             .filter(|fence| fence.session_id == agent_session_id)
-            .and_then(|fence| fence.observed_at_ms);
-        if crate::agent_hooks::hook_event_is_reordered(
-            &ingress.kind,
-            observed_at_ms,
-            last_observed_at_ms,
-        ) {
+            .map(|fence| &fence.order);
+        if crate::agent_hooks::hook_event_is_reordered(&ingress.kind, &stamp, last_order) {
             return Ok(());
         }
+        let order = stamp.applied_over(last_order);
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
@@ -6710,6 +6708,7 @@ impl Mux {
             agent_session_id: agent_session_id.clone(),
             applied_sequence: sequence,
             ended: state == AgentState::Done,
+            order: order.clone(),
         };
         self.report_agent_with_sequence_lock(
             surface,
@@ -6725,7 +6724,7 @@ impl Mux {
         fences.insert(
             terminal_id.clone(),
             HookFence {
-                observed_at_ms: observed_at_ms.max(last_observed_at_ms),
+                order,
                 session_id: agent_session_id,
                 sequence,
                 ended: state == AgentState::Done,
@@ -12020,7 +12019,7 @@ impl Mux {
                     session_id: direct_state.agent_session_id.clone(),
                     sequence: direct_state.applied_sequence,
                     ended: false,
-                    observed_at_ms: None,
+                    order: direct_state.order.clone(),
                 },
             );
         }
