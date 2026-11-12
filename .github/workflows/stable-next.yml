@@ -13,7 +13,8 @@ name: cmux NEXT Stable
 #
 # Gates, all on the candidate's exact nightly-next commit or on the signed stable DMG itself:
 #   crash-class   the cmux-next-crash-class.yml rules on the whole tree (Linux)
-#   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
+#   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) of a Release-
+#                 optimized build (--config=bench) against its Release baseline (…-bench.json), on an
 #                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline.
 #                 A measured regression blocks, and so does no verdict (no idle worker in 3 h, three
 #                 host faults): stable ships only a measured build. The next run re-attaches to the step.
@@ -333,6 +334,9 @@ jobs:
           echo "stable serves $served ($base); candidate $COMMIT"
           python3 -I .stable-tooling/scripts/ci/stable_next.py crash-delta --base-tree "$RUNNER_TEMP/base-tree" --head-tree "$RUNNER_TEMP/head-tree"
 
+  # --config=bench: a Release-optimized build (reload.sh --config bench keeps only the debug.* commands the
+  # benches drive), so stable is judged on how its shipped build performs, not on a Debug build's speed.
+  # perf-budgets.py picks the bench baseline for it (perf-budgets-baseline/apple-m4-pro-macos27-bench.json).
   # --profile, as the baseline was recorded (apple-m4-pro-macos27.json "source": perf-budgets.py --profile):
   # the gated row sidebar.400.ticking.main_ms_per_s comes only from its Time Profiler trace, so without it
   # that row is always missing, and since #24877 a missing row fails the gate whatever was measured.
@@ -383,7 +387,7 @@ jobs:
             "$client" run --class exclusive --measurement --script scripts/measure/split-spring.sh --ref "$COMMIT" \
               --label measure --label macos-27 --label ram48 --label cmux --key "$KEY-$n" \
               --artifact artifacts/split-spring/report.json \
-              --arg=--suite=budgets --arg=--gate --arg=--profile --arg=--vdisplay=120 \
+              --arg=--suite=budgets --arg=--gate --arg=--profile --arg=--config=bench --arg=--vdisplay=120 \
               --timeout 7200 --queue-timeout "$queue" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
             case "$status" in
               0) exit 0 ;;

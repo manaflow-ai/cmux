@@ -63,7 +63,9 @@ A run:
      A measured regression blocks, and so does no verdict (no idle M4 Pro measure worker within
      3 h, or three steps that ended without measuring): stable ships only a measured build. The
      step keeps its place, and the next hourly run re-attaches to it and reads its verdict. The
-     gate measures with `--profile`, as its baseline was recorded.
+     gate measures a Release-optimized build (`--config=bench`) against the Release baseline
+     `perf-budgets-baseline/apple-m4-pro-macos27-bench.json`, with `--profile`, as that baseline
+     was recorded.
    - `sign`: Blacksmith macOS 26. It re-signs the nightly DMG as cmux NEXT Stable
      (`scripts/ci/stable-next-identity.sh`), notarizes and staples the result, and generates
      the Sparkle item.
