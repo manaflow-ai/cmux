@@ -49,12 +49,16 @@ import UIKit
         func stop() { inner.stop() }
         func setOutputPaused(_ paused: Bool) { inner.setOutputPaused(paused) }
         func setClaimsSize(_ claims: Bool) { inner.setClaimsSize(claims) }
-        /// Output written before the first attach: never the Mac's, so transport text.
+        /// Output written before the first attach's mirror reset (`ESC c`, which
+        /// starts the Mac's replay): never the Mac's, so transport text.
         var bytesBeforeAttach: Int {
             var total = 0
             for event in events {
                 if event == .connection(.attached) { break }
-                if case .output(let data) = event { total += data.count }
+                if case .output(let data) = event {
+                    if data.starts(with: Data("\u{1B}c".utf8)) { break }
+                    total += data.count
+                }
             }
             return total
         }
