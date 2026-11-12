@@ -84,7 +84,7 @@ fn command(argv: &[&str], depth: usize, out: &mut Vec<PackageInstall>) {
     let next = depth.saturating_add(1);
     match name {
         "sudo" | "doas" => {
-            command(skip_flags(tail, &["-u", "-g", "-C", "-D", "-h", "-p", "-U"]), next, out)
+            command(skip_flags(tail, &["-u", "-g", "-C", "-D", "-h", "-p", "-U"]), next, out);
         }
         "env" => command(skip_env(tail), next, out),
         "timeout" => command(
@@ -323,9 +323,7 @@ fn uv(tail: &[&str], out: &mut Vec<PackageInstall>) {
 /// A PyPI name from a requirement (`numpy==2.1`, `fastapi[all]>=0.1`),
 /// normalized as PyPI does (lowercase, `_` and `.` as `-`).
 fn python_name(spec: &str) -> Option<String> {
-    let end = spec
-        .find(|c: char| matches!(c, '[' | '=' | '<' | '>' | '!' | '~' | ';' | ' '))
-        .unwrap_or(spec.len());
+    let end = spec.find(['[', '=', '<', '>', '!', '~', ';', ' ']).unwrap_or(spec.len());
     let name = spec.get(..end)?;
     let valid = !name.is_empty()
         && name.len() <= 100
