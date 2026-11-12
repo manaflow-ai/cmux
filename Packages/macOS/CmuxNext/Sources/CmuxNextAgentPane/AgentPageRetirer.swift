@@ -14,7 +14,12 @@ import CmuxNextWakeups
 @MainActor
 public final class AgentPageRetirer {
     public static let delay: Duration = .milliseconds(500)
-    private var retiring: [AgentPaneView] = []
+    /// A close can retire several panes at once (for example, when a workspace disappears). Keep
+    /// the queue O(1) at both ends so the main actor only ever releases one page per turn.
+    private var retiring = AgentPageRetirementQueue<AgentPaneView>()
+    /// A release asks the page to move held prompts into its draft before closing. Yield between
+    /// pages so one large close cannot spend an unbounded turn in AppKit's view removal path.
+    private static let nextCloseDelay: Duration = .milliseconds(1)
     /// One parking per window a kept page closed in; an empty one goes at the next retire or teardown.
     private var parkings: [PageOffscreenParking] = []
     private let timer = DemandTimer(owner: "AgentPageRetirer")
@@ -97,10 +102,26 @@ public final class AgentPageRetirer {
     }
 
     private func flush() {
-        let views = retiring
-        retiring.removeAll()
-        for view in views { view.releaseHeldPrompts { [measure] retired in measure("agentPane.close") { retired.close() } } }
+        guard let view = retiring.takeNext() else { return }
+        view.releaseHeldPrompts { [weak self, measure] retired in
+            measure("agentPane.close") { retired.close() }
+            guard let self, !self.retiring.isEmpty else { return }
+            self.timer.schedule(after: Self.nextCloseDelay) { @MainActor [weak self] in self?.flush() }
+        }
     }
+}
+
+/// The pending page closes are deliberately one item per main-actor turn. This tiny queue keeps the
+/// production path's O(1) pop explicit and gives the scale test a seam without constructing AppKit
+/// views.
+struct AgentPageRetirementQueue<Element> {
+    private var items: [Element] = []
+
+    var isEmpty: Bool { items.isEmpty }
+
+    mutating func append(_ item: Element) { items.append(item) }
+
+    mutating func takeNext() -> Element? { items.popLast() }
 }
 
 extension AgentPaneView {
