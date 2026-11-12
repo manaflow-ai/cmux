@@ -988,6 +988,20 @@ async fn backgrounds_work(daemon: &Daemon, session: &str) -> Value {
     entry["_meta"]["acpmux"]["backgroundsWork"].clone()
 }
 
+/// Waits (test polling) until the chat's `backgroundsWork` is true: a host whose kind answer
+/// came after the daemon's budget decides it when that answer comes, not at adoption.
+async fn until_backgrounds_work(daemon: &Daemon, session: &str, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let now = backgrounds_work(daemon, session).await;
+        if now == true {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}: the chat hides Ctrl-B ({now})");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// With the daemon down: the chat as a build that never saved its agent left it (no `agentInfo`),
 /// and the `cmux` profile now of `kind`. A `kind` other than Claude Code's, with no saved agent,
 /// leaves only the host's own answer to say the chat moves its work.
@@ -1005,6 +1019,37 @@ fn set_router_kind(daemon: &Daemon, kind: &str) {
     let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     config["harnesses"]["cmux"]["kind"] = json!(kind);
     std::fs::write(&path, config.to_string()).unwrap();
+}
+
+/// A Claude Code host whose kind answer comes after the daemon's budget: on a loaded Mac it sits
+/// behind a replay the inbound loop did not drain in time (`ACPMUX_TEST_HOST_KIND_LATE` stands
+/// for that, with no load). The answer still decides Ctrl-B when it comes. Before, the
+/// late answer was dropped and the chat, whose profile reads as ACP, hid Ctrl-B until its next
+/// prompt (the full-run failure of the long-backlog test below on a loaded gate host).
+#[tokio::test]
+async fn a_claude_host_that_answers_its_kind_late_still_shows_ctrl_b() {
+    let mut daemon = Daemon::claude_router("kind-late", &[]);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "fg-shell"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the foreground shell", |e| {
+        e["msg"]["params"]["update"]["toolCallId"] == "toolu_fg"
+    });
+    daemon.sigterm();
+    drop(client);
+    forget_agent_and_set_router_kind(&daemon, &session, "acp");
+    daemon.env.push(("ACPMUX_TEST_HOST_KIND_LATE".into(), "1".into()));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    until_backgrounds_work(&daemon, &session, "the host's late kind answer was dropped").await;
+    let mut rpc = daemon.rpc().await;
+    let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
+    assert_eq!(moved, json!({"backgrounded": true}));
 }
 
 /// A Claude Code host that streamed a long backlog while no daemon ran: the next daemon adopts it,
@@ -1037,11 +1082,9 @@ async fn a_claude_host_with_a_long_backlog_is_adopted_and_its_state_query_answer
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     until_turn_restored(&daemon, &session).await;
-    assert_eq!(
-        backgrounds_work(&daemon, &session).await,
-        true,
-        "the adopted host's state query went unanswered: the chat hides Ctrl-B"
-    );
+    // On a loaded Mac the answer comes after the daemon's budget: it decides when it comes.
+    until_backgrounds_work(&daemon, &session, "the adopted host's state query went unanswered")
+        .await;
     let mut rpc = daemon.rpc().await;
     let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
     assert_eq!(moved, json!({"backgrounded": true}));

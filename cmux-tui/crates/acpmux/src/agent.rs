@@ -148,6 +148,17 @@ pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
 // timeout: never fails anything; a late host falls back to its profile and is asked again on its next prompt.
 const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Whether [`ChildAgent::runs_claude`] waits for a host's answer. Debug builds only:
+/// `ACPMUX_TEST_HOST_KIND_LATE` makes every answer count as late (past the budget), as the answer
+/// of a host whose replay a loaded Mac did not drain in time does. Release builds have no seam.
+fn host_kind_waits() -> bool {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("ACPMUX_TEST_HOST_KIND_LATE").is_some() {
+        return false;
+    }
+    true
+}
+
 /// How long the reader waits for the Exit entry's ack to be written.
 const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 /// The most entries logged before an ack while more wait: the host keeps each entry until it
@@ -2051,6 +2062,9 @@ impl ChildAgent {
             return Some(true);
         }
         let Some(h) = &self.hosted else { return Some(false) };
+        if !host_kind_waits() {
+            return None;
+        }
         h.link().query_within(HOST_KIND_BUDGET).await.ok().map(|reply| reply.modes.is_some())
     }
 
