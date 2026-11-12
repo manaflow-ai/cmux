@@ -94,20 +94,24 @@ thread."
   (so Jump up stands over the Needs you pill as over Jump to latest), the center line, the fade in place
   and the behavior. Try one in the app: `cmux.experiments` = `{"jump-pair-look":"labeled"}` in the pane's
   web inspector, then reload.
-- It goes to where the reader left off (`jumpUp.ts`): the New line while it is unread, else the newer of the
-  person's last sent prompt and where they last stopped scrolling by hand. Leo, 2026-11-11: "if I scrolled
-  to the bottom the whole time ... you eventually can jump right up to the last unread bit, right? Because,
-  like, that's when you last interacted with it."
-- While it goes to the New line it carries the theme's accent dot at its top end (`data-unread`, the
-  sidebar's unread dot) and reads "Jump up to what's new". Without unread it has no dot: the fallback is the
-  person's own last act (a prompt, a stop), the one place in the chat that is theirs, rather than nothing or
-  the chat's top. Looks compared in `agent-pane.unread-marker`: `dot` (chosen), `ring` (an accent rim) and
-  `tint` (an accent arrow).
-- Pressed, the place lands near the top of the view (the thread's top padding over it), so the New line and
-  the first row the person did not see sit under the header with everything after it below.
-- It shows only while that place is off screen.
-- Pressed, it holds where the view was and points down: a second press, or Esc, goes back there. A scroll by
-  hand lets go of the way back. Esc that something else takes (the composer's Stop, a menu) is left to it.
+- **One control** (`jumpControl.ts`, from #40813; Leo, 2026-11-10: "There's also no point doubling up on
+  this" and "this should be more selective"). Jump up is not a second disc: it is Jump to latest's disc with
+  its arrow turned up in place (`data-jump="up"`), shown only while a row the person has not seen lies above
+  the view. With nothing unseen there is no up arrow at all: no fallback to their last prompt or last stop.
+  Otherwise the disc is Jump to latest while the view is away from the latest message, and hidden at it. An
+  ask waiting below (the Needs you pill) comes first.
+- Unseen rows are the rows after the person's seen cursor (below) by an agent or another person; their own
+  prompts and notice, status and mux rows never are.
+- In the up state the disc carries the `jump-up-badge` arm's mark (`jumpPair.experiment.ts`; gallery
+  `agent-pane.jump-up-badge`): `dot` (ships: the theme's accent dot, the sidebar's unread dot, #41506),
+  `count` (the unseen turns, #40813), `plain` (the arrow alone). It reads "Jump up to what's new".
+- Pressed, the first unseen row lands near the top of the view (the thread's top padding over it), with the
+  New line right over it when it sits there, and everything after it below. It is then in view, so it is
+  seen, and the disc turns back to Jump to latest: no way back to hold.
+- The New line sits above the first unseen row when the chat opens and when the person comes back to it; it
+  stays while they read. The unread banner keeps its setting and its default; its Jump goes to the same row.
+- An open is a breakpoint: nothing scrolls, animates or pops on open, and a restart, update or reconnect
+  with nothing new shows no arrow.
 
 ## What counts as seen
 
@@ -123,10 +127,19 @@ watching it, right? Like if they didn't move the mouse at all, then it's like, w
   a return, with the New line after the last record they were here for and the dot on Jump up.
 - An away person keeps the chat shown (`visible` stays true: its process, recap and presence are unchanged);
   only `attending` turns false.
-- acpmux owns it (`hub/seen.rs`, `_acpmux/view` `attending` and `seenSeq`): one mark per chat (`seenSeq` in
-  the chat's session.json), the same for every client, kept across tab switches and app restarts. The pane
-  reports only the page shown, the reader here and the seq at their last input, and draws what the daemon
-  answers (`lastReturn`).
+- acpmux owns two things (`hub/seen.rs`). The chat's unread dot (`_acpmux/view` `attending` and `seenSeq`,
+  `unread`): one per chat, the same for every client. And each person's seen cursor, `readThrough` (Leo,
+  2026-11-12: "it doesn't actually keep track of, like, when the things ... when you restart the update, all
+  of a sudden it's just, like, you know, it's there and it's noisy"): a log seq per chat per person (the
+  `_meta.acpmux.author` id, the owner when none) in the chat's session.json. Only `_acpmux/seen
+  {sessionId, seq}` moves it, forward only and never past the log; a restart, update, reconnect, attach,
+  `_acpmux/view`, a notice or any mux record never does, and `_acpmux/markUnread {readThrough}` may move it
+  back. Attach answers it (`readThrough`); capability `read-through-v1`.
+- The pane sends `seen` with the newest counted row in the viewport while its window has focus and the
+  person is here, at most every 500 ms and only when it moves, and moves its own copy at once
+  (`direct.ts` `advanceSeen`). It never moves past an unseen row above the view: rows the person scrolled
+  past unseen stay unseen until they are in view. A chat acpmux has no cursor for starts from its last
+  record at the open.
 
 ## Putting a waiting card away
 

@@ -8,8 +8,7 @@
 //   `_acpmux/view` visible false; showing it again sends true.
 // - A reader who steps away (no pointer move, wheel, key or focus for the idle time, attention.ts)
 //   leaves the chat shown but unattended: `_acpmux/view` visible true, `attending: false`, with the
-//   seq it had at their last input; their next move sends `attending: true` and draws "New since you
-//   looked" where acpmux's answer puts it.
+//   seq it had at their last input; their next move sends `attending: true`.
 // - acpmux handles each request on its own task, so a view sent while the attach is in flight
 //   could overtake it and be refused; the pane sends it once the attach is answered.
 //
@@ -252,8 +251,8 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
           [true, false],
           [true, true],
         ]);
-        // acpmux answers the return with where the reader stopped: the New line is drawn there.
-        await pane.waitForSelector(".cv-since", { timeout: 10_000 });
+        // The New line comes from the reader's seen cursor (acpmux `readThrough`), not this answer:
+        // agent-pane-jump-unseen.browser.test.ts draws it.
       } finally {
         returnOnAttend = false;
         await pane.close();

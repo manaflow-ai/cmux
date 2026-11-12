@@ -1,7 +1,8 @@
 // l10n-allow-file: sample transcript and comparison notes, not shipped UI.
 // The unread marker and the jump pair in the whole pane (design/transcript-overlays.md): the "New"
-// line, the unread banner in the top-start zone, and Jump up stacked on Jump to latest in the
-// bottom-center zone, beside Session Info. Leo, 2026-11-10: "make it look integrated ... don't
+// line, the unread banner in the top-start zone, and the one jump control in the bottom-center zone,
+// pointing up while a row the reader has not seen lies above the view (jumpControl.ts), beside
+// Session Info. Leo, 2026-11-10: "make it look integrated ... don't
 // introduce any random stuff"; "you get jump to bottom, but then jump to, like, the last thread".
 // The component looks (line, banner, light, dark and image) are agent-pane.since-divider.
 // View every variant at each width, and in light and dark (?colorScheme=light / dark).
@@ -9,7 +10,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { assistant, chat, row, summary, user } from "../../gallery/fixtures/acpmux";
-import { SINCE_DIVIDER } from "./model";
+import { SINCE_DIVIDER, type AcpmuxRow } from "./model";
 
 const MARK = "gallery-unread:41";
 
@@ -25,9 +26,16 @@ const turns = (from: number, count: number, ago: number) =>
     summary(ago - index * 2 - 1, { status: "completed" }),
   ]).flat();
 
-// Twelve turns the person saw, the line, then nine that ended while they were away (from 3:42).
+/// Each row with the seq of the record that began it (direct.ts `OrderedRows`), as the pane's rows
+/// carry: the seen cursor counts rows by it.
+const numbered = (rows: AcpmuxRow[]): AcpmuxRow[] =>
+  rows.map((each, index) => ({ ...each, seq: each.seq ?? index + 1 }));
+
+// Twelve turns the person saw (36 rows: their cursor), the line, then nine that ended while they
+// were away (from 3:42).
+const SEEN_THROUGH = 36;
 const snapshot = chat(
-  [
+  numbered([
     ...turns(1, 12, 120),
     row(SINCE_DIVIDER, 60, {
       id: SINCE_DIVIDER,
@@ -43,8 +51,8 @@ const snapshot = chat(
       },
     }),
     ...turns(13, 9, 58),
-  ],
-  { sinceKey: MARK },
+  ]),
+  { sinceKey: MARK, readThrough: SEEN_THROUGH },
 );
 
 const settle = async (ctx: Parameters<Play>[0]) =>
@@ -55,9 +63,9 @@ const display = async (values: Record<string, unknown>) => {
   setChatDisplay(values);
 };
 
-/// Opens at the latest message, as a returning person does: the banner over the top, Jump up over
-/// the composer (the line is far above), Jump to latest hidden (at the latest message). With the
-/// banner off nothing draws it (SinceDivider.tsx `UnreadBanner`), so the view is ready once Jump up shows.
+/// Opens at the latest message, as a returning person does: the banner over the top, the control
+/// pointing up over the composer (the first unseen row is far above). With the banner off nothing
+/// draws it (SinceDivider.tsx `UnreadBanner`), so the view is ready once Jump up shows.
 const atLatest =
   (values: Record<string, unknown> = {}): Play =>
   async (ctx) => {
@@ -68,18 +76,12 @@ const atLatest =
     if (off && ctx.document.querySelector(".acpmux-since-jump")) throw new Error("the banner draws while it is off");
   };
 
-/// Scrolled to the middle by hand: the stop is the reader's place, so Jump up waits for the line.
+/// Scrolled up above the line by hand: nothing unseen lies above the view, so the one control is
+/// Jump to latest (never a second disc).
 const midChat: Play = async (ctx) => {
   await settle(ctx);
-  await ctx.scroll({ selector: ".acpmux-scroll" }, 1_400);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
-};
-
-const jumpedUp: Play = async (ctx) => {
-  await settle(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
-  await ctx.click({ selector: ".acpmux-jump-up" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-back]"));
+  await ctx.scroll({ selector: ".acpmux-scroll" }, 600);
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-jump-latest[data-jump="latest"][data-shown]'));
 };
 
 /// The banner pressed: the transcript brings the line in, and the banner has done its job.
@@ -90,49 +92,52 @@ const lineInView: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-since"));
 };
 
-/// Jump up while it goes to unread turns (the person was away from the chat on screen: attention.ts,
-/// acpmux hub/seen.rs). `look` draws a compared look over the chosen dot: an accent rim (`ring`) or
-/// an accent arrow (`tint`), set here on the page alone so only the chosen look ships (jumpPair.css).
+/// Jump up while unseen rows lie above the view (acpmux hub/seen.rs `read_through`). `look` draws a
+/// compared look over the chosen dot: an accent rim (`ring`) or an accent arrow (`tint`), set here on
+/// the page alone so only the chosen look ships (jumpPair.css).
 const unreadUp =
   (look: "dot" | "ring" | "tint" = "dot"): Play =>
   async (ctx) => {
     await display({ "agentPane.display.unreadBanner": "off" });
     await settle(ctx);
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown][data-unread]"));
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-jump-up[data-shown][data-badge="dot"]'));
     if (look === "dot") return;
     const style = ctx.document.createElement("style");
     style.textContent =
       look === "ring"
-        ? ".acpmux-jump-up[data-unread]::after{opacity:0!important}.acpmux-jump-up[data-unread]{--glass-edge:var(--cmux-app-accent)}"
-        : ".acpmux-jump-up[data-unread]::after{opacity:0!important}.acpmux-jump-up[data-unread] .acpmux-jump-latest__arrow{color:var(--cmux-app-accent)}";
+        ? ".acpmux-jump-up::after{opacity:0!important}.acpmux-jump-up{--glass-edge:var(--cmux-app-accent)}"
+        : ".acpmux-jump-up::after{opacity:0!important}.acpmux-jump-up .acpmux-jump-latest__arrow{color:var(--cmux-app-accent)}";
     ctx.document.head.append(style);
   };
 
-/// Nothing unread: the chat the person read through, scrolled to the latest message after reading
-/// above. Jump up has no dot and goes to their own last prompt (the fallback).
-const readThrough = chat([
-  ...turns(1, 12, 120),
-  ...Array.from({ length: 6 }, (_, index) =>
-    assistant(
-      `Step ${index + 1} of the long run: the fuzz corpus case passes, the request id holds, the retry stops. `.repeat(
-        4,
+/// Nothing unseen: the chat the person read through, at the latest message. No arrow: Jump up never
+/// goes to their own last prompt or last stop.
+const readAll = chat(
+  numbered([
+    ...turns(1, 12, 120),
+    ...Array.from({ length: 6 }, (_, index) =>
+      assistant(
+        `Step ${index + 1} of the long run: the fuzz corpus case passes, the request id holds, the retry stops. `.repeat(
+          4,
+        ),
+        40 - index,
       ),
-      40 - index,
     ),
-  ),
-]);
-const fallbackUp: Play = async (ctx) => {
+  ]),
+  { readThrough: 42 },
+);
+const nothingUp: Play = async (ctx) => {
   await settle(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
-  if (ctx.document.querySelector(".acpmux-jump-up[data-unread]")) throw new Error("no unread: no dot");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest"));
+  if (ctx.document.querySelector('.acpmux-jump-latest[data-jump="up"]')) throw new Error("nothing unseen: no arrow");
 };
 
 /// Pressed from the latest message: the line lands near the top of the view, the first unseen turn
-/// under it.
+/// under it; the control turns to Jump to latest.
 const landedNearTop: Play = async (ctx) => {
   await unreadUp()(ctx);
   await ctx.click({ selector: ".acpmux-jump-up" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-back]"));
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-jump-latest[data-jump="latest"]'));
   await ctx.waitFor(() => {
     const line = ctx.document.querySelector(".cv-since");
     const scroller = ctx.document.querySelector(".acpmux-scroll");
@@ -167,11 +172,11 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   widths: { narrow: 420, normal: 900, wide: 1600 },
-  covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/VirtualTranscript.tsx#JumpUp"],
+  covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/jumpControl.ts"],
   keywords: ["unread", "new since", "jump up", "jump to bottom", "banner", "idle", "attention"],
   variants: {
     "banner-expanded": {
-      note: "Chosen: back in a chat that kept working, the banner at the top left reads 9 new turns since the time, with Mark read; Jump up waits over the composer.",
+      note: "Chosen: back in a chat that kept working, the banner at the top left reads 9 new turns since the time, with Mark read; the control points up over the composer.",
       snapshot,
       play: atLatest(),
     },
@@ -194,14 +199,9 @@ export default agentPaneEntry({
       },
     },
     "jump-pair": {
-      note: "Mid-chat: Jump up (to the New line) stacked on Jump to latest, one column on the composer's center line.",
+      note: "Scrolled up above the New line: nothing unseen above, so the one control is Jump to latest; never two discs.",
       snapshot,
       play: midChat,
-    },
-    "jump-back": {
-      note: "After Jump up: the view is at the line and the button points down; a second press or Esc goes back.",
-      snapshot,
-      play: jumpedUp,
     },
     "line-in-view": {
       note: "The banner pressed: the New line in the message rhythm (one control row, its recap under it), the banner gone.",
@@ -209,7 +209,7 @@ export default agentPaneEntry({
       play: lineInView,
     },
     "unread-dot": {
-      note: "Chosen: away from the chat on screen while it worked (no input for 60 s), back at the latest message: Jump up carries the theme's accent dot, the sidebar's unread dot, and goes to the New line.",
+      note: "Chosen: rows the person did not see lie above the view: the control points up and carries the theme's accent dot, the sidebar's unread dot, and goes to the first of them.",
       snapshot,
       play: unreadUp("dot"),
     },
@@ -224,14 +224,14 @@ export default agentPaneEntry({
       play: unreadUp("tint"),
     },
     "unread-landed": {
-      note: "Pressed from the latest message: the New line near the top of the view, the first turn the person did not see right under it; the button points down to go back.",
+      note: "Pressed from the latest message: the New line near the top of the view, the first turn the person did not see right under it; the control is Jump to latest again.",
       snapshot,
       play: landedNearTop,
     },
     "nothing-unread": {
-      note: "Nothing unread (read through while attending): no dot; Jump up goes to the person's own last prompt or where they last stopped scrolling.",
-      snapshot: readThrough,
-      play: fallbackUp,
+      note: "Nothing unseen (read through while attending, or a restart with nothing new): no arrow at all.",
+      snapshot: readAll,
+      play: nothingUp,
     },
     "with-session-info": {
       note: "Session Info pushes at the end edge; the banner keeps to the column's start, the pair to its center: no overlap.",

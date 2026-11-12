@@ -1,14 +1,14 @@
 // cmux-web-test-timeout: 300
-// Jump up to the unread line (design/transcript-overlays.md, "The jump pair" and "What counts as
-// seen"), in Chromium and WebKit. Leo, 2026-11-11: "if I scrolled to the bottom the whole time ...
-// you eventually can jump right up to the last unread bit". The page is the real VirtualTranscript
-// (browser/unread-jump.harness.tsx) with the "New" line acpmux placed where the person stopped
-// attending (hub/seen.rs):
+// Jump up to the first unseen row (design/transcript-overlays.md, jumpControl.ts), in Chromium and
+// WebKit. Leo, 2026-11-11: "if I scrolled to the bottom the whole time ... you eventually can jump
+// right up to the last unread bit". The page is the real VirtualTranscript
+// (browser/unread-jump.harness.tsx) with the reader's seen cursor (acpmux hub/seen.rs `read_through`)
+// and the "New" line over the first row after it:
 //
-// - at the latest message, Jump up shows with its unread dot;
+// - at the latest message, the one control points up with its accent dot;
 // - pressed, it lands the line near the top of the view, the first row the person did not see right
-//   under it;
-// - the mark survives the transcript unmounting and mounting again (a tab switch in one page), and
+//   under it, and turns back to Jump to latest;
+// - the cursor survives the transcript unmounting and mounting again (a tab switch in one page), and
 //   Jump up still goes to it.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -67,17 +67,21 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
   const paragraph = (index: number) =>
     `Case ${index}: the client retries a temporary transport failure, keeps the original request id, ` +
     "and stops after the last attempt, so a slow server never sees the same write twice.";
+  // Each row carries the seq of the record that began it (direct.ts `OrderedRows`): turn n's prompt is
+  // 2n - 1, its answer 2n.
   const turns = (from: number, count: number) =>
     Array.from({ length: count }, (_, i) => [
-      row(`turn-${from + i}-user`, "user", `Check retry case ${from + i}`),
-      row(`turn-${from + i}-answer`, "assistant", paragraph(from + i)),
+      row(`turn-${from + i}-user`, "user", `Check retry case ${from + i}`, { seq: 2 * (from + i) - 1 }),
+      row(`turn-${from + i}-answer`, "assistant", paragraph(from + i), { seq: 2 * (from + i) }),
     ]).flat();
+  /// The reader saw the first fourteen turns.
+  const SEEN_THROUGH = 28;
   const MARK = "unread-jump:41";
   // Fourteen turns the person saw, the line, then twelve that ended while they were away from the
   // chat on screen.
   const rows = [
     ...turns(1, 14),
-    row("sinceDivider", "sinceDivider", undefined, { since: { key: MARK, seq: 41, turns: 12 } }),
+    row("sinceDivider", "sinceDivider", undefined, { since: { key: MARK, seq: SEEN_THROUGH, turns: 12 } }),
     ...turns(15, 12),
   ];
 
@@ -92,9 +96,13 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/test/browser/unread-jump.html`);
     await page.waitForFunction(() => "__showRows" in window);
     await page.evaluate(
-      ([next, mark]) =>
-        (window as unknown as { __showRows(rows: unknown, since: string): void }).__showRows(next, mark as string),
-      [rows, MARK] as const,
+      ([next, mark, through]) =>
+        (window as unknown as { __showRows(rows: unknown, since: string, through: number): void }).__showRows(
+          next,
+          mark as string,
+          through as number,
+        ),
+      [rows, MARK, SEEN_THROUGH] as const,
     );
     await frames(page, 6);
     return page;
@@ -104,13 +112,13 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
     page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const top = scroller.getBoundingClientRect().top;
-      const up = document.querySelector<HTMLElement>(".acpmux-jump-up");
+      const up = document.querySelector<HTMLElement>(".acpmux-jump-latest");
       const line = document.querySelector<HTMLElement>('[data-row-id="sinceDivider"]');
       const first = document.querySelector<HTMLElement>('[data-row-id="turn-15-user"]');
       return {
         shown: up?.hasAttribute("data-shown") ?? false,
-        unread: up?.hasAttribute("data-unread") ?? false,
-        back: up?.hasAttribute("data-back") ?? false,
+        jump: up?.getAttribute("data-jump") ?? undefined,
+        unread: up?.getAttribute("data-badge") === "dot",
         label: up?.getAttribute("aria-label") ?? "",
         fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
         line: line ? line.getBoundingClientRect().top - top : undefined,
@@ -145,13 +153,14 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
           expect(before.unread).toBe(true);
           // The harness loads no string catalog: the key stands for "Jump up to what's new".
           expect(before.label).toMatch(/^(transcript\.jumpUnread|Jump up to what's new)$/);
+          expect(before.jump).toBe("up");
           await press(page);
           const after = await read(page);
           landedNearTop(after);
-          // Pressed, it holds the way back, and the dot goes with the unread target in sight.
-          expect(after.back).toBe(true);
-          // The second press goes back with Jump to latest's own glide: wait for it to land.
-          await page.click(".acpmux-jump-up");
+          // There, nothing unseen lies above the view: the same control is Jump to latest, and it
+          // goes back down with its own glide.
+          expect(after.jump).toBe("latest");
+          await page.click(".acpmux-jump-latest");
           await page.waitForFunction(() => {
             const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;

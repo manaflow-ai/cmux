@@ -8,7 +8,6 @@ import React, {
   useReducer,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -171,21 +170,20 @@ import { SubagentOfRow } from "./subagents/SubagentGroup";
 import { SUBAGENT_OF_HEIGHT } from "./rows/SubagentOfPillRow";
 import { noteSendFromLatest, playSendMorph } from "./conversation/sendMorph";
 import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
-import { readUnread, subscribeUnread, unreadPending } from "./conversation/unreadState";
 import {
-  jumpUpShown,
-  jumpUpTarget,
-  lastOwnPrompt,
-  placeOffView,
-  pressJumpUp,
-  type JumpBack,
-  type ManualMark,
-  type PromptScan,
-} from "./jumpUp";
+  emptyUnseenScan,
+  firstUnseen,
+  jumpControl,
+  seenThrough,
+  unseenTurns,
+  visibleRows,
+  type JumpControl,
+  type UnseenScan,
+} from "./jumpControl";
 import { topZoneOffset } from "./overlayLayout";
 import "./jumpPair.css";
 import { experimentArm } from "../../experiments/experiment";
-import { jumpPairLook } from "./jumpPair.experiment";
+import { jumpPairLook, jumpUpBadge, type JumpUpBadge } from "./jumpPair.experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
@@ -971,6 +969,8 @@ function warmAnchorTop(
 /// drawn for it (ui/glass/Fisheye.tsx).
 const JUMP_LATEST_SIZE = 32;
 
+/// The one jump control (jumpControl.ts; Leo, 2026-11-10: "There's also no point doubling up on this"):
+/// Jump up while an unseen row lies above the view, the same disc with its arrow turned up.
 /// Jump to latest: a glass control centered above the composer, shown while the reader is scrolled up
 /// from the latest message (ChatGPT and Codex style). Its look is the `jump-pair-look` experiment
 /// (jumpPair.experiment.ts, jumpPair.css): a frosted disc by default (Leo 2026-11-12, of the fisheye
@@ -985,9 +985,14 @@ export function JumpToLatest({
   onJump,
   lift,
   needsYou,
+  up,
 }: {
   shown: boolean;
   working: boolean;
+  /// Jump up (jumpControl.ts): an unseen row lies above the view, so the same disc turns its arrow up
+  /// and carries the `jump-up-badge` arm's mark (jumpPair.experiment.ts): the accent dot (the
+  /// sidebar's unread dot), the unseen turns' count, or nothing.
+  up?: { badge: JumpUpBadge; turns: number };
   /// Open asks (needsYou/JumpPill.ts): the button becomes the Needs your input pill.
   needsYou?: TranscriptNeedsYou;
   /// The bottom stack's height over the transcript's foot: the button sits above it.
@@ -997,8 +1002,9 @@ export function JumpToLatest({
 }) {
   const t = useT();
   const [look] = useState(() => experimentArm(jumpPairLook));
-  if (needsYou && needsYou.count > 0) return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
-  const label = t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
+  if (!up && needsYou && needsYou.count > 0)
+    return <NeedsYouPill {...needsYou} shown={shown} lift={lift} onJump={onJump} />;
+  const label = up ? t("transcript.jumpUnread") : t(working ? "transcript.jumpLatestWorking" : "transcript.jumpLatest");
   const lens = look === "lens";
   return (
     <>
@@ -1006,8 +1012,13 @@ export function JumpToLatest({
       <button
         type="button"
         ref={leaveOnScreenRef}
-        className={lens ? "ui-glass ui-glass-fisheye acpmux-jump-latest" : "ui-glass acpmux-jump-latest"}
+        className={
+          (lens ? "ui-glass ui-glass-fisheye acpmux-jump-latest" : "ui-glass acpmux-jump-latest") +
+          (up ? " acpmux-jump-up" : "")
+        }
         data-look={look}
+        data-jump={up ? "up" : "latest"}
+        data-badge={up?.badge}
         data-shown={shown ? "" : undefined}
         // Its keyboard focus is its own wash over the glass (conversation.css), not the shared one,
         // whose `box-shadow: none` took the glass's rim and shadow away while it was focused.
@@ -1023,56 +1034,30 @@ export function JumpToLatest({
       >
         {/* The mark is a theme slot (schemas/theme/slots.json `chat.jumpToBottom`): its default variant
             draws exactly the static arrow this button drew before. */}
-        <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
-        {look === "labeled" && <span className="acpmux-jump-latest__label">{t("transcript.jumpLatest")}</span>}
+        {up ? (
+          <span className="acpmux-jump-latest__arrow" aria-hidden="true">
+            <ArrowDown size={14} />
+          </span>
+        ) : (
+          <Slot slot={jumpToBottomSlot} props={{ shown, working }} />
+        )}
+        {up?.badge === "count" && up.turns > 0 && (
+          <span className="acpmux-jump-latest__count" aria-hidden="true">
+            {up.turns > 99 ? "99+" : up.turns}
+          </span>
+        )}
+        {look === "labeled" && (
+          <span className="acpmux-jump-latest__label">{t(up ? "transcript.jumpUnread" : "transcript.jumpLatest")}</span>
+        )}
       </button>
     </>
   );
 }
 
-/// Jump up (jumpUp.ts): Jump to latest's companion, stacked on it in the bottom-center zone
-/// (overlayLayout.ts, jumpPair.css): the same glass, look, size and fade, its arrow up. It goes to
-/// where the reader left off (the unread "New" line, else their last prompt or where they last
-/// stopped scrolling) while that place is off screen; pressed, it points down and a second press or
-/// Esc goes back to where the view was.
-export function JumpUp({
-  shown,
-  back,
-  unread = false,
-  onJump,
-  lift,
-}: {
-  shown: boolean;
-  back: boolean;
-  /// It goes to the unread "New" line: the disc carries the accent dot (jumpPair.css).
-  unread?: boolean;
-  onJump: () => void;
-  lift: number;
-}) {
-  const t = useT();
-  const label = t(back ? "transcript.jumpBack" : unread ? "transcript.jumpUnread" : "transcript.jumpUp");
-  const [look] = useState(() => experimentArm(jumpPairLook));
-  return (
-    <button
-      type="button"
-      className="ui-glass acpmux-jump-latest acpmux-jump-up"
-      data-look={look}
-      data-shown={shown ? "" : undefined}
-      data-back={back ? "" : undefined}
-      data-unread={unread ? "" : undefined}
-      data-focus-ring="none"
-      style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
-      aria-label={label}
-      title={label}
-      inert={!shown}
-      onClick={onJump}
-    >
-      <span className="acpmux-jump-latest__arrow" aria-hidden="true">
-        <ArrowDown size={14} />
-      </span>
-      {look === "labeled" && <span className="acpmux-jump-latest__label">{label}</span>}
-    </button>
-  );
+/// The "New" line's index when it sits just over row `index` (at most a few rows that never count
+/// between them: the reader's own prompt), else `index`.
+function sinceOver(rows: readonly AcpmuxRow[], index: number, since: number): number {
+  return since >= 0 && since < index && index - since <= 3 ? since : index;
 }
 
 /// The index of row `id` in `rows`, starting from where it was last found (`hint`): the transcript
@@ -1259,6 +1244,8 @@ function TranscriptView({
   afterLatest,
   sinceKey,
   promptAuthor,
+  readThrough,
+  onSeenThrough,
   onJumpToSince,
   showMinimap = true,
   endReserve: cardReserve = 0,
@@ -1362,9 +1349,16 @@ function TranscriptView({
   /// The key of "New since you looked" in these rows, if any: Jump to new shows over the top while
   /// it is out of view (conversation/SinceDivider.tsx), and `onJumpToSince` brings it in.
   sinceKey?: string;
-  /// The author id this pane sends as (multiplayer/presenceClient.ts `selfId`): Jump up's "sent"
-  /// mark is this author's newest prompt, never another person's in a shared chat (jumpUp.ts).
+  /// The author id this pane sends as (multiplayer/presenceClient.ts `selfId`): this author's own
+  /// prompts are never unseen (jumpControl.ts `countsUnseen`), another person's in a shared chat are.
   promptAuthor?: string;
+  /// The reader's seen cursor, a log seq (direct.ts `readCursor`, acpmux hub/seen.rs): rows after it
+  /// by an agent or another person are unseen, and the jump control points up to the first of them
+  /// while it lies above the view. Undefined: not known yet, nothing is unseen.
+  readThrough?: number;
+  /// The newest row seq in view, when nothing unseen lies above the view (jumpControl.ts
+  /// `seenThrough`): the client counts it seen while the reader attends (direct.ts `noteVisibleThrough`).
+  onSeenThrough?: (seq: number | undefined) => void;
   onJumpToSince?: () => void;
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
@@ -1461,13 +1455,8 @@ function TranscriptView({
   /// Jump to latest is shown (`behind`, below): set past JUMP_LATEST_DISTANCE, cleared only back at
   /// the latest message.
   const jumpShown = useRef(false);
-  /// Jump up (jumpUp.ts): where the reader last stopped scrolling by hand, the way back a press
-  /// holds (a second press or Esc returns there), and the row lookups' hints.
-  const stoppedMark = useRef<ManualMark | undefined>(undefined);
-  const jumpBack = useRef<JumpBack | undefined>(undefined);
-  const [jumpBackHeld, setJumpBackHeld] = useState(false);
-  const promptScan = useRef<PromptScan>({ length: 0 });
-  const jumpUpHint = useRef(-1);
+  /// The first unseen row's read, picked up where the last render stopped (jumpControl.ts `firstUnseen`).
+  const unseenScan = useRef<UnseenScan>(emptyUnseenScan());
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
   const placedTop = useRef<number | undefined>(undefined);
   /// Jump up's glide is in flight (`placeView`): its steps are its own, not the reader's stops.
@@ -4819,20 +4808,7 @@ function TranscriptView({
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     seenAnchor.current = restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
-    // The reader's own scroll: where it rests is where they left off (Jump up, jumpUp.ts), and a way
-    // back Jump up held is theirs no longer.
-    // Jump up's own move (`placeView`) lands inside the press's input hold, so it reads as the
-    // reader's: the offsets its glide steps through and the one it lands on are not stops, and it
-    // keeps the way back it holds.
-    const placed = placedTop.current;
     placedTop.current = undefined;
-    if (!programmatic && !placing.current && (placed === undefined || Math.abs(next - placed) > 1)) {
-      if (seenAnchor.current) stoppedMark.current = { place: seenAnchor.current, at: Date.now(), why: "stopped" };
-      if (jumpBack.current) {
-        jumpBack.current = undefined;
-        setJumpBackHeld(false);
-      }
-    }
     queueScroll(next, scrolledTo.current.atLatest, immediate, "reader-scroll", down?.input ?? null);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
@@ -4925,56 +4901,22 @@ function TranscriptView({
       { explicit: true },
     );
   };
+  /// Jump up (jumpControl.ts): to the first unseen row, near the top of the view, twice the thread's
+  /// top padding over it (clear of the scroller's 18 px top fade), with the "New" line right over it
+  /// and everything after it below to read down through (Leo, 2026-11-11: "you eventually can jump
+  /// right up to the last unread bit"). Held by its row, where it measures on the way: the target can
+  /// change under the glide, and the view must not turn round to it. Once there the row is in view,
+  /// so it is seen and the control turns back to Jump to latest.
   const pressUp = () => {
-    const node = ref.current;
-    if (!node) return;
-    const press = pressJumpUp(jumpBack.current, { top: layoutScrollTop(node), atLatest: followingRef.current });
-    if (press.kind === "back") {
-      jumpBack.current = undefined;
-      setJumpBackHeld(false);
-      if (press.back.atLatest) jumpToLatest(false, "jump-back");
-      else {
-        const back = press.back.top;
-        placeView(() => back);
-      }
-      return;
-    }
-    const { top, place } = upTopRef.current;
-    if (top === undefined || !place) return;
-    jumpBack.current = press.back;
-    setJumpBackHeld(true);
-    // The place lands near the top of the view, twice the thread's top padding over it (clear of
-    // the scroller's 18 px top fade): the unread line with the first row the person did not see
-    // right under it, and everything after it below to read down through (Leo, 2026-11-11: "you
-    // eventually can jump right up to the last unread bit"). Held by its row, where it measures on
-    // the way: the target can change under the glide, and the view must not turn round to it.
+    const target = upTargetRef.current;
+    if (!target) return;
     const hint = { current: -1 };
     placeView(() => {
       const { layout: placed, rows: shown } = latestLayout.current;
-      const index = indexOfRow(shown, place.rowId, hint);
-      return (index >= 0 ? placed.geometry.topAt(index) + place.offset : top) - THREAD_TOP;
+      const index = indexOfRow(shown, target.rowId, hint);
+      return (index >= 0 ? placed.geometry.topAt(index) : target.top) - THREAD_TOP;
     });
   };
-  const pressUpRef = useRef(pressUp);
-  pressUpRef.current = pressUp;
-  // Esc goes back while Jump up holds a way back, unless something before it took the key (the
-  // composer's Esc that arms Stop, a menu, a picker): those call preventDefault.
-  useEffect(() => {
-    if (!jumpBackHeld) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-      pressUpRef.current();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [jumpBackHeld]);
-  // Another chat: its own places, nothing held from this one.
-  useLayoutEffect(() => {
-    stoppedMark.current = undefined;
-    jumpBack.current = undefined;
-    setJumpBackHeld(false);
-  }, [sessionId]);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -5477,29 +5419,54 @@ function TranscriptView({
   if (renderFollowing || below <= FOLLOW_BOTTOM_DEADBAND_PX) jumpShown.current = false;
   else if (below > JUMP_LATEST_DISTANCE && !bottomStackFold.current) jumpShown.current = true;
   const behind = jumpShown.current;
-  // Jump up (jumpUp.ts): where the reader left off, while it is off screen. The unread "New" line
-  // first while it is unread, else the newer of their last prompt and where they last stopped.
-  const unreadView = useSyncExternalStore(subscribeUnread, readUnread, readUnread);
+  // The one jump control (jumpControl.ts): up to the first unseen row while it lies above the view,
+  // else down to the latest message while away from it, else nothing. Only rows after the reader's
+  // seen cursor by an agent or another person send it up (Leo, 2026-11-10: "this should be more
+  // selective"), never their last prompt or last stop, and nothing a restart or reconnect did.
+  // Per frame: amortized O(1) for the first unseen row, O(log n) for the rows in view.
   const sinceIndex = sinceKey !== undefined ? indexOfRow(rows, SINCE_DIVIDER, sinceHint) : -1;
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
-  const ownPrompt = jumpButton ? lastOwnPrompt(rows, promptScan, promptAuthor) : undefined;
-  const upUnread = jumpButton && sinceRow !== undefined && unreadPending(sinceKey, unreadView);
-  const upTarget = jumpButton
-    ? jumpUpTarget(
-        upUnread ? SINCE_DIVIDER : undefined,
-        ownPrompt && { place: { rowId: ownPrompt.id, offset: 0 }, at: ownPrompt.at, why: "sent" },
-        stoppedMark.current,
-      )
-    : undefined;
-  const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
-  const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
-  const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
-  const upShown = jumpButton && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
-  const upTopRef = useRef({ top: upTop, place: upTarget });
-  upTopRef.current = { top: upTop, place: upTarget };
-  // The button's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
+  const unseenIndex = jumpButton ? firstUnseen(rows, readThrough, unseenScan, promptAuthor) : -1;
+  // The rows the reader sees, in layout px: rows draw THREAD_TOP under their layout tops, and the
+  // floating tab row and the dock cover the view's edges.
+  const viewTop = shownTop - THREAD_TOP;
+  const inView = jumpButton
+    ? visibleRows(layout.geometry, viewTop, viewTop + height - topInset - dockSpace)
+    : { first: 0, last: -1 };
+  const unseenAbove = unseenIndex >= 0 && unseenIndex < inView.first;
+  const control: JumpControl = jumpButton
+    ? jumpControl({
+        unseenAbove,
+        behind,
+        asks: needsYou?.count ?? 0,
+        asksElsewhere: needsYou?.elsewhere ?? 0,
+      })
+    : { kind: "hidden" };
+  // Hidden, it keeps the jump it last drew while it fades out: its arrow never turns mid-fade.
+  const lastControl = useRef<JumpControl>({ kind: "latest" });
+  const drawnControl = control.kind === "hidden" ? lastControl.current : control;
+  lastControl.current = drawnControl;
+  // Where a press goes: the "New" line when it sits just over the first unseen row (only rows that
+  // never count between them, the reader's own prompt), else that row.
+  const upRow = unseenIndex >= 0 ? sinceOver(rows, unseenIndex, sinceIndex) : -1;
+  const upTargetRef = useRef<{ rowId: string; top: number } | undefined>(undefined);
+  upTargetRef.current = upRow >= 0 ? { rowId: rows[upRow]!.id, top: layout.geometry.topAt(upRow) } : undefined;
+  const [upBadge] = useState(() => experimentArm(jumpUpBadge));
+  const upTurns = drawnControl.kind === "up" && upBadge === "count" ? unseenTurns(rows, unseenIndex) : 0;
+  // What is in view is seen once the reader attends (the client decides that): reported when it
+  // changes, never past an unseen row above the view.
+  const seenCandidate =
+    jumpButton && readThrough !== undefined ? seenThrough(rows, inView, unseenIndex, promptAuthor) : undefined;
+  const seenReport = useRef(onSeenThrough);
+  seenReport.current = onSeenThrough;
+  // Undefined too: an unseen row went above the view, and what was in view before is no longer
+  // what the reader would see when they come back to the window.
+  useEffect(() => {
+    seenReport.current?.(seenCandidate);
+  }, [seenCandidate]);
+  // The control's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
   // moves in the same frame the button starts to fade in or out.
-  const jumpVisible = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
+  const jumpVisible = control.kind !== "hidden";
   const jumpShownReport = useRef(onJumpShownChange);
   jumpShownReport.current = onJumpShownChange;
   useLayoutEffect(() => {
@@ -5560,7 +5527,7 @@ function TranscriptView({
           data-fade-bottom={fadesBelow(renderFollowing, below) || undefined}
           // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
           // out of sight behind it instead of reading through its glass.
-          data-jump-shown={(jumpButton && behind) || undefined}
+          data-jump-shown={jumpVisible || undefined}
           // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
           // scroll a row into view above it.
           data-docked={dockSpace > 0 || undefined}
@@ -5761,14 +5728,13 @@ function TranscriptView({
           </div>
         )}
         {jumpButton && (
-          <JumpUp shown={upShown} back={jumpBackHeld} unread={upUnread} onJump={() => pressUp()} lift={dockSpace} />
-        )}
-        {jumpButton && (
           <JumpToLatest
             // The pill also shows at the latest message while the chats this chat started wait: it cycles to them.
-            shown={behind || (needsYou?.elsewhere ?? 0) > 0}
+            shown={jumpVisible}
             working={working}
+            up={drawnControl.kind === "up" ? { badge: upBadge, turns: upTurns } : undefined}
             onJump={(focused) => {
+              if (control.kind === "up") return pressUp();
               // One press, one move: to the latest message when this chat's ask waits there (or no
               // ask is open), else straight to the next chat's ask.
               // With no ask open it is Jump to latest, whatever the last render read for `behind`.

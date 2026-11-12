@@ -1,5 +1,6 @@
-// The real VirtualTranscript with the unread "New" line in its rows, as a person sees it coming back
-// to a chat that kept working while they were away from it (attention.ts, acpmux hub/seen.rs). The
+// The real VirtualTranscript with the unread "New" line in its rows and the reader's seen cursor
+// (`readThrough`), as a person sees it coming back to a chat that kept working while they were away
+// from it (acpmux hub/seen.rs `read_through`, jumpControl.ts). The
 // browser test (agent-pane-unread-jump.browser.test.ts) presses Jump up, remounts the transcript as a
 // tab switch inside the page does, and reads where the line lands.
 import { createRoot, type Root } from "react-dom/client";
@@ -23,6 +24,7 @@ Object.assign(host.style, { height: "100%", display: "flex", flexDirection: "col
 let view: Root | undefined;
 let shown: AcpmuxRow[] = [];
 let sinceKey: string | undefined;
+let readThrough: number | undefined;
 
 const draw = () =>
   view?.render(
@@ -30,6 +32,7 @@ const draw = () =>
       rows={turnView(shown, new Set())}
       sessionId="unread-jump"
       sinceKey={sinceKey}
+      readThrough={readThrough}
       onToggleActivity={() => {}}
       expanded={new Set()}
       sends={0}
@@ -43,12 +46,13 @@ const mount = () => {
 mount();
 
 const api = window as unknown as {
-  __showRows(rows: AcpmuxRow[], since?: string): void;
+  __showRows(rows: AcpmuxRow[], since?: string, through?: number): void;
   __remount(): void;
 };
-api.__showRows = (rows, since) => {
+api.__showRows = (rows, since, through) => {
   shown = rows;
   sinceKey = since;
+  readThrough = through;
   flushSync(draw);
 };
 /// Unmounts the transcript and mounts it again on the same rows: the unread mark's state lives

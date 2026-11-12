@@ -1,5 +1,5 @@
-// Jump up (jumpUp.ts) glides to where the reader left off, on Jump to latest's ride, instead of cutting
-// there in one frame (Leo, 2026-11-11: "This kind of thing needs to happen a h*ll of a lot more
+// Jump up (jumpControl.ts) glides to the first row the reader has not seen, on Jump to latest's ride,
+// instead of cutting there in one frame (Leo, 2026-11-11: "This kind of thing needs to happen a h*ll of a lot more
 // gracefully than whatever's going on here."). A long way skips at once to one viewport from the
 // place and eases the rest; the way back glides too.
 import { afterAll, expect, test } from "bun:test";
@@ -61,12 +61,20 @@ afterAll(async () => {
   }
 });
 
-const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
-// One prompt, then a long reply: the prompt (where the reader left off) is many viewports up.
+const row = (id: string, kind: string, seq: number, text?: string): AcpmuxRow => ({
+  id,
+  kind,
+  seq,
+  text,
+  version: 1,
+  at: 1,
+});
+// One prompt the reader saw (their cursor), then a long reply they did not: its first row is many
+// viewports up.
 const rows: AcpmuxRow[] = [
-  row("prompt", "user", "Look into the failing build."),
+  row("prompt", "user", 1, "Look into the failing build."),
   ...Array.from({ length: 80 }, (_, index) =>
-    row(`answer-${index}`, "assistant", `Step ${index}.\n\nWith a second paragraph so the row has height.`),
+    row(`answer-${index}`, "assistant", index + 2, `Step ${index}.\n\nWith a second paragraph so the row has height.`),
   ),
 ];
 const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
@@ -93,6 +101,7 @@ test("Jump up glides to the place and back, never cutting a viewport or more in 
       root.render(
         <VirtualTranscript
           rows={turnView(rows, expanded)}
+          readThrough={1}
           jumpButton
           onToggleActivity={() => {}}
           expanded={expanded}
@@ -106,6 +115,7 @@ test("Jump up glides to the place and back, never cutting a viewport or more in 
     expect(scroller.scrollTop).toBe(end);
     const up = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-jump-up")!;
     expect(up.hasAttribute("data-shown")).toBe(true);
+    expect(up.getAttribute("data-jump")).toBe("up");
 
     await act(async () => up.click());
     // The press skips the far middle at once, to one viewport from the place: not there yet.
@@ -121,10 +131,10 @@ test("Jump up glides to the place and back, never cutting a viewport or more in 
       expect(upFrames[i]!).toBeLessThanOrEqual(upFrames[i - 1]!);
       expect(upFrames[i - 1]! - upFrames[i]!).toBeLessThan(VIEWPORT);
     }
-    // The glide's own steps are not the reader's stop: the button still holds the way back.
-    expect(up.hasAttribute("data-back")).toBe(true);
+    // There the first unseen row is in view: the same control is Jump to latest now.
+    expect(up.getAttribute("data-jump")).toBe("latest");
 
-    // The second press goes back to the latest message, also on a glide.
+    // A second press goes back to the latest message, also on a glide.
     await act(async () => up.click());
     const backFrames = [scroller.scrollTop, ...(await frames(scroller))];
     expect(backFrames.at(-1)).toBe(scrollerEnd(scroller));

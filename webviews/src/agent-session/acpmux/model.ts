@@ -1396,6 +1396,9 @@ export type AcpmuxSnapshot = {
   /// The mark of "New since you looked" drawn in the rows (`SINCE_DIVIDER`, its `key`): Jump to new
   /// follows it.
   sinceKey?: string;
+  /// The reader's seen cursor on this chat, a log seq (direct.ts `readCursor`, acpmux hub/seen.rs
+  /// `read_through`): rows after it by an agent or another person are unseen (jumpControl.ts).
+  readThrough?: number;
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
