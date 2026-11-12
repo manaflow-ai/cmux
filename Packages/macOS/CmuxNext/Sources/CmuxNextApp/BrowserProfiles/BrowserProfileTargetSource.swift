@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextBookmarks
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextPalette
@@ -17,16 +18,19 @@ final class BrowserProfileTargetSource: PaletteTargetSource {
     }
 
     func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
-        if kind == .bookmark {
-            let profile = BookmarkResolver(services: services).profile(ActionInvocation())
-            return services.bookmarks.tree(profile).bookmarks.map {
-                PaletteTargetOption(id: $0.id, title: $0.displayTitle, subtitle: $0.url?.host, symbol: "star")
-            }
-        }
+        if kind == .bookmark { return bookmarks(source: nil) }
         guard kind == .browserProfile else { return next.targets(of: kind) }
         return services.browserProfiles.ordered.map { record in
             PaletteTargetOption(id: record.id, title: record.name, subtitle: record.icon, symbol: record.isDefault ? "person.crop.circle" : "person.crop.circle.fill")
         }
+    }
+
+    /// An action's catalog narrows this profile's nodes to URLs or folders.
+    func bookmarks(source: String?) -> [PaletteTargetOption] {
+        let profile = BookmarkResolver(services: services).profile(ActionInvocation())
+        return services.bookmarks.tree(profile).ordered.filter {
+            source == "bookmarkFolders" ? $0.isFolder : source == "bookmarks" ? !$0.isFolder : true
+        }.map { PaletteTargetOption(id: $0.id, title: $0.displayTitle, subtitle: $0.url?.host, symbol: $0.isFolder ? "folder" : "star") }
     }
 
     /// Descriptions belong to kinds `next` lists.

@@ -75,12 +75,26 @@ enum PaletteSourcesBridge {
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
         let sections = SidebarSectionTargetSource(services: services, next: spaces)
         let groups = TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
+        var bookmarkTargets: any PaletteTargetSource = groups
+        let bookmarkSources: [String?] = [nil, "bookmarks", "bookmarkFolders"]
+        for source in bookmarkSources {
+            let actions = Set(services.registry.descriptors.filter { $0.paletteTarget == .bookmark && $0.paletteTargetSource == source }.map(\.id))
+            bookmarkTargets = RefreshingPaletteTargetSource(kind: .bookmark, actions: actions, next: bookmarkTargets,
+                                                            read: { profiles.bookmarks(source: source) })
+        }
         let descriptors = services.registry.descriptors.filter { $0.paletteTarget == .machine }
         let all = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == nil }.map(\.id)),
-                                                next: groups, read: { windows.machines(includeDisconnected: true) })
+                                                next: bookmarkTargets, read: { windows.machines(includeDisconnected: true) })
         let remote = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "remote" }.map(\.id)),
                                                    next: all, read: { windows.machines(includeDisconnected: true).filter { $0.id != MachineRegistry.localID } })
-        let ssh = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "ssh" }.map(\.id)), next: remote) { [weak services] in
+        let remoteGroups = RefreshingPaletteTargetSource(kind: .machine, actions: ["remote.removeGroup"], next: remote) { [weak services] in
+            guard let services, let store = services.sidebarDoc.activeStore else { return [] }
+            return windows.machines(includeDisconnected: true).filter {
+                guard let session = services.machines.anyDaemon(machine: $0.id)?.store.registryID else { return false }
+                return store.records.sections["sec_m_\(session)"]?.hostGroup == true
+            }
+        }
+        let ssh = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "ssh" }.map(\.id)), next: remoteGroups) { [weak services] in
             guard let services else { return [] }
             let rows = services.machines.ssh.map { PaletteTargetOption(id: $0.machineID, title: $0.host.label, symbol: "server.rack") }
             guard rows.isEmpty, let title = services.registry.title(for: "machine.add") else { return rows }
