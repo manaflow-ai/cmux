@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb.
+// cmux-tui mux protocol 12, IR 171330201d11c2429081f13ed3be4a8847c540a74f0391d1b9804ad004e870f5.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -311,6 +311,18 @@ pub struct BrowserWheelGuardedRequest {
 
 #[rustfmt::skip]
 pub type BrowserWheelGuardedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelCreatingInputRequest {
+    pub terminal_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelCreatingInputResult {
+    pub cancelled: bool,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4419,6 +4431,10 @@ impl CmuxClient {
 
     pub fn browser_wheel_guarded(&mut self, request: BrowserWheelGuardedRequest) -> Result<BrowserWheelGuardedResult> {
         self.execute(&BROWSER_WHEEL_GUARDED_METADATA, &request)
+    }
+
+    pub fn cancel_creating_input(&mut self, request: CancelCreatingInputRequest) -> Result<CancelCreatingInputResult> {
+        self.execute(&CANCEL_CREATING_INPUT_METADATA, &request)
     }
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {

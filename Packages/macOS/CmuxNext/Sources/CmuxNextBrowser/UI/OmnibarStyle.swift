@@ -51,10 +51,15 @@ enum OmnibarStyle {
     static func toolbarHeight(scale: CGFloat, withButtons: Bool = true) -> CGFloat {
         toolbarTopPadding(scale: scale) + rowContentHeight(withButtons: withButtons) + chromeGap(scale: scale)
     }
-    /// Horizontal interior margin: the pane's chrome line, so the first
-    /// button's hover shape starts where the tab pills above it start and
-    /// its glyph near the tabs' icons (`Metrics.paneChromeInset`).
-    static var toolbarInset: CGFloat { Metrics.paneChromeInset }
+    /// Horizontal interior margin: the back arrow's ink starts where the first tab's icon does
+    /// (`Metrics.firstTabIconLeading`; Lawrence 2026-11-09: "we need proper left alignment of back
+    /// arrow and the first icon of the first tab"). The arrow's ink box is
+    /// `DensityTokens.toolbarGlyphInkRatio` of its glyph, centered in the square button.
+    static var toolbarInset: CGFloat {
+        let glyph = toolbarIconSize
+        let inkLeading = (buttonSize - glyph) / 2 + glyph * (1 - DensityTokens.toolbarGlyphInkRatio) / 2
+        return max(0, Metrics.firstTabIconLeading - inkLeading)
+    }
     /// Toolbar buttons: square, Helium's 28 pt at Standard (`kToolbarButtonHeight` 28),
     /// Chrome's 34 at Comfortable, by density (`OmnibarMetrics`).
     static var buttonSize: CGFloat { metrics.buttonSize }
