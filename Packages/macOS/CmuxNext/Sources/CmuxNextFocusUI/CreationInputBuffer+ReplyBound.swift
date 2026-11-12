@@ -76,11 +76,11 @@ extension CreationInputBuffer {
         onBound?(self, .limit)
     }
 
-    /// Held keys of a new workspace's terminal that never run: the log says how many and why.
+    /// Held keys of a new workspace's or a new tab's terminal that never run: the log says how many and why.
     static func logDropped(_ count: Int, why: String) {
         guard count > 0 else { return }
         Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
-            .notice("\(count, privacy: .public) key(s) typed for a new workspace's terminal dropped: \(why, privacy: .public)")
+            .notice("\(count, privacy: .public) key(s) typed for a new terminal dropped: \(why, privacy: .public)")
     }
 
     /// Window `window` of the hold is gone: the keys held for a terminal, as runs for each terminal in typing order. A key
