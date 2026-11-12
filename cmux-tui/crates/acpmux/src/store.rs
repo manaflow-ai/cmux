@@ -1839,6 +1839,9 @@ impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         // No sessions folder yet: no chat. One that is there and does not read is a failed list,
         // never an empty one: an empty list proves every chat gone (`hub/hosts.rs`).
+        if !crate::home_fs::try_exists_nofollow(&self.root)? {
+            return Ok(Vec::new());
+        }
         let root = match crate::home_fs::PrivateDir::open(&self.root) {
             Ok(root) => root,
             Err(error) if is_not_found(&error) => return Ok(Vec::new()),
@@ -1895,6 +1898,10 @@ impl Store for LocalStore {
     }
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
+        // An absent chat needs only search access, before opening folders for reading.
+        if !crate::home_fs::try_exists_nofollow(self.dir(id))? {
+            return Ok(None);
+        }
         let root = match crate::home_fs::PrivateDir::open(&self.root) {
             Err(error) if is_not_found(&error) => return Ok(None),
             other => other?,
