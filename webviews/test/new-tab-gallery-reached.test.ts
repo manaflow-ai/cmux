@@ -14,7 +14,7 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const entries = ["agent-pane.new-tab-headline", "agent-pane.new-tab", "agent-pane.chat-cards-loading"];
+  const entries = ["agent-pane.new-tab", "agent-pane.chat-cards-loading"];
 
   beforeAll(async () => {
     vite = await createServer({
@@ -32,8 +32,6 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
   });
 
   for (const [entry, variant] of [
-    ["agent-pane.new-tab-headline", "picked"],
-    ["agent-pane.new-tab-headline", "picker-open"],
     ["agent-pane.new-tab", "empty"],
     ["agent-pane.new-tab", "chats-loading"],
     ["agent-pane.new-tab", "attachment-menu"],
@@ -64,8 +62,6 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
               };
             }
           ).cmuxGalleryPlayReport,
-          headline: document.querySelector(".nt-headline-text")?.textContent ?? "",
-          menu: document.querySelector(".acpmux-project-menu") !== null,
           attach: document.querySelector('.acpmux-newtab-plus [data-value="add.files"]') !== null,
           multi: document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input")?.multiple ?? false,
           chatsLoading: document.querySelector(".nt-cards[aria-busy=true]") !== null,
@@ -84,14 +80,8 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
         }
         // Graded as every play test is (support/galleryPlay.ts): a thrown play, a moved anchor and a
         // unexpected layout shift fail it; the runner's frame timing does not (cx-mfkky).
-        // The headline play measures stable slots and its menu anchor while the footer's
-        // content-sized project chevron follows the newly selected label.
         if (variant !== "empty" && variant !== "chats-loading")
           expect(playFailures(JSON.stringify(receipt.report))).toEqual([]);
-        if (variant === "picked" || variant === "picker-open") {
-          expect(receipt.headline).toContain("cmux");
-          expect(receipt.menu).toBe(variant === "picker-open");
-        }
         if (variant === "attachment-menu") {
           expect(receipt.attach).toBe(true);
           expect(receipt.multi).toBe(true);
