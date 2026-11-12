@@ -549,6 +549,20 @@ class SingleHostFallbacks(unittest.TestCase):
             with self.subTest(runs_on=value):
                 self.assertEqual(self.runs_on(value), [])
 
+
+    def test_review_f3_a_literal_fromjson_runner_array_is_scanned(self) -> None:
+        label = "glaeda-runner-cmux22-review"
+        findings = self.runs_on(f"${{{{ fromJSON('[\"{label}\"]') }}}}")
+        self.assertTrue([f for f in findings if f"{label} is a single-host label" in f], findings)
+
+    def test_review_p2_an_unsettled_wrapped_reusable_input_is_not_accepted(self) -> None:
+        callee = ("on:\n  workflow_call:\n    inputs:\n      runner: {type: string}\n"
+                  "jobs:\n  a:\n    runs-on: ${{ format('{0}', inputs.runner) }}\n")
+        caller = ("jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n"
+                  "      runner: ${{ vars.NEW_X }}\n")
+        findings = self.scan({"callee.yml": callee, "caller.yml": caller})
+        self.assertTrue([f for f in findings if "cannot settle" in f], findings)
+
     def test_a_variable_whose_name_is_an_expression_fails(self) -> None:
         text = ("jobs:\n  a:\n    strategy:\n      matrix:\n        os: [mac]\n"
                 "    runs-on: ${{ vars[format('RUNNER_{0}', matrix.os)] }}\n")
@@ -1100,6 +1114,24 @@ class DeletedCheckInputs(unittest.TestCase):
         self.workflow("c.yml", "${{ vars.NEW_X }}")
         self.commit("head")
         self.assertEqual(self.layer(), [])
+
+    def test_a_directory_or_dangling_symlink_declaration_refuses_the_scan(self) -> None:
+        self.checker(None)
+        declaration = self.repo / ".github" / "single-host-fallbacks.json"
+        for kind in ("directory", "dangling symlink"):
+            with self.subTest(kind=kind):
+                self.git("checkout", "-q", "--detach", self.base)
+                declaration.unlink()
+                if kind == "directory":
+                    declaration.mkdir()
+                    (declaration / "placeholder").write_text("not a declaration\n", encoding="utf-8")
+                else:
+                    declaration.symlink_to("missing-declaration.json")
+                self.workflow("c.yml", "${{ vars.NEW_X }}")
+                head = self.commit(f"malformed declaration: {kind}")
+                refused = self.gate.single_host_fallback_problems(self.repo, self.base, head, self.installed)
+                self.assertEqual(len(refused), 1, refused)
+                self.assertIn("must be a regular file", refused[0])
 
     def write(self, path: str, text: str) -> None:
         target = self.repo / path

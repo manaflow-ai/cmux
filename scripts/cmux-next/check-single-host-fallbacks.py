@@ -251,7 +251,8 @@ def _split_top(text: str, operator: str) -> list[str]:
 def settled(term: str) -> bool:
     """Whether every value TERM (an unresolved part of a resolved runs-on) can take is one this policy reads by
     name: a literal, `vars.NAME`, `needs.JOB.outputs.NAME`, `inputs.NAME`, or `fromJSON(<settled>)` with a property
-    chain after it; `a && b` takes b's value, `a || b` either. Anything else may be any label. Fails closed: a term
+    chain after it (of a literal, only one constant_from_json resolves to labels); `a && b` takes b's value, `a || b`
+    either. Anything else may be any label. Fails closed: a term
     the tokenizer cannot read is not settled."""
     wj = load_workflow_jobs()
     text = term.strip()
@@ -292,8 +293,18 @@ def _settled_operand(operand: str) -> bool:
             depth += token == ("op", "(")
             depth -= token == ("op", ")")
             if depth == 0:
-                inner = operand[spans[1].end:spans[index].start]
-                return wj._property_chain(stream[index + 1:]) is not None and settled(inner)
+                inner = operand[spans[1].end:spans[index].start].strip()
+                if wj._property_chain(stream[index + 1:]) is None:
+                    return False
+                while wj._wrapped(inner):
+                    inner = inner[1:-1].strip()
+                literal = wj._token_spans(inner)
+                if len(literal) == 1 and literal[0].kind == "string":
+                    # A constant settles only as the labels it resolves to: constant_from_json leaves `null`, an
+                    # object, `[]` and a key the literal lacks unresolved (review F1 on #41933: `fromJSON('null')`).
+                    chain = operand[spans[index].end:]
+                    return wj.constant_from_json(f"fromJSON({inner}){chain}") is not None
+                return settled(inner)
         return False
     if head in SETTLED_READS:
         names = wj._property_chain(stream[1:])

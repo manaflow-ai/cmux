@@ -366,6 +366,17 @@ class GateRowTest(unittest.TestCase):
                 self.assertEqual(len(found), 1, found)
                 self.assertIsInstance(found[0], gate.NoVerdict, found)
 
+    def test_an_exit_0_the_gate_cannot_read_refuses(self) -> None:
+        # #41888 review (F1): exit 0 with a line in no shape the gate reads counted as clean; it says nothing it can
+        # trust about the files, so it is no verdict, as the same output with exit 1 is.
+        installed = self.old_checker("print('something went sideways')\n")
+        base = self.commit({"tests/test_a.py": LOCKED})
+        head = self.commit({"tests/test_a.py": SHADOWED})
+        found = gate.test_redefinition_problems(self.repo, base, head, trusted_scripts=installed)
+        self.assertEqual(len(found), 1, found)
+        self.assertIsInstance(found[0], gate.NoVerdict, found)
+        self.assertIn("exited 0 with output it cannot read: something went sideways", found[0])
+
     def test_old_debt_in_a_path_with_a_colon_still_subtracts(self) -> None:
         base = self.commit({"tests/test_a:b.py": SHADOWED})
         head = self.commit({"tests/test_a:b.py": "import os\n\n\n" + SHADOWED})
