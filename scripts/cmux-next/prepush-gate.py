@@ -58,6 +58,11 @@ change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
 that note (its 11-character sha) passes. CI also sweeps every commit since the check landed
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
+Also on every push: "Chrome layer look" (schemas/theme/chrome-layer-colors.json): a commit that changes that
+file (the colours ChromeLayerColorTests reads off the sidebar, footer and titlebar in the default themes, plain
+and over a picture), or a hunk of a chrome-layer token source naming a chrome token, carries a `Chrome-Look-OK:`
+trailer quoting Leo: his name and his words in quotes. #39984 dimmed the sidebar for a non-Leo issue (Leo
+2026-11-11: "bro why is the sidebar now a different color?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
 Also on every push: "UI font" (check-ui-font.py): the UI font stays the macOS system font with no
@@ -85,6 +90,11 @@ Also on every local run, the same way: "Runs-on variables declare their single-h
 .github/workflows/ or .github/single-host-fallbacks.json, check-single-host-fallbacks.py (the installed copy for the
 hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
 not already have (cmux#40221 merged two). CI runs it only with --advisory: warnings, never a red step.
+
+Also on every local run, the same way: "Test redefinitions" (check-test-redefinitions.py): each tests/**/*.py file
+the push changes may not define one name twice in one class or module body (ruff/pyflakes F811); only a
+redefinition the head has and the base did not refuses. cmux#41779 landed a second `count_fetches` that replaced the
+locked one, so its parallel test appended from several threads with no lock.
 
 Also on every local run, the same way: "Every Cargo.lock matches its manifests" (cargo-locks.py check): when the push
 changes any Cargo.toml or Cargo.lock, every tracked Cargo.lock in the repository is resolved with
@@ -230,6 +240,8 @@ SCANNERS = (
      ["python3", "-I", "{s}/check-no-raw-spawn.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/raw-spawn-baseline.tsv")),
     ("Every spawn has an owner (cmux_scope::Scope, cmux_process::Child; cmuxterm-hq#9096)",
      ["python3", "-I", "{s}/check-spawn-owner.py", "{root}"], ("cmux-tui/", "scripts/cmux-next/spawn-owner-baseline.tsv")),
+    ("No process-wide test hooks in acpmux (per-thread on_* guards or a serializer, cmux#41350)",
+     ["python3", "-I", "{s}/check-test-hooks.py", "{root}"], ("cmux-tui/crates/acpmux/src/",)),
     ("No app id special cases (zero first-party privilege, docs/app-store-platonic-ideal.md 5)",
      ["python3", "-I", "{s}/check-app-id-special-cases.py", "{root}"],
      (PKG + "/", "cmux-tui/", "first-party-apps/", "scripts/cmux-next/app-id-special-cases-baseline.tsv")),
@@ -280,9 +292,22 @@ FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
+# A test file that defines one name twice in one body keeps only the last (ruff/pyflakes F811): cmux#41779's second
+# `count_fetches` replaced the locked one and its parallel test appended without the lock. Local only, like SwiftFormat.
+REDEFINITION_CHECK = "Test redefinitions (scripts/cmux-next/check-test-redefinitions.py)"
+REDEFINITION_SCRIPT = SCRIPTS + "/check-test-redefinitions.py"
+REDEFINITION_FILE = re.compile(r"^tests/.+\.py$")
+REDEFINITION_LINE = re.compile(r"^(?P<path>[^:]+):\d+: (?P<what>.+?) redefines line \d+")
+REDEFINITION_HINT = ("Keep one definition of each name: Python keeps only the last `def` of a name in a class or module, "
+                     "so the earlier one never runs (a lock it held, a fixture it set up, a test it was). Merge what "
+                     "the two did into the one that stays, then push.")
 CARGO_LOCK_CHECK = "Every Cargo.lock matches its manifests (scripts/cmux-next/cargo-locks.py)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
 CARGO_LOCKS_SCRIPT = SCRIPTS + "/cargo-locks.py"
+# The gate's outer limit on the lock check, and the deadline it gives the check inside it: the check ends its own
+# resolves by then and reports what it could not judge, so this limit is never what ends it (cmux#41742 review F2).
+CARGO_LOCKS_TIMEOUT = 300
+CARGO_LOCKS_DEADLINE = CARGO_LOCKS_TIMEOUT - 45
 CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
               "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
               "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
@@ -297,6 +322,27 @@ SIDEBAR_EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/",
 SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
+# The chrome layer (sidebar, footer, titlebar) keeps its colour unless Leo asks (#39984 laid a 20% black dim on the
+# sidebar for a non-Leo issue; Leo 2026-11-11: "bro why is the sidebar now a different color?", reverted by #41047).
+# ChromeLayerColorTests holds the colours each region paints in the default dark and light themes, plain and over a
+# picture, against CHROME_VECTORS; a commit that changes that file, or a hunk of a chrome-layer token source that
+# names a chrome token, needs a `Chrome-Look-OK:` trailer quoting Leo: his name and his words in quotes.
+CHROME_CHECK = "Chrome layer look (schemas/theme/chrome-layer-colors.json)"
+CHROME_VECTORS = "schemas/theme/chrome-layer-colors.json"
+CHROME_SOURCES = (f"{PKG}/Sources/CmuxNextDesign/Palette.swift",
+                  f"{PKG}/Sources/CmuxNextDesign/PaletteDynamic.swift",
+                  f"{PKG}/Sources/CmuxNextDesign/MainPane.swift",
+                  f"{PKG}/Sources/CmuxNextSidebar/Views/SidebarStyle.swift",
+                  f"{PKG}/Sources/CmuxNextSidebar/Views/SidebarContainerView.swift",
+                  f"{PKG}/Sources/CmuxNextSidebar/Logic/SidebarTunables.swift",
+                  f"{PKG}/Sources/CmuxNextApp/WindowRootView+Surface.swift",
+                  "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift")
+CHROME_TOKENS = re.compile(r"\b(surfaceDim\w*|sidebarDim|sidebarBackground|windowBackground|surfaceBackground|"
+                           r"chromeBackground|sidebarStep|mainPaneChromeShade|mainPaneShade\w*|applySurfaceFill|"
+                           r"SidebarStyle\.ground)\b")
+CHROME_TRAILER = re.compile(r"^Chrome-Look-OK:[ \t]*(\S.*)$", re.MULTILINE)
+CHROME_LEO = re.compile(r"\bLeo\b")
+CHROME_QUOTE = re.compile(r"[\"“][^\"“”]{3,}[\"”]")
 # An added line that opens or closes a conflict hunk (`=======` alone is a Markdown or RST rule).
 CONFLICT_OPEN = re.compile(r"^<{7} ")
 CONFLICT_CLOSE = re.compile(r"^>{7} ")
@@ -1467,8 +1513,12 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     with tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-") as tmp:
         check = Path(tmp) / "cargo-locks.py"
         check.write_bytes(script)
-        # 30 workspaces resolve in parallel from the index (about 4 s); each cargo call has its own 120 s limit.
-        code, out = run(["python3", "-I", str(check), "check", "--repo", str(repo.resolve())], Path(tmp), timeout=300)
+        # 30 workspaces resolve offline in parallel (about 4 s on a warm index); any the cached index cannot answer
+        # then resolve with the network one at a time, each with its own 120 s limit, all inside --deadline.
+        command = ["python3", "-I", str(check), "check", "--repo", str(repo.resolve())]
+        if b"--deadline" in script:  # an older head's copy has no --deadline (and its own default budget)
+            command += ["--deadline", str(CARGO_LOCKS_DEADLINE)]
+        code, out = run(command, Path(tmp), timeout=CARGO_LOCKS_TIMEOUT)
     if code == 124:
         log(f"prepush-gate: Cargo.lock check skipped: {out}")
         return []
@@ -1504,6 +1554,60 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
     return [f"{name}:{n}: {text}" for name, marks in sorted(found.items())
             if any(CONFLICT_OPEN.match(t) for _, t in marks) and any(CONFLICT_CLOSE.match(t) for _, t in marks)
             for n, text in marks]
+
+
+def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
+                               restrict: set[str] | None = None) -> list[str]:
+    """Each name a tests/**/*.py file the push changes defines twice in one class or module body at HEAD and not at
+    BASE (REDEFINITION_CHECK). A finding is keyed by file and dotted name, not line, so moved code is not new.
+
+    The checker is the installed reviewed copy on a hook run, HEAD's own on a plain run; a checker that gives no
+    verdict (a crash, a timeout, an exit other than 0 or 1) refuses."""
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head,
+                            "--", "tests/").decode().split("\0") if n and REDEFINITION_FILE.match(n)]
+    if restrict is not None:
+        names = [n for n in names if n in restrict]
+    if not names:
+        return []
+    if trusted_scripts is None:
+        script = blob_at(repo, head, REDEFINITION_SCRIPT)
+    else:
+        installed = trusted_scripts / Path(REDEFINITION_SCRIPT).name
+        script = installed.read_bytes() if installed.is_file() else None
+    if script is None:
+        log(f"prepush-gate: WARNING: no {Path(REDEFINITION_SCRIPT).name} in the hook's checks copy yet, so the test "
+            "redefinition check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
+        return []
+    with tempfile.TemporaryDirectory(prefix="cmux-redefinitions-") as tmp:
+        work = Path(tmp)
+        (work / "check.py").write_bytes(script)
+
+        def findings(rev: str) -> tuple[list[str], str | None]:
+            tree = work / rev[:12]
+            files = []
+            for name in names:
+                data = blob_at(repo, rev, name)
+                if data is None:
+                    continue
+                (tree / name).parent.mkdir(parents=True, exist_ok=True)
+                (tree / name).write_bytes(data)
+                files.append(name)
+            if not files:
+                return [], None
+            code, out = run(["python3", "-I", str(work / "check.py"), "--root", str(tree), *files], tree)
+            return [line for line in out.splitlines() if REDEFINITION_LINE.match(line)], no_verdict(code, out, (0, 1))
+
+        head_lines, stopped = findings(head)
+        if stopped:
+            return [f"{REDEFINITION_SCRIPT} {stopped}; no verdict, so the push is refused"]
+        base_lines, base_stopped = findings(base)
+
+    def key(line: str) -> tuple[str, str]:
+        match = REDEFINITION_LINE.match(line)
+        return (match["path"], match["what"]) if match else (line, "")
+
+    old = set() if base_stopped else {key(line) for line in base_lines}
+    return [line for line in head_lines if key(line) not in old]
 
 
 def yaml_problem(text: str) -> tuple[bool, str | None]:
@@ -1958,6 +2062,68 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
     return found
 
 
+def chrome_hunks(repo: Path, sha: str, sources: list[str]) -> list[str]:
+    """The chrome-layer token sources among SOURCES whose change in SHA touches a hunk naming a chrome token
+    (`CHROME_TOKENS`, in a changed line or its three lines of context)."""
+    out = git(repo, "show", "--format=", "--no-color", "-U3", sha, "--", *sources, check=False).decode(errors="replace")
+    named: list[str] = []
+    path, hunk, changed = "", [], False
+
+    def close() -> None:
+        if changed and path and path not in named and any(CHROME_TOKENS.search(line) for line in hunk):
+            named.append(path)
+
+    for line in out.split("\n"):
+        if line.startswith("diff --git "):
+            close()
+            path, hunk, changed = line.split(" b/", 1)[-1], [], False
+        elif line.startswith("@@"):
+            close()
+            hunk, changed = [], False
+        elif line.startswith(("+++", "---")):
+            continue
+        elif line[:1] in ("+", "-", " "):
+            hunk.append(line[1:])
+            changed = changed or line[:1] != " "
+    close()
+    return named
+
+
+def chrome_look(repo: Path, base: str, head: str) -> list[str]:
+    """Each pushed commit that changes the chrome layer's recorded colours (`CHROME_VECTORS`) or a chrome token in
+    its sources (`CHROME_SOURCES`) without a `Chrome-Look-OK:` trailer quoting Leo (his name and quoted words).
+
+    Checked per commit, like the sidebar owner, so a later commit cannot launder an earlier one. Leo's ask
+    (2026-11-11, after #39984 dimmed the sidebar for a non-Leo issue): a chrome-layer token change fails unless
+    the pull request quotes him. ChromeLayerColorTests fails on any change to what those regions paint until the
+    file is rewritten, so a colour change reaches this rule through the file even from an unlisted source."""
+    found: list[str] = []
+    watched = [CHROME_VECTORS, *CHROME_SOURCES]
+    out = git(repo, "log", "--reverse", "--no-merges", "--name-only", "--format=%x1e%H%x1f%B%x1f",
+              f"{base}..{head}", "--", *watched, check=False).decode(errors="replace")
+    for record in out.split("\x1e")[1:]:
+        sha, message, names = (record.split("\x1f") + ["", ""])[:3]
+        files = [f for f in names.split("\n") if f in watched]
+        if not files:
+            continue
+        touched = ([CHROME_VECTORS] if CHROME_VECTORS in files else []) + chrome_hunks(
+            repo, sha, [f for f in files if f != CHROME_VECTORS])
+        if not touched:
+            continue
+        trailer = CHROME_TRAILER.search(message)
+        words = trailer.group(1).strip() if trailer else ""
+        if CHROME_LEO.search(words) and CHROME_QUOTE.search(words):
+            continue
+        subject = message.strip().splitlines()[0] if message.strip() else ""
+        where = f"{sha[:11]} {subject[:70]} ({touched[0]}{f' and {len(touched) - 1} more' if len(touched) > 1 else ''})"
+        why = ("no `Chrome-Look-OK:` trailer" if trailer is None else
+               f"`Chrome-Look-OK: {words[:60]}` does not quote Leo (his name and his words in quotes)")
+        found.append(f"{where}: changes the chrome layer's colour (sidebar, footer, titlebar) with {why}. The chrome "
+                     "keeps its colour unless Leo asks: add `Chrome-Look-OK: Leo <date> \"<his words>\"`, or leave "
+                     f"the chrome tokens and {CHROME_VECTORS} as they are.")
+    return found
+
+
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
          restrict: set[str] | None = None, swiftformat_layer: bool = False,
@@ -1995,10 +2161,19 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
+    # Local only, like SwiftFormat (CLAUDE.md: no new CI gates).
+    if highlights_layer if only is None else "redefinitions" in only:
+        redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
+        if redefined:
+            reserved.append((REDEFINITION_CHECK, redefined))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
             reserved.append((SIDEBAR_CHECK, owner))
+    if only is None or "chrome" in only:
+        chrome = chrome_look(repo, base, head)
+        if chrome:
+            reserved.append((CHROME_CHECK, chrome))
     if only is None or "freeze" in only:
         frozen = window_freezes(repo, base, head)
         if frozen:
@@ -2757,7 +2932,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
-                                       "single-host-fallbacks")
+                                       "single-host-fallbacks,redefinitions")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
@@ -2827,8 +3002,11 @@ def main(argv: list[str] | None = None) -> int:
             pushed_lines = sys.stdin.read().splitlines()
             ranges, errors = push_range.pushed_ranges(repo, pushed_lines, args.remote)
         else:
+            # A run by hand fetches the shared base first, as a push does (push_range.manual_range); an installed
+            # copy older than it has only own_range.
+            manual = getattr(push_range, "manual_range", None) or push_range.own_range
             ranges, errors = [push_range.given_range(repo, args.base, args.head) if args.base
-                              else push_range.own_range(repo, args.head)], []
+                              else manual(repo, args.head)], []
     except ValueError as error:  # a git call failed (a commit gone between two reads)
         ranges, errors = [], [str(error)]
     if errors:
@@ -2895,6 +3073,9 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == SIDEBAR_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {SIDEBAR_CHECK}. Amend the commit with a "
               "`Sidebar-Look:` trailer (and the note for a visual change); the sidebar owner keeps the look.")
+    elif skip and any(name == CHROME_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CHROME_CHECK}. The chrome layer keeps its "
+              "colour unless Leo asks, quoted in a `Chrome-Look-OK: Leo <date> \"<his words>\"` commit trailer.")
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
@@ -2924,6 +3105,8 @@ def main(argv: list[str] | None = None) -> int:
         print(CRASH_RATCHET_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
         print(WORKFLOW_HINT)
+    if any(name == REDEFINITION_CHECK for name, _ in found_any):
+        print(REDEFINITION_HINT)
     print(HOW_TO_FIX)
     print(f"prepush-gate: push refused ({elapsed:.1f}s)")
     return 1

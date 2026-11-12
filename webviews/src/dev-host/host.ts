@@ -176,7 +176,14 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
       (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt ??= performance.now();
       return { ok: true, value: null };
     case "session.persist":
-    case "chat.persistSession":
+    case "chat.persistSession": {
+      // As slow as the app's answer can be, for frame tests (`cmuxDevPersistMs`): a send's row must
+      // never wait on it in a started chat.
+      const ms = (window as { cmuxDevPersistMs?: number }).cmuxDevPersistMs;
+      return ms
+        ? new Promise((resolve) => setTimeout(() => resolve({ ok: true, value: null }), ms))
+        : { ok: true, value: null };
+    }
     case "pane.checkpointAvailability":
     case "pane.commandAvailability":
     case "pane.clientReady":
@@ -184,7 +191,6 @@ export function devHostReply(host: DevHostParams, request: Request): DevHostRepl
     case "pane.tabRowTools":
     case "newTab.remember":
     case "newTab.setTemplate":
-    case "newTab.editWidgets":
     case "nowPlaying.command":
     case "newTab.touched":
     case "newTab.warm":

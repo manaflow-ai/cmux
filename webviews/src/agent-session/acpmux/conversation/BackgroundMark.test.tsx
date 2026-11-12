@@ -24,6 +24,7 @@ import {
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { CommandRow } from "./CommandRow";
 import { ToolRow } from "./ToolRow";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -60,6 +61,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

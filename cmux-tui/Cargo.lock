@@ -47,6 +47,7 @@ dependencies = [
  "cmux-transport",
  "cmux-tui-platform",
  "cmux-unix-socket",
+ "cmux-usage-patterns",
  "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
@@ -64,6 +65,7 @@ dependencies = [
  "notify",
  "plist",
  "png",
+ "proc-macro2",
  "proptest",
  "pulldown-cmark",
  "ratatui",
@@ -78,6 +80,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signal-hook-registry",
+ "syn 2.0.119",
  "syntect",
  "tar",
  "tempfile",
@@ -1174,6 +1177,7 @@ dependencies = [
  "bytes",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-machine",
  "cmux-cloud-wire",
  "futures",
  "getrandom 0.3.4",
@@ -1366,6 +1370,19 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "cmux-customize"
+version = "0.1.0"
+dependencies = [
+ "cmux-app-manifest",
+ "cmux-config",
+ "fs4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
  "tempfile",
 ]
 
@@ -1647,6 +1664,7 @@ dependencies = [
 name = "cmux-palette-eval"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "cmux-palette-ranker",
  "serde",
  "serde_json",
@@ -1818,6 +1836,7 @@ dependencies = [
  "rand_core 0.9.5",
  "rcgen",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2041,10 +2060,12 @@ dependencies = [
  "cmux-cloud-codex-holder",
  "cmux-cloud-config",
  "cmux-cloud-environment",
+ "cmux-cloud-machine",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
+ "cmux-customize",
  "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
@@ -2070,6 +2091,7 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-unix-socket",
+ "cmux-usage-patterns",
  "cmux-vm",
  "cmux-vnc",
  "cmux-wg",
@@ -2189,6 +2211,7 @@ dependencies = [
  "cmux-tui-util",
  "cmux-unix-socket",
  "cmux-url-input",
+ "cmux-usage-patterns",
  "flate2",
  "fs4",
  "futures-util",
@@ -2329,6 +2352,18 @@ dependencies = [
 [[package]]
 name = "cmux-url-input"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-usage-patterns"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cmux-config",
+ "cmux-tui-platform",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "cmux-vault-egress"
