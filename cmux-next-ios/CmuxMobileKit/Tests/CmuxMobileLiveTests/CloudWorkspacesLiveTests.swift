@@ -11,7 +11,7 @@ final class RecordingLink: MacLink, @unchecked Sendable {
     private let inner: any MacLink
     private let lock = NSLock()
     private var opened: [String] = []
-    var transport: TransportKind { inner.transport }
+    var transport: CmuxMobileTransport.TransportKind { inner.transport }
     var states: AsyncStream<LinkState> { inner.states }
     var connectedPath: LinkPathKind? { inner.connectedPath }
     var services: [String] { lock.withLock { opened } }
@@ -38,15 +38,15 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
     private let lock = NSLock()
     private var links: [String: [RecordingLink]] = [:]
     private var refusals: [String: LinkError] = [:]
-    private var transports: [TransportKind] = []
+    private var transports: [CmuxMobileTransport.TransportKind] = []
 
     func refuse(_ machineID: String, _ error: LinkError?) { lock.withLock { refusals[machineID] = error } }
     func dials(_ machineID: String) -> Int { lock.withLock { (links[machineID]?.count ?? 0) + (refused[machineID] ?? 0) } }
     func services(_ machineID: String) -> [String] { lock.withLock { links[machineID]?.flatMap(\.services) ?? [] } }
-    var dialedTransports: [TransportKind] { lock.withLock { transports } }
+    var dialedTransports: [CmuxMobileTransport.TransportKind] { lock.withLock { transports } }
     private var refused: [String: Int] = [:]
 
-    func dial(_ endpoint: LinkEndpoint, transport: TransportKind, accessToken: String) async throws -> any MacLink {
+    func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
         let id = endpoint.macDeviceID
         if let error = lock.withLock({ () -> LinkError? in
             transports.append(transport)
