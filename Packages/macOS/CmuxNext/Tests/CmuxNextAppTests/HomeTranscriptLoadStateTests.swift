@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxHomeCore
 @testable import CmuxNextHome
+import CmuxNextDesign
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -175,6 +176,47 @@ import Testing
         view.layoutSubtreeIfNeeded()
         #expect(view.loadState.overRowsBand == 0)
         #expect(view.transcript.rowsTopClearance == 0, "the band outlived the load state")
+    }
+
+    /// Round 6 (verifier M1): over drawn rows the label's frame was its text's intrinsic width
+    /// (without the label's side padding) and one line tall, so the text wrapped inside it and the
+    /// frame cut off the second line: "Loading messages…" read "Loading", "Couldn't load messages."
+    /// read "Couldn't load". In every state, over rows and centered, wide and narrow, the label's
+    /// frame holds its whole text, and the band over rows is as tall as the chip it holds.
+    @Test(arguments: [TranscriptWindow.FirstPage.loading, .failed])
+    func theLabelsFrameHoldsItsWholeText(_ state: TranscriptWindow.FirstPage) {
+        for overRows in [true, false] {
+            for width in [640.0, 180.0] as [CGFloat] {
+                let view = HomeTranscriptLoadStateView(frame: CGRect(x: 0, y: 0, width: width, height: 480))
+                view.show(state, overRows: overRows)
+                view.layoutSubtreeIfNeeded()
+                let label = view.label, frame = label.frame
+                let text = label.stringValue
+                let place = "\(state) overRows=\(overRows) width=\(width)"
+                #expect(!text.isEmpty, "\(place): no text")
+                // The text's own height at the frame's width (every line it wraps to) fits the frame.
+                let needed = label.size(forWidth: frame.width)
+                #expect(needed.height <= frame.height + 0.5,
+                        "\(place): \"\(text)\" needs \(needed.height) pt at \(frame.width) pt; the frame is \(frame.height) pt tall")
+                // Independent of the label's measure: as wide as the text set in its font (plus the
+                // label's 2 pt each side) whenever that fits the view, i.e. one line.
+                let line = NSAttributedString(string: text, attributes: [.font: label.font ?? Typography.body]).size()
+                if line.width + 4 + 2 * (24 + HomeTranscriptLoadStateView.chipPadding.width) <= width {
+                    #expect(frame.width >= ceil(line.width) + 4 - 0.5,
+                            "\(place): \"\(text)\" is \(line.width) pt on one line; the frame is \(frame.width) pt wide")
+                    #expect(frame.height < 2 * ceil(line.height), "\(place): a line that fits wrapped")
+                }
+                #expect(frame.minX >= 0 && frame.maxX <= width, "\(place): the label runs out of the view")
+                if overRows {
+                    #expect(view.chip.frame.contains(frame), "\(place): the label sits outside its chip")
+                    #expect(view.overRowsBand >= view.chip.frame.maxY + HomeTranscriptLoadStateView.bandInset - 0.5,
+                            "\(place): the band (\(view.overRowsBand)) is shorter than the chip (\(view.chip.frame.maxY))")
+                    if state == .failed {
+                        #expect(view.chip.frame.contains(view.retry.frame), "\(place): Try Again sits outside the chip")
+                    }
+                }
+            }
+        }
     }
 
     /// Round 2 (verifier low): Try Again on a failed older page started a Task nobody held, so

@@ -79,6 +79,34 @@ private struct NeverConnects: DeviceHubSocketConnector {
         #expect(hub.devicesListTimedOut)
     }
 
+    /// Round 6 (verifier non-blocking 5): the deadline armed only on `start()`, so a hub that was
+    /// never started stayed `idle` with no list and Your Devices said "Loading your devices…"
+    /// forever. It runs from the hub's creation: past it the list is timed out (the error with Try
+    /// Again), and Try Again starts the hub and reads the list.
+    @Test func aHubNeverStartedEndsInTheErrorAndTryAgainStartsIt() async throws {
+        let me = self.me
+        let stub = StubHub.routes([
+            "POST /v1/devices": (200, #"{"device":{"id":"\#(me.id)","name":"Studio"}}"#),
+            "GET /v1/devices": (200, devicesJSON([(me, "Studio")])),
+        ])
+        let clock = ManualClock()
+        let hub = hub(stub, clock: clock)
+        defer { hub.stop() }
+        #expect(hub.status == .idle && !hub.devicesListed && !hub.devicesListTimedOut)
+        try await clock.waitForSleeper()
+        let changes = nextChange { _ = hub.devicesListTimedOut }
+        clock.advance(by: DeviceHub.devicesListDeadline)
+        for await _ in changes { break }
+        #expect(hub.status == .idle)
+        #expect(hub.devicesListTimedOut, "a hub never started was still loading past its deadline")
+
+        await hub.retryDevices()
+        #expect(hub.status == .ready, "Try Again did not start a hub that never started")
+        #expect(!hub.devicesListTimedOut, "Try Again kept the error while the hub started")
+        await hub.refreshDevices()
+        #expect(hub.devicesListed && !hub.devicesListTimedOut)
+    }
+
     @Test func stopEndsTheDeadline() async throws {
         let me = self.me
         let stub = StubHub.routes(["POST /v1/devices": (200, #"{"device":{"id":"\#(me.id)","name":"Studio"}}"#)])

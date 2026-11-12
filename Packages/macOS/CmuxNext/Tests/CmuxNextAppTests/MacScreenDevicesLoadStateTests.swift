@@ -45,7 +45,12 @@ import Testing
             Issue.record("a start past its deadline showed \(shown)")
             return
         }
-        #expect(MacScreenHomeSnapshot.noDevicesShown(status: .idle, listed: false, listFailed: true) == .note(loading))
+        // Round 6 (verifier non-blocking 5): a hub never started is past the same deadline.
+        let idle = MacScreenHomeSnapshot.noDevicesShown(status: .idle, listed: false, listFailed: true)
+        guard case .failed = idle else {
+            Issue.record("a hub never started, past its deadline, showed \(idle)")
+            return
+        }
     }
 
     /// Round 2 (verifier M-1): Try Again sat flush at the card's bottom-left, a bare stack member
