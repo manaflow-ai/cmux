@@ -6,19 +6,22 @@ ignores SIGPIPE, so a print to a stdout or stderr whose reader is gone (a cancel
 terminal) raises BrokenPipeError or OSError. A script that launched an app or a helper and prints a line right before
 it stops it then dies at the print, and the app lives on. cmux#41803 F1 was this in push_range.py's fetch guard.
 
-The fix, one form: the line goes through scripts/cmux-next/safe_log.py's safe_print, which drops the line on a closed
-output instead of raising; or the print sits inside a `try` whose `finally` does the kill.
+The fix, one form: a cleanup path never calls print. In any function that stops a process, every line it writes goes
+through scripts/cmux-next/safe_log.py's safe_print, which drops the line on a closed output instead of raising.
 
 Two detectors:
-- Behaviour rows: the real cleanup() of tab-switch-stages.py and terminal-cmd-click-e2e.py (a leftover process from
-  the app bundle gets SIGTERM after a "leftover" line) and palette-open-stages.py (its virtual-display helper is
-  terminated after a "cleanup" line) run with stdout and stderr on a pipe whose reader is gone; the process must be
-  gone afterwards. Each script is executed without its closing `try: main() ...` statement, with rpc and the app's CLI
-  stubbed, so only cleanup() runs.
-- An AST scan of every Python file under scripts/: a print (to stdout or stderr), sys.stdout/stderr.write or
-  os.write(1|2, ...) statement followed within WINDOW statements of the same block by one that kills (os.kill,
-  os.killpg, .kill(), .terminate(), .send_signal(), signal.pidfd_send_signal), unless a `try` around it kills in its
-  `finally`.
+- Behaviour rows: the real cleanup() of tab-switch-stages.py, terminal-cmd-click-e2e.py and terminal-keys-e2e.py (a
+  leftover process from the app bundle gets SIGTERM after a "cleanup" or "leftover" line) and palette-open-stages.py
+  (its virtual-display helper is terminated after a "cleanup" line) run with stdout and stderr on a pipe whose reader
+  is gone; the process must be gone afterwards. Each script is executed without its closing `try: main() ...`
+  statement, with rpc and the app's CLI stubbed, so only cleanup() runs.
+- A whole-function AST rule over every Python file under scripts/, with no window: a function (nested ones each on
+  their own) that anywhere in its body stops a process (os.kill, os.killpg, .kill(), .terminate(), .shutdown(),
+  .send_signal(), signal.pidfd_send_signal, or a command line that runs kill, pkill, killall or a `shutdown`) may
+  not print to stdout or stderr (print, sys.stdout/stderr.write, os.write(1|2, ...)) anywhere, at any depth: under an
+  `if`, in a loop, in a `try` or `finally`, before or after the kill. Code outside any function counts per top-level
+  statement, so a script's closing `try: ... finally:` that kills is one cleanup path. A three-statement window
+  (cmux#41855) missed a log nested under an `if` and longer cleanup paths; this rule has nothing to miss by distance.
 
 Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23): run
 `python3 -I tests/test_python_guard_logs_survive_closed_pipe.py` after adding or changing a script that prints right
@@ -41,19 +44,29 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-WINDOW = 3  # statements after the line, in the same block
-KILL_ATTRS = {"kill", "killpg", "terminate", "send_signal", "pidfd_send_signal"}
+KILL_CALLS = {"kill", "killpg", "terminate", "shutdown", "send_signal", "pidfd_send_signal"}
+KILL_ARGV = {"kill", "pkill", "killall", "shutdown"}  # a command-line word that stops a process
+SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+
+def _own_nodes(scope: ast.AST):
+    """Every node in SCOPE, not counting functions or classes defined in it (each of those is a scope of its own)."""
+    stack = list(ast.iter_child_nodes(scope))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, SCOPES):
+            continue
+        yield node
+        stack.extend(ast.iter_child_nodes(node))
 
 
 def _is_stream(node: ast.AST) -> bool:
     return isinstance(node, ast.Attribute) and node.attr in ("stdout", "stderr")
 
 
-def _is_log(stmt: ast.stmt) -> bool:
-    """A statement that writes a line to stdout or stderr, which raises when nobody reads it."""
-    if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
-        return False
-    call, func = stmt.value, stmt.value.func
+def is_log(call: ast.Call) -> bool:
+    """A call that writes to stdout or stderr, which raises when nobody reads it."""
+    func = call.func
     if isinstance(func, ast.Name) and func.id == "print":
         target = next((kw.value for kw in call.keywords if kw.arg == "file"), None)
         return target is None or _is_stream(target)
@@ -66,48 +79,44 @@ def _is_log(stmt: ast.stmt) -> bool:
     return False
 
 
-def _kills(node: ast.AST) -> bool:
-    """True when NODE (not counting functions or classes defined in it) stops a process."""
-    stack = [node]
-    while stack:
-        current = stack.pop()
-        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
-            continue
-        if isinstance(current, ast.Call) and isinstance(current.func, ast.Attribute) and current.func.attr in KILL_ATTRS:
-            return True
-        stack.extend(ast.iter_child_nodes(current))
-    return False
+def kills(call: ast.Call) -> bool:
+    """A call that stops a process: a kill-style method or function, or a command line that runs kill or shutdown."""
+    func = call.func
+    name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
+    if name in KILL_CALLS:
+        return True
+    return any(isinstance(arg, (ast.List, ast.Tuple))
+               and any(isinstance(word, ast.Constant) and word.value in KILL_ARGV for word in arg.elts)
+               for arg in call.args)
 
 
-def _scan_tree(tree: ast.AST, rel: str) -> list[str]:
-    guarded: set[int] = set()  # ids of statements inside a `try` whose `finally` kills
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Try) and any(_kills(stmt) for stmt in node.finalbody):
-            for stmt in node.body:
-                guarded.update(id(inner) for inner in ast.walk(stmt))
-    hits = []
-    for node in ast.walk(tree):
-        for field in ("body", "orelse", "finalbody"):
-            block = getattr(node, field, None)
-            if not isinstance(block, list) or not block or not isinstance(block[0], ast.stmt):
-                continue
-            for index, stmt in enumerate(block):
-                if not _is_log(stmt) or id(stmt) in guarded:
-                    continue
-                if any(_kills(after) for after in block[index + 1:index + 1 + WINDOW]):
-                    hits.append(f"{rel}:{stmt.lineno}: {ast.unparse(stmt)[:120]}")
-    return hits
+def cleanup_scopes(tree: ast.Module) -> list[ast.AST]:
+    """Each function (nested ones too), and each top-level statement outside a function or class."""
+    scopes: list[ast.AST] = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    scopes += [ast.Module(body=[stmt], type_ignores=[]) for stmt in tree.body if not isinstance(stmt, SCOPES)]
+    return scopes
 
 
-def scan_print_then_kill(root: Path = ROOT) -> list[str]:
-    """Each print right before a kill that a closed output could stop, as path:line: statement."""
+def unsafe_logs(tree: ast.Module) -> list[ast.Call]:
+    """Every stdout or stderr write in a scope that also stops a process."""
+    found = []
+    for scope in cleanup_scopes(tree):
+        calls = [node for node in _own_nodes(scope) if isinstance(node, ast.Call)]
+        if any(kills(call) for call in calls):
+            found.extend(call for call in calls if is_log(call))
+    return sorted(found, key=lambda call: (call.lineno, call.col_offset))
+
+
+def scan_print_in_cleanup(root: Path = ROOT) -> list[str]:
+    """Each print in a function that stops a process, as path:line: call."""
     hits = []
     for path in sorted((root / "scripts").rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except (SyntaxError, UnicodeDecodeError, ValueError):
             continue
-        hits.extend(_scan_tree(tree, path.relative_to(root).as_posix()))
+        rel = path.relative_to(root).as_posix()
+        hits.extend(f"{rel}:{call.lineno}: {ast.unparse(call)[:120]}" for call in unsafe_logs(tree))
     return sorted(hits, key=lambda hit: (hit.split(":")[0], int(hit.split(":")[1])))
 
 
@@ -219,6 +228,10 @@ class CleanupRow(unittest.TestCase):
     def test_terminal_cmd_click_e2e_ends_leftovers_with_stdout_unread(self) -> None:
         self.check_leftover("terminal-cmd-click-e2e.py")
 
+    def test_terminal_keys_e2e_ends_leftovers_with_stdout_unread(self) -> None:
+        # Its cleanup() prints "cleanup" first, many statements before the kill: the window scan never saw it.
+        self.check_leftover("terminal-keys-e2e.py")
+
     def test_palette_open_stages_ends_its_display_helper_with_stdout_unread(self) -> None:
         pid_file = self.tmp / "helper.pid"
         self.run_cleanup("palette-open-stages.py", {"set": {"LAUNCHED": []}, "helper_pid_file": str(pid_file)})
@@ -228,55 +241,76 @@ class CleanupRow(unittest.TestCase):
         self.assert_gone(helper, "palette-open-stages.py: the cleanup line raised on the closed stdout; the helper lives on")
 
 
-class ScanPrintThenKill(unittest.TestCase):
-    def test_no_script_prints_unguarded_right_before_a_kill(self) -> None:
-        hits = scan_print_then_kill()
-        self.assertEqual(hits, [], "a print right before a kill raises on a closed output (BrokenPipeError) and skips "
-                                   "the kill: use safe_log.safe_print, or kill in a `finally` around it:\n"
-                                   + "\n".join(hits))
+class ScanPrintInCleanup(unittest.TestCase):
+    def test_no_function_that_stops_a_process_prints(self) -> None:
+        hits = scan_print_in_cleanup()
+        self.assertEqual(hits, [], "a print in a function that stops a process raises on a closed output "
+                                   "(BrokenPipeError) and can skip the kill: use safe_log.safe_print for every line "
+                                   "in it:\n" + "\n".join(hits))
 
-    def test_the_scan_sees_the_unsafe_forms_only(self) -> None:
+    def test_the_rule_sees_every_print_in_a_cleanup_and_none_elsewhere(self) -> None:
         source = textwrap.dedent("""\
-            def unsafe(app):
+            def adjacent(app):
                 print("stopping", app.pid, flush=True)
                 app.terminate()
 
-            def unsafe_stderr(pid):
-                sys.stderr.write("stopping\\n")
-                x = 1
-                os.kill(pid, 15)
+            def nested_under_if(host, procs):
+                if host:
+                    print("cloud cleanup:", host, flush=True)
+                for p in procs:
+                    p.terminate()
 
-            def safe_helper(app):
+            def long_path(app):
+                print("cleanup", flush=True)
+                a = 1
+                b = 2
+                c = 3
+                d = 4
+                os.kill(app.pid, 9)
+
+            def after_the_kill(pid):
+                os.killpg(pid, 15)
+                sys.stderr.write("killed\\n")
+
+            def shuts_down(server):
+                os.write(2, b"bye")
+                server.shutdown()
+
+            def by_command_line(pid):
+                print("stopping")
+                subprocess.run(["kill", str(pid)])
+
+            def safe(app):
                 safe_print("stopping", flush=True)
                 app.terminate()
-
-            def safe_finally(app):
-                try:
-                    print("stopping", flush=True)
-                finally:
-                    app.kill()
 
             def to_a_file(app, log):
                 print("stopping", file=log)
                 app.terminate()
 
-            def far_away(app):
-                print("start")
-                a = 1
-                b = 2
-                c = 3
-                app.terminate()
+            def no_kill():
+                print("hello")
 
-            def nested_def(app):
+            def outer(app):
                 print("serving")
-                def later():
+                def inner():
                     app.kill()
+                return inner
+
+            try:
+                main()
+            finally:
+                print("quit")
+                if APP:
+                    os.kill(APP.pid, 9)
+
+            print("module line, no kill in its statement")
             """)
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "scripts").mkdir()
             (Path(tmp) / "scripts" / "fixture.py").write_text(source)
-            hits = scan_print_then_kill(Path(tmp))
-        self.assertEqual([int(hit.split(":")[1]) for hit in hits], [2, 6])
+            hits = scan_print_in_cleanup(Path(tmp))
+        self.assertEqual([int(hit.split(":")[1]) for hit in hits], [2, 7, 12, 21, 24, 28, 51])
 
 
 if __name__ == "__main__":
