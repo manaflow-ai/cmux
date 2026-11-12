@@ -287,7 +287,7 @@ test("a live suffix keeps its final line free of an extra newline", async () => 
 });
 
 test("past eight lines the output scrolls in its box, with no Show all row", async () => {
-  // Leo 2026-11-12: "this is a really useless show all 9 lines. i think chatgpt just lets you scroll".
+  // Leo 2026-11-12: "this is a really useless show all 9 lines".
   const output = Array.from({ length: 9 }, (_, at) => `case ${at + 1}`).join("\n");
   await act(async () => root!.render(<ShellBlock command="bun test" output={output} />));
   const body = container.querySelector(".cv-shell__body")!;

@@ -3,7 +3,7 @@ import { watchSideways } from "./sideways";
 import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 
 /// Lines a block's box shows; a longer block scrolls inside it (Leo 2026-11-12: "this is a really
-/// useless show all 9 lines. i think chatgpt just lets you scroll, straight up?").
+/// useless show all 9 lines").
 export const PREVIEW_LINES = 8;
 
 /// A block's preview: whether it is long enough to scroll in its box (more than `PREVIEW_LINES`
