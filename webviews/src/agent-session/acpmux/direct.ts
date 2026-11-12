@@ -357,43 +357,6 @@ export type EventRecord = Pick<SessionEvent, "seq" | "at" | "dir" | "kind"> & {
 };
 /// The one place the pane takes acpmux's records as `EventRecord`s.
 const records = (events: SessionEvent[] | undefined): EventRecord[] => (events ?? []) as EventRecord[];
-
-/// During a same-chat attach, a partial page may rebuild fewer rows (or a shorter assistant row)
-/// before the replacement is complete. Keep the last published message rows in that interval so
-/// text never disappears while tool rows arrive first. The attach clears this hold before its
-/// complete frame.
-export function preserveRowsDuringRefresh(
-  previous: readonly AcpmuxRow[],
-  next: readonly AcpmuxRow[],
-  refreshing: boolean,
-): AcpmuxRow[] {
-  if (!refreshing || previous.length === 0) return [...next];
-  const oldById = new Map(previous.map((row) => [row.id, row]));
-  const present = new Set(next.map((row) => row.id));
-  const held = next.map((row) => {
-    const old = oldById.get(row.id);
-    if (old?.kind === "assistant" && row.kind === "assistant" && (row.text?.length ?? 0) < (old.text?.length ?? 0))
-      return old;
-    return row;
-  });
-  const message = (row: AcpmuxRow) => row.kind === "assistant" || row.kind === "user";
-  // A partial page can return tool rows before its messages. Reinsert only message rows, in their
-  // old relative position; notice/activity rows have their own lifecycle and must not be resurrected.
-  for (let index = 0; index < previous.length; index += 1) {
-    const old = previous[index]!;
-    if (!message(old) || present.has(old.id)) continue;
-    let at = 0;
-    for (let before = index - 1; before >= 0; before -= 1) {
-      const found = held.findIndex((row) => row.id === previous[before]!.id);
-      if (found >= 0) {
-        at = found + 1;
-        break;
-      }
-    }
-    held.splice(at, 0, old);
-  }
-  return held;
-}
 type Session = Record<string, any> & { sessionId: string };
 type Reply = {
   id: number | string;
@@ -537,8 +500,7 @@ type AttachWatch = {
 /// together with its attach so the chat waits on one round trip, not two (`startAttachReads`).
 type AttachReads = { permissions: Promise<void>; handoff?: Promise<void> };
 /// An attach as it was sent: its reply, and the reads asked with it.
-type AttachHold = { sessionId: string; generation: number; abandoned?: boolean };
-type SentAttach = { attaching: Promise<any>; reads?: AttachReads; hold: AttachHold };
+type SentAttach = { attaching: Promise<any>; reads?: AttachReads };
 /// The attach of the chat a page opens, asked with the chat list instead of after it (`askEarly`),
 /// so the chat's first frame waits on one daemon reply after the handshake. `live` holds the chat's
 /// records that came before the open took the attach, applied in order once it does: as if the
@@ -3258,7 +3220,7 @@ export class AcpmuxDirectClient {
   /// The attach out now, of which session: a row that says its machine is back while it is out
   /// (no copy drawn yet) is kept for after it, as for a copy's attach (`copyBack`).
   /// The attach of the selected chat that is out.
-  private attachOut?: AttachHold;
+  private attachOut?: { sessionId: string };
   /// Each session and machine the selected chat's row named while an attach of it ran, from its
   /// ask until it drew its page (one entry each): the page is of none of the others (`attach`).
   private attachWatch?: AttachWatch;
@@ -6618,7 +6580,7 @@ export class AcpmuxDirectClient {
 
   /// Asks acpmux to attach `sessionId` (its newest page, then its records live) and, with
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip.
-  private sendAttach(sessionId: string, generation: number, reads: boolean, hold?: AttachHold): SentAttach {
+  private sendAttach(sessionId: string, generation: number, reads: boolean): SentAttach {
     const visible = readerHere();
     const ask = (settled: boolean) =>
       this.typed("_acpmux/attach", {
@@ -6658,20 +6620,20 @@ export class AcpmuxDirectClient {
           return ask(false);
         })
       : ask(false);
-    const out = hold ?? { sessionId, generation };
+    const out = { sessionId };
     this.attachOut = out;
-    const failed = () => {
+    const settled = () => {
       if (this.attachOut === out) this.attachOut = undefined;
     };
     this.attaching = attaching.then(
       () => {
-        if (out.abandoned) failed();
+        settled();
         if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
           this.shownToAcpmux = { sessionId, visible };
       },
-      () => failed(),
+      () => settled(),
     );
-    return { attaching, reads: reads ? this.startAttachReads(sessionId) : undefined, hold: out };
+    return { attaching, reads: reads ? this.startAttachReads(sessionId) : undefined };
   }
 
   /// The chat's permission groups and handoff, read as its attach is asked rather than once it
@@ -6750,8 +6712,6 @@ export class AcpmuxDirectClient {
     const shown = early.sessionId === this.selectedSessionId && early.generation === this.selectionGeneration;
     if (final || !shown) {
       if (this.earlyAttach === early) this.earlyAttach = undefined;
-      early.sent.hold.abandoned = true;
-      if (this.attachOut === early.sent.hold) this.attachOut = undefined;
       early.live.length = 0;
     }
     if (early.sessionId !== this.selectedSessionId) {
@@ -6791,17 +6751,8 @@ export class AcpmuxDirectClient {
     const watch: AttachWatch = early?.watch ?? { sessionId, seen: new Map() };
     this.attachWatch = watch;
     const token = this.copyAttaches;
-    const hold = early?.sent.hold ?? { sessionId, generation };
     try {
-      const page = await this.attachWatched(watch, sessionId, generation, keptThrough, tries, hold, early);
-      // `attachWatched` publishes the page while the old rows are still held. Release that hold
-      // only after the complete page is available, then publish once more so the pane can retire
-      // the retained rows in the same chat without an empty frame.
-      if (this.attachOut === hold) {
-        this.attachOut = undefined;
-        this.emit("attach-complete");
-      }
-      return page;
+      return await this.attachWatched(watch, sessionId, generation, keptThrough, tries, early);
     } catch (error) {
       // Failed after the row named another session or machine: what came live meanwhile may be
       // that one's, so nothing drawn stays as this chat's. The failure's handling reads the Mac's
@@ -6815,9 +6766,6 @@ export class AcpmuxDirectClient {
         this.resetSessionState("attach strayed");
       throw error;
     } finally {
-      // A failed attach must release only its own hold. If another attach already took over this
-      // chat, its `attachWatch` and `attachOut` remain authoritative.
-      if (this.attachWatch === watch && this.attachOut === hold) this.attachOut = undefined;
       if (this.attachWatch === watch) this.attachWatch = undefined;
     }
   }
@@ -6828,7 +6776,6 @@ export class AcpmuxDirectClient {
     generation: number,
     keptThrough: number,
     tries: number,
-    hold: AttachHold,
     early?: EarlyAttach,
   ): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
@@ -6852,7 +6799,7 @@ export class AcpmuxDirectClient {
     watch.asked = { createdAt: askedGen, peer: askedOf };
     // A chat on another machine reads its asks and handoff once its attach answers, as before:
     // its machine may be down, and the Mac's copy shown then has none to read.
-    const sent = early?.sent ?? this.sendAttach(sessionId, generation, typeof askedOf !== "string", hold);
+    const sent = early?.sent ?? this.sendAttach(sessionId, generation, typeof askedOf !== "string");
     // What came live of the chat since the attach asked with the list applies now, once its rows
     // are drawn and held (`copyLive`). One the open dropped: this attach's page holds what it
     // streamed, so none of it applies (`dropEarly`), and what comes from here on does.
@@ -10239,11 +10186,6 @@ export class AcpmuxDirectClient {
     const chat = this.selectedSessionId ?? this.missingSession;
     const cleared = this.cleared;
     this.drawn = { sessionId: chat, rows, peer: this.rowsPeer, generation: this.rowsGeneration };
-    const refreshing =
-      cleared !== undefined && chat !== undefined && chat === cleared.sessionId && this.attachOut?.sessionId === chat;
-    // Keep the hold through every partial frame of the attach. The next frame after attachOut is
-    // cleared is the complete replacement and can release the old rows.
-    if (refreshing) return;
     // The resync is drawn: its rebuilds are over.
     this.shownBefore = undefined;
     if (!cleared) return;
@@ -10312,23 +10254,7 @@ export class AcpmuxDirectClient {
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
     this.placeSince();
-    const rows = this.rows.sorted();
-    const refreshing =
-      this.cleared !== undefined &&
-      this.selectedSessionId !== undefined &&
-      this.cleared.sessionId === this.selectedSessionId &&
-      this.attachOut?.sessionId === this.selectedSessionId;
-    const publishedRows = preserveRowsDuringRefresh(this.cleared?.rows ?? [], rows, refreshing);
-    const messages = (rows: readonly AcpmuxRow[]) =>
-      rows.filter((row) => row.kind === "assistant" || row.kind === "user");
-    const beforeMessages = this.cleared ? messages(this.cleared.rows).length : 0;
-    const afterMessages = messages(publishedRows).length;
-    if (refreshing && afterMessages < beforeMessages)
-      console.error("agent transcript invariant: visible message rows dropped during refresh", {
-        sessionId: this.selectedSessionId,
-        before: beforeMessages,
-        after: afterMessages,
-      });
+    const publishedRows = this.rows.sorted();
     this.noteReplace(publishedRows);
     const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
     const progress = projectLiveProgress(this.publishedProgress, progressPlan, working && !this.progressSuperseded);
