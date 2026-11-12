@@ -8,7 +8,7 @@
 //! the node type, then the props a person reads (`title`, `text`, `label`,
 //! ...) and the `tint` and `icon` that say how it looks.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
@@ -112,10 +112,15 @@ pub(super) fn outline(batches: &[&Value]) -> Vec<String> {
     let Some(root) = root else { return Vec::new() };
     let mut lines = Vec::new();
     let mut more = 0usize;
+    // Each node once, however many parents name it: the walk is at most the scene's size.
+    let mut seen = BTreeSet::new();
     // Depth first, children in order: a stack of (id, depth), last child pushed first.
     let mut stack = vec![(root, 0usize)];
     while let Some((id, depth)) = stack.pop() {
         let Some(node) = nodes.get(&id) else { continue };
+        if !seen.insert(id) {
+            continue;
+        }
         if lines.len() >= MAX_LINES {
             more += 1;
         } else {

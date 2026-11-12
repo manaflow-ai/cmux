@@ -10,7 +10,6 @@
 //! person's `cmux window screenshot` does, with the same global options.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
@@ -22,7 +21,7 @@ use crate::cli::GlobalArgs;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::cli) struct ShotOptions {
     pub dev: DevOptions,
-    /// `--out PATH`; none: the app's own screenshots folder (the reply names it).
+    /// `--out PATH`; none: a temporary file the app picks (the reply names it).
     pub out: Option<PathBuf>,
 }
 
@@ -72,9 +71,14 @@ pub(super) fn picture_from(status: i32, stdout: &str, stderr: &str) -> Result<Pi
     Err(Problem::message(format!("no picture: {said}")))
 }
 
-/// The `window screenshot` child's words after the global ones.
+/// The `window screenshot` child's words: the global ones but an output mode
+/// (the child's is always `--json`, which another mode cannot join), then the verb.
 pub(super) fn screenshot_argv(globals: &[String], out: Option<&Path>) -> Vec<String> {
-    let mut argv = globals.to_vec();
+    let mut argv: Vec<String> = globals
+        .iter()
+        .filter(|word| !matches!(word.as_str(), "--json" | "--jsonl" | "--quiet"))
+        .cloned()
+        .collect();
     argv.extend(["window".into(), "screenshot".into()]);
     if let Some(out) = out {
         argv.extend(["--out".into(), out.display().to_string()]);
@@ -87,9 +91,9 @@ pub(super) fn screenshot_argv(globals: &[String], out: Option<&Path>) -> Vec<Str
 fn take(globals: &[String], out: Option<&Path>) -> Result<Picture, Problem> {
     let exe = std::env::current_exe()
         .map_err(|error| Problem::message(format!("no picture: cannot find this cmux: {error}")))?;
-    let ran = Command::new(exe)
+    let ran = cmux_process::Command::new(exe)
         .args(screenshot_argv(globals, out))
-        .stdin(Stdio::null())
+        .stdin(cmux_process::Stdio::null())
         .output()
         .map_err(|error| Problem::message(format!("no picture: {error}")))?;
     picture_from(

@@ -502,7 +502,14 @@ fn parses_shot_as_one_reload_with_an_out_path() {
     assert_eq!(options.out, Some(PathBuf::from("a.png")));
     assert_eq!(options.dev.build.as_deref(), Some("make"));
     assert_eq!(parse(&words("shot --help")), Ok(Request::Help));
-    for bad in ["shot --out", "shot a b", "shot --once", "shot --remove-on-exit", "shot --bogus"] {
+    for bad in [
+        "shot --out",
+        "shot --out -",
+        "shot a b",
+        "shot --once",
+        "shot --remove-on-exit",
+        "shot --bogus",
+    ] {
         assert!(parse(&words(bad)).is_err(), "{bad}");
     }
 }
@@ -545,6 +552,14 @@ fn the_outline_prints_the_scene_from_its_root_in_order() {
             "  Text text=\"Hello from hello\" font=headline".into(),
         ]
     );
+    // A node two parents name prints once (the runtime never sends this; the walk stays bounded).
+    let shared = json!([
+        {"op": "create", "id": "r", "type": "VStack", "props": {}},
+        {"op": "create", "id": "s", "type": "Text", "props": {}},
+        {"op": "children", "id": "r", "children": ["s", "s"]},
+        {"op": "root", "id": "r"},
+    ]);
+    assert_eq!(scene::outline(&[&shared]), vec!["VStack".to_string(), "  Text".into()]);
     // No root: nothing rendered yet.
     assert!(
         scene::outline(&[&json!([{"op": "create", "id": "a", "type": "Text", "props": {}}])])
@@ -580,6 +595,11 @@ fn the_picture_is_read_from_the_screenshot_reply_or_its_refusal() {
         words("--socket /s window screenshot --out /o.png --json")
     );
     assert_eq!(shot::screenshot_argv(&[], None), words("window screenshot --json"));
+    // `cmux --json ext shot`: the child takes one output mode, its own.
+    assert_eq!(
+        shot::screenshot_argv(&words("--json --socket /s"), None),
+        words("--socket /s window screenshot --json")
+    );
 }
 
 #[test]

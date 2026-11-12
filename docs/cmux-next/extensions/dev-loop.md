@@ -59,7 +59,7 @@ two ways:
 
 ```sh
 cmux ext shot                   # in the extension's folder
-cmux ext shot --out shot.png    # the picture goes here (default: cmux's screenshots folder)
+cmux ext shot --out shot.png    # the picture goes here (default: a temporary file)
 cmux ext shot --json
 ```
 

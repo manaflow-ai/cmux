@@ -184,11 +184,11 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             let mut words = rest.iter();
             while let Some(word) = words.next() {
                 match word.as_str() {
-                    "--out" => {
-                        out = Some(PathBuf::from(
-                            words.next().ok_or_else(|| usage("--out needs a path"))?,
-                        ));
-                    }
+                    "--out" => match words.next() {
+                        // `-` is the PNG inline in a reply; ext shot names a file.
+                        Some(path) if path != "-" => out = Some(PathBuf::from(path)),
+                        _ => return Err(usage("--out needs a file path")),
+                    },
                     "--once" | "--keep" | "--remove-on-exit" | "--no-install" => {
                         return Err(usage(&format!(
                             "{word}: ext shot reloads once and installs nothing"
