@@ -150,24 +150,36 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
       expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
     });
 
-  /** Runs in the page: what draws past the transcript's sides, unless a box that scrolls on its own
-   *  (a code block, a table) holds it inside them; and how far the transcript itself scrolls sideways. */
+  /** Runs in the page: what draws past the transcript's sides, elements and the lines of text in them
+   *  (a word that does not break overflows its paragraph's box, not the box itself), unless a box that
+   *  scrolls on its own (a code block, a table) holds it inside them; and how far the transcript itself
+   *  scrolls sideways. */
   function overflow() {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const pane = scroller.getBoundingClientRect();
+    const outside = (box: DOMRect) => box.width > 0 && (box.right > pane.right + 0.5 || box.left < pane.left - 0.5);
+    const held = (node: Node) => {
+      for (let parent = node.parentElement; parent && parent !== scroller; parent = parent.parentElement) {
+        if (getComputedStyle(parent).overflowX === "visible") continue;
+        const clip = parent.getBoundingClientRect();
+        return clip.right <= pane.right + 0.5 && clip.left >= pane.left - 0.5;
+      }
+      return false;
+    };
+    const name = (element: Element | null) => (element ? String(element.className) || element.tagName : "?");
     const spills: string[] = [];
     for (const element of scroller.querySelectorAll<HTMLElement>("*")) {
       const box = element.getBoundingClientRect();
-      if (box.width === 0 || (box.right <= pane.right + 0.5 && box.left >= pane.left - 0.5)) continue;
-      let held = false;
-      for (let parent = element.parentElement; parent && parent !== scroller; parent = parent.parentElement) {
-        if (getComputedStyle(parent).overflowX === "visible") continue;
-        const clip = parent.getBoundingClientRect();
-        if (clip.right <= pane.right + 0.5 && clip.left >= pane.left - 0.5) held = true;
-        break;
-      }
-      if (!held)
-        spills.push(`${element.className || element.tagName} ${Math.round(box.left)}..${Math.round(box.right)}`);
+      if (outside(box) && !held(element))
+        spills.push(`${name(element)} ${Math.round(box.left)}..${Math.round(box.right)}`);
+    }
+    const walker = document.createTreeWalker(scroller, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      range.selectNodeContents(text);
+      const line = [...range.getClientRects()].find(outside);
+      if (line && !held(text))
+        spills.push(`text in ${name(text.parentElement)} ${Math.round(line.left)}..${Math.round(line.right)}`);
     }
     return { sideways: scroller.scrollWidth - scroller.clientWidth, spills: spills.slice(0, 5) };
   }
