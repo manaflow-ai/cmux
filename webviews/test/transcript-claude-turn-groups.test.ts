@@ -13,11 +13,20 @@
 // fixtures/claude-turn-groups.ndjson is one real Claude Code turn as acpmux recorded it (81 calls,
 // 17 messages), its words and commands replaced with neutral ones of the same kind: a short note
 // stays short, a long message stays long.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { SUPERSEDED, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+
+/// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
+/// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.
+const oneFoldPerTurn = () => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-steered": "nested-open" };
+};
+afterEach(() => {
+  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["turn-fold-steered"];
+});
 
 // Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
 // default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
@@ -205,6 +214,7 @@ test("a steered Claude turn keeps the steer and the reply before it in sight, ea
 });
 
 test("a steered Codex turn still folds everything but the steer, the reply before it and the answer", () => {
+  oneFoldPerTurn();
   const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), agentFamily: "codex" });
   expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", `${SUPERSEDED}-s1`, "s1", "answer", "sum"]);
 });

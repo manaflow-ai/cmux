@@ -22,7 +22,6 @@ import importlib.util
 import json
 import os
 import re
-import select
 import subprocess
 import sys
 import tempfile
@@ -39,6 +38,11 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+# tests/process_gone.py, loaded by path the same way.
+_process_gone_spec = _git_fixture_importlib.spec_from_file_location(
+    "process_gone", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "process_gone.py"))
+process_gone = _git_fixture_importlib.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import workflow_jobs  # noqa: E402
@@ -1115,17 +1119,8 @@ class GateBudget(unittest.TestCase):
             self.assertIsNone(module.run_gate([sys.executable, "-c", gate], Path(tmp), 5))
             child = int(pid_file.read_text(encoding="utf-8"))
 
-            def alive() -> bool:  # a killed child may linger only as a zombie until it is reaped
-                try:
-                    return Path(f"/proc/{child}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
-                except FileNotFoundError:
-                    return False
-            # SIGKILL was sent to the group; give the scheduler a bounded moment to deliver it.
-            for _ in range(200):
-                if not alive():
-                    break
-                select.select([], [], [], 0.05)
-            self.assertFalse(alive(), "the gate's child kept running after the gate was stopped")
+            # A zombie counts as gone; without /proc (macOS) the helper asks ps instead of reading "gone".
+            self.assertTrue(process_gone.died(child), "the gate's child kept running after the gate was stopped")
 
     def test_a_child_that_ignores_sigterm_is_killed_too(self):
         module = load(SCRIPT)
@@ -1138,16 +1133,7 @@ class GateBudget(unittest.TestCase):
             self.assertIsNone(module.run_gate([sys.executable, "-c", gate], Path(tmp), 5))
             child = int(pid_file.read_text(encoding="utf-8"))
 
-            def alive() -> bool:
-                try:
-                    return Path(f"/proc/{child}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
-                except FileNotFoundError:
-                    return False
-            for _ in range(200):
-                if not alive():
-                    break
-                select.select([], [], [], 0.05)
-            self.assertFalse(alive(), "a child that ignores SIGTERM outlived its stopped gate")
+            self.assertTrue(process_gone.died(child), "a child that ignores SIGTERM outlived its stopped gate")
 
     def test_a_gate_inside_the_budget_keeps_its_exit_code(self):
         module = load(SCRIPT)

@@ -677,6 +677,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Finds TimeoutExpired handlers in scripts/ci/*.py that fail a check without asking whether the change touched what timed out; run python3 -I tests/test_ci_timeout_handlers.py yourself after adding or changing a subprocess timeout in scripts/ci (about 1 s, no build)."
 
 [[test]]
+path = "tests/test_ci_timeout_kills_tree.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Finds subprocess calls in scripts/ci/*.py that stop only the process they started on a timeout (its children keep running); run python3 -I tests/test_ci_timeout_kills_tree.py yourself after adding or changing a subprocess call in scripts/ci (about 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 

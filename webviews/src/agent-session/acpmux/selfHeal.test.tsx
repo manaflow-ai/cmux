@@ -12,6 +12,7 @@ import { HostRecoveringLine } from "./HostError";
 import { RECONNECT_LINE_AFTER_MS, hostRecoveryLine, readHostRestoring } from "./hostRetry";
 import type { AcpmuxSnapshot } from "./model";
 import { stallTiming } from "./stallLog";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 // The page's timers are the test's fake ones (the client's reconnect uses `window.setTimeout`).
@@ -25,7 +26,8 @@ const timing = { ...stallTiming };
 beforeAll(() => {
   Object.assign(scope, { window: dom.window, document: dom.window.document });
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];

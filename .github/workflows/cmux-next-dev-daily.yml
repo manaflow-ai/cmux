@@ -142,17 +142,6 @@ jobs:
               echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
               exit 1
             fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-              exit 1
-            fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
 
@@ -326,7 +315,7 @@ jobs:
   sign-blacksmith:
     needs: [pick-sign-runner, sign]
     # The same run signs on Blacksmith when the owned Mac took sign but its claim gate never passed
-    # (glaeda refused the job, or a hook scripts/ci/glaeda-signing-hooks.txt does not list admitted it).
+    # (glaeda refused the job).
     if: "!cancelled() && github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned != '' && needs.sign.result != 'skipped' && needs.sign.result != 'cancelled' && needs.sign.outputs.claim != 'owned'"
     name: Sign cmux NEXT DEV on Blacksmith
     environment: release

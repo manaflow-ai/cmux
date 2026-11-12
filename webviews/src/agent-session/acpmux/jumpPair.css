@@ -1,6 +1,6 @@
 /* Jump up (VirtualTranscript.tsx JumpUp, jumpUp.ts; design/transcript-overlays.md): the companion
    of Jump to latest, stacked on it in the bottom-center zone (overlayLayout.ts). It is the same
-   control: the same glass disc (.acpmux-jump-latest), size, rim, hover, focus and fade, with the
+   control: the same glass (.acpmux-jump-latest) and look, size, rim, hover, focus and fade, with the
    arrow turned up. It stands one control and one gap above Jump to latest's place, whether that
    place shows the disc or the Needs you pill (both --ds-control-primary tall), so the pair reads as
    one column on the composer's center line and neither ever moves for the other.
@@ -21,4 +21,48 @@
   .acpmux-jump-up .acpmux-jump-latest__arrow {
     transition: transform var(--agent-motion-move) var(--agent-ease-out);
   }
+}
+
+/* THE LOOK (jumpPair.experiment.ts `jump-pair-look`; Leo, 2026-11-12: "I feel like this jump to top
+   button is a little bit strange-looking, no?"). The fisheye disc bent and magnified the words under
+   it, so a reader saw a warped letter or two behind the arrow. The references (the common chat apps'
+   scroll-to-bottom circle, the messaging apps' small chevron button) draw a quiet frosted control: the
+   page frosts under it, it never bends. Every arm keeps the glass (never opaque; Plain glass only, so
+   Lens and Spectrum keep the lens's clearer tint), the 32 px height (so Jump up stands one control and
+   one gap over the Needs you pill as over the disc), the center line, the fade and the hover wash.
+   - frosted (ships): the disc at the composer's glass level, the popover level (glass.css GLASS
+     LEVELS: in-page glass that is not a popup).
+   - labeled: the same glass as a rounded rectangle with the arrow and its words, the Needs you pill's
+     shape and type.
+   - stacked: rounded squares in the Needs you pill's radius, Jump up a hairline gap over Jump to
+     latest, one compact column.
+   - lens: the fisheye disc before (VirtualTranscript.tsx adds .ui-glass-fisheye only for it). */
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest:is(
+    [data-look="frosted"],
+    [data-look="labeled"],
+    [data-look="stacked"]
+  ) {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
+  --glass-backdrop: var(--ds-glass-popover-blur);
+}
+.acpmux-jump-latest[data-look="labeled"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  width: auto;
+  padding: 0 var(--ds-space-3) 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-popup);
+  font-family: var(--font-ui);
+  font-size: var(--text-control);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--text-control--letter-spacing);
+  white-space: nowrap;
+}
+.acpmux-jump-latest[data-look="stacked"] {
+  border-radius: var(--ds-radius-popup);
+}
+.acpmux-jump-latest.acpmux-jump-up[data-look="stacked"] {
+  bottom: calc(
+    var(--ds-space-3) + var(--acpmux-dock-space, 0px) + var(--ds-control-primary) + var(--ds-space-1)
+  );
 }

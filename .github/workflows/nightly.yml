@@ -1027,17 +1027,6 @@ jobs:
               echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."
               exit 1
             fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."
-              exit 1
-            fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
       - &clean-owned-workdir
@@ -1063,7 +1052,6 @@ jobs:
             scripts/ci/promote-nightly-next.mjs
             scripts/ci/nightly_next_train.py
             scripts/ci/signing-runner-claim.sh
-            scripts/ci/glaeda-signing-hooks.txt
             .github/release-surface.txt
             scripts/ci/nightly_next_fix_forward.py
           sparse-checkout-cone-mode: false
@@ -5164,12 +5152,15 @@ jobs:
   # recover-nightly-next-notarization continued and stapled with static checks
   # deferred, and records the tested bytes; publish-nightly publishes a
   # recovered build only when this job passed, and only those bytes.
+  # It takes the build pick's owned Mac (no signing key), never the recovery's signer pin (sign_owned): glaeda admits only the signing jobs
+  # on a signing mini and refused this one ("untrusted: NEXT nightly needs its exact nightly.yml signing job"),
+  # so every build whose notarization outlasted its 20 minutes was notarized and never published (run 43224144950).
   verify-recovered-nightly-next:
-    needs: [decide, recover-nightly-next-notarization, find-nightly-next-recovery]
+    needs: [decide, recover-nightly-next-notarization, find-nightly-next-recovery, pick-nightly-build-runner]
     if: "!cancelled() && needs.recover-nightly-next-notarization.outputs.accepted == 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 160 || 40 }}
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
@@ -6693,7 +6684,6 @@ jobs:
             scripts/ci/r2_cas.py
             scripts/ci/upload-r2-object.py
             scripts/ci/signing-runner-claim.sh
-            scripts/ci/glaeda-signing-hooks.txt
           sparse-checkout-cone-mode: false
 
       # The build ref may predate the hook list.
@@ -6826,7 +6816,6 @@ jobs:
             scripts/ci/nightly-steps/republish-deltas-upload-appcasts.sh
             scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
             scripts/ci/signing-runner-claim.sh
-            scripts/ci/glaeda-signing-hooks.txt
           sparse-checkout-cone-mode: false
 
       # Before any release App secret: the claim again, and a keychain a killed job left is removed.
