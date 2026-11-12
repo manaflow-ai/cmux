@@ -649,7 +649,7 @@ impl Names {
                             &import.path,
                             &import.module,
                             &import.scopes,
-                            depth + 1,
+                            depth.saturating_add(1),
                         );
                     }
                     BodyName::Import(_) | BodyName::Unknown => return None,
@@ -701,8 +701,12 @@ impl Names {
         if depth >= 8 {
             return None;
         }
-        let (mut at, last) =
-            self.resolve_from(&import.path, &import.module, &import.scopes, depth + 1)?;
+        let (mut at, last) = self.resolve_from(
+            &import.path,
+            &import.module,
+            &import.scopes,
+            depth.saturating_add(1),
+        )?;
         at.push(last);
         self.modules.contains(&at).then_some(at)
     }
@@ -835,7 +839,7 @@ impl Collect<'_> {
     }
 
     fn new_scope(&mut self) -> usize {
-        self.next_scope += 1;
+        self.next_scope = self.next_scope.saturating_add(1);
         self.next_scope
     }
 }
