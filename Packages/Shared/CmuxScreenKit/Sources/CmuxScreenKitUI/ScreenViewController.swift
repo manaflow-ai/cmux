@@ -92,7 +92,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
                 guard let self else { return }
                 onKeyboardHidden?()
                 // Only when nothing took it meanwhile (a sign-in field the person tapped).
-                if Self.currentFirstResponder() == nil { becomeFirstResponder() }
+                if currentFirstResponder() == nil { becomeFirstResponder() }
             }
         }
         // UI tests drive the screen through this element (a query by id stays cheap while it redraws).
@@ -159,17 +159,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// had UIKit raise the software keyboard whenever a menu opened over it.
     override public var canBecomeFirstResponder: Bool { GCKeyboard.coalesced != nil }
 
-    private static weak var foundFirstResponder: UIResponder?
-
-    /// The responder that holds the focus now, if any: a nil-targeted action reaches it.
-    private static func currentFirstResponder() -> UIResponder? {
-        foundFirstResponder = nil
-        UIApplication.shared.sendAction(#selector(UIResponder.screenReportFirstResponder), to: nil, from: nil, for: nil)
-        return foundFirstResponder
-    }
-
-    fileprivate static func reportFirstResponder(_ responder: UIResponder) {
-        foundFirstResponder = responder
+    /// The responder that holds the focus now, if any: a nil-targeted action reaches it,
+    /// and it writes itself into the box sent along.
+    private func currentFirstResponder() -> UIResponder? {
+        let box = ScreenFirstResponderBox()
+        UIApplication.shared.sendAction(#selector(UIResponder.screenReportFirstResponder(_:)), to: nil, from: box, for: nil)
+        return box.responder
     }
 
     /// Called when the software keyboard was hidden by anything but `isKeyboardVisible`.
@@ -979,10 +974,15 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         if !keyInput.forward(presses, down: false) { super.pressesCancelled(presses, with: event) }
     }
 }
+/// Carries the focused responder back from a nil-targeted action.
+private final class ScreenFirstResponderBox: NSObject {
+    weak var responder: UIResponder?
+}
+
 extension UIResponder {
     /// Answers `ScreenViewController.currentFirstResponder()`: the action goes to the focus.
-    @objc fileprivate func screenReportFirstResponder() {
-        ScreenViewController.reportFirstResponder(self)
+    @objc fileprivate func screenReportFirstResponder(_ sender: Any?) {
+        (sender as? ScreenFirstResponderBox)?.responder = self
     }
 }
 #endif
