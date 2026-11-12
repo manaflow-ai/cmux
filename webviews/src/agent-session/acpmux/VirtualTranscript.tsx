@@ -3991,9 +3991,11 @@ function TranscriptView({
         if (kept === undefined && !heldPlace.current && oldRows.length > 0 && rows[0]?.id !== oldRows[0]?.id)
           heldPlace.current = seenAnchor.current ?? restingAnchor(logicalTop, false, old, oldRows) ?? undefined;
         const held = heldPlace.current ? heldReaderPlace(heldPlace.current, rows, layout) : undefined;
-        // Found, or no older page can bring it back (the history is whole): the hold goes, the view
-        // left at the oldest row, never the end.
-        if (held?.found || (held && !canLoadOlder)) heldPlace.current = undefined;
+        // Found, the row stays held where it was while the rows around it settle to their drawn
+        // heights (a restore on estimated heights moved it when they measured): the reader's own
+        // input lets it go. Not found with no older page left to bring it (the history is whole):
+        // the hold goes, the view left at the oldest row, never the end.
+        if (held && !held.found && !canLoadOlder) heldPlace.current = undefined;
         const nextTop = held ? held.top : kept;
         if (nextTop !== undefined && (clamped || held !== undefined || nextTop !== logicalTop)) {
           writeAnchorScrollTop(node, nextTop);
@@ -4336,6 +4338,8 @@ function TranscriptView({
   // closing Find, a query edit or a measurement must never put that old place back.
   const findMoved = useCallback(
     (node: HTMLDivElement) => {
+      // Find chose the place: a place a reconnect held is not it.
+      heldPlace.current = undefined;
       stopJump();
       stopScroll(node);
       stopBottomStackFold();
@@ -4420,6 +4424,7 @@ function TranscriptView({
     // The reader asked for this row: the view stops following the reply, or the run opening below
     // would pull it back to the latest line.
     const next = Math.max(0, top - node.clientHeight / 3);
+    heldPlace.current = undefined;
     stopJump();
     node.scrollTop = physicalScrollTop(node, next);
     scrolledTo.current = { top: node.scrollTop, atLatest: false };
@@ -4838,7 +4843,8 @@ function TranscriptView({
         clientHeight: node.clientHeight,
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
-    seenAnchor.current = restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
+    seenAnchor.current =
+      heldPlace.current ?? restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
     // The reader's own scroll: where it rests is where they left off (Jump up, jumpUp.ts), and a way
     // back Jump up held is theirs no longer.
     // Jump up's own move (`placeView`) lands inside the press's input hold, so it reads as the
@@ -4903,6 +4909,8 @@ function TranscriptView({
   const placeView = (top: number) => {
     const node = ref.current;
     if (!node) return;
+    // Jump up chose the place: a place a reconnect held is not it.
+    heldPlace.current = undefined;
     revealing.current = undefined;
     revealWindow.current = 0;
     stopJump();

@@ -154,7 +154,7 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
     expect(anchor).toBeDefined();
     // Every painted frame from here: how far the view is from its end, and where the reader's row is.
     await page.evaluate((id) => {
-      const seen: { below: number; at?: number }[] = [];
+      const seen: { below: number; at?: number; step?: string; top?: number; rows?: number }[] = [];
       (window as unknown as { __frames: typeof seen }).__frames = seen;
       window.cmuxAfterPaint(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -162,12 +162,16 @@ await requireBrowserLane("transcript-older-scroll.test.ts", async () => {
         seen.push({
           below: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
           at: row ? row.getBoundingClientRect().top - scroller.getBoundingClientRect().top : undefined,
+          step: (window as unknown as { __step?: string }).__step,
+          top: Math.round(scroller.scrollTop),
+          rows: (window as unknown as { __older: { loaded(): number } }).__older.loaded(),
         });
       });
     }, anchor!.id);
     const act = (what: "live" | "tail" | "empty") =>
       page.evaluate((what) => {
         const older = (window as unknown as { __older: { live(): void; reconnect(d: string): void } }).__older;
+        (window as unknown as { __step?: string }).__step = what;
         if (what === "live") older.live();
         else older.reconnect(what);
       }, what);
