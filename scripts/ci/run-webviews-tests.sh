@@ -73,6 +73,14 @@
 # on its own copy of its config's warm cache. A warming file that fails leaves no trustworthy
 # cache, so the config's next file warms a fresh one, up to CMUX_WEB_TEST_WARM_ATTEMPTS files
 # (default 3); a config none of them warms keeps its other files one at a time on a cold cache each.
+# CMUX_WEB_TEST_SHARED_SERVERS (default 1; 0 turns it off): before the browser and dev server files,
+# start one hub for the run (webviews/scripts/test-dev-hub.ts) and hand its URL to every file
+# (CMUX_WEB_TEST_HUB). A file's plain-data `createServer` then gets the hub's one Vite server for
+# that config, warm from the files before it, instead of booting and transforming its own
+# (webviews/test/support/sharedDevServers.ts). CMUX_WEB_TEST_HUB_SHARE (default `vite`; `vite,browser`)
+# also shares one browser server per engine and launch options. A file that needs servers of its
+# own declares `// cmux-web-test-own-servers` (first 20 lines), and every retry runs on its own servers,
+# so a file that fails only beside the shared ones is listed as passing alone, not hidden.
 # Every file of the run shares one cache of the React Compiler's output (CMUX_VITE_TRANSFORM_CACHE,
 # a folder of the run's own unless set; webviews/reactCompiler.mjs), keyed by each module's exact code.
 #
@@ -155,6 +163,9 @@ if [ "${1:-}" = --one ]; then
   log="$results/$(printf '%s' "$file" | tr '/' '_').log"
   status=0
   started=$SECONDS
+  if [ -n "${CMUX_WEB_TEST_HUB:-}" ] && head -n 20 "$file" 2> /dev/null | grep -qx '// cmux-web-test-own-servers'; then
+    unset CMUX_WEB_TEST_HUB
+  fi
   echo "START $file (hard limit ${timeout_seconds}s)"
   if [ -n "$cache" ]; then
     # `|| true` on cache upkeep: a failed copy or cleanup (a server outliving its timed-out file)
@@ -253,7 +264,17 @@ if [[ "${CMUX_CI_CPU_BUDGET:-}" =~ ^[1-9][0-9]*$ ]]; then
 fi
 jobs="${CMUX_WEB_TEST_JOBS:-$default_jobs}"
 results="$(mktemp -d)"
-trap 'rm -rf "$results"' EXIT
+hub_pid=""
+# stop_hub: the run's shared dev servers (start_hub below), by the pid this script started.
+stop_hub() {
+  [ -n "$hub_pid" ] || return 0
+  kill -TERM "$hub_pid" 2> /dev/null || true
+  local waited=0
+  while kill -0 "$hub_pid" 2> /dev/null && [ "$waited" -lt 15 ]; do sleep 1; waited=$((waited + 1)); done
+  kill -KILL "$hub_pid" 2> /dev/null || true
+  hub_pid=""
+}
+trap 'stop_hub; rm -rf "$results"' EXIT
 # One React Compiler output cache for every file of this run (webviews/reactCompiler.mjs): without it
 # each dev server file compiled the agent pane again in its own Vite (App.tsx alone took 33 s), and
 # that start put dev server files past their limits on a busy shard.
@@ -392,6 +413,33 @@ warm_transforms() {
     tail -n 20 "$results/warm-transforms.log" || true
   fi
 }
+# start_hub: the run's shared dev servers, before the first browser or dev server file. A tree
+# without the hub (the base replay of an older base) or a hub that does not come up leaves every
+# file to start its own, as before.
+start_hub() {
+  [ "${CMUX_WEB_TEST_SHARED_SERVERS:-1}" != 0 ] || return 0
+  [ -f scripts/test-dev-hub.ts ] || return 0
+  { [ -s "$results/browser" ] || [ -s "$results/serial" ]; } || return 0
+  # Its own process group (set -m), so the per-file timeouts' group kills never reach it.
+  set -m
+  bun scripts/test-dev-hub.ts --url-file "$results/hub-url" --dir "$results/hub" > "$results/hub.log" 2>&1 < /dev/null &
+  hub_pid=$!
+  set +m
+  local waited=0
+  while [ ! -s "$results/hub-url" ] && kill -0 "$hub_pid" 2> /dev/null && [ "$waited" -lt 300 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  if [ -s "$results/hub-url" ]; then
+    export CMUX_WEB_TEST_HUB="$(cat "$results/hub-url")"
+    echo "shared dev servers: $CMUX_WEB_TEST_HUB (sharing ${CMUX_WEB_TEST_HUB_SHARE:-vite})"
+  else
+    echo "shared dev servers did not start; every file starts its own"
+    tail -n 20 "$results/hub.log" || true
+    stop_hub
+  fi
+}
+start_hub
 if [ "$plain_jobs" -ge 1 ] && [ -s "$results/browser" ] && [ -s "$results/plain" ]; then
   # The plain jsdom files start at once; the browser files wait for the warm, beside them.
   { warm_transforms; xargs -0 -P "$browser_jobs" -I{} bash "$self" --one {} "$results" "$timeout_seconds" < "$results/browser"; } &
@@ -481,6 +529,10 @@ if [ -s "$results/dev-alone" ]; then
   xargs -0 -n 3 -P 1 bash "$self" --one-cached "$results" "$timeout_seconds" < "$results/dev-alone"
 fi
 
+# The retries run on servers of their own: the hub's last use is the first runs.
+stop_hub
+unset CMUX_WEB_TEST_HUB
+
 # Retry failed files once, alone, so a file that only lost a race for the CPU
 # with its neighbours gets a verdict of its own. Its first log is kept beside the retry's.
 retries="${CMUX_WEB_TEST_RETRIES:-60}"
@@ -533,7 +585,7 @@ while read -r result file log; do
       mv "$log" "$log.first"
       cache=""
       if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/timeout-retry-$timeout_retried"; fi
-      bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
+      CMUX_WEB_TEST_HUB="" bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
       if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
       if grep -qxF "PASS $file $log" "$results/summary"; then
         echo "$file (first run: TIMEOUT)" >> "$results/retry-passed"
@@ -562,7 +614,7 @@ while read -r result file log; do
   mv "$log" "$log.first"
   cache=""
   if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/retry-$retried"; fi
-  CMUX_WEB_TEST_MAX_FILE_TIMEOUT="$retry_limit" bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
+  CMUX_WEB_TEST_HUB="" CMUX_WEB_TEST_MAX_FILE_TIMEOUT="$retry_limit" bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
   if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
   if [ "$retry_limit" -lt "$normal_limit" ] && grep -qxF "TIMEOUT $file $log" "$results/summary"; then
     # An incomplete retry is not a full-file timeout: keep the first run's actual named

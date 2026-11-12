@@ -110,6 +110,15 @@ if (!("Element" in scope)) {
   refusePlaywrightOnMacs([chromium, webkit, firefox]);
 }
 
+// The run's shared dev servers (scripts/test-dev-hub.ts, which run-webviews-tests.sh starts): a
+// file's plain-data `createServer` gets the run's one warm Vite server for that config instead of
+// booting its own (support/sharedDevServers.ts says which configs, and how a file opts out). Before
+// the leak detector, so this mock is the run's, not a file's.
+if (process.env.CMUX_WEB_TEST_HUB) {
+  const { installSharedDevServers } = await import("./support/sharedDevServers");
+  await installSharedDevServers(process.env.CMUX_WEB_TEST_HUB);
+}
+
 // Cross-file leaks: a test file that leaves module state, a timer, a listener or a global behind
 // for the next file fails, naming what it left (support/leakDetector.ts says how).
 {
