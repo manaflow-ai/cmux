@@ -25,12 +25,17 @@ public nonisolated struct HistoryRead: Sendable {
         public let canRetry: Bool
     }
 
-    /// Unanswered (with or without the rows other owners gave): Try Again. An unfiltered Recently Closed
-    /// with no rows: nothing was closed. Else nil (the rows, or the list's own "No Results" for a search).
+    /// Unanswered (with or without the rows other owners gave): Try Again. Not complete yet (``pending``, with
+    /// or without rows, a search too): still loading, and the reader reads again by itself. An unfiltered
+    /// Recently Closed with no rows: nothing was closed. Else nil (the rows, or the list's own "No Results" for a search).
     public func status(_ query: HistoryQuery) -> Status? {
         if unavailable {
             return Status(id: "history.status.unavailable", title: HistoryStrings.readFailed, detail: HistoryStrings.readFailedHint,
                           symbol: "exclamationmark.triangle", canRetry: true)
+        }
+        if !pending.isEmpty {
+            return Status(id: "history.status.pending", title: HistoryStrings.stillLoading, detail: HistoryStrings.stillLoadingHint,
+                          symbol: "hourglass", canRetry: false)
         }
         guard entries.isEmpty, query.kinds == [.closed], query.text.isEmpty, query.range == .all else { return nil }
         return Status(id: "history.status.empty", title: HistoryStrings.menuNothingClosed, detail: nil, symbol: "clock.arrow.circlepath",

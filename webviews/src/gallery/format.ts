@@ -414,6 +414,8 @@ export type HistoryPageVariant = VariantBase & {
   /** The app's cookie backups (the Cookie Backups panel). */
   cookieBackups?: CookieBackup[];
   loading?: boolean;
+  /** The owner's list is not complete yet (`pending_kinds`): the page shows its still-loading line. */
+  pending?: boolean;
   error?: "network" | "permission" | "not-found";
   query?: {
     text?: string;

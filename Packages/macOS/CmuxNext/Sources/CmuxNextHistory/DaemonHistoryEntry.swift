@@ -132,13 +132,15 @@ public nonisolated struct DaemonHistoryList: Decodable, Sendable {
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         entries = try c.decode([DaemonHistoryEntry].self, forKey: .entries)
-        pendingKinds = []
+        // A kind this build does not know is left out: it lists no entry of that kind.
+        pendingKinds = Set(try c.decodeIfPresent([String].self, forKey: .pendingKinds)?.compactMap(HistoryEntry.Kind.init(rawValue:)) ?? [])
     }
 
     /// Whether `id` is not among the entries only because its kind's entries are not complete yet:
     /// the entry is then not known, which is not "gone".
     public func isStillLoading(id: String) -> Bool {
-        false
+        guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }), pendingKinds.contains(kind) else { return false }
+        return !entries.contains { $0.id == id }
     }
 }
 

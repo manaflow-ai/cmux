@@ -136,6 +136,11 @@ export default historyPageEntry({
       note: "All five history kinds, including a running agent and an unavailable row.",
       entries,
     },
+    "still-loading": {
+      note: "The owner's list is not complete yet: the rows that came, under one quiet still-loading line.",
+      entries,
+      pending: true,
+    },
     "many-entries": {
       note: "A long command timeline that scrolls and wraps long names.",
       entries: [...many, ...entries],

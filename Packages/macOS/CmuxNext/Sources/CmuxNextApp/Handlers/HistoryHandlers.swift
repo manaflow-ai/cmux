@@ -118,7 +118,8 @@ extension HistoryLookup {
     @MainActor var opening: Result<HistoryEntry, ActionWorkFailure> {
         switch self {
         case .found(let entry) where entry.isAvailable: .success(entry)
-        case .found, .stillLoading, .gone: .failure(ActionWorkFailure(HistoryAppStrings.entryGone))
+        case .stillLoading: .failure(ActionWorkFailure(refusal: .unavailable, reason: HistoryAppStrings.stillLoading))
+        case .found, .gone: .failure(ActionWorkFailure(HistoryAppStrings.entryGone))
         }
     }
 }

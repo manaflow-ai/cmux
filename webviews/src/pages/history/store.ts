@@ -67,6 +67,12 @@ export class HistoryStore {
   private linkEpoch = 0;
   private changesUnsupported = false;
   private lifetime = 0;
+  /** The one timer that reads a list that is not complete again; never a second one. */
+  private pendingTimer?: ReturnType<typeof setTimeout>;
+  /** How many timed re-reads the current not-complete list has had: the wait backs off with it. */
+  private pendingAttempt = 0;
+  /** Ends the wait for a hidden page to show again (its `visibilitychange` listener). */
+  private unshown?: () => void;
 
   constructor(
     private readonly client: PageClient | null,
@@ -185,6 +191,46 @@ export class HistoryStore {
     this.unsubscribe = undefined;
     this.unpage?.();
     this.unpage = undefined;
+    this.clearPending();
+  }
+
+  /** A list that is not complete (`pending_kinds`) is read again by itself: after 1 s, 2 s, 4 s, then
+   * each 8 s, on one timer, until a reply is complete. `history-changed` only makes a read sooner
+   * (the owner emits it when an entry changes, not when its list becomes complete), so it neither
+   * adds a timer nor starts the waits again. A hidden page does not read on the timer: it reads
+   * once when it shows again. */
+  private followPending(pending: boolean): void {
+    if (!pending) {
+      this.clearPending();
+      return;
+    }
+    if (this.pendingTimer !== undefined || this.unshown) return;
+    const wait = PENDING_WAITS_MS[Math.min(this.pendingAttempt, PENDING_WAITS_MS.length - 1)];
+    this.pendingAttempt += 1;
+    this.pendingTimer = setTimeout(() => {
+      this.pendingTimer = undefined;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        const shown = () => {
+          if (document.visibilityState === "hidden") return;
+          this.unshown?.();
+          void this.reload();
+        };
+        document.addEventListener("visibilitychange", shown);
+        this.unshown = () => {
+          document.removeEventListener("visibilitychange", shown);
+          this.unshown = undefined;
+        };
+        return;
+      }
+      void this.reload();
+    }, wait);
+  }
+
+  private clearPending(): void {
+    if (this.pendingTimer !== undefined) clearTimeout(this.pendingTimer);
+    this.pendingTimer = undefined;
+    this.unshown?.();
+    this.pendingAttempt = 0;
   }
 
   /** Subscribes to `history-changed` unless it already is; true when it follows them (subscribed,
@@ -249,7 +295,9 @@ export class HistoryStore {
    * change stream yet) follows the changes again, then re-reads. */
   private onConnection(connected: boolean, alive: () => boolean): void {
     if (!connected) {
-      this.set({ connection: "disconnected", loading: false });
+      // No owner to ask: the reads stop, and the reconnect's read says again whether the list is complete.
+      this.clearPending();
+      this.set({ connection: "disconnected", loading: false, pending: false });
       return;
     }
     const wasDown = this.snapshot.connection === "disconnected";
@@ -302,17 +350,27 @@ export class HistoryStore {
       // cmux.protocol/2 sends a decimal as a string ("1791916418192"); `new Date("…")` of that is
       // an invalid date, and the grouping threw while rendering (a blank page, cx-hnmbt.8).
       const entries = result.entries.map((entry) => ({ ...entry, at_ms: Number(entry.at_ms) }));
+      const pending = (result.pending_kinds?.length ?? 0) > 0;
       this.set({
         entries,
         groups: groupEntries(entries, this.snapshot.grouping),
         selection: reconcileSelection(entries, this.snapshot.selection),
         loading: false,
+        pending,
         connection: "connected",
         error: undefined,
       });
+      this.followPending(pending);
     } catch (error) {
       if (generation !== this.generation) return;
       this.set({ loading: false, ...failure(error) });
+      // A failed re-read leaves the list not complete: the next wait still comes, unless the owner is gone.
+      if (this.snapshot.connection === "disconnected") {
+        this.clearPending();
+        if (this.snapshot.pending) this.set({ pending: false });
+      } else {
+        this.followPending(this.snapshot.pending);
+      }
     }
   }
 
@@ -377,6 +435,9 @@ export class HistoryStore {
     for (const listener of this.listeners) listener();
   }
 }
+
+/** The waits before each re-read of a list that is not complete; the last repeats. */
+const PENDING_WAITS_MS = [1000, 2000, 4000, 8000];
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

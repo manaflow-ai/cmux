@@ -1,5 +1,6 @@
 import CmuxAgentBrands
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import CmuxNextPalette
 import Foundation
 
@@ -53,12 +54,14 @@ enum HistoryPalettePages {
 
     private static func page(_ services: AppServices, id: String, title: String, placeholder: String, symbol: String,
                              kinds: Set<HistoryEntry.Kind>) -> PalettePageSpec {
-        let provider = AsyncPaletteProvider(id: id) { [weak services] in
-            guard let services else { return [] }
+        // A list that is not complete yet (`pending_kinds`) shows its rows and the still-loading row, and is read again by itself.
+        let provider = AsyncPaletteProvider.rereading(id: id, read: { [weak services] in
+            guard let services else { return nil }
             let query = HistoryQuery(kinds: kinds, limit: 500)
             let read = await services.history.read(query)
-            return read.entries.map { item(for: $0, services: services) } + (read.status(query).map { [statusItem($0)] } ?? [])
-        }
+            let rows = read.entries.map { item(for: $0, services: services) } + (read.status(query).map { [statusItem($0)] } ?? [])
+            return (rows, !read.pending.isEmpty)
+        }, wait: { try await DaemonHistoryClient.waitForPending(afterReads: $0) })
         return PalettePageSpec(id: id, title: title, placeholder: placeholder, symbol: symbol, providers: [provider])
     }
 

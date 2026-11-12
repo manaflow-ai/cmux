@@ -102,9 +102,15 @@ public final class AsyncPaletteProvider: PaletteProvider {
                                  wait: @escaping @MainActor (_ reads: Int) async throws -> Void) -> AsyncPaletteProvider {
         AsyncPaletteProvider(id: id, showsItemsForEmptyQuery: showsItemsForEmptyQuery, once: { await read()?.items ?? [] }, updates: {
             let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
-            // task-owner: one open's read of the list; ends with the read or with the stream's consumer
+            // task-owner: one open's reads of a list that is not complete; ends at a complete read or with the stream's consumer
             let task = Task { @MainActor in
-                if let list = await read() { continuation.yield(list.items) }
+                var reads = 0
+                while !Task.isCancelled, let list = await read() {
+                    reads += 1
+                    continuation.yield(list.items)
+                    guard list.moreToCome else { break }
+                    do { try await wait(reads) } catch { break }
+                }
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
