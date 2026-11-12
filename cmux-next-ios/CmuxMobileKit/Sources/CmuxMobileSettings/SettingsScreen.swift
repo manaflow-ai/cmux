@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileAuth
+import CmuxMobileBillingUI
 import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileRealtime
@@ -31,7 +32,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let callChief: (() -> Void)?
     /// Screen Sharing with the account's Macs (nil in mock mode: no row).
     let screenSharing: ScreenSharingService?
-    /// The account's Cloud page (Automations) and Connect GitHub (nil: no Cloud rows).
+    /// The account's Cloud pages (Cloud Machines, Automations) and Connect GitHub (nil: no Cloud rows).
     let cloudPages: SettingsCloudPages?
     private let callKeys = OpenAIKeyModel.shared
     private let callPreferences = VoiceCallPreferences.shared
@@ -65,6 +66,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             ScrollViewReader { proxy in
             List {
                 accountSection.id("top")
+                // Plan: the current plan and the App Store plans screen; nothing
+                // when the root injected no billing model (mock, DEBUG, staging).
+                MobileSettingsPlanSection()
                 if let team = store.activeTeam {
                     Section {
                         NavigationLink(value: SettingsRoute.team) {
@@ -94,6 +98,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 if let cloudPages {
                     // The Mac's Automations and Artifacts pages and Connect GitHub, with this account's own sign-in.
                     Section {
+                        NavigationLink(value: SettingsRoute.cloudMachines) {
+                            SettingsLabel("Cloud Machines", symbol: "cloud")
+                        }
+                        .accessibilityIdentifier("settings.cloudMachines")
                         NavigationLink(value: SettingsRoute.automations) {
                             SettingsLabel("Automations", symbol: "clock.badge.checkmark")
                         }
@@ -169,7 +177,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     LinkRow("Join the cmux Discord", symbol: "bubble.left.and.bubble.right", url: "https://discord.gg/xsgFEVrWCZ")
                     LinkRow("Follow @cmux on X", symbol: "at", url: "https://x.com/cmux")
                     LinkRow("cmux on GitHub", symbol: "chevron.left.forwardslash.chevron.right", url: "https://github.com/manaflow-ai/cmux")
-                    // The Mac's Send Feedback (Help menu): the same new-issue page.
+                    // The new-issue page, not the Mac's prefilled bug report form: that form requires a macOS
+                    // version, a Mac chip and an install method, none of which an iPhone report has.
                     LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
                         .accessibilityIdentifier("settings.sendFeedback")
                     CopyLogsRow()
@@ -202,7 +211,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             }
             .onChange(of: scrollRequest) { _, target in
                 guard let target else { return }
-                withAnimation(theme.motion.gentle.animation) { proxy.scrollTo(target, anchor: target == "bottom" ? .bottom : .top) }
+                withAnimation(theme.motion.gentle.animation.unlessReduceMotion) { proxy.scrollTo(target, anchor: target == "bottom" ? .bottom : .top) }
             }
             .listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)
@@ -281,6 +290,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .chiefCalls: ChiefCallsPage(keys: callKeys, preferences: callPreferences, callChief: callChief)
         case .screenSharing:
             if let screenSharing { ScreenSharingPage(service: screenSharing) }
+        case .cloudMachines:
+            cloudPages?.machines()
         case .automations:
             cloudPages?.automations()
         case .longPressMenus:
@@ -301,6 +312,8 @@ public enum SettingsRoute: Hashable, Sendable {
     case screenSharing
     /// Appearance → Accent color: the one accent every chrome tint reads.
     case accentColor
+    /// Cloud → Cloud Machines (the account's Cloud machines).
+    case cloudMachines
     /// Cloud → Automations (the account's Cloud automations).
     case automations
     /// Long-Press Menus: the menu items the person hid.
@@ -314,7 +327,7 @@ public enum SettingsRoute: Hashable, Sendable {
             return
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
-                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .automations,
+                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .cloudMachines, .automations,
                                     .longPressMenus]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
@@ -502,7 +515,7 @@ struct AppearanceTiles: View {
                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                                     .strokeBorder(selected ? theme.colors.label.color : theme.colors.separator.color, lineWidth: selected ? 2 : 0.5)
                             }
-                            .animation(theme.motion.snap.animation, value: selected)
+                            .animation(theme.motion.snap.animation.unlessReduceMotion, value: selected)
                         Text(mode.title)
                             .font(theme.type.meta.weight(selected ? .semibold : .regular))
                             .foregroundStyle(selected ? theme.colors.label : theme.colors.label2)

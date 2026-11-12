@@ -71,7 +71,8 @@
       "agent": "settable",
       "why": "Sidebar control visibility (looks only)",
       "keys": [
-        "sidebar.controlsOnHover"
+        "sidebar.controlsOnHover",
+        "sidebar.floatOnHover"
       ]
     },
     {
@@ -81,6 +82,7 @@
         "sidebar.groupHeader.unreadCount",
         "sidebar.groupHeader.background",
         "sidebar.groupPalette",
+        "sidebar.groupGradient",
         "sidebar.numbering",
         "sidebar.cmd9",
         "sidebar.stepping",
@@ -115,8 +117,7 @@
     {
       "agent": "settable",
       "keys": [
-        "newTerminal.opensWorkspace",
-        "tabs.cmdWClosesPinnedTabs"
+        "newTerminal.opensWorkspace"
       ]
     },
     {
@@ -283,7 +284,6 @@
         "ui.animationSpeed",
         "ui.animations.newTab",
         "ui.animations.newWorkspace",
-        "ui.animations.bounce",
         "ui.animations.enabled",
         "ui.animations.sidebar",
         "ui.animations.tabs",
@@ -366,17 +366,6 @@
         "sidebar.nowPlaying.enabled",
         "tabs.newTabNowPlaying",
         "media.pictureInPicture.enabled",
-        "tabs.newTabWidgets.greeting",
-        "tabs.newTabWidgets.projects",
-        "tabs.newTabWidgets.actions",
-        "tabs.newTabWidgets.chats",
-        "tabs.newTabWidgets.styleDots",
-        "tabs.newTabWidgets.order",
-        "tabs.newTabWidgets.machines",
-        "tabs.newTabWidgets.clock",
-        "tabs.newTabWidgets.timer",
-        "tabs.newTabWidgets.warmGreeting",
-        "tabs.newTabWidgets.quote",
         "sidebar.showProjects",
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
@@ -391,7 +380,9 @@
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
-        "browser.showBookmarksBar"
+        "browser.showBookmarksBar",
+        "browser.vimKeys",
+        "browser.showLoadingBar"
       ]
     },
     {
@@ -470,10 +461,18 @@
     },
     {
       "agent": "settable",
-      "why": "Where the docked Chief sits and where its links open (layout choices, like pane placement).",
+      "why": "Where the docked Chief sits, how the floating one looks and where its links open (layout choices, like pane placement).",
       "keys": [
         "home.chiefDock.edge",
+        "home.chiefPanel.style",
         "home.chiefDock.openBeside"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "On, opening the floating Chief gives it a look at the person's screen; only the person turns it on.",
+      "keys": [
+        "home.chiefPanel.seesScreen"
       ]
     },
     {
@@ -725,8 +724,13 @@
         "agentPane.display.fullWidth",
         "agentPane.display.vscodeMinimap",
         "agentPane.display.pinnedPlan",
+        "agentPane.display.finishSound",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
+        "agentPane.display.unreadBanner",
+        "agentPane.display.senderIcon.lead",
+        "agentPane.display.senderIcon.badge",
+        "agentPane.display.senderIcon.corner",
         "agentPane.display.font.preset",
         "agentPane.display.font.ui",
         "agentPane.display.font.size",
@@ -738,6 +742,7 @@
         "agentPane.display.minimap",
         "agentPane.display.transcriptView",
         "agentPane.display.presentation",
+        "agentPane.display.promptCoach",
         "agentPane.display.statusVerbs.mode",
         "agentPane.display.statusVerbs.custom",
         "agentPane.display.harnessPlacement",
@@ -870,6 +875,7 @@
         "appearance.metrics.dividerThickness",
         "appearance.metrics.dividerHitWidth",
         "appearance.metrics.titlebarHeight",
+        "appearance.metrics.sidebarRowHeight",
         "browser.toolbar.back",
         "browser.toolbar.forward",
         "browser.toolbar.reload",
@@ -918,6 +924,13 @@
       ]
     },
     {
+      "agent": "userOnly",
+      "why": "Turn checkpoints save the person's whole Cloud machine to their snapshot storage after every turn: only the person turns that on.",
+      "keys": [
+        "cloud.turnCheckpoints"
+      ]
+    },
+    {
       "agent": "privacy",
       "why": "The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.",
       "keys": [
@@ -949,6 +962,14 @@
       "why": "Each recap is an extra model call on the person's usage: theirs to turn on or off.",
       "keys": [
         "agents.chats.sessionRecap"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Whether old chats' logs are compressed on disk, and after how long: lossless (opening a chat brings its log back), a local disk policy as agents.hiddenChats.discard is for memory.",
+      "keys": [
+        "agents.chats.coldArchive",
+        "agents.chats.coldArchiveAfterDays"
       ]
     },
     {
@@ -1045,14 +1066,6 @@
         "feed.github.enabled",
         "feed.github.pollIntervalSeconds",
         "browser.remoteLocalhost"
-      ]
-    },
-    {
-      "agent": "network",
-      "why": "The weather widget asks Open-Meteo (and names a city) only once the person turns it on.",
-      "keys": [
-        "tabs.newTabWidgets.weather",
-        "tabs.newTabWidgets.weatherCity"
       ]
     },
     {
@@ -1219,8 +1232,10 @@
     },
     {
       "agent": "destructive",
+      "why": "The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.",
       "keys": [
-        "app.quitBehavior"
+        "app.quitBehavior",
+        "app.confirmQuit"
       ]
     },
     {
@@ -1249,6 +1264,20 @@
       "why": "On, a live code build loads Swift patches into the running app: only the person turns that on.",
       "keys": [
         "labs.liveCode"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
+      "keys": [
+        "developerTools.appPages"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether the person's Command Palette lists the debug commands: the person's call.",
+      "keys": [
+        "app.internalDeveloperMode"
       ]
     },
     {
@@ -1313,6 +1342,13 @@
       ]
     },
     {
+      "agent": "privacy",
+      "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
+      "keys": [
+        "diagnostics.usagePatterns"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "What a new chat may do without asking: an agent must not widen its own approvals.",
       "keys": [
@@ -1352,7 +1388,8 @@
       "agent": "userOnly",
       "why": "Battery and sleep are the person's call: an agent must not keep the Mac up for itself.",
       "keys": [
-        "sessions.keepAwake"
+        "sessions.keepAwake",
+        "sessions.keepAwakeForCommands"
       ]
     },
     {
@@ -1374,6 +1411,13 @@
       "why": "On, every agent gets tools that start child chats: the person turns that on.",
       "keys": [
         "sessions.promptSuggestions"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.",
+      "keys": [
+        "agents.promptSuggestions"
       ]
     },
     {
@@ -1410,6 +1454,14 @@
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
         "agents.autoRetry.attempts"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "keys": [
+        "agents.cacheCompact.enabled",
+        "agents.cacheCompact.minContextPercent"
       ]
     },
     {
@@ -1477,6 +1529,13 @@
       "why": "cmux Remote: the person's call.",
       "keys": [
         "remote.endSharingOnQuit"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Spends about 2 to 3 times the data on every remote connection; only the person turns it on.",
+      "keys": [
+        "remote.ultraMode"
       ]
     },
     {

@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { DictationButton } from "./DictationButton";
 import type { Dictation } from "./dictation";
 import { readOutsideLevel, setOutsideDictation, setOutsideLevel } from "./outsideDictation";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -18,6 +19,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   setOutsideDictation({ active: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

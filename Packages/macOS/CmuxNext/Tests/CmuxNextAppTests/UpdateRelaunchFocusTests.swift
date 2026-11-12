@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -10,7 +11,7 @@ import Testing
     private static let start = Date(timeIntervalSince1970: 1_800_000_000)
 
     private static func defaults() -> UserDefaults {
-        UserDefaults(suiteName: "UpdateRelaunchFocusTests.\(UUID().uuidString)")!
+        UserDefaults(testSuiteName: "UpdateRelaunchFocusTests.\(UUID().uuidString)")!
     }
 
     private static func updater(defaults: UserDefaults, front: UpdateFrontmostApp) -> UpdaterService {

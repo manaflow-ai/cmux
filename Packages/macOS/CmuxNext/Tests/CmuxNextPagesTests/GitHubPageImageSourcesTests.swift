@@ -32,4 +32,19 @@ struct GitHubPageImageSourcesTests {
         #expect(imageSources(builtIn.csp.header) == ["'self'", "data:", "https://camo.githubusercontent.com"])
         #expect(!builtIn.csp.header.contains("connect-src"))
     }
+
+    /// Review follow-up on #38075 (F2): a built-in page's own narrowing stands. Taking its image
+    /// sources must not reset inline script, which only narrows the policy, back to allowed.
+    @Test func aBuiltInPageThatTurnsInlineScriptOffKeepsItOff() {
+        let narrow = PageCSP(image: ["https://camo.githubusercontent.com"], inlineScript: false)
+        let builtIn = PageDescriptor(id: "cmux.github-test", resource: "github", namespaces: [], csp: narrow)
+        #expect(builtIn.csp.inlineScript == false)
+        #expect(builtIn.csp.header.contains("script-src 'self';"))
+        #expect(imageSources(builtIn.csp.header) == ["'self'", "data:", "https://camo.githubusercontent.com"])
+        // Nothing else of the page's policy comes along.
+        let wide = PageCSP(connect: ["https://a.example"], frame: ["https://b.example"], media: ["https://c.example"],
+                           script: ["'wasm-unsafe-eval'"], inlineScript: false)
+        let kept = PageDescriptor(id: "cmux.github-test", resource: "github", namespaces: [], csp: wide).csp
+        #expect(kept == PageCSP(inlineScript: false))
+    }
 }

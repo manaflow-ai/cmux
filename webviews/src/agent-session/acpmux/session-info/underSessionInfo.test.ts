@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { transcriptColumn } from "../model";
-import { FLOAT_MARGIN, sessionInfoOverChat } from "./SessionInfo";
+import { FLOAT_MARGIN, sessionInfoOverChat } from "./sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "./sessionInfoState";
 import { SESSION_INFO_STACK_GAP, underSessionInfo, underSessionInfoRoom } from "./underSessionInfo";
 

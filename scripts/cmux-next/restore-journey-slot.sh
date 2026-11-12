@@ -14,7 +14,7 @@
 # against the slot's socket. The journey's own relaunches reuse the app's launch environment. At
 # the end the app quits through its quit action (sessions kept) and the lease is released, which
 # stops every process of the slot by exact PID. A lease lasts at most 10 minutes; the journey
-# takes about 4. Results land in OUT_DIR (default /tmp/restore-journey-<JOB>-<time>).
+# takes about 4. Results land in OUT_DIR (default a new /tmp/restore-journey-<JOB>-<time>.XXXXXX).
 # Pin a host with CAPTURE_HOST_SLOT_HOSTS (one with free disk; see `capture-host status`).
 # The lease is exclusive (`capture-host acquire --slot --exclusive`): the fleet controller places no
 # step on the mini and no other capture shares it, so its timings are evidence. A run beside other
@@ -30,7 +30,7 @@ if [ "${1:-}" = "--update-to" ]; then
   shift 2
   [[ $update_job =~ ^[A-Za-z0-9._-]+$ ]] && [ "$update_job" != "$job" ] || { echo "bad --update-to JOB_B: $update_job" >&2; exit 2; }
 fi
-out=/tmp/restore-journey-$job-$(date +%H%M%S)
+out=""  # the default is made below by mktemp, never a guessable /tmp name another account could make first
 if [ "${1:-}" = "--" ]; then
   shift
 elif [ $# -gt 0 ]; then
@@ -44,7 +44,7 @@ args=
 here=$(cd "$(dirname "$0")" && pwd)
 # capture-host and the ssh routes to the capture minis (capture-host-env.sh).
 . "$here/capture-host-env.sh"
-mkdir -p "$out"
+if [ -n "$out" ]; then mkdir -p "$out"; else out=$(mktemp -d "/tmp/restore-journey-$job-$(date +%H%M%S).XXXXXX"); fi
 stage=/Users/Shared/cmux-capture/restore-journey/$job
 run=$stage/run-$(date +%H%M%S)
 

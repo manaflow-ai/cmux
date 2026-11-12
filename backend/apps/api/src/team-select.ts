@@ -4,6 +4,7 @@ import { roleHas } from "./domains/team-roles.ts"
 import { personalTeamIdFor } from "./domains/user.ts"
 import { isMachineInstallKind } from "./machine-installs.ts"
 import type { Env } from "./env.ts"
+import { memberRoleHealed, stackHealDeps, type StackHealDeps } from "./stack-team-heal.ts"
 
 /**
  * Session team selection (cx-3bi.43; plans/cmux-next/enterprise.md "shared teams" item 3): a Stack
@@ -29,7 +30,7 @@ export type TeamSelection =
   | { readonly ok: true; readonly principal: TeamPrincipal }
   | { readonly ok: false; readonly code: "auth.forbidden" | "team.not_member" | "owner.unreachable"; readonly message: string }
 
-export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string | null | undefined): Promise<TeamSelection> => {
+export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string | null | undefined, heal: StackHealDeps = stackHealDeps(env)): Promise<TeamSelection> => {
   if (requested && requested !== p.team) {
     if (!TEAM_ID.test(requested)) return { ok: false, code: "auth.forbidden", message: `${TEAM_HEADER} must name a team id` }
     if (p.kind !== "session") return { ok: false, code: "auth.forbidden", message: "an install token acts only in the team it was minted for" }
@@ -39,8 +40,8 @@ export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string |
   if (team === personalTeamIdFor(p.user) || (p.kind === "install" && isMachineInstallKind(p.install_kind))) return { ok: true, principal: { ...p, team } }
   let role: string | null
   try {
-    const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team))
-    role = await stub.memberRole(team, p.user)
+    // A team TeamDO never mirrored from Stack is synced first when Stack lists the person in it.
+    role = await memberRoleHealed(env, team, p.user, p.kind === "session" ? p.stack_user_id : undefined, heal)
   } catch (e) {
     console.error(JSON.stringify({ msg: "team selection unreachable", error: String(e).slice(0, 200) }))
     return { ok: false, code: "owner.unreachable", message: "team membership could not be checked; retry" }

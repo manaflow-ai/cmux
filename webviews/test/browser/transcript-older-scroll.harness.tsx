@@ -1,6 +1,9 @@
 // The chat's transcript with older history paging in as the reader scrolls up (App.tsx checkOlder),
 // for transcript-older-scroll.test.ts: the chat opens on its tail, and each ask lands one page of
 // older rows above the first after `window.__older.latency` ms, as a read from acpmux would.
+// For transcript-tail-scroll.test.ts: `?tail=N` opens on the last N rows, `?latency=ms` sets how
+// long each page takes, and `?prompts` passes the chat's prompt count, as the pane does, so the room
+// for the unloaded history is held above the rows (conversation/olderReserve.ts).
 import { useCallback, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
@@ -25,12 +28,14 @@ type Older = {
   loaded: () => number;
   total: number;
 };
-const older: Older = { latency: 400, asks: [], loaded: () => 0, total: all.length };
+const query = new URLSearchParams(location.search);
+const TAIL = Number(query.get("tail") ?? 2 * PAGE);
+const older: Older = { latency: Number(query.get("latency") ?? 400), asks: [], loaded: () => 0, total: all.length };
 (window as unknown as { __older: Older }).__older = older;
 
 function Transcript() {
   // `?all`: every row from the start and nothing to page, the control the paging is measured against.
-  const [from, setFrom] = useState(location.search.includes("all") ? 0 : all.length - 2 * PAGE);
+  const [from, setFrom] = useState(query.has("all") ? 0 : all.length - TAIL);
   older.loaded = () => all.length - from;
   const onLoadOlder = useCallback(() => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
@@ -52,6 +57,7 @@ function Transcript() {
       onToggleActivity={() => {}}
       expanded={new Set()}
       canLoadOlder={from > 0}
+      promptCount={query.has("prompts") && from > 0 ? all.length / 3 : undefined}
       onLoadOlder={onLoadOlder}
     />
   );

@@ -293,8 +293,13 @@ body,
   justify-content: center;
   padding-top: var(--grid-half-step);
 }
+/* Shown only on the row's hover and focus, and over the message's top right in the ledger layout
+   (ledger.css): it takes no clicks or selection from the text under it (CMUX-325). */
 .hc-msg-hover-time {
   opacity: 0;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
   transition: var(--cmux-hover-reveal-out-transition);
   font-size: var(--text-caption);
   line-height: 22px;
@@ -517,7 +522,7 @@ body,
   background: var(--hc-fill);
   transition: border-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
-.hc-composer:focus-within {
+.hc-composer:is(:focus-visible, :has(:focus-visible)) {
   border-color: var(--hc-line-strong);
 }
 .hc-composer.disabled {
@@ -620,8 +625,8 @@ body,
   font: inherit;
   outline: none;
 }
-.hc-emoji-search:focus,
-.hc-link-field:focus {
+.hc-emoji-search:focus-visible,
+.hc-link-field:focus-visible {
   border-color: var(--hc-line-strong);
 }
 .hc-emoji-grid {

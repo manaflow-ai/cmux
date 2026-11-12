@@ -65,6 +65,10 @@ const BACKOFF_MAX: Duration = Duration::from_secs(60);
 const HEALTHY_RUN: Duration = Duration::from_secs(60);
 /// How long daemon shutdown waits for the brains to end after SIGTERM.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+/// A brain's `host.log` larger than this at a launch moves to `host.log.1`
+/// (replacing the one before), so the log of a brain that runs for months
+/// stays at most twice this size.
+const HOST_LOG_ROTATE_BYTES: u64 = 8 << 20;
 
 /// `CMUX_TUI_CHIEF_BRAINS`.
 #[derive(Debug, Clone, Deserialize)]
@@ -1082,11 +1086,7 @@ impl Supervisor {
             .open(&token_file)?;
         file.write_all(token.as_bytes())?;
         drop(file);
-        let log = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(mux_home.join("host.log"))?;
+        let log = open_host_log(&mux_home.join("host.log"))?;
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
         let mut command = std::process::Command::new(&self.config.executable);
         command
@@ -1450,5 +1450,47 @@ mod supervisor_idle_tests {
         });
         let deadline = supervisor.next_deadline().expect("an idle brain has its stop due");
         assert!(deadline >= now + IDLE - Duration::from_secs(1));
+    }
+}
+
+/// Opens a brain's log for appending, first moving a log over
+/// [`HOST_LOG_ROTATE_BYTES`] to `<log>.1`.
+#[cfg(unix)]
+fn open_host_log(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    if std::fs::metadata(path).is_ok_and(|meta| meta.len() > HOST_LOG_ROTATE_BYTES) {
+        let mut kept = path.as_os_str().to_owned();
+        kept.push(".1");
+        // A failed move keeps appending to the old log: the launch matters more.
+        let _ = std::fs::rename(path, PathBuf::from(kept));
+    }
+    std::fs::OpenOptions::new().create(true).append(true).mode(0o600).open(path)
+}
+
+#[cfg(all(test, unix))]
+mod host_log_tests {
+    use super::*;
+
+    /// A brain's log does not grow for the brain's whole life: a launch moves a log over the
+    /// limit aside (one older log kept) and starts a new one.
+    #[test]
+    fn a_launch_rotates_a_host_log_over_the_limit() {
+        let dir = std::env::temp_dir().join(format!("cmux-chief-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("host.log");
+        let limit = usize::try_from(HOST_LOG_ROTATE_BYTES).unwrap();
+        std::fs::write(&log, vec![b'x'; limit + 1]).unwrap();
+        drop(open_host_log(&log).unwrap());
+        assert_eq!(std::fs::metadata(&log).unwrap().len(), 0, "a new log starts");
+        let kept = dir.join("host.log.1");
+        assert_eq!(std::fs::metadata(&kept).unwrap().len(), HOST_LOG_ROTATE_BYTES + 1);
+
+        // A log under the limit is appended to.
+        std::fs::write(&log, b"small").unwrap();
+        use std::io::Write as _;
+        open_host_log(&log).unwrap().write_all(b" more").unwrap();
+        assert_eq!(std::fs::read(&log).unwrap(), b"small more");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

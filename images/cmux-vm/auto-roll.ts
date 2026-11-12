@@ -9,7 +9,7 @@
 //     dryRun, and the fix commits (sha, merged-at, subject) the roll carries. Reads git and files.cmux.com only.
 //     Fails closed (exits non-zero) on a shallow checkout or a pinned commit the checkout lacks: the guard that
 //     never rolls an older build needs the pin's history.
-//   bun images/cmux-vm/auto-roll.ts approve --candidate <native-image.json> --revision <ci-RUN-ATTEMPT>
+//   bun images/cmux-vm/auto-roll.ts approve --candidate <channel-dev.json> --revision <ci-RUN-ATTEMPT>
 //       --run <roll run id> --attempt <roll run attempt> [--wrangler <path>] [--lock <path>]
 //     Puts the baked, gated image first in production's VM_BOOT_IMAGES and last in staging's, trims the
 //     oldest auto-rolled entries, and refuses when the lock no longer hashes to what was baked.
@@ -20,6 +20,9 @@
 //       --boot-image <id> --deployed-wrangler <path> [--wrangler <tip path>] [--attempt <n>]
 //     What cmux-vm.yml's image-roll-settle does after a roll or rollback commit's production deploy and smoke
 //     (see settle() below). Prints the decision as JSON; changes nothing.
+//   bun images/cmux-vm/auto-roll.ts check [--max-behind <n>] [--wrangler <path>]
+//     The detector for a stale boot image: exits 1 when an environment's boot entry (production's first, staging's
+//     last: BOOT_ENTRY) trails production's newest roll by more than n rolls (default MAX_ROLLS_BEHIND).
 //
 // Every edit rewrites only the two VM_BOOT_IMAGES string values; the rest of wrangler.jsonc keeps its bytes.
 import { spawnSync } from "node:child_process";
@@ -170,6 +173,40 @@ export function rolledImage(candidate: Candidate, revision: string, cmuxTui: str
     snapshotId: candidate.snapshot_id,
     services: [],
   };
+}
+
+// ---- check: each environment boots a recent roll ----
+
+/**
+ * Which entry of its list each environment's new machines boot: cmux-platform's CLOUD_VM_API_IMAGE_FOLLOW for that
+ * environment (src/server/cloud/vmapi/ImageFollow.ts there). Production follows its first entry, where approve() puts a
+ * roll; staging (development shares its list) follows its last, where approve() appends one. A reader that took
+ * staging's first entry would boot the oldest hand-approved image (ci-41315172830-1), not the roll.
+ */
+export const BOOT_ENTRY: Record<Env, "first" | "last"> = { production: "first", staging: "last" };
+/** How many rolls an environment's boot image may trail production's newest roll (one rollback in flight). */
+export const MAX_ROLLS_BEHIND = 1;
+
+/** The image an environment's new machines boot, by BOOT_ENTRY; "" when its list is empty. */
+export function bootedImage(text: string, env: Env): string {
+  const images = locate(text, env).images;
+  const entry = BOOT_ENTRY[env] === "first" ? images[0] : images[images.length - 1];
+  return entry?.id ?? "";
+}
+
+/**
+ * Each environment's boot image, and how many rolls it trails production's newest roll (production's auto-rolled
+ * entries, newest first). An image that is no roll at all, or a roll production no longer lists, trails every listed
+ * roll. Production with no rolled entry has nothing to trail: every environment is 0 behind.
+ */
+export function bootDrift(text: string, maxBehind = MAX_ROLLS_BEHIND): { env: Env; image: string; behind: number; ok: boolean }[] {
+  const rolls = locate(text, "production").images.filter((i) => i.id.startsWith(AUTO_PREFIX)).map((i) => i.id);
+  return (Object.keys(BOOT_ENTRY) as Env[]).map((env) => {
+    const image = bootedImage(text, env);
+    const at = rolls.indexOf(image);
+    const behind = rolls.length === 0 ? 0 : at < 0 ? rolls.length : at;
+    return { env, image, behind, ok: behind <= maxBehind };
+  });
 }
 
 // ---- settle: after a roll or rollback commit's production deploy and product smoke ----
@@ -397,7 +434,16 @@ async function main(argv: string[]): Promise<number> {
     console.log(JSON.stringify({ ...settle(input), deployedFirst: input.deployedFirst, tipFirst: input.tipFirst }, null, 2));
     return 0;
   }
-  console.error("usage: auto-roll.ts plan|approve|rollback|settle ... (see the header)");
+  if (command === "check") {
+    const max = Number(arg(rest, "--max-behind", String(MAX_ROLLS_BEHIND)));
+    if (!Number.isInteger(max) || max < 0) throw new Error("--max-behind must be a non-negative integer");
+    const drift = bootDrift(readFileSync(wrangler, "utf8"), max);
+    console.log(JSON.stringify(drift, null, 2));
+    for (const d of drift.filter((x) => !x.ok))
+      console.error(`check: ${d.env} boots ${d.image || "no image"} (its ${BOOT_ENTRY[d.env]} entry), ${d.behind} rolls behind production's newest; at most ${max}`);
+    return drift.every((d) => d.ok) ? 0 : 1;
+  }
+  console.error("usage: auto-roll.ts plan|approve|rollback|settle|check ... (see the header)");
   return 2;
 }
 

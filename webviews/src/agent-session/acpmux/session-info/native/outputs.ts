@@ -1,15 +1,22 @@
 // Session Info's Outputs, drawn by the App (OutputsSection.tsx): the chat's documents (open in the
-// side panel), its gallery, its files (each opens its diff) and the web links its replies gave.
+// side panel), its gallery, its files (each opens its diff) and the web links its replies gave, after the
+// pull requests, issues and commits it produced (producedLinks.ts), as the page's Outputs lists them.
 import type { Translate } from "../../i18n";
 import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
 import { OUTPUTS_SHOWN, type OutputArtifact, type OutputLink } from "../outputsSectionModel";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
+import { producedLabel, type ProducedLink } from "../producedLinks";
+import { openOnGitHub } from "../pullRequestDiff";
 
 export type OutputsInput = {
   files: readonly TurnFile[];
   links: readonly OutputLink[];
+  /// The pull requests, issues and commits the chat produced (producedLinks.ts).
+  produced?: readonly ProducedLink[];
+  /// The chat folder's `owner/name`: another repository's row names it.
+  repository?: string;
   /// How many images and renders the gallery holds.
   artifacts: number;
   /// The documents the chat produced (`outputArtifacts`).
@@ -30,11 +37,33 @@ export function outputsSection(
   actions: NativeInfoActions,
   t: Translate,
 ): NativeInfoSection | undefined {
-  const { files, links, artifacts, documents = [], onOpenFile, onOpenArtifacts, onOpenDocument, onOpenUrl } = input;
+  const {
+    files,
+    links,
+    produced = [],
+    artifacts,
+    documents = [],
+    onOpenFile,
+    onOpenArtifacts,
+    onOpenDocument,
+    onOpenUrl,
+  } = input;
   const openUrl = nativeExternalUrl(onOpenUrl);
   // As SessionInfo shows it: any file, link, gallery item, or document it can open.
-  if (files.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) === 0) return undefined;
+  if (produced.length + files.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) === 0)
+    return undefined;
   const rows: NativeInfoRow[] = [];
+  for (const link of produced) {
+    const other = input.repository?.toLowerCase() !== link.repo.toLowerCase();
+    rows.push({
+      id: `produced:${link.key}`,
+      symbol: "link",
+      title: producedLabel(link, (n) => t("sessionInfo.outputs.pullRequest", { n })),
+      ...(other ? { detail: link.repo.split("/")[1] } : {}),
+      help: link.url,
+      action: actions.add(`outputs.openProduced:${link.key}`, () => openOnGitHub(link.url)),
+    });
+  }
   if (onOpenDocument)
     for (const document of documents)
       rows.push({

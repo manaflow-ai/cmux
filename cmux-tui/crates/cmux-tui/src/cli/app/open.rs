@@ -33,10 +33,20 @@ pub(super) fn parse_open(args: &[String]) -> Result<AppCommand, UsageError> {
     let environment = std::env::vars().collect::<std::collections::HashMap<_, _>>();
     parse_open_with(
         args,
-        std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+        open_is_interactive(args, std::io::stdin().is_terminal(), std::io::stdout().is_terminal()),
         &environment,
         &mut std::io::stdin().lock(),
     )
+}
+
+/// Whether a person runs this `cmux open` in a terminal, which makes the tab it opens take
+/// the focus (``default_focus_for_user_open``). `cmux open -` reads its URLs from stdin, a pipe
+/// even when a person is there: the bundled `cmux-open-url` that a terminal's `BROWSER` names
+/// (gh's "Press Enter to open ... in your browser") pipes the URL in and hands on the program's
+/// stdout, the person's terminal. Its stdout alone tells then; an agent's pipe has none.
+pub(super) fn open_is_interactive(args: &[String], stdin_tty: bool, stdout_tty: bool) -> bool {
+    let reads_stdin = args.iter().take_while(|arg| *arg != "--").any(|arg| arg == "-");
+    stdout_tty && (stdin_tty || reads_stdin)
 }
 
 /// `cmux open <path|url>...`, or `cmux open -`: one URL per stdin line, so a

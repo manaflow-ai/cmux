@@ -24,6 +24,10 @@ const MAX_SIZE: (f64, f64) = (3840.0, 2160.0);
 /// Frames ScreenCaptureKit may have in flight. The session holds one (the newest, so a
 /// recovery keyframe can be encoded with no new capture) and encodes another.
 const QUEUE_DEPTH: c_long = 4;
+/// The frame rate when the display's refresh rate cannot be read.
+pub const FALLBACK_FPS: u32 = 60;
+/// The highest refresh rate taken from a display mode (the viewer's settings allow up to 240).
+const MAX_REFRESH_FPS: u32 = 240;
 /// kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange.
 const PIXEL_420V: u32 = u32::from_be_bytes(*b"420v");
 /// SCStreamOutputTypeScreen and SCFrameStatusComplete.
@@ -172,6 +176,36 @@ fn native_size(display: u32) -> (u32, u32) {
         cg::CGDisplayModeRelease(mode);
         size
     }
+}
+
+/// A display's refresh rate in Hz from its current mode, rounded (59.94 is 60). None when the mode
+/// reads 0, as some built-in panels' modes do, or there is no mode.
+fn refresh_rate(display: u32) -> Option<u32> {
+    // SAFETY: a display id; the copied mode is released here.
+    let hz = unsafe {
+        let mode = cg::CGDisplayCopyDisplayMode(display);
+        if mode.is_null() {
+            return None;
+        }
+        let hz = cg::CGDisplayModeGetRefreshRate(mode);
+        cg::CGDisplayModeRelease(mode);
+        hz
+    };
+    hz_to_fps(hz)
+}
+
+/// A mode's refresh rate as a frame rate: rounded, at most [`MAX_REFRESH_FPS`], None for 0.
+fn hz_to_fps(hz: f64) -> Option<u32> {
+    (hz.is_finite() && hz >= 1.0).then(|| (hz.round() as u32).min(MAX_REFRESH_FPS))
+}
+
+/// The refresh rate of the display `which` names (`main` or an index, as [`Capture::start`] picks
+/// it), else [`FALLBACK_FPS`] when it reads 0 or the display list is not available.
+pub fn refresh_fps(which: &str) -> u32 {
+    let Ok((content, displays)) = shareable_displays() else { return FALLBACK_FPS };
+    let rate = pick(&displays, which).ok().and_then(|(_, id)| refresh_rate(id));
+    release_all(content, &displays);
+    rate.unwrap_or(FALLBACK_FPS)
 }
 
 type ContentAnswer = Result<Id, String>;
@@ -642,6 +676,16 @@ mod tests {
         assert_eq!(fit(3456, 2234, None), (3342, 2160));
         assert_eq!(fit(1920, 1080, Some(1280)), (1280, 720));
         assert_eq!(fit(1366, 768, None), (1366, 768));
+    }
+
+    #[test]
+    fn refresh_rates_round_and_zero_means_unknown() {
+        assert_eq!(hz_to_fps(120.0), Some(120));
+        assert_eq!(hz_to_fps(119.88), Some(120));
+        assert_eq!(hz_to_fps(59.94), Some(60));
+        assert_eq!(hz_to_fps(0.0), None);
+        assert_eq!(hz_to_fps(f64::NAN), None);
+        assert_eq!(hz_to_fps(500.0), Some(MAX_REFRESH_FPS));
     }
 
     #[test]

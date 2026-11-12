@@ -43,6 +43,8 @@ public struct SyntheticInput {
     private struct State {
         var pending: [Pending] = []
         var held = 0
+        /// The buttons a click handed straight to a view holds (``click(_:down:up:)``), apart from `held`.
+        var direct = 0
         var swapped = false
     }
 
@@ -88,6 +90,21 @@ public struct SyntheticInput {
         return user
     }
 
+    /// A synthetic click handed straight to `view` (`mouseDown(with:)`, `mouseUp(with:)`), not through `sendEvent`
+    /// (a page window that is not key drops a posted click). As through `sendEvent`, the press holds its button while
+    /// the view takes it, and the release lets go before the view takes it.
+    /// Its hold is its own (`direct`), outside the queue's bookkeeping: it never consumes or prunes another caller's
+    /// posted events still queued (they stay synthetic and hold their button), and its release never lets go of a
+    /// posted press still held (a capture's open drag).
+    public static func click(_ view: NSView, down: NSEvent, up: NSEvent) {
+        let bit = buttonBit(down)
+        if bit != 0 { _ = installed }
+        state.withLock { $0.direct |= bit }
+        view.mouseDown(with: down)
+        state.withLock { $0.direct &= ~bit }
+        view.mouseUp(with: up)
+    }
+
     /// The `pressedMouseButtons` bit a press or release of `event` changes, or 0 (not a press or release).
     private nonisolated static func buttonBit(_ event: NSEvent) -> Int {
         switch event.type {
@@ -117,7 +134,7 @@ public struct SyntheticInput {
     }
 
     /// The buttons synthetic presses hold now.
-    nonisolated static var held: Int { state.withLock { $0.held } }
+    nonisolated static var held: Int { state.withLock { $0.held | $0.direct } }
 
     /// AppKit's `pressedMouseButtons` getter swapped, once, for one that adds `held`.
     private static let installed: Bool = {

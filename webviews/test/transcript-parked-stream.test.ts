@@ -52,7 +52,7 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
                 'globalThis.__geometry?.("anchor-base", {live, stored: scrolledTo.current.top, top, readerLeft});',
               ],
               [
-                "anchorTop: logicalTop,\n        });",
+                "folds: foldRide.current?.handedFolds(oldRows, drawnRef.current),\n        });",
                 'globalThis.__geometry?.("anchor-correction", {top, logicalTop, nextTop, live: node.scrollTop});',
               ],
               ["followingRef.current = next;", 'globalThis.__probe?.("follow", next);'],

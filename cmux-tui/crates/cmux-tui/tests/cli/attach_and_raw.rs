@@ -930,3 +930,33 @@ fn raw_protocol_apply_layout_preserves_explicit_surface_size() {
     assert_eq!(state["cols"].as_u64(), Some(111));
     assert_eq!(state["rows"].as_u64(), Some(37));
 }
+
+/// W5-P (for W5-N): `cmux raw` declares `terminal-public-ids-v1` before a
+/// command that creates a terminal, so `cmux --json raw command` for `run`
+/// shows the public `term_` id beside the host `terminal_id`, and the host
+/// id it shows is a terminal selector as it is.
+#[cfg(unix)]
+#[test]
+fn w5p_raw_run_shows_the_public_ids_and_its_host_id_is_a_selector() {
+    let server = HeadlessServer::start("w5p-raw-run");
+    let reply = raw_json(
+        &server,
+        serde_json::json!({
+            "id":"w5p-run",
+            "cmd":"run",
+            "argv":["/bin/sh","-c","sleep 30"],
+            "new_workspace":true,
+        }),
+    );
+    let host = reply["terminal_id"].as_str().expect("run gives the host id").to_owned();
+    let public = reply["terminal_resource_id"].as_str().expect("run gives the term_ id");
+    assert!(public.starts_with("term_"), "{reply}");
+    for (field, prefix) in [("tab_id", "tab_"), ("pane_id", "pane_"), ("workspace_id", "ws_")] {
+        let id = reply[field].as_str().unwrap_or_default();
+        assert!(id.starts_with(prefix), "run gives {field}: {reply}");
+    }
+    let shown = json_cli(&server, &["terminal", &host, "show"]);
+    assert_success(&shown);
+    let text = String::from_utf8_lossy(&shown.stdout);
+    assert!(text.contains(public), "terminal {host} show is {public}: {text}");
+}

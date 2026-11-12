@@ -16,18 +16,35 @@ public struct StandardWindowButtons {
     /// (`WindowTitlebar.trafficLightsFrame`), and a nil kept from that moment would hide them for good.
     private static let keepsAbsent: Set<NSWindow.ButtonType> = [.documentIconButton, .documentVersionsButton, .toolbarButton]
 
-    /// A part of what decides whether a window has one of those buttons: its style, whether it shows a document, and
-    /// its frame view. Not complete (AppKit may make a document icon lazily); a window that sets `representedURL`
-    /// asks again.
-    private struct Shape: Equatable {
+    /// A part of what decides whether a window has one of those buttons: its style, its toolbar and its frame view.
+    /// A document window (`representedURL`) keeps no absent answer at all: AppKit can add its document icon or versions
+    /// button with no change here (lazily, or when `isDocumentEdited` changes).
+    struct Shape: Equatable {
         let style: NSWindow.StyleMask.RawValue
-        let document: Bool
+        let toolbar: Bool
         let frameView: ObjectIdentifier?
 
-        @MainActor init(_ window: NSWindow) {
+        /// The shape of `window` now, or nil for a document window (no absent answer holds for it).
+        @MainActor init?(_ window: NSWindow) {
+            guard window.representedURL == nil else { return nil }
             style = window.styleMask.rawValue
-            document = window.representedURL != nil
+            toolbar = window.toolbar != nil
             frameView = window.contentView?.superview.map(ObjectIdentifier.init)
+        }
+    }
+
+    /// AppKit's answer for one type, with everything the cache keeps from the window, read before any access to the
+    /// cache: an AppKit getter (style, `representedURL`, toolbar, frame view) can ask the window for a button again, and
+    /// that read during `store`'s change of the cache would stop the app (Swift exclusivity, also in Release).
+    public struct Found {
+        let type: NSWindow.ButtonType
+        let button: NSButton?
+        let absentShape: Shape?
+
+        @MainActor public init(_ button: NSButton?, for type: NSWindow.ButtonType, in window: NSWindow) {
+            self.type = type
+            self.button = button?.window === window ? button : nil
+            absentShape = button == nil && StandardWindowButtons.keepsAbsent.contains(type) ? Shape(window) : nil
         }
     }
 
@@ -52,10 +69,10 @@ public struct StandardWindowButtons {
         return button
     }
 
-    /// Keeps `button`, AppKit's answer for `type` (looked up outside any access to this value:
-    /// AppKit may ask the window again while it searches).
-    public mutating func store(_ button: NSButton?, for type: NSWindow.ButtonType, in window: NSWindow) {
-        buttons[type] = button?.window === window ? button : nil
-        absent[type] = button == nil && Self.keepsAbsent.contains(type) ? Shape(window) : nil
+    /// Keeps AppKit's answer. Make `found` before this call, outside any access to this value: it reads AppKit getters,
+    /// and AppKit may ask the window again while they run (``Found``).
+    public mutating func store(_ found: Found) {
+        buttons[found.type] = found.button
+        absent[found.type] = found.absentShape
     }
 }

@@ -1,0 +1,238 @@
+/* The builds a plan approval started (PlanBuildCard.tsx), in the started chats card's frame
+   (startedSessions.css): a hairline edge, a heading, then one column per build, side by side,
+   stacked under 520px. Every line of a column is reserved (planBuild.ts `planBuildHeight`), so a diff
+   arriving or a build kept changes words and colours, never the card's height. Kept and archived move
+   together in one quick colour and opacity change, which the motion gate ends at once. */
+.acpmux-plan-builds {
+  --plan-build-line: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --plan-build-muted: color-mix(in srgb, var(--agent-text) 58%, transparent);
+  --plan-build-green: var(--board-ok, #2f9b6b);
+  --plan-build-red: var(--board-bad, #be4f56);
+  --plan-build-amber: var(--board-warn, #b37a24);
+  /* A branch, stats or file line. */
+  --plan-builds-line: 20px;
+  box-sizing: border-box;
+  container-type: inline-size;
+  width: 100%;
+  max-width: 760px;
+  margin: 0;
+  border: 1px solid var(--plan-build-line);
+  border-radius: 12px;
+  overflow: hidden;
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-plan-builds *,
+.acpmux-plan-builds *::before,
+.acpmux-plan-builds *::after {
+  box-sizing: border-box;
+}
+.acpmux-plan-builds-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: 28px;
+  padding: 0 var(--ds-space-3);
+  border-bottom: 1px solid var(--plan-build-line);
+}
+.acpmux-plan-builds-title {
+  flex: none;
+  font-weight: 600;
+}
+.acpmux-plan-builds-note {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--plan-build-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-plan-builds-note[role="alert"] {
+  color: var(--plan-build-red);
+}
+.acpmux-plan-builds-columns {
+  display: grid;
+  grid-auto-flow: row;
+  grid-template-columns: 1fr;
+}
+@container (min-width: 520px) {
+  .acpmux-plan-builds-columns[data-count="2"] {
+    grid-template-columns: 1fr 1fr;
+  }
+  .acpmux-plan-builds-columns[data-count="2"] > .acpmux-plan-builds-column + .acpmux-plan-builds-column {
+    border-top: 0;
+    border-inline-start: 1px solid var(--plan-build-line);
+  }
+}
+.acpmux-plan-builds-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: 12px var(--ds-space-3);
+  transition:
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
+    background-color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.acpmux-plan-builds-column + .acpmux-plan-builds-column {
+  border-top: 1px solid var(--plan-build-line);
+}
+.acpmux-plan-builds-column[data-outcome="kept"] {
+  background: color-mix(in srgb, var(--plan-build-green) 7%, transparent);
+}
+.acpmux-plan-builds-column[data-outcome="archived"] {
+  opacity: 0.55;
+}
+.acpmux-plan-builds-agent {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  height: 24px;
+  min-width: 0;
+}
+.acpmux-plan-builds-icon {
+  display: inline-flex;
+  flex: none;
+}
+.acpmux-plan-builds-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-plan-builds-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin-inline-start: auto;
+  color: var(--plan-build-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-plan-builds-dot {
+  width: var(--ds-space-2);
+  height: var(--ds-space-2);
+  border-radius: 50%;
+  background: currentColor;
+}
+.acpmux-plan-builds-column[data-state="running"] .acpmux-plan-builds-state {
+  color: var(--plan-build-amber);
+}
+.acpmux-plan-builds-column[data-state="done"] .acpmux-plan-builds-state,
+.acpmux-plan-builds-column[data-outcome="kept"] .acpmux-plan-builds-state {
+  color: var(--plan-build-green);
+}
+.acpmux-plan-builds-column[data-state="failed"] .acpmux-plan-builds-state {
+  color: var(--plan-build-red);
+}
+.acpmux-plan-builds-column[data-outcome="archived"] .acpmux-plan-builds-state {
+  color: var(--plan-build-muted);
+}
+.acpmux-plan-builds-branch,
+.acpmux-plan-builds-stats {
+  height: var(--plan-builds-line);
+  overflow: hidden;
+  color: var(--plan-build-muted);
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-plan-builds-branch {
+  font-family: var(--font-mono);
+}
+.acpmux-plan-builds-stats {
+  display: flex;
+  gap: var(--ds-space-2);
+  align-items: center;
+}
+.acpmux-plan-builds-added {
+  color: var(--plan-build-green);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-plan-builds-removed {
+  color: var(--plan-build-red);
+  font-variant-numeric: tabular-nums;
+}
+/* Six file lines and a "N more" line, reserved whether the build changed anything yet or not. */
+.acpmux-plan-builds-list {
+  display: flex;
+  flex-direction: column;
+  height: calc(var(--plan-builds-line) * 7);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-plan-builds-list > li {
+  display: flex;
+  flex: none;
+  gap: var(--ds-space-2);
+  height: var(--plan-builds-line);
+  align-items: center;
+  min-width: 0;
+}
+.acpmux-plan-builds-path {
+  min-width: 0;
+  margin-inline-end: auto;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: start;
+}
+.acpmux-plan-builds-empty,
+.acpmux-plan-builds-more {
+  color: var(--plan-build-muted);
+}
+.acpmux-plan-builds-actions {
+  display: flex;
+  gap: var(--ds-space-2);
+  height: 28px;
+  align-items: center;
+}
+.acpmux-plan-builds-actions > button {
+  height: 24px;
+  padding: 0 var(--ds-space-3);
+  border: 1px solid var(--plan-build-line);
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  cursor: default;
+}
+.acpmux-plan-builds-actions > button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.acpmux-plan-builds-actions > button:disabled {
+  opacity: 0.5;
+}
+.acpmux-plan-builds-actions > button.acpmux-plan-builds-keep {
+  border-color: transparent;
+  background: var(--agent-text);
+  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
+}
+.acpmux-plan-builds-actions > button.acpmux-plan-builds-keep:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--agent-text) 88%, var(--acpmux-base, Canvas));
+}
+.acpmux-plan-builds-actions > button.acpmux-plan-builds-keep[aria-busy="true"] {
+  opacity: 0.7;
+}
+:root[data-cmux-motion="off"] .acpmux-plan-builds-column,
+:root[data-cmux-motion="reduced"] .acpmux-plan-builds-column {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-plan-builds-column {
+    transition: none;
+  }
+}

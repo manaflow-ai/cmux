@@ -180,7 +180,8 @@ test("every older page the reader asks for brings an older turn in, past a promp
 
 test("a chat that opens mid-turn pages past a turn before it larger than an older page", async () => {
   // Turn 2 wrote 400 KB, so the page that ends at turn 3's prompt does not reach turn 2's; turn 3
-  // outgrew the open page (128 KB), so the pane opens inside it and draws its prompt first.
+  // outgrew the open page (128 KB), so the pane opens inside it and draws its prompt first, with
+  // the start of its reply cut off.
   const history = records([
     ...turn(1),
     ...ask(2),
@@ -192,14 +193,25 @@ test("a chat that opens mid-turn pages past a turn before it larger than an olde
   const { client, snapshot } = await open(history);
   expect(questions(snapshot().rows)).toEqual(["Question 3"]);
   expect(snapshot().canLoadOlder).toBe(true);
+  const reply = () =>
+    snapshot()
+      .rows.filter((row) => row.kind === "assistant")
+      .map((row) => row.text ?? "")
+      .join("");
+  expect(reply().startsWith("1")).toBe(false);
 
-  for (let asks = 0; snapshot().canLoadOlder && asks < 10; asks++) {
-    const first = snapshot().rows[0]?.id;
-    await client.loadOlder();
-    await settle();
-    expect(snapshot().rows[0]?.id).not.toBe(first);
-  }
+  // The first ask makes the cut reply whole under its prompt before reading the long turn above
+  // (direct.ts cutOpener): the first row stays turn 3's prompt, and the oldest held event moves to
+  // it, so the loader (VirtualTranscript.tsx olderLoadKey) asks again.
+  await client.loadOlder();
+  await settle();
+  expect(questions(snapshot().rows)).toEqual(["Question 3"]);
+  expect(reply().startsWith("1".repeat(40 * 1024) + "2")).toBe(true);
+  expect(snapshot().historyFrom).toBe(history.find((record) => record.msg.promptId === "p-3")!.seq);
+
+  await scrollToTop(client, snapshot);
   expect(questions(snapshot().rows)).toEqual(["Question 1", "Question 2", "Question 3"]);
+  expect(snapshot().canLoadOlder).toBe(false);
   client.close();
 });
 

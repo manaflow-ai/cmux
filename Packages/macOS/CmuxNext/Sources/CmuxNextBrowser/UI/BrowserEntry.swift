@@ -26,6 +26,14 @@ public final class BrowserEntry {
         state.history = history
     }
 
+    /// A window's focus moved: `focusedTab` is the key of the browser tab that has its keyboard (nil when a
+    /// terminal, chat, Home or the sidebar has it) and `key` is this tab's. A tab shown in another window keeps
+    /// what that window's focus gave it; a tab shown nowhere does not have the keyboard.
+    @MainActor public func followKeyboard(focusedTab: String?, key: String, window: NSWindow?) {
+        guard let shownIn = chrome?.window else { state.hasKeyboard = false; return }
+        if shownIn === window { state.hasKeyboard = key == focusedTab }
+    }
+
     public func close() {
         BrowserTabRetirement(tab: tab, state: state).retire()
     }

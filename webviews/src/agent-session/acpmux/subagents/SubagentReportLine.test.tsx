@@ -113,3 +113,10 @@ test("a shell's background turn keeps its own line", () => {
   expect(html).not.toContain("Report from");
   expect(html).toContain('data-background-turn="quiet"');
 });
+
+test("a report whose subagent is not loaded still opens to its summary", () => {
+  const lone = turn("lone", 9_000);
+  const open = renderToStaticMarkup(<BackgroundTurnLine row={lone} expanded onToggle={() => {}} />);
+  expect(open).toContain("cv-subagent-report__body");
+  expect(open).toContain("I&#x27;ve merged the fix, but it");
+});

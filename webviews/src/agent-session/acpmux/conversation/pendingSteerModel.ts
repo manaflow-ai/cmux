@@ -29,14 +29,22 @@ import { type TakeBack } from "./turnActions";
 /// "why are ALL of these send now???? aren't these steers???"). Undefined (one waits): its own.
 export const NewestSteerContext = createContext<string | undefined>(undefined);
 
+/// The chat the rows belong to (snapshot `sessionId`): the page switches chats in place, so what a
+/// Send now covered is kept per chat (cmux#32846). Empty where one chat is drawn.
+export const SteerChatContext = createContext("");
+
 /// The prompts whose Send now worked, by promptId, so a row drawn again while acpmux still says the
 /// steer waits (scrolled away and back) shows no controls. One id per click, for the page's life.
 /// `coveredAt`: the time of the newest steer whose Send now worked while several waited. Send now
 /// stops the agent's step and the agent then reads every waiting steer, so the earlier ones it
 /// covered (sent at or before it) drop their X and Copy line with it instead of looking held back
 /// (Leo, 2026-11-03: "this looks kinda weird when i send now and there was a previously steered
-/// message"). A steer sent later waits on its own.
-export let sentNowState = { ids: new Set<string>(), coveredAt: Number.NEGATIVE_INFINITY };
+/// message"). A steer sent later waits on its own. Kept per chat (`SteerChatContext`): the page
+/// switches chats in place, and another chat's steers were never covered (cmux#32846).
+/// A covered steer drops its X even when the agent cannot stop its current step: acpmux would still
+/// take it back until the step ends, but it goes in with the Send now the person chose, and an X
+/// left under it looked like a message held back.
+export let sentNowState = { ids: new Set<string>(), coveredAt: new Map<string, number>() };
 export const sentNowListeners = new Set<() => void>();
 export function publishSentNow(next: typeof sentNowState): void {
   sentNowState = next;

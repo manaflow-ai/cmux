@@ -28,8 +28,8 @@ impl Hub {
             tracing::error!("reading the session store failed: {error}");
         }
         self.watch_orphans();
-        self.bg_notify_resume();
         self.store_load.ready.send_replace(true);
+        self.bg_notify_resume_in_background();
     }
 
     pub(crate) async fn wait_store(&self) {

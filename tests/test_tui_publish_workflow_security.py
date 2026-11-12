@@ -11,7 +11,17 @@ from pathlib import Path
 
 import tomllib
 import yaml
-import git_fixture_env
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+import workflow_jobs
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -1116,7 +1126,7 @@ def test_tag_cut_retry_behavior_accepts_tags_after_main_advances() -> None:
         git("config", "user.email", "release-test@cmux.dev", cwd=source)
         git("commit", "--allow-empty", "-m", "release", cwd=source)
         release_sha = git("rev-parse", "HEAD", cwd=source)
-        git("init", "--bare", str(remote), cwd=temporary)
+        git_fixture_env.init_repo(remote, "--bare", cwd=temporary)
         git("remote", "add", "origin", str(remote), cwd=source)
         git("push", "origin", "main", cwd=source)
 
@@ -1706,7 +1716,7 @@ def test_tui_pypi_publishers_reconcile_every_wheel_after_upload() -> None:
         assert verify_step.get("env", {}).get("VERSION") == version
         run = verify_step.get("run", "")
         assert "bash cmux-tui/scripts/verify-pypi-tui-upload.sh dist \"$VERSION\"" in run
-        assert "secrets." not in run
+        assert not workflow_jobs.secret_names(run)
         assert "gh-action-pypi-publish" not in run
         assert "twine " not in run
 
@@ -2040,6 +2050,8 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     step = next(s for s in steps if s.get("name") == "Test Windows long-path state handling")
     assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
     assert int(step["env"]["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]) > 1
+    run = step["run"]
+    assert run.count("profile.release.package.cmux-tui-core.codegen-units=16") == 3
     # The published binaries still build with the release profile as written.
     build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
@@ -2281,7 +2293,7 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
         python = re.sub(r"format\('([^']*)',", r"_format('\1',", python)
         return str(eval(python, {"_format": lambda text, *args: text.format(*args)}))  # noqa: S307 - test-only, fixed input
 
-    return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
+    return gh_expressions.EXPRESSION.sub(evaluate, template)
 
 
 def test_daemon_gate_tests_only_the_newest_published_feat_tree() -> None:
@@ -2350,21 +2362,27 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     # promote pool or the nightly label (tests/test_cmux_tui_daemon_tests_gate.py).
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
-    daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
+    daemon_cells = workflow_jobs.runs_on_cells(jobs["cmux-next-daemon-tests"])
+    assert daemon_cells, "cmux-next-daemon-tests: runs-on reads a matrix value nothing resolves, or is missing"
     # Every label it can resolve to is Blacksmith Linux or the GCP fleet Linux label, which tree-preflight's
     # linux-placement step emits only when the runner census shows an idle Linux member; size and overflow
     # wiring are free to change.
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests/ itself: `python3 -I` puts no script folder on sys.path
     from runs_on_labels import disallowed_labels
     fleet_linux = "cmux-fleet-linux-x64"
     picker = next(step for step in jobs["tree-preflight"]["steps"] if step.get("id") == "linux-placement")
     assert picker["env"]["FLEET_LINUX"] == fleet_linux, picker["env"]
     assert picker["env"]["LINUX_ONLY"] == "cmux-next-daemon-tests", picker["env"]
     assert picker["env"]["REQUIRE_LIVE_CAPACITY"] == "1", picker["env"]
-    placed = daemon.replace("needs.tree-preflight.outputs.linux_runner", f"'{fleet_linux}'")
-    assert set(disallowed_labels(placed)) <= {fleet_linux}, (daemon, disallowed_labels(placed))
+    for daemon in daemon_cells:
+        placed = daemon.replace("needs.tree-preflight.outputs.linux_runner", f"'{fleet_linux}'")
+        assert set(disallowed_labels(placed)) <= {fleet_linux}, (daemon, disallowed_labels(placed))
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
-    shadow = shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"]["runs-on"]
+    shadow_cells = workflow_jobs.runs_on_cells(shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"])
+    assert shadow_cells, "cmux-next-daemon-macos-shadow: runs-on reads a matrix value nothing resolves, or is missing"
+    shadow = "\n".join(shadow_cells)
     assert "MACOS_RUNNER_PR" not in shadow and "inputs.macos_runner" not in shadow
     assert "vars.MACOS_RUNNER_26" not in shadow, shadow
     assert "fromJSON(vars.RUNNER_POOLS).macos_15" in shadow, shadow
@@ -2401,7 +2419,7 @@ def test_tree_publish_and_nightly_promotion_do_not_wait_for_daemon_tests() -> No
     assert {"publish-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
     assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in marker["if"]
-    assert marker["environment"] == "artifacts"
+    assert workflow_jobs.resolve(marker).environment == {"name": "artifacts"}
     assert marker_script in str(marker["steps"])
     assert [name for name, job in jobs.items() if marker_script in str(job.get("steps", ""))] == ["publish-tree-tested"]
     script_text = (ROOT / marker_script).read_text()

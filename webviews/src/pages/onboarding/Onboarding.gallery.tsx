@@ -46,6 +46,11 @@ export default componentEntry<OnboardingGalleryProps>({
     },
     "agents-install-cards": { props: { step: "agents", agents: "install", look: "cards" } },
     "agents-install-compact": { props: { step: "agents", agents: "install", look: "compact" } },
+    // The import step, Express (docs/design/onboarding-import-express.md) on the worst list.
+    "import-crowded": {
+      note: "Express: the checked browsers' icons, one sentence, the kinds, the grant asks; Choose Browsers and Data… opens the full list.",
+      props: { step: "importData", importer: "crowded" },
+    },
     "import-idle": { props: { step: "importData", importer: "idle" } },
     "import-detecting": { props: { step: "importData", importer: "detecting" } },
     "import-ready": {

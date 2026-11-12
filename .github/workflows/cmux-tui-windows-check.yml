@@ -17,6 +17,7 @@ on:
       - "ghostty-next"
       - ".github/workflows/cmux-tui-windows-check.yml"
       - ".github/actions/setup-cmux-tui-rust/**"
+      - ".github/actions/runner-cargo-home/**"
   workflow_dispatch:
 
 concurrency:

@@ -18,10 +18,11 @@
 //! Without the journal ([`crate::store::Store::durability`] is None) there is no gate: lines go
 //! straight to the transport, as before.
 
+use super::queue_gauge::{self, Queued};
 use crate::store::Durability;
 use std::cell::Cell;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 
@@ -33,6 +34,12 @@ pub(super) struct Gate {
     /// The highest LSN of a kept change a line queued so far may show.
     needs_written: AtomicU64,
     kept: Arc<AtomicU64>,
+    /// The lines and bytes its task holds for the journal, for `daemon status` (`queue_gauge.rs`).
+    held_lines: AtomicUsize,
+    held: AtomicUsize,
+    /// The transport's queue past the gate, and the bytes it holds, for the same status.
+    transport: mpsc::WeakSender<String>,
+    transport_queued: Queued,
 }
 
 impl Gate {
@@ -44,6 +51,16 @@ impl Gate {
         }
         self.needs.fetch_max(self.acked.load(Ordering::SeqCst), Ordering::SeqCst);
         self.needs_written.fetch_max(self.kept.load(Ordering::SeqCst), Ordering::SeqCst);
+    }
+
+    /// The lines and bytes past the connection's own queue: held for the journal, and queued on
+    /// the transport for its writer.
+    pub(super) fn backlog(&self) -> (usize, usize) {
+        let held = (self.held_lines.load(Ordering::Relaxed), self.held.load(Ordering::Relaxed));
+        let Some(out) = self.transport.upgrade() else {
+            return held;
+        };
+        (held.0 + queue_gauge::depth(&out), held.1 + self.transport_queued.bytes(&out))
     }
 }
 
@@ -81,17 +98,29 @@ pub(super) fn install(
     let Some(Durability { acked, durable, kept, written, stalled }) = durability else {
         return (out, None);
     };
-    let gate =
-        Arc::new(Gate { needs: AtomicU64::new(0), acked, needs_written: AtomicU64::new(0), kept });
+    let gate = Arc::new(Gate {
+        needs: AtomicU64::new(0),
+        acked,
+        needs_written: AtomicU64::new(0),
+        kept,
+        held_lines: AtomicUsize::new(0),
+        held: AtomicUsize::new(0),
+        transport: out.downgrade(),
+        transport_queued: Queued::default(),
+    });
     let (lines_tx, lines) = mpsc::channel(out.max_capacity());
     tokio::spawn(run(lines, out, Arc::clone(&gate), Journal { durable, written }, stalled));
     (lines_tx, Some(gate))
 }
 
-/// How long a connection's lines may wait for the journal before the store asks the daemon to
-/// stop for a restart (review of #35400, F2): a sync takes milliseconds, a few seconds on a
-/// disk under heavy load; this long only on a hung or failing disk, whose writer retries without
-/// end and would hold every reply.
+/// How often a connection's lines that wait for the journal ask the store whether the journal is
+/// failing (review of #35400, F2). A sync takes milliseconds, a few seconds on a disk under heavy
+/// load, and more than ten on a saturated one (huge-blue, 2026-11-08: 35-50% iowait, a 10.4 s
+/// fdatasync). Past each interval the store asks the daemon to stop for a restart only when the
+/// journal's writer is failing (a write or sync returned an error and it retries without end);
+/// while it is merely slow the lines keep waiting: a slow disk makes replies slower, never makes
+/// the daemon restart (a restart on the same disk is no faster, and every client meanwhile gets
+/// "acpmux is shutting down").
 const STALL_LIMIT: Duration = Duration::from_secs(10);
 
 fn stall_limit() -> Duration {
@@ -125,13 +154,25 @@ impl Journal {
 }
 
 /// The gate's task ([module docs](self)). Ends when the connection's senders are gone, the
-/// transport closed, or the journal's writer ended.
+/// transport closed, or the journal's writer ended; what it held is then no longer counted.
 async fn run(
+    lines: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    gate: Arc<Gate>,
+    journal: Journal,
+    stalled: Arc<dyn Fn(Duration) -> bool + Send + Sync>,
+) {
+    pass(lines, out, Arc::clone(&gate), journal, stalled).await;
+    gate.held_lines.store(0, Ordering::Relaxed);
+    gate.held.store(0, Ordering::Relaxed);
+}
+
+async fn pass(
     mut lines: mpsc::Receiver<String>,
     out: mpsc::Sender<String>,
     gate: Arc<Gate>,
     mut journal: Journal,
-    stalled: Arc<dyn Fn(String) + Send + Sync>,
+    stalled: Arc<dyn Fn(Duration) -> bool + Send + Sync>,
 ) {
     let limit = lines.max_capacity();
     let mut batch = Vec::with_capacity(limit.min(64));
@@ -145,12 +186,15 @@ async fn run(
                 }
             }
         }
+        gate.held_lines.fetch_add(batch.len(), Ordering::Relaxed);
+        gate.held.fetch_add(batch.iter().map(String::len).sum(), Ordering::Relaxed);
         // After the lines were taken: every line among them raised the gate before it was queued.
         let needs = gate.needs.load(Ordering::SeqCst);
         let needs_written = gate.needs_written.load(Ordering::SeqCst);
         if !journal.reached(needs, needs_written) {
             let reached = journal.reach(needs, needs_written);
             tokio::pin!(reached);
+            let started = tokio::time::Instant::now();
             let stall = tokio::time::sleep(stall_limit());
             tokio::pin!(stall);
             let mut asked = false;
@@ -166,19 +210,22 @@ async fn run(
                         break;
                     }
                     () = &mut stall, if !asked => {
-                        asked = true;
-                        stalled(format!(
-                            "a reply waited {:?} for the event journal, which made nothing durable",
-                            stall_limit()
-                        ));
+                        // Asked again each interval: a disk that is slow first may fail later.
+                        asked = stalled(started.elapsed());
+                        stall.as_mut().reset(tokio::time::Instant::now() + stall_limit());
                     }
                 }
             }
         }
         for line in batch.drain(..) {
+            let bytes = line.len();
             if out.send(line).await.is_err() {
                 return;
             }
+            // Counted on the transport first: briefly twice, never missed.
+            gate.transport_queued.queued(bytes, &out);
+            gate.held_lines.fetch_sub(1, Ordering::Relaxed);
+            gate.held.fetch_sub(bytes, Ordering::Relaxed);
         }
     }
 }

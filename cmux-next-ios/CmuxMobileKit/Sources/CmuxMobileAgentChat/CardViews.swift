@@ -35,7 +35,7 @@ struct PlanCard: View {
         }
         .padding(16)
         .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
-        .animation(.cmuxMobileSmooth, value: entries)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: entries)
         .accessibilityElement(children: .combine)
     }
 
@@ -176,7 +176,7 @@ public struct PermissionActionBar: View {
                             Text(request.label(for: option)).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)
                         }
                     }
-                    .animation(.cmuxMobileSnap, value: approvingOptionID)
+                    .animation(.cmuxMobileSnap.unlessReduceMotion, value: approvingOptionID)
                 }
                     .disabled(approvingOptionID != nil && option.isAllow && option.id != approvingOptionID)
                     .buttonStyle(CmuxMobileCapsuleButtonStyle(style(option), size: .bar))
@@ -235,7 +235,7 @@ public struct QuestionCard: View {
                 card.transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
             }
         }
-        .animation(.cmuxMobileSmooth, value: question.state)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: question.state)
         .onChange(of: question) { _, new in
             state.update(new)
             if !new.isPending { QuestionDraftStore.shared.clear(new.id) }
@@ -390,14 +390,14 @@ public struct QuestionCard: View {
 
     private func page(_ delta: Int) {
         forward = delta > 0
-        withAnimation(.cmuxMobileSmooth) { _ = state.send(delta > 0 ? .nextItem : .previousItem) }
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { _ = state.send(delta > 0 ? .nextItem : .previousItem) }
     }
 
     private func send(_ input: AgentQuestionCardState.Input) {
         let before = state.activeItem
         var effect = AgentQuestionCardState.Effect.none
         forward = true
-        withAnimation(.cmuxMobileSmooth) {
+        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
             effect = state.send(input)
         }
         if state.activeItem != before { forward = state.activeItem > before }
@@ -494,10 +494,8 @@ struct FailureCard: View {
             Text(message).font(.subheadline).foregroundStyle(.secondary)
             if let detail {
                 DisclosureGroup("Details") {
-                    Text(detail)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    // Range-selectable (CMUX-33): `.textSelection` grabbed the whole detail.
+                    SelectableTextView(detail, textStyle: .caption1, monospaced: true, scrolls: false, textColor: .secondaryLabel)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .font(.footnote)
@@ -542,6 +540,8 @@ struct NextStepCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("agentChat.nextStep.recap")
             }
+            // A finished task's way to try it: its Try button, Report link and Verify steps.
+            if let tryIt = ask.tryIt { NextStepTryView(tryIt: tryIt) }
             if !ask.question.isEmpty {
                 Text(ask.question)
                     .font(.headline)
@@ -575,6 +575,75 @@ struct NextStepCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agentChat.nextStep")
         .onChange(of: answer) { _, _ in sent = false }
+    }
+}
+/// A finished wrap-up's Try (NextStepAsk.Try): a page on the internet opens on the phone; a build on
+/// the Mac (a loopback Tag Opener address) or a command runs on the Mac, so the phone shows what it
+/// is with Copy (a phone never runs a command on the Mac: SECURITY.md, "Remote CLI relay"). The
+/// Verify steps are a checklist the person ticks; the report opens when it is a web page.
+struct NextStepTryView: View {
+    let tryIt: NextStepAsk.Try
+    @Environment(\.openURL) private var openURL
+    @State private var ticked: Set<Int> = []
+
+    private var target: String? { tryIt.url?.absoluteString ?? tryIt.command }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                if let label = tryIt.label, let target {
+                    if tryIt.opensOnPhone, let url = tryIt.url {
+                        Button {
+                            openURL(url)
+                        } label: {
+                            Label(label, systemImage: "play.fill")
+                        }
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary, size: .large))
+                        .accessibilityIdentifier("agentChat.nextStep.try")
+                    } else {
+                        Button {
+                            UIPasteboard.general.string = target
+                        } label: {
+                            Label(String(localized: "mobile.agentChat.try.copy", defaultValue: "Copy to try on your Mac", bundle: .module), systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
+                        .accessibilityIdentifier("agentChat.nextStep.tryCopy")
+                    }
+                }
+                if let report = tryIt.report, let url = URL(string: report), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    Button(String(localized: "mobile.agentChat.try.report", defaultValue: "Report", bundle: .module)) { openURL(url) }
+                        .buttonStyle(CmuxMobileCapsuleButtonStyle(.secondary, size: .large))
+                        .accessibilityIdentifier("agentChat.nextStep.report")
+                }
+            }
+            if let target {
+                Text(target)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("agentChat.nextStep.tryTarget")
+            }
+            if !tryIt.verify.isEmpty {
+                Text(String(localized: "mobile.agentChat.try.verify", defaultValue: "Verify", bundle: .module))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(Array(tryIt.verify.enumerated()), id: \.offset) { index, step in
+                    Button {
+                        if ticked.contains(index) { ticked.remove(index) } else { ticked.insert(index) }
+                    } label: {
+                        Label(step, systemImage: ticked.contains(index) ? "checkmark.square.fill" : "square")
+                            .font(.subheadline)
+                            .foregroundStyle(ticked.contains(index) ? .secondary : .primary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("agentChat.nextStep.verify.\(index)")
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agentChat.nextStep.tryBlock")
     }
 }
 #endif

@@ -4,7 +4,7 @@
 // (shimmer) -> Running <short label> 13s -> Thinking. It is the turn's one live block: no "Working
 // for" over the turn's work (Leo 2026-10-21, on nightly 3a63d6d: a "Working for 18s" header at the
 // top, then tool rows, then a separate "Thinking" far below, past his steers).
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -16,6 +16,18 @@ import { shortCommand } from "../src/agent-session/acpmux/conversation/shortComm
 
 import type { ReactNode } from "react";
 import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
+// run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  // The clock on the live line, as before: "Working for" over the work is live-turn-clock.test.ts.
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs", "live-turn-clock": "line" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 // These assertions cover turn state and time, independently of decorative verb rotation.
 const renderToStaticMarkup = (node: ReactNode) =>

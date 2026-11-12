@@ -120,6 +120,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// only one machine is listed, titled "Projects" (the sidebar list sets
     /// it). One list (the default) never shows it (cx-mdo0).
     public var showsSoleMachineHeader = false
+    /// One list draws a quiet "Workspaces" heading over its workspace rows, as the Codex sidebar heads its list
+    /// "Recents" (`sidebar.listHeading`, https://github.com/manaflow-ai/cmux/issues/39956). A label only: no fold, no menu, no drop.
+    public var headsWorkspaceList = false
     /// One workspace list (`sidebar.groupByComputer` off): machine sections
     /// show no header and no gap between them, and a row of a computer other
     /// than this Mac names it (and a failed connection) in its machine mark,
@@ -158,7 +161,7 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// `sidebar.showColors`: off, a row draws no workspace color (`WorkspaceIcon.uncolored`).
     public var showsColors = true
     /// `workspaceColors.indicatorStyle`: a colored row's dot, leading rail or full-row fill (#25653).
-    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)

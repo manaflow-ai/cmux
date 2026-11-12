@@ -115,7 +115,7 @@ pub async fn serve(
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
-        "acpmux" => acpmux(&config, &peer, &sender, receiver).await,
+        "acpmux" => acpmux(&config, &peer, &args, &sender, receiver).await,
         "cloud-directory" => cloud_directory(&sender, &args).await,
         "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
@@ -1131,6 +1131,7 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
 async fn acpmux(
     config: &ServiceConfig,
     peer: &Peer,
+    args: &Value,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
@@ -1150,6 +1151,8 @@ async fn acpmux(
         None => connect_dashboard(&config.acpmux).await?,
     };
     let (mut ws_sink, mut ws_source) = socket.split();
+    // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
+    let deflate = crate::link_deflate::asked(args);
     let mut message = MessageAssembler::default();
     let mut exposure = peer.session_exposure.clone();
     let mut bound_sessions = HashSet::<String>::new();
@@ -1259,7 +1262,7 @@ async fn acpmux(
                             }
                         }
                     }
-                    if sender.send(Bytes::copy_from_slice(text.as_bytes())).await.is_err() {
+                    if sender.send(crate::link_deflate::frame(deflate, &text).await).await.is_err() {
                         break;
                     }
                 }

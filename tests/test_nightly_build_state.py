@@ -19,6 +19,13 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts/ci'))
 import nightly_build_state as state
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 
 class NightlyBuildState(unittest.TestCase):
@@ -394,8 +401,8 @@ class DedicatedBuilder(unittest.TestCase):
         github_env = self.root / 'env'
         github_env.write_text('')
         self.outputs.write_text('')
-        environ = {'RUNNER_NAME': 'cmux15-glaeda-nightly-only-2', 'GITHUB_ENV': str(github_env),
-                   'GITHUB_WORKSPACE': str(self.workspace), 'HOME': str(self.home)}
+        environ = git_fixture_env.fixture_env({'RUNNER_NAME': 'cmux15-glaeda-nightly-only-2', 'GITHUB_ENV': str(github_env),
+                   'GITHUB_WORKSPACE': str(self.workspace), 'HOME': str(self.home)})
         with mock.patch.dict(os.environ, environ), mock.patch.object(state, 'toolchain_identity',
                                                                    return_value='Xcode 26.6'):
             os.environ.pop('NIGHTLY_ONLY_BUILDER', None)

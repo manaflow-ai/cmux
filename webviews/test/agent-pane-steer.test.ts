@@ -459,6 +459,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
       record("status", { status: "idle" });
       await page.locator(".cv-turn-stopped", { hasText: "Stopped" }).waitFor({ timeout: 5_000 });
+      // The stopped turn folds on its end (turnEndFold.ts), its compacting line's copy fading where
+      // it was: the counts below are of the turn at rest.
+      await page.locator("[data-turn-end-folding]").waitFor({ state: "detached", timeout: 5_000 });
       expect(await page.locator(FORCED_STOP).count()).toBe(1);
       expect(
         await page.getByText("The agent didn't answer Stop, so cmux ended its turn.", { exact: true }).count(),
@@ -498,6 +501,8 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       expect(await page.locator(RUNNING_COMPACTION).count()).toBe(1);
       record("turn_result", { status: "completed", turnId: "turn-2" });
       await drawn(page);
+      // The ended turn folds, its compacting line's copy fading where it was: the turn at rest.
+      await page.locator("[data-turn-end-folding]").waitFor({ state: "detached", timeout: 5_000 });
       expect(await page.locator(RUNNING_COMPACTION).count()).toBe(0);
       recordInbound("compaction", {
         method: "session/update",

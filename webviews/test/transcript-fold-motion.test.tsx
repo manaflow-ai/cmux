@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture tool titles and output, not shipped UI.
 // Every collapsible in the transcript opens and closes in one motion (Leo 2026-10-20): its body's
-// height and opacity over the shared fold token (`--cv-fold-duration`, the host's move duration),
+// height and opacity over the shared fold token (`--cv-fold-duration`, the settle, `--cmux-motion-settle`),
 // easing out, the chevron turning on the same token, and at once under Reduce Motion or with the
 // pane's animation off. A body that closes stays drawn until it has slid away.
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -24,6 +24,8 @@ import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroup
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
 import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
+import { useAnchoredCollapse } from "../src/agent-session/acpmux/conversation/useAnchoredCollapse";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -108,6 +110,7 @@ afterEach(async () => {
   root = undefined;
   Object.assign(foldMotion, motion);
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -172,6 +175,94 @@ function render(node: ReactNode) {
 }
 const toggle = () => container.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
 const click = () => act(() => toggle().click());
+
+/// A pointer's press on the toggle, then its click released `moved` px to the right.
+function dragClick(moved: number) {
+  const line = toggle();
+  const view = line.ownerDocument.defaultView!;
+  const at = { clientX: 10, clientY: 10, button: 0, bubbles: true, cancelable: true };
+  const Pointer = (view as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? view.MouseEvent;
+  act(() => {
+    line.dispatchEvent(new Pointer("pointerdown", at));
+    line.dispatchEvent(new view.MouseEvent("click", { ...at, clientX: 10 + moved, detail: 1 }));
+  });
+}
+
+// Leo, 2026-11-06: "way too jittery/sensitive". Every line's own click handler, the wrappers that note
+// the click (a group's, a received message's) included, hands the click to the toggle.
+for (const { name, node, body } of collapsibles) {
+  test(`${name}: a 12 px drag across its line opens nothing; a click in place does`, () => {
+    render(node());
+    dragClick(12);
+    expect(toggle().getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(body)).toBeNull();
+    expect(animations.length).toBe(0);
+    dragClick(2);
+    expect(toggle().getAttribute("aria-expanded")).toBe("true");
+  });
+}
+
+// Review of #39658: a running command row's ref is an inline callback that reattaches at every render,
+// so a streamed output update between the press and the release must keep the press, and a drag
+// across the line still opens nothing.
+test("a command row keeps the press across an output update: a 12 px drag across it opens nothing", () => {
+  const running = (output: string) => (
+    <CommandRow
+      item={tool("cmd", { kind: "execute", command: "bun test", title: "bun test", status: "in_progress", output })}
+    />
+  );
+  render(running("line 1"));
+  const line = toggle();
+  const view = line.ownerDocument.defaultView!;
+  const at = { clientX: 10, clientY: 10, button: 0, bubbles: true, cancelable: true };
+  const Pointer = (view as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? view.MouseEvent;
+  act(() => {
+    line.dispatchEvent(new Pointer("pointerdown", at));
+  });
+  render(running("line 1\nline 2"));
+  expect(toggle()).toBe(line);
+  act(() => {
+    toggle().dispatchEvent(new view.MouseEvent("click", { ...at, clientX: 22, detail: 1 }));
+  });
+  expect(toggle().getAttribute("aria-expanded")).toBe("false");
+  expect(container.querySelector(".cv-shell")).toBeNull();
+  dragClick(2);
+  expect(toggle().getAttribute("aria-expanded")).toBe("true");
+});
+
+/// A disclosure whose header is drawn only while `header` holds, with a second toggle below it that
+/// stays: a press on the header that went must not decide a later click on the one below.
+function TwoTargets({ header }: { header: boolean }) {
+  const fold = useAnchoredCollapse();
+  return (
+    <div>
+      {header && (
+        <button type="button" data-testid="head" ref={fold.headerRef} onClick={fold.toggle}>
+          head
+        </button>
+      )}
+      <button type="button" data-testid="below" aria-pressed={fold.open} onClick={fold.toggle}>
+        below
+      </button>
+    </div>
+  );
+}
+
+test("a press on a header that went does not turn a later click elsewhere into a drag", () => {
+  render(<TwoTargets header />);
+  const head = container.querySelector<HTMLButtonElement>("[data-testid=head]")!;
+  const view = head.ownerDocument.defaultView!;
+  const Pointer = (view as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? view.MouseEvent;
+  act(() => {
+    head.dispatchEvent(new Pointer("pointerdown", { clientX: 10, clientY: 10, button: 0, bubbles: true }));
+  });
+  render(<TwoTargets header={false} />);
+  const below = container.querySelector<HTMLButtonElement>("[data-testid=below]")!;
+  act(() => {
+    below.dispatchEvent(new view.MouseEvent("click", { clientX: 200, clientY: 40, detail: 1, bubbles: true }));
+  });
+  expect(below.getAttribute("aria-pressed")).toBe("true");
+});
 
 for (const { name, node, body } of collapsibles) {
   test(`${name} opens and closes with the fold's height and opacity, over the shared token`, () => {
@@ -363,7 +454,9 @@ test("a fold reopened as its close ends opens from its own size, not the pinned 
   expect(container.querySelector(".cv-fold")).toBe(box);
   expect(animations.length).toBe(3);
   expect(animations[2]!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
-  expect(box.style.height).toBe("");
+  // Under the motion the box holds the open's start height, never the close's pin: a frame drawn
+  // before the motion applies shows it shut, not open at full height (composer-hat-fold-balance).
+  expect(box.style.height).toBe("0px");
   expect(box.style.opacity).toBe("");
   animations[2]!.finish();
   expect(box.style.height).toBe("");
@@ -371,14 +464,16 @@ test("a fold reopened as its close ends opens from its own size, not the pinned 
   expect(box.style.overflow).toBe("");
 });
 
-test("the fold token is the host's move duration, and the chevron turns on it", () => {
+// Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key".
+test("the fold token is the settle (one curve for every web fold), and the chevron turns on it", () => {
   const css = readFileSync(
     path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
     "utf8",
   );
   expect(FOLD_DURATION_VAR).toBe("--cv-fold-duration");
-  expect(css).toMatch(/--cv-fold-duration:\s*var\(--agent-motion-move,\s*180ms\)/);
-  expect(css).toMatch(/\.cv-rotor\s*\{\s*transition:\s*transform var\(--cv-fold-duration\) var\(--agent-ease-out/);
+  expect(css).toMatch(/--cv-fold-duration:\s*var\(--cmux-motion-settle,\s*180ms\)/);
+  expect(css).toMatch(/--cv-fold-ease:\s*var\(--cmux-ease-settle,\s*cubic-bezier\(0\.16, 1, 0\.3, 1\)\)/);
+  expect(css).toMatch(/\.cv-rotor\s*\{\s*transition:\s*transform var\(--cv-fold-duration\) var\(--cv-fold-ease/);
   // The chevron snaps under Reduce Motion: its transition is only under no-preference.
   expect(css).toMatch(
     /@media \(prefers-reduced-motion: no-preference\)\s*\{\s*\.cv-rotor\s*\{\s*transition: transform var\(--cv-fold-duration\)/,

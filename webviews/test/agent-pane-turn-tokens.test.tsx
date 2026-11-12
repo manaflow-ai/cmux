@@ -611,7 +611,8 @@ test("a usage record's reported setup reaches the context summary while the tool
   }
 });
 
-const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
+// The line under the work (`below`); "Working for" over the work says only the turn's time.
+const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START, below: true };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
   agents: 0,
   commands: 0,
@@ -639,6 +640,8 @@ test("the line reads the time, then the turn's output, after the working dots", 
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
   // The background counts follow the tokens.
   expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M out · 2 subagents");
+  // Over the work, as the Codex app's "Working for 32s": the time alone.
+  expect(drawn({ ...status, below: undefined }, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
 });
 
 test("tokens are compact in the pane's language", () => {
@@ -667,6 +670,65 @@ test("usage carries acpmux's cache expiry to the card, and a finished compaction
     daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })]], 4));
     await until(() => snapshot().summary.usage.cacheExpiresAt === undefined, "the compaction");
     expect(snapshot().summary.usage).toEqual({ used: 300_000, size: 400_000 });
+  } finally {
+    client.close();
+  }
+});
+
+// A Codex turn an older acpmux recorded: its input whole, the cache's reads in it, and no
+// `inputExcludesCache` mark. The summary row reads it by the chat's harness (tokenSplit.ts), so its
+// hover says 314.9K uncached, not 3.3M; the same turn recorded now, marked, reads the same.
+test("a Codex chat's older and marked turn_results count their cached input once", async () => {
+  const turn = (seq: number, result: Record<string, unknown>) =>
+    record(
+      [
+        prompt("fix the build"),
+        started,
+        ["mux", "turn_result", { status: "completed", outputTokens: 4_017, cacheReadTokens: 3_021_696, ...result }],
+      ],
+      seq,
+    );
+  const daemon = fakeDaemon(
+    [...turn(1, { inputTokens: 3_336_595 }), ...turn(4, { inputTokens: 314_899, inputExcludesCache: true })],
+    { harness: "codex", family: "codex" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summaries = () => snapshot().rows.filter((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summaries().length === 2, "both turns' ends");
+    const split = { output: 4_017, input: 314_899, cacheRead: 3_021_696, cacheWrite: 0 };
+    expect(summaries().map((row: AcpmuxRow) => row.tokens)).toEqual([split, split]);
+  } finally {
+    client.close();
+  }
+});
+
+// Claude Code behind the built-in `cmux` router profile (claude-stdio, family `claude`): an older
+// acpmux's unmarked record had its fresh input alone, as every Claude Code record did.
+test("a cmux router chat's older turn_result keeps its fresh input", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      [
+        "mux",
+        "turn_result",
+        {
+          status: "completed",
+          outputTokens: 23_702,
+          inputTokens: 112,
+          cacheReadTokens: 4_530_027,
+          cacheWriteTokens: 124_616,
+        },
+      ],
+    ]),
+    { harness: "cmux", family: "claude" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    expect(summary()?.tokens).toEqual({ output: 23_702, input: 112, cacheRead: 4_530_027, cacheWrite: 124_616 });
   } finally {
     client.close();
   }

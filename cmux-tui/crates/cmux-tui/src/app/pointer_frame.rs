@@ -81,7 +81,9 @@ impl App {
                 .pane(pane)
                 .and_then(|pane| pane.tabs.get(index))
                 .map(|tab| PointerHitIdentity::Tab(tab.surface)),
-            Hit::SidebarTab { surface, .. } => Some(PointerHitIdentity::Tab(surface)),
+            Hit::SidebarTab { surface, .. } | Hit::AgentRow { surface, .. } => {
+                Some(PointerHitIdentity::Tab(surface))
+            }
             Hit::ProjectionRow { target: ProjectionTarget::Surface { surface, .. }, .. } => {
                 Some(PointerHitIdentity::Tab(surface))
             }
@@ -106,9 +108,9 @@ impl App {
 
     pub(super) fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
-            MenuAction::RenameSurface(surface) | MenuAction::MoveTabToWorkspace { surface, .. } => {
-                Some(MenuActionResource::Surface(surface))
-            }
+            MenuAction::RenameSurface(surface)
+            | MenuAction::MoveTabToWorkspace { surface, .. }
+            | MenuAction::FocusAttention(surface) => Some(MenuActionResource::Surface(surface)),
             MenuAction::CopyStatusMessage => {
                 self.status_message.clone().map(MenuActionResource::StatusMessage)
             }

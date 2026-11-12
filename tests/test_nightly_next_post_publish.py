@@ -132,7 +132,7 @@ def post_publish_runnable() -> list[str]:
             progressed = True
             cond = str(spec.get("if", ""))
             terms = conjuncts(cond) if cond else []
-            if name == "decide":
+            if name in ("decide", "runner-preflight"):  # the same if: (test_nightly_runner_preflight.py)
                 ok = "inputs.nightly_next_post_publish == ''" in cond
             elif not needed:
                 ok = any(requires_another_input(term) for term in terms)
@@ -151,7 +151,7 @@ def post_publish_runnable() -> list[str]:
 
 POST_PUBLISH_JOBS = ["published-build", "publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas",
                      "republish-nightly-deltas", "published-in", "sign-release-notes", "publish-release-notes",
-                     "publish-nightly-reel", "report-nightly-failure", "close-nightly-failure-issue"]
+                     "publish-nightly-reel", "sentry-dsyms-nightly", "report-nightly-failure", "close-nightly-failure-issue"]
 runnable = post_publish_runnable()
 if sorted(runnable) != sorted(POST_PUBLISH_JOBS):
     failures.append(f"a nightly_next_post_publish run must start only {POST_PUBLISH_JOBS}, not {runnable}")

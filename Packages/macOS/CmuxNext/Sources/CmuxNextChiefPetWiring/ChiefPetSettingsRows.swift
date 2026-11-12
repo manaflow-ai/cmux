@@ -282,7 +282,7 @@ public final class ChiefPetSettingsRows: NSObject {
     /// Each mascot id with its name as the Settings page shows it (the schema's choice titles).
     static func mascotItems() -> [(id: String, title: String)] {
         guard case .choice(let choices)? = SettingsSchema.descriptor(for: HomeChiefPetSetting.mascotPath)?.kind else {
-            return HomeChiefPetSetting.mascots.map { ($0, $0) }
+            return HomeChiefPetSetting.mascotValues.map { ($0, $0) }
         }
         return choices.map { ($0.value, $0.title) }
     }

@@ -45,7 +45,8 @@ const assetPlay =
     await ctx.type("https://example.org/sample-icon.png", { selector: ".icon-asset-url input" });
     await ctx.click({ selector: ".icon-asset-url button" });
     await ctx.waitFor(() =>
-      ctx.document.querySelector(failed ? ".icon-asset-error" : ".icon-asset-url button:disabled"),
+      // The error line is always in the sheet (its place is held); it has text only with an error.
+      ctx.document.querySelector(failed ? ".icon-asset-error:not(:empty)" : ".icon-asset-url button:disabled"),
     );
   };
 

@@ -1058,6 +1058,23 @@ export function QuickModelMenu({
           {children}
         </MenuButton>
         <MenuPopup
+          scroll={families === undefined}
+          footer={
+            menu.update && (
+              <div className="acpmux-quick-update">
+                <span>{menu.update.text}</span>
+                <MenuItem
+                  className="acpmux-quick-update-action"
+                  onSelect={() => {
+                    menu.update?.run();
+                    onOpenChange(false);
+                  }}
+                >
+                  {t("harness.update")}
+                </MenuItem>
+              </div>
+            )
+          }
           side={side}
           flip={false}
           align="start"
@@ -1073,7 +1090,7 @@ export function QuickModelMenu({
           {widthProbe}
           {showField && (
             <div className="acpmux-quick-search">
-              <SearchIcon size={14} />
+              <SearchIcon size={12} />
               <input
                 ref={field}
                 type="search"
@@ -1174,20 +1191,6 @@ export function QuickModelMenu({
           ) : (
             list
           )}
-          {menu.update && (
-            <div className="acpmux-quick-update">
-              <span>{menu.update.text}</span>
-              <MenuItem
-                className="acpmux-quick-update-action"
-                onSelect={() => {
-                  menu.update?.run();
-                  onOpenChange(false);
-                }}
-              >
-                {t("harness.update")}
-              </MenuItem>
-            </div>
-          )}
         </MenuPopup>
       </Menu>
       {addingAccount && account?.accounts.add && accounts.list?.family && (
@@ -1224,15 +1227,16 @@ export function StarIcon({ filled = false }: { filled?: boolean }) {
 /// What a started chat ran (Leo 2026-11-06: "you can have, like, I don't know what other symbol we
 /// want to depict, like, oh okay, you previously had this model, this model family, this model
 /// provider"): a quiet mark in secondary ink on the chat's own model row, provider row and rail tab,
-/// which stays while another harness's model is held. `glyph` (the history glyph) ships: it says
-/// "before" where a dot would read as unread or as status, and adds no word to a row. A rail tab
-/// draws `glyph` as a hairline ring (modelPicker.css), so the rail keeps one mark per tab.
+/// shown only while another harness's model is held (ModelPicker), so it never sits beside the check.
+/// `glyph` (the history glyph) ships: it says "before" where a dot would read as unread or as status,
+/// and adds no word to a row; its tooltip names it, "In this chat". A rail tab draws `glyph` as a
+/// hairline ring (modelPicker.css), so the rail keeps one mark per tab.
 export function UsedMark({ look }: { look: UsedLook }) {
   const t = useT();
   const text = t("picker.usedHere");
   if (look === "caption") return <span className="acpmux-used-caption">{text}</span>;
   return (
-    <span className={`acpmux-used-mark acpmux-used-${look}`}>
+    <span className={`acpmux-used-mark acpmux-used-${look}`} title={text}>
       {look === "glyph" && <Icon name="history" size={12} />}
       <span className="sr-only">{text}</span>
     </span>

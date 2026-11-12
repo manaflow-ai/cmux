@@ -211,7 +211,7 @@ await requireBrowserLane("agent-pane-edited-head-toggle-browser.test.ts", async 
     }
     await page.locator(".acpmux-edited .cv-edit-diff").waitFor();
     // View changes keeps its own click: it opens the changes view and leaves the diff open.
-    await page.locator(".acpmux-edited-head .acpmux-review-changes").click();
+    await page.locator(".acpmux-edited-head").getByRole("button", { name: "View changes" }).click();
     expect(await expanded(page)).toBe("true");
     await page.close();
   });

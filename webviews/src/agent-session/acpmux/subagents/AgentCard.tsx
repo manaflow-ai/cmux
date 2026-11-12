@@ -1,7 +1,9 @@
 // A sub-session as the transcript's cards draw it (conversation/SubsessionCallCard.tsx): its
 // harness's mark, name, model, state (the working spinner, never a dot) and what its turn does now;
-// with `onOpen` its line is the chat's button, no "Open chat" word beside it (Leo, 2026-10-29: "Just
-// have the thing be clickable, and then you can open it."). The caller reads its state live
+// with `onOpen` its name is the chat's link chip, the one part that opens it and lights under the
+// pointer (Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the
+// whole line click sending me to the subagent righ split"), no "Open chat" word beside it (Leo,
+// 2026-10-29: "Just have the thing be clickable, and then you can open it."). The caller reads its state live
 // (subsessions.ts) and adds a prompt or a reply below.
 import type { ReactNode } from "react";
 import { useAgentAvatar } from "../agentAvatar";
@@ -14,6 +16,7 @@ import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import "./AgentCard.css";
 import { openSessionAttributes } from "../conversation/menuParts";
+import { AgentTag } from "../conversation/AgentTag";
 
 export type AgentCardProps = {
   name: string;
@@ -37,7 +40,7 @@ export type AgentCardProps = {
   /// Its state's word when the state's own is not it (a run that was stopped).
   stateLabel?: string;
   onOpen?: () => void;
-  /// The line's tooltip when it opens the chat: "Open {name}" when absent.
+  /// The name chip's tooltip when it opens the chat: "Open {name}" when absent.
   openLabel?: string;
   /// Draw this card as a one-line transcript disclosure with its children in a panel.
   disclosure?: boolean;
@@ -131,7 +134,18 @@ export function AgentCard({
           />
         )}
       </span>
-      <span className="cv-agent-card__name">{name}</span>
+      {onOpen ? (
+        <AgentTag
+          name={name}
+          className="cv-agent-card__name"
+          title={openLabel ?? t("subagents.open", { name })}
+          ariaLabel={openLabel ?? t("subagents.open", { name })}
+          attributes={sessionId ? openSessionAttributes(sessionId) : undefined}
+          onClick={onOpen}
+        />
+      ) : (
+        <span className="cv-agent-card__name">{name}</span>
+      )}
       {model && <span className="cv-agent-card__model">{model}</span>}
       {state && (
         <span className="cv-agent-card__state" data-state={slot ? "slot" : state}>
@@ -145,19 +159,7 @@ export function AgentCard({
   );
   return (
     <div className="cv-agent-card" data-state={state}>
-      {onOpen ? (
-        <button
-          type="button"
-          className="cv-agent-card__head is-open-chat"
-          title={openLabel ?? t("subagents.open", { name })}
-          {...(sessionId ? openSessionAttributes(sessionId) : {})}
-          onClick={onOpen}
-        >
-          {head}
-        </button>
-      ) : (
-        <div className="cv-agent-card__head">{head}</div>
-      )}
+      <div className="cv-agent-card__head">{head}</div>
       {doing && <div className="cv-agent-card__doing">{doing}</div>}
       {children}
     </div>

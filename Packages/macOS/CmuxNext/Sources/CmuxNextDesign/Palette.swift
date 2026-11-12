@@ -76,12 +76,25 @@ public struct Palette {
     /// backdrop to `stripBackground` (the inset sidebar panel beside the rail).
     public static var stripStep: NSColor { color(\.stripStep, dynamic: PaletteDynamic.stripStep) }
 
+    /// Black at `dark` (a dark theme) or `light` (a light one) over the sidebar, so it reads a step dimmer than the
+    /// panes, as the Codex sidebar's under-surface does (`SidebarStyle.surfaceDim`); nil at 0, or when the chrome
+    /// around a curved main pane is already shaded (``Metrics/mainPaneChromeShade(isDark:)``).
+    public static func sidebarDim(dark: Double, light: Double) -> NSColor? {
+        let isDark = (ThemeContext.active ?? ThemeScope.app.tokens).isDark
+        guard Metrics.mainPaneChromeShade(isDark: isDark) == 0 else { return nil }
+        let alpha = CGFloat(isDark ? dark : light)
+        return alpha > 0 ? NSColor.black.withAlphaComponent(alpha) : nil
+    }
+
     /// Primary text.
     public static var textPrimary: NSColor { color(\.textPrimary, dynamic: PaletteDynamic.textPrimary) }
     /// Secondary text, captions, inactive tab titles.
     public static var textSecondary: NSColor { color(\.textSecondary, dynamic: PaletteDynamic.textSecondary) }
     /// Hints, placeholders, disabled glyphs.
     public static var textTertiary: NSColor { color(\.textTertiary, dynamic: PaletteDynamic.textTertiary) }
+    /// A sidebar row's title (``ThemeTokens/sidebarTitle``): the primary text a little softer, as the Codex
+    /// sidebar's titles are, still 4.5:1 on every row fill.
+    public static var sidebarTitle: NSColor { (ThemeContext.active ?? ThemeScope.app.tokens).sidebarTitle.nsColor }
 
     /// Hover fill for rows and tabs.
     public static var hoverFill: NSColor { color(\.hoverFill, dynamic: PaletteDynamic.hoverFill) }

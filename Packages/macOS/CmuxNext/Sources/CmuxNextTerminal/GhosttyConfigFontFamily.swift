@@ -13,12 +13,18 @@ import Foundation
 enum GhosttyConfigFontFamily {
     /// The family `paths` name, read in order.
     nonisolated static func family(inFiles paths: [String]) -> String? {
+        families(inFiles: paths).first
+    }
+
+    /// Every `font-family` entry in the loaded config, in Ghostty's precedence
+    /// order. An empty entry resets the list, just as Ghostty does.
+    nonisolated static func families(inFiles paths: [String]) -> [String] {
         var families: [String] = []
         for path in paths {
             guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
             families = fontFamilies(configText: text, after: families)
         }
-        return families.first
+        return families
     }
 
     private static var loads = 0
@@ -33,10 +39,12 @@ enum GhosttyConfigFontFamily {
         Task { // task-owner: one short file read per config load; a later load supersedes it by `loads`
             // After the load finished: the runtime's config is the one just loaded.
             let paths = GhosttyRuntime.shared.loadedConfigFiles
-            let family: String? = await Task.detached { Self.family(inFiles: paths) }.value
+            let families = await Task.detached { Self.families(inFiles: paths) }.value
+            let family = families.first
             guard load == loads else { return }
             let settings = DesignSettings.shared
             if family != settings.terminalConfigFontFamily { settings.terminalConfigFontFamily = family }
+            if families != settings.terminalConfigFontFamilies { settings.terminalConfigFontFamilies = families }
         }
     }
 
@@ -48,9 +56,37 @@ enum GhosttyConfigFontFamily {
             guard !line.hasPrefix("#"), let equals = line.firstIndex(of: "=") else { continue }
             guard line[..<equals].trimmingCharacters(in: .whitespaces) == "font-family" else { continue }
             var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
-            if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") { value = String(value.dropFirst().dropLast()) }
+            if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") {
+                value = decodeQuotedValue(String(value.dropFirst().dropLast()))
+            }
             if value.isEmpty { result = [] } else { result.append(value) }
         }
+        return result
+    }
+
+    /// Ghostty config strings use backslash escapes for a quote and a literal
+    /// backslash. Decode only those two escapes so an unknown escape remains
+    /// unchanged instead of silently changing a configured family name.
+    private nonisolated static func decodeQuotedValue(_ value: String) -> String {
+        var result = ""
+        result.reserveCapacity(value.count)
+        var escaping = false
+        for character in value {
+            if escaping {
+                if character == "\"" || character == "\\" {
+                    result.append(character)
+                } else {
+                    result.append("\\")
+                    result.append(character)
+                }
+                escaping = false
+            } else if character == "\\" {
+                escaping = true
+            } else {
+                result.append(character)
+            }
+        }
+        if escaping { result.append("\\") }
         return result
     }
 }

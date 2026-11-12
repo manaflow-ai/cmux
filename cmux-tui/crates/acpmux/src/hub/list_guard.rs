@@ -8,20 +8,24 @@
 //! - **Never staler than a client is owed.** It is reused only while nothing a watcher
 //!   hears of changed (every send on [`Events`], attach or detach, write to the peers'
 //!   rows, and change of a peer's link state counts), within its window, and never while
-//!   the chat logs load. Fields
-//!   that change with the clock alone (a stall, an expiring tag) are at most a window old.
+//!   the chat logs load. The window runs from when the snapshot is made, and a part of it made
+//!   later (its rows with tools, its masked text) moves it on by that part's own window, so a
+//!   paged read is cut from one build however long its parts take. Fields
+//!   that change with the clock alone (a stall, an expiring tag) are at most a window older
+//!   than the part that shows them.
 //!   A request shares any build begun after it arrived. A watcher's reply never follows
 //!   a `session_changed` notice its list may lack (`list_reply.rs`).
 //! - **Paced.** [`BURST`] builds back to back, then one per window ([`PACE`] times the
 //!   last build's cost, at most [`MAX_WINDOW`]): about 1/32 of a core however many ask.
 //!   Per connection, two lists back to back, then one per window; all connections
-//!   together, [`REPLIES`] per window. A page costs its share of the rows, at least
-//!   [`PAGE_MIN`]. The first list is built before it is paced, so the pace is known. A
-//!   request that would wait more than [`MAX_WAIT`] is refused, to try again later.
+//!   together, [`REPLIES`] per window. A page by `limit` costs its rows' share of the list
+//!   (`ListGuard::share_rows`), a byte page its bytes' share, at least [`BYTE_PAGE_MIN`].
+//!   The first list is built before it is paced, so the pace is known. A request that
+//!   would wait more than [`MAX_WAIT`] is refused, to try again later.
 //!
-//! Cleanup: each build starts one task that drops its snapshot when the window ends
-//! (unless a newer build replaced it); it holds a weak reference and ends after one
-//! sleep. A connection's pace goes with the connection.
+//! Cleanup: each build starts one task that drops its snapshot when its window ends
+//! (unless a newer build replaced it); it holds a weak reference and sleeps again only when a
+//! part made since moved the window on. A connection's pace goes with the connection.
 
 use super::*;
 use std::ops::Range;
@@ -40,8 +44,11 @@ const BURST: u32 = 4;
 const CONN_BURST: u32 = 2;
 /// Lists all connections together read per window, after as many back to back.
 const REPLIES: u32 = 8;
-/// The least a page costs, in lists: it reads every row's key to find its rows.
-const PAGE_MIN: f64 = 1.0 / 16.0;
+/// The least a byte page of the whole list costs, in lists: it reads the keys once and copies
+/// its megabyte of the shared text. Every list reply is a page of at most
+/// `rpc::REPLY_PAGE_BYTES` (`server/list_reply.rs`), so a 31 MB list is about 31 of them: at
+/// 1/16 each, one whole read would cost two lists and be paced as such.
+const BYTE_PAGE_MIN: f64 = 1.0 / 64.0;
 /// The longest a list request waits for its turn; a longer wait is refused.
 pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 
@@ -49,9 +56,11 @@ pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 pub(crate) struct Events {
     tx: broadcast::Sender<HubEvent>,
     changes: AtomicU64,
-    /// Any event may change a field in a closed row (for example attached/shown or usage), save
-    /// a live chat's streamed chunk ([`Events::send_live_stream`]). Closed summary bytes carry
-    /// this generation so they are rebuilt only after a change.
+    /// Changes that may reach any closed row: a send with no session of its own
+    /// ([`Events::send`], [`Events::changed`]), a parent's tags, a session coming or going.
+    /// Closed summary bytes carry this generation and their own session's
+    /// (`Session::summary_gen`, [`Events::send_row`], [`Events::row_changed`]), so a change of one
+    /// chat rebuilds its own row only (`Hub::cached_closed_summary`).
     pub(super) summary_generation: Arc<AtomicU64>,
 }
 
@@ -64,11 +73,13 @@ impl Events {
         }
     }
 
-    /// Counts the change, then sends it.
+    /// Counts the change, then sends it. A peer's event goes through [`Events::send_remote`]:
+    /// sent here, it made every local closed row stale (a peer's reattach notice did).
     pub(super) fn send(
         &self,
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        debug_assert!(event.remote.is_none(), "a peer's event goes through Events::send_remote");
         self.changed();
         self.tx.send(event)
     }
@@ -90,7 +101,36 @@ impl Events {
         self.tx.send(event)
     }
 
-    /// A change no event carries (an attach): the next list is built anew.
+    /// Sends a peer's change ([`HubEvent::remote`], `peers.rs`): the next list is built anew, and
+    /// every local closed row keeps its bytes, since none reads a peer's rows.
+    pub(super) fn send_remote(
+        &self,
+        event: HubEvent,
+    ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        debug_assert!(event.remote.is_some(), "a local event goes through Events::send");
+        self.changes.fetch_add(1, Ordering::SeqCst);
+        self.tx.send(event)
+    }
+
+    /// Sends a change of `session`'s own row, which no other row reads (`Hub::append`): the
+    /// next list is built anew, and of the closed rows' cached bytes only `session`'s go stale.
+    pub(super) fn send_row(
+        &self,
+        session: &Session,
+        event: HubEvent,
+    ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        self.row_changed(session);
+        self.tx.send(event)
+    }
+
+    /// A change of `session`'s own row no event carries (an attach, a start under way): the next
+    /// list is built anew, with only `session`'s cached closed row stale.
+    pub(super) fn row_changed(&self, session: &Session) {
+        self.changes.fetch_add(1, Ordering::SeqCst);
+        session.summary_gen.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// A change no event carries that may reach any row: the next list is built anew.
     pub(super) fn changed(&self) {
         self.changes.fetch_add(1, Ordering::SeqCst);
         self.summary_generation.fetch_add(1, Ordering::SeqCst);
@@ -103,6 +143,15 @@ pub(super) fn streamed_chunk(dir: &str, kind: &str) -> bool {
         && matches!(kind, "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk")
 }
 
+/// Whether a record may change another session's row: `tags` (a parent's `archived` and
+/// `spawnedBy` tags decide whether its children fold under it, `Hub::spawned_by`), and a session
+/// that comes or goes (a child names it as its parent). Every other record of a session changes
+/// its own row only; a child's count in its parent follows its status
+/// (`subsession_index::Index::generation`).
+pub(super) fn reaches_other_rows(dir: &str, kind: &str) -> bool {
+    dir == "mux" && matches!(kind, "tags" | "created" | "purged" | "reopened")
+}
+
 /// One build of the list, kept serialized: a JSON tree of every summary is several
 /// times its text.
 pub(crate) struct Snapshot {
@@ -111,8 +160,12 @@ pub(crate) struct Snapshot {
     serial: u64,
     /// Whether this snapshot intentionally omits closed records for the Mac census path.
     live_only: bool,
-    started: Instant,
-    /// How long it is reused, and how far the next build waits behind it.
+    /// Until when it is reused: a window after the last of it was made. A part made lazily (its
+    /// rows with tools, its masked text) moves this on by its own cost's window, so a list whose
+    /// with-tools rows take longer to make than the base build's window is not stale before its
+    /// first page goes out ([`Snapshot::made_now`]).
+    fresh_until: StdMutex<Instant>,
+    /// How long it is reused after its build, and how far the next build waits behind it.
     window: Duration,
     /// `{"sessions": [...]}` of every summary, local and remote, newest first.
     pub(crate) whole: Arc<String>,
@@ -125,6 +178,8 @@ pub(crate) struct Snapshot {
     /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
     /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
     full: StdMutex<Option<Arc<FullRows>>>,
+    #[cfg(test)]
+    lazy_build_hold: StdMutex<Option<Arc<(std::sync::Barrier, std::sync::Barrier)>>>,
 }
 
 /// Every summary with its tools, serialized as [`Snapshot::whole`] is, with where each row is
@@ -153,7 +208,7 @@ impl FullRows {
     }
 }
 
-type Built = (String, Vec<Range<usize>>, Vec<Value>);
+pub(crate) type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
 impl Snapshot {
     fn new(
@@ -163,28 +218,47 @@ impl Snapshot {
         live_only: bool,
         (text, spans, keys): Built,
     ) -> Self {
-        let (whole, made, started) = (Arc::new(text), Default::default(), Instant::now());
+        let (whole, made) = (Arc::new(text), Default::default());
         Self {
             key,
             serial,
             live_only,
-            started,
+            fresh_until: StdMutex::new(Instant::now() + window),
             window,
             whole,
             spans,
             keys,
             made,
             full: Default::default(),
+            #[cfg(test)]
+            lazy_build_hold: Default::default(),
         }
     }
 
     /// Keep only serialized bytes and paging keys as summaries are produced. A full
     /// JSON tree of every row amplifies the list's peak heap, even when it is freed
     /// immediately after serialization.
-    fn build(hub: &Hub) -> Built {
+    pub(super) fn build(hub: &Hub) -> Built {
+        Self::build_rows(hub, false, true)
+    }
+
+    /// This daemon's rows (the live ones built now, the closed ones' cached bytes already in
+    /// list order, `closed_rows.rs`) and, with `remote`, the peers' rows, in `with_tools`'s
+    /// form. Only the live and the peers' rows are sorted; no closed row is parsed or sorted.
+    fn build_rows(hub: &Hub, with_tools: bool, remote: bool) -> Built {
         let mut rows = Rows::default();
-        hub.visit_session_summaries(false, |row| rows.push(&row));
-        rows.finish()
+        let closed = hub.own_rows_in_order(with_tools, |row| rows.push(&row));
+        if remote {
+            hub.visit_remote_rows(
+                |_| true,
+                |row| {
+                    let row =
+                        if with_tools { row } else { super::views::without_summary_tools(row) };
+                    rows.push(&row);
+                },
+            );
+        }
+        rows.finish_with(closed)
     }
 
     fn build_live(hub: &Hub) -> Built {
@@ -197,9 +271,7 @@ impl Snapshot {
     /// This daemon's own sessions only, no peer's row, serialized as a list reply: what a
     /// peer's link reads in its watch (`server/list_reply.rs` `watch`).
     pub(crate) fn own_whole(hub: &Hub, with_tools: bool) -> String {
-        let mut rows = Rows::default();
-        hub.visit_own_session_summaries(with_tools, |row| rows.push(&row));
-        rows.finish().0
+        Self::build_rows(hub, with_tools, false).0
     }
 
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
@@ -210,13 +282,22 @@ impl Snapshot {
     pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
-            let mut rows = Rows::default();
-            if self.live_only {
-                hub.visit_live_session_summaries(true, |row| rows.push(&row));
-            } else {
-                hub.visit_session_summaries(true, |row| rows.push(&row));
+            #[cfg(test)]
+            if let Some(hold) =
+                self.lazy_build_hold.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                hold.0.wait();
+                hold.1.wait();
             }
-            let (whole, spans, keys) = rows.finish();
+            let began = Instant::now();
+            let (whole, spans, keys) = if self.live_only {
+                let mut rows = Rows::default();
+                hub.visit_live_session_summaries(true, |row| rows.push(&row));
+                rows.finish()
+            } else {
+                Self::build_rows(hub, true, true)
+            };
+            self.made_now(began);
             Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
         })
         .clone()
@@ -279,19 +360,7 @@ impl Snapshot {
             )?;
             (page, next.map(|next| after.map_or_else(|| next.clone(), |k| format!("{next}~{k}"))))
         };
-        let mut out = String::from("{");
-        if let Some(next) = next {
-            out.push_str(&format!("\"nextCursor\":{},", Value::String(next)));
-        }
-        out.push_str("\"sessions\":[");
-        for (n, text) in page.iter().enumerate() {
-            if n > 0 {
-                out.push(',');
-            }
-            out.push_str(text);
-        }
-        out.push_str("]}");
-        Ok(out)
+        Ok(page_text(next.map(|next| Value::String(next).to_string()), &page))
     }
 
     #[cfg(test)]
@@ -304,11 +373,10 @@ impl Snapshot {
     }
 
     /// The reply to a paged `params` (a `limit`, or a census's `orderBy`), cut from the shared
-    /// text, with tools when `full` is given: the rows `session_list_reply` picks, as many as fit
-    /// in `budget` bytes, at least one, and `nextCursor` first. A page cut short by its bytes ends
-    /// with the `nextCursor` of its last row, as a page of that many rows would: 1000 rows of a
-    /// busy host with usage were more than one message, refused whole on every retry. A row
-    /// larger than `budget` alone is trimmed ([`row_text`]).
+    /// text, with tools when `full` is given: the rows `session_list_reply` picks, cut by
+    /// [`cut_page`]. A daemon builds a page from its own rows instead (`page_first.rs`); this is
+    /// the reference that page must equal, row for row and byte for byte.
+    #[cfg(test)]
     pub(crate) fn page(
         &self,
         full: Option<&FullRows>,
@@ -322,33 +390,8 @@ impl Snapshot {
         let picked = super::session_pages::session_list_reply_borrowed(keys, params)?;
         let rows =
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let mut next = picked.get("nextCursor").cloned();
-        let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
-        for (n, key) in rows.iter().enumerate() {
-            let row = row_text(text, spans, key, budget);
-            // One more byte for the comma between rows.
-            let total = used.saturating_add(row.len()).saturating_add(1);
-            if n > 0 && total > budget {
-                let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
-                next = Some(Value::String(page_cursor(params, last)));
-                break;
-            }
-            used = total;
-            page.push(row);
-        }
-        let mut text = String::from("{");
-        if let Some(next) = next {
-            text.push_str(&format!("\"nextCursor\":{next},"));
-        }
-        text.push_str("\"sessions\":[");
-        for (n, row) in page.iter().enumerate() {
-            if n > 0 {
-                text.push(',');
-            }
-            text.push_str(row);
-        }
-        text.push_str("]}");
-        Ok(text)
+        let next = picked.get("nextCursor").cloned();
+        Ok(cut_page((text, spans.as_slice()), rows, next, params, budget))
     }
 
     /// Every summary, parsed back.
@@ -370,9 +413,135 @@ impl Snapshot {
         make: impl FnOnce(&Self) -> String,
     ) -> Arc<String> {
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
-        made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
+        made.entry(name)
+            .or_insert_with(|| {
+                let began = Instant::now();
+                let text = Arc::new(make(self));
+                crate::gauges::global().list_variant(name, text.len());
+                self.made_now(began);
+                text
+            })
+            .clone()
+    }
+
+    /// Whether it may still be reused, nothing it shows having changed: within a window of the
+    /// last part of it made.
+    fn fresh(&self) -> bool {
+        Instant::now() < self.fresh_until()
+    }
+
+    fn fresh_until(&self) -> Instant {
+        *self.fresh_until.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A concurrent lazy result still owns the snapshot's full-row lock. Reuse the current
+    /// snapshot while that build is in flight, even if its base freshness window has elapsed.
+    fn lazy_building(&self) -> bool {
+        matches!(self.full.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+    }
+
+    /// A part of it begun at `began` is made: it stays fresh a window past now, the window of
+    /// that part's cost ([`PACE`] times it, at most [`MAX_WINDOW`]) or its build's, the longer.
+    /// Its with-tools rows are several times its base rows (3,000 chats of 10 KB titles: 30 MB
+    /// against 6, 2026-11-12), so with the window priced on the base build alone they took
+    /// longer to make than the snapshot lived: every page of a with-tools list built the whole
+    /// list and its tools again and waited out the builder's pace, and one paged read of it
+    /// took minutes; the list test that reads 16 of them ran past CI's 40 minutes.
+    fn made_now(&self, began: Instant) {
+        let now = Instant::now();
+        let window = now.saturating_duration_since(began).saturating_mul(PACE).min(MAX_WINDOW);
+        let mut until = self.fresh_until.lock().unwrap_or_else(|e| e.into_inner());
+        *until = (*until).max(now + window.max(self.window));
     }
 }
+
+/// A page's result text, `{"nextCursor":<next>,"sessions":[<rows>]}` (no `nextCursor` when
+/// `next` is `None`; `next` is already JSON), in one allocation of its exact size plus
+/// [`LINE_ROOM`], so the reply line is made in it (`server/list_reply.rs` `reply_line_in`).
+/// A page is megabytes: growing it by doubling, then copying it into its line, left three or
+/// four freed blocks of megabytes per page, which macOS's allocator keeps (270 MB of
+/// "Malloc Large (empty)" after 40 `ls` of 3000 rows, aws-m4pro-2, 2026-11-11).
+pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> String {
+    const CURSOR: &str = "\"nextCursor\":";
+    const SESSIONS: &str = "\"sessions\":[";
+    let rows_len: usize = rows.iter().map(|row| row.as_ref().len()).sum();
+    let size = 1
+        + next.as_ref().map_or(0, |next| CURSOR.len() + next.len() + 1)
+        + SESSIONS.len()
+        + rows_len
+        + rows.len().saturating_sub(1)
+        + 2;
+    let mut text = String::with_capacity(size + LINE_ROOM);
+    text.push('{');
+    if let Some(next) = next {
+        text.push_str(CURSOR);
+        text.push_str(&next);
+        text.push(',');
+    }
+    text.push_str(SESSIONS);
+    for (n, row) in rows.iter().enumerate() {
+        if n > 0 {
+            text.push(',');
+        }
+        text.push_str(row.as_ref());
+    }
+    text.push_str("]}");
+    debug_assert_eq!(text.len(), size);
+    text
+}
+
+/// A paged reply's text: `rows` (paging keys, each naming its row in `text` by `at`), as many as
+/// fit in `budget` bytes, at least one, and `next` (the picked page's `nextCursor`) first. A page
+/// cut short by its bytes ends with the `nextCursor` of its last row, as a page of that many rows
+/// would: 1000 rows of a busy host with usage were more than one message, refused whole on every
+/// retry. A row larger than `budget` alone is trimmed ([`row_text`]).
+pub(crate) fn cut_page(
+    (text, spans): (&str, &[Range<usize>]),
+    rows: &[Value],
+    mut next: Option<Value>,
+    params: &Value,
+    budget: usize,
+) -> String {
+    let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
+    for (n, key) in rows.iter().enumerate() {
+        let row = row_text(text, spans, key, budget);
+        // One more byte for the comma between rows.
+        let total = used.saturating_add(row.len()).saturating_add(1);
+        if n > 0 && total > budget {
+            let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
+            next = Some(Value::String(page_cursor(params, last)));
+            break;
+        }
+        used = total;
+        page.push(row);
+    }
+    page_text(next.map(|next| next.to_string()), &page)
+}
+
+/// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
+/// paging keys of each (`at` its place): what [`cut_page`] cuts.
+pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
+    let prefix = br#"{"sessions":["#;
+    let mut whole = Vec::from(&prefix[..]);
+    let (mut spans, mut keys) = (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
+    for (at, row) in rows.iter().enumerate() {
+        if at > 0 {
+            whole.push(b',');
+        }
+        let start = whole.len();
+        // A Value always serializes, and Vec's writer cannot fail.
+        let _ = serde_json::to_writer(&mut whole, row);
+        spans.push(start..whole.len());
+        keys.push(RowKey::of(row, at).value(at));
+    }
+    whole.extend_from_slice(b"]}");
+    // serde_json writes UTF-8.
+    (String::from_utf8(whole).unwrap_or_default(), spans, keys)
+}
+
+/// Spare capacity a page keeps for its reply line's frame (`{"id":..,"jsonrpc":"2.0",
+/// "result":` and `}\n`), so the line is made in place for any id up to about 200 bytes.
+pub(crate) const LINE_ROOM: usize = 256;
 
 /// Row `key` of `text`: whole when it fits in `budget`, else trimmed to fit, its largest fields
 /// first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps do not.
@@ -427,6 +596,12 @@ fn too_large_stub(key: &Value, bytes: usize) -> String {
     stub.to_string()
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Rows this thread's list builds sorted: what a list's tests count of its sort.
+    static ROWS_SORTED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// A byte arena and small keys, rather than all the summaries' nested allocations.
 /// Sort only captured keys: reading live timestamps in a comparator is not a total order.
 #[derive(Default)]
@@ -438,12 +613,57 @@ struct Rows {
 
 /// The fields needed for ordering, filtering, and cursors. Keeping these typed avoids
 /// allocating a JSON object for every row while the snapshot is being built.
-struct RowKey {
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RowKey {
     at: usize,
-    session_id: Option<String>,
-    updated_at: u64,
-    peer: Option<String>,
-    status: Option<String>,
+    pub(crate) session_id: Option<String>,
+    pub(crate) updated_at: u64,
+    pub(crate) peer: Option<String>,
+    pub(crate) status: Option<String>,
+}
+
+impl RowKey {
+    /// Row `row`'s keys, at `at` in its arena.
+    pub(crate) fn of(row: &Value, at: usize) -> Self {
+        Self {
+            at,
+            session_id: row.get("sessionId").and_then(Value::as_str).map(str::to_owned),
+            updated_at: row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default(),
+            peer: row.get("peer").and_then(Value::as_str).map(str::to_owned),
+            status: row.get("status").and_then(Value::as_str).map(str::to_owned),
+        }
+    }
+
+    /// The order `sort_session_summaries` gives: a chat's copies local first, then by peer,
+    /// the order their cursors (`session_pages.rs`) read them in.
+    fn order(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .updated_at
+            .cmp(&self.updated_at)
+            .then_with(|| {
+                let (a, b) = (self.session_id.as_deref(), other.session_id.as_deref());
+                a.unwrap_or("").cmp(b.unwrap_or(""))
+            })
+            .then_with(|| self.peer.cmp(&other.peer))
+    }
+
+    /// The paging keys a snapshot keeps of a row at `at`.
+    fn value(&self, at: usize) -> Value {
+        let mut value = json!({"at": at});
+        if let Some(session_id) = &self.session_id {
+            value.set("sessionId", Value::String(session_id.clone()));
+        }
+        if self.updated_at != 0 {
+            value.set("updatedAt", Value::from(self.updated_at));
+        }
+        if let Some(peer) = &self.peer {
+            value.set("peer", Value::String(peer.clone()));
+        }
+        if let Some(status) = &self.status {
+            value.set("status", Value::String(status.clone()));
+        }
+        value
+    }
 }
 
 impl Rows {
@@ -452,60 +672,58 @@ impl Rows {
         // A Value always serializes, and Vec's writer cannot fail.
         let _ = serde_json::to_writer(&mut self.text, row);
         self.spans.push(start..self.text.len());
-        self.keys.push(RowKey {
-            at: self.keys.len(),
-            session_id: row.get("sessionId").and_then(Value::as_str).map(str::to_owned),
-            updated_at: row.get("updatedAt").and_then(Value::as_u64).unwrap_or_default(),
-            peer: row.get("peer").and_then(Value::as_str).map(str::to_owned),
-            status: row.get("status").and_then(Value::as_str).map(str::to_owned),
-        });
+        self.keys.push(RowKey::of(row, self.keys.len()));
     }
 
-    fn finish(mut self) -> Built {
-        // The order `sort_session_summaries` gives: a chat's copies local first, then by peer,
-        // the order their cursors (`session_pages.rs`) read them in.
-        self.keys.sort_by(|a, b| {
-            b.updated_at
-                .cmp(&a.updated_at)
-                .then_with(|| {
-                    a.session_id.as_deref().unwrap_or("").cmp(b.session_id.as_deref().unwrap_or(""))
-                })
-                .then_with(|| a.peer.cmp(&b.peer))
-        });
+    fn finish(self) -> Built {
+        self.finish_with(Vec::new())
+    }
+
+    /// The rows pushed, sorted, merged with `closed`, already in list order
+    /// (`Hub::own_rows_in_order`): of a tie, the closed (local) row first, as a stable sort of
+    /// local rows before the peers' put it.
+    fn finish_with(mut self, closed: Vec<super::closed_rows::ClosedRow>) -> Built {
+        #[cfg(test)]
+        ROWS_SORTED.with(|n| n.set(n.get() + self.keys.len()));
+        self.keys.sort_by(RowKey::order);
         let prefix = br#"{"sessions":["#;
+        let closed_bytes: usize = closed.iter().map(|row| row.bytes.len()).sum();
+        let count = self.keys.len() + closed.len();
         let mut whole = Vec::with_capacity(
-            prefix.len() + self.text.len() + self.keys.len().saturating_sub(1) + 2,
+            prefix.len() + self.text.len() + closed_bytes + count.saturating_sub(1) + 2,
         );
         whole.extend_from_slice(prefix);
-        let mut spans = Vec::with_capacity(self.spans.len());
-        let mut keys = Vec::with_capacity(self.keys.len());
-        for (at, key) in self.keys.into_iter().enumerate() {
+        let mut spans = Vec::with_capacity(count);
+        let mut keys = Vec::with_capacity(count);
+        let mut pushed = self.keys.into_iter().peekable();
+        let mut closed = closed.into_iter().peekable();
+        loop {
+            let take_closed = match (pushed.peek(), closed.peek()) {
+                (None, None) => break,
+                (Some(_), None) => false,
+                (None, Some(_)) => true,
+                (Some(key), Some(row)) => row.key.order(key) != std::cmp::Ordering::Greater,
+            };
+            let at = keys.len();
             if at > 0 {
                 whole.push(b',');
             }
-            let source = key.at;
             let start = whole.len();
-            whole.extend_from_slice(
-                self.spans
-                    .get(source)
-                    .and_then(|span| self.text.get(span.clone()))
-                    .unwrap_or_default(),
-            );
+            if take_closed {
+                let Some(row) = closed.next() else { break };
+                whole.extend_from_slice(row.bytes.as_bytes());
+                keys.push(row.key.value(at));
+            } else {
+                let Some(key) = pushed.next() else { break };
+                whole.extend_from_slice(
+                    self.spans
+                        .get(key.at)
+                        .and_then(|span| self.text.get(span.clone()))
+                        .unwrap_or_default(),
+                );
+                keys.push(key.value(at));
+            }
             spans.push(start..whole.len());
-            let mut value = json!({"at": at});
-            if let Some(session_id) = key.session_id {
-                value.set("sessionId", Value::String(session_id));
-            }
-            if key.updated_at != 0 {
-                value.set("updatedAt", Value::from(key.updated_at));
-            }
-            if let Some(peer) = key.peer {
-                value.set("peer", Value::String(peer));
-            }
-            if let Some(status) = key.status {
-                value.set("status", Value::String(status));
-            }
-            keys.push(value);
         }
         whole.extend_from_slice(b"]}");
         // serde_json writes UTF-8, and rows are copied only at their boundaries.
@@ -513,8 +731,50 @@ impl Rows {
     }
 }
 
+/// Where a client's request is, for a test's hold (`Hub::hold_requests_for_tests`): about to be
+/// served (`server/mod.rs`), or its list reply sent from inside it (`server/list_reply.rs`)
+/// built and not queued yet, or queued to the client with the request not finished yet.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestStage {
+    Dispatch,
+    ListBuilt,
+    ListQueued,
+}
+
+/// A test's hold on requests at each [`RequestStage`], by method and id: the request waits for
+/// the future it returns, and a cancel may drop it there.
+#[doc(hidden)]
+pub type RequestHold = Arc<
+    dyn Fn(
+            RequestStage,
+            &str,
+            &Value,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
+
+impl Hub {
+    /// Integration-test hold on requests (`tests/cancel_list_reply.rs`): a cancel races a request
+    /// at a stage the test picks, never by timing. Set once per hub; a daemon never sets it.
+    #[doc(hidden)]
+    pub fn hold_requests_for_tests(&self, hold: RequestHold) {
+        let _ = self.list_guard.hold.set(hold);
+    }
+
+    /// Waits out a test's hold at `stage` of request `id` of method `m`, if one is set.
+    pub(crate) async fn request_hold(&self, stage: RequestStage, m: &str, id: &Value) {
+        if let Some(hold) = self.list_guard.hold.get() {
+            hold(stage, m, id).await;
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct ListGuard {
+    /// A test's hold on requests (`Hub::hold_requests_for_tests`); unset in a daemon.
+    pub(crate) hold: std::sync::OnceLock<RequestHold>,
     state: Arc<tokio::sync::Mutex<State>>,
     /// The last build's window (ns), row count and whole list's bytes, read without waiting for
     /// a build.
@@ -531,6 +791,8 @@ pub(crate) struct ListGuard {
 struct State {
     last: Option<Arc<Snapshot>>,
     pace: Pacer,
+    #[cfg(test)]
+    expiry_wakes: usize,
 }
 
 impl ListGuard {
@@ -538,17 +800,18 @@ impl ListGuard {
         Duration::from_nanos(self.window_nanos.load(Ordering::Relaxed))
     }
 
-    /// The share of the list a page of `limit` rows costs (None: all of it).
-    pub(crate) fn share(&self, limit: Option<u64>) -> f64 {
+    /// The share of the list a page built from its own rows (`page_first.rs`) costs: its `limit`
+    /// rows of the last list's, with no floor, since it builds no other row.
+    pub(crate) fn share_rows(&self, limit: Option<u64>) -> f64 {
         let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
-        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(PAGE_MIN, 1.0))
+        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(0.0, 1.0))
     }
 
     /// The share of the list a page of at most `budget` bytes costs: a whole list cut into
     /// byte pages costs about one list in all, not one per page.
     pub(crate) fn share_bytes(&self, budget: usize) -> f64 {
         let bytes = self.bytes.load(Ordering::Relaxed).max(1) as f64;
-        (budget as f64 / bytes).clamp(PAGE_MIN, 1.0)
+        (budget as f64 / bytes).clamp(BYTE_PAGE_MIN, 1.0)
     }
 
     /// Reserves `share` of a list on a connection's `pace`, then on every connection's
@@ -592,7 +855,7 @@ impl ListGuard {
         if let Some(last) = &state.last
             && last.live_only == live_only
             && last.key.0
-            && (last.serial > asked || last.current(hub) && last.started.elapsed() < last.window)
+            && (last.serial > asked || last.current(hub) && (last.fresh() || last.lazy_building()))
         {
             return last.clone();
         }
@@ -608,6 +871,7 @@ impl ListGuard {
         let (started, key) = (Instant::now(), key(hub));
         let built = if live_only { Snapshot::build_live(hub) } else { Snapshot::build(hub) };
         let elapsed = started.elapsed();
+        crate::gauges::global().list_rebuilt(built.1.len(), built.0.len(), elapsed);
         let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
         tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
             build_us = elapsed.as_micros(), window_us = window.as_micros(),
@@ -617,25 +881,54 @@ impl ListGuard {
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
         self.bytes.store(built.0.len(), Ordering::Relaxed);
-        let snapshot =
-            Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, live_only, built) });
+        // Fresh for a window from now, when it is made: a build slower than its window (a busy
+        // host, MAX_WINDOW) is reused, not stale on arrival.
+        let snapshot = Arc::new(Snapshot::new(key, serial, window, live_only, built));
         state.last = Some(snapshot.clone());
         drop(state);
         self.expire(serial, window);
         snapshot
     }
 
-    /// Drops snapshot `serial` when its window ends, unless a newer build replaced it.
+    /// Drops snapshot `serial` when it is no longer fresh (its window, moved on by any part of
+    /// it made since), unless a newer build replaced it.
     fn expire(&self, serial: u64, window: Duration) {
         let state = Arc::downgrade(&self.state);
         tokio::spawn(async move {
-            tokio::time::sleep(window).await;
-            let Some(state) = state.upgrade() else { return };
-            let mut state = state.lock().await;
-            if state.last.as_ref().is_some_and(|s| s.serial == serial) {
-                state.last = None;
+            let mut until = Instant::now() + window;
+            let retry_cap = window.min(Duration::from_secs(1)).max(Duration::from_millis(1));
+            let mut retry = Duration::from_millis(1).min(retry_cap);
+            loop {
+                tokio::time::sleep_until(until).await;
+                let Some(state) = state.upgrade() else { return };
+                let mut state = state.lock().await;
+                #[cfg(test)]
+                {
+                    state.expiry_wakes += 1;
+                }
+                let Some(last) = state.last.as_ref().filter(|s| s.serial == serial) else { return };
+                if Arc::strong_count(last) > 1 {
+                    // A request still owns this snapshot and may begin a lazy part after this
+                    // task woke. Leave it live; made_now will extend the same state entry. Back
+                    // off so a long lazy build does not wake and take this lock every millisecond.
+                    until = Instant::now() + retry;
+                    retry = retry.saturating_mul(2).min(retry_cap);
+                    continue;
+                }
+                let fresh_until = last.fresh_until();
+                if fresh_until <= Instant::now() {
+                    state.last = None;
+                    return;
+                }
+                until = fresh_until;
             }
         });
+    }
+
+    /// Lists built so far, for a test that bounds how many builds a paged read costs.
+    #[cfg(test)]
+    pub(crate) fn builds_for_tests(&self) -> u64 {
+        self.begun.load(Ordering::SeqCst)
     }
 }
 
@@ -646,7 +939,7 @@ type Key = (bool, u64, u64, Vec<(String, &'static str)>);
 /// What a snapshot is reused under (only once every chat log is read).
 fn key(hub: &Hub) -> Key {
     let ready = *hub.logs_ready.borrow();
-    let writes = hub.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).writes;
+    let writes = hub.remote_sessions.read().writes;
     let peers = hub.peers.lock().unwrap_or_else(|e| e.into_inner());
     let mut states: Vec<_> = peers.values().map(|p| (p.name.clone(), p.state().as_str())).collect();
     drop(peers);
@@ -873,6 +1166,17 @@ mod tests {
         let mut cached_list = Vec::new();
         hub.visit_session_summaries(false, |row| cached_list.push(row));
         assert_eq!(cached_list, uncached_list);
+
+        // The list a client is sent, its full form and a peer's copy: the closed rows' bytes
+        // in their kept order are the rows a full sort gives.
+        let built = Snapshot::build(hub);
+        let snapshot = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built);
+        assert_eq!(snapshot.values(), uncached_list);
+        let full = snapshot.full_rows(hub);
+        let full: Vec<Value> = (0..full.keys().len()).map(|at| full.row(at)).collect();
+        assert_eq!(full, uncached);
+        let own: Value = serde_json::from_str(&Snapshot::own_whole(hub, false)).unwrap();
+        assert_eq!(own["sessions"], json!(uncached_list));
     }
 
     /// Closed rows are serialized once, but every metadata and list-visible runtime change must
@@ -950,16 +1254,20 @@ mod tests {
         .unwrap(); // archive tag
         cached_rows_equal_uncached(&hub);
 
+        // The tag expires when this thread's test clock is moved past it, between the two
+        // checks: a 20 ms life on the wall clock could run out in the middle of the first one,
+        // between its uncached walk and the cached rows it compares with.
+        const LIFE_MS: u64 = 60 * 60 * 1_000;
         parent.meta.lock().unwrap().tags.insert(
             "expires".into(),
             crate::store::Tag {
                 value: "soon".into(),
-                expires_at: Some(crate::store::now_ms() + 20),
+                expires_at: Some(crate::store::now_ms() + LIFE_MS),
             },
         );
         hub.save_meta_answered(&parent).unwrap();
         cached_rows_equal_uncached(&hub);
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        crate::store::test_clock::advance(LIFE_MS);
         cached_rows_equal_uncached(&hub); // time-expiring tags invalidate without an event
 
         hub.set_visible(&parent, true); // mark-seen
@@ -991,6 +1299,7 @@ mod tests {
         parent.purged.store(true, Ordering::SeqCst);
         hub.remove_cached_closed_summary(&parent.id);
         assert!(!hub.closed_summary_cache.lock().unwrap().contains_key(&parent.id));
+        crate::store::test_clock::reset();
     }
 
     /// While one live chat streams, a list build reuses every closed row's bytes: a streamed
@@ -1044,15 +1353,163 @@ mod tests {
         assert!(hub.events.changes.load(Ordering::SeqCst) >= changes + CHUNKS);
         cached_rows_equal_uncached(&hub);
 
-        // Any other record still marks the closed rows stale.
+        // Another record of the live chat changes its own row only: no closed row is rebuilt.
         let before = builds();
         hub.append(&live, "mux", "status", json!({"status": "running"}));
         hub.visit_session_summaries(false, |_| {});
-        assert_eq!(builds() - before, CLOSED);
+        assert_eq!(builds() - before, 0);
 
-        // A chunk that reaches a closed chat rebuilds the closed rows, its own included.
+        // A chunk that reaches a closed chat rebuilds that chat's row, and only it.
         let closed = hub.sessions().into_iter().find(|s| s.id == "closed-0").unwrap();
+        let before = builds();
         hub.append(&closed, "in", "agent_message_chunk", chunk("late"));
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, 1);
+        cached_rows_equal_uncached(&hub);
+
+        // A record that may reach other rows (a parent's tags) still marks them all stale.
+        let before = builds();
+        hub.append(&closed, "mux", "tags", json!({}));
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, CLOSED);
+    }
+
+    /// The list after one chat's record parses no closed row and sorts none (Leo 2026-11-04:
+    /// "never ... acceptable ... linear time growth degradation"): the closed rows stay in list
+    /// order between lists, so one chat's change costs its own row's removal and insert. Before,
+    /// each list parsed every closed row's cached bytes and sorted every row: 38 ms at 3,000.
+    /// The same at 10 and 400 closed rows.
+    #[tokio::test]
+    async fn a_list_after_one_chats_record_parses_and_sorts_no_closed_row() {
+        for closed in [10_u64, 400] {
+            let cfg: crate::config::Config =
+                serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+            let hub = Hub::new(
+                cfg.clone(),
+                crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
+            );
+            let meta = |id: String, status: &str, at: u64| -> crate::store::SessionMeta {
+                serde_json::from_value(json!({
+                    "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                    "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
+                    "createdAt": 1, "updatedAt": at, "preview": "a reply",
+                }))
+                .unwrap()
+            };
+            // Ids in the reverse of their order, so no walk of the map happens to be sorted.
+            for n in 0..closed {
+                hub.insert_test_session(meta(format!("closed-{n:04}"), "closed", n + 1));
+            }
+            let live = hub.insert_test_session(meta("live".into(), "idle", closed / 2));
+            let list = |hub: &Hub| {
+                let built = Snapshot::build(hub);
+                Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, false, built).values()
+            };
+            let uncached = |hub: &Hub| {
+                let mut rows: Vec<Value> =
+                    hub.sessions().iter().map(|s| hub.session_list_summary(s)).collect();
+                super::super::session_pages::sort_session_summaries(&mut rows);
+                rows
+            };
+            assert_eq!(list(&hub), uncached(&hub));
+            let counts = || {
+                (
+                    hub.closed_summary_builds.load(Ordering::SeqCst),
+                    hub.closed_summary_parses.load(Ordering::SeqCst),
+                    ROWS_SORTED.with(std::cell::Cell::get),
+                )
+            };
+
+            // A live chat's record: no closed row is built, parsed or sorted.
+            let before = counts();
+            hub.append(&live, "mux", "status", json!({"status": "running"}));
+            let rows = list(&hub);
+            let after = counts();
+            assert_eq!(after.0 - before.0, 0, "closed rows built at {closed}");
+            assert_eq!(after.1 - before.1, 0, "closed rows parsed at {closed}");
+            assert!(after.2 - before.2 <= 1, "rows sorted at {closed}: {}", after.2 - before.2);
+            assert_eq!(rows, uncached(&hub));
+
+            // A closed chat's record: its own row only is built again, and moves into place.
+            let one = hub.sessions().into_iter().find(|s| s.id == "closed-0001").unwrap();
+            let before = counts();
+            hub.append(&one, "in", "agent_message_chunk", json!({}));
+            let rows = list(&hub);
+            let after = counts();
+            assert_eq!(after.0 - before.0, 1, "closed rows built at {closed}");
+            assert_eq!(after.1 - before.1, 0, "closed rows parsed at {closed}");
+            assert!(after.2 - before.2 <= 1, "rows sorted at {closed}: {}", after.2 - before.2);
+            assert_eq!(rows, uncached(&hub));
+        }
+    }
+
+    /// A one-chat change rebuilds that chat's closed row, never every closed row: each status,
+    /// turn or metadata commit of one chat rebuilt all ~3,000 closed rows on the next list. What
+    /// other rows read of a chat still reaches them: a closed parent's open-children count when
+    /// its child closes, a child's fold when its parent is archived.
+    #[tokio::test]
+    async fn a_one_chat_change_rebuilds_only_its_own_closed_row() {
+        const CLOSED: u64 = 100;
+        let cfg: crate::config::Config =
+            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+        let hub = Hub::new(
+            cfg.clone(),
+            crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
+        );
+        let meta = |id: String, status: &str| -> crate::store::SessionMeta {
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
+                "createdAt": 1, "updatedAt": 1,
+            }))
+            .unwrap()
+        };
+        for n in 0..CLOSED {
+            hub.insert_test_session(meta(format!("closed-{n}"), "closed"));
+        }
+        let one = hub.sessions().into_iter().find(|s| s.id == "closed-7").unwrap();
+        hub.visit_session_summaries(false, |_| {});
+        let builds = || hub.closed_summary_builds.load(Ordering::SeqCst);
+
+        let before = builds();
+        one.meta.lock().unwrap().title = Some("renamed".into());
+        hub.save_meta_answered(&one).unwrap();
+        hub.append(&one, "mux", "turn_end", json!({}));
+        hub.attach_count(&one, 1, true);
+        hub.attach_count(&one, -1, true);
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, 1, "one chat's changes rebuilt other closed rows");
+        cached_rows_equal_uncached(&hub);
+
+        // A closed parent's `children` follows its child's status.
+        let parent = hub.sessions().into_iter().find(|s| s.id == "closed-3").unwrap();
+        let mut child = meta("child".into(), "ready");
+        child.subsession = Some(
+            serde_json::from_value(
+                json!({"startedBy": "closed-3", "shortName": "child", "depth": 1}),
+            )
+            .unwrap(),
+        );
+        let child = hub.insert_test_session(child);
+        hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
+        cached_rows_equal_uncached(&hub);
+        hub.set_status(&child, SessionStatus::Closed);
+        cached_rows_equal_uncached(&hub);
+
+        // Archiving a parent folds its children no more: their rows change with its tags.
+        let mut folded = meta("folded".into(), "closed");
+        folded.tags.insert(
+            "spawnedBy".into(),
+            crate::store::Tag { value: "closed-5".into(), expires_at: None },
+        );
+        hub.insert_test_session(folded);
+        cached_rows_equal_uncached(&hub);
+        let five = hub.sessions().into_iter().find(|s| s.id == "closed-5").unwrap();
+        five.meta.lock().unwrap().tags.insert(
+            "archived".into(),
+            crate::store::Tag { value: "true".into(), expires_at: None },
+        );
+        hub.save_meta_answered(&five).unwrap();
         cached_rows_equal_uncached(&hub);
     }
 
@@ -1102,11 +1559,11 @@ mod tests {
         assert!(third > Duration::from_millis(3900), "{third:?}");
         // Pages of a quarter: a list ahead and one page more, then the pace holds.
         let (pages, pace) = (guard(), StdMutex::default());
-        assert_eq!(pages.share(Some(100)), 0.25);
+        assert_eq!(pages.share_rows(Some(100)), 0.25);
         let waits: Vec<Duration> = (0..6).map(|_| pages.reserve(&pace, 0.25).unwrap()).collect();
         assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 1, "{waits:?}");
-        // A page of one row (or none) still reads every key: it costs `PAGE_MIN`.
-        assert_eq!((pages.share(Some(1)), pages.share(Some(0))), (PAGE_MIN, PAGE_MIN));
+        // A page built from its own rows costs only them: no floor.
+        assert_eq!((pages.share_rows(Some(1)), pages.share_rows(Some(0))), (1.0 / 400.0, 0.0));
         // A new connection for each list: a window's `REPLIES` and one more, then they wait.
         let many = guard();
         let waits: Vec<Duration> =
@@ -1195,7 +1652,7 @@ mod tests {
         hub.events.changed();
         assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &begun), "begun since: shared");
         let held = hold(&hub, minute).await;
-        hub.remote_sessions.lock().unwrap().writes += 1;
+        hub.remote_sessions.write().writes += 1;
         assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a peer's row rebuilds");
         // A peer's link state is every one of its rows' `peerState`.
         let held = hold(&hub, minute).await;
@@ -1223,6 +1680,125 @@ mod tests {
         assert!(hub.list_guard.state.lock().await.last.is_some(), "an older build's expiry");
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(hub.list_guard.state.lock().await.last.is_none(), "it outlived its window");
+    }
+
+    /// A part of a snapshot made lazily after its build (its rows with tools, 30 MB beside 6 of
+    /// base rows on the list test's 3,000 chats) keeps it fresh for that part's window: on
+    /// 2026-11-12 it was stale before its first with-tools page went out, so every page built
+    /// the list again and a paged read of it ran for minutes (cmux run 43164890485).
+    #[tokio::test(start_paused = true)]
+    async fn a_part_made_after_the_build_keeps_the_snapshot_for_its_own_window() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let serial = guard.begun.load(Ordering::SeqCst);
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        guard.expire(serial, Duration::from_secs(1));
+        // Its tools took 3 s to make: past the base build's 1 s window.
+        held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(guard.state.lock().await.last.is_some(), "dropped at the build's window");
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "rebuilt within its window");
+        drop(held);
+        // 3 s of work: a window of MAX_WINDOW (PACE times 3 s, at most 15 s) from when it was made.
+        tokio::time::sleep(MAX_WINDOW - Duration::from_secs(4)).await;
+        assert!(guard.state.lock().await.last.is_none(), "kept past its part's window");
+    }
+
+    /// A request arriving after the base window reuses a current snapshot while its lazy rows
+    /// are still being made, instead of starting a second whole-list build.
+    #[tokio::test(start_paused = true)]
+    async fn a_concurrent_request_reuses_a_snapshot_during_lazy_build() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        let entered = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+        *held.lazy_build_hold.lock().unwrap() = Some(entered.clone());
+
+        let building = {
+            let snapshot = held.clone();
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || snapshot.full_rows(&hub))
+        };
+        tokio::task::spawn_blocking({
+            let entered = entered.clone();
+            move || entered.0.wait()
+        })
+        .await
+        .unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+
+        let before = guard.builds_for_tests();
+        let reused = guard.snapshot(&hub).await;
+        let after = guard.builds_for_tests();
+        println!("F1 lazy-build concurrent snapshot: before={before} after={after}");
+        assert!(Arc::ptr_eq(&reused, &held), "stale snapshot was rebuilt during lazy build");
+        assert_eq!(after, before, "lazy build started a duplicate whole-list build");
+
+        tokio::task::spawn_blocking(move || entered.1.wait()).await.unwrap();
+        building.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn expiry_retries_back_off_while_a_snapshot_is_held() {
+        const HELD_MS: usize = 2_000;
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        guard.expire(held.serial, Duration::from_secs(1));
+
+        // Before backoff, a 1 ms retry woke 2,000 times over this 2 s hold. Exponential backoff
+        // reaches its 1 s cap, so after it there are at most 12 wakes over the same interval.
+        for _ in 0..HELD_MS {
+            tokio::time::advance(Duration::from_millis(1)).await;
+            tokio::task::yield_now().await;
+        }
+        let wakes = guard.state.lock().await.expiry_wakes;
+        assert!(wakes <= 12, "before backoff: {HELD_MS} wakes; after backoff: {wakes} wakes");
+    }
+
+    /// Expiry must not detach a snapshot while its lazy rows are being made: the next page still
+    /// uses that snapshot instead of rebuilding the whole list for every page.
+    #[tokio::test(start_paused = true)]
+    async fn expiry_during_lazy_build_keeps_the_snapshot_for_follow_up_pages() {
+        const PAGES: usize = 6;
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        let serial = held.serial;
+        let entered = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+        *held.lazy_build_hold.lock().unwrap() = Some(entered.clone());
+        drop(held);
+        guard.expire(serial, Duration::from_secs(1));
+
+        let building = {
+            let snapshot = guard.state.lock().await.last.clone().unwrap();
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || snapshot.full_rows(&hub))
+        };
+        tokio::task::spawn_blocking({
+            let entered = entered.clone();
+            move || entered.0.wait()
+        })
+        .await
+        .unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        assert!(guard.state.lock().await.last.is_some(), "expiry detached a lazy build");
+        tokio::task::spawn_blocking(move || entered.1.wait()).await.unwrap();
+        building.await.unwrap();
+
+        // The lazy build took longer than the base window, so its own window keeps the live entry.
+        let held = guard.state.lock().await.last.clone().unwrap();
+        held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
+        let before = guard.builds_for_tests();
+        for _ in 0..PAGES {
+            let snapshot = guard.snapshot(&hub).await;
+            let full = snapshot.full_rows(&hub);
+            snapshot.page(Some(&full), &json!({}), 1024).unwrap();
+        }
+        let builds = guard.builds_for_tests() - before;
+        assert!(builds <= (PAGES / 3 + 3) as u64, "{builds} builds for {PAGES} follow-up pages");
     }
 }
 

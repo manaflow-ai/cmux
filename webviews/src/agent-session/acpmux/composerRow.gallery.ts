@@ -159,6 +159,23 @@ export default agentPaneEntry({
       note: "Auto on the left; one model button, Opus 5.5  Medium, then the context ring on the right; mic and Send in the box.",
       snapshot: row(),
     },
+    "router-opus-on-codex": {
+      note: "Codex running Opus 5.5 through a router (Lawrence 2026-11-10): the chip's logo is the model's own provider, Claude's, beside Opus 5.5  Medium, never the harness's OpenAI mark (chipFace.ts).",
+      snapshot: {
+        ...row({ harness: "codex", model: "claude-opus-5-5" }, { harness: "codex", family: "codex" }),
+        catalog: CATALOG.map((entry) =>
+          entry.id === "codex"
+            ? {
+                ...entry,
+                models: [
+                  ...entry.models,
+                  { id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh"] },
+                ],
+              }
+            : entry,
+        ),
+      },
+    },
     "grid-running": {
       note: "Grid measurement: running with the steer / queue placeholder and no draft.",
       snapshot: row({ isWorking: true }),

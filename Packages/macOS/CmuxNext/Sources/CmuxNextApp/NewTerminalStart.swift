@@ -29,7 +29,7 @@ enum NewTerminalStart {
     /// its resolver skips them). Nil for any other tab. Callers apply ``uninherited`` first.
     @MainActor static func folder(of tab: TabModel?, services: AppServices) -> String? {
         guard let tab else { return nil }
-        return tab.kind == .pty ? tab.cwd : services.agentTabs.terminalFolder(of: tab.id)
+        return tab.kind == .pty ? tab.cwd : services.agentTabs.terminalFolder(of: tab.id, machine: services.agentTabs.daemonListing(tab)?.machineID)
     }
 
     /// The folder a new terminal or agent chat opened beside `tab` in `pane` inherits

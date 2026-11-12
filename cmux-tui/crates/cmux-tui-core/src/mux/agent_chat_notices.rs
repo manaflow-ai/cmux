@@ -11,8 +11,10 @@
 //!
 //! The app shows them like any tab notification (a banner unless that tab is
 //! focused, the Dock badge, a click that opens the tab, the workspace mute).
-//! An ended turn notifies unless a pane showed the chat as it ended (acpmux
-//! `shown`, and `unread` once it ended unseen). When acpmux says a
+//! An ended turn notifies once, also when a pane showed the chat as it ended:
+//! acpmux's `shown` is a page that is not hidden, which it stays while cmux is
+//! in the background, so the app reads a finish its person saw land (its
+//! visibility needs the app active). When acpmux says a
 //! pane showed the chat (`unread` turned false) or the wait ended, the daemon
 //! reads the tab's notifications, so seeing or answering the chat anywhere
 //! clears them. A reconnect compares acpmux's page with what the watch knew,
@@ -282,12 +284,14 @@ fn parse_cache_ttl_timers(root: &Value) -> HashMap<String, Vec<CacheTtlSpec>> {
 impl Mux {
     /// This machine's acpmux socket (`set_acpmux_socket`), a watch of its
     /// chats that posts their notifications for as long as the daemon runs,
-    /// and the agent message pump (`agent_message_pump.rs`), which the watch
-    /// wakes whenever it reaches acpmux.
+    /// and the agent message pump (`agent_message_pump.rs`) and the chat-index
+    /// project import (`project_chats.rs`), which the watch wakes whenever it
+    /// reaches acpmux.
     pub fn watch_agent_chats(self: &Arc<Self>, socket: Option<PathBuf>) {
         self.set_acpmux_socket(socket.clone());
         let Some(socket) = socket else { return };
         self.start_agent_message_pump();
+        self.start_project_chats(socket.clone());
         self.start_cache_ttl_scheduler();
         let mux = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
@@ -632,8 +636,10 @@ fn connect_and_follow(
         if !live.hold_agent_chat_connection(&stream) {
             return Connection::Ended { stayed_up: false };
         }
-        // acpmux is back: what waited for it goes out now.
+        // acpmux is back: what waited for it goes out now, and the project
+        // import follows its chat index again.
         live.wake_agent_message_pump();
+        live.wake_project_chats();
     }
     let stayed_up = follow(mux, stream, chats).is_ok();
     if let Some(live) = mux.upgrade() {
@@ -872,12 +878,12 @@ struct Chat {
     indicator: String,
     idle_since: Option<u64>,
     unread: bool,
-    /// A pane shows the chat now.
-    shown: bool,
     /// Muted from its tab's menu ([`MUTE_TAG`]).
     muted: bool,
     /// The last turn that ended: its id and status.
     last_turn: Option<(String, String)>,
+    /// Why the last turn failed (a quota or capacity error), when acpmux says.
+    last_error: Option<String>,
     /// Work it started runs past its turn (a background subagent, a working sub-session;
     /// acpmux's `subagentsWorkingSince`): the task is not done yet.
     works_below: bool,
@@ -917,6 +923,10 @@ impl Chat {
             .as_object()
             .filter(|lane| lane.get("state").and_then(Value::as_str) == Some("idle"))
             .and_then(|lane| lane.get("since").and_then(Value::as_u64));
+        let last_error = summary["lastTurn"]["errorText"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+            .map(str::to_owned);
         let last_turn = summary["lastTurn"].as_object().map(|turn| {
             let id = turn.get("turnId").and_then(Value::as_str).map(str::to_owned);
             let ended = turn.get("endedAt").map(Value::to_string).unwrap_or_default();
@@ -930,9 +940,9 @@ impl Chat {
             indicator: summary["indicator"].as_str().unwrap_or_default().to_owned(),
             idle_since,
             unread: summary["unread"].as_bool() == Some(true),
-            shown: summary["shown"].as_bool() == Some(true),
             muted: summary["tags"][MUTE_TAG] == MUTED,
             last_turn,
+            last_error,
             works_below: summary["subagentsWorkingSince"].is_u64(),
             notified_turn: None,
             last_message: summary["lastMessage"]["text"].as_str().unwrap_or_default().to_owned(),
@@ -980,11 +990,12 @@ impl Chat {
     }
 
     /// What this change says to the person, given what the chat did before.
-    /// An ended turn notifies once, unless a pane showed the chat as it ended:
-    /// when it ends while no pane shows the chat, or once acpmux marks the
-    /// chat unread (a turn that failed before it started is never marked so).
-    /// A turn that ends while work it started still runs waits: acpmux marks
-    /// the chat unread when that work ends (manaflow-ai/cmux#25563).
+    /// An ended turn notifies once: in the change it ends in, or once acpmux
+    /// marks the chat unread (a turn the watch saw end before it started). A
+    /// pane that showed it is no reason to stay silent: the page stays shown
+    /// while cmux is in the background, and the app reads a finish its person
+    /// saw land. A turn that ends while work it started still runs waits for
+    /// that work to end (manaflow-ai/cmux#25563, #24386).
     fn notices(&mut self, before: Option<&Chat>) -> Vec<Notice> {
         let mut notices = Vec::new();
         let name = &self.name;
@@ -992,9 +1003,11 @@ impl Chat {
         let ended_now = |turn: &String| {
             before.is_some_and(|chat| chat.last_turn.as_ref().map(|(id, _)| id) != Some(turn))
         };
+        // Work it started past its turn ended in this change.
+        let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
-            && (self.unread || (!self.shown && ended_now(turn)))
+            && (self.unread || below_ended || ended_now(turn))
             && self.notified_turn.as_ref() != Some(turn)
         {
             self.notified_turn = Some(turn.clone());
@@ -1011,7 +1024,10 @@ impl Chat {
                     key: format!("failed-{turn}"),
                     title: format!("{name} failed"),
                     subtitle: None,
-                    body: short(&self.last_message, MAX_BODY_CHARS),
+                    body: short(
+                        self.last_error.as_ref().unwrap_or(&self.last_message),
+                        MAX_BODY_CHARS,
+                    ),
                     level: NotificationLevel::Error,
                     restated: false,
                 }),
@@ -1400,6 +1416,123 @@ mod tests {
         done.notified_turn = waiting.notified_turn.clone();
         let keys: Vec<_> = done.notices(Some(&waiting)).into_iter().map(|n| n.key).collect();
         assert_eq!(keys, ["done-turn-1"]);
+    }
+
+    /// What the watch posts for `changes` of one chat, as `apply` runs them; each change is
+    /// heard twice (a replay after a reconnect), so a notice posted twice shows in the result.
+    fn posted(changes: &[Value]) -> Vec<Notice> {
+        let mut before: Option<Chat> = None;
+        let mut notices = Vec::new();
+        for change in changes.iter().flat_map(|change| [change, change]) {
+            let mut next = Chat::of(change).expect("a local chat");
+            next.notified_turn = before.as_ref().and_then(|chat| chat.notified_turn.clone());
+            next.keep_asks(before.as_ref());
+            notices.extend(next.notices(before.as_ref()));
+            before = Some(next);
+        }
+        notices
+    }
+
+    /// One acpmux summary of `chat-1`: `shown` is what acpmux reports for a pane that is on
+    /// screen while cmux is not the active app (the page stays visible behind another app).
+    /// acpmux marks a chat no pane shows unread once its turn and the work below it ended.
+    fn summary(
+        indicator: &str,
+        seq: u64,
+        shown: bool,
+        turn: Option<(&str, &str)>,
+        below: bool,
+    ) -> Value {
+        json!({
+            "sessionId": "chat-1",
+            "title": "Review",
+            "indicator": indicator,
+            "shown": shown,
+            "unread": !shown && turn.is_some() && !below,
+            "lastSeq": seq,
+            "lastMessage": {"text": "All tests pass."},
+            "lastTurn": turn.map(|(id, status)| json!({"turnId": id, "status": status,
+                "errorText": (status == "failed").then_some("You've hit your usage limit")})),
+            "subagentsWorkingSince": if below { json!(1_700_000_000_000_u64) } else { Value::Null },
+        })
+    }
+
+    #[test]
+    fn a_background_app_probe_notifies_every_finish_and_needs_input_once() {
+        // Each transition the person must hear about while cmux is in the background, with
+        // the chat's pane on screen (acpmux `shown`) or not: the notice keys it must post.
+        let working = |shown| summary("working", 8, shown, None, false);
+        let transitions: Vec<(&str, Vec<Value>, Vec<&str>)> = [true, false]
+            .into_iter()
+            .flat_map(|shown| {
+                [
+                    (
+                        "finished",
+                        vec![
+                            working(shown),
+                            summary("done", 10, shown, Some(("t1", "completed")), false),
+                        ],
+                        vec!["done-t1"],
+                    ),
+                    (
+                        "quota error",
+                        vec![
+                            working(shown),
+                            summary("done", 10, shown, Some(("t1", "failed")), false),
+                        ],
+                        vec!["failed-t1"],
+                    ),
+                    (
+                        "background work ended",
+                        vec![
+                            working(shown),
+                            summary("working", 10, shown, Some(("t1", "completed")), true),
+                            summary("done", 12, shown, Some(("t1", "completed")), false),
+                        ],
+                        vec!["done-t1"],
+                    ),
+                    (
+                        "permission",
+                        vec![working(shown), summary("input", 10, shown, None, false)],
+                        vec!["input-10"],
+                    ),
+                    (
+                        "question",
+                        vec![working(shown), summary("input", 11, shown, None, false)],
+                        vec!["input-11"],
+                    ),
+                ]
+            })
+            .collect();
+        let (mut notified, mut duplicates, mut missed) = (0, 0, Vec::new());
+        for (name, changes, want) in &transitions {
+            let keys: Vec<String> = posted(changes).into_iter().map(|notice| notice.key).collect();
+            let unique: HashSet<&String> = keys.iter().collect();
+            duplicates += keys.len() - unique.len();
+            if want.iter().all(|key| unique.contains(&key.to_string())) {
+                notified += 1;
+            } else {
+                missed.push(format!("{name} {:?}: {keys:?}", changes[0]["shown"]));
+            }
+        }
+        let total = transitions.len();
+        println!(
+            "agent chat notices, background app: notified {notified}/{total} ({}%), duplicates {duplicates}",
+            notified * 100 / total
+        );
+        assert_eq!(missed, Vec::<String>::new(), "transitions with no notice");
+        assert_eq!(duplicates, 0, "notices posted twice");
+    }
+
+    #[test]
+    fn a_failed_turn_says_why_it_failed() {
+        let notices = posted(&[
+            summary("working", 8, false, None, false),
+            summary("done", 10, false, Some(("t1", "failed")), false),
+        ]);
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].title, "Review failed");
+        assert_eq!(notices[0].body, "You've hit your usage limit");
     }
 
     #[test]

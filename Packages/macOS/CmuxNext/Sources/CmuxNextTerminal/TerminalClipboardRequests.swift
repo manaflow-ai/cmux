@@ -60,6 +60,10 @@ final class TerminalClipboardRequests {
         guard let surface = view?.surface else { return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED }
         let pasteboard = TerminalPasteboard.pasteboard(location)
         let imagePaste = location == .standard && userPasteInProgress
+        if imagePaste, wantsText, view?.session?.handOffFilePaste(pasteboard) == true {
+            Self.complete(surface, text: "", available: ["text/plain"], state: state, confirmed: false)
+            return GHOSTTY_CLIPBOARD_READ_STARTED
+        }
         let text: String? = if imagePaste, wantsText {
             TerminalPasteboard.pasteTextSavingImage(from: pasteboard)
         } else if imagePaste, TerminalPasteboard.pasteText(from: pasteboard) == nil,

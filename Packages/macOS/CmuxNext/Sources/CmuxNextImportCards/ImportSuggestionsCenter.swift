@@ -6,7 +6,6 @@ import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 public import CmuxNextSettings
-import CmuxNextWakeups
 import Observation
 
 /// The import suggestion cards for the whole app: it scans this Mac off the
@@ -50,11 +49,6 @@ public final class ImportSuggestionsCenter {
     /// A page's start is waiting on the person's answer (one question at a time).
     @ObservationIgnored private var asking = false
     @ObservationIgnored let now: () -> Date
-    /// Set once Conductor Cloud's shutdown passes while cmux runs (``scheduleConductorDeadline()``),
-    /// so a note on screen then is read again and goes, with no other change to wake it.
-    var conductorDeadlinePassed = false
-    /// The one wake at that deadline.
-    @ObservationIgnored let conductorDeadline = DemandTimer(owner: "importSuggestions.conductorDeadline")
 
     init(defaults: UserDefaults = .standard, ledgerURL: URL = ImportSuggestionsCenter.defaultLedgerURL, now: @escaping () -> Date = Date.init) {
         self.defaults = defaults
@@ -98,7 +92,6 @@ public final class ImportSuggestionsCenter {
         started = true
         restoreJobs()
         state.expire(now: now())
-        scheduleConductorDeadline()
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
             Task { @MainActor in self?.rescanIfStale() }
@@ -117,8 +110,6 @@ public final class ImportSuggestionsCenter {
     /// The jobs saved before this launch: one a quit cut off is paused for Resume.
     func restoreJobs() {
         var loaded = ImportJobLedger.load(from: ledgerURL)
-        // A Conductor import that finished before the state kept it, read before the prune drops it.
-        if loaded.jobs.contains(where: { $0.kind == .conductor && $0.phase == .done }) { conductorImportFinished() }
         loaded.relaunched(now: now())
         ledger = loaded
         saveLedger()
@@ -395,32 +386,6 @@ public final class ImportSuggestionsCenter {
 
     /// Settings › Import.
     public func openSettings() { host?.openSettings("#/settings/import") }
-
-    /// Closes the sidebar's Import from Conductor note for good (``conductorNote``).
-    func closeConductorNote() {
-        state.conductorNoteClosed = true
-        state.save(to: defaults)
-    }
-
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// DEBUG and bench builds: adds a stand-in Conductor finding to the scan's and reopens the note's x, so a
-    /// capture on a Mac with no Conductor shows the sidebar note and its Settings › Import card
-    /// (`debug.import_note`). Nothing is saved; the next scan drops the stand-in.
-    public func showConductorNoteFixture(workspaces: Int = 3) {
-        if !findings.contains(where: { $0.kind == .conductor }) {
-            findings.append(ImportFinding(id: "agents.conductor", kind: .conductor, name: "Conductor", count: workspaces))
-        }
-        state.conductorNoteClosed = nil
-        state.conductorImportRan = nil
-    }
-    #endif
-
-    /// Import from Conductor finished: the note stays gone after its job is pruned.
-    func conductorImportFinished() {
-        guard state.conductorImportRan != true else { return }
-        state.conductorImportRan = true
-        state.save(to: defaults)
-    }
 }
 
 /// A refused card button, for `import.card` and the pages.

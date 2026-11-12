@@ -293,7 +293,7 @@ impl Hub {
         self.full_access_hold(&session.meta(), control, device)?;
         // The queue moves as it is (`transfer_out.rs`).
         if session.moving().is_some() {
-            return Err(super::queue::moving_error());
+            return Err(super::queue::moving_error(session));
         }
         // Only its sender changes a prompt (`author.rs`), checked under the lock that changes it;
         // `resume` changes no one prompt.
@@ -455,8 +455,8 @@ impl Hub {
         if let Some(display_parts) = &run.display_parts {
             msg.set("displayParts", display_parts.clone());
         }
+        let mut msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         super::session::mark_pasted(&mut msg, &run.blocks);
-        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
         self.append(session, "mux", "queue_updated", msg);
         drop(queue);
         Ok(true)

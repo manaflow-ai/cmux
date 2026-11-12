@@ -12,13 +12,13 @@ import Foundation
 /// service fans changes out to the chromes of the changed profile; no chrome
 /// observes anything itself.
 extension BookmarkService {
-    /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).
+    /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`): its native bar
+    /// reads the tab's profile through the app (``BookmarksBarHostSource``).
     func attach(_ entry: BrowserEntry) {
         let key = entry.tab.id.rawValue
-        let adapter = BookmarkBarSourceAdapter(service: self, tabKey: key)
         let bar = BookmarksBarView()
-        bar.source = adapter
-        chromes[key] = WeakChrome(entry: entry, bar: bar, source: adapter)
+        bar.source = BookmarksBarHostSource(host: services, tabKey: key)
+        chromes[key] = WeakChrome(entry: entry, bar: bar)
         entry.state.onPageURLChange = { [weak self, weak entry] url in if let self, let entry { updateStar(entry, url: url) } }
         entry.state.onBookmarkStar = { [weak self] anchor in self?.starPressed(tab: key, anchor: anchor) }
         updateStar(entry, url: entry.tab.state.url)
@@ -114,70 +114,6 @@ extension BookmarkService {
     }
 }
 
-/// One chrome's bar source: the tab's browser profile, opens from that tab.
-@MainActor
-final class BookmarkBarSourceAdapter: BookmarksBarSource {
-    private weak var service: BookmarkService?
-    let tabKey: String
-
-    init(service: BookmarkService, tabKey: String) {
-        self.service = service
-        self.tabKey = tabKey
-    }
-
-    private var profile: String { service?.profile(ofTab: tabKey) ?? BrowserProfileRecord.defaultID }
-
-    func bookmarkChildren(of parent: String) -> [BookmarkNode] {
-        // A bar build reads the children, then each icon: it waits again only if an icon does.
-        if parent == BookmarkRoot.bar.rawValue { awaitsFavicons = false }
-        return service?.tree(profile).children(of: parent) ?? []
-    }
-
-    /// True when the last build drew a stand-in for an icon still loading: the service
-    /// reloads this bar when an icon lands (``BookmarkService/followFavicons()``).
-    private(set) var awaitsFavicons = false
-
-    func favicon(for node: BookmarkNode) -> NSImage? {
-        let side = Metrics.smallIconSize
-        if node.isFolder, let service {
-            // A folder's own icon (`bookmark-icon-v1`); the folder symbol while a stored one loads.
-            if let image = service.folderIconImage(of: node, side: side) { return image }
-            if service.awaitFolderIcon(of: node) { awaitsFavicons = true }
-            return NSImage.icon(.folder, size: side)
-        }
-        if let image = service?.favicon(of: node, tabKey: tabKey) {
-            return NSImage(cgImage: image.cgImage, size: NSSize(width: side, height: side))
-        }
-        if service?.isFetchingFavicon(of: node, tabKey: tabKey) == true { awaitsFavicons = true }
-        return NSImage.icon(node.isFolder ? .folder : .browser, size: side)
-    }
-
-    func open(_ node: BookmarkNode, disposition: BookmarkOpenDisposition) {
-        guard let service else { return }
-        BookmarkOpener(services: service.services).open(node, profile: profile, disposition: disposition, fromTab: tabKey)
-    }
-
-    func openAll(in folder: String) {
-        guard let service else { return }
-        BookmarkOpener(services: service.services).openAll(in: folder, profile: profile, fromTab: tabKey)
-    }
-
-    func moveToBar(_ id: String, index: Int) {
-        try? service?.apply(.move(id: id, parent: BookmarkRoot.bar.rawValue, index: index), profile: profile)
-    }
-
-    func addToBar(url: URL, title: String, index: Int) {
-        try? service?.apply(.create(.bookmark(title, url: url, in: BookmarkRoot.bar.rawValue), index: index), profile: profile)
-    }
-
-    func contextMenu(for node: BookmarkNode?) -> NSMenu? {
-        guard let registry = service?.services.registry else { return nil }
-        // The bar belongs to a browser tab: Bookmark This Page there is available.
-        guard let node else { return registry.makeContextMenu(for: .bookmarksBar, implied: .browserFocused) }
-        return registry.makeContextMenu(for: .bookmark, target: ActionTargetRef(kind: .bookmark, id: node.id), implied: .browserFocused)
-    }
-}
-
 extension BookmarkService {
     /// Follows `browser.showBookmarksBar` in cmux.json.
     func follow(_ settings: SettingsController) {
@@ -187,7 +123,6 @@ extension BookmarkService {
                 self?.setBarShown(shown)
             }
         }
-        followFavicons()
         followFolderIcons()
     }
 }

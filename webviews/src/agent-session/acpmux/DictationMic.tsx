@@ -25,7 +25,7 @@ export function DictationMic({ dictation, strip = true }: { dictation: Dictation
   return (
     // A session still running ends with its button.
     <HideableChrome className="acpmux-mic-menu" item={item} menuItems={sources} onHide={() => dictation.cancel()}>
-      {running && strip && <DictationStrip dictation={dictation} />}
+      {strip && <DictationStrip dictation={dictation} shown={running} />}
       <DictationButton dictation={dictation} />
     </HideableChrome>
   );

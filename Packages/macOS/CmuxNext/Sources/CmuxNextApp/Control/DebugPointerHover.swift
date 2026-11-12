@@ -11,7 +11,7 @@ import CmuxNextSidebar
 /// hover-driven view reacts as it would to the real pointer (a headless host
 /// cannot hover any other way). `point` null (or absent) exits every area the
 /// synthetic pointer is in. `row: <workspace id>` instead aims at the middle
-/// of that sidebar row as drawn now. Returns the owners entered, exited and
+/// of that sidebar row as drawn now (`identifier: <accessibility id>`: that control's). Returns the owners entered, exited and
 /// still inside (their class names) and `row_hovered`, the workspace whose
 /// row the sidebar shows hovered after the move. Debug builds only (cx-tupd).
 @MainActor
@@ -27,7 +27,7 @@ enum DebugPointerHover {
         let sidebar = services.windows.controllers.first { $0.window === window }?.sidebar.container.sidebarView, rowID = params["row"]?.stringValue
         let coords = params["point"]?.arrayValue?.compactMap(\.doubleValue), row = rowID.flatMap { sidebar?.debugRowCenterInWindow(workspace: $0) }
         if let rowID, row == nil { return JSONValue(foundation: ["error": "the row is not drawn", "why": sidebar?.debugRowMiss(workspace: rowID) ?? ["controller": "none"]] as [String: Any]) ?? .null }
-        let given = coords.flatMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil } ?? row ?? railPoint(params, in: window, services: services)
+        let given = coords.flatMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil } ?? row ?? params["identifier"]?.stringValue.flatMap(window.debugCenter(ofAccessibilityIdentifier:)) ?? railPoint(params, in: window, services: services)
         guard given == nil, let badge = usageWarningPoint(params, in: window, services: services) else {
             return move(to: given, in: window, sidebar: sidebar)
         }

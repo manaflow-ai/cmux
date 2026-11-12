@@ -6,16 +6,30 @@
 // edited-files card, which draws only the files: its commands were gone. The two replies then sat
 // next to each other with the first one's reply room between them, an empty double gap.
 //
+// Since 2026-11-10 a closed "Worked for" draws nothing beside it but the replies, as chatgpt.com
+// does (turn-fold-hides-every-call.test.ts): the stretch is checked opened, where it must still hold
+// the received message and every command, and closed, where nothing between the replies may be an
+// empty row.
+//
 // Leo, 2026-11-07: "I think some of the tool calls, like, literally just get swallowed. They get
 // deleted completely when you, like, finish up a thing or whatever. Like in this particular
 // instance, I see that there's this, like, double gap here. It was like, you received a message
 // from a GCP thing, and that tool call has completely disappeared."
 //
 // The events follow a real acpmux log (a Claude chat, 2026-11-07), with names and text replaced.
-import { expect, test } from "bun:test";
+import { expect, test, afterAll, beforeAll } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { LANE_NOTICE_BATCH, MESSAGE_RUN, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
+
+// The closed fold keeps the replies beside it (turnFoldReplies.experiment.ts `replies`); the shipped
+// `answer` keeps only the final answer, covered by turn-fold-keeps-replies.test.ts.
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-replies": "replies" };
+});
+afterAll(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const TURN = "0190a000-0000-7000-8000-00000000c701";
@@ -224,15 +238,20 @@ function holds(row: AcpmuxRow): string[] {
 
 /// A row between two replies that draws something: a tool line with a call, a folded message run, or
 /// another agent's line.
+/// A turn's folds split in order at the message (turn-fold-in-order.test.ts): the fold after it is a line.
 const drawsSomething = (row: AcpmuxRow) =>
+  row.kind === "worked" ||
   (row.kind === "activity" && (row.items ?? []).some((item) => item.tool)) ||
   row.kind === MESSAGE_RUN ||
   row.kind === LANE_NOTICE_BATCH ||
   (row.kind === "user" && row.incoming !== undefined);
 
-/// The finished turn's closed fold, as a Claude chat draws it, and what sits between its two replies.
-function between(rows: AcpmuxRow[]) {
-  const view = turnViewFrom(rows, new Set(), { now: START + 3_600_000, agentFamily: "claude" });
+/// The finished turn's folds, as a Claude chat draws them (every one open, or closed), and what sits
+/// between its two replies.
+function between(rows: AcpmuxRow[], open = true) {
+  const closed = turnViewFrom(rows, new Set(), { now: START + 3_600_000, agentFamily: "claude" });
+  const worked = closed.rows.filter((row) => row.kind === "worked").map((row) => row.id);
+  const view = open ? turnViewFrom(rows, new Set(worked), { now: START + 3_600_000, agentFamily: "claude" }) : closed;
   const first = view.rows.findIndex((row) => row.kind === "assistant" && row.text === FIRST);
   const last = view.rows.findIndex((row) => row.kind === "assistant" && row.text === LAST);
   expect(first).toBeGreaterThanOrEqual(0);
@@ -246,6 +265,8 @@ for (const live of [true, false])
   test(`a command running when another agent's message came stays between the replies once the turn ends (${live ? "live" : "cold reload"})`, async () => {
     const rows = await rowsOf(runningCall, live);
     expect(received(rows)).toBeDefined();
+    // Closed, nothing between the two replies draws empty.
+    expect(between(rows, false).filter((row) => !drawsSomething(row))).toEqual([]);
     const drawn = between(rows);
     // Something sits between the two replies, and every row there draws: no empty gap.
     expect(drawn.length).toBeGreaterThan(0);
