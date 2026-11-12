@@ -9,6 +9,8 @@
 // A file whose run failed (a test failed, it timed out or crashed) or that wrote no record left an
 // unknown state, never "nothing": its entries are kept as they are, it is named, and the script
 // exits 1 once it has written the files it could read.
+// Named files run alone only, so their " (with other files)" items are not measured: they stay as
+// they are. Only a run of every file (no names) lowers those.
 //
 //   bun scripts/leak-baseline.ts                 every agent-session test file
 //   bun scripts/leak-baseline.ts FILE...         only these (paths relative to webviews/), each alone
@@ -82,7 +84,8 @@ async function worker(): Promise<void> {
 }
 await Promise.all(Array.from({ length: width }, worker));
 // The folder in one process, as `bun test src/agent-session/` runs it (same order).
-if (!named.length) await run(["src/agent-session/"], join(scratch, "together.jsonl"), files, togetherSeen);
+const together = !named.length;
+if (together) await run(["src/agent-session/"], join(scratch, "together.jsonl"), files, togetherSeen);
 rmSync(scratch, { recursive: true, force: true });
 
 /// What each file leaves now, in the baseline's form.
@@ -126,7 +129,9 @@ for (const file of files) {
   const kept = new Set<string>();
   for (const item of baseline[file] ?? []) {
     // Left alone: kept as it is. Left only with the other files: kept with the mark. Gone: dropped.
-    if (now.has(bare(item)) && !item.endsWith(WITH_OTHERS)) kept.add(item);
+    // A marked item with no run of the other files was not measured: kept as it is.
+    if (item.endsWith(WITH_OTHERS) && !together) kept.add(item);
+    else if (now.has(bare(item)) && !item.endsWith(WITH_OTHERS)) kept.add(item);
     else if (now.has(`${bare(item)}${WITH_OTHERS}`) || now.has(bare(item))) kept.add(`${bare(item)}${WITH_OTHERS}`);
   }
   const items = [...kept].sort();

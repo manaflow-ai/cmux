@@ -318,3 +318,40 @@ test("baseline regeneration keeps the entries of a file that failed or wrote no 
     rmSync(regen, { recursive: true, force: true });
   }
 });
+
+test("a baseline update for named files keeps the (with other files) entries it did not measure", async () => {
+  // Named files run alone only, so an entry the file leaves only after the other files is not measured
+  // there: it stays. An entry the file left alone and no longer leaves is still lowered away.
+  const regen = mkdtempSync(join(tmpdir(), "leak-regen-named-"));
+  try {
+    mkdirSync(join(regen, "scripts"));
+    mkdirSync(join(regen, "test/support"), { recursive: true });
+    mkdirSync(join(regen, "src/agent-session"), { recursive: true });
+    copyFileSync(join(webviews, "scripts/leak-baseline.ts"), join(regen, "scripts/leak-baseline.ts"));
+    writeFileSync(
+      join(regen, "bunfig.toml"),
+      `[test]\npreload = [${JSON.stringify(join(webviews, "test/preload.ts"))}]\n`,
+    );
+    const file = "src/agent-session/named.test.ts";
+    writeFileSync(join(regen, file), 'import { test } from "bun:test";\ntest("passes", () => {});\n');
+    const withOthers = "module state: src/agent-session/i18n.ts `followed` changed since it loaded (with other files)";
+    const goneAlone = "module state: src/agent-session/gone.ts `x` is still set";
+    const baselineFile = join(regen, "test/support/leak-baseline.json");
+    writeFileSync(baselineFile, JSON.stringify({ [file]: [withOthers, goneAlone] }));
+    const child = Bun.spawn(["bun", join(regen, "scripts/leak-baseline.ts"), file], {
+      cwd: regen,
+      env: { ...process.env, CMUX_TEST_LEAKS: "", CMUX_TEST_LEAKS_RECORD: "" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect({ code, output: `${stdout}\n${stderr}` }).toMatchObject({ code: 0 });
+    expect(JSON.parse(readFileSync(baselineFile, "utf8"))).toEqual({ [file]: [withOthers] });
+  } finally {
+    rmSync(regen, { recursive: true, force: true });
+  }
+});
