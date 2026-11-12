@@ -29,7 +29,7 @@ struct TerminalComposer: View {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
                     .font(.footnote)
                     .foregroundStyle(.orange)
-                    .padding(.leading, Self.textLeading)
+                    .padding(.leading, noticeLeading)
                     .accessibilityIdentifier("terminal.composer.notSent")
             }
             if let line = model.connectionLine {
@@ -45,7 +45,7 @@ struct TerminalComposer: View {
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-                .padding(.leading, Self.textLeading)
+                .padding(.leading, noticeLeading)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("terminal.connectionLine")
             }
@@ -53,7 +53,7 @@ struct TerminalComposer: View {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
                     .foregroundStyle(.red)
-                    .padding(.leading, Self.textLeading)
+                    .padding(.leading, noticeLeading)
                     .accessibilityIdentifier("terminal.composer.attachmentError")
             }
             if !model.attachments.isEmpty {
@@ -146,9 +146,13 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.voice")
     }
 
-    /// The text's leading inset in the box with no paperclip before it; the
-    /// notices above the box line up with it.
+    /// The text's leading inset in the box with no paperclip before it.
     private static let textLeading: CGFloat = 14
+
+    /// The notices above the box line up with its text, after the paperclip.
+    private var noticeLeading: CGFloat {
+        model.attachmentsAvailable ? TerminalDockMetrics.fieldPadding + TerminalDockMetrics.sendDiameter + 8 : Self.textLeading
+    }
 
     /// The paperclip, the field, voice mode and send share one rounded glass
     /// container; the controls ride the last line as the field grows (iMessage).
