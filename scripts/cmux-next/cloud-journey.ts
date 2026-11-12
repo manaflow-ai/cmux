@@ -930,6 +930,8 @@ export function keyProbeDetail(p: KeyProbe): string {
 /** The model stub --model stub runs on the machine. */
 /** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
 export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
+/** GitHub on a Cloud machine through the team connection, run on the guest (the journey's GitHub steps). */
+export const GITHUB_E2E_SH = fileURLToPath(new URL("./cloud-github-e2e.sh", import.meta.url));
 /**
  * The gateway route's time by hop, from each timed call's Server-Timing (a `hop-s` line after its `hop-t` line; the
  * warm-up is dropped), as p50 ms: the Worker's `auth` and `worker-do`, the team object's `do-wait` and `do-gateway`,
@@ -2020,6 +2022,53 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
+    // What the machine booted and what its agents reach their model with, so a reply that fails ("Not logged in")
+    // names the image, the daemon and the model plane in the same log: the image the platform recorded, acpmux's and
+    // cmux-tui's versions, and each model-plane file's CMUX_CODEROUTER_URL origin (a URL, no credential) and which
+    // CMUX_CLAUDE_TEAM_* names it sets (names only). Never fails the journey.
+    const factsAt = Date.now();
+    try {
+      const image = (bound as { image?: Record<string, unknown> } | null)?.image ?? (created as { image?: Record<string, unknown> }).image ?? {};
+      const r = await exec([
+        `echo "acpmux=$(acpmux --version 2>/dev/null | head -1) cmux-tui=$(cmux-tui --version 2>/dev/null | head -1)"`,
+        `for f in /etc/cmux/model-plane.env "$HOME/.config/cmux/model-plane.env"; do if [ -f "$f" ]; then u=$(sed -n 's/^\\(export \\)\\{0,1\\}CMUX_CODEROUTER_URL=//p' "$f" | tr -d "\\"'" | sed -E 's#^(https?://[^/]+).*#\\1#' | head -1); t=$(grep -oE '^(export )?CMUX_CLAUDE_TEAM_[A-Z_]+' "$f" | sed 's/^export //' | tr '\\n' ','); echo "$f: CMUX_CODEROUTER_URL=\${u:-unset} team=\${t:-none}"; else echo "$f: absent"; fi; done`,
+      ].join("; "));
+      const facts = r.stdout.trim().split("\n").join(" | ");
+      const imageFacts = JSON.stringify(image).slice(0, 300);
+      J.record({ step: "machine facts", status: "pass", ms: Date.now() - factsAt, detail: `image ${imageFacts}; ${facts}`.slice(0, 600) });
+    } catch (e) {
+      J.record({ step: "machine facts", status: "skip", ms: Date.now() - factsAt, detail: `read failed: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
+    }
+
+    // GitHub through the team's connection with no setup on the machine (HQ docs/design/remote-integrations.md):
+    // scripts/cmux-next/cloud-github-e2e.sh on the guest. The stub run (a stand-in minter and GitHub MCP server) checks
+    // the wiring on every image whose acpmux has `github-mcp`; CMUX_JOURNEY_GITHUB_REPO=OWNER/REPO adds the live run
+    // (gh auth status, git push of a test branch, a GitHub MCP call, nothing at rest), which needs the team's GitHub
+    // connection. `--skip github` leaves both out.
+    if (!only.has("github")) {
+      const file = "/home/cmux/.cmux/cloud-github-e2e.sh";
+      const wrote = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: readFileSync(GITHUB_E2E_SH).toString("base64"), mode: 0o755 });
+      const has = wrote.status >= 200 && wrote.status < 300 && wrote.body?.ok !== false
+        ? await exec(`${GUEST}a="$c acp"; command -v acpmux >/dev/null && a=acpmux; : | timeout 20 $a github-mcp >/dev/null 2>&1; echo "@@has $?"`)
+        : null;
+      if (!has || !/@@has 0/.test(has.stdout)) {
+        J.skip("GitHub on the machine (stub)", has ? "this image's acpmux has no github-mcp yet (it predates the change)" : `fs/write: HTTP ${wrote.status}`);
+      } else {
+        await J.step("GitHub on the machine (stub)", async () => {
+          const r = await exec(`${GUEST}sh ${shq(file)} --stub 2>&1`, 180_000);
+          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-400)}`);
+          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+        });
+        const repo = process.env.CMUX_JOURNEY_GITHUB_REPO?.trim();
+        if (!repo) J.skip("GitHub on the machine (live)", "CMUX_JOURNEY_GITHUB_REPO is not set");
+        else await J.step("GitHub on the machine (live)", async () => {
+          if (!/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/.test(repo)) throw new Error("CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO");
+          const r = await exec(`${GUEST}sh ${shq(file)} ${shq(repo)} 2>&1`, 300_000);
+          if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-600)}`);
+          return { value: null, detail: r.stdout.trim().split("\n").filter((l) => l.startsWith("e2e:")).join("; ") };
+        });
+      }
+    }
 
     if (desktopLink) {
       // The team the platform decides rd_link for: --team, else the account's personal team (user.ensure).
