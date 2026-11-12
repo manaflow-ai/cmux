@@ -152,6 +152,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -161,6 +162,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -173,6 +175,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -182,6 +185,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -204,6 +208,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -573,6 +578,7 @@
   "src/agent-session/acpmux/conversation/ThoughtRow.test.tsx": [
     "listener: a \"storage\" listener on globalThis from <anonymous> (src/agent-session/acpmux/conversation/transcriptView.ts), added as it loaded",
     "module state: src/agent-session/acpmux/conversation/ThoughtRow.tsx `choices` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/thoughtChoices.ts `thoughtChoices` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
   ],
@@ -599,6 +605,7 @@
     "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
     "module state: src/agent-session/acpmux/conversation/imageEntries.ts `headless` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/conversation/imageEntries.ts `sizes` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/conversation/thoughtChoices.ts `thoughtChoices` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/conversation/toolGroupRowModel.ts `stepProbe` changed since it loaded",
     "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
@@ -622,12 +629,14 @@
     "module state: src/agent-session/acpmux/chips/linkStore.ts `paths` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/chips/linkStore.ts `policyAsked` is still set",
     "module state: src/agent-session/acpmux/chips/useHoverCard.ts `nextBridgeId` is still set",
+    "module state: src/agent-session/acpmux/conversation/cornerActions.ts `looked` is still set",
     "module state: src/agent-session/acpmux/conversation/imageEntries.ts `headless` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/conversation/toolResult.ts `imagesCache` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/i18n.ts `pluralRules` holds entries it did not hold when loaded",
-    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
+    "timer: a setTimeout from resetTranscriptDisclosure (src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts) is still pending"
   ],
   "src/agent-session/acpmux/conversation/TurnFooter.test.tsx": [
     "listener: a \"storage\" listener on globalThis from <anonymous> (src/agent-session/acpmux/conversation/transcriptView.ts), added as it loaded",
@@ -750,6 +759,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -800,6 +810,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -822,6 +833,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -973,6 +985,9 @@
   "src/agent-session/acpmux/conversation/turnEndFold.test.ts": [
     "module state: src/agent-session/acpmux/conversation/turnEndFold.ts `timings` holds entries it did not hold when loaded"
   ],
+  "src/agent-session/acpmux/conversation/turnFold.test.ts": [
+    "timer: a setTimeout from startTurnFold (src/agent-session/acpmux/conversation/turnFold.ts) is still pending"
+  ],
   "src/agent-session/acpmux/conversation/turnFoldStyle.test.ts": [
     "module state: src/agent-session/acpmux/conversation/prefixFlatMap.ts `prefixWalks` changed since it loaded",
     "module state: src/agent-session/acpmux/conversation/prefixFlatMap.ts `serial` is still set"
@@ -995,6 +1010,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1003,6 +1019,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1012,6 +1029,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1066,6 +1084,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1078,6 +1097,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1108,6 +1128,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1120,6 +1141,7 @@
     "module state: src/agent-session/acpmux/needsYou/model.ts `pairReads` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1129,6 +1151,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1149,6 +1172,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1161,6 +1185,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `readAheadTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded"
   ],
   "src/agent-session/acpmux/liveProgressClient.test.ts": [
@@ -1169,6 +1194,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1192,6 +1218,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1202,6 +1229,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/lostPrompt.ts) is still pending",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
@@ -1220,6 +1248,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1230,6 +1259,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/mockPaging.test.ts) is still pending",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
@@ -1250,6 +1280,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1265,6 +1296,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1342,6 +1374,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1376,6 +1409,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1387,6 +1421,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1399,6 +1434,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1409,6 +1445,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/promptCoachClient.test.ts) is still pending",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending",
@@ -1425,6 +1462,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1436,6 +1474,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1468,6 +1507,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1479,6 +1519,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1489,6 +1530,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/direct.ts) is still pending",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
@@ -1499,12 +1541,14 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
   "src/agent-session/acpmux/races/direct.test.ts": [
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1515,6 +1559,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1529,6 +1574,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1559,6 +1605,7 @@
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `readAheadTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded"
   ],
   "src/agent-session/acpmux/sendHeldWhileLoading.test.ts": [
@@ -1570,6 +1617,7 @@
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `readAheadTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded"
   ],
   "src/agent-session/acpmux/sendUploads.test.ts": [
@@ -1580,6 +1628,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1601,6 +1650,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1630,6 +1680,7 @@
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1651,6 +1702,7 @@
     "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1662,6 +1714,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded"
   ],
   "src/agent-session/acpmux/startFailure.missingAgent.test.ts": [
@@ -1689,6 +1742,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1702,6 +1756,7 @@
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/direct.ts) is still pending",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
@@ -1712,6 +1767,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1722,6 +1778,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
     "module state: src/agent-session/acpmux/tailCache.ts `keptTails` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1733,6 +1790,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1823,6 +1881,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1833,6 +1892,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1842,6 +1902,7 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
@@ -1853,6 +1914,7 @@
     "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
     "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
     "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/tailCache.ts `shownThrough` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
