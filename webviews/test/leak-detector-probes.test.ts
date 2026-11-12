@@ -355,3 +355,36 @@ test("a baseline update for named files keeps the (with other files) entries it 
     rmSync(regen, { recursive: true, force: true });
   }
 });
+
+test("a symbol-keyed global or store entry is named and put back", async () => {
+  // Symbol keys are own keys too: a global set under `Symbol.for(...)` is named (globals are named,
+  // not put back), and a symbol-keyed property on an array a store holds is named and put back.
+  const { code, output } = await probe(
+    {
+      "symbolStore.ts": ["export const box = { list: [] as unknown[] };", ""].join("\n"),
+      "symbolSets.test.ts": [
+        'import { test } from "bun:test";',
+        'import { box } from "./symbolStore";',
+        'test("sets symbol-keyed state", () => {',
+        '  (globalThis as Record<symbol, unknown>)[Symbol.for("cmux.leakProbe")] = 1;',
+        '  (box.list as unknown as Record<symbol, unknown>)[Symbol.for("cmux.leakTag")] = 1;',
+        "});",
+        "",
+      ].join("\n"),
+      "symbolReads.test.ts": [
+        'import { expect, test } from "bun:test";',
+        'import { box } from "./symbolStore";',
+        'test("starts on the loaded symbol state", () => {',
+        '  expect((box.list as unknown as Record<symbol, unknown>)[Symbol.for("cmux.leakTag")]).toBeUndefined();',
+        "});",
+        "",
+      ].join("\n"),
+    },
+    "symbolSets.test.ts",
+    "symbolReads.test.ts",
+  );
+  expect(code).not.toBe(0);
+  expect(output).toContain("global: `Symbol(cmux.leakProbe)` was added and not removed");
+  expect(output).toContain("src/agent-session/symbolStore.ts `box` changed since it loaded");
+  expect(output).toContain("(pass) starts on the loaded symbol state");
+});

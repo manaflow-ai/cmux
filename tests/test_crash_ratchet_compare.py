@@ -564,6 +564,25 @@ class CrashRatchetCIStepTests(FixtureRepo, unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("swift N: dynamic_dispatch base 0, head 2 (1 after the move)", out)
 
+    def test_a_hit_swapped_for_a_new_one_at_the_same_count_is_red(self):
+        # Module M keeps one dynamic_dispatch hit, as its row says, but it is another line: the old
+        # hit was fixed and a new one added. The new line is the change's.
+        green = self.green_base()
+        self.write(self.SOURCE, SELECTOR.format(name="stop"))
+        self.commit("fixes one hit and adds another")
+        rc, out = self.step("push", green)
+        self.assertEqual(rc, 1, out)
+        self.assertIn('::error::a crash-class hit the base does not have: swift M: dynamic_dispatch: '
+                      'let stop = NSSelectorFromString("stop")', out)
+
+    def test_a_hit_that_moved_to_another_file_is_not_new(self):
+        # The same line in another file of the same module: not a new hit.
+        green = self.green_base()
+        self.move(self.SOURCE, "Packages/macOS/CmuxNext/Sources/M/B.swift")
+        self.commit("moves the file within the module")
+        rc, out = self.step("push", green)
+        self.assertEqual(rc, 0, out)
+
 
 if __name__ == "__main__":
     unittest.main()

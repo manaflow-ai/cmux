@@ -313,8 +313,9 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertEqual(self.calls(), [])
         self.assertEqual(self.ratchet_calls(), [])
 
-    def test_compare_base_skips_the_base_lint_when_head_passes_the_baseline(self) -> None:
-        # The base run only excuses counts over the baseline, so a HEAD within it is green as it stands.
+    def test_compare_base_lints_the_base_even_when_head_passes_the_baseline(self) -> None:
+        # A HEAD within the baseline's count can still have swapped a fixed hit for a new one; only the
+        # base run names which hits are new, so the base is linted on every compared run.
         self.change("cmux-tui/crates/a/src/lib.rs")
         head = self.git("rev-parse", "HEAD").strip()
         heads = self.tmp / "heads.log"
@@ -323,10 +324,11 @@ class ClippyChangedTests(unittest.TestCase):
                                 env_extra={"HEAD_LOG": str(heads)})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
-        self.assertEqual(self.calls(), [lint])
-        self.assertEqual(heads.read_text().split(), [head])
-        self.assertFalse(out.with_name(out.name + ".base").exists())
-        self.assertEqual(self.ratchet_calls(), [["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]])
+        self.assertEqual(self.calls(), [lint, lint])
+        self.assertEqual(heads.read_text().split(), [head, self.base])
+        base_out = out.with_name(out.name + ".base")
+        strict = ["--repo", str(self.repo.resolve()), "--clippy-json", str(out)]
+        self.assertEqual(self.ratchet_calls(), [[*strict, "--base-clippy-json", str(base_out)]])
 
     def test_compare_base_lints_the_same_packages_at_the_base_when_head_is_red(self) -> None:
         # cmux-next fast gates: a row lowered on the tip since the PR's own ratchet ran (#28182); the base's
@@ -379,6 +381,21 @@ def clippy_jsonl(hits: int, finished: bool = True, lint: str = "indexing_slicing
                            "spans": [{"is_primary": True, "file_name": name,
                                       "line_start": line, "column_start": 1}]}} for name, line in spans]
     lines.append({"reason": "build-finished", "success": finished})
+    return "".join(json.dumps(line) + "\n" for line in lines)
+
+
+def clippy_texts(texts: list[tuple[str, int, str]], lint: str = "indexing_slicing") -> str:
+    """A finished ratchet clippy run of `acpmux` with one `lint` hit per (file, line, source text)."""
+    lines = [{"reason": "compiler-artifact", "package_id": "path+file:///w/cmux-tui/crates/acpmux#0.1.0",
+              "target": {"kind": ["lib"]}}]
+    lines += [{"reason": "compiler-message", "package_id": "path+file:///w/cmux-tui/crates/acpmux#0.1.0",
+               "target": {"kind": ["lib"]},
+               "message": {"code": {"code": f"clippy::{lint}"},
+                           "spans": [{"is_primary": True, "file_name": name, "line_start": line, "column_start": 5,
+                                      "text": [{"text": f"    {text}", "highlight_start": 5,
+                                                "highlight_end": 5 + len(text)}]}]}}
+              for name, line, text in texts]
+    lines.append({"reason": "build-finished", "success": True})
     return "".join(json.dumps(line) + "\n" for line in lines)
 
 
@@ -439,6 +456,24 @@ class RatchetAgainstBaseTests(unittest.TestCase):
     def test_without_a_base_run_every_count_over_the_row_is_red(self) -> None:
         self.assertEqual(self.judge(clippy_jsonl(700)).returncode, 1)
         self.assertEqual(self.judge(clippy_jsonl(693)).returncode, 0)
+
+
+    def test_a_hit_swapped_for_a_new_one_at_the_same_count_is_red(self) -> None:
+        # The count stays at the row (693) and at the base's, but one hit is gone and another is new:
+        # the new one is the change's, named by its source line.
+        base = [("crates/acpmux/src/lib.rs", n, f"rows[{n}]") for n in range(1, 694)]
+        head = base[1:] + [("crates/acpmux/src/zz.rs", 7, "bytes[offset]")]
+        result = self.judge(clippy_texts(head), clippy_texts(base))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("acpmux: clippy::indexing_slicing: 1 new hit(s) the base does not have", result.stderr)
+        self.assertIn("crates/acpmux/src/zz.rs:7:5: bytes[offset]", result.stderr)
+
+    def test_hits_that_only_moved_lines_are_not_new(self) -> None:
+        # The same source lines, shifted down by an edit above them: no hit is new.
+        base = [("crates/acpmux/src/lib.rs", n, f"rows[{n}]") for n in range(1, 694)]
+        head = [(name, line + 40, text) for name, line, text in base]
+        result = self.judge(clippy_texts(head), clippy_texts(base))
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":
