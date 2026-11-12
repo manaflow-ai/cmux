@@ -416,9 +416,9 @@ class MatrixReadsNothingResolves(unittest.TestCase):
         self._assert_unresolved("${{ matrix['runner label'] }}", key="runner label")
 
     def test_matrix_as_a_property_name_or_text_is_not_the_context(self) -> None:
-        job = {"runs-on": "${{ needs.matrix.outputs.runner || 'matrix-runner' }}",
-               "strategy": {"matrix": {"runner": ["macos-26"]}}}
-        self.assertEqual(workflow_jobs.runs_on_cells(job), [job["runs-on"]])
+        runs_on = "${{ needs.matrix.outputs.runner || 'matrix-runner' }}"
+        job = {"runs-on": runs_on, "strategy": {"matrix": {"runner": ["macos-26"]}}}
+        self.assertEqual(workflow_jobs.runs_on_cells(job), [runs_on])
 
 
 HERE = __name__
