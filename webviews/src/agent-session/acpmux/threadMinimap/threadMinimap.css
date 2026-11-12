@@ -5,7 +5,7 @@
 .acpmux-minimap {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: var(--layer-sticky);
   height: 0;
 }
 /* The rail's tokens; the card takes them too, as it draws outside the rail (PreviewCard.tsx). */
@@ -45,7 +45,7 @@
 .acpmux-minimap__rail::after {
   content: "";
   position: absolute;
-  z-index: 2;
+  z-index: var(--layer-raised);
   right: 0;
   bottom: 0;
   left: 0;
