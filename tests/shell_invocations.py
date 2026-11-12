@@ -16,7 +16,8 @@ the script, or a script the lexer could not finish (an unterminated quote or sub
 nohup, timeout, sudo, command, exec ...) and a shell given a script are read through one table of which operand
 runs (_WRAPPERS, _shell_script): an option it does not model, or a mode that does not run the first operand as a
 script (`bash -n`, `-s`, `-i`, `-o NAME`, `--rcfile`, `command -v`), leaves the command uncertain. Commands
-inside a substitution, and those in an unquoted heredoc body's `$(..)`, are reported uncertain.
+inside a substitution, and those in an unquoted heredoc body's `$(..)`, are reported uncertain, as are those a
+parameter or arithmetic expansion holds (`${X:-$(..)}`, `${X/$(..)/}`, `$(( $(..) ))`).
 
 `certain` also means bash reaches the command whenever the script runs to its end (`set -e` semantics): control flow
 is read, and a command it may skip is uncertain (cmux#40784 F1: `false && sign` credited the signer). Only the
@@ -192,6 +193,10 @@ def _body_subs(body: str) -> list[str] | None:
             end = _match_close(body, i, "$(")
             if end is None:
                 return None
+            inside = _body_subs(body[i + 3:end - 2])  # `$(( $(cmd) + 1 ))` runs cmd
+            if inside is None:
+                return None
+            found.extend(inside)
             i = end
         elif body.startswith("$(", i):
             end = _match_close(body, i, "$(")
@@ -204,6 +209,29 @@ def _body_subs(body: str) -> list[str] | None:
             if end is None:
                 return None
             found.append(body[i + 1:end - 1])
+            i = end
+        else:
+            i += 1
+    return found
+
+
+def _expansion_subs(inner: str) -> list[str] | None:
+    """The scripts of every command and process substitution inside a parameter or arithmetic expansion's text
+    (`X:-$(cmd)` of `${X:-$(cmd)}`), nested expansions included; None if one is unfinished. Quotes inside are not
+    read: a `'$(cmd)'` there may or may not run (it depends on the expansion's own quoting), so it counts as one
+    that may, and every command found is reported nested, never certain."""
+    found = _body_subs(inner)
+    if found is None:
+        return None
+    i = 0
+    while i < len(inner):
+        if inner[i] == "\\":
+            i += 2
+        elif inner[i] in "<>" and inner.startswith("(", i + 1):
+            end = _match_close(inner, i, inner[i] + "(")
+            if end is None:
+                return None
+            found.append(inner[i + 2:end - 1])
             i = end
         else:
             i += 1
@@ -281,7 +309,11 @@ def lex(text: str) -> Lexed:
             end = _match_close(text, at, "$(")
             if end is None:
                 return None
+            inside = _expansion_subs(text[at + 3:end - 2])  # `$(( $(cmd) + 1 ))` runs cmd
+            if inside is None:
+                return None
             dynamic = True
+            subs.extend(inside)
             buf.append("\x00")
             return end
         if text.startswith("$(", at):
@@ -296,7 +328,13 @@ def lex(text: str) -> Lexed:
             end = _match_close(text, at, "${")
             if end is None:
                 return None
+            # `${X:-$(cmd)}`, `${X:=..}`, `${X:+`cmd`}`, `${X/$(cmd)/}`, `${X:$(cmd)}`, `${X:-${Y:-$(cmd)}}`: the
+            # word, pattern or offset of a parameter expansion may run a command.
+            inside = _expansion_subs(text[at + 2:end - 1])
+            if inside is None:
+                return None
             dynamic = True
+            subs.extend(inside)
             buf.append(text[at:end])
             return end
         if _DOLLAR_NAME.match(text[at + 1:at + 2] or " "):

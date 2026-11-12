@@ -485,15 +485,10 @@ EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
 }
 # Jobs that read signing_runner.py's owned pick and are not counted by its cap (signing_runner.SIGNING_JOBS), each
 # with why. None: every owned pick a job takes is a mini held whole, which MAX_OWNED_SIGNING must count.
-OWNED_PICK_EXEMPT: dict[tuple[str, str], str] = {
-    # Found by this guard on 2026-11-10 and reported, not fixed here: it holds no secret, so it is not glaeda's
-    # exclusive class and the cap rightly does not count it, but it reads find-nightly-next-recovery's sign_owned
-    # (the recovery signer's own runner pin) where verify-signed-nightly and verify-final-dmg-nightly read the
-    # verify pick (`owned`), which find-nightly-next-recovery does not publish.
-    ("nightly.yml", "verify-recovered-nightly-next"):
-        "secret-free verify of the recovered DMG; it follows recover-nightly-next-notarization (needs) onto the "
-        "runner that job's pick named, after the signer released it, and glaeda does not hold that mini whole for it",
-}
+# verify-recovered-nightly-next was the one entry (found here 2026-11-10, reported, not fixed): it read the recovery
+# signer's pin, and glaeda admits only signing jobs on a signing mini, so it was refused and no recovered build ever
+# published (ask-2f54cdc7fc, run 43224144950). A secret-free job reads the verify pick, never a signer's pin.
+OWNED_PICK_EXEMPT: dict[tuple[str, str], str] = {}
 
 
 def owned_pick_reads(jobs: dict, runs_on: str) -> list[str]:
