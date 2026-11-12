@@ -159,6 +159,31 @@ impl Hub {
                 .or_else(|| cfg.default_harness.as_deref().and_then(found))
                 .ok_or_else(|| CompleteError::UnknownHarness("(no default harness)".into()))?
         };
+        self.complete_own_on(name, profile, prompt, max_tokens, timeout).await
+    }
+
+    /// `complete_own` on harness `name` alone (`away_recap.rs`): never another harness, so the
+    /// call runs on the login and route the chat itself runs on. An error when it has no
+    /// headless recipe.
+    pub(super) async fn complete_own_strict(
+        self: &Arc<Self>,
+        name: &str,
+        prompt: String,
+        max_tokens: u32,
+        timeout: std::time::Duration,
+    ) -> Result<String, CompleteError> {
+        let (name, profile) = self.completion_harness(Some(name)).await?;
+        self.complete_own_on(name, profile, prompt, max_tokens, timeout).await
+    }
+
+    async fn complete_own_on(
+        self: &Arc<Self>,
+        name: String,
+        profile: HarnessProfile,
+        prompt: String,
+        max_tokens: u32,
+        timeout: std::time::Duration,
+    ) -> Result<String, CompleteError> {
         let recipe = recipes::recipe_for(&name, &profile)?;
         let req = Request { prompt, harness: Some(name.clone()), model: None, max_tokens, timeout };
         let deadline = tokio::time::Instant::now() + timeout;

@@ -1087,6 +1087,10 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
     }
     if attach {
         out.insert("eventStream", json!(true));
+        // A tab's attach is a person's pane showing the chat, as acpmux's default already reads
+        // it; said outright, since only a said `visible` makes the chat eligible for a session
+        // recap (acpmux `server/view.rs` `shows_person`). Its `agent-session-view` changes it.
+        out.insert("visible", json!(true));
         // The page opening the chat asks for its newest records at once, as the app's local
         // attach does (`direct.ts` `sendAttach`): waiting for a restarted daemon's log restore
         // of a long chat outlasted `CALL_TIMEOUT`, and the remote chat opened empty.

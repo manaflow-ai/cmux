@@ -68,7 +68,7 @@ nonisolated enum ChatSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.chats.sessionRecap", "Session Recap"),
-                help: SettingsText.keyed("settings.chats.sessionRecap.help", "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."),
+                help: SettingsText.keyed("settings.chats.sessionRecap.help", "When you come back to a chat after 5 minutes or more, show a line on its goal and next step. Claude chats ask Claude Code itself; other chats ask the agent's small model about the last few turns. Each recap is one small extra model call that counts toward your usage."),
                 kind: .toggle,
                 default: .bool(ChatSettings.sessionRecapDefault),
                 keywords: ["agents", "chats", "recap", "summary", "away", "claude"]
