@@ -534,6 +534,9 @@ impl MessageWriter {
         {
             return Ok(text);
         }
+        if !text.contains("\"conversation") {
+            return Ok(text);
+        }
         if !may_hold_a_conversation_kind(&text) {
             return Ok(text);
         }
@@ -577,12 +580,20 @@ impl MessageWriter {
 /// `"conversation"` of every raw tab (`null` for a terminal) therefore does not make it hold. A
 /// token that is only the end of a longer string (`"a\"conversation"`) may make it hold: that costs
 /// a parse, never a missed rewrite.
+///
+/// Its caller runs it only after `text.contains("\"conversation")` (the check the projection had
+/// before), so a message with no such text (a `tab.list` reply of terminals) costs that one scan
+/// and nothing more. Here one scan for the prefix that both tokens share reads only the few bytes
+/// after each hit.
+#[inline]
 pub(super) fn may_hold_a_conversation_kind(text: &str) -> bool {
-    ["\"conversation\"", "\"conversation_tab\""].into_iter().any(|token| {
-        text.match_indices(token).any(|(at, _)| {
-            let after = text[at + token.len()..].trim_start_matches([' ', '\t', '\n', '\r']);
-            !after.starts_with(':')
-        })
+    const PREFIX: &str = "\"conversation";
+    text.match_indices(PREFIX).any(|(at, _)| {
+        let rest = &text[at + PREFIX.len()..];
+        let Some(after) = rest.strip_prefix('"').or_else(|| rest.strip_prefix("_tab\"")) else {
+            return false;
+        };
+        !after.trim_start_matches([' ', '\t', '\n', '\r']).starts_with(':')
     })
 }
 
