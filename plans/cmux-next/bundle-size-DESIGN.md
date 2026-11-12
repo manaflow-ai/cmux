@@ -366,3 +366,10 @@ packaged document with gallery host fixtures and fails on an empty page, script 
 or missing asset. This catches packaging failures that Vite source-based gallery tests
 cannot. `PageSharedAssetsTests`, `PageChromiumCoverageTests` and `app_page_listener`
 cover the native adapter, CEF registration and the daemon file transport respectively.
+
+CEF's shim serves bundled documents outside the live web loop. Shared asset
+requests therefore bypass the tab's live provider in that mode and read from the
+same registered bundled root; an installed OTA tree must not replace only the
+imports of a bundled document. In live mode both the document and shared chunks
+continue through the existing live adapter. `PageSharedAssetsTests` covers the
+bundled response's bytes, MIME, CSP and containment.

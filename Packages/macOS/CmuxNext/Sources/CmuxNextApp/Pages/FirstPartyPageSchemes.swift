@@ -109,10 +109,10 @@ enum FirstPartyPageSchemes {
         guard let resources = bundle.resourceURL else { return }
         CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources)
         // A browser tab without a page host uses this for shared chunks and the live web loop.
-        CEFPageSchemes.liveFallback = { url, range in
+        CEFPageSchemes.liveFallback = { url, range, live in
             guard let id = url.host?.lowercased(), let entry = CEFPageSchemes.firstParty[id],
                   let page = descriptors.first(where: { $0.id == id }) else { return .notFound }
-            let answer = await PageWebView.liveChromiumResource(url, range: range, page: page, root: entry.root)
+            let answer = await PageWebView.liveChromiumResource(url, range: range, page: page, root: entry.root, bundledOnly: !live)
             return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body,
                                    rangeHeaders: answer.rangeHeaders, csp: answer.csp)
         }
