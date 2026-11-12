@@ -114,7 +114,6 @@ struct Stream {
     block: blocks::Block,
     facts: fold::Reply,
     deferred_cut: bool,
-    resume_closed: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Prompt {
@@ -295,16 +294,9 @@ impl State {
         Self::close_stream(&mut self.reply, out);
         Self::close_stream(&mut self.thought, out);
     }
-    fn close_reply_for_work(&mut self, out: &mut input::Output<'_>) {
+    fn close_reply_for_work(&mut self) {
         if let Some(facts) = self.reply.as_ref().map(|reply| reply.facts.clone()) {
             self.fold.reply(&facts);
-        }
-        if let Some(reply) = &mut self.reply {
-            if reply.row.open {
-                reply.row.open = false;
-                out.row(&reply.row);
-            }
-            reply.resume_closed = true;
         }
     }
     fn mark_steer(&mut self) {
@@ -587,20 +579,14 @@ impl State {
                 block: blocks::Block::default(),
                 facts,
                 deferred_cut: false,
-                resume_closed: false,
             }
         };
-        // A tool boundary settles the current row, but a later chunk for the
-        // same message continues its body in that row.
-        if !stream.row.open && stream.message == message {
-            stream.resume_closed = true;
-        }
         let mut start = 0;
         for (offset, ch) in text.char_indices() {
             if stream.deferred_cut {
                 stream.deferred_cut = false;
                 self.continue_text(&mut stream, false, out)?;
-            } else if !stream.row.open && !stream.resume_closed {
+            } else if !stream.row.open {
                 let inside_line = stream.block.line_bytes() != 0;
                 self.continue_text(&mut stream, inside_line, out)?;
             }
@@ -689,7 +675,6 @@ impl State {
         out.row(&row);
         row.fields.clear();
         stream.row = row;
-        stream.resume_closed = false;
         stream.facts.row(stream.row.id)?;
         Ok(())
     }
@@ -817,7 +802,7 @@ impl State {
         if starts {
             // A tool call is a work boundary: the currently streaming reply
             // settles above the call and remains the candidate before it.
-            self.close_reply_for_work(out);
+            self.close_reply_for_work();
         }
         if !starts && !self.tools.contains_key(key) {
             self.dropped_tool_updates = self.dropped_tool_updates.saturating_add(1);
