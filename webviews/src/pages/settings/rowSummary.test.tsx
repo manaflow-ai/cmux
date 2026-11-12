@@ -76,7 +76,8 @@ const views: View[] = [
 ];
 
 test("Material says what Clear Glass does in one short line, with no tooltip repeating it", async () => {
-  page = await renderPage({ path: "/settings/appearance" });
+  // Personalization is the one page that draws the background rows.
+  page = await renderPage({ path: "/settings/personalization" });
   const line = rowElement(page.container, "appearance.backgroundBlur").querySelector<HTMLElement>(".row-help");
   expect(line?.textContent).toBe("Clear Glass shows the desktop through the wallpaper");
   expect(line?.title).toBe("");
