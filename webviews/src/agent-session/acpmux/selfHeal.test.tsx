@@ -55,6 +55,8 @@ type Store = {
   sessions: unknown[];
   seq: number;
   failLagReads: number;
+  /// How many of those reads acpmux never answers (a daemon replaced under the bridge drops them).
+  dropLagReads: number;
   live?: MockInternals & { deaf: boolean };
 };
 
@@ -87,7 +89,7 @@ async function harness(options: { slowHandshakeMs: number }) {
   const { forgetTail } = await import("./tailCache");
   const target = mockHost.sessionId!;
   forgetTail(target);
-  const store: Store = { events: [], sessions: [], seq: 0, failLagReads: 0 };
+  const store: Store = { events: [], sessions: [], seq: 0, failLagReads: 0, dropLagReads: 0 };
   let opened = 0;
   class SharedSocket extends MockAcpmuxSocket {
     deaf = false;
@@ -114,6 +116,10 @@ async function harness(options: { slowHandshakeMs: number }) {
       self.answer = async (method, params) => {
         // fixed-wait: a host slow to answer its handshake is the behavior; the test's fake clock moves it.
         if (method === "initialize" && slowMs > 0) await new Promise((resolve) => setTimeout(resolve, slowMs));
+        if (method === "_acpmux/events" && params.limit !== 1 && store.dropLagReads > 0) {
+          store.dropLagReads -= 1;
+          return new Promise(() => {});
+        }
         if (method === "_acpmux/events" && params.limit !== 1 && store.failLagReads > 0) {
           store.failLagReads -= 1;
           throw new Error("acpmux too busy to read the chat's events");
@@ -350,6 +356,31 @@ test("a tab shown again while its lag read still retries keeps its connection an
     // No new client, no replaced transcript: the same connection drew it.
     expect(run.sockets()).toBe(1);
     expect(acpWire.stats().reconnects).toBe(lostBefore);
+  } finally {
+    run.client.close();
+  }
+});
+
+test("a lag read whose reply never comes holds the stall check off only for its retry budget", async () => {
+  jest.useFakeTimers();
+  const time = clock(Date.UTC(2026, 10, 12, 19, 0, 0));
+  const run = await harness({ slowHandshakeMs: 0 });
+  try {
+    run.live().touch(run.target, { status: "running", indicator: "working" });
+    run.live().emit(run.target, { mux: "turn_started" });
+    await time.advance(100);
+    run.live().deaf = true;
+    run.produce(1);
+    run.live().deaf = false;
+    run.store.dropLagReads = 1;
+    run.live().deliver({ jsonrpc: "2.0", method: "_acpmux/lagged", params: { sessionIds: [run.target], dropped: 4 } });
+    // Past the read's whole retry budget, the next check gives the connection up and gets the turn back.
+    await time.advance(25_000);
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    for (let step = 0; step < 300 && run.shown([1])[0] === 0; step++) await time.advance(100);
+    expect(run.shown([1])).toEqual([1]);
+    // The stalled socket, the harness's refused second one, the healthy third: one recovery.
+    expect(run.sockets()).toBe(3);
   } finally {
     run.client.close();
   }
