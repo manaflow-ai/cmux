@@ -151,6 +151,11 @@ public protocol TerminalSession: AnyObject {
     func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void)
     /// Bytes for the PTY (keys encoded by Ghostty, composer text, paste).
     func send(_ bytes: Data)
+    /// Bytes the terminal wrote by itself, not the person: Ghostty's replies
+    /// to terminal queries (cursor and device reports, focus and mouse
+    /// reports). A session that holds keys through an outage drops these
+    /// instead, and never reports them as ``TerminalSessionEvent/inputNotSent(bytes:)``.
+    func sendReply(_ bytes: Data)
     /// The screen's grid in cells: what a TUI should draw (rows between the
     /// toolbar and the composer with the keyboard down).
     func resize(columns: Int, rows: Int)
@@ -195,6 +200,9 @@ public protocol TerminalSession: AnyObject {
 }
 
 extension TerminalSession {
+    /// Sessions that never hold keys send a reply as they send keys.
+    public func sendReply(_ bytes: Data) { send(bytes) }
+
     /// Rows of the remote screen this session mirrors, when it mirrors one
     /// (a terminal on the Mac). The screen then maps the remote primary
     /// screen onto the bottom of its taller surface (``TerminalRowShift``).
