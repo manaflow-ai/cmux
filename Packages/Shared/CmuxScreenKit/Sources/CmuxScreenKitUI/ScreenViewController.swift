@@ -82,22 +82,17 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        keyboardTracker.isUserInteractionEnabled = false
-        keyboardTracker.isHidden = true
-        keyboardTracker.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(keyboardTracker)
-        NSLayoutConstraint.activate([
-            keyboardTracker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            keyboardTracker.widthAnchor.constraint(equalToConstant: 0),
-            keyboardTracker.heightAnchor.constraint(equalToConstant: 0),
-            keyboardTracker.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
-        ])
         // However the software keyboard was hidden: the screen takes the focus back for a
         // hardware keyboard's keys, and the toolbar's keyboard button learns it is down.
         keyInput.onResign = { [weak self] in
-            guard let self else { return }
-            becomeFirstResponder()
-            onKeyboardHidden?()
+            // After the resign has finished: taking the focus inside it handed the keyboard
+            // over to the screen instead of letting it go.
+            // task-owner: one main-actor hop; nothing waits on it
+            Task { @MainActor [weak self] in
+                guard let self, !keyInput.isFirstResponder else { return }
+                becomeFirstResponder()
+                onKeyboardHidden?()
+            }
         }
         // UI tests drive the screen through this element (a query by id stays cheap while it redraws).
         scrollView.accessibilityIdentifier = "screen.view"
@@ -191,25 +186,6 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateZoomLimits(resetToFit: false)
-        reportKeyboardOverlap()
-    }
-
-    /// Follows the keyboard's top (the layout guide's changes lay this view out again).
-    private let keyboardTracker = UIView()
-
-    private var keyboardOverlap: CGFloat = 0
-
-    /// Called with ``keyboardOverlap``'s new value: how far the keyboard (or its key bar)
-    /// reaches above the bottom of the window's safe area, in points.
-    var onKeyboardOverlap: ((CGFloat) -> Void)?
-
-    private func reportKeyboardOverlap() {
-        guard let window = view.window else { return }
-        let keyboard = view.convert(view.keyboardLayoutGuide.layoutFrame, to: window)
-        let overlap = max(0, window.bounds.maxY - window.safeAreaInsets.bottom - keyboard.minY)
-        guard abs(overlap - keyboardOverlap) > 0.5 else { return }
-        keyboardOverlap = overlap
-        onKeyboardOverlap?(overlap)
     }
 
     // MARK: Frames

@@ -85,6 +85,9 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         // The software keyboard covers the trackpad: the screen keeps the room above it.
         app.buttons["Keyboard"].firstMatch.tap()
         if app.keyboards.firstMatch.waitForExistence(timeout: 5) {
+            // A fresh simulator's keyboard first shows its slide-to-type tip.
+            let tip = app.buttons["Continue"].firstMatch
+            if tip.waitForExistence(timeout: 2) { tip.tap() }
             settle(app, 1)
             XCTAssertGreaterThan(screen.frame.height, 100, "keyboard squeezed the screen (\(screen.frame))")
             // The screen reaches down to the keyboard's key bar: no room is kept for the covered trackpad.
@@ -95,7 +98,12 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
             app.buttons["Keyboard"].firstMatch.tap()
             settle(app, 1)
         }
-        XCTAssertEqual(screen.frame.height, upScreenHeight, accuracy: 2, "screen height after the keyboard")
+        // Back above the trackpad. (A simulator reports its host's keyboard, so the screen takes the
+        // focus and iOS shows its hardware-keyboard bar at the bottom: the trackpad rises above it.)
+        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad after the keyboard")
+        XCTAssertTrue(pad.isHittable, "trackpad not reachable after the keyboard")
+        XCTAssertLessThanOrEqual(screen.frame.maxY, drawerTop() + 6, "screen over the trackpad after the keyboard")
+        XCTAssertGreaterThan(screen.frame.height, upScreenHeight - 60, "screen after the keyboard (\(screen.frame))")
 
         // Landscape (iPhone; an iPad's app window turns with the device without becoming landscape):
         // tucked away at first (height is short), brought up and tucked away again.
@@ -142,6 +150,24 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
     func dragUp(_ handle: XCUIElement) {
         let notch = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
         notch.press(forDuration: 0.05, thenDragTo: notch.withOffset(CGVector(dx: 0, dy: -260)))
+    }
+
+    /// The hint: with the pad untouched, a hand plays at using it for a few seconds, then fades.
+    /// (It is hidden from accessibility, so the screenshots are the check.)
+    @MainActor
+    func testTrackpadHintPlaysUntilItEnds() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"]
+        app.launch()
+        let pad = app.descendants(matching: .any)["screen.trackpad.pad"]
+        XCTAssertTrue(pad.waitForExistence(timeout: 30), "trackpad\n\(app.debugDescription)")
+        for step in 1...6 {
+            settle(app, 0.8)
+            attach(app, "hint-\(step)")
+        }
+        settle(app, 2)
+        attach(app, "hint-done")
+        XCTAssertTrue(pad.isHittable, "trackpad after the hint")
     }
 
     @MainActor

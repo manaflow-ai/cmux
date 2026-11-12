@@ -13,10 +13,6 @@ public final class ScreenTrackpadLink {
     /// one display of several, or the whole frame. The trackpad's height
     /// leaves that display's fitted height to the screen.
     public internal(set) var focusSize = CGSize.zero
-    /// How far the software keyboard (or only its key bar, with a hardware
-    /// keyboard) reaches above the bottom of the safe area, in points; 0 while
-    /// it is down. The trackpad sits under it, so that much less room is kept.
-    public internal(set) var keyboardOverlap: CGFloat = 0
     /// A finger touched the pad since the viewer opened (the hint stops for good).
     public internal(set) var padTouched = false
 
@@ -197,5 +193,59 @@ struct ScreenTrackpadHintPose: Equatable {
     }
 
     private static func ease(_ t: Double) -> Double { t * t * (3 - 2 * t) }
+}
+/// Reports how much of the bottom of its safe area the software keyboard (or only its
+/// key bar, with a hardware keyboard) covers, from UIKit's keyboard layout guide. Put it
+/// behind a view that is laid out as if the keyboard were down, so the keyboard always
+/// falls inside it.
+struct ScreenKeyboardProbe: UIViewRepresentable {
+    let changed: (CGFloat) -> Void
+
+    func makeUIView(context: Context) -> ScreenKeyboardProbeView {
+        let view = ScreenKeyboardProbeView()
+        view.changed = changed
+        return view
+    }
+
+    func updateUIView(_ view: ScreenKeyboardProbeView, context: Context) {
+        view.changed = changed
+    }
+}
+
+final class ScreenKeyboardProbeView: UIView {
+    var changed: ((CGFloat) -> Void)?
+    /// Pinned to the keyboard's top: each keyboard change lays this view out again.
+    private let marker = UIView()
+    private var reported: CGFloat?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+        accessibilityElementsHidden = true
+        marker.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(marker)
+        NSLayoutConstraint.activate([
+            marker.leadingAnchor.constraint(equalTo: leadingAnchor),
+            marker.widthAnchor.constraint(equalToConstant: 0),
+            marker.heightAnchor.constraint(equalToConstant: 0),
+            marker.bottomAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // With the keyboard down the guide's top is the safe area's bottom: no overlap.
+        let overlap = max(0, safeAreaLayoutGuide.layoutFrame.maxY - keyboardLayoutGuide.layoutFrame.minY)
+        guard reported.map({ abs($0 - overlap) > 0.5 }) ?? true else { return }
+        reported = overlap
+        let changed = changed
+        // After this layout pass: SwiftUI state is not written while it lays out.
+        // task-owner: one main-actor hop that hands the value over; nothing waits on it
+        Task { @MainActor in changed?(overlap) }
+    }
 }
 #endif

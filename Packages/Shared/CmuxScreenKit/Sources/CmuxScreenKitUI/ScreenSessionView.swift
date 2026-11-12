@@ -78,6 +78,9 @@ public struct ScreenSessionView: View {
     @State private var trackpadLink = ScreenTrackpadLink()
     /// The viewer's size inside the safe area, above the software keyboard while it is up.
     @State private var containerSize = CGSize.zero
+    /// How much of the bottom of the safe area the keyboard (or only its key bar,
+    /// with a hardware keyboard) covers; 0 while it is down.
+    @State private var keyboardOverlap: CGFloat = 0
     /// In landscape the trackpad starts tucked away (height is short there) and
     /// does not touch the remembered choice, which is for portrait.
     @State private var landscapeTrackpadOpen = false
@@ -113,6 +116,11 @@ public struct ScreenSessionView: View {
                         .ignoresSafeArea(edges: chromeVisible ? .horizontal : [.top, .horizontal])
                     if trackpadReserved > 0 { Color.clear.frame(height: trackpadReserved) }
                 }
+                // Laid out as if the keyboard were down (the room it takes is `keyboardOverlap`),
+                // the same in every presentation.
+                .background { ScreenKeyboardProbe { keyboardOverlap = $0 } }
+                .ignoresSafeArea(.keyboard)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { containerSize = $0 }
             } else {
                 screenView.ignoresSafeArea()
                 if chromeVisible { chrome }
@@ -121,8 +129,6 @@ public struct ScreenSessionView: View {
             if hasTrackpadOverlay, case .connected = session.phase { trackpadDrawer }
             if features.contains(.pasteImage) { pasteBanner }
         }
-        // Inside the safe area, above the software keyboard while it is up (see `fullSize`).
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { containerSize = $0 }
         .background(.black)
         // Remote screens sit on black: dark chrome keeps the bar and stats legible.
         .preferredColorScheme(.dark)
@@ -221,19 +227,16 @@ public struct ScreenSessionView: View {
 
     private var hasTrackpadOverlay: Bool { features.contains(.trackpadOverlay) }
 
-    /// The viewer's size inside the safe area as if the keyboard were down: the keyboard
-    /// covers the trackpad, it neither resizes it nor turns a portrait screen "landscape".
-    private var fullSize: CGSize { CGSize(width: containerSize.width, height: containerSize.height + keyboardOverlap) }
-
-    private var isLandscape: Bool { fullSize.width > fullSize.height }
+    private var isLandscape: Bool { containerSize.width > containerSize.height }
 
     /// The trackpad is up: the remembered choice (up by default) in portrait,
     /// tucked away in landscape until it is brought up there.
     private var trackpadOpen: Bool { isLandscape ? landscapeTrackpadOpen : session.preferences.showTrackpad }
 
-    /// How much of the bottom the keyboard (or only its key bar, with a hardware
-    /// keyboard) covers: the drawer sits under it, so that much less room is kept.
-    private var keyboardOverlap: CGFloat { trackpadLink.keyboardOverlap }
+    /// The software keyboard is up (more than a key bar): the trackpad goes under it
+    /// and the screen reaches down to the keyboard. With only the key bar (a hardware
+    /// keyboard), the trackpad rises above the bar instead.
+    private var keyboardHidesTrackpad: Bool { keyboardOverlap > 100 }
 
     /// The trackpad is up on a connected screen (its pad drives the pointer).
     private var trackpadShown: Bool {
@@ -254,14 +257,15 @@ public struct ScreenSessionView: View {
     /// the software keyboard covers it.
     private var trackpadReserved: CGFloat {
         guard hasTrackpadOverlay, case .connected = session.phase else { return 0 }
-        return max(0, trackpadDrawerHeight - trackpadOffset - keyboardOverlap)
+        if keyboardHidesTrackpad { return keyboardOverlap }
+        return max(0, trackpadDrawerHeight - trackpadOffset) + keyboardOverlap
     }
 
     /// The pad's height: what is left under the toolbar and the screen fitted
     /// to the width, within a floor that keeps it usable and a ceiling that
     /// keeps the screen readable (lower in landscape, where height is short).
     private var trackpadPadHeight: CGFloat {
-        let size = fullSize
+        let size = containerSize
         guard size.width > 0, size.height > 0 else { return 240 }
         // The display the screen is fitted to (one of several), else the whole frame.
         let display = trackpadLink.focusSize.width > 0 ? trackpadLink.focusSize : session.frameSize
@@ -317,7 +321,9 @@ public struct ScreenSessionView: View {
                 .fill(.regularMaterial)
                 .ignoresSafeArea(edges: .bottom)
         }
-        .offset(y: trackpadOffset)
+        .offset(y: trackpadOffset - (keyboardHidesTrackpad ? 0 : keyboardOverlap))
+        .opacity(keyboardHidesTrackpad ? 0 : 1)
+        .allowsHitTesting(!keyboardHidesTrackpad)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         // The software keyboard covers the drawer instead of pushing it up.
         .ignoresSafeArea(.keyboard)
@@ -609,7 +615,6 @@ public struct ScreenView: UIViewControllerRepresentable {
         controller.onFocusSize = { [weak trackpadLink] size in
             if trackpadLink?.focusSize != size { trackpadLink?.focusSize = size }
         }
-        controller.onKeyboardOverlap = { [weak trackpadLink] overlap in trackpadLink?.keyboardOverlap = overlap }
         return controller
     }
 
