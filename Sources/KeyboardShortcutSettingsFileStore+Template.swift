@@ -49,6 +49,8 @@ extension CmuxSettingsFileStore {
             }
     }
 
+    /// The sections of the `cmux.json` template, one per settings group,
+    /// with each setting at its default value.
     private static func defaultTemplateSections() -> [[String: Any]] {
         let fileEditorSettings = FilePreviewEditorSettings(defaults: .standard)
         let shortcutsBindings = Dictionary(

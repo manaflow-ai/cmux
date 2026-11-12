@@ -100,6 +100,8 @@ extension SidebarWorkspaceDetailDefaults {
         UserDefaultsSettingsClient(defaults: defaults).value(for: SidebarCatalogSection().watchGitStatus)
     }
 
+    /// The workspace row details the current settings show, with "Hide All
+    /// Details" applied.
     static func auxiliaryDetailVisibility(defaults: UserDefaults) -> SidebarWorkspaceAuxiliaryDetailVisibility {
         let sidebar = SidebarCatalogSection()
         let settings = UserDefaultsSettingsClient(defaults: defaults)

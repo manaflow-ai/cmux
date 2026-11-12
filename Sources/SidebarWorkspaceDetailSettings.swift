@@ -18,6 +18,7 @@ struct SidebarWorkspaceDetailSettings: Equatable {
     let showAgentActivity: Bool
     let showCustomMetadata: Bool
 
+    /// Reads each workspace-detail setting from `defaults`.
     init(defaults: UserDefaults) {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let sidebar = SidebarCatalogSection()

@@ -42,6 +42,7 @@ public struct SidebarSection: View {
     @State private var compactAgentStatus: DefaultsValueModel<Bool>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
+    /// Creates the section with one model per sidebar setting it edits.
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
