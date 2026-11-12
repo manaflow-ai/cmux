@@ -20,8 +20,9 @@ public nonisolated struct DiffWarmSession: Sendable {
 }
 
 /// Precompute (Leo, 2026-11-05: "There's no reason for them to have a delay, even under load."): when
-/// an agent's turn ends, the runtime opens the turn's repository's default diff in the background, so a
-/// diff tab opened after it starts with its session already open and its patch on disk, as Chrome's
+/// an agent's turn ends and someone can see its chat (a chat nobody sees owes it until it shows, the
+/// app's turn-end observer), the runtime opens the turn's repository's default diff in the background, so
+/// a diff tab opened after it starts with its session already open and its patch on disk, as Chrome's
 /// prerender loads a page the person is likely to open next. The work is invisible, so it is throttled
 /// as Chrome throttles background work: one sidecar child at a time on its own pool (a person's open
 /// never waits behind it), utility priority, one run per repository in flight (a later turn end runs

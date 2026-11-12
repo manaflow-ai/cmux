@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/schemas/cmux-signals/1.json",
+  "title": "cmux signal sources",
+  "description": "Every signal source an app can read with cmux.watch(name, params). One entry per source: what it reads, which events push a re-read, and how fast the runtime may poll behind it. tools/gen-cmux-global.ts turns this file into generated/signals.json (the runtime's table) and the typed cmux.watch overloads in generated/cmux-app.d.ts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "signals"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "$comment": { "type": "string" },
+    "version": { "const": 1 },
+    "signals": {
+      "type": "object",
+      "propertyNames": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$", "maxLength": 96 },
+      "additionalProperties": { "$ref": "#/$defs/signal" }
+    }
+  },
+  "$defs": {
+    "jsonSchema": {
+      "description": "A JSON Schema (the subset tools/json-schema.ts checks). In a value schema, {\"$ref\": \"cmux:types/<Name>\"} names a catalog type (Cmux.<Name> in the d.ts).",
+      "type": "object"
+    },
+    "signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["docs", "scopes", "params", "value", "read", "push", "pollFloorSeconds", "staleAfterSeconds"],
+      "properties": {
+        "docs": { "type": "string", "minLength": 1, "maxLength": 600 },
+        "scopes": {
+          "description": "The scopes that let an app read this source: holding any one of them is enough. The runtime checks the read ops locally (scope.missing); the host checks every call.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*:[a-zA-Z0-9_.:<>*-]+$" }
+        },
+        "params": { "$ref": "#/$defs/jsonSchema" },
+        "value": { "$ref": "#/$defs/jsonSchema" },
+        "read": {
+          "description": "How the runtime reads the source. `op`: one catalog or host op, called with the watch params as they are. `reader`: a named reader in js/src/signal-readers.ts that calls only the ops listed in `ops` (in order: the first that works).",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["op"],
+              "properties": { "op": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-zA-Z0-9_-]*)+$" } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reader", "ops"],
+              "properties": {
+                "reader": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
+                "ops": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["op", "scope", "docs"],
+                    "properties": {
+                      "op": { "type": "string" },
+                      "scope": { "type": "string" },
+                      "docs": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "push": {
+          "description": "Event streams (cmux.events.on names) that mean the source changed. Each one triggers a coalesced re-read. Empty when nothing pushes yet: the runtime then polls.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*\\.changed$" }
+        },
+        "pollFloorSeconds": {
+          "description": "The fastest the runtime may poll this source (a reader's everySeconds is clamped up to it, and error backoff starts at it).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "staleAfterSeconds": {
+          "description": "How old a value may be before it is re-read: the poll interval when nothing pushes, and the age past which a remount re-reads a cached value.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        }
+      }
+    }
+  }
+}

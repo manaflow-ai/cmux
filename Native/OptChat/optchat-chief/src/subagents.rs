@@ -10,13 +10,14 @@
 //!   prompt is section 9's subagent prompt, VIEW_DOC and the user's
 //!   instructions (the subagent preset's system prompt on a Claude harness,
 //!   else the subagent directory's CLAUDE.md or AGENTS.md). It answers the
-//!   ids at once. A subagent the Chief shows (`spawn(sidebar)` under the
-//!   user's rules, sidebar_choice.rs, a1018) also gets a cmux workspace whose
-//!   tab is its chat (workspaces.rs), so the user can watch and join it, when
-//!   this host has somewhere to make one; a hidden one (#26386) is reached
-//!   from its link and `control show` opens its workspace later. The answer says, per subagent, which workspace it got
-//!   and where, that it is hidden, or that it got none and why: the Chief
-//!   repeats it to the user, so it must never claim more than happened.
+//!   ids at once. Every subagent also gets a cmux workspace whose tab is its
+//!   chat (workspaces.rs), so the user can always find, watch and join it,
+//!   when this host has somewhere to make one: a `user` workspace in the
+//!   sidebar or a `chief` one in the collapsed "Chief's workspaces" group
+//!   (`spawn(sidebar)` under the user's rules, action_lifetime.rs; no subagent
+//!   is hidden). The answer says, per subagent, which workspace it got and
+//!   where, or that it got none and why: the Chief repeats it to the user, so
+//!   it must never claim more than happened.
 //! - `spawn` takes an optional working directory (`~` is this host's home).
 //!   A directory that does not exist here is reported and the default
 //!   subagent directory is used.
@@ -451,6 +452,26 @@ struct Waiting {
 }
 
 /// Serves `spawn` and `tell` (tools.rs `Orchestrator`).
+/// What `spawn` answers for its Direct tasks (action_lifetime.rs): not started, and why, so the
+/// Chief makes the change itself with its cmux workspace tools.
+fn direct_refusal(direct: &[String], why: impl Fn(&str) -> String) -> String {
+    let list = direct
+        .iter()
+        .map(|t| format!("\"{}\" ({})", crate::workspaces::title(t), why(t)))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let organize = direct.iter().any(|t| {
+        crate::action_lifetime::is_organize(&crate::sidebar_choice::body(t).to_lowercase())
+    });
+    let tools = if organize {
+        " with the cmux workspace tools (workspace_list, workspace_group_create with reuse, \
+         workspace_place, workspace_rename, workspace_move, workspace_group_update)"
+    } else {
+        " with your own tools"
+    };
+    format!("not started: {list}. Do it yourself now{tools}; no helper and no workspace.")
+}
+
 pub struct Spawner {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
@@ -499,6 +520,9 @@ pub struct Spawner {
     /// The user's settings file read at each spawn for the sidebar rules
     /// (sidebar_choice.rs); None: the one `agent_memory::settings` finds.
     user_settings: Option<PathBuf>,
+    /// A Claude subagent here works under `/goal` until its task is done
+    /// (goal.rs), unless the person turned it off; off in a bare Spawner.
+    goal: bool,
 }
 
 impl Spawner {
@@ -531,7 +555,15 @@ impl Spawner {
             engine_file: None,
             families: BTreeMap::new(),
             user_settings: None,
+            goal: false,
         }
+    }
+
+    /// Claude subagents here start under `/goal` (goal.rs) and on Opus 5.5
+    /// when nothing names their model.
+    pub fn with_goal(mut self, goal: bool) -> Spawner {
+        self.goal = goal;
+        self
     }
 
     /// Reads the sidebar rules from `path` instead of the user's cmux-next.json.
@@ -972,7 +1004,7 @@ impl Spawner {
 
     /// Starts subagent `id`'s session (in `s.cwd`) and first prompt, then its
     /// workspace; answers what the user can see of it: its workspace and
-    /// where it lives, that it runs hidden, or that it has none and why.
+    /// where it lives, or that it has none and why.
     #[allow(clippy::too_many_arguments)]
     fn start_one(
         &self,
@@ -1017,13 +1049,19 @@ impl Spawner {
             .map(|_| crate::workspaces::new_key());
         // Its workspace's name, also its name on an approval card it is in.
         let name = crate::workspaces::title(task);
+        // A Claude subagent under the goal runs on Opus 5.5 unless the spawn
+        // or the engine named a model (goal.rs).
+        let model = s.model.clone().or_else(|| {
+            self.goal_for(admitted.family, peer.is_some())
+                .then(|| crate::goal::MODEL.to_owned())
+        });
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
             harness: admitted.profile.clone(),
             // The spawn floor (`Brain::spawn_policy`) wins over the setting.
             policy: floor.unwrap_or(&s.policy).to_owned(),
-            model: s.model.clone(),
+            model,
             effort: s.effort.clone(),
             preset: s.preset.clone(),
             tags: {
@@ -1111,8 +1149,20 @@ impl Spawner {
         // The terminal beside the chat runs on this Mac: a peer session's
         // folder is on the VM (/home/agent/work), and a PTY spawned in a
         // folder missing here fails, so the subagent got no workspace (a511).
+        // Its kind (action_lifetime.rs): a `user` workspace in the sidebar, or a `chief` one in
+        // the collapsed "Chief's workspaces" group; nothing closes either on its own.
+        // One that runs with policy ask is always `user`: only its tab can allow its prompts.
+        let mut route = self.lifetime(task);
+        if spec.policy == crate::approval::ASK {
+            route = route.shown("it asks before it acts");
+        }
+        let made = crate::action_lifetime::Made::of(&route);
         let slot_place = (
-            crate::workspaces::spawn_group(task).to_owned(),
+            if made.in_chief_group() {
+                crate::action_lifetime::CHIEF_GROUP.to_owned()
+            } else {
+                crate::workspaces::spawn_group(task).to_owned()
+            },
             match &peer {
                 Some(_) => self.settings.cwd.clone(),
                 None => s.cwd.clone(),
@@ -1135,21 +1185,43 @@ impl Spawner {
             session_id: session.clone(),
             policy: Some(spec.policy.clone()),
             harness: Some(s.harness.clone()),
+            made: Some(made.clone()),
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
+        // goal.rs: a Claude subagent here gets its task, then `/goal`, the
+        // prompt the Chief follows (its end is the report). `/goal` goes out
+        // only when the task turn ended: sent back to back, acpmux ran the
+        // short `/goal` before the long task (a1141, 2026-11-12).
+        let goal = self.goal_for(admitted.family, peer.is_some());
         self.trace.emit(
             "subagent.start",
-            json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "ms": began.elapsed().as_millis() as u64}),
+            json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "goal": goal, "ms": began.elapsed().as_millis() as u64}),
         );
-        self.agents.start_prompt(
-            &session,
-            crate::prompt::subagent_blocks(view, task),
-            &prompt_id,
-            tx,
-        )?;
+        let hold_id = goal.then(|| format!("{PROMPT_PREFIX}sub:{id}:task:{}", now_ms()));
+        if let Some(hold_id) = &hold_id {
+            let mut blocks = crate::prompt::subagent_blocks(view, task);
+            blocks.push(crate::goal::hold_block());
+            let (hold_tx, hold_rx) = channel();
+            self.agents
+                .start_prompt(&session, blocks, hold_id, hold_tx)?;
+            send_goal_after_task(
+                self.agents.clone(),
+                session.clone(),
+                prompt_id.clone(),
+                hold_rx,
+                tx,
+            );
+        } else {
+            self.agents.start_prompt(
+                &session,
+                crate::prompt::subagent_blocks(view, task),
+                &prompt_id,
+                tx,
+            )?;
+        }
         let _ = self.to_brain(Input::SubagentPrompted { id: id.to_owned() });
-        self.forward_answer(id, &session, &prompt_id, rx);
+        self.forward_answer(id, &session, &prompt_id, hold_id, rx);
         // The chat replays its history when the tab attaches, so the
         // workspace can follow the prompt.
         let Some(workspaces) = &self.workspaces else {
@@ -1161,22 +1233,10 @@ impl Spawner {
         };
         let (group, term_cwd) = slot_place;
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        // The Chief's choice under the user's rules (sidebar_choice.rs, a1018):
-        // a hidden one is reached from its link in the Chief's reply, and
-        // `control show` adds its workspace. One that runs with policy ask
-        // (the spawn floor, or MUX_POLICY) always shows: only its tab can
-        // allow its prompts.
-        let choice = self.sidebar_choice(task);
-        if spec.policy != crate::approval::ASK && !choice.show {
-            self.trace.emit(
-                "subagent.hidden",
-                json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "why": choice.why}),
-            );
-            return Ok(format!(
-                "hidden: no sidebar workspace ({}); its link opens its chat, and control(action: \"show\", id: \"{id}\") adds its workspace when the user asks",
-                choice.why
-            ));
-        }
+        // Every subagent gets its workspace (Aziz, 2026-11-11: "no hidden workspaces at all").
+        // One that runs with policy ask (the spawn floor, or MUX_POLICY) is always `user`: only
+        // its tab can allow its prompts.
+        let ask = spec.policy == crate::approval::ASK;
         match workspaces.open(&key, &session, &name, &group, &term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
@@ -1197,9 +1257,14 @@ impl Spawner {
                         r.move_to_top()
                     ));
                 }
-                note.push_str(&match spec.policy == crate::approval::ASK {
-                    true => "; shown because it asks before it acts".to_owned(),
-                    false => format!("; shown because {}", choice.why),
+                note.push_str(&match (ask, made.in_chief_group()) {
+                    (true, _) => "; in the sidebar because it asks before it acts".to_owned(),
+                    (false, true) => format!(
+                        "; in the collapsed \"{}\" sidebar group because {}; the user finds it there or by search, and control(action: \"show\", id: \"{id}\") moves it to the top of the sidebar",
+                        crate::action_lifetime::CHIEF_GROUP,
+                        route.why
+                    ),
+                    (false, false) => format!("; in the sidebar because {}", route.why),
                 });
                 let _ = self.to_brain(Input::SubagentWorkspace {
                     id: id.to_owned(),
@@ -1269,23 +1334,46 @@ impl Spawner {
         }
     }
 
-    /// Whether `task` gets its sidebar workspace as it starts: its `Sidebar:`
-    /// line (the Chief's choice) under the user's rules, read now.
-    fn sidebar_choice(&self, task: &str) -> crate::sidebar_choice::Choice {
-        let user = match &self.user_settings {
-            Some(path) => std::fs::read_to_string(path).ok().and_then(|t| {
-                serde_json::from_str(&crate::agent_memory::settings::strip_jsonc(&t)).ok()
-            }),
+    /// The lifetime of `task` as it starts (action_lifetime.rs): the person's remembered
+    /// preferences (their profile's learned lines), its `Sidebar:` line (the Chief's choice)
+    /// and the person's rules, read now.
+    pub(crate) fn lifetime(&self, task: &str) -> crate::action_lifetime::Route {
+        let user = self.user_document();
+        let rules = crate::sidebar_choice::Rules::from_user(user.as_ref(), self.show_workspaces());
+        let learned = self
+            .person
+            .as_deref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|t| crate::action_lifetime::learned_lines(&t))
+            .unwrap_or_default();
+        crate::action_lifetime::route(
+            task,
+            crate::sidebar_choice::Requested::of_task(task),
+            &learned,
+            &rules,
+        )
+    }
+
+    /// Whether a subagent of `family` starts under `/goal` (goal.rs): the
+    /// goal is on for this host and the person did not set
+    /// `chief.subagentGoal: false`; only Claude Code here runs the command.
+    fn goal_for(&self, family: crate::acpmux::Family, on_peer: bool) -> bool {
+        self.goal
+            && !on_peer
+            && family == crate::acpmux::Family::Claude
+            && crate::goal::on(self.user_document().as_ref())
+    }
+
+    /// The person's settings document (cmux-next.json), read now.
+    fn user_document(&self) -> Option<serde_json::Value> {
+        match &self.user_settings {
+            Some(path) => std::fs::read_to_string(path)
+                .ok()
+                .and_then(|t| crate::agent_memory::settings::parse(&t).ok()),
             None => std::env::var_os("HOME").and_then(|home| {
                 crate::agent_memory::settings::document(std::path::Path::new(&home))
             }),
-        };
-        let rules = crate::sidebar_choice::Rules::from_user(user.as_ref(), self.show_workspaces());
-        crate::sidebar_choice::decide(
-            task,
-            crate::sidebar_choice::Requested::of_task(task),
-            &rules,
-        )
+        }
     }
 
     /// Whether the Chief setting `subagents.showWorkspaces` is on (every
@@ -1322,6 +1410,7 @@ impl Spawner {
         id: &str,
         session: &str,
         prompt_id: &str,
+        hold_id: Option<String>,
         rx: std::sync::mpsc::Receiver<TurnSignal>,
     ) {
         let tx = self
@@ -1340,7 +1429,13 @@ impl Spawner {
                         let Some(folder) = start.as_mut() else {
                             continue;
                         };
-                        match first_turn_start(&*agents, &session, &prompt_id, folder) {
+                        match first_turn_start(
+                            &*agents,
+                            &session,
+                            &prompt_id,
+                            hold_id.as_deref(),
+                            folder,
+                        ) {
                             None => {}
                             Some(ours) => {
                                 start = None;
@@ -1665,6 +1760,25 @@ impl Orchestrator for Spawner {
         harness: Option<String>,
         model: Option<String>,
     ) -> Result<String, String> {
+        // A Direct action (an organize request, or what the person told the Chief to do
+        // itself) never becomes a helper or a workspace (action_lifetime.rs): the Chief does it
+        // in its own turn, and the other tasks start.
+        let (direct, tasks): (Vec<_>, Vec<_>) = tasks
+            .into_iter()
+            .partition(|t| self.lifetime(t).lifetime == crate::action_lifetime::Lifetime::Direct);
+        if !direct.is_empty() {
+            let refused = direct_refusal(&direct, |t| self.lifetime(t).why);
+            self.trace.emit(
+                "subagent.direct",
+                json!({"tasks": direct.len(), "started": tasks.len()}),
+            );
+            if tasks.is_empty() {
+                return Err(refused);
+            }
+            return self
+                .spawn_with_route(tasks, cwd, effort, place, harness, model)
+                .map(|started| format!("{refused}\n{started}"));
+        }
         let given = |v: Option<String>| v.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
         let (harness, model) = (given(harness), given(model));
         let choice = self.engine_choice();
@@ -2353,20 +2467,64 @@ pub fn recover_launch(
     None
 }
 
+/// Sends `/goal` (prompt `prompt_id`, its signals to `tx`) once the task
+/// turn whose signals come on `task` ended. A task turn that was cancelled,
+/// failed or lost its connection gets no `/goal`: its end goes to `tx`, so
+/// the subagent ends as that turn did.
+fn send_goal_after_task(
+    agents: Arc<dyn AgentPort>,
+    session: String,
+    prompt_id: String,
+    task: std::sync::mpsc::Receiver<TurnSignal>,
+    tx: Sender<TurnSignal>,
+) {
+    std::thread::spawn(move || {
+        let end = loop {
+            match task.recv() {
+                Ok(TurnSignal::Done(end)) => break Some(end),
+                Ok(TurnSignal::Lost) | Err(_) => break None,
+                Ok(_) => {}
+            }
+        };
+        let signal = match end {
+            Some(Ok(answer))
+                if answer.get("stopReason").and_then(Value::as_str) != Some("cancelled") =>
+            {
+                let goal = vec![json!({"type": "text", "text": crate::goal::command()})];
+                match agents.start_prompt(&session, goal, &prompt_id, tx.clone()) {
+                    Ok(()) => return,
+                    Err(e) => TurnSignal::Done(Err(e)),
+                }
+            }
+            Some(end) => TurnSignal::Done(end),
+            None => TurnSignal::Lost,
+        };
+        let _ = tx.send(signal);
+    });
+}
+
 /// Reads `session`'s new events into `folder` and says whether its first
 /// turn started: Some(true) when it is the turn of prompt `prompt_id`
 /// (acpmux's `turn_started` after that prompt's `user_message`),
 /// Some(false) when it is another's, None while none has started (or the
 /// events could not be read: the next signal reads them again).
+/// The goal's hold prompt (`hold`, goal.rs) runs first: its turn is
+/// passed over, so the followed prompt's start still counts.
 fn first_turn_start(
     agents: &dyn AgentPort,
     session: &str,
     prompt_id: &str,
+    hold: Option<&str>,
     folder: &mut TurnFolder,
 ) -> Option<bool> {
     let events = agents.events(session, folder.seq()).ok()?;
     events.iter().find_map(|e| {
         folder.apply(e).into_iter().find_map(|out| match out {
+            TurnOutput::Started { turn, .. }
+                if hold.is_some() && turn.prompt_id.as_deref() == hold =>
+            {
+                None
+            }
             TurnOutput::Started { turn, .. } => Some(turn.prompt_id.as_deref() == Some(prompt_id)),
             _ => None,
         })

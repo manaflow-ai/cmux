@@ -11,9 +11,10 @@ import { sendEntries, toolGroups } from "./toolGroups";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { configureSentLook } from "./sentMessageLineModel";
 import { configureMessageLineLook } from "./messageLineLook";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -32,7 +33,7 @@ function installDom(): HTMLElement {
     "localStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -50,6 +51,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -96,15 +98,16 @@ const listed = (...entries: Partial<AcpmuxSessionEntry>[]) => {
 };
 
 /// A sent row's parts: its root (`data-send-state`), the line's words as read (the sender's
-/// sentence, the first line, the status), its toggle, and a click on the line.
+/// sentence, the first line, the status), its toggle, and a click on the line. The row is the one
+/// message row (AgentMessageRow.tsx): its toggle, in the sentence, says whether it is open.
 const rowOf = (container: ParentNode, at = 0) => [...container.querySelectorAll<HTMLElement>(".cv-sent-msg")][at]!;
 const lineText = (row: HTMLElement) =>
-  [...row.querySelector(":scope > .cv-disclosure__line")!.children]
+  [...row.querySelector(":scope > .cv-agentmsg__line")!.children]
     .map((part) => part.textContent!.trim())
     .filter(Boolean)
     .join(" ");
 const toggleOf = (row: HTMLElement) =>
-  row.querySelector<HTMLButtonElement>(":scope > .cv-disclosure__line > .cv-disclosure__toggle")!;
+  row.querySelector<HTMLButtonElement>(":scope > .cv-agentmsg__line .cv-agentmsg__toggle")!;
 const expanded = (row: HTMLElement) => toggleOf(row).getAttribute("aria-expanded");
 const rawButton = (container: ParentNode) =>
   container.querySelector<HTMLButtonElement>(".cv-sent__raw > .cv-received__more");
@@ -339,12 +342,12 @@ test("the default keeps the chip, the count and the first line on one line; stac
   const inline = await line(tell);
   const row = rowOf(inline);
   expect(lineText(row)).toBe("Sent to coord-deputy Restore base, then report. queued");
-  expect(inline.querySelector(".cv-disclosure__below")).toBeNull();
+  expect(inline.querySelector(".cv-agentmsg__below")).toBeNull();
   configureMessageLineLook("stacked");
   try {
     const stacked = await line(tell);
     expect(lineText(rowOf(stacked))).toBe("Sent to coord-deputy queued");
-    expect(stacked.querySelector(".cv-disclosure__below")?.textContent).toBe("Restore base, then report.");
+    expect(stacked.querySelector(".cv-agentmsg__below")?.textContent).toBe("Restore base, then report.");
   } finally {
     await act(async () => configureMessageLineLook("single"));
   }

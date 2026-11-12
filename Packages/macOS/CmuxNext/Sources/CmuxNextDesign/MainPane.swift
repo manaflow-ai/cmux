@@ -21,7 +21,7 @@ nonisolated extension ChromeTunables {
         default: true, code: "ChromeTunables.mainPaneCurved")
     public static let mainPaneCornerRadius = Tunable<CGFloat>.number(
         "chrome.mainPane.cornerRadius", .sidebar, "Main pane corner radius",
-        help: "Corner radius of the curved main pane. Unset: the one corner radius (layout.paneCornerRadius) shared with panes and tabs, at most the window's.", default: 10, range: 0...24, step: 0.5, unit: .points,
+        help: "Corner radius of the curved main pane. Unset: concentric with the window (its corner radius less the gutter), or layout.paneCornerRadius when set, at most the window's.", default: 10, range: 0...24, step: 0.5, unit: .points,
         code: "ChromeTunables.mainPaneCornerRadius")
     public static let mainPaneGutter = Tunable<CGFloat>.number(
         "chrome.mainPane.gutter", .sidebar, "Main pane gutter",
@@ -47,7 +47,9 @@ extension Metrics {
     /// Settings override, else `appearance.chromeStyle`, else the default.
     public static var mainPaneCurved: Bool {
         let tunable = ChromeTunables.mainPaneCurved
-        return tunable.override ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
+        // The flush corner (`chrome.cornerFlush`) draws the card under any chrome style; a Debug override still wins.
+        let flush: Bool? = CornerFlush.current.isOn ? true : nil
+        return tunable.override ?? flush ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
     /// Floating panes (`appearance.chromeStyle` floating): every pane is its
     /// own card, tab strip included, left unshaded on the shaded chrome
@@ -68,6 +70,7 @@ extension Metrics {
     public static var mainPaneGutter: CGFloat {
         guard mainPaneCurved else { return 0 }
         if floatingPanes, ChromeTunables.mainPaneGutter.override == nil { return panePadding }
+        if CornerFlush.current.isOn, ChromeTunables.mainPaneGutter.override == nil { return CornerFlush.current.gap }
         return scale(ChromeTunables.mainPaneGutter.value)
     }
     /// Corner radius of the main pane; 0 when it is edge to edge or its
@@ -76,26 +79,69 @@ extension Metrics {
         guard mainPaneCurved, !floatingPanes || ChromeTunables.mainPaneCornerRadius.override != nil else { return 0 }
         return ChromeTunables.mainPaneCornerRadius.override.map(scale) ?? cornerRadius
     }
-    /// Corner radius of the main pane in a window whose own corners have
-    /// `windowCornerRadius`: the one outer ``cornerRadius`` (`layout.paneCornerRadius`,
-    /// shared with panes and tabs; Lawrence 2026-11-04), at most the window's radius.
-    /// Its 10 pt compact default is concentric with the 16 pt window across the 6 pt
-    /// gutter, and the tabs nested in it keep Helium's 8 pt (it was Helium's 14 pt
-    /// content corner, 2026-10-31, which no tab inset 2 pt inside could follow).
+    /// Corner radius of the main pane in a window whose own corners have `windowCornerRadius`
+    /// (``windowConcentricCornerRadius(windowCornerRadius:edgeInset:setting:)``): concentric with
+    /// the window across the gutter by default, the radius `layout.paneCornerRadius` sets when it
+    /// is set. Lawrence 2026-11-07: "we are not concentric with macos window ... make it all
+    /// concentric with macos windows by default (but still configurable)"; the 8 pt default card
+    /// 6 pt inside the 16 pt window left a gap that widened toward the corner.
     /// Without a gutter the pane's corners sit just inside the window's
-    /// lit rim (``windowEdgeInset(_:in:)``), concentric with it; a square window
-    /// (fullscreen) gets a square pane, rounding only at real edges. Under a
+    /// lit rim (``windowEdgeInset(_:in:)``), concentric with it; under a
     /// standard titlebar strip the pane's top corners sit below it, against
-    /// the window's straight side, so the pane is square too (the window
-    /// still rounds its own corners). A Debug
-    /// Settings override wins.
+    /// the window's straight side, so the pane is square there (the window
+    /// still rounds its own corners). A Debug Settings override wins.
+    ///
+    /// With no radius the person set and no outline, the card a pill strip nests in rounds from its
+    /// tabs instead (Lawrence 2026-11-11, "same roundness as chrome";
+    /// ``chromeRowConcentricCardRadius(windowCornerRadius:)``): 10 pt at Compact, as before, and at
+    /// most the window's own radius. The flush corner keeps its window-concentric card: its strip sits
+    /// on the frame above the card, not inside it.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
+        // The flush corner: concentric with the window across its 4 pt gap (12 pt in a 16 pt window).
+        let flush = CornerFlush.current
+        if flush.isOn { return windowCornerRadius > 0 ? max(0, windowCornerRadius - flush.gap) : flush.cardRadius }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : max(0, windowCornerRadius - PaneTabRowRim.height) }
-        // The one outer radius, never rounder than the window's own; fullscreen (square window) keeps it too.
-        let radius = cornerRadius
-        return windowCornerRadius > 0 ? min(radius, windowCornerRadius) : radius
+        // Chrome's tab radius sizes the card the strip nests in, so the first pill stays concentric with it.
+        if mainPaneRoundsFromTabs { return chromeRowConcentricCardRadius(windowCornerRadius: windowCornerRadius) }
+        return windowConcentricCornerRadius(windowCornerRadius: windowCornerRadius, edgeInset: max(gutter, PaneTabRowRim.height),
+                                            setting: DesignSettings.shared.paneChrome.cornerRadius.map(scale))
+    }
+
+    /// Whether the curved main pane rounds from its tabs (``chromeRowConcentricCardRadius(windowCornerRadius:)``):
+    /// Chrome's tab radius applies (``usesChromeRowCorner``), the card has a gutter, no outline and no
+    /// Debug Settings radius, and the flush corner is off (its strip sits on the frame, not in the card).
+    public static var mainPaneRoundsFromTabs: Bool {
+        guard usesChromeRowCorner, mainPaneCurved, ChromeTunables.mainPaneCornerRadius.override == nil,
+              !CornerFlush.current.isOn, paneBorder == .none else { return false }
+        return mainPaneGutter > 0
+    }
+
+    /// The radius of the card a top-row pill strip nests in, concentric with its tabs: Chrome's tab
+    /// radius (``chromeRowCornerRadius(height:)`` at ``tabHeight``) plus the pill's inset from the
+    /// card's corner (``tabStripCardInset``), at most the window's radius (the titled window's when
+    /// `windowCornerRadius` is 0), so the card never rounds more than the window it sits in.
+    public static func chromeRowConcentricCardRadius(windowCornerRadius: CGFloat) -> CGFloat {
+        let window = windowCornerRadius > 0 ? windowCornerRadius : standardWindowCornerRadius
+        return min(chromeRowCornerRadius(height: tabHeight) + tabStripCardInset, window)
+    }
+
+    /// The radius of a card `edgeInset` points inside a window whose corners have
+    /// `windowCornerRadius`, equal on every side it meets: the window's radius less the inset, so the
+    /// two curves share a center (``ConcentricCorners``). A square window (fullscreen, borderless,
+    /// radius 0) keeps the titled window's radius (``standardWindowCornerRadius``), so a fullscreen
+    /// toggle reshapes nothing. A `setting` (`layout.paneCornerRadius`) wins, at most the window's
+    /// own radius.
+    ///
+    /// ```swift
+    /// Metrics.windowConcentricCornerRadius(windowCornerRadius: 16, edgeInset: 6, setting: nil) // 10
+    /// Metrics.windowConcentricCornerRadius(windowCornerRadius: 16, edgeInset: 6, setting: 20)  // 16
+    /// ```
+    public static func windowConcentricCornerRadius(windowCornerRadius: CGFloat, edgeInset: CGFloat, setting: CGFloat?) -> CGFloat {
+        if let setting { return windowCornerRadius > 0 ? min(max(0, setting), windowCornerRadius) : max(0, setting) }
+        let window = windowCornerRadius > 0 ? windowCornerRadius : standardWindowCornerRadius
+        return ConcentricCorners(outer: window, padding: 0).nested(in: window, inset: edgeInset)
     }
     /// How far the main pane stays inside a window edge it meets: `inset`, and at least the window's
     /// lit rim (``PaneTabRowRim/height``, the edge highlight the window's glass draws just inside its
@@ -113,6 +159,8 @@ extension Metrics {
     /// is edge to edge.
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
+        // The flush corner shades its frame so the card reads on the one surface.
+        if CornerFlush.current.isOn { return CornerFlush.current.shade(isDark: isDark) }
         let style = DesignSettings.shared.chromeStyle
         let tunable = isDark ? ChromeTunables.mainPaneShadeDark : ChromeTunables.mainPaneShadeLight
         let separate = tunable.override.map { CGFloat($0) } ?? style.separateShade(isDark: isDark) ?? CGFloat(tunable.defaultValue)

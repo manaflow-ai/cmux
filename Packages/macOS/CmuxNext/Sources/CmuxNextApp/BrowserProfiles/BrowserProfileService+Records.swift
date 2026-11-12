@@ -94,6 +94,17 @@ extension BrowserProfileService {
         try update(UpdateBrowserProfileRequest(id: id, icon: icon.map { .set($0) } ?? .clear))
     }
 
+    /// `cmux browser profile proxy set|clear` (nil clears) and `move` (0-based): only daemon records hold them.
+    func setProxy(_ id: String, _ proxy: BrowserProfileSnapshot.Proxy?) throws {
+        guard usesDaemonRecords else { throw DaemonError.missingCapabilities([DaemonCapability.browserProfiles.rawValue]) }
+        try update(UpdateBrowserProfileRequest(id: id, proxy: proxy.map { .set($0) } ?? .clear))
+    }
+    func move(_ id: String, to index: Int) throws {
+        guard usesDaemonRecords else { throw DaemonError.missingCapabilities([DaemonCapability.browserProfiles.rawValue]) }
+        guard isKnown(id) else { throw BrowserProfileBookError.unknownProfile }
+        services.machines.local.send("move-browser-profile") { try await $0.moveBrowserProfile(id, to: max(index, 0)) }
+    }
+
     private func update(_ request: UpdateBrowserProfileRequest) throws {
         guard isKnown(request.id) else { throw BrowserProfileBookError.unknownProfile }
         services.machines.local.send("update-browser-profile") { try await $0.updateBrowserProfile(request) }

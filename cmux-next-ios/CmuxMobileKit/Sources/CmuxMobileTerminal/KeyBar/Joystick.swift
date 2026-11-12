@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import Observation
 import SwiftUI
 import UIKit
@@ -162,7 +163,7 @@ struct JoystickThumbOverlay: View {
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
                     .position(x: engine.center.x - origin.x + engine.thumb.width,
                               y: engine.center.y - origin.y + engine.thumb.height)
-                    .animation(engine.touching ? nil : .spring(response: 0.3, dampingFraction: 0.6), value: engine.thumb)
+                    .animation(engine.touching ? nil : Animation.spring(response: 0.3, dampingFraction: 0.6).unlessReduceMotion, value: engine.thumb)
             }
         }
         .allowsHitTesting(false)

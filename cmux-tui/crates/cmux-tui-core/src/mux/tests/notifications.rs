@@ -947,3 +947,59 @@ fn a_posted_notification_remembers_its_event_number_and_poster() {
     assert_eq!(mux.notification_post(&plain.id).unwrap().poster, None);
     mux.shutdown();
 }
+
+/// W1-B: a terminal bell's mark is a `Notification` event with `desktop: false`
+/// and the terminal source, so every client (local, and remote through the
+/// subscribe `notification` event that carries `desktop`) can pass it on to its
+/// host as a bell without a banner, and a second bell on the unread mark posts
+/// nothing.
+#[test]
+fn attention_a_bell_posts_one_notification_event_without_a_desktop_banner() {
+    let mux = Mux::new("attention-bell-event", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let events = mux.subscribe();
+
+    mux.post_bell_notification(surface.id);
+    mux.post_bell_notification(surface.id);
+
+    let bells = events
+        .try_iter()
+        .filter_map(|event| match event {
+            MuxEvent::Notification(note) if note.title == "Bell" => Some(note),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(bells.len(), 1, "the unread mark absorbs the second bell");
+    let bell = &bells[0];
+    assert!(!bell.desktop);
+    assert_eq!(bell.surface, Some(surface.id));
+    assert_eq!(bell.source, NotificationSource::Terminal);
+}
+
+/// A cleared notification leaves nothing behind in memory: its post record (event number and
+/// poster) goes with its ledger row. Before, `notification_posts` dropped a post only when its
+/// row was evicted from the 256-row ledger, which a cleared row never is: every post that was
+/// cleared stayed for the daemon's life (agents post at each turn end; the panel clears them).
+#[test]
+fn clearing_notifications_frees_their_post_records() {
+    let mux = test_mux();
+    let terminal = mux.new_workspace(None, None).unwrap();
+    for round in 0..300 {
+        mux.create_durable_notification(
+            &Actor::Daemon,
+            &format!("post-{round}"),
+            "turn ended".into(),
+            None,
+            "".into(),
+            NotificationLevel::Info,
+            Some(terminal.id),
+            NotificationSource::Cli,
+        )
+        .unwrap();
+        let clear = WorkspaceMutation::daemon(format!("clear-{round}"), "test").unwrap();
+        mux.clear_notifications(&clear, None, None).unwrap();
+    }
+    assert!(mux.resource_notifications(8).is_empty());
+    let posts = mux.notification_posts.lock().unwrap().len();
+    assert_eq!(posts, 0, "cleared notifications keep {posts} post records");
+}

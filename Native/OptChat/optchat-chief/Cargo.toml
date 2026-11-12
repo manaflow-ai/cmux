@@ -6,8 +6,13 @@ description = "An OptChat Chief for cmux-next Home: the brain-host contract of m
 license = "GPL-3.0-or-later"
 publish = false
 
-# Its own workspace and lockfile (like Native/DiffSidecar): the Chief ships in the app bundle.
+# The OptChat workspace and its one lockfile (like Native/DiffSidecar, apart from
+# cmux-tui's): the Chief ships in the app bundle. The other OptChat crates it
+# builds are members and name it in `package.workspace`. chief-turn stays a
+# workspace of its own: backend/chief-cc/bake.sh builds its runner from that
+# directory alone (Cargo.toml, Cargo.lock, src) in the Cloud Chief's image.
 [workspace]
+members = ["../chief-kernel", "../optchat-core", "../optchat-host", "../optchat-wasm"]
 
 [lib]
 name = "optchat_chief"
@@ -56,6 +61,11 @@ sha2 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # The four fingerprint words, the same list and derivation the app shows.
 cmux-server-core = { path = "../../../cmux-tui/crates/cmux-server-core" }
+# The settings file's path and JSONC dialect (src/agent_memory/settings.rs),
+# the daemon's own reader.
+cmux-config = { path = "../../../cmux-tui/crates/cmux-config" }
+# The MCP hub (src/mcp_hub): URL, command and OAuth rules, tool screening.
+cmux-mcp-connect = { path = "../../../cmux-tui/crates/cmux-mcp-connect" }
 
 [features]
 # Only the tests' in-process fake acpmux daemons: a socket peer that is this
@@ -74,3 +84,13 @@ regex = "1"
 [profile.release]
 lto = "fat"
 codegen-units = 1
+
+# optchat-wasm's release build for the hosted placement (experiments/chief-optmem/
+# scripts/build-optchat-wasm.sh: --profile wasm-release): the settings it had as
+# its own workspace (opt-level "s", lto, the default codegen units). A member's
+# own [profile] is ignored, so they live here.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 16

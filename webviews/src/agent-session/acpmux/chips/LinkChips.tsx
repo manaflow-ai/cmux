@@ -21,8 +21,7 @@ import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName } from "./paths";
 import { useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
-import { pullRequestRef } from "./pullRequestCardModel";
-import { usePullRequestState } from "./pullRequestStore";
+import { githubItemRef } from "./pullRequestCardModel";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { useAgentLinkClick } from "../conversation/sessionRefModel";
@@ -133,8 +132,19 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
 
 /// A web link: its text and `icon` (GitHub, arXiv) when given, both known before any lookup. The
 /// hover card names the site, shows its favicon and title, and offers Open and Open in. The anchor
-/// keeps the host's link-click path.
-export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNode; children: ReactNode }) {
+/// keeps the host's link-click path. `reference`: it draws as a reference chip (whole on one line,
+/// its mark centred) though its address is no pull request's, as a nightly build's or a run's does.
+export function UrlChip({
+  href,
+  icon,
+  reference = false,
+  children,
+}: {
+  href: string;
+  icon?: ReactNode;
+  reference?: boolean;
+  children: ReactNode;
+}) {
   const privateHost = isPrivateUrl(href);
   const known = useSiteInfo(href);
   // A dev server's or a device's page is never dressed as a site, whatever cmux browsed there.
@@ -153,11 +163,10 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const cardMark = mark ?? favicon ?? <Globe size={16} className="cv-chip__icon" />;
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
-  const pullRequest = pullRequestRef(href);
-  // A pull request's mark takes its state's colour once the host knows it, as GitHub draws a
-  // reference and as the card's glyph does: merged purple (Leo 2026-10-23, of a merged #23835's
-  // blue chip: "I feel like this should be purple"). Colour only, so the chip never reflows.
-  const state = usePullRequestState(pullRequest?.url);
+  // A pull request or an issue gets the card (Leo 2026-11-08). Its mark keeps the link's colour,
+  // as any link does: no state colour that turned it purple once a hover read the pull request
+  // (Lucas, 2026-11-11: "we'll just keep it blue since its a link"). The card's glyph says its state.
+  const pullRequest = githubItemRef(href);
   // An agent link (`cmux.com/deeplink/agent?...`) opens the reader's own session's chat
   // (conversation/SessionRef.tsx); its web page otherwise.
   const agent = useAgentLinkClick(href);
@@ -207,8 +216,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
     <>
       <a
         ref={setAnchor}
-        className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
-        data-pr-state={state}
+        className={`cv-link cv-chip is-web${ref || reference ? " is-ref" : ""}`}
         data-session-ref={agent["data-session-ref"]}
         // A link to one of the reader's chats right-clicks as that chat (menuParts.ts `session`).
         data-open-session={agent["data-open-session"]}
@@ -238,7 +246,13 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
           hover={hover}
           mark={cardMark}
           siteTitle={site?.title}
-          pullRequest={pullRequest && { ...pullRequest, title: githubRefTitle(site?.title) }}
+          pullRequest={
+            pullRequest && {
+              repo: pullRequest.repo,
+              number: pullRequest.number,
+              title: githubRefTitle(site?.title),
+            }
+          }
         />
       )}
     </>

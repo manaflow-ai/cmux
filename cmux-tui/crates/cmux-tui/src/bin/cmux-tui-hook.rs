@@ -113,6 +113,19 @@ fn run_reading(
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
     let native = payload()?;
+    let session = native.get("session_id").and_then(Value::as_str).map(str::to_owned);
+    let session = session.as_deref();
+    // A Claude that another Claude of this terminal started (plugin_copy.rs)
+    // still waits for the repository below; it only reports nothing.
+    let nested = plugin_copy::claimed_elsewhere(&args.source, session, |name| env::var_os(name));
+    if !nested
+        && plugin_copy::stands_down(&args.source, &args.native_event, session, |name| {
+            env::var_os(name)
+        })
+    {
+        inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
+        return Ok(());
+    }
     #[cfg(unix)]
     if let Err(error) = cmux_git::native_hook::wait(
         &args.source,
@@ -125,6 +138,13 @@ fn run_reading(
         println!("{}", cmux_git::native_hook::denial(&error.to_string()));
         return Ok(());
     }
+    if nested {
+        inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
+        return Ok(());
+    }
+    plugin_copy::claim_terminal(&args.source, &args.native_event, session, |name| {
+        env::var_os(name)
+    });
     let result = run_after_ready(&args, exe_prefix, native);
     if result.is_err()
         && args.native_event == "PreToolUse"
@@ -139,7 +159,10 @@ fn run_reading(
 }
 
 fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::Result<()> {
-    let inbox = inbox::Delivery::for_event(&args.source, &args.native_event);
+    let inbox = inbox::Delivery::for_event(&args.source, &args.native_event).or_else(|| {
+        session_context::applies(&args.source, &args.native_event, |name| env::var_os(name))
+            .then_some(inbox::Delivery::SessionContext)
+    });
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         inbox::print_nothing(inbox);
         return Ok(());
@@ -181,6 +204,9 @@ fn run_after_ready(args: &Args, exe_prefix: &[&str], native: Value) -> anyhow::R
     match inbox {
         Some(inbox::Delivery::SessionBanner) => {
             inbox::session_banner(terminal.as_deref(), &start_source);
+        }
+        Some(inbox::Delivery::SessionContext) => {
+            session_context::print(&socket, terminal.as_deref());
         }
         Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
         None => {}
@@ -239,9 +265,17 @@ use journal_append::{
 #[path = "cmux-tui-hook/inbox.rs"]
 mod inbox;
 
+/// The Claude Code plugin's copy of the hooks, beside an installed copy.
+#[path = "cmux-tui-hook/plugin_copy.rs"]
+mod plugin_copy;
+
 /// cmux's line under Claude Code's startup banner: how the session compacts.
 #[path = "cmux-tui-hook/session_banner.rs"]
 mod session_banner;
+
+/// Where the agent runs, for the model at session start.
+#[path = "cmux-tui-hook/session_context.rs"]
+pub(crate) mod session_context;
 
 /// The session socket and terminal that receive this event: the terminal's
 /// own `CMUX_TUI_*` values; for an agent that clears its hooks' environment
@@ -365,7 +399,9 @@ fn settle_detached_child(mut child: DetachedChildGuard, reader: std::thread::Joi
 }
 
 fn handoff_wait(source: &str, native_event: &str) -> Duration {
-    if source == "codex" && native_event == "SessionEnd" {
+    // Codex SessionStart also reads the session context after the handoff
+    // (session_context.rs, 1.5 s), all inside the 5 s hook timeout.
+    if source == "codex" && matches!(native_event, "SessionEnd" | "SessionStart") {
         CODEX_SESSION_END_HANDOFF_WAIT
     } else {
         HANDOFF_WAIT
@@ -848,6 +884,8 @@ mod tests {
     #[test]
     fn codex_session_end_handoff_stays_below_the_codex_hook_cap() {
         assert!(handoff_wait("codex", "SessionEnd") < Duration::from_secs(3));
+        // The session context read (session_context.rs) still fits in 5 s.
+        assert!(handoff_wait("codex", "SessionStart") < Duration::from_secs(3));
         assert_eq!(handoff_wait("codex", "Stop"), HANDOFF_WAIT);
         assert_eq!(handoff_wait("claude", "SessionEnd"), HANDOFF_WAIT);
     }

@@ -20,9 +20,16 @@
 // second after the last one, never a loop that runs while the page is still.
 //
 // No text of the chat goes out: kinds, numbers and short words. Events are sent in batches at
-// most once a second, through the app's own WebKit handler only: the gallery's stand-in and tests send nothing.
+// most once a second, fire and forget: on the shared page host as the `cmux.agent.diag.flicker` op
+// (AgentPageProvider), else through the app's own WebKit handler. The gallery's stand-in for that
+// handler, and tests that hand it no sender, send nothing. Before the page host sent them (Leo's
+// NIGHTLY, 2026-11-11), the ring file held no page line at all, only the app's own.
+
+import { postNative } from "./native";
 
 export type FlickerEvent = { kind: string; at: number } & Record<string, string | number | boolean>;
+/// Hands one batch to the app; it may return the host's (ignored) answer.
+export type FlickerSend = (events: FlickerEvent[]) => unknown;
 type Send = (events: FlickerEvent[]) => void;
 
 export const LONG_FRAME_MS = 100;
@@ -216,29 +223,54 @@ function observeLongFrames(
   }
 }
 
-/// Starts the detector once, in the app's own WebKit pane. A detector that cannot start never
-/// stops the pane from mounting.
-export function startFlickerLog(win: Window = window): void {
+/// The shared page host's sender: each batch is the `cmux.agent.diag.flicker` op, which the app
+/// writes to the ring file and answers at once (AgentPageProvider, before the pane's model).
+export function pageHostFlickerSend(post: typeof postNative = postNative): FlickerSend {
+  return (events) => post("diag.flicker", { events });
+}
+
+/// Starts the detector once: through `send` (the page host's, pageHostFlickerSend) when given, else
+/// through the app's own WebKit handler. A detector that cannot start never stops the pane from
+/// mounting.
+export function startFlickerLog(win: Window = window, send?: FlickerSend): void {
   try {
-    install(win);
+    install(win, send);
   } catch {
     // The pane matters more than its flicker record.
   }
 }
 
-function install(win: Window): void {
-  const handler = win.webkit?.messageHandlers?.agentSession;
-  // The gallery's stand-in for the app's handler (gallery/frame/agentPane.ts) gets no events.
-  if (log || !handler || (handler as { standIn?: boolean }).standIn) return;
-  const send: Send = (events) => {
+/// Tests: the page starts again with no detector.
+export function resetFlickerLogForTests(): void {
+  log?.flush();
+  log = undefined;
+}
+
+/// `send` that never throws and never waits: a batch the app refuses or loses is dropped.
+function quiet(send: FlickerSend): Send {
+  return (events) => {
     try {
-      void Promise.resolve(
-        handler.postMessage({ id: crypto.randomUUID(), method: "diag.flicker", params: { events } }),
-      ).catch(() => undefined);
+      void Promise.resolve(send(events)).catch(() => undefined);
     } catch {
-      // A page that lost its handler has nobody to tell.
+      // A page that lost its host has nobody to tell.
     }
   };
+}
+
+/// The old host's sender: the app's `agentSession` handler; none for the gallery's stand-in
+/// (gallery/frame/agentPane.ts) or a page without the handler.
+function webKitSend(win: Window): Send | undefined {
+  const handler = win.webkit?.messageHandlers?.agentSession;
+  if (!handler || (handler as { standIn?: boolean }).standIn) return undefined;
+  return quiet((events) =>
+    handler.postMessage({ id: crypto.randomUUID(), method: "diag.flicker", params: { events } }),
+  );
+}
+
+function install(win: Window, pageHostSend: FlickerSend | undefined): void {
+  if (log) return;
+  const send = pageHostSend ? quiet(pageHostSend) : webKitSend(win);
+  if (!send) return;
   const flicker = new FlickerLog(send);
   log = flicker;
   const doc = win.document;
@@ -257,7 +289,7 @@ function install(win: Window): void {
     () => win.performance.now(),
     (stats) => flicker.record("frames", stats),
   );
-  new MutationObserver(() => watch.arm()).observe(doc.documentElement, {
+  new (win as Window & typeof globalThis).MutationObserver(() => watch.arm()).observe(doc.documentElement, {
     childList: true,
     subtree: true,
     characterData: true,

@@ -10,6 +10,7 @@ import { JSDOM } from "jsdom";
 import { ShareDialogBody } from "./ShareDialog";
 import { translate } from "../i18n";
 import type { ShareView } from "./shareState";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -57,6 +58,7 @@ afterEach(async () => {
     });
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -118,6 +120,19 @@ test("General access is one button the size of its block, and Restricted turns t
   await act(async () => restricted!.click());
   await settle();
   expect(calls).toEqual(["general restricted"]);
+});
+
+// A signed-in guest on Anyone with the link may send (cmux#38102); a guest nobody signed in watches.
+// The row says so: its hint names both, and its role is the People rows' "Can send", never "Viewer".
+test("Anyone with the link says signed-in people can send and others can view", async () => {
+  const container = await render([]);
+  const row = container.querySelector<HTMLButtonElement>(".share-dialog__general")!;
+  expect(row.querySelector(".share-dialog__hint")?.textContent).toBe(
+    "Signed-in people can send messages; others can view",
+  );
+  const role = row.querySelector(".share-dialog__fixed-role")?.textContent;
+  expect(role).toBe(translate("share.role.talk"));
+  expect(role).not.toBe(translate("share.role.view"));
 });
 
 test("a person's row is one button for their role, with Remove its own button beside it", async () => {

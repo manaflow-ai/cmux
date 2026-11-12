@@ -23,7 +23,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
 import { railPlacement } from "../src/agent-session/acpmux/threadMinimap/model";
-import { sessionInfoStage } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { sessionInfoStage } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 
 await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {

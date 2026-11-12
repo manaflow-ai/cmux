@@ -41,6 +41,7 @@ export function FolderPopover({
   onPick,
   onBrowse,
   onNewWorktree,
+  onNewProject,
   onNoProject,
   noProject = false,
   note,
@@ -58,6 +59,8 @@ export function FolderPopover({
   onBrowse?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree of the current folder.
   onNewWorktree?(): void;
+  /// New Project: the chat starts in a new folder with an empty git repository (newtab/newProject.ts).
+  onNewProject?(): void;
   /// No folder (Leo 2026-10-18): the chat starts in no folder of
   /// the user's (its private one). Checked while `noProject`.
   onNoProject?(): void;
@@ -157,6 +160,7 @@ export function FolderPopover({
           ? [{ value: ACTION_EXTRA, text: t("composer.addAnotherFolder"), run: () => setAddingExtra(true) }]
           : []),
         ...(onNewWorktree ? [{ value: ACTION + "worktree", text: t("worktree.new"), run: onNewWorktree }] : []),
+        ...(onNewProject ? [{ value: ACTION + "project", text: t("project.new"), run: onNewProject }] : []),
         ...(onNoProject ? [{ value: ACTION + "none", text: t("project.noFolder"), run: onNoProject }] : []),
       ];
   const pinned = actions.map((action) => action.value);

@@ -4,6 +4,7 @@ import { DEVICE_ID, REPLAY_WINDOW_MS, checkDeviceSignature, readDeviceHeaders } 
 import { relayEntitlement } from "./billing";
 import { HOST_RELAY_HEADER, ORIGIN_HEADER, SCOPE_HEADER, SESSION_DEVICE_HEADER, STACK_TOKEN_HEADER, USER_HEADER, type Env } from "./env";
 import { ApiError, badRequest, errorResponse, json, notFound } from "./errors";
+import { internalCall, why } from "./internalCall";
 import { type Scope, mintTicket } from "./tickets";
 import { type IceServer, mintTurn } from "./turn";
 
@@ -73,6 +74,15 @@ export const OFFLINE_GRACE_MS = 30_000;
  * in the window wins. Env CLOSE_GRACE_MS overrides it.
  */
 export const CLOSE_GRACE_MS = 3_000;
+/**
+ * A device socket that sends nothing for this long is gone, FIN or not (a Mac
+ * that slept, a phone that lost signal, a killed app): it stops counting as
+ * online and is closed with SILENT_CLOSE. The apps ping every 30 s
+ * (DeviceHubSocket.pingInterval), so this is two missed pings plus 15 s.
+ */
+export const SILENT_MS = 75_000;
+/** Close code for a socket closed for silence. Not terminal: the app reconnects. */
+export const SILENT_CLOSE = 4004;
 const PERMISSION_SCOPES: PermissionScope[] = ["none", "ask", "view", "full"];
 const RELAY_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -133,6 +143,16 @@ const ADDED_COLUMNS: [string, string, string][] = [
 ];
 const OWNED_TABLES = ["devices", "permissions", "sessions", "audit"];
 
+/** What a User DO socket carries across hibernation. */
+interface SocketState {
+  /** The server closed it (sign-out, removal, replacement, silence). */
+  closed?: boolean;
+  /** When it was accepted (ms). */
+  openedAt?: number;
+  /** When the device last sent a frame the auto-response did not answer (ms). */
+  heardAt?: number;
+}
+
 function rank(scope: string): number {
   return scope === "full" ? 2 : scope === "view" ? 1 : 0;
 }
@@ -179,6 +199,9 @@ export class UserDO extends DurableObject<Env> {
     const owner = this.sql.exec("SELECT v FROM meta WHERE k = 'user_id'").toArray()[0];
     if (owner) this.setOwner(owner.v as string);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG));
+    // Sockets restored from hibernation need the silence check armed: a socket
+    // accepted before this check existed has no clock until a sweep stamps it.
+    if (ctx.getWebSockets().length > 0) void ctx.blockConcurrencyWhile(() => this.scheduleAlarm());
   }
 
   // ---- owner (v1: always the user; team sharing later adds 'team' rows) ----
@@ -220,7 +243,26 @@ export class UserDO extends DurableObject<Env> {
    * frame, which an app that drops its socket never does.
    */
   private liveSockets(deviceId: string): WebSocket[] {
-    return this.ctx.getWebSockets(deviceId).filter((ws) => ws.readyState === WebSocket.OPEN && !(ws.deserializeAttachment() as { closed?: boolean } | null)?.closed);
+    const now = Date.now();
+    return this.ctx.getWebSockets(deviceId).filter((ws) => this.isLive(ws, now));
+  }
+
+  /** Open, not closed by the server, and heard from within SILENT_MS (a socket from before openedAt existed counts until the next sweep stamps it). */
+  private isLive(ws: WebSocket, now: number): boolean {
+    if (ws.readyState !== WebSocket.OPEN) return false;
+    const st = this.socketState(ws);
+    if (st.closed) return false;
+    return st.openedAt === undefined || this.lastHeard(ws, st) + SILENT_MS > now;
+  }
+
+  private socketState(ws: WebSocket): SocketState {
+    return (ws.deserializeAttachment() as SocketState | null) ?? {};
+  }
+
+  /** The last sign of life: the open, the last ping (answered by the auto-response without waking us), or any other frame. */
+  private lastHeard(ws: WebSocket, st = this.socketState(ws)): number {
+    const ping = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
+    return Math.max(st.openedAt ?? 0, st.heardAt ?? 0, ping);
   }
 
   private online(deviceId: string): boolean {
@@ -231,7 +273,7 @@ export class UserDO extends DurableObject<Env> {
   private closeSockets(deviceId: string, code: number, reason: string) {
     for (const ws of this.ctx.getWebSockets(deviceId)) {
       try {
-        ws.serializeAttachment({ closed: true });
+        ws.serializeAttachment({ ...this.socketState(ws), closed: true });
         ws.close(code, reason);
       } catch {
         // already closed
@@ -394,7 +436,7 @@ export class UserDO extends DurableObject<Env> {
       const plan = (await this.entitlement(c)) === "paid" ? "paid" : "free";
       return json({ userId: c.userId, plan, device: publicDevice(me, this.online(me.id)) });
     }
-    if (a === "user" && b === "ws" && n === 2 && m === "GET") return this.openSocket(request, me);
+    if (a === "user" && b === "ws" && n === 2 && m === "GET") return await this.openSocket(request, me);
     if (a === "devices") {
       if (n === 1 && m === "GET") {
         const rows = this.sql.exec("SELECT * FROM devices WHERE removed_at IS NULL ORDER BY created_at").toArray() as unknown as DeviceRow[];
@@ -429,19 +471,24 @@ export class UserDO extends DurableObject<Env> {
 
   // ---- devices ----
 
-  private openSocket(request: Request, me: DeviceRow): Response {
+  private async openSocket(request: Request, me: DeviceRow): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new ApiError(426, "bad_request", "expected a WebSocket upgrade");
     this.closeSockets(me.id, 4000, "replaced");
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [me.id]);
+    pair[1].serializeAttachment({ openedAt: Date.now() } satisfies SocketState);
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", me.id);
     // Everyone refetches, including this device: its cached list may say it is offline.
     this.broadcast({ type: "devices.changed" });
+    // The silence check: a device that never pings after connecting goes offline at the bound.
+    await this.scheduleAlarm();
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
-  async webSocketMessage(_ws: WebSocket, _message: string | ArrayBuffer): Promise<void> {
-    // Devices only send pings, answered by the auto-response without waking us.
+  async webSocketMessage(ws: WebSocket, _message: string | ArrayBuffer): Promise<void> {
+    // Pings are answered by the auto-response without waking us; any other frame still says the device is there.
+    const st = this.socketState(ws);
+    if (!st.closed) ws.serializeAttachment({ ...st, heardAt: Date.now() } satisfies SocketState);
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -455,20 +502,66 @@ export class UserDO extends DurableObject<Env> {
     this.broadcast({ type: "devices.changed" }, deviceId);
   }
 
-  async webSocketError(ws: WebSocket): Promise<void> {
+  async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     const [deviceId] = this.ctx.getTags(ws);
+    const reason = `error: ${why(error)}`;
+    console.warn(`device-hub: device ${deviceId ?? "?"}'s socket failed (${reason})`);
+    // A failed socket the runtime still lists as open must stop counting as online,
+    // or the offline alarm would see it live and drop the grace entry.
+    try {
+      ws.serializeAttachment({ ...this.socketState(ws), closed: true } satisfies SocketState);
+      ws.close(1011, reason.slice(0, 120));
+    } catch {
+      // already closed
+    }
     if (deviceId) await this.markOffline(deviceId, ws);
+    this.broadcast({ type: "devices.changed" }, deviceId);
   }
 
-  /** Starts the grace period for a device whose last socket went away. */
-  private async markOffline(deviceId: string, closing: WebSocket) {
+  /**
+   * Closes every socket silent for SILENT_MS: the device dropped without a FIN
+   * and the transport would not say so for minutes, or ever. Its offline grace
+   * counts from when it was last heard, so its sessions end in this same pass.
+   */
+  private async sweepSilent(now: number) {
+    const gone = new Set<string>();
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      const st = this.socketState(ws);
+      if (st.closed) continue;
+      if (st.openedAt === undefined) {
+        // Accepted before sockets carried openedAt: start its clock now.
+        ws.serializeAttachment({ ...st, openedAt: now } satisfies SocketState);
+        continue;
+      }
+      const heard = this.lastHeard(ws, st);
+      if (heard + SILENT_MS > now) continue;
+      const [deviceId] = this.ctx.getTags(ws);
+      const silentS = Math.round((now - heard) / 1000);
+      const reason = `silent ${silentS} s: no ping within ${SILENT_MS / 1000} s`;
+      console.warn(`device-hub: closing device ${deviceId ?? "?"}'s socket (${reason})`);
+      try {
+        ws.serializeAttachment({ ...st, closed: true } satisfies SocketState);
+        ws.close(SILENT_CLOSE, reason);
+      } catch {
+        // already closed
+      }
+      if (!deviceId) continue;
+      await this.markOffline(deviceId, ws, heard);
+      gone.add(deviceId);
+    }
+    for (const deviceId of gone) this.broadcast({ type: "devices.changed" }, deviceId);
+  }
+
+  /** Starts the grace period for a device whose last socket went away (at `since`, default now). */
+  private async markOffline(deviceId: string, closing: WebSocket, since = Date.now()) {
     const others = this.liveSockets(deviceId).filter((w) => w !== closing);
     if (others.length > 0) return;
     const d = this.device(deviceId);
     if (!d || d.removed_at !== null) return;
     const open = this.sql.exec("SELECT 1 FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?) LIMIT 1", deviceId, deviceId).toArray();
     if (open.length === 0) return;
-    this.sql.exec("INSERT INTO offline(device_id, since) VALUES (?, ?) ON CONFLICT(device_id) DO NOTHING", deviceId, Date.now());
+    this.sql.exec("INSERT INTO offline(device_id, since) VALUES (?, ?) ON CONFLICT(device_id) DO NOTHING", deviceId, since);
     await this.scheduleAlarm();
   }
 
@@ -477,7 +570,20 @@ export class UserDO extends DurableObject<Env> {
     return Number.isFinite(v) && v >= 0 && this.env.CLOSE_GRACE_MS ? v : CLOSE_GRACE_MS;
   }
 
-  /** One alarm serves both offline grace periods and provisional socket-close ends. */
+  /** The next time a live socket would pass SILENT_MS without a sign of life; null with no live socket. */
+  private nextSilence(now: number): number | null {
+    let next: number | null = null;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      const st = this.socketState(ws);
+      if (st.closed) continue;
+      const at = st.openedAt === undefined ? now : this.lastHeard(ws, st) + SILENT_MS;
+      if (next === null || at < next) next = at;
+    }
+    return next;
+  }
+
+  /** One alarm serves offline grace periods, provisional socket-close ends, pending expiry and socket silence. */
   private async scheduleAlarm() {
     const off = this.sql.exec("SELECT MIN(since) AS t FROM offline").one().t as number | null;
     const close = this.sql.exec("SELECT MIN(at) AS t FROM closing").one().t as number | null;
@@ -486,6 +592,7 @@ export class UserDO extends DurableObject<Env> {
       off === null ? null : off + OFFLINE_GRACE_MS,
       close === null ? null : close + this.closeGraceMs(),
       pending === null ? null : pending + PENDING_TTL_MS,
+      this.nextSilence(Date.now()),
     ].filter((t): t is number => t !== null);
     if (times.length === 0) return;
     const at = Math.min(...times);
@@ -496,6 +603,7 @@ export class UserDO extends DurableObject<Env> {
   /** Ends the sessions of devices that stayed offline past the grace period. */
   async alarm(): Promise<void> {
     const now = Date.now();
+    await this.sweepSilent(now);
     const closed = this.sql.exec("SELECT session_id, reason FROM closing WHERE at + ? <= ?", this.closeGraceMs(), now).toArray();
     for (const c of closed) {
       const s = this.session(c.session_id as string);
@@ -702,16 +810,18 @@ export class UserDO extends DurableObject<Env> {
     const viewer = this.device(s.viewer_id)!;
     const host = this.device(s.host_id)!;
     const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
-    const init = await stub.fetch("https://session.do/internal/init", {
-      method: "POST",
-      body: JSON.stringify({
+    const init = await internalCall(
+      stub,
+      "https://session.do/internal/init",
+      {
         sid: s.id,
         userId: c.userId,
         scope: s.scope,
         viewer: { id: viewer.id, key: viewer.signing_key },
         host: { id: host.id, key: host.signing_key },
-      }),
-    });
+      },
+      `session ${s.id} init`,
+    );
     // Ended during init: endSession closed the Session DO (a close that got there
     // first makes init refuse), so there is nothing to start.
     if (!this.stillOpen(s.id)) return;
@@ -793,7 +903,13 @@ export class UserDO extends DurableObject<Env> {
     this.send(s.host_id, msg);
     if (closeSignal && current.state !== "pending") {
       const stub = this.env.SESSION_DO.get(this.env.SESSION_DO.idFromName(s.id));
-      await stub.fetch("https://session.do/internal/close", { method: "POST", body: JSON.stringify({ reason }) });
+      // The session is ended here either way; a Session DO that does not answer keeps
+      // its sockets until the devices act on the push above.
+      try {
+        await internalCall(stub, "https://session.do/internal/close", { reason }, `session ${s.id} close (${reason})`);
+      } catch (err) {
+        console.error(`device-hub: ${why(err)}`);
+      }
     }
   }
 

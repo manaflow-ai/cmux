@@ -10,7 +10,7 @@ extension PaletteArgumentFlow {
                       collected: ActionInvocation) -> (@MainActor (String) -> [PaletteItem])? {
         guard let creator = creators[kind] else { return nil }
         let laterSteps = descriptor.arguments.contains { other in
-            other.name != argument.name && (other.isRequired || other.name == ask?.argument) && collected.arguments[other.name] == nil
+            other.name != argument.name && (other.palettePrompts || other.name == ask?.argument) && collected.arguments[other.name] == nil
         }
         guard !laterSteps else { return nil }
         let flow = self

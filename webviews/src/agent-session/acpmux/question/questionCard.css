@@ -39,17 +39,28 @@
   align-items: flex-start;
 }
 .acpmux-question-other .acpmux-question-mark {
-  margin-top: 3px;
+  margin-top: var(--ds-space-1);
+}
+/* The custom answer while it is typed (Leo 2026-11-05, of the filled block it was: "kind of ugly"):
+   the row keeps no fill and the words sit in a quiet field, a hairline ring that firms up while it
+   has the keyboard, so it reads as a place to type rather than a selected option. */
+.acpmux-question-row.acpmux-question-other[data-row-editing] {
+  background-color: transparent;
 }
 .acpmux-question-other :is(input, textarea) {
   flex: 1;
   min-width: 0;
   min-height: var(--ds-control-compact, 24px);
   box-sizing: border-box;
-  padding: 0;
+  /* The field's padding sits in a matching negative margin, so typing into Other draws the field
+     without growing the row: nothing under it moves (gallery health's layout-shift row). */
+  margin-block: calc(-1 * var(--ds-space-1));
+  padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
+  border-radius: var(--ds-radius-control);
   outline: none;
-  background: none;
+  background: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-question-edge);
   color: var(--agent-text);
   font: inherit;
   line-height: var(--text-control--line-height, 18px);
@@ -61,6 +72,9 @@
   overflow-y: auto;
   overflow-wrap: anywhere;
 }
+.acpmux-question-other :is(input, textarea):focus-visible {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 35%, transparent);
+}
 .acpmux-question-other :is(input, textarea)::placeholder {
   color: var(--agent-muted);
 }
@@ -69,8 +83,7 @@
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-question-edge);
+  padding: 4px 12px 12px;
 }
 /* A yes-or-no ask (model.ts consentChoice), as ChatGPT's consent card draws it: the question with
    one muted line of what Allow does under it, then its two buttons with their keys, Allow filled. */
@@ -91,9 +104,4 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-.acpmux-question-skip .acpmux-keycap {
-  margin: 0;
-  opacity: 0.7;
-  letter-spacing: 0.04em;
 }

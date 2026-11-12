@@ -1,43 +1,18 @@
-// A pull request's body and its comments, rendered (GitHub flavored: tables, task lists,
-// strikethrough). Like the diff viewer's Rich preview (MarkdownPreview.tsx) it draws marked's tokens
-// as React elements and never sets HTML, so nothing in a body can run or restyle the page: raw HTML
-// shows as its text (an HTML comment, a pull request template's hint, shows nothing), an image
-// shows its alt text as a link to it (the page's policy loads no remote images), and a link opens
-// through the host only when it is https, on the person's click.
+// A pull request's body and its comments. When the host sent GitHub's own rendering (`bodyHTML`),
+// githubHTML.tsx draws that from its allowlist. Otherwise, or where it cannot parse, this renders
+// the Markdown (GitHub flavored: tables, task lists, strikethrough). Like the diff viewer's Rich
+// preview (MarkdownPreview.tsx), it draws marked's tokens as React elements and never sets HTML, so
+// nothing in a body can run or restyle the page: raw HTML shows as its text (an HTML comment, a
+// pull request template's hint, shows nothing), an image shows its alt text as a link to it, and
+// a link opens through the host only when it is https, on the person's click.
 import { lexer, type Token, type Tokens } from "marked";
 import { Fragment, useMemo, type ReactNode } from "react";
+import { githubHTML } from "./githubHTML";
+import { Link, type Open } from "./githubLink";
 
-type Open = (url: string) => void;
+export { openableLink } from "./githubLink";
 
 const HTML_COMMENT = /^\s*<!--[\s\S]*?-->\s*$/;
-
-/** `href` when the page may open it: an absolute https link. */
-export function openableLink(href: string): string | undefined {
-  try {
-    const url = new URL(href);
-    return url.protocol === "https:" ? url.href : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function Link({ href, open, children }: { href: string; open: Open; children: ReactNode }) {
-  const url = openableLink(href);
-  if (!url) return <span className="gh-md-link">{children}</span>;
-  return (
-    <a
-      className="gh-md-link"
-      href={url}
-      title={url}
-      onClick={(event) => {
-        event.preventDefault();
-        open(url);
-      }}
-    >
-      {children}
-    </a>
-  );
-}
 
 function inline(tokens: readonly Token[] | undefined, open: Open): ReactNode {
   return (tokens ?? []).map((token, index) => <Fragment key={index}>{inlineToken(token, open)}</Fragment>);
@@ -178,8 +153,10 @@ function blocks(tokens: readonly Token[], open: Open): ReactNode {
   return tokens.map((token, index) => block(token, index, open));
 }
 
-/** `source`, rendered; links open through `open`. */
-export function GitHubMarkdown({ source, open }: { source: string; open: Open }) {
-  const tokens = useMemo(() => lexer(source, { gfm: true }), [source]);
-  return <div className="gh-md">{blocks(tokens, open)}</div>;
+/** GitHub's own rendering of the body when the host sent it (githubHTML.tsx), else `source`
+ * rendered here; links open through `open`. */
+export function GitHubMarkdown({ source, html, open }: { source: string; html?: string; open: Open }) {
+  const drawn = useMemo(() => (html ? githubHTML(html, open) : null), [html, open]);
+  const tokens = useMemo(() => (drawn ? [] : lexer(source, { gfm: true })), [drawn, source]);
+  return <div className="gh-md">{drawn ?? blocks(tokens, open)}</div>;
 }

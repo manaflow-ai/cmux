@@ -2,7 +2,8 @@ import { type StringKey, type Translate, translate } from "./i18n";
 import { ageWithDate } from "./timeLabels";
 import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "./needsYou/model";
 import type { AttentionTab } from "./needsYou/attentionTabs";
-import { activityTime, type AcpmuxSessionEntry, listed, withoutChildren } from "./sessionList";
+import { sessionIndex } from "./sessionIndex";
+import { activityTime, type AcpmuxSessionEntry, folded, listed, withoutChildren } from "./sessionList";
 
 /// Home-list copy: keys of the pane's string table.
 export const HOME_LABELS = {
@@ -24,17 +25,50 @@ export function homeLists(
   asks: readonly WatchedAsk[] = [],
   tabs: readonly AttentionTab[] = [],
 ): { waiting: NeedsYouItem[]; review: AcpmuxSessionEntry[] } {
-  const others = withoutChildren(sessions.filter(listed))
-    .filter((session) => session.sessionId !== currentId)
-    .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
+  const index = sessionIndex(sessions);
+  // A list that names an id twice (a peer's copy) takes the pass over every chat, which tells copies apart.
+  if (!index.unique) return wholeHomeLists(sessions, currentId, asks, tabs);
+  // Whether a chat shows on the home: listed, not folded under a listed parent, not this chat. Asked
+  // of the few rows the lists hold, through the list's shared index (sessionIndex.ts), so one
+  // session's change costs those rows, not a pass over every listed chat.
+  const parents = {
+    has: (id: string) => {
+      const parent = index.get(id);
+      return parent !== undefined && listed(parent) && !parent.spawnedBy;
+    },
+  };
+  const shows = (session: AcpmuxSessionEntry | undefined) =>
+    session !== undefined && session.sessionId !== currentId && listed(session) && !folded(session, parents);
+  return {
+    waiting: needsYouItems({ sessions, asks, tabs }).filter(
+      (item) => item.kind === "tab" || shows(index.get(item.sessionId)),
+    ),
+    review: newestReviewReady(index.of("openPullRequest").filter(shows)),
+  };
+}
+
+/// `homeLists` as one pass over every chat.
+function wholeHomeLists(
+  sessions: AcpmuxSessionEntry[],
+  currentId: string | undefined,
+  asks: readonly WatchedAsk[],
+  tabs: readonly AttentionTab[],
+): { waiting: NeedsYouItem[]; review: AcpmuxSessionEntry[] } {
+  const others = withoutChildren(sessions.filter(listed)).filter((session) => session.sessionId !== currentId);
   const shown = new Set(others.map((session) => session.sessionId));
   return {
     waiting: needsYouItems({ sessions, asks, tabs }).filter((item) => item.kind === "tab" || shown.has(item.sessionId)),
-    review: others
-      .filter((session) => session.pullRequest?.state === "open" && session.pullRequest.reviewReady)
-      .slice(0, HOME_ROWS),
+    review: newestReviewReady(others),
   };
 }
+
+/// The open pull requests ready for review among `shown`, newest first. Only the rows it shows are
+/// sorted: a stable sort of the filtered rows keeps the order a sort of every chat would.
+const newestReviewReady = (shown: readonly AcpmuxSessionEntry[]) =>
+  shown
+    .filter((session) => session.pullRequest?.state === "open" && session.pullRequest.reviewReady)
+    .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0))
+    .slice(0, HOME_ROWS);
 
 /// A compact age for a row's right edge, from milliseconds since the epoch.
 export function age(updatedAt: number | undefined, now = Date.now(), t: Translate = translate): string | undefined {

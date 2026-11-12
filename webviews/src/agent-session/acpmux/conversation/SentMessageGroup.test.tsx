@@ -15,8 +15,9 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { sendEntries, toolGroups } from "./toolGroups";
 import { ToolRows } from "./TurnRows";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { turnView } from "./turns";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -35,7 +36,7 @@ function installDom(): HTMLElement {
     "localStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -53,6 +54,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   resetTranscriptDisclosure();
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -197,7 +199,7 @@ test("a finished Claude turn of the loop draws the group's line, not 8 rows", ()
   // for"): its run draws in place, and that run is the one line.
   globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
   const view = turnView(rows, new Set(), { agentFamily: "claude" });
-  globalThis.cmuxExperiments = undefined;
+  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
   expect(view.some((row) => row.kind === "worked")).toBe(false);
   const run = view.find((row) => row.id === "run")!;
   expect(run).toBeDefined();

@@ -125,7 +125,8 @@ enum PaletteText {
         let key = SymbolKey(name: name, size: size)
         if let cached = symbols[key] { return cached }
         let configuration = NSImage.SymbolConfiguration(pointSize: size, weight: .regular)
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else {
+        guard let image = NSImage.packOverride(forSymbol: name, pointSize: size)
+            ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else {
             return nil
         }
         if symbols.count >= 1_024 { symbols.removeAll() }

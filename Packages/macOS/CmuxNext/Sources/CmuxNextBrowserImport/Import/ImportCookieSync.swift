@@ -67,6 +67,10 @@ public actor ImportCookieSync {
     /// The sources being watched now.
     public var watched: Set<String> { Set(watching.keys) }
 
+    /// No change is importing and no browser's sync is stopping now: what an import or a refused key
+    /// leaves (cookies written, the person told) is all there (tests wait on it).
+    var isSettled: Bool { importing.isEmpty && stopping.isEmpty }
+
     /// Shortens the sync's waits (tests); applies from the next start.
     func setTiming(debounce: Int, minimumInterval: Int) { timing = (debounce, minimumInterval) }
 

@@ -14,9 +14,12 @@ import Foundation
 enum BookmarkControl {
     static func methods(services: AppServices) -> [ControlMethod] {
         [
-            .mainActor("bookmark.list") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(list(services, call.params))
+            // Off the main actor: a search (`text`) runs on the home daemon (cmux-bookmarks-ops).
+            .async("bookmark.list") { [weak services] call in
+                let params = call.params
+                guard let services else { return .null }
+                guard let text = params["text"]?.stringValue, !text.isEmpty else { return await list(services, params) }
+                return try await search(services, params, text: text)
             },
             // Off the main actor: detection reads the browsers' data folders, the
             // same read-only pass as the import picker (no Keychain, no writes).
@@ -37,14 +40,28 @@ enum BookmarkControl {
         ]
     }
 
+    /// `text`'s matches, found by the home daemon; the main actor waits on nothing.
     @MainActor
-    static func list(_ services: AppServices, _ params: [String: JSONValue]) -> JSONValue {
+    static func search(_ services: AppServices, _ params: [String: JSONValue], text: String) async throws -> JSONValue {
         let profile = params["profile"]?.stringValue ?? BookmarkResolver(services: services).profile(.init())
+        do {
+            let found = try await services.bookmarks.routed.search(text, profile: profile, limit: params["limit"]?.intValue.map { max(1, $0) })
+            return list(services, params, profile: profile, nodes: found)
+        } catch {
+            throw ControlError(code: "unavailable", message: BookmarkAppStrings.failure(error))
+        }
+    }
+
+    /// The answer for `profile`; `nodes` are a search's results (else the folder's children, or every node).
+    @MainActor
+    static func list(_ services: AppServices, _ params: [String: JSONValue], profile chosen: String? = nil,
+                     nodes found: [BookmarkNode]? = nil) -> JSONValue {
+        let profile = chosen ?? params["profile"]?.stringValue ?? BookmarkResolver(services: services).profile(.init())
         // `tree` asks the daemon the first time, so read it before `isLoaded`.
         let tree = services.bookmarks.tree(profile)
         var nodes: [BookmarkNode]
-        if let text = params["text"]?.stringValue, !text.isEmpty {
-            nodes = BookmarkSearch.results(tree, text: text)
+        if let found {
+            nodes = found
         } else if let folder = params["folder"]?.stringValue {
             nodes = tree.children(of: folder)
         } else {

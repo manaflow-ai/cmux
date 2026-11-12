@@ -18,6 +18,7 @@ import { HEADER_GLYPH } from "../header/chatHeaderToolsModel";
 import { HeaderIcon } from "../header/HeaderIcon";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { Keycap } from "../Keycap";
 import { shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
@@ -25,33 +26,18 @@ import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import type { AskContext } from "./context";
 import { reply as questionReply, selection, type AgentQuestion, type QuestionReply } from "../question/model";
-
 import "./needsYou.css";
-import { type NeedsYouMode, askText, sideQuestionPrompt } from "./needsYouModel";
-export type NeedsYouActions = {
-  /// Sends a one-click answer; rejects when acpmux refused it.
-  answer(item: NeedsYouItem, answer: NeedsYouAnswer): Promise<unknown>;
-  /// Opens the chat the ask is in, at the ask.
-  goTo(item: NeedsYouItem): void;
-  /// Opens a side session about the asking chat (`_acpmux/btw`) beside it, its first prompt the
-  /// question seeded with the ask; rejects when it could not.
-  ask(item: NeedsYouItem, question: string): Promise<unknown>;
-  /// Sends an expanded question's whole answer (every item, an Other text); rejects when it was
-  /// refused or could not be sent from here (another chat's question opens that chat instead).
-  reply?(item: NeedsYouItem, sent: QuestionReply): Promise<unknown>;
-  /// The turns before the ask, for the context stage (context.ts).
-  context?(item: NeedsYouItem): AskContext;
-  /// Opens another chat's ask at `place`: on the right (the default, as Go to source), the
-  /// workspace whose tab shows it, or a new workspace (`chat.asks.open {where}`).
-  open?(item: NeedsYouItem, place: NeedsYouPlace): void;
-  /// Whether `open` can open the ask's chat: another chat on this pane's own acpmux, never the chat
-  /// on screen (its ask is already here) or another computer's.
-  opensElsewhere?(item: NeedsYouItem): boolean;
-};
+import {
+  answerKey,
+  askText,
+  keyedAnswer,
+  sideQuestionPrompt,
+  type NeedsYouActions,
+  type NeedsYouMode,
+  type NeedsYouPlace,
+} from "./needsYouModel";
 
-/// Where the expanded row opens another chat: `right` (the default), `workspace` (jump to the tab
-/// that shows the chat, in whatever workspace or window), `newWorkspace`.
-export type NeedsYouPlace = "right" | "workspace" | "newWorkspace";
+export type { NeedsYouActions, NeedsYouPlace } from "./needsYouModel";
 
 const PLACES: readonly { place: NeedsYouPlace; label: StringKey }[] = [
   { place: "right", label: "needsYou.openRight" },
@@ -195,8 +181,32 @@ export function NeedsYouPanel({
   const [sent, setSent] = useState<ReadonlySet<string>>(new Set());
   const shown = items.filter((item) => !sent.has(item.id));
   const missing = focus !== undefined && !items.some((item) => item.id === focus);
+  // y and n answer an approval as its card does: the row with focus, else the top one. The key
+  // presses the row's own button, so it answers once and says so when acpmux refuses.
+  const panel = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const element = panel.current;
+    if (!element) return;
+    const onKey = (event: KeyboardEvent) => {
+      const button = keyedAnswer(event, element);
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      button.click();
+    };
+    element.addEventListener("keydown", onKey);
+    return () => element.removeEventListener("keydown", onKey);
+  }, []);
   return (
-    <div ref={panelRef} className="acpmux-needs-you-panel" data-mode={mode} tabIndex={-1}>
+    <div
+      ref={(element) => {
+        panel.current = element;
+        if (panelRef) panelRef.current = element;
+      }}
+      className="acpmux-needs-you-panel"
+      data-mode={mode}
+      tabIndex={-1}
+    >
       <header className="acpmux-needs-you-head">
         <span className="acpmux-needs-you-title">{t("needsYou.title")}</span>
         {shown.length > 0 && <span className="acpmux-needs-you-total">{shown.length}</span>}
@@ -365,27 +375,33 @@ function NeedsYouRow({
         <div className="acpmux-needs-you-actions">
           {/* Claude's permission card: the answers as numbered rows, the first one ready. */}
           <fieldset className="acpmux-needs-you-options" aria-label={askText(item, t)}>
-            {item.answers.map((choice) => (
-              <button
-                key={choice.id}
-                type="button"
-                className="acpmux-needs-you-answer"
-                data-tone={choice.tone}
-                disabled={sending !== undefined}
-                aria-busy={sending === choice.id}
-                onClick={() => answer(choice)}
-              >
-                <span className="acpmux-needs-you-answer-label">
-                  {item.kind !== "held"
-                    ? choice.label
-                    : item.promptId
-                      ? t("queue.held.review")
-                      : choice.id === "resume"
-                        ? t("needsYou.resume")
-                        : choice.label}
-                </span>
-              </button>
-            ))}
+            {item.answers.map((choice) => {
+              const key = answerKey(item, choice);
+              return (
+                <button
+                  key={choice.id}
+                  type="button"
+                  className="acpmux-needs-you-answer"
+                  data-tone={choice.tone}
+                  data-answer-key={key}
+                  aria-keyshortcuts={key}
+                  disabled={sending !== undefined}
+                  aria-busy={sending === choice.id}
+                  onClick={() => answer(choice)}
+                >
+                  <span className="acpmux-needs-you-answer-label">
+                    {item.kind !== "held"
+                      ? choice.label
+                      : item.promptId
+                        ? t("queue.held.review")
+                        : choice.id === "resume"
+                          ? t("needsYou.resume")
+                          : choice.label}
+                  </span>
+                  {key && <Keycap>{key.toUpperCase()}</Keycap>}
+                </button>
+              );
+            })}
           </fieldset>
         </div>
       )}

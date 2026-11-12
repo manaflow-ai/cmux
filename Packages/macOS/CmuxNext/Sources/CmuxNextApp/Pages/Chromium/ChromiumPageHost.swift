@@ -26,6 +26,7 @@ final class ChromiumPageHost: PageChromiumHosting {
     private weak var keyRouter: KeyRouter?
     private let paneFocus: @MainActor (PageWebView) -> Bool
     private var pageProfile: BrowserProfileID?
+    let healthFeed: (any PageHealthFeed)?
 
     /// - Parameters:
     ///   - cef: The app's Chromium engine.
@@ -33,14 +34,17 @@ final class ChromiumPageHost: PageChromiumHosting {
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
     ///   - paneFocus: ``focusViewChanged(_:)``: applies the focus model of the pane showing the page again.
-    init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?, paneFocus: @escaping @MainActor (PageWebView) -> Bool) {
+    init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?, healthFeed: (any PageHealthFeed)? = nil, paneFocus: @escaping @MainActor (PageWebView) -> Bool) {
         self.cef = cef
+        self.healthFeed = healthFeed
         enginePreference = preference
         self.keyRouter = keyRouter
         self.paneFocus = paneFocus
     }
 
     func focusViewChanged(_ page: PageWebView) -> Bool { paneFocus(page) }
+    /// A page's Inspect Element row: its Chromium DevTools or Web Inspector (WebInspectorTargets).
+    func inspectPage(_ view: NSView) { (WebInspectorTargets.target(of: view) ?? nil)?.inspectElement() }
     var preference: BrowserDefaultEngine { enginePreference() }
 
     var isAvailable: Bool { cef.unavailableReason == nil }

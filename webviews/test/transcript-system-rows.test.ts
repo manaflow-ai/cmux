@@ -118,7 +118,7 @@ await requireBrowserLane("transcript-system-rows.test.ts", async () => {
     try {
       const port = (vite!.httpServer!.address() as { port: number }).port;
       await page.goto(
-        `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT, width: 1100, theme: theme.name, reducedMotion: "true" })}`,
+        `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT, width: 1100, theme: theme.name, reducedMotion: "true", exp: "background-turn-look", arm: "line" })}`,
       );
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
         timeout: 120_000,

@@ -68,14 +68,15 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "step-to-prose",
     between: "a run's last row and the reply's first line, centre to centre",
-    value: 38.375,
+    value: 34.375,
     tolerance: 1,
-    source: "11 + 16 + 11.375; chatgpt.com 16 box gap, ChatGPT desktop and Claude Code desktop ~40 centre",
+    source:
+      "11 + 12 + 11.375 (Lucas, 2026-11-11: 16 read as too much); chatgpt.com 16 box gap, ChatGPT desktop and Claude Code desktop ~40 centre",
   },
   {
     id: "prose-to-step",
     between: "a reply's last line and the run under it, centre to centre",
-    value: 38.375,
+    value: 34.375,
     tolerance: 1,
     source: "as step-to-prose (claude.ai 10 and 10, chatgpt.com 16 and 16: symmetric)",
   },
@@ -103,10 +104,10 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "step-to-live",
     between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
-    value: 38,
+    value: 34,
     tolerance: 0.5,
     source:
-      '22 line + scaled run gap 16; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
+      '22 line + scaled run gap 12; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
   },
 ];
 
@@ -162,9 +163,9 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
   {
     id: "child-to-prose",
     between: "an opened run's last command and the reply under it, centre to centre",
-    value: 38.375,
+    value: 34.375,
     tolerance: 1,
-    source: "as step-to-prose: 11 + 16 + 11.375",
+    source: "as step-to-prose: 11 + 12 + 11.375",
   },
   {
     id: "footer-to-prompt",
@@ -184,9 +185,9 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
   {
     id: "status-to-prose",
     between: "a finished compaction line and the reply under it, centre to centre",
-    value: 38.375,
+    value: 34.375,
     tolerance: 1,
-    source: "a status line keeps a run's 16 from prose (rule 4)",
+    source: "a status line keeps a run's 12 from prose (rule 4; Lucas, 2026-11-11)",
   },
   {
     id: "step-to-status",
@@ -201,7 +202,7 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
 /** The status rows at the bottom of a running turn (design/transcript-spacing.md, "Row kinds", the
  * status rows; Leo, 2026-11-03 04:44Z, on two captures of a running Claude chat where they stood
  * 55 to 70 apart, then cramped: "this is pretty bad spacing and formatting" / "i thought we made this
- * stuff smaller"). Each is a one-line row: a folded run, "Subagent finished", the live "Thinking"
+ * stuff smaller"). Each is a one-line row: a run's last call, "Subagent finished", the live "Thinking"
  * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to".
  * Activity rows sit flush on the 22 pitch; the live line takes the run gap below activity. Measured over gallery
  * variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt` by test/transcript-spacing-kinds.test.ts. */
@@ -211,7 +212,8 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
   {
     id: "work-to-subagent",
     variant: "working-bottom",
-    between: '"Sent a message, ran 3 commands, used 3 tools" and "Subagent finished" under it, centre to centre',
+    between:
+      'the running turn\'s last call ("Read src/turns.ts", its run in sight) and "Subagent finished" under it, centre to centre',
     value: 22,
     tolerance: 0.5,
     source: "one-line rows sit flush (rule 3)",
@@ -228,10 +230,10 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "waiting-to-live",
     variant: "working-bottom",
     between: '"1 message from 1 session" and the live "Thinking" line under it, the turn\'s last, centre to centre',
-    value: 38,
+    value: 34,
     tolerance: 0.5,
     source:
-      '22 line + scaled run gap 16; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
+      '22 line + scaled run gap 12 (Lucas, 2026-11-11: 16 read as too much); Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
   },
   {
     id: "reply-footer-to-received",
@@ -253,20 +255,20 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "sent-to-live",
     variant: "reply-received",
     between: '"Sent to" and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: 34,
     tolerance: 0.5,
     source:
-      '22 line + scaled run gap 16; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
+      '22 line + scaled run gap 12 (Lucas, 2026-11-11: 16 read as too much); Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
   },
   {
     id: "note-to-live",
     variant: "notes-live",
     between:
       'the last "Background task finished" note, after "Received 6 messages", and the live "Thinking" line under it, centre to centre',
-    value: 38,
+    value: 34,
     tolerance: 0.5,
     source:
-      '22 line + scaled run gap 16; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
+      '22 line + scaled run gap 12 (Lucas, 2026-11-11: 16 read as too much); Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
   },
   {
     id: "status-to-prompt",

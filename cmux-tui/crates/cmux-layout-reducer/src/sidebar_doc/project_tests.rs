@@ -238,6 +238,8 @@ fn archived_sorted_pinned_and_host_group_marks() {
     let mut sorted = group("g", &sec, None, "a");
     sorted.extra.insert(GROUP_SORT_KEY.into(), json!("name"));
     sorted.extra.insert(ARCHIVED_KEY.into(), json!(true));
+    sorted.extra.insert(GROUP_ROW_LIMIT_KEY.into(), json!("all"));
+    sorted.extra.insert(GROUP_REVEALED_KEY.into(), json!(40));
     let mut member = workspace("a1", &sec, Some("g"), "a");
     member.extra.insert(PINNED_IN_GROUP_KEY.into(), json!(true));
     let doc = Doc::from_parts(1, vec![section], vec![sorted, member]);
@@ -249,6 +251,8 @@ fn archived_sorted_pinned_and_host_group_marks() {
     );
     assert_eq!(projection.group_sorts.get("g").map(String::as_str), Some("name"));
     assert_eq!(projection.pinned_in_group, [ws_id("a1")]);
+    assert_eq!(projection.group_row_limits.get("g"), Some(&0), "the group's own cap: All");
+    assert_eq!(projection.group_revealed.get("g"), Some(&40));
     assert_eq!(projection.host_groups, [sec]);
 }
 

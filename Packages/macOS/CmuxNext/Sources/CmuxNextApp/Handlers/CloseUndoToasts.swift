@@ -18,8 +18,8 @@ import Observation
 /// closed items of that pane), and its
 /// action reopens exactly those records at their own places, never "the
 /// newest". Only a costly close shows it (`CloseToastRule`: several real
-/// tabs, an agent at work or an unsent chat, a terminal running a program);
-/// Settings, New Tab, History and one idle tab close silently, and Cmd-Shift-T
+/// tabs, an agent at work or an unsent chat); Settings, New Tab, History and
+/// one tab that is not working (a terminal too) close silently, and Cmd-Shift-T
 /// still reopens them. "Closed “title”" for one tab, "Closed N tabs" for
 /// several; closes made while a close toast shows join it, so one Undo
 /// reopens them all. Automation closes (CLI, agents) never announce, so they
@@ -119,14 +119,12 @@ final class CloseUndoToasts {
     /// A user's close of `ids` in `pane` (its close button, close others or
     /// to the right): announced, then closed, so its undo toast shows.
     /// An action run from automation (CLI, agents) closes without a toast.
-    /// A terminal doing work asks once first (`TabCloseGuard`).
-    static func close(in pane: PaneController, _ ids: [StripTabID]) {
-        close([(pane: pane, ids: ids)])
-    }
+    /// A terminal doing work asks once first (`TabCloseGuard`). `selecting` (`TabStripModel.selectionKeeping`) stays and is selected as the close runs.
+    static func close(in pane: PaneController, _ ids: [StripTabID], selecting: StripTabID? = nil) { close([(pane: pane, ids: ids)], selecting: selecting.map { (pane: pane, id: $0) }) }
 
     /// One gesture over tabs of several panes (a pane's close others): one
     /// question and one toast decision over every closing tab (cx-lb4al).
-    static func close(_ parts: [(pane: PaneController, ids: [StripTabID])]) {
+    static func close(_ parts: [(pane: PaneController, ids: [StripTabID])], selecting: (pane: PaneController, id: StripTabID)? = nil) {
         // A tab still being created is cancelled now and leaves the gesture: no question, read or daemon close for it (CancelledCreation).
         let pending = Set(parts.flatMap { part in part.ids.filter { part.pane.daemon.store.creations.isPending(tab: $0.rawValue) } })
         let resolved: [(pane: PaneController, ids: [StripTabID])] = parts.map { part in part.pane.close(part.ids.filter(pending.contains)); return (part.pane, part.ids.map { part.pane.tab($0).map { StripTabID($0.id) } ?? $0 }) } // a stand-in the store replaced: its tab's id, so that tab's page decides its close (#31837)
@@ -154,7 +152,8 @@ final class CloseUndoToasts {
         let panes = parts.map { part in (pane: { @MainActor [weak pane = part.pane] in pane }, ids: part.ids) }
         // One gesture, one daemon close and one closed group (`PaneController.close(_:)`): one Reopen
         // Closed brings every pane's tabs back, and one undo toast counts them all.
-        let closeAll = { @MainActor (undo: CloseUndoToasts?, costly: Bool) in
+        let closeAll = { @MainActor [weak kept = selecting?.pane, keptID = selecting?.id] (undo: CloseUndoToasts?, costly: Bool) in
+            if let kept, let keptID, kept.stripModel.tab(keptID) != nil { kept.select(keptID) } // after any question; a hide selected it already (TabCloseGuard)
             var closing: [(pane: PaneController, ids: [StripTabID])] = [], deciding: [(pane: PaneController, ids: [StripTabID])] = []
             for part in panes {
                 guard let pane = part.pane() else { continue }
@@ -185,9 +184,10 @@ final class CloseUndoToasts {
             PaneController.close(closing)
             for part in deciding { part.pane.services.closedTabs?.undoToasts.hidePages(part.ids, in: part.pane) } // they leave now too
         }
-        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts) { [weak services] asked, hidden in
-            guard user, let undo = services?.closedTabs?.undoToasts else { hidden?.lift(); return closeAll(nil, false) }
-            undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in hidden?.lift(); closeAll(undo, costly) }
+        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts, keeping: selecting) { [weak services] _, hidden in
+            hidden?.lift()
+            guard user, let undo = services?.closedTabs?.undoToasts else { return closeAll(nil, false) }
+            closeAll(undo, undo.isCostly(tabs))
         }
     }
 
@@ -197,28 +197,19 @@ final class CloseUndoToasts {
         hiddenPages.hide(tabs, in: pane, store: pane.daemon.store)
     }
 
-    /// `CloseToastRule`'s answer for `tabs`, read before their close runs: a
-    /// closed terminal ends, and could no longer say what it ran (cx-lb4al).
-    /// `asked` holds terminals the close's question already asked; when it
-    /// covers every terminal the rule asks about, the close runs at once.
-    func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:], window: NSWindow? = nil,
-                     then run: @escaping @MainActor (_ costly: Bool) -> Void) {
+    /// `CloseToastRule`'s answer for `tabs`, read before their close runs: whether the close earns its undo toast.
+    /// Synchronous: no terminal is asked what it runs (Lawrence 2026-11-09, one idle terminal's toast).
+    func isCostly(_ tabs: [TabModel]) -> Bool {
         switch services.map({ CloseToastRule(services: $0).decide(tabs) }) ?? .skip {
-        case .show: run(true)
-        case .skip: run(false)
-        case .askTerminals(let terminals) where asked.covers(terminals):
-            run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
-        case .askTerminals(let terminals):
-            let coordinator = services?.keyRouter.creationInputCoordinator, keys = coordinator?.beginClose(of: tabs, in: window)
-            // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the close
-            Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty); coordinator?.endClose(keys, in: window) }
+        case .show: true
+        case .skip: false
         }
     }
 
     /// No action run (a click in the strip) or a user-origin run.
     static var isUserClose: Bool { (ActionRunScope.current?.origin ?? .user) == .user }
 
-    /// The user is closing tabs `ids` of `pane` in one gesture; `costly` is `decideFirst`'s answer.
+    /// The user is closing tabs `ids` of `pane` in one gesture; `costly` is `isCostly`'s answer.
     func expectGroup(_ ids: [StripTabID], in pane: PaneController, costly: Bool) {
         expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, window: pane.view.window, costly: costly)
     }

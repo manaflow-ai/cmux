@@ -77,14 +77,56 @@ pub struct Refused {
 impl std::fmt::Display for Refused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.message.is_empty() {
-            write!(f, "{}", self.code)
+            write!(f, "{}", self.code)?;
         } else {
-            write!(f, "{}: {}", self.code, self.message)
+            write!(f, "{}: {}", self.code, self.message)?;
+        }
+        match next_step(&self.code) {
+            Some(next) => write!(f, ". Next: {next}"),
+            None => Ok(()),
         }
     }
 }
 
-pub(crate) fn refused(code: &str, message: impl Into<String>) -> Refused {
+pub use crate::github_connect::CONNECT_GITHUB;
+
+/// The one next step for a refusal the person can fix, or `None` (an outage, a bad answer:
+/// retrying is all there is). Leo, 2026-11-10: when the user is not connected, the error says
+/// exactly how to connect, and it is retryable once connected.
+pub fn next_step(code: &str) -> Option<String> {
+    match code {
+        "integration.not_found" | "github.not_connected" => Some(format!(
+            "GitHub is not connected for this cmux team: {CONNECT_GITHUB}. Then run the same \
+             command again; nothing needs setting up on this machine"
+        )),
+        "needs_reauth" => Some(format!(
+            "the team's GitHub connection needs linking again: {CONNECT_GITHUB}. Then run the \
+             same command again"
+        )),
+        "policy.denied" => Some(format!(
+            "the team's GitHub connection does not cover this repository: {CONNECT_GITHUB} and \
+             pick it on GitHub's page, or ask a team admin to allow it"
+        )),
+        _ => None,
+    }
+}
+
+/// Whether the same ask can succeed later with nothing changed on this machine: after the
+/// person connects (or reconnects) GitHub, or after a wait.
+pub fn retryable(code: &str) -> bool {
+    matches!(
+        code,
+        "integration.not_found"
+            | "github.not_connected"
+            | "needs_reauth"
+            | "integration.unavailable"
+            | "busy"
+            | "rate_limited"
+            | "vm.agent_unreachable"
+    )
+}
+
+pub fn refused(code: &str, message: impl Into<String>) -> Refused {
     Refused { code: code.to_owned(), message: message.into(), retry_after: None }
 }
 
@@ -101,7 +143,7 @@ pub fn retry_delay(e: &Refused) -> Option<Duration> {
 }
 
 /// [`ask_agent`], retried once after a retryable refusal.
-fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
+pub fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
     match ask_agent(socket, ask) {
         Err(e) => match retry_delay(&e) {
             Some(delay) => {
@@ -135,12 +177,21 @@ pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
 
 /// One line to the agent socket and its one JSON reply, read within `wait`.
 pub(crate) fn agent_reply(socket: &Path, line: &str, wait: Duration) -> Result<Value, Refused> {
-    let mut stream = UnixStream::connect(socket).map_err(|e| {
+    let stream = UnixStream::connect(socket).map_err(|e| {
         refused(
             "vm.agent_unreachable",
             format!("{} ({e}); `cmux github` works on a cmux Cloud machine", socket.display()),
         )
     })?;
+    reply_on(stream, line, wait)
+}
+
+/// [`agent_reply`] on a connected socket: one line out, one JSON line back.
+pub(crate) fn reply_on(
+    mut stream: UnixStream,
+    line: &str,
+    wait: Duration,
+) -> Result<Value, Refused> {
     let io = |e: std::io::Error| refused("vm.agent_unreachable", e.to_string());
     stream.set_read_timeout(Some(wait)).map_err(io)?;
     stream.set_write_timeout(Some(Duration::from_secs(5))).map_err(io)?;
@@ -691,8 +742,13 @@ pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
     match docs.into_iter().next() {
         None | Some(yaml_rust::Yaml::Null) => GhHosts::default(),
         Some(yaml_rust::Yaml::Hash(root)) => GhHosts {
-            // Trimmed: yaml-rust keeps a tab of indentation in the key.
-            hosts: root.keys().filter_map(|k| k.as_str().map(|h| h.trim().to_owned())).collect(),
+            // yaml-rust keeps the tabs of a tab-indented file at the start of
+            // the key: strip those only, so a quoted `" github.com "` stays
+            // another key rather than a github.com login.
+            hosts: root
+                .keys()
+                .filter_map(|k| k.as_str().map(|h| h.trim_start_matches('\t').to_owned()))
+                .collect(),
             unread: false,
         },
         Some(_) => unread,
@@ -723,7 +779,7 @@ pub fn gh_hosts_path(
     home.map(|h| h.join(".config/gh/hosts.yml"))
 }
 
-fn origin_url() -> Option<String> {
+pub fn origin_url() -> Option<String> {
     let out =
         std::process::Command::new("git").args(["remote", "get-url", "origin"]).output().ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
@@ -1093,8 +1149,13 @@ mod tests {
         );
         assert_eq!(out, "");
         assert_eq!(calls, 1);
-        assert_eq!(note.as_deref(), Some("o/r: integration.not_found: no GitHub connection"));
-        assert!(!note.unwrap().contains(SECRET));
+        let note = note.unwrap();
+        assert!(
+            note.starts_with("o/r: integration.not_found: no GitHub connection. Next: "),
+            "{note}"
+        );
+        assert!(note.contains("`cmux accounts github-connect`"), "{note}");
+        assert!(!note.contains(SECRET));
     }
 
     #[test]
@@ -1573,6 +1634,10 @@ mod tests {
             "  x:\n      github.com: 1\n",
             "{}\n",
             "# github.com:\n",
+            // cmux#35263: a quoted key with spaces is another host, not github.com.
+            "\" github.com \":\n  user: me\n",
+            "\"github.com \":\n  user: me\n",
+            "{\" github.com\": {user: me}}\n",
         ] {
             assert!(!hosts_has_github(hosts), "{hosts:?}");
         }

@@ -31,9 +31,10 @@ import Testing
             #expect(try row()["value"] == .string(managed ? "top" : "symbols"))
             #expect(try row()["managed"] == (managed ? .object(["source": .string("device")]) : .null))
             if !managed {
-                try await settings.setSetting(at: path, to: "symbols", by: .caller("mcp"))
-                #expect(try row()["stored"] == "symbols")
-                #expect(try row()["value"] == "symbols")
+                // "symbols" is the default, whose write stores nothing (StoredDefaultsTests).
+                try await settings.setSetting(at: path, to: "left", by: .caller("mcp"))
+                #expect(try row()["stored"] == "left")
+                #expect(try row()["value"] == "left")
                 try await settings.setSetting(at: path, to: nil, by: .user)
                 #expect(try row()["stored"] == .null)
             }

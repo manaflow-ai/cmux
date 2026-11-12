@@ -9,9 +9,11 @@
 // they were drawn, the rows it reveals fade in and copies of the rows it hides fade out.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -115,13 +117,9 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { endTurnFold, startTurnFold } = await import("../src/agent-session/acpmux/conversation/turnFold");
 
-afterAll(() => {
+afterAll(async () => {
   performance.now = clock;
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 let at = 0;
@@ -256,13 +254,13 @@ test("opening Worked for marks the thread, fades in the rows it reveals and slid
     expect(line(11).getAttribute("aria-expanded")).toBe("true");
     expect(thread().getAttribute("data-turn-fold")).toBe("open");
     expect(spacerHeight()).toBeGreaterThan(closed);
-    // Each revealed row fades in once, on the fold's token (180 ms with no host).
+    // Each revealed row fades in once, on the fold's token (the settle's length with no host).
     const revealed = shownBy(11);
     expect(revealed.length).toBeGreaterThan(0);
     const faded = fades(0).map((one) => rowOf(one.node));
     for (const id of revealed) expect(faded).toContain(id);
     expect(new Set(faded).size).toBe(faded.length);
-    expect(fades(0)[0]!.options.duration).toBe(180);
+    expect(fades(0)[0]!.options.duration).toBe(MOTION_SETTLE_MS);
     // The rows below start where they were drawn (above their new place) and slide down; the
     // clicked line and the rows above it never move.
     const moved = slides();

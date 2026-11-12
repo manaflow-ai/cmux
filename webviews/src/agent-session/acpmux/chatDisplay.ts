@@ -11,6 +11,7 @@
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
 import { useSyncExternalStore } from "react";
+import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm } from "../../experiments/experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
@@ -24,6 +25,7 @@ import {
   type ChatUiFont,
 } from "./chatUiFont";
 import { configureStatusVerbs } from "./statusVerbs";
+import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
 
 /// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
 export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
@@ -100,6 +102,13 @@ export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// or the right…"). Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_HANDLE_KEY = "agentPane.display.trayHandle";
 export type TrayHandleSide = "left" | "middle" | "right";
+/// Settings > Agent Chat > Unread Banner, expanded by default: the floating "3 new turns since 3:42"
+/// banner at the transcript's top start while the "New" line is off screen
+/// (conversation/SinceDivider.tsx UnreadBanner; Leo, 2026-11-10: "you can have the collapsed view.
+/// You can have the expanded view. You can have, like, right click to just hide it completely").
+/// The banner's chevron and both right-click menus write it. Not part of ChatDisplay: switching it
+/// measures no transcript row again.
+export const UNREAD_BANNER_KEY = "agentPane.display.unreadBanner";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
 /// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
@@ -108,6 +117,11 @@ export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 /// cmux-next.json only: the command rules and presets the running tray names background commands
 /// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
 export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
+/// Settings > Agent Chat > Prompt Coach, on unless set false: after a chat that took several
+/// corrections, a card shows how its first prompt could have said it all at once
+/// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
+/// Not part of ChatDisplay.
+export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
 
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
@@ -176,7 +190,7 @@ const FONT_STACKS: Record<ChatFontPreset, string> = {
 };
 /// What the estimator's canvas measures each preset as (a canvas can't read CSS variables).
 const MEASURE_STACKS: Record<ChatFontPreset, string> = {
-  system: '"Inter", system-ui, sans-serif',
+  system: "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
   serif: '"New York", Georgia, serif',
   mono: '"SF Mono", Menlo, monospace',
 };
@@ -301,11 +315,13 @@ let minimapOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let trayHandle: TrayHandleSide = "middle";
+let unreadBanner: UnreadBannerMode = "expanded";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 let commandLabels = "null";
+let promptCoachOn = true;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -320,10 +336,13 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   configureStatusVerbs(raw);
+  configureSenderIconLook(raw);
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  const storedBanner = raw[UNREAD_BANNER_KEY];
+  const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "expanded";
   const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
@@ -332,6 +351,7 @@ export function setChatDisplay(value: unknown): void {
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] !== false;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
+  const coach = raw[PROMPT_COACH_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
     same &&
@@ -339,18 +359,22 @@ export function setChatDisplay(value: unknown): void {
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
+    banner === unreadBanner &&
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
     nextPresentation === presentation &&
     tips === featureTipsOn &&
-    labels === commandLabels
+    labels === commandLabels &&
+    coach === promptCoachOn
   )
     return;
   commandLabels = labels;
+  promptCoachOn = coach;
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
+  unreadBanner = banner;
   threadMinimapArm = threadMinimap;
   transcriptView = view;
   presentation = nextPresentation;
@@ -435,6 +459,12 @@ export const defaultPresentation = (): Presentation => presentation;
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
+/// Whether the prompt coach is on (PROMPT_COACH_KEY): the client reads it before it asks for or
+/// draws a rewrite (direct.ts), and a card already drawn hides when it goes off (rows/PromptCoachRow.tsx).
+export const promptCoachEnabled = (): boolean => promptCoachOn;
+const promptCoachSnapshot = () => promptCoachOn;
+export const usePromptCoachOn = (): boolean =>
+  useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
@@ -443,6 +473,14 @@ const trayTuckedSnapshot = () => trayTuckedOn;
 export const useTrayTucked = (): boolean => useSyncExternalStore(subscribe, trayTuckedSnapshot, trayTuckedSnapshot);
 /// Tucks the hat away or brings it back, at once in the page; the host writes the setting.
 export const setTrayTucked = (tucked: boolean): void => changeChatDisplay(TRAY_TUCKED_KEY, tucked || null);
+const unreadBannerSnapshot = () => unreadBanner;
+/// How the unread banner shows (UNREAD_BANNER_KEY): expanded, collapsed, or off.
+export const useUnreadBannerMode = (): UnreadBannerMode =>
+  useSyncExternalStore(subscribe, unreadBannerSnapshot, unreadBannerSnapshot);
+/// Expands, collapses or turns off the unread banner, at once in the page; the host writes the
+/// setting. Expanded, the default, removes the key.
+export const setUnreadBannerMode = (mode: UnreadBannerMode): void =>
+  changeChatDisplay(UNREAD_BANNER_KEY, mode === "expanded" ? null : mode);
 const trayHandleSnapshot = () => trayHandle;
 /// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
 export const useTrayHandle = (): TrayHandleSide =>

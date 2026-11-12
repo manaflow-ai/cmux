@@ -34,6 +34,9 @@ export function isVisiblyEmptyMessage(row: AcpmuxRow): boolean {
     !row.incoming.message.fromPerson &&
     // A tool's notice always has its title to show, whatever its body.
     !row.incoming.message.notice &&
+    // An inbox thread's line reads its messages from acpmux (`_acpmux/inbox_thread`), so a preview
+    // that holds none of them (one cut inside the broker's label: relayEnvelope.ts) still draws.
+    !row.inboxThread &&
     isBareAgentText(row.incoming.message.text)
   )
     return (

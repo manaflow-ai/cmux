@@ -18,15 +18,16 @@ import Observation
 /// owns the focused pane, the last focused pane per workspace and browser
 /// focus mode. It reads the selected workspace and tab selection from here.
 @Observable
-final class WindowState {
+final class WindowState: CloseSelectionWindow {
     /// Stable id that survives relaunch (the projection record id). Changes
     /// once, when the window opened at launch adopts a restored record.
     private(set) var id: String
     /// `WorkspaceModel.id` of the workspace shown; nil shows the empty
     /// state (the only window, with no workspaces).
     var workspaceID: String? {
-        didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue) } }
+        didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue); onShownChange?(workspaceID, oldValue) } }
     }
+    @ObservationIgnored var onShownChange: ((String?, String?) -> Void)? // each change of `workspaceID` (new, old): the close-selection rule's feed
     /// The workspaces shown side by side, `workspaceID` focused among them (Debug Settings `sidebar.multiView`,
     /// `WindowController.arrangeOnScreen`); nil shows `workspaceID` alone. Persisted in the record.
     var viewSet: WorkspaceViewSet?
@@ -140,10 +141,9 @@ extension WindowState {
         activeScreenID = record.screenID?.rawValue
         savedFocusedPane = record.focusedPane
         restoresFullScreen = record.isFullScreen
+        selection.restoreFocus(record.focusedPanes, shown: workspaceID, pane: record.focusedPane)
         if let workspaceID, let pane = record.focusedPane { focus.send(.restoredPane(pane, workspace: workspaceID)) }
-        for (workspace, pane) in record.focusedPanes.sorted(by: { $0.key < $1.key }) where workspace != workspaceID {
-            focus.send(.restoredPane(pane, workspace: workspace))
-        }
+        for (workspace, pane) in record.focusedPanes.sorted(by: { $0.key < $1.key }) where workspace != workspaceID { focus.send(.restoredPane(pane, workspace: workspace)) }
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })

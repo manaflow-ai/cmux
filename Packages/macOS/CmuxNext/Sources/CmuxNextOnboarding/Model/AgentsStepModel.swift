@@ -80,6 +80,10 @@ public final class AgentsStepModel {
     public private(set) var signingIn: String?
     /// Sign In could not open its terminal tab.
     public private(set) var signInFailed = false
+    /// Agents whose login opened in a terminal tab here. Opening it proves nothing: the login may be cancelled.
+    public private(set) var loginsOpened: Set<String> = []
+    /// Agents whose login opened here and that the person then said are signed in (``confirmLogin(_:)``).
+    public private(set) var confirmedLogins: Set<String> = []
     @ObservationIgnored let source: (any AgentSignInSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
@@ -110,7 +114,25 @@ public final class AgentsStepModel {
             loading = false
             loaded = true
             read = nil
+            finishInstall()
         }
+    }
+
+    /// The install whose read has not landed yet: the next read that lands (the install's own, or one
+    /// that superseded it, such as another card's focus refresh) ends it with the agent's Sign In.
+    @ObservationIgnored private var installAwaitingRead: String?
+
+    /// Ends ``installAwaitingRead`` from the read just shown: its Sign In runs when the agent is found,
+    /// else the failure stays beside its button.
+    private func finishInstall() {
+        guard let id = installAwaitingRead else { return }
+        installAwaitingRead = nil
+        // The installer finished but acpmux does not find the agent yet: say so beside the button.
+        guard agents.contains(where: { $0.id == id }) else {
+            return installs[id] = .failed("installed, but cmux does not find it yet; reopen cmux to look again")
+        }
+        installs[id] = nil
+        signIn(id)
     }
 
     private func show(_ fresh: [OnboardingAgent]) {
@@ -132,9 +154,30 @@ public final class AgentsStepModel {
         // task-owner: one sign-in the person asked for; it only opens the terminal tab.
         Task { [weak self, source] in
             let opened = await source?.signInAgent(id) ?? false
-            guard let self, signingIn == id else { return }
+            guard let self else { return }
+            if opened { loginsOpened.insert(id) }
+            guard signingIn == id else { return }
             signInFailed = !opened
         }
+    }
+
+    /// Signed in, or unknown with its login confirmed by the person (``confirmedLogins``). Claude Code's Keychain
+    /// login reads as unknown until a session proves it, so the person's word is the only completion it has.
+    public func countsAsSignedIn(_ agent: OnboardingAgent) -> Bool {
+        agent.auth == .signedIn || agent.auth == .unknown && confirmedLogins.contains(agent.id)
+    }
+
+    /// A login opened here whose sign-in reads as unknown, not yet confirmed: the person finishes it in its
+    /// terminal tab and says so, or signs in again.
+    public func awaitsConfirmation(_ agent: OnboardingAgent) -> Bool {
+        agent.auth == .unknown && loginsOpened.contains(agent.id) && !confirmedLogins.contains(agent.id)
+    }
+
+    /// The person says the login that opened here finished. Only for an agent whose login opened here and whose
+    /// sign-in reads as unknown; a known signed-out agent stays signed out.
+    public func confirmLogin(_ id: String) {
+        guard let agent = agents.first(where: { $0.id == id }), awaitsConfirmation(agent) else { return }
+        confirmedLogins.insert(id)
     }
 
     /// Install: the agent's vendor installer, then its row reads again and its Sign In runs,
@@ -151,22 +194,19 @@ public final class AgentsStepModel {
                 installs[id] = .failed(failure)
                 return
             }
-            // The read after the install wins over any read in flight from before it.
+            // The read after the install wins over any read in flight from before it. A newer read (another
+            // card's focus refresh) may supersede this one; whichever lands first ends the install.
+            installAwaitingRead = id
             read?.cancel()
             read = nil
             generation += 1
             let mine = generation
             let fresh = await source?.agentSignIns(recheck: true) ?? []
-            guard mine == generation else { return installs[id] = nil }
+            guard mine == generation else { return }
             show(fresh)
             loading = false
             loaded = true
-            // The installer finished but acpmux does not find the agent yet: say so beside the button.
-            guard agents.contains(where: { $0.id == id }) else {
-                return installs[id] = .failed("installed, but cmux does not find it yet; reopen cmux to look again")
-            }
-            installs[id] = nil
-            signIn(id)
+            finishInstall()
         }
     }
 

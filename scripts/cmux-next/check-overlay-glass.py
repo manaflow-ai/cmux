@@ -114,10 +114,6 @@ DENSE_FILL = re.compile(
 )
 # path -> (the file that builds its window's glass, why it lives there).
 SURFACE_GLASS_FROM: dict[str, tuple[str, str]] = {
-    SOURCES + "/CmuxNextServer/Views/AddServerCardPanel.swift": (
-        SOURCES + "/CmuxNextServer/ServerHostView.swift",
-        "the card's content view, ServerHostView, is the server surfaces' OverlaySurfaceView",
-    ),
 }
 # A teammate's surfaces this check never flags (their call, not this check's): path -> whose and why.
 # Lawrence R48 (CmuxNextDesignTokens/Windows/ThemeTokens+Surface.swift): the window's one surface
@@ -261,7 +257,7 @@ NOT_POPUP_HOST: dict[tuple[str, str], str] = {
     (P + "CmuxNextPopups/BrowserPopupWindow.swift", "BrowserPopupWindow"): (
         "a site's window.open popup: a browser window, not a menu"
     ),
-    (P + "CmuxNextApp/Server/ServerMenuBarController.swift", "ServerMenuBarController"): (
+    (P + "CmuxNextServer/ServerPage/ServerPanelPopover.swift", "ServerPanelPopover"): (
         "the menu bar status item's system NSPopover (the system's own glass), outside any themed window"
     ),
 }

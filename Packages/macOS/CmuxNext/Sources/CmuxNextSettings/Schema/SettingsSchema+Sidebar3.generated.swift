@@ -8,6 +8,21 @@ extension SidebarSettingsSchema {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
             SettingDescriptor(
+                SidebarSectionsSetting.groupGradientPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.groupGradient", "Group Gradient"),
+                help: SettingsText.keyed("settings.sidebar.groupGradient.help", "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors."),
+                kind: .choice([
+                    SettingChoice(GroupGradient.sunset.rawValue, SettingsText.keyed("settings.choice.groupGradientSunset", "Sunset")),
+                    SettingChoice(GroupGradient.aurora.rawValue, SettingsText.keyed("settings.choice.groupGradientAurora", "Aurora")),
+                    SettingChoice(GroupGradient.lagoon.rawValue, SettingsText.keyed("settings.choice.groupGradientLagoon", "Lagoon")),
+                    SettingChoice(GroupGradient.twoTone.rawValue, SettingsText.keyed("settings.choice.groupGradientTwoTone", "Two-Tone")),
+                ]),
+                default: .string(SidebarSectionsSetting.groupGradientDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "gradient", "sunset", "aurora", "lagoon"]
+            ),
+            SettingDescriptor(
                 SidebarSectionsSetting.minimalModePath,
                 section: .appearance,
                 group: group,

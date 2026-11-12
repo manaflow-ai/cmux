@@ -37,7 +37,7 @@ import Testing
     nonisolated static let pairs: [(Double, Double)] = [(16, 3), (6, 1), (12, 4)]
 
     /// One radius rounds every top-level surface: floating glass panels, popovers, the neutral glass
-    /// roles (cards, toasts, dialogs), the toast view, a card and a terminal banner.
+    /// roles (cards, toasts, dialogs), a card and a terminal banner.
     @Test(arguments: pairs)
     func everyTopLevelSurfaceIsTheOuterRadius(radius: Double, padding: Double) {
         defer { reset() }
@@ -50,7 +50,6 @@ import Testing
             ("FloatingGlassStyle.toast", FloatingGlassStyle.toast.cornerRadius),
             ("FloatingGlassStyle.dialog", FloatingGlassStyle.dialog.cornerRadius),
             ("FloatingGlassStyle.card", FloatingGlassStyle.card.cornerRadius),
-            ("CmuxToastView", CmuxToastView.cornerRadius),
             ("Glass.makeSurface(.toast)", Glass.makeSurface(.toast).cornerRadius),
             ("CardSurfaceView", CardSurfaceView().cornerRadius),
             ("TerminalStatusBanner", TerminalStatusBanner().layer?.cornerRadius ?? -1),

@@ -27,6 +27,12 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+from pathlib import Path
+
+# resume-unsigned-nightly.py and nightly_ghostty_helper_reuse.py load this file by path, so its folder may
+# not be on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
@@ -48,13 +54,22 @@ def retryable(code: int) -> bool:
 
 RETRY_BUDGET_SECONDS = float(os.environ.get("CMUX_ARTIFACT_RETRY_BUDGET_SECONDS", "240"))
 # At most this many attempts per call, whatever the waits, so the calls' own time
-# (60 s timeouts) stays bounded too: 8 attempts of a call are at most 8 minutes.
-MAX_ATTEMPTS = 8
+# (60 s timeouts) stays bounded too: 8 attempts of a call are at most 8 minutes. A longer budget
+# (the sign stage's restore sets 1800 s) gets one more attempt per 120 s backoff step in it, so the
+# cap never ends the retries before the budget does (8 attempts gave up at 510 s of 1800).
+MAX_ATTEMPTS = max(8, int(RETRY_BUDGET_SECONDS // 120) + 5)
 sleep = time.sleep
 clock = time.monotonic
 # One wall-clock deadline for the whole download (lookup, redirect and its
 # refreshes), set by the first retry: no retry starts after it.
 retry_deadline: float | None = None
+# A range read waits at most RANGE_STALL_SECONDS for each byte, as urlopen(timeout=120) did, and ends as a whole
+# by RANGE_DEADLINE_SECONDS. Before, nothing bounded the whole range: a server trickling bytes under the stall
+# held it forever. 30 minutes is far past any range that is moving (the whole 242 MB app takes about 10 s over
+# 16 ranges, and 611 s over download-artifact's one connection) and no tighter than the steps that run this,
+# which have no step timeout of their own.
+RANGE_STALL_SECONDS = 120
+RANGE_DEADLINE_SECONDS = 30 * 60
 
 
 def retry_wait(error: urllib.error.HTTPError, attempt: int, now: float | None = None) -> float:
@@ -77,6 +92,22 @@ def retry_wait(error: urllib.error.HTTPError, attempt: int, now: float | None = 
     return min(120.0, 10.0 * 2 ** (attempt - 1))
 
 
+def explain(error: urllib.error.HTTPError, what: str) -> None:
+    """Name why GitHub refused before giving up: a bare "403 Forbidden" hid whether two nightly-next sign
+    stages (runs 43129190893, 43139032769 on 2026-11-12) lost their finished build to a spent token
+    quota or to a permission."""
+    headers = error.headers or {}
+    limits = " ".join(f"{k}={headers.get(k)}" for k in
+                      ("X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "X-RateLimit-Resource",
+                       "Retry-After") if headers.get(k) is not None)
+    try:
+        body = (error.read() or b"")[:300].decode("utf-8", "replace").replace("\n", " ")
+    except Exception:  # noqa: BLE001 - a diagnostic never replaces the error it explains
+        body = ""
+    print(f"{what}: gave up on HTTP {error.code} {limits or '(no rate-limit headers)'} {body}".rstrip(),
+          file=sys.stderr)
+
+
 def with_retries(call, what: str):
     """Run call(); retry a refused or failed GitHub response until the shared deadline or MAX_ATTEMPTS."""
     global retry_deadline
@@ -87,11 +118,15 @@ def with_retries(call, what: str):
             return call()
         except urllib.error.HTTPError as error:
             if not retryable(error.code) or attempt >= MAX_ATTEMPTS:
+                explain(error, what)
                 raise
             if retry_deadline is None:
                 retry_deadline = clock() + RETRY_BUDGET_SECONDS
             wait = retry_wait(error, attempt)
             if clock() + wait > retry_deadline:
+                print(f"{what}: HTTP {error.code}; the next try ({wait:.0f}s away) is past this download's "
+                      f"{RETRY_BUDGET_SECONDS:.0f}s retry budget (CMUX_ARTIFACT_RETRY_BUDGET_SECONDS)", file=sys.stderr)
+                explain(error, what)
                 raise
             print(f"{what}: HTTP {error.code}; retrying in {wait:.0f}s (attempt {attempt})", file=sys.stderr)
             sleep(wait)
@@ -103,8 +138,8 @@ def api_json(path: str, token: str) -> dict:
             f"{API}{path}",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            return json.load(resp)
+        _, body, _ = deadline_http.request(req, 60, raise_errors=True)
+        return json.loads(body)
 
     return with_retries(call, f"GET {path}")
 
@@ -135,7 +170,7 @@ def blob_url(artifact: dict, token: str) -> str:
 
 def fetch_range(url: str, fd: int, lo: int, hi: int) -> None:
     req = urllib.request.Request(url, headers={"Range": f"bytes={lo}-{hi}"})
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with deadline_http.stream(req, RANGE_DEADLINE_SECONDS, stall=RANGE_STALL_SECONDS, raise_errors=True) as resp:
         if resp.status != 206:
             raise OSError(f"range {lo}-{hi}: HTTP {resp.status}, expected 206")
         offset = lo

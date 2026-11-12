@@ -114,7 +114,13 @@ fn folder_identity(path: &Path) -> Option<(u64, u64)> {
     std::fs::symlink_metadata(path).ok().map(|m| (m.dev(), m.ino()))
 }
 
-#[cfg(not(unix))]
+/// Windows: the folder's file id, its volume serial and file index (never a link's target).
+#[cfg(windows)]
+fn folder_identity(path: &Path) -> Option<(u64, u64)> {
+    crate::owner_only::file_id(path).ok()
+}
+
+#[cfg(not(any(unix, windows)))]
 fn folder_identity(_path: &Path) -> Option<(u64, u64)> {
     None
 }
@@ -122,9 +128,27 @@ fn folder_identity(_path: &Path) -> Option<(u64, u64)> {
 /// Records [`home`] as the folder this daemon holds, once it holds its lock. A process that
 /// never calls it (a CLI command) checks no identity.
 pub fn hold_home() {
-    if let Some(identity) = folder_identity(&home()) {
+    let home = home();
+    if let Some(identity) = folder_identity(&home) {
         let _ = HELD_HOME.set(identity);
     }
+    if let Ok(Some(dir)) = crate::artifacts_fs::Dir::open(&home, Path::new("")) {
+        let _ = HELD_HOME_DIR.set(dir);
+    }
+}
+
+/// The held home ([`hold_home`]) as the open folder, not its path.
+static HELD_HOME_DIR: std::sync::OnceLock<crate::artifacts_fs::Dir> = std::sync::OnceLock::new();
+
+/// The held home as the folder this daemon locked, with `path` relative to it: a write made
+/// through it ([`crate::artifacts_fs::Dir::write`]) lands in that folder wherever it is now, so a
+/// home replaced after [`refuse_lost_home`] passed and before the write never gets it (the
+/// window that check leaves open by path). `None`: this process holds no home (a CLI command)
+/// or `path` is not under it; such a write goes by path.
+pub(crate) fn held_home_dir(path: &Path) -> Option<(&'static crate::artifacts_fs::Dir, PathBuf)> {
+    let dir = HELD_HOME_DIR.get()?;
+    let relative = path.strip_prefix(home()).ok()?;
+    Some((dir, relative.to_path_buf()))
 }
 
 /// Whether the held home ([`hold_home`]) is gone or another folder now: read from the folder
@@ -147,13 +171,103 @@ pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
     if !home_path_lost() && held_home_replaced(&home) {
         mark_home_lost();
     }
-    anyhow::ensure!(
-        !home_lost(),
-        "the acpmux home {} is gone; {} is not written",
-        home.display(),
-        path.display()
-    );
-    Ok(())
+    let checked = if home_lost() {
+        Err(anyhow::anyhow!(
+            "the acpmux home {} is gone; {} is not written",
+            home.display(),
+            path.display()
+        ))
+    } else {
+        Ok(())
+    };
+    #[cfg(test)]
+    seams::checked(path, checked.is_ok());
+    checked
+}
+
+/// Test seams for the forced lost-home races (`lost_home_race_tests.rs`): each holds a writer at
+/// one point so the order its race depends on is the test's, not the clock's. Each hook is the
+/// setting thread's own (`thread_local!`), set by an `on_*` guard and taken off when it drops:
+/// a test runs its writer on a thread it owns, so a hook set by one test never fires in another
+/// test running beside it.
+#[cfg(test)]
+pub(crate) mod seams {
+    use std::cell::RefCell;
+    use std::path::Path;
+    use std::rc::Rc;
+
+    type Checked = Rc<dyn Fn(&Path, bool)>;
+    type BeforeRename = Rc<dyn Fn(&Path)>;
+    type MidWrite = Rc<dyn Fn(&Path) -> std::io::Result<()>>;
+
+    thread_local! {
+        static CHECKED: RefCell<Option<Checked>> = const { RefCell::new(None) };
+        static BEFORE_RENAME: RefCell<Option<BeforeRename>> = const { RefCell::new(None) };
+        static MID_WRITE: RefCell<Option<MidWrite>> = const { RefCell::new(None) };
+    }
+
+    /// While the guard lives, `hook` is called on this thread at the end of each home check
+    /// under the home, with the path checked and whether the check passed: after the check,
+    /// before the write it guards.
+    pub(crate) fn on_checked(hook: impl Fn(&Path, bool) + 'static) -> Guard {
+        CHECKED.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::Checked)
+    }
+
+    /// While the guard lives, `hook` is called on this thread with a file's path once its
+    /// temporary copy is written and synced, before that copy is renamed over the file.
+    pub(crate) fn on_before_rename(hook: impl Fn(&Path) + 'static) -> Guard {
+        BEFORE_RENAME.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::BeforeRename)
+    }
+
+    /// While the guard lives, `hook` is called on this thread with the path a `home_fs` write
+    /// is filling once part of its bytes are written, before the rest: its error fails the
+    /// write there, as a full disk would.
+    pub(crate) fn on_mid_write(hook: impl Fn(&Path) -> std::io::Result<()> + 'static) -> Guard {
+        MID_WRITE.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::MidWrite)
+    }
+
+    pub(crate) fn mid_write(path: &Path) -> std::io::Result<()> {
+        match MID_WRITE.with(|slot| slot.borrow().clone()) {
+            Some(hook) => hook(path),
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) fn checked(path: &Path, passed: bool) {
+        // Cloned out first: the hook may block, or check again, with the slot free.
+        if let Some(hook) = CHECKED.with(|slot| slot.borrow().clone()) {
+            hook(path, passed);
+        }
+    }
+
+    pub(crate) fn before_rename(path: &Path) {
+        if let Some(hook) = BEFORE_RENAME.with(|slot| slot.borrow().clone()) {
+            hook(path);
+        }
+    }
+
+    enum Which {
+        Checked,
+        BeforeRename,
+        MidWrite,
+    }
+
+    /// Takes its hook off this thread when dropped.
+    #[must_use = "the hook is taken off when the guard drops"]
+    pub(crate) struct Guard(Which);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            match self.0 {
+                Which::Checked => drop(CHECKED.with(|slot| slot.borrow_mut().take())),
+                Which::BeforeRename => drop(BEFORE_RENAME.with(|slot| slot.borrow_mut().take())),
+                Which::MidWrite => drop(MID_WRITE.with(|slot| slot.borrow_mut().take())),
+            }
+        }
+    }
 }
 
 /// Make one acpmux state directory owner-only, including an existing directory
@@ -161,13 +275,15 @@ pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
 /// directory owned by another user before changing its permissions.
 #[cfg(unix)]
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     refuse_lost_home(dir)?;
     validate_private_state_ancestors(dir)?;
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    // Made and opened through the folder this daemon holds (`home_fs`): a home replaced after
+    // the check never gets the folder.
+    crate::home_fs::create_dir_all(dir, 0o700)?;
     validate_private_state_ancestors(dir)?;
-    let opened = std::fs::OpenOptions::new()
+    let opened = crate::home_fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(dir)
@@ -191,7 +307,7 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
             .set_permissions(std::fs::Permissions::from_mode(0o700))
             .with_context(|| format!("make {} owner-only", dir.display()))?;
     }
-    let reopened = std::fs::OpenOptions::new()
+    let reopened = crate::home_fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(dir)
@@ -316,10 +432,9 @@ pub(crate) fn validate_private_state_file(file: &std::fs::File, path: &Path) -> 
 /// following a pre-positioned final symlink (daemon.lock).
 #[cfg(unix)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
     refuse_lost_home(path)?;
 
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
@@ -336,10 +451,9 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
 /// `AlreadyExists` error, so this deliberately does not open existing files.
 #[cfg(unix)]
 pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
     refuse_lost_home(path)?;
 
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -354,10 +468,9 @@ pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
 /// following a pre-positioned final symlink (daemon.log).
 #[cfg(unix)]
 pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
     refuse_lost_home(path)?;
 
-    let file = std::fs::OpenOptions::new()
+    let file = crate::home_fs::OpenOptions::new()
         .append(true)
         .create(true)
         .mode(0o600)
@@ -856,8 +969,10 @@ pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
     }
 }
 
-/// Permission policy applied when no attached client answers.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+/// Permission policy applied when no attached client answers. Read from config.json through
+/// `FromStr`: a value this build does not know (one a newer build added and saved, read after a
+/// rollback) reads as `ask` rather than failing the whole config, which stopped the daemon.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum PermissionPolicy {
     /// Ask attached clients; wait without limit when none is attached.
@@ -869,6 +984,11 @@ pub enum PermissionPolicy {
     /// Claude Code's "accept edits" without needing Claude's own mode.
     ApproveEdits,
     DenyAll,
+    /// A reviewer's read-only shell: what approve-reads approves runs unasked (reads, searches
+    /// and read-only shell commands such as `git log`, `git diff`, `grep`, `rg`, `ls`, `cat`,
+    /// `sed -n`, `hub/shell_readonly.rs`), and every other tool call is denied at once, so a
+    /// session with no person to ask never waits.
+    Review,
 }
 
 impl std::str::FromStr for PermissionPolicy {
@@ -880,8 +1000,19 @@ impl std::str::FromStr for PermissionPolicy {
             "approve-reads" => Ok(Self::ApproveReads),
             "approve-edits" | "accept-edits" => Ok(Self::ApproveEdits),
             "deny-all" => Ok(Self::DenyAll),
+            "review" => Ok(Self::Review),
             other => Err(format!("unknown permission policy: {other}")),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for PermissionPolicy {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        let text = String::deserialize(d)?;
+        Ok(text.parse().unwrap_or_else(|_| {
+            tracing::warn!("permission policy {text:?} is not one this build knows; using ask");
+            Self::Ask
+        }))
     }
 }
 
@@ -893,6 +1024,7 @@ impl std::fmt::Display for PermissionPolicy {
             Self::ApproveReads => "approve-reads",
             Self::ApproveEdits => "approve-edits",
             Self::DenyAll => "deny-all",
+            Self::Review => "review",
         };
         f.write_str(s)
     }
@@ -1054,7 +1186,8 @@ pub struct SessionResourceConfig {
     pub sessions_tasks_max: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
     /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
-    /// overrides it, a profile's env overrides both. Unset: `background`.
+    /// overrides it, a profile's env overrides both. Unset: `background`, or `normal` for a
+    /// Claude Code launcher (`cpu_class::default_for`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
@@ -1481,6 +1614,10 @@ pub struct Config {
     /// the hot-reload watcher read the same ones.
     #[serde(skip)]
     pub profile_sources: ProfileSources,
+    /// What this process last read from or wrote to the file: a save writes only what changed
+    /// since, so another writer's change is kept (`config/save_merge.rs`).
+    #[serde(skip)]
+    pub saved: save_merge::SavedBase,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1802,6 +1939,8 @@ impl Config {
         cfg.profile_sources = sources.clone();
         cfg.cloud_host = crate::cloud_host::is_cloud_vm();
         cfg.path = Some(path);
+        let read = (!cfg.file_missing).then(|| cfg.on_disk_value().ok()).flatten();
+        cfg.saved = save_merge::SavedBase::new(read);
         Ok(cfg)
     }
 
@@ -1925,6 +2064,12 @@ impl Config {
         if let Some(parent) = path.parent() {
             private_state_dir(parent)?;
         }
+        save_merge::save_merged(path, &self.saved, self.on_disk_value()?, write)
+    }
+
+    /// The config as a save writes it: without what discovery, profile files and this run
+    /// added, with the config.json entries profile files replaced.
+    fn on_disk_value(&self) -> Result<serde_json::Value> {
         let mut on_disk = self.clone();
         on_disk
             .harnesses
@@ -1950,7 +2095,7 @@ impl Config {
                 on_disk.defaults.remove("claude");
             }
         }
-        write(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
+        Ok(serde_json::to_value(&on_disk)?)
     }
 
     pub fn profile(&self, name: &str) -> Option<&HarnessProfile> {
@@ -1976,18 +2121,19 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     // A failed write (a full disk) leaves no partial temporary file to hold
     // the space it ran out of; every retry uses a new name.
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }
 
 fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     // Owner-only from creation: these files hold tokens and session data.
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file; it lands in the folder this daemon locked, wherever it is now.
     #[cfg(unix)]
     {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut f = std::fs::OpenOptions::new()
+        let mut f = crate::home_fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
@@ -1999,6 +2145,7 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
         // On disk before the rename: a power loss never leaves an empty
         // session.json (its session id and ACP session id) behind.
         f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
+        crate::home_fs::before_rename(path);
     }
     // Windows: created with an owner-only access list (`owner_only.rs`).
     #[cfg(windows)]
@@ -2007,7 +2154,8 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
         // A file a crashed process left under a reused pid is stale.
         let mut f = match crate::owner_only::create_new(tmp) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::home_fs::remove_file(tmp)
+                    .with_context(|| format!("remove {}", tmp.display()))?;
                 crate::owner_only::create_new(tmp)
             }
             other => other,
@@ -2016,25 +2164,23 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
-    std::fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    crate::home_fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     // The rename itself is durable once its directory is synced.
-    #[cfg(unix)]
-    if let Some(dir) = path.parent()
-        && let Ok(dir) = std::fs::File::open(dir)
-    {
-        let _ = dir.sync_all();
+    if let Some(dir) = path.parent() {
+        let _ = crate::home_fs::sync_dir(dir);
     }
     Ok(())
 }
 
 mod nested_env;
+pub(crate) use nested_env::inherited_caller_scoped_keys;
 #[cfg(windows)]
 pub(crate) use nested_env::nested_claude_keys;
 pub use nested_env::{
     CHIEF_CREDENTIAL_ENV, LAUNCH_CREDENTIAL_ENV, scrub_nested_claude_env,
     scrub_nested_claude_env_for, scrub_nested_claude_env_tokio, scrub_nested_claude_env_tokio_for,
 };
-pub(crate) use nested_env::{inherited_caller_scoped_keys, is_nested_claude_key};
+pub use nested_env::{is_caller_scoped_key, is_nested_claude_key};
 mod launchers;
 pub(crate) use launchers::which;
 pub use launchers::{is_subrouter_proxy, subrouter_route, verify_launchers, verify_launchers_with};
@@ -2049,6 +2195,7 @@ pub use discover::{
 };
 mod peer;
 pub use peer::PeerConfig;
+mod save_merge;
 mod store_config;
 pub use store_config::{StoreConfig, StoreMode};
 mod pool;
@@ -2083,5 +2230,7 @@ pub fn normalize_permission_mode(value: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(test)]
+mod save_merge_tests;
 #[cfg(test)]
 mod tests;

@@ -20,7 +20,7 @@ extension PaneController {
     /// `then` places it (``NewTabSlot``).
     func duplicateAgentTab(_ key: String, then: (@MainActor (String) -> Void)? = nil) {
         let tabs = services.agentTabs
-        guard tabs.lookup(key)?.record.host == tabs.localHost else { return services.registry.refuse(RefusalStrings.agentTabOtherHost) }
+        guard tabs.record(for: tabs.tabKey(key))?.record.host == tabs.localHost else { return services.registry.refuse(RefusalStrings.agentTabOtherHost) }
         openAgentTab(session: tabs.session(of: key), placed: false, then: then) // beside its original, never in a chat dock
     }
 

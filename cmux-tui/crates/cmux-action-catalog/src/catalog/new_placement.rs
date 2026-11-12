@@ -282,7 +282,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "new.browser.workspace",
         group: GROUP,
-        title: t("ActionCatalog", "action.new.browser.workspace", "New Browser to New Workspace"),
+        title: t("ActionCatalog", "action.new.browser.toWorkspace", "New Browser to New Workspace"),
         keywords: &["new", "open", "browser", "web", "workspace"],
         category: "pane",
         symbol: "rectangle.stack.badge.plus",

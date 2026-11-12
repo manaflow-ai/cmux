@@ -1,0 +1,171 @@
+/* The memory inbox card (MemoryOfferCard.tsx): the next-step card's quiet hairline box (its question
+   tokens), holding the instructions file's name and the offered facts as `+` lines of a small diff in
+   the app's themed diff-add colour (--acpmux-add and the Diff Colors mode's line tint, as the diff
+   views). Small-radius rects, never pills. A settled fact's line shrinks away; once all are settled
+   the box fades its frame and folds to one muted line. Every fold is a grid row from 0fr to 1fr, so
+   what is below moves with it; reduced motion (or the motion gate) settles it in one frame. */
+.cv-memory {
+  --cv-memory-add: var(--acpmux-add, var(--agent-diff-add));
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  margin: var(--ds-space-1, 4px) 0;
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+  border-radius: 8px;
+  background: var(--acpmux-question-bg);
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+  line-height: var(--text-body--line-height);
+  transition:
+    border-color var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    background-color var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out);
+}
+.cv-memory[data-settled="true"] {
+  border-color: transparent;
+  background: transparent;
+}
+.cv-memory__fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.cv-memory__fold[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.cv-memory__clip {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+:root[data-cmux-motion="reduced"] .cv-memory,
+:root[data-cmux-motion="reduced"] .cv-memory__fold {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-memory,
+  .cv-memory__fold {
+    transition: none;
+  }
+}
+.cv-memory__body > .cv-memory__clip {
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+}
+.cv-memory__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+  padding-bottom: var(--ds-space-1, 4px);
+}
+.cv-memory__file {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-memory__tag {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.cv-memory__diff {
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.cv-memory__line {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+  min-height: 24px;
+  padding: 0 var(--ds-space-1, 4px) 0 var(--ds-space-2, 8px);
+  background: color-mix(in srgb, var(--cv-memory-add) var(--cmux-diff-line-tint, 14%), transparent);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  outline: none;
+}
+.cv-memory__line:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--agent-text) 45%, transparent);
+}
+.cv-memory__line[data-state="busy"] .cv-memory__text {
+  opacity: 0.6;
+}
+.cv-memory__sign {
+  flex: none;
+  color: var(--cv-memory-add);
+}
+.cv-memory__text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.cv-memory__actions {
+  display: inline-flex;
+  flex: none;
+  gap: var(--ds-space-1, 4px);
+}
+.cv-memory__button {
+  min-height: 20px;
+  padding: 0 var(--ds-space-2, 8px);
+  border: 0;
+  border-radius: 4px;
+  background: var(--acpmux-question-hover);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+  font-size: var(--text-caption);
+  cursor: default;
+}
+.cv-memory__button:hover:not(:disabled) {
+  background: var(--acpmux-question-highlight);
+}
+.cv-memory__button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: 1px;
+}
+.cv-memory__button.is-accept {
+  background: var(--agent-text);
+  color: var(--acpmux-base);
+}
+.cv-memory__button.is-accept:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.cv-memory__button:disabled {
+  opacity: 0.6;
+}
+.cv-memory__foot {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--ds-space-2, 8px);
+}
+.cv-memory__foot .cv-memory__button {
+  min-height: 24px;
+}
+.cv-memory__error {
+  display: block;
+  padding-top: var(--ds-space-2, 8px);
+  color: var(--agent-status-error, var(--acpmux-del));
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+}
+.cv-memory__note {
+  margin: 0;
+  padding: var(--ds-space-1, 4px) 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.cv-memory__check {
+  flex: none;
+  margin: 0;
+  accent-color: var(--cv-memory-add);
+}

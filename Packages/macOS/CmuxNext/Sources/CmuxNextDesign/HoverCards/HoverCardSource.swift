@@ -25,9 +25,12 @@ public struct HoverCardBody {
     /// that hangs from its target with no gap takes the target's shape (a tab's card, the tab's
     /// `Metrics.tabCornerRadius`).
     public var cornerRadius: CGFloat?
+    /// How the card's first show plays.
+    public var entrance: HoverCardEntrance
     public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, interactive: Bool = false,
-                cornerRadius: CGFloat? = nil,
+                cornerRadius: CGFloat? = nil, entrance: HoverCardEntrance = .slide,
                 applyTheme: @escaping () -> Void) {
+        self.entrance = entrance
         self.view = view
         self.placement = placement
         self.themeAnchor = themeAnchor

@@ -143,6 +143,8 @@ async fn a_compacted_closed_chat_still_lists_reopens_and_resumes() {
     assert!(told.contains("remember pelican"), "the prompt is in the transcript: {told}");
     // The prompt and the agent's echo of it, both from the transcript, then this turn's echo.
     assert!(told.matches("remember pelican").count() >= 2, "and the agent's answer: {told}");
+    // This turn's prompt reaches the agent once, after the transcript, not also inside it.
+    assert_eq!(told.matches("what did I ask?").count(), 1, "{told}");
     third.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

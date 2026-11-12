@@ -119,7 +119,7 @@ echoes the token),
 | `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
-| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
+| `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped, coalesced?, failures?}` (0.7.0; `failures` below). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `mobile` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. APNs `thread-id` is the `sessionId`, so a phone groups a session's notifications (0.13.0: `<mac>:<sessionId>` and the other fields of "Push notifications" below, which also add the answer's `wants`). The collapse id is `eventId` (≤ 64) for a question or permission; for a finished turn, an error or a Chief reply it is one id per session (`turn-<sessionId>`, hashed when longer than 64), so a newer one replaces the older. The Worker passes at most one turn-ending event per Mac, session and finished-or-error in 15 s, once some phone wants the kind (the user hub's `turnPushAllowed`); the rest answer `{sent: 0, coalesced: true}`. The Mac reports only what a person can act on (`cmux-mobile-host` `notify.rs`): never a Chief's compactor (`cmux.chief.role` `compactor`, or an `optchat-compact-` name, preset or folder); a Chief turn session (`cmux.chief`) as `chief`, once per Chief; no finished turn of a sub-session or a Chief's child (their asks still push); and per session at most one finished turn and one error in 30 s, the newest held one sent when the window ends. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
 | `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
@@ -546,6 +546,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   message (a JSON value) is one write in each direction. A message above
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
+  A phone that opens it with `{"compression":"deflate"}` (CMUX-563) gets each
+  message of 16 KiB or more from the Mac as one envelope instead of text:
+  `0x00`, the text length (u32 big-endian), the deflate length (u32 big-endian),
+  then the raw deflate (RFC 1951) of the JSON text; smaller messages stay text.
+  JSON never starts with `0x00`, and the lengths say where the envelope ends
+  among the frames and bound its inflate (hostd `link_deflate.rs`, phone
+  `DeflatedMessage.swift`). An older Mac ignores the argument and sends text.
+  The phone watches its chats in pages: `_acpmux/watch {limit: 100}` is the
+  newest page, and the phone is ready with it; the rest comes from
+  `_acpmux/sessions {limit, cursor}` after (`AcpmuxHub+SessionPages.swift`).
 - `cloud-directory` (link protocol 2): no arguments; one JSON data frame
   `{"paid","desktops","machines":[{"machine_id","team_id","name","status","ran","linked"}]}`
   followed by `eof`. `paid` says the account pays for cmux Cloud; `desktops` is the
@@ -1006,10 +1016,31 @@ Mechanisms, phone first, then the Mac:
   file importer). Losing that sends `release-surface-size {surface}` on the
   attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
   quick switch away and back sends nothing and never resizes the Mac twice.
-  The app entering the background (or the lock screen) releases at once,
-  with no debounce, before iOS suspends it. Coming back claims at once:
+  The app entering the background (or the lock screen) keeps the claim
+  (2026-11-12, Leo: "surely this calculation of sort is doable on the phone
+  itself? it projection of text"): an app switch, a lock and unlock or a
+  link blip never moves the Mac's PTY, so the phone never redraws twice.
+  The phone releases only after 5 min in the background; a suspended app
+  cannot, so the Mac's size lease (45 s after the last refresh) is what
+  gives the Mac's pane its own size back. When the claim lapsed while the
+  app was away, the page as it was when the app left stays on screen until
+  the reclaim's mirror reset is replayed, so the Mac's wider grid is never
+  painted. Coming back claims at once:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
+- **Reclaim hold (phone, `TerminalReclaimHold`).** Any release (a page left
+  for another tab, the grid or a sheet, or a background claim that lapsed)
+  makes the Mac replay its own grid to the hidden page, and the claim makes it
+  replay the phone's again. The page draws neither round trip: while it is released, a
+  grid other than its claimed one, and every byte after it, is held. When the
+  claim brings the phone's grid back, the held events are dropped (the replay
+  after a grid change is whole) and the screen gets a reset and the replay's
+  alternate screen state. When the Mac is already at the phone's grid, the
+  stream ends, more than 8 MB is held, or the claim is not answered with the
+  phone's grid within 1.5 s of being attached (the Mac's policy keeps its own
+  grid), the held events show in order. The page keeps its last frame at its
+  own grid meanwhile (Leo, 2026-11-12: "i swipe up into another app and it
+  resize back... then i go to it again and it resize again").
 - **Stop (phone).** A session that stops (its tab cooled out of the warm set
   of 4, closed, another account) sends `release-surface-size` and waits for the
   answer (at most 2 s) before it closes its channel. The daemon would read a
@@ -1049,9 +1080,9 @@ release and the daemon's size lease.
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task | one round trip |
+| App to the background, screen locked | claim kept; a suspended phone stops refreshing, the lease ends | 45 s (back sooner: no change at all) |
 | Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
-| Killed by iOS in the background | already released on entering it | one round trip |
+| Killed by iOS in the background | no release; lease ends | 45 s |
 | Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
 | Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
 | Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |
@@ -1100,6 +1131,16 @@ The answer adds `wants`: the kinds any phone of the owner that has not muted
 this Mac still wants, so the host skips kinds nobody wants. It sends a
 skipped kind again 15 s after the answer, so a phone that turns a kind on
 gets it within about that.
+
+When some send failed, the answer also carries `failures`: one
+`{environment, status, reason}` per failed send, where `environment` is the
+phone's registered `sandbox` or `production`, `status` is APNs' HTTP status
+(0 when no answer came) and `reason` is APNs' reason word
+(`BadEnvironmentKeyInToken`, `TopicDisallowed`, `InvalidProviderToken`, ...),
+`network` when no answer came, or `unknown` for any other body. It never
+carries the device token, the topic or an error's text. Without a failure the
+field is absent, so the rest of the answer is unchanged. Sends APNs reports as
+gone count in `dropped`, not here.
 
 Only `eventId` and `kind` are required. Any other field that is malformed
 (an id outside its pattern, a value of the wrong type, an unknown `state`, an

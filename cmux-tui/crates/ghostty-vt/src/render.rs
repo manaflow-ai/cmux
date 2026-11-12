@@ -133,9 +133,13 @@ pub struct StyledRun {
 /// once and its immediately following spacer contributes only a grid column,
 /// so no empty-text spacer run is emitted. An orphan spacer is represented as
 /// a space to keep every returned run drawable and width-accounted.
-pub fn rows_to_runs(rows: &[Vec<Cell>]) -> Vec<Vec<StyledRun>> {
-    rows.iter().map(|row| row_to_runs(row)).collect()
+pub fn rows_to_runs<R: AsRef<[Cell]>>(rows: &[R]) -> Vec<Vec<StyledRun>> {
+    rows.iter().map(|row| row_to_runs(row.as_ref())).collect()
 }
+
+/// One viewport row of a [`RenderFrame`]. A row that did not change since the
+/// render state's previous frame is the same allocation in both frames.
+pub type RenderRow = Arc<[Cell]>;
 
 /// An immutable terminal frame whose damage can be read by any number of
 /// consumers.
@@ -151,7 +155,7 @@ pub struct RenderFrame {
     pub dirty_rows: Vec<u16>,
     pub kitty_graphics: Arc<KittyGraphicsSnapshot>,
     pub kitty_graphics_delta: Arc<KittyGraphicsFrameDelta>,
-    rows: Vec<Vec<Cell>>,
+    rows: Vec<RenderRow>,
 }
 
 /// Shared change metadata computed once when a terminal graphics snapshot is
@@ -204,13 +208,13 @@ fn image_generation_delta(previous: &[(u32, u64)], next: &[(u32, u64)]) -> (Vec<
 
 impl RenderFrame {
     /// All viewport rows in this immutable snapshot.
-    pub fn styled_rows(&self) -> &[Vec<Cell>] {
+    pub fn styled_rows(&self) -> &[RenderRow] {
         &self.rows
     }
 
     /// One viewport row from this immutable snapshot.
     pub fn styled_row(&self, row: u16) -> Option<&[Cell]> {
-        self.rows.get(row as usize).map(Vec::as_slice)
+        self.rows.get(row as usize).map(|cells| &**cells)
     }
 
     /// Assemble all snapshot rows into protocol-v7 runs.
@@ -242,6 +246,46 @@ pub struct RenderState {
     kitty_pixel_cache: HashMap<u64, Arc<[u8]>>,
     kitty_terminal_instance_id: Option<u64>,
     next_frame_seq: u64,
+    /// The rows of the last frame [`Self::build_frame`] built, reused by the
+    /// next frame for every row that is not dirty (see [`FrameRowCache`]).
+    frame_rows: FrameRowCache,
+}
+
+/// The previous frame's rows and what they were built under.
+///
+/// libghostty's contract (`RenderState.Row`, render.zig): a row of a render
+/// state that is not dirty after an update holds the same contents at the
+/// same index as after that render state's previous update. A moved viewport,
+/// a resize, a screen switch, a palette change or any terminal-wide damage
+/// rebuilds every row and reports [`Dirty::Full`]. So a frame only has to read
+/// the cells of its dirty rows; the others are the previous frame's rows.
+///
+/// Anything else that clears row dirty flags without building a frame
+/// ([`RenderState::walk_rows`], [`RenderState::set_clean`]) or a failed update
+/// drops the cache, and the next frame reads every row.
+#[derive(Default)]
+struct FrameRowCache {
+    rows: Vec<RenderRow>,
+    valid: bool,
+    size: (u16, u16),
+    default_colors: (Rgb, Rgb),
+    palette: Option<Box<[Rgb; 256]>>,
+}
+
+impl FrameRowCache {
+    /// Whether the cached rows are this frame's clean rows.
+    fn reusable(&self, size: (u16, u16), default_colors: (Rgb, Rgb), palette: &[Rgb; 256]) -> bool {
+        self.valid
+            && self.size == size
+            && self.rows.len() == usize::from(size.1)
+            && self.default_colors == default_colors
+            && self.palette.as_deref() == Some(palette)
+    }
+
+    fn invalidate(&mut self) {
+        self.valid = false;
+        self.rows.clear();
+    }
 }
 
 unsafe impl Send for RenderState {}
@@ -280,12 +324,19 @@ impl RenderState {
             kitty_pixel_cache: HashMap::new(),
             kitty_terminal_instance_id: None,
             next_frame_seq: 0,
+            frame_rows: FrameRowCache::default(),
         })
     }
 
     /// Snapshot the terminal's viewport into this render state.
     pub fn update(&mut self, terminal: &mut Terminal) -> Result<()> {
-        check(unsafe { sys::ghostty_render_state_update(self.raw, terminal.raw()) })?;
+        // A failed update may leave rows rebuilt but not reported as dirty.
+        if let Err(error) =
+            check(unsafe { sys::ghostty_render_state_update(self.raw, terminal.raw()) })
+        {
+            self.frame_rows.invalidate();
+            return Err(error);
+        }
         self.palette = terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
         self.default_palette =
             terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT)?;
@@ -378,6 +429,13 @@ impl RenderState {
 
     /// Reset the global dirty flag after drawing a frame.
     pub fn set_clean(&mut self) {
+        // The caller may consume the row flags next (walk_rows): the next
+        // frame cannot know which rows changed.
+        self.frame_rows.invalidate();
+        self.clear_dirty();
+    }
+
+    fn clear_dirty(&mut self) {
         let value = sys::GHOSTTY_RENDER_STATE_DIRTY_FALSE;
         unsafe {
             sys::ghostty_render_state_set(
@@ -473,21 +531,43 @@ impl RenderState {
         let cursor = self.cursor();
         let cursor_color = self.cursor_color();
         let default_colors = self.default_colors();
-        let mut rows = Vec::with_capacity(size.1 as usize);
+        let mut rows: Vec<RenderRow> = Vec::with_capacity(size.1 as usize);
         let mut dirty_rows = Vec::new();
 
-        self.walk_rows(|row, row_dirty, cells| {
-            rows.push(cells.to_vec());
-            if row_dirty {
-                dirty_rows.push(row as u16);
-            }
-        })?;
+        // Clean rows are the previous frame's rows, unless anything a cell's
+        // resolved colors or position depend on changed (see FrameRowCache).
+        let reuse =
+            dirty != Dirty::Full && self.frame_rows.reusable(size, default_colors, &self.palette);
+        let previous = std::mem::take(&mut self.frame_rows.rows);
+        self.frame_rows.invalidate();
+        self.walk_rows_reusing(
+            |row| reuse && row < previous.len(),
+            |row, row_dirty, cells| {
+                let shared = match (cells, previous.get(row)) {
+                    (Some(cells), _) => RenderRow::from(cells),
+                    (None, Some(kept)) => kept.clone(),
+                    (None, None) => RenderRow::from(&[][..]),
+                };
+                rows.push(shared);
+                if row_dirty {
+                    dirty_rows.push(row as u16);
+                }
+            },
+        )?;
+        drop(previous);
 
         if dirty == Dirty::Full {
             dirty_rows.clear();
             dirty_rows.extend(0..rows.len() as u16);
         }
-        self.set_clean();
+        self.clear_dirty();
+        let palette =
+            self.frame_rows.palette.get_or_insert_with(|| Box::new([Rgb::default(); 256]));
+        **palette = self.palette;
+        self.frame_rows.rows.clone_from(&rows);
+        self.frame_rows.size = size;
+        self.frame_rows.default_colors = default_colors;
+        self.frame_rows.valid = true;
 
         self.next_frame_seq = self.next_frame_seq.wrapping_add(1);
         Ok(RenderFrame {
@@ -509,6 +589,18 @@ impl RenderState {
     /// the row index, the row's dirty flag, and its cells. Row dirty flags
     /// are cleared as part of the walk.
     pub fn walk_rows(&mut self, mut f: impl FnMut(usize, bool, &[Cell])) -> Result<()> {
+        // The next frame cannot tell which rows this walk saw dirty.
+        self.frame_rows.invalidate();
+        self.walk_rows_reusing(|_| false, |row, dirty, cells| f(row, dirty, cells.unwrap_or(&[])))
+    }
+
+    /// [`Self::walk_rows`] that skips reading the cells of a clean row for
+    /// which `keep(row)` is true: the callback gets `None` for it.
+    fn walk_rows_reusing(
+        &mut self,
+        keep: impl Fn(usize) -> bool,
+        mut f: impl FnMut(usize, bool, Option<&[Cell]>),
+    ) -> Result<()> {
         check(unsafe {
             sys::ghostty_render_state_get(
                 self.raw,
@@ -526,6 +618,12 @@ impl RenderState {
                     sys::GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY,
                     &mut dirty as *mut _ as *mut c_void,
                 );
+            }
+
+            if !dirty && keep(row_index) {
+                f(row_index, false, None);
+                row_index += 1;
+                continue;
             }
 
             check(unsafe {
@@ -559,7 +657,7 @@ impl RenderState {
                 }
             }
 
-            f(row_index, dirty, &self.row_buf);
+            f(row_index, dirty, Some(&self.row_buf));
             row_index += 1;
         }
         Ok(())

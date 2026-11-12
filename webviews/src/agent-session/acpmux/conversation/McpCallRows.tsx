@@ -36,7 +36,13 @@ import { toolIcon } from "./toolRowModel";
 import { ToolVisualRow } from "./ToolVisualPreview";
 import { VideoFramesCard } from "./VideoFramesCard";
 import { videoFrames } from "./videoFrames";
-import { useRowDisclosure, useTranscriptDisclosure } from "./transcriptDisclosure";
+import {
+  callDisclosureKeys,
+  FoldPin,
+  useFoldPin,
+  useRowDisclosure,
+  useTranscriptDisclosure,
+} from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { ToolLabel } from "./ToolVerb";
 import { useMoreBelow } from "./moreBelow";
@@ -55,8 +61,10 @@ export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxAc
 function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   const t = useT();
   const names = useContext(McpNamesContext);
-  // The Verbose transcript view opens the calls.
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true);
+  // The Verbose transcript view opens the calls; a call the reader opened before it was grouped too.
+  const members = useMemo(() => callDisclosureKeys(items), [items]);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, false, true, { members });
+  const pin = useFoldPin(disclosureKey);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
@@ -95,11 +103,13 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
-          <div className="cv-tool-group" id={detailsId}>
-            {items.map((item, index) => (
-              <McpCallRow key={item.tool!.id || index} item={item} grouped />
-            ))}
-          </div>
+          <FoldPin.Provider value={pin}>
+            <div className="cv-tool-group" id={detailsId}>
+              {items.map((item, index) => (
+                <McpCallRow key={item.tool!.id || index} item={item} grouped />
+              ))}
+            </div>
+          </FoldPin.Provider>
         </div>
       )}
     </>
@@ -181,7 +191,7 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
   );
   return (
     <>
-      <ToolVisualRow sources={images} label={label}>
+      <ToolVisualRow sources={images} label={label} opened={open}>
         <Row
           type={expandable ? "button" : undefined}
           className={`cv-tool${expandable ? " is-toggle is-whole-open" : ""}${running ? " is-live" : " is-strong"}`}
@@ -213,12 +223,13 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
         </Row>
       </ToolVisualRow>
       <ToolFailureCause failure={failure} />
-      {/* Captures and screenshots are part of the closed call's result, so keep the strip visible
-          without requiring a disclosure click. */}
-      {images.length > 0 && <ToolImages sources={images} />}
       {video && <VideoFramesCard video={video} />}
       {hasDetails && fold.present && (
         <div {...fold.bodyProps}>
+          {/* A capture's images show once its row opens, one small image at the row's edge until then
+              (ToolVisualRow), so a run of browser captures stays a list of lines (Lucas, 2026-11-11),
+              as the Codex app's rows draw them. */}
+          {images.length > 0 && <ToolImages sources={images} />}
           {exec && failure?.kind !== "hook" ? (
             <CmuxExecDetails id={detailsId} tool={tool} call={call} raw={raw} reveal={reveal} />
           ) : fields && failure?.kind !== "hook" ? (

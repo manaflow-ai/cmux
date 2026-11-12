@@ -186,6 +186,7 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
             return {
               row: time.closest("[data-row-id]")?.getAttribute("data-row-id") ?? "",
               tip: time.getAttribute("title") ?? time.getAttribute("data-tooltip") ?? "",
+              detail: time.getAttribute("data-tooltip-detail") ?? "",
               hit: hit === time || time.contains(hit),
             };
           }),
@@ -197,7 +198,8 @@ await requireBrowserLane("message-action-rows-browser.test.ts", async () => {
         }
         // The stretch the person came in on says how long it worked, as a turn's own footer does.
         const steered = times.find((time) => time.row.startsWith("superseded"))!;
-        expect(steered.tip).toMatch(/^Worked for /);
+        // (Its tooltip's second line, under the exact time every reply's age hovers with.)
+        expect(steered.detail).toMatch(/^Worked for /);
       } finally {
         await page.close();
       }

@@ -276,6 +276,10 @@ pub struct Decision {
     /// `cloudTeamMachine`). The creator's own machine takes the login whatever its guest kind,
     /// so this no longer happens; kept for the handshake.
     pub skipped_team_machine: bool,
+    /// Whether this start would race the spare warm's login copy (cmux-tui `start-chat warm-spare`)
+    /// were one in flight on its machine: it reads and copies onto the machine, for a provider the
+    /// warm copies ([`warm_copies`]). Only such a start waits on that copy; any other never waits.
+    pub warm_copy_conflict: bool,
     /// One line for the log and the `cloud.machines` row; no token, path or provider output.
     pub summary: String,
 }
@@ -289,6 +293,12 @@ fn guest_takes_login(kind: Option<&str>, release: bool, provider: Option<Provide
     } else {
         matches!(kind, Some("owner" | "team"))
     }
+}
+
+/// Whether the spare warm copies this provider's login onto the spare ahead of a chat: Claude's.
+/// Codex's broker access is per machine and per start, so a Codex start never waits on a warm.
+pub fn warm_copies(provider: Provider) -> bool {
+    provider == Provider::Claude
 }
 
 /// Whether the start passes this provider's login: Claude always (its gate decides), Codex only
@@ -339,13 +349,15 @@ fn step_and_reason(d: &Inputs) -> (Step, Reason) {
     }
     if d.provider == Some(Provider::Codex) {
         // The machine keeps its own Codex sign-in when asked to; otherwise the broker runs. Its
-        // device-code prompt is its own confirm (with Cancel), so no second one comes first, and a
-        // run that may show no prompt passes nothing rather than refusing the start.
+        // device-code prompt is its own confirm (with Cancel), so no second one comes first. A run
+        // that may show no prompt and has no choice refuses at once, as Claude's does: passing
+        // nothing left Codex signed out on the machine and the run's first turn hung until its
+        // deadline (production start matrix, `codex-signed-out`, 2026-11-08).
         let chose_pass = choice == Some(Choice::Pass)
             && (d.requested_by_person || d.stored == Some(Choice::Pass));
         return match choice {
             Some(Choice::Machine) => (Step::Skip, Reason::MachineLoginKept),
-            _ if d.headless && !chose_pass => (Step::Skip, Reason::NeedsLoginChoice),
+            _ if d.headless && !chose_pass => (Step::Refuse, Reason::NeedsLoginChoice),
             _ => (Step::Install, Reason::CodexBroker),
         };
     }
@@ -480,6 +492,12 @@ pub fn decide(d: &Inputs) -> Decision {
     let d = &resolved(d);
     let (step, reason) = step_and_reason(d);
     let kind = d.guest_kind.as_deref();
+    let reads_machine = d.gate
+        && (!d.release || release_passes_harness_login(d.setting, d.remote_switch))
+        && transfers(d)
+        && d.signed_in
+        && d.caller_owns == Some(true)
+        && choice(d) != Some(Choice::None);
     Decision {
         step,
         reason,
@@ -488,14 +506,13 @@ pub fn decide(d: &Inputs) -> Decision {
         guest_kind: d.guest_kind.clone(),
         machine_login: d.machine_login,
         guest_kind_probe: GUEST_KIND_PROBE.to_owned(),
-        reads_machine: d.gate
-            && (!d.release || release_passes_harness_login(d.setting, d.remote_switch))
-            && transfers(d)
-            && d.signed_in
-            && d.caller_owns == Some(true)
-            && choice(d) != Some(Choice::None),
+        reads_machine,
         guest_takes_login: guest_takes_login(kind, d.release, d.provider),
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
+        warm_copy_conflict: reads_machine
+            && step != Step::Refuse
+            && choice(d) != Some(Choice::Machine)
+            && d.provider.is_some_and(warm_copies),
         summary: summary(d, step, reason),
     }
 }

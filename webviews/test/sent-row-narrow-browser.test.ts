@@ -2,7 +2,7 @@
 // cmux-web-test-timeout: 300
 //
 // A sent message's row (SentMessageLine.tsx) never runs past its pane (cmux#37879 review): in the
-// batch gallery's opened group, "Sent to acpmux-owner · gcp-lane" and its "Read at its next step"
+// batch gallery's opened group, "Sent to acpmux-owner · ci-box" and its "Read at its next step"
 // drew past the transcript's right edge at a narrow pane, as the status kept its room and the
 // recipient did not give way. The received line it matches cuts its sender and preview first and
 // keeps its chevron and actions in sight; the sent line does the same.
@@ -70,10 +70,10 @@ await requireBrowserLane("sent-row-narrow-browser.test.ts", async () => {
 
             const rows = await page.evaluate(() =>
               [...document.querySelectorAll<HTMLElement>(".cv-sent-msg")].map((row) => {
-                const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
+                const line = row.querySelector<HTMLElement>(":scope > .cv-agentmsg__line")!;
                 const status = line.querySelector<HTMLElement>(".cv-sent__status");
                 const words = status?.querySelector<HTMLElement>(".cv-row-status");
-                const chevron = line.querySelector<Element>(".cv-disclosure__toggle > .cv-rotor")!;
+                const chevron = line.querySelector<Element>(".cv-agentmsg__chevron > .cv-rotor")!;
                 const scroller = row.closest<HTMLElement>(".cv-scroll, [data-transcript-scroller]") ?? document.body;
                 const right = (el: Element | null | undefined) => (el ? el.getBoundingClientRect().right : 0);
                 return {
@@ -104,8 +104,8 @@ await requireBrowserLane("sent-row-narrow-browser.test.ts", async () => {
               expect({ text: row.text, chevron: row.chevron <= edge }).toEqual({ text: row.text, chevron: true });
               // Nothing lies over another: the recipient gives way before the chevron, the chevron
               // before the status.
-              // The chevron's toggle takes back the sender's 4px gap by design (DisclosureRow.css "Only
-              // after a leading part"), its glyph drawn inside its box: 4px is that pull, not overlap.
+              // An empty toggle takes back the line's gap before the chevron by design
+              // (AgentMessageRow.css "transcript-chevron-after-label"): 4px is that pull, not overlap.
               expect({ text: row.text, sender: row.sender <= row.chevronLeft + 4 }).toEqual({
                 text: row.text,
                 sender: true,

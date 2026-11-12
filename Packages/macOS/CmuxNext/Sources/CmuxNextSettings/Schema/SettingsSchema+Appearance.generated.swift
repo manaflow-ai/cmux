@@ -127,7 +127,7 @@ extension AppearanceTuningSetting {
 extension DensitySetting {
     /// `appearance.density`.
     public nonisolated static let configPath = ["appearance", "density"]
-    public nonisolated static let fallback: DensityPreset = .compact
+    public nonisolated static let fallback: DensityPreset = .cozy
 }
 
 extension CustomDensitySelectionSetting {
@@ -184,6 +184,10 @@ extension LayoutMetricSetting {
     public nonisolated static let titlebarHeightPath = ["appearance", "metrics", "titlebarHeight"]
     public nonisolated static let titlebarHeightRange: ClosedRange<Double> = 24...56
     public nonisolated static let titlebarHeightPlaceholder: Double = 32
+    /// `appearance.metrics.sidebarRowHeight`.
+    public nonisolated static let sidebarRowHeightPath = ["appearance", "metrics", "sidebarRowHeight"]
+    public nonisolated static let sidebarRowHeightRange: ClosedRange<Double> = 20...48
+    public nonisolated static let sidebarRowHeightPlaceholder: Double = 24
 }
 
 extension BordersSetting {
@@ -226,9 +230,6 @@ extension AnimationKindsSetting {
     /// `ui.animations.newWorkspace`.
     public nonisolated static let newWorkspacePath = ["ui", "animations", "newWorkspace"]
     public nonisolated static let newWorkspaceDefault = true
-    /// `ui.animations.bounce`.
-    public nonisolated static let bouncePath = ["ui", "animations", "bounce"]
-    public nonisolated static let bounceDefault: MotionBounce = .none
 }
 
 extension PaneChromeConfigParser {

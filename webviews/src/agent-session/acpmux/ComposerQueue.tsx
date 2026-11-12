@@ -52,22 +52,15 @@ import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
-import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+
 import { lacksImageBytes, ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 import { AuthorChip } from "./multiplayer/Faces";
-import {
-  pickedSkillsOf,
-  withSkillDollars,
-  withoutSkillDollars,
-  type SkillCatalog,
-  type SlashCommand,
-} from "./slashCommands";
+import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SlashCommand } from "./slashCommands";
 import { useSkillWords } from "./conversation/skillWords";
 import { withSkillWords } from "./conversation/withSkillWords";
-
-type QueuedEntry = AcpmuxSnapshot["queue"][number];
-
+import { type QueuedEntry, shownText } from "./composerQueueModel";
+import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 /** A queue of more queued prompts than this folds; folded, it shows `FOLD_SHOWS` of them. */
 const FOLD_AT = 3;
 const FOLD_SHOWS = 2;
@@ -159,16 +152,6 @@ function promptVideos(entry: QueuedEntry): QueuedVideo[] | undefined {
     }
   }
   return videos.length ? videos : undefined;
-}
-
-/// The text a row shows, whole: the prompt, or for acpmux's resume of a subagent its label, name and
-/// error. Never the resume's raw prompt, which names the agent id and tells the agent how to resume it.
-export function shownText(entry: QueuedEntry, t: Translate, skills?: SkillCatalog): string {
-  const retry = entry.retry;
-  if (!retry) return withoutSkillDollars(entry.prompt, skills);
-  return [`${t("composer.queuedSubagentRetry")} ${retry.name ?? retry.agentId ?? ""}`.trim(), retry.error]
-    .filter(Boolean)
-    .join("\n");
 }
 
 /// The most a held list may grow to: the room the pane leaves the composer's stack, that is the
@@ -544,6 +527,10 @@ export function ComposerQueue({
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
   const fitReadyFrame = useRef<number | undefined>(undefined);
   const wasOpen = useRef(unfolded);
+  // The prompts the list drew last: a prompt that arrives or leaves (a send behind the turn, acpmux
+  // taking the next one) changes the list's height in that frame, never eased (composerStates.css
+  // [data-rows-changed]); the reader's own fold, edit and keyboard toggles keep the move token.
+  const drawnIds = useRef<string>(undefined);
   useLayoutEffect(() => {
     const current = list.current;
     // A hold belongs to the list the pointer was on: once that list leaves (the queue emptied) no
@@ -560,7 +547,19 @@ export function ComposerQueue({
       const opening = unfolded && !wasOpen.current;
       if (opening) current.scrollTop = 0;
       const firstFit = !current.hasAttribute("data-fit-ready");
-      fit(current);
+      const ids = [...current.querySelectorAll<HTMLElement>(":scope > .acpmux-queued")]
+        .map((row) => row.dataset.promptId)
+        .join("\n");
+      const rowsChanged = drawnIds.current !== undefined && drawnIds.current !== ids && unfolded === wasOpen.current;
+      drawnIds.current = ids;
+      if (rowsChanged) {
+        // Fit with the transition off, and have the browser take the height (a style read) before it
+        // comes back, as `release` does.
+        current.setAttribute("data-rows-changed", "");
+        fit(current);
+        void current.ownerDocument.defaultView?.getComputedStyle(current).maxHeight;
+        current.removeAttribute("data-rows-changed");
+      } else fit(current);
       if (firstFit) {
         fitReadyFrame.current = requestFitFrame(current.ownerDocument, () => {
           fitReadyFrame.current = undefined;
@@ -1043,8 +1042,8 @@ export function ComposerQueue({
                 )}
               </>
             ) : (
-              // A skill's `/name` draws as in the prompt's bubble (SkillWord.tsx).
-              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words)
+              // A skill's `/name`, and the command it starts with, draw as in the prompt's bubble (SkillWord.tsx).
+              withSkillWords(withoutSkillDollars(entry.prompt, skills), skills.words, undefined, skills.leading)
             )}
           </span>
         </button>
@@ -1211,17 +1210,11 @@ function QueuedEdit({
     finished.current = true;
     onDone(text);
   };
-  // As tall as its lines.
-  const fit = () => {
-    const field = input.current;
-    if (!field) return;
-    field.style.height = "auto";
-    field.style.height = `${field.scrollHeight}px`;
-  };
+  // As tall as its lines by CSS (`field-sizing: content`, composerStates.css): no height write and scrollHeight read
+  // (a forced layout) on each key.
   useEffect(() => {
     input.current?.focus();
     input.current?.select();
-    fit();
   }, []);
   return (
     <textarea
@@ -1230,10 +1223,7 @@ function QueuedEdit({
       aria-label={label}
       rows={1}
       defaultValue={initial ?? entry.prompt}
-      onInput={(event) => {
-        fit();
-        onInput(event.currentTarget.value);
-      }}
+      onInput={(event) => onInput(event.currentTarget.value)}
       // ui-allow: the edit field's own editing keys (Return saves, Shift-Return adds a line, Esc cancels).
       onKeyDown={(event) => {
         // Every key belongs to the input method while it composes (WebKit sends its Return as 229).

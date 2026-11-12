@@ -18,7 +18,7 @@ import type { AcpmuxCompaction } from "../model";
 import { CompactionNote } from "./CompactionNote";
 import { compactingLine } from "./compactingLine.experiment";
 import { Thinking } from "./Thinking";
-import { WorkingCountsContext, type WorkingCounts } from "./WorkingFor";
+import { WorkingCountsContext, type WorkingCounts } from "./workingForModel";
 
 type Phase = "before" | "thinking" | "compacting" | "compacted";
 type Props = { phase: Phase; arm?: "own" | "turn" | "calm"; accountSwitch?: boolean };

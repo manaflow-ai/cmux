@@ -157,7 +157,9 @@ pub(super) fn answer_line(
             Err(FsError::ParamsInvalid("a byte stream needs a link dial of its own".into())),
         );
     }
-    stream::answer(&id, service.call(owner, cmd, Value::Object(request)))
+    crate::git_seed::held_op(crate::git_seed::installed(), &id, request, |request| {
+        service.call(owner, cmd, Value::Object(request))
+    })
 }
 
 /// How long a remote dial may take to send its whole first line.
@@ -265,12 +267,12 @@ fn serve_stream(
     stream: UnixStream,
 ) {
     let (Ok(control), Ok(closer)) = (stream.try_clone(), stream.try_clone()) else { return };
+    // The sink's descriptor closes when this stream ends, also while a clone
+    // of `writer` lives on elsewhere (bounded_outbound.rs, SinkControl).
+    let control = SinkControl::unix(Box::new(control));
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new_with_render_service(
-        QueuedSink {
-            outbound: outbound.clone(),
-            control: Some(SinkControl::Unix(Box::new(control))),
-        },
+        QueuedSink { outbound: outbound.clone(), control: Some(control.clone()) },
         Arc::new(RenderService::new()),
     );
     // Closing the client (a kick, a handoff, the entry's shutdown, or the
@@ -312,6 +314,7 @@ fn serve_stream(
     mux.unbind_conversation_principal(client);
     writer.close();
     let _ = stream.shutdown(std::net::Shutdown::Both);
+    control.close();
 }
 
 /// Closes every remote client (line dials and byte streams): the entry is

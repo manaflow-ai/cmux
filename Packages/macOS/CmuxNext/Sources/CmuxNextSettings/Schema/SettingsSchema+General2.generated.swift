@@ -4,6 +4,38 @@
 public import CmuxNextDesign
 
 extension GeneralSettingsSchema {
+    static var quitting: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.quit", "Quitting")
+        return [
+            SettingDescriptor(
+                QuitBehaviorSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
+                help: SettingsText.keyed("settings.app.quitBehavior.help", "Terminals run in cmux-tui and keep running after cmux quits unless you end them."),
+                kind: .choice([
+                    SettingChoice(QuitBehavior.keep.rawValue, SettingsText.keyed("settings.choice.quitKeep", "Keep Sessions Running")),
+                    SettingChoice(QuitBehavior.endKeepLayout.rawValue, SettingsText.keyed("settings.choice.quitEndKeepLayout", "End Sessions, Keep Layout")),
+                    SettingChoice(QuitBehavior.endEverything.rawValue, SettingsText.keyed("settings.choice.quitEndEverything", "End Everything")),
+                ]),
+                default: .string(QuitBehaviorSetting.fallback.rawValue),
+                keywords: ["quit", "exit", "sessions", "terminals", "cmux-tui", "daemon", "background"]
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
+            SettingDescriptor(
+                CmuxConfigSnapshot.confirmQuitPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.confirmQuit", "Ask Before Quitting Ends Agents or Terminals"),
+                help: SettingsText.keyed("settings.app.confirmQuit.help", "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.confirmQuitDefault),
+                keywords: ["quit", "cmd-q", "confirm", "ask", "warn", "exit", "agents", "terminals"]
+            ),
+        ]
+    }
+}
+
+extension GeneralSettingsSchema {
     static var columns: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.columns", "Columns")
         return [

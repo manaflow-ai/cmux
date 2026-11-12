@@ -7,13 +7,11 @@
 
 use crate::client::Client;
 use crate::rpc::method;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::future::Future;
 use std::sync::Arc;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::sync::mpsc;
 
 pub const SERVER_NAME: &str = "cmux-secrets";
 /// The session the tools ask for, set in this server's own env.
@@ -111,18 +109,27 @@ fn all_tools() -> Value {
     ])
 }
 
+/// The secret server for the session in its env, its calls on `daemon`'s connection.
+pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::tools_mcp::Served> {
+    crate::tools_mcp::served(
+        SERVER_NAME,
+        SESSION_ENV,
+        tools(),
+        None,
+        daemon,
+        |daemon, session, params| async move { call(&daemon, &session, &params).await },
+    )
+}
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
-    serve(SERVER_NAME, SESSION_ENV, tools(), None, |daemon, session, params| async move {
-        call(&daemon, &session, &params).await
-    })
-    .await
+    crate::tools_mcp::serve_one(served).await
 }
 
 /// An MCP stdio server for one agent session (the one in `session_env`):
-/// `tools/call` is `call(daemon, session, params)` on a new daemon
-/// connection, and `instructions` the MCP `instructions` it gives at
-/// `initialize`. `offer_mcp.rs` and `subsession_mcp.rs` serve theirs with it too.
+/// `tools/call` is `call(daemon, session, params)` on the process's daemon
+/// connection (`tools_mcp::Daemon`), and `instructions` the MCP `instructions` it gives at
+/// `initialize`. The Cloud repository server (`cloud_repo_mcp.rs`) serves its with it.
 pub(crate) async fn serve<F, Fut>(
     name: &'static str,
     session_env: &str,
@@ -134,71 +141,33 @@ where
     F: Fn(Arc<Client>, String, Value) -> Fut + Clone + Send + 'static,
     Fut: Future<Output = Value> + Send + 'static,
 {
-    let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
-    // Stdin may stay open after the agent died (`parent_watch.rs`).
-    crate::parent_watch::exit_with_parent();
-    let (tx, mut rx) = mpsc::channel::<Value>(64);
-    let writer = tokio::spawn(async move {
-        let mut out = tokio::io::stdout();
-        while let Some(message) = rx.recv().await {
-            let mut line = message.to_string();
-            line.push('\n');
-            if out.write_all(line.as_bytes()).await.is_err() || out.flush().await.is_err() {
-                break;
-            }
-        }
-    });
-    let mut lines = BufReader::new(tokio::io::stdin()).lines();
-    while let Some(line) = lines.next_line().await? {
-        let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
-        let Some(id) = message.get("id").cloned() else { continue }; // a notification
-        let verb = message["method"].as_str().unwrap_or_default().to_owned();
-        let reply = match verb.as_str() {
-            "initialize" => {
-                let mut reply = json!({
-                    "protocolVersion": protocol_version(&message["params"]),
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": name, "version": env!("CARGO_PKG_VERSION")},
-                });
-                if let Some(text) = &instructions {
-                    reply.set("instructions", json!(text));
-                }
-                reply
-            }
-            "ping" => json!({}),
-            "tools/list" => json!({"tools": tools}),
-            "tools/call" => {
-                // A card waits on the person: the next request is read meanwhile. Each call
-                // connects anew, so a restarted daemon serves the next one.
-                let (tx, session, params, call) =
-                    (tx.clone(), session.clone(), message["params"].clone(), call.clone());
-                tokio::spawn(async move {
-                    let result = match crate::daemon::connect(false).await {
-                        Ok(daemon) => call(daemon, session, params).await,
-                        Err(e) => error_result(format!("{e:#}")),
-                    };
-                    let _ = tx.send(response(&id, result)).await;
-                });
-                continue;
-            }
-            other => {
-                let error =
-                    json!({"code": -32601, "message": format!("method not found: {other}")});
-                let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "error": error})).await;
-                continue;
-            }
-        };
-        let _ = tx.send(response(&id, reply)).await;
-    }
-    // The agent closed the pipe: no one reads an answer still on its way, and
-    // ending here drops the calls' daemon connections with it.
-    drop(tx);
-    writer.abort();
-    Ok(())
+    let daemon = Arc::default();
+    let served = crate::tools_mcp::served(name, session_env, tools, instructions, &daemon, call)?;
+    crate::tools_mcp::serve(vec![served]).await
 }
 
-fn response(id: &Value, result: Value) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "result": result})
+/// [`serve`] for a session (or bridge address, `acpmux_mcp_bridge.rs`) given, not read from the
+/// env. `call(session, params)` connects to the daemon itself, only if it needs it.
+pub(crate) async fn serve_as<F, Fut>(
+    name: &'static str,
+    session: String,
+    tools: Value,
+    instructions: Option<String>,
+    call: F,
+) -> Result<()>
+where
+    F: Fn(String, Value) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Value> + Send + 'static,
+{
+    let call = crate::tools_mcp::boxed(call);
+    crate::tools_mcp::serve(vec![crate::tools_mcp::Served {
+        name,
+        session,
+        tools,
+        instructions,
+        call,
+    }])
+    .await
 }
 
 pub(crate) fn error_result(text: String) -> Value {

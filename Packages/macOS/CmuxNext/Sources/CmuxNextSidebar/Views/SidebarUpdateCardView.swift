@@ -30,6 +30,8 @@ final class SidebarUpdateCardView: NSView {
     /// The short version and build date.
     let detailLabel = ChromeLabel(labelWithString: "")
     let toggle = SidebarUpdateToggle()
+    /// A fixed layout (the Restart to Update gallery); nil follows `sidebar.updateCard.layout`.
+    var layoutOverride: SidebarUpdateCardLayout? { didSet { if layoutOverride != oldValue { needsLayout = true } } }
     let button = SidebarUpdateButton()
     /// "Hide": one click hides this version's card (``SidebarUpdateCard/closeAction``).
     let closeButton = SidebarCardTextButton()
@@ -194,14 +196,30 @@ final class SidebarUpdateCardView: NSView {
 
     private static var captionHeight: CGFloat { ceil(Typography.caption.boundingRectForFont.height) }
 
-    /// The card's height for `card`: padding, title, the detail line when
-    /// present, the switch row, the button, padding.
+    /// The card's height for `card` in `layout` (the tunable's, for the one-argument form). Card: padding, title,
+    /// the detail line when present, the switch row, the button, padding. Compact: padding, title,
+    /// one row of the detail and the button, padding. Button: padding, the button, the detail line
+    /// when present, padding.
     static func height(for card: SidebarUpdateCard) -> CGFloat {
+        height(for: card, layout: SidebarTunables.updateCardLayout.value)
+    }
+
+    static func height(for card: SidebarUpdateCard, layout: SidebarUpdateCardLayout) -> CGFloat {
         let title = ceil(titleFont.boundingRectForFont.height)
         let detail = card.detail == nil ? 0 : Metrics.space1 / 2 + captionHeight
-        return ceil(padding + title + detail + rowGap
-            + SidebarUpdateToggle.height + rowGap + SidebarUpdateButton.height + padding)
+        switch layout {
+        case .card:
+            return ceil(padding + title + detail + rowGap
+                + SidebarUpdateToggle.height + rowGap + SidebarUpdateButton.height + padding)
+        case .compact:
+            return ceil(padding + title + rowGap + SidebarUpdateButton.height + padding)
+        case .button:
+            return ceil(padding + SidebarUpdateButton.height + detail + padding)
+        }
     }
+
+    /// The layout this card draws (``layoutOverride``, else the tunable's).
+    var layoutStyle: SidebarUpdateCardLayout { layoutOverride ?? SidebarTunables.updateCardLayout.value }
 
     override func layout() {
         super.layout()
@@ -210,6 +228,14 @@ final class SidebarUpdateCardView: NSView {
         surface.cornerRadius = Metrics.surfaceCornerRadius
         titleLabel.font = Self.titleFont
         let width = max(0, b.width - 2 * pad)
+        switch layoutStyle {
+        case .card: break
+        case .compact: return layoutCompact(width: width)
+        case .button: return layoutButton(width: width)
+        }
+        [titleLabel, toggle].forEach { $0.isHidden = false }
+        detailLabel.alignment = .natural
+        closeButton.isHidden = card?.closeTitle == nil || card?.closeAction == nil
         let th = ceil(Self.titleFont.boundingRectForFont.height)
         let closeWidth = closeButton.fittingWidth, closeHeight = SidebarCardTextButton.height
         let closeRoom = closeButton.isHidden ? 0 : closeWidth + Metrics.space1
@@ -225,6 +251,41 @@ final class SidebarUpdateCardView: NSView {
         }
         toggle.frame = NSRect(x: pad, y: y + Self.rowGap, width: width, height: SidebarUpdateToggle.height)
         button.frame = NSRect(x: pad, y: toggle.frame.maxY + Self.rowGap, width: width, height: SidebarUpdateButton.height)
+        presence.didLayout()
+    }
+
+    /// Compact: the title (and Hide) on the first row; the version on the left of the second row
+    /// and Restart to Update, sized to its words, on its right. Automatic Updates lives in Settings.
+    private func layoutCompact(width: CGFloat) {
+        let pad = Self.padding, th = ceil(Self.titleFont.boundingRectForFont.height)
+        titleLabel.isHidden = false
+        toggle.isHidden = true
+        detailLabel.alignment = .natural
+        closeButton.isHidden = card?.closeTitle == nil || card?.closeAction == nil
+        let closeWidth = closeButton.fittingWidth, closeHeight = SidebarCardTextButton.height
+        let closeRoom = closeButton.isHidden ? 0 : closeWidth + Metrics.space1
+        closeButton.frame = NSRect(x: bounds.width - pad / 2 - closeWidth, y: pad + (th - closeHeight) / 2, width: closeWidth, height: closeHeight)
+        titleLabel.frame = NSRect(x: pad, y: pad, width: max(0, width - closeRoom), height: th)
+        let y = titleLabel.frame.maxY + Self.rowGap, h = SidebarUpdateButton.height
+        let buttonWidth = min(width, button.fittingWidth)
+        button.frame = NSRect(x: pad + width - buttonWidth, y: y, width: buttonWidth, height: h)
+        detailLabel.font = Typography.caption
+        detailLabel.frame = NSRect(x: pad, y: y + (h - Self.captionHeight) / 2, width: max(0, width - buttonWidth - Metrics.space2),
+                                   height: Self.captionHeight)
+        presence.didLayout()
+    }
+
+    /// Button: one full-width Restart to Update, the card's only control (Hide and Remind Me are on
+    /// its right-click menu), with the version under it.
+    private func layoutButton(width: CGFloat) {
+        let pad = Self.padding
+        titleLabel.isHidden = true
+        toggle.isHidden = true
+        closeButton.isHidden = true
+        button.frame = NSRect(x: pad, y: pad, width: width, height: SidebarUpdateButton.height)
+        detailLabel.font = Typography.caption
+        detailLabel.alignment = .center
+        detailLabel.frame = NSRect(x: pad, y: button.frame.maxY + Metrics.space1 / 2, width: width, height: Self.captionHeight)
         presence.didLayout()
     }
 
