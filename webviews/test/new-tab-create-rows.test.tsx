@@ -14,6 +14,7 @@ import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesti
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../src/agent-session/acpmux/omnibar";
 import { inStrip, screenRows, type ScreenRow } from "../src/agent-session/acpmux/newtab/screenModel";
 import type { SuggestionOrder } from "../src/agent-session/acpmux/newtab/suggestionOrder";
+import { teardownDom } from "./support/domTeardown";
 
 const ask = { harness: "claude", agent: "Claude Code", model: "Claude Opus 5.5" };
 const create = ["terminal", "browser", "chat"] as const;
@@ -121,12 +122,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const noop = () => {};

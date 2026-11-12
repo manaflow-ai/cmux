@@ -17,6 +17,7 @@ git-fixture-exit-trap fails a test that traps EXIT directly.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -295,6 +296,282 @@ class ExitStatusAndDoubleSource(unittest.TestCase):
                 self.assertEqual((self.tmp / "chained").read_text().strip(), "chained")
                 (self.tmp / "chained").unlink()
                 self.assertNoFolder(done)
+
+
+class SavedTrapAndSubshellSource(unittest.TestCase):
+    """The review of hq#9676, ported (guard-causes-the-harm): the helper's own EXIT guard skipped the cleanup it exists
+    for.
+
+    F1: `saved=$(trap -p EXIT); eval "$saved"` handed the helper's own dispatcher to the wrapper as the caller's
+    action, so at exit the dispatcher eval'd itself until bash segfaulted and the caller's cleanup never ran.
+    F2: `(unset GIT_CONFIG_GLOBAL; source lib)` made a folder in the subshell, but the guard read the parent's trap
+    text (a subshell still shows it) and never armed EXIT there, so the subshell's folder stayed behind.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="git-fixture-saved-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
+        self.env = Env.clean(self.tmp)
+        self.tmpdir = Path(self.env["TMPDIR"])
+
+    def bash(self, script: str, *args: str) -> subprocess.CompletedProcess[str]:
+        subprocess.run(["rm", "-rf", str(self.tmpdir)], check=True)
+        self.tmpdir.mkdir()
+        return subprocess.run(["bash", "-c", script, "_", str(LIB), *args], env=self.env, capture_output=True,
+                              text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=self.tmp)
+
+    def test_sourcing_twice_and_restoring_a_saved_exit_trap_runs_the_caller_cleanup_once(self):
+        for saved in ("saved=$(trap -p EXIT)", "saved=$(trap -p)"):
+            with self.subTest(saved=saved):
+                marker = self.tmp / "cleanup"
+                marker.unlink(missing_ok=True)
+                done = self.bash('trap \'echo cleanup >>"$2"\' EXIT\nsource "$1"\nsource "$1"\n'
+                                 + saved + '\neval "$saved"\nexit 5\n', str(marker))
+                self.assertEqual(done.returncode, 5, f"exit {done.returncode} (-11 is a segfault): "
+                                                     f"{done.stderr[-2000:]}")
+                self.assertTrue(marker.exists(), "the caller's cleanup never ran")
+                self.assertEqual(marker.read_text(), "cleanup\n", "the caller's cleanup did not run exactly once")
+                self.assertEqual(sorted(os.listdir(self.tmpdir)), [], "a fixture folder was left")
+
+    def test_a_subshell_source_removes_both_folders(self):
+        for errexit in ("", "set -euo pipefail; "):
+            with self.subTest(errexit=bool(errexit)):
+                marker = self.tmp / "folders"
+                marker.unlink(missing_ok=True)
+                done = self.bash(
+                    errexit + 'source "$1"\nfirst=${GIT_CONFIG_GLOBAL%/*}\n'
+                    '(unset GIT_CONFIG_GLOBAL; source "$1"; second=${GIT_CONFIG_GLOBAL%/*}\n'
+                    ' [[ -d $second && $second != "$first" ]] || exit 9; echo "$second" >"$2")\n'
+                    '[[ -d $first ]] || exit 8\nexit 0\n', str(marker))
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertTrue(marker.exists(), "the subshell never made its own folder, so this case tests nothing")
+                self.assertEqual(sorted(os.listdir(self.tmpdir)), [], f"a fixture folder was left: {done.stderr}")
+
+
+    def test_a_saved_exit_trap_comes_back_after_it_was_cleared(self):
+        """The review of hq#9715 F2, ported: `saved=$(trap -p EXIT); trap - EXIT; eval "$saved"` must bring the
+        caller's action back. `trap -p` printed this file's own dispatcher, the restore ignored it, and the cleared
+        action stayed gone. Under `set -e` too: a dispatcher that restores $? with `(exit "$status")` is stopped by
+        errexit before the restored action runs (cmux#41195 F1, cmux#41677)."""
+        for errexit in ("", "set -euo pipefail; "):
+            for when in ("before", "after"):
+                for saved in ("saved=$(trap -p EXIT)", "saved=$(trap -p)"):
+                    with self.subTest(errexit=bool(errexit), trap_set=when, saved=saved):
+                        marker = self.tmp / "cleanup"
+                        marker.unlink(missing_ok=True)
+                        set_trap = 'trap \'echo cleanup >>"$2"\' EXIT\n'
+                        script = (errexit + (set_trap if when == "before" else "") + 'source "$1"\n'
+                                  + (set_trap if when == "after" else "")
+                                  + saved + '\ntrap - EXIT\neval "$saved"\nexit 5\n')
+                        done = self.bash(script, str(marker))
+                        self.assertEqual(done.returncode, 5, done.stderr[-2000:])
+                        self.assertTrue(marker.exists(), f"the restored cleanup never ran: {done.stderr[-2000:]}")
+                        self.assertEqual(marker.read_text(), "cleanup\n")
+                        self.assertEqual(sorted(os.listdir(self.tmpdir)), [], "a fixture folder was left")
+
+    def test_trap_p_still_lists_other_signals_and_nothing_for_a_cleared_exit(self):
+        done = self.bash('source "$1"\ntrap \'echo int\' INT\ntrap \'echo bye\' EXIT\ntrap -p\necho ---\n'
+                         'trap - EXIT\ntrap -p EXIT\necho ---\ntrap -p INT\n')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        listed, cleared, int_only = done.stdout.split("---\n")
+        self.assertIn("trap -- 'echo int' SIGINT", listed)
+        self.assertIn("trap -- 'echo bye' EXIT", listed)
+        self.assertNotIn("_git_fixture", listed, "trap -p showed the helper's own dispatcher")
+        self.assertEqual(cleared, "")
+        self.assertEqual(int_only.strip(), "trap -- 'echo int' SIGINT")
+
+
+class TrapMatchesTheBuiltin(unittest.TestCase):
+    """The file's `trap` wrapper must print and do what bash's own builtin does, for every form a caller writes.
+
+    Follow-ups to the reviews of hq#9715 and cmux#41713. F1: `trap '' EXIT` was kept as an empty string, the same as
+    no caller trap, so `trap -p EXIT` printed nothing instead of `trap -- '' EXIT` and a saved ignored trap was lost.
+    F2: `trap -p --` read `--` as a signal name, so the listing showed the helper's dispatcher and not the caller's
+    EXIT action. The class of bug is the wrapper reading its arguments differently from the builtin, so this row runs
+    each form once under the wrapper and once in plain bash and compares stdout, the exit status and stderr (minus the
+    `FILE: line N:` prefix, which names the wrapper's file). Each form also exits through its EXIT action, so what
+    runs at exit is compared too. Run on the CI runner's bash and in the `bash:3.2` image (macOS /bin/bash).
+
+    The review of cmux#41772 / hq#9759 (Codex) added the trap state around the wrapper. F1: git_fixture_trap_exit kept
+    the "ignored" mark, so `trap '' EXIT; git_fixture_trap_exit 'echo unexpected'; trap '' EXIT; exit 3` printed
+    "unexpected". F2: a caller's DEBUG trap ran for the wrapper's own steps and the exit dispatcher's, and a RETURN
+    trap set through the wrapper ran as the wrapper returned. The sweep found the dispatcher's status step tripping a
+    caller's ERR trap, and the wrapper's own failing steps tripping it again under set -E."""
+
+    def test_a_debug_trap_still_set_at_exit_sees_one_dispatcher_step(self):
+        """A DEBUG trap still set at exit runs before each command of the caller's EXIT action, as in plain bash, and
+        once more for the dispatcher's first step (the step that hides it, which no trap can skip). It ran seven
+        more times before the action and once after it."""
+        script = ('n=0; trap \'n=$((n+1)); echo "debug $n"\' DEBUG\n'
+                  'trap \'echo "bye $?"; echo "bye again"\' EXIT\nexit 3\n')
+        for errexit in ("", "set -euo pipefail\n"):
+            with self.subTest(errexit=bool(errexit)):
+                tmpdir = self.tmp / f"tmpdir-debug-at-exit-{bool(errexit)}"
+                tmpdir.mkdir()
+                plain = self.run_side(errexit + script, tmpdir)
+                wrapped = self.run_side(errexit + 'source "$1"\n' + script, tmpdir)
+                self.assertEqual(plain[1:], (3, ""))
+                self.assertEqual(wrapped[1:], (3, ""), wrapped)
+                plain_lines, wrapped_lines = plain[0].splitlines(), wrapped[0].splitlines()
+                self.assertEqual([line for line in wrapped_lines if not line.startswith("debug")],
+                                 [line for line in plain_lines if not line.startswith("debug")])
+                self.assertEqual(len(wrapped_lines), len(plain_lines) + 1, wrapped[0])
+                self.assertEqual(sorted(os.listdir(tmpdir)), [], "a fixture folder was left")
+
+    # (name, script lines). Each line is followed by `echo "rc=$?"`, and every script ends with a full `trap -p`
+    # listing and `exit 3`, so the EXIT action runs and its $? is printed.
+    CASES = [
+        ("trap and trap -p with nothing set", [r"trap", r"trap -p", r"trap -p EXIT"]),
+        ("trap lists everything", [r"""trap 'echo int' INT""", r"""trap 'echo "bye $?"' EXIT""", r"trap"]),
+        ("trap -p", [r"""trap 'echo int' INT""", r"""trap 'echo "bye $?"' EXIT""", r"trap -p"]),
+        ("trap -p EXIT", [r"""trap 'echo "bye $?"' EXIT""", r"trap -p EXIT"]),
+        ("trap -p -- EXIT", [r"""trap 'echo "bye $?"' EXIT""", r"trap -p -- EXIT"]),
+        ("trap -p --", [r"""trap 'echo int' INT""", r"""trap 'echo "bye $?"' EXIT""", r"trap -p --"]),
+        ("trap -p -- round trip", [r"""trap 'echo "bye $?"' EXIT""", r"saved=$(trap -p --)", r"trap - EXIT",
+                                   r'eval "$saved"']),
+        ("trap -l", [r"trap -l", r"trap -lp", r"trap -p -l"]),
+        ("trap - EXIT", [r"""trap 'echo "bye $?"' EXIT""", r"trap - EXIT", r"trap -p EXIT"]),
+        ("trap '' EXIT", [r"trap '' EXIT", r"trap -p EXIT"]),
+        ("ignored EXIT round trip", [r"trap '' EXIT", r"saved=$(trap -p EXIT)", r"trap - EXIT", r'eval "$saved"',
+                                     r"trap -p EXIT"]),
+        ("ignored EXIT round trip, whole listing", [r"trap '' EXIT", r"""trap 'echo int' INT""",
+                                                    r"saved=$(trap -p)", r"trap - EXIT INT", r'eval "$saved"']),
+        ("ignored before sourcing", [r"trap -p EXIT"]),
+        ("ignore after an ignored reset", [r"trap '' EXIT", r"trap - EXIT", r"trap '' EXIT", r"trap -p EXIT",
+                                           r"""trap 'echo "bye $?"' EXIT""", r"trap - EXIT", r"trap '' EXIT",
+                                           r"trap -p EXIT"]),
+        ("ignored and reset before sourcing", [r"trap '' EXIT", r"trap -p EXIT"]),
+        ("trap -- action EXIT", [r"""trap -- 'echo "bye $?"' EXIT""", r"trap -p EXIT"]),
+        ("trap action 0", [r"""trap 'echo "bye $?"' 0""", r"trap -p 0"]),
+        ("trap action 00", [r"""trap 'echo "bye $?"' 00""", r"trap -p 00"]),
+        ("SIGEXIT is not a signal", [r"""trap 'echo "bye $?"' SIGEXIT""", r"trap -p SIGEXIT", r"trap - SIGEXIT"]),
+        ("lowercase exit", [r"""trap 'echo "bye $?"' exit""", r"trap -p exit", r"trap -p Exit"]),
+        ("lowercase exit reset", [r"""trap 'echo "bye $?"' EXIT""", r"trap - Exit"]),
+        ("lowercase sigexit", [r"""trap 'echo "bye $?"' sigexit"""]),
+        ("several signals in one call", [r"""trap 'echo many' INT EXIT TERM""", r"trap -p INT EXIT TERM",
+                                         r"trap - INT EXIT", r"trap -p TERM EXIT INT"]),
+        ("trap EXIT resets", [r"""trap 'echo "bye $?"' EXIT""", r"trap EXIT", r"trap -p",
+                              r"""trap 'echo "bye $?"' EXIT""", r"trap -- EXIT"]),
+        ("a digit first resets every signal", [r"""trap 'echo "bye $?"' EXIT""", r"""trap 'echo int' INT""",
+                                               r"trap 0 INT"]),
+        ("trap 0 resets", [r"""trap 'echo "bye $?"' EXIT""", r"trap 0"]),
+        ("an invalid signal keeps the valid ones", [r"""trap 'echo "bye $?"' NOPE EXIT INT""", r"trap -p NOPE EXIT"]),
+        ("usage", [r"trap x"]),
+        ("usage after --", [r"trap -- -p"]),
+        ("usage with an empty action", [r"trap ''"]),
+        ("an unknown option", [r"trap -x"]),
+        ("an option-looking signal", [r"trap -p -- -x"]),
+        ("quotes in the action", [r"""trap 'echo "it'\''s $?"' EXIT""", r"saved=$(trap -p EXIT)", r"trap - EXIT",
+                                  r'eval "$saved"', r"trap -p EXIT"]),
+        ("a blank line inside an action", [r"trap $'echo a\n\necho b' INT", r"""trap 'echo "bye $?"' EXIT""",
+                                           r"trap -p"]),
+        # Review of cmux#41772 / hq#9759, F1: git_fixture_trap_exit left the "ignored" mark set.
+        ("git_fixture_trap_exit clears the ignored mark", [r"trap '' EXIT", r"git_fixture_trap_exit 'echo unexpected'",
+                                                          r"trap '' EXIT"]),
+        ("git_fixture_trap_exit '' after an ignored reset", [r"trap '' EXIT", r"trap - EXIT", r"git_fixture_trap_exit ''",
+                                                             r"trap -p EXIT", r"""git_fixture_trap_exit 'echo "bye $?"'""",
+                                                             r"trap -p EXIT"]),
+        ("git_fixture_trap_exit replaces an action", [r"git_fixture_trap_exit 'echo first'",
+                                                      r"""git_fixture_trap_exit 'echo "bye $?"'""", r"trap -p EXIT"]),
+        # F2: the caller's DEBUG and RETURN traps ran for the wrapper's own steps. Each row counts or prints what the
+        # trap saw, then resets it with the builtin: inside a shell function (the wrapper is one) bash hides DEBUG,
+        # RETURN and ERR from `trap -p` and puts a reset one back on return, which no function can change.
+        ("a DEBUG trap set through the wrapper", [r"n=0", r"trap 'n=$((n+1))' DEBUG", r"trap 'echo int' INT",
+                                                  r"trap -p INT", r"""trap 'echo "bye $?"' EXIT""",
+                                                  r"builtin trap - DEBUG", r'echo "debug ran $n times"']),
+        ("DEBUG and INT in one call", [r"n=0", r"trap 'n=$((n+1))' DEBUG INT", r"trap -p INT", r"builtin trap - DEBUG",
+                                       r'echo "debug ran $n times"']),
+        ("DEBUG and EXIT in one call", [r"n=0", r"trap 'n=$((n+1))' DEBUG EXIT", r"trap -p EXIT",
+                                        r"builtin trap - DEBUG", r'echo "debug ran $n times"']),
+        ("DEBUG ignored through the wrapper", [r"builtin trap 'echo debug' DEBUG", r"trap '' DEBUG", r"echo quiet",
+                                               r"builtin trap -p DEBUG", r"builtin trap - DEBUG"]),
+        ("a DEBUG trap set with the builtin", [r"n=0", r"builtin trap 'n=$((n+1))' DEBUG", r"trap 'echo int' INT",
+                                               r"trap -p INT", r"""trap 'echo "bye $?"' EXIT""",
+                                               r"builtin trap - DEBUG", r'echo "debug ran $n times"']),
+        ("a RETURN trap set through the wrapper", [r"""trap 'echo "return from ${FUNCNAME[0]-top}"' RETURN""",
+                                                   r"f() { :; }; f", r"source /dev/null", r"trap 'echo int' INT",
+                                                   r"builtin trap -p RETURN", r"builtin trap - RETURN"]),
+        ("RETURN and INT in one call", [r"""trap 'echo "return from ${FUNCNAME[0]-top}"' RETURN INT""",
+                                        r"source /dev/null", r"builtin trap -p RETURN", r"builtin trap - RETURN"]),
+        ("a RETURN trap set with the builtin", [r"""builtin trap 'echo "return from ${FUNCNAME[0]-top}"' RETURN""",
+                                                r"trap 'echo int' INT", r"source /dev/null", r"builtin trap - RETURN"]),
+        # The sweep: the exit dispatcher's own steps tripped a caller's ERR trap (three cmux tests set one before
+        # sourcing, and a failed test printed a second "exited" line), and the wrapper's own failing steps under set -E.
+        ("ERR set through the wrapper, still set at exit", [r"""trap 'echo "err $?"' ERR""",
+                                                            r"""trap 'echo "bye $?"' EXIT""", r"false"]),
+        ("ERR set before sourcing, still set at exit", [r"""trap 'echo "bye $?"' EXIT""", r"false"]),
+        ("ERR under set -E, still set at exit", [r"set -E", r"""trap 'echo "err $?"' ERR""",
+                                                 r"""trap 'echo "bye $?"' EXIT""", r"f() { false; }; f"]),
+        ("failing trap calls under set -E", [r"set -E", r"""trap 'echo "err $?"' ERR""", r"trap 'echo x' NOPE",
+                                             r"trap -p NOPE", r"trap -x", r"trap x"]),
+        ("the EXIT action sees the exit command and its status",
+         [r"""trap 'echo "cmd=$BASH_COMMAND status=$?"' EXIT""", r"false"]),
+    ]
+    # Set before the script (and before sourcing, under the wrapper).
+    BEFORE = {"ignored before sourcing": "trap '' EXIT\n",
+              "ignored and reset before sourcing": "trap '' EXIT\ntrap - EXIT\n",
+              "ERR set before sourcing, still set at exit": "trap 'echo \"err $?\"' ERR\n"}
+    # Plain bash has no git_fixture_trap_exit: there it is `trap CMD EXIT`.
+    PLAIN = dict.fromkeys([name for name, _ in CASES if name.startswith("git_fixture_trap_exit")],
+                          'git_fixture_trap_exit() { builtin trap -- "$1" EXIT; }\n')
+    # These keep ERR set until exit, so they end on the builtin's listing of it (the wrapper's own `trap -p` runs in
+    # a function, where bash hides ERR).
+    TAIL = dict.fromkeys([name for name, _ in CASES if "still set at exit" in name or name.startswith("failing trap")],
+                         "echo ==\nbuiltin trap -p ERR\nexit 3\n")
+    PREFIX = re.compile(r"^.*?\bline \d+: ", re.M)
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="git-fixture-builtin-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
+        self.env = Env.clean(self.tmp)
+
+    def run_side(self, script: str, tmpdir: Path) -> tuple[str, int, str]:
+        done = subprocess.run(["bash", "-c", script, "_", str(LIB)], env={**self.env, "TMPDIR": str(tmpdir)},
+                              capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=self.tmp)
+        return done.stdout, done.returncode, self.PREFIX.sub("", done.stderr)
+
+    def test_every_trap_form_matches_the_builtin(self):
+        for errexit in ("", "set -euo pipefail\n"):
+            for number, (name, lines) in enumerate(self.CASES):
+                with self.subTest(errexit=bool(errexit), form=name):
+                    # A TMPDIR per form, so a folder one form leaves is charged to that form alone.
+                    tmpdir = self.tmp / f"tmpdir-{bool(errexit)}-{number}"
+                    tmpdir.mkdir()
+                    body = "".join(f'{line}\necho "rc=$?"\n' for line in lines) + self.TAIL.get(
+                        name, "echo ==\ntrap -p\nexit 3\n")
+                    before = errexit + self.BEFORE.get(name, "")
+                    plain = self.run_side(before + self.PLAIN.get(name, "") + body, tmpdir)
+                    wrapped = self.run_side(before + 'source "$1"\n' + body, tmpdir)
+                    self.assertEqual(wrapped, plain, f"script:\n{before}{body}")
+                    self.assertEqual(sorted(os.listdir(tmpdir)), [], "a fixture folder was left")
+
+
+class Bash32(unittest.TestCase):
+    """The review of hq#9715 F1, ported: macOS's /bin/bash is 3.2, which has no $BASHPID, so a `set -u` caller died
+    sourcing the file ("BASHPID: unbound variable"). bash 4+ always sets BASHPID, so no run here can reproduce that;
+    this row rejects the bash-4-only names in the file's code. The real check is this whole file under a bash 3.2
+    (the `bash:3.2` container image, or a stock Mac): `python3 -I tests/test_git_fixture_cleanup.py`."""
+
+    BASH4_ONLY = re.compile(r"\bBASHPID\b|\bmapfile\b|\breadarray\b|\bcoproc\b|\b(?:declare|local|typeset) -[a-zA-Z]*[An]"
+                            r"|\$\{[^}]*(?:,,|\^\^)[^}]*\}|&>>|\|&")
+
+    def test_the_file_uses_no_bash_4_only_name(self):
+        hits = []
+        for number, line in enumerate(LIB.read_text().splitlines(), 1):
+            code = re.sub(r"(^|\s)#.*$", "", line)
+            if self.BASH4_ONLY.search(code):
+                hits.append(f"{number}: {line.strip()}")
+        self.assertEqual(hits, [], "bash 3.2 (macOS /bin/bash) lacks these")
+
+    def test_sourcing_under_set_u_in_the_running_bash(self):
+        tmp = Path(tempfile.mkdtemp(prefix="git-fixture-bash32-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)], check=False)
+        env = Env.clean(tmp)
+        done = subprocess.run(["bash", "-c", 'set -u; source "$1"; echo "ok $BASH_VERSION"', "_", str(LIB)], env=env,
+                              capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=tmp)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(done.stdout.startswith("ok "), done.stdout)
+        self.assertEqual(sorted(os.listdir(env["TMPDIR"])), [])
 
 
 if __name__ == "__main__":

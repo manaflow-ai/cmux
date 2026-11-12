@@ -93,13 +93,12 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     public static func listFillGain(isCodexDensity: Bool, density: SidebarDensity, space1: CGFloat) -> CGFloat {
         isCodexDensity && density == .compact ? space1 : 0
     }
-    /// The gap between list rows: none when ``matchesCodex`` (Codex's rows touch), else `space1`.
-    public var rowGap: CGFloat { matchesCodex ? 0 : base.space1 }
+    /// The gap between list rows keeps adjacent hover and selection fills apart.
+    public var rowGap: CGFloat { base.space1 }
     /// A row's content (icon, title, trailing marks) from its fill's edge: `space4` (8 pt) when ``matchesCodex``,
     /// else the outer inset.
     public var contentInset: CGFloat { matchesCodex ? base.space4 : horizontalInset }
-    /// The row fill's corner when ``matchesCodex``: a third of the row (10 on 30, Codex's ratio); nil keeps the tab
-    /// pill's radius.
+    /// The Codex row corner exported to pages that share the sidebar row geometry.
     public var codexCornerRadius: CGFloat? { matchesCodex ? (listRowHeight / 3).rounded() : nil }
     /// A row title's and a detail line's text size.
     public var titleSize: CGFloat { base.body + textSize.textStep }

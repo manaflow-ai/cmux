@@ -12,6 +12,7 @@
 // controls sit at the row's place.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -107,12 +108,8 @@ const { keepTabOnScreen, tabStops } = await import("../src/ui/tabReach");
 afterEach(() => {
   win.document.getElementById("root")!.replaceChildren();
 });
-afterAll(() => {
-  win.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: win, scope });
 });
 
 function turn(n: number, at: number) {

@@ -15,6 +15,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { openRunningTray } from "./support/openRunningTray";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 
 await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -174,6 +175,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   /// The tray off, as the host sends it with the theme, unless `tray`.
   const open = async (session: string, width = 900, tray = false) => {
     const page = await browser!.newPage({ viewport: { width, height: 760 } });
+    // The clock beside the line's label, which this file reads with the counts.
+    await pinArms(page, CLOCK_ON_LINE);
     await page.goto(url(session));
     await line(page).waitFor({ timeout: 25_000 });
     if (!tray)

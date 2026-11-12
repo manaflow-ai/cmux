@@ -17,6 +17,12 @@
 //! imported as complete would drop the harness from its projects. A harness
 //! imported before that lists no folder now gets an empty complete list.
 //!
+//! A folder's time alone is imported in steps (`RECENCY_STEP_MS`): an agent
+//! at work in a folder moves its time on with each turn, every few seconds,
+//! and each import is a registry commit and a journal record. The time
+//! orders the project list, which needs minutes, not seconds. A list whose
+//! folders changed is imported at once.
+//!
 //! The thread starts with the agent chat watch (`agent_chat_notices.rs`) and
 //! connects each time that watch reaches acpmux, so it shares that watch's
 //! socket watch and never wakes on a timer. A connection that ends waits for
@@ -41,6 +47,10 @@ use crate::state::projects::Observation;
 
 /// The id of the index watch request on each connection.
 const WATCH_ID: u64 = 2;
+
+/// How far a folder's time must move past its imported time before its
+/// harness list is imported for that alone.
+const RECENCY_STEP_MS: i64 = 10 * 60 * 1000;
 
 /// Each harness's last imported list, by harness id.
 type Imported = HashMap<String, Vec<Observation>>;
@@ -218,10 +228,21 @@ fn signal(message: &Value, asked: Option<u64>) -> Signal {
     }
 }
 
+/// Whether `entries` says more than the `imported` list of its harness
+/// (both by path): other folders, or a folder used a step or more later.
+fn says_more(imported: Option<&Vec<Observation>>, entries: &[Observation]) -> bool {
+    let Some(imported) = imported else { return true };
+    imported.len() != entries.len()
+        || imported.iter().zip(entries).any(|(old, new)| {
+            old.path != new.path || new.last_used_ms - old.last_used_ms >= RECENCY_STEP_MS
+        })
+}
+
 /// The harness lists of a `_acpmux/chat_projects` answer to import, leaving
-/// out each one equal to its `imported` list. A harness in `imported` with no
-/// folder left gets an empty complete list. By harness id, entries by path.
-/// Nothing while the index is not ready or chats are off.
+/// out each one that says no more than its `imported` list (`says_more`). A
+/// harness in `imported` with no folder left gets an empty complete list. By
+/// harness id, entries by path. Nothing while the index is not ready or
+/// chats are off.
 fn batches(result: &Value, imported: &Imported) -> Vec<(String, Vec<Observation>)> {
     let ready = result.get("ready").and_then(Value::as_bool).unwrap_or(false);
     let enabled = result.get("enabled").and_then(Value::as_bool).unwrap_or(true);
@@ -255,7 +276,7 @@ fn batches(result: &Value, imported: &Imported) -> Vec<(String, Vec<Observation>
         .into_iter()
         .filter_map(|(source, mut entries)| {
             entries.sort_by(|a, b| a.path.cmp(&b.path));
-            (imported.get(&source) != Some(&entries)).then_some((source, entries))
+            says_more(imported.get(&source), &entries).then_some((source, entries))
         })
         .collect()
 }
