@@ -382,11 +382,9 @@ export const findMemberRowId = (row: AcpmuxRow | undefined, target: string | und
     : undefined;
 
 /** Whether `row` draws match row `rowId` itself: the row, its copy in an open fold, or the run
- * that absorbed it (turns.ts `mergeShortNotes`). A closed fold's line with only the step's calls
- * (`partial`) does not: the match may be in an edit it leaves to the edited-files card. */
+ * that absorbed it (turns.ts `mergeShortNotes`). */
 export const isFindRow = (row: AcpmuxRow, rowId: string) =>
-  (!row.ended && (row.id === rowId || Boolean(row.joined?.includes(rowId)))) ||
-  (row.id === `${rowId}:fold` && !row.partial);
+  (!row.ended && (row.id === rowId || Boolean(row.joined?.includes(rowId)))) || row.id === `${rowId}:fold`;
 
 /** Whether `row` is the edited-files card (turns.ts) that merges edit `rowId`. */
 const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.merged ?? [row.id]).includes(rowId);
