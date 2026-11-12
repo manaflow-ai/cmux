@@ -8,6 +8,10 @@ producers below must have succeeded, and the artifacts are immutable and
 digest-checked, so nothing it reads can still change.
 restore repeats that validation, downloads immutable artifact IDs, verifies
 GitHub's SHA256 digests, and restores inputs for the existing signing jobs.
+A sign stage whose push run also prepared the app (prepare-nightly-variant ran
+there; NIGHTLY_NEXT_PREPARED_ARTIFACT names the prepared app) restores that
+prepared app instead of the unsigned app, the helper and the license trees,
+which only the preparation reads: the sign run then starts at the signer.
 Only workflow_dispatch on nightly-next may use this path. No signing secret
 is needed by either command.
 """
@@ -43,6 +47,12 @@ HELPER_RESOLVER = "resolve-nightly-ghostty-cli-helper"
 DAEMON_BUILDER = "build-nightly-remote-daemon"
 OPTIONAL_PRODUCERS = {"cmux-nightly-ghostty-cli-helper": HELPER_RESOLVER,
                       "cmux-nightly-remote-daemon": DAEMON_BUILDER}
+# The prepared app (cmux-<channel>-prepared-app-<variant>-<short sha>): the primary preparation uploads it, or
+# the fallback leg when the primary failed. The fallback leg's success is the preparation's result.
+PREPARED = re.compile(r"cmux-[a-z][a-z-]*-prepared-app-(arm64|x86_64|universal)-([0-9a-f]{7})")
+PREPARE_JOBS = ("prepare-nightly-variant-primary", "prepare-nightly-variant")
+# Only the preparation reads these, so a resume that restores the prepared app neither downloads nor keeps them.
+PREPARATION_INPUTS = {"cmux-nightly-unsigned-app", "cmux-nightly-ghostty-cli-helper", "cmux-next-license-trees"}
 
 
 def require(condition, message):
@@ -50,7 +60,40 @@ def require(condition, message):
         raise SystemExit(message)
 
 
-def validate(run, jobs, artifacts, repo, run_id, attempt, live_ok=False):
+def select_prepared(name, jobs, artifacts, run, run_id, attempt, build_sha):
+    """The push run's prepared app, or None when that run did not prepare it (an older run)."""
+    match = PREPARED.fullmatch(name)
+    require(match is not None, f"invalid prepared app artifact name {name!r}")
+    variant, short = match.groups()
+    legs = {}
+    for job_name in PREPARE_JOBS:
+        found = [job for job in jobs if job.get("name") == f"{job_name} ({variant})" and
+                 job.get("run_attempt") == int(attempt)]
+        require(len(found) <= 1, f"ambiguous {job_name} ({variant}) in the requested attempt")
+        if found:
+            legs[job_name] = found[0]
+    result = legs.get("prepare-nightly-variant")
+    if result is None or result.get("conclusion") != "success":
+        return None
+    require(short == build_sha[:7], "the prepared app is not of the compiled source")
+    # Either leg may have uploaded it: the fallback reuses a primary's upload (even a primary that failed after
+    # it), exactly as the run's own signer would have signed it.
+    owners = [leg for leg in legs.values() if leg.get("started_at") and leg.get("completed_at")]
+    matches = [a for a in artifacts if a.get("name") == name and not a.get("expired") and
+               any(leg["started_at"] <= a.get("created_at", "") <= leg["completed_at"] for leg in owners)]
+    require(len(matches) == 1, f"missing or ambiguous {name} for the preparation attempt")
+    artifact = matches[0]
+    require(re.fullmatch(r"sha256:[0-9a-f]{64}", artifact.get("digest", "")) is not None,
+            f"missing digest for {name}")
+    identity = artifact.get("workflow_run", {})
+    require(identity.get("id") == int(run_id) and identity.get("head_sha") == run["head_sha"] and
+            identity.get("head_branch") == "nightly-next" and
+            identity.get("repository_id") == identity.get("head_repository_id") == run["repository"]["id"],
+            f"artifact source mismatch: {name}")
+    return {"name": name, "artifact": artifact}
+
+
+def validate(run, jobs, artifacts, repo, run_id, attempt, live_ok=False, prepared=""):
     require(repo == "manaflow-ai/cmux", "unsigned resume is restricted to manaflow-ai/cmux")
     require(run.get("repository", {}).get("full_name") == repo and
             run.get("head_repository", {}).get("full_name") == repo, "source repository mismatch")
@@ -96,8 +139,11 @@ def validate(run, jobs, artifacts, repo, run_id, attempt, live_ok=False):
                if a.get("name", "").startswith("nightly-next-dsyms-") and not a.get("expired") and
                job["started_at"] <= a.get("created_at", "") <= job["completed_at"]]
     require(len(sources) == 1 and re.fullmatch(r"[0-9a-f]{40}", sources[0]), "no exact compiled source receipt")
+    # Only a sign stage, which its own push run dispatched once that run prepared the app, reads the prepared app.
+    chosen = select_prepared(prepared, jobs, artifacts, run, run_id, attempt, sources[0]) if prepared and live_ok else None
     return {"run_id": str(run_id), "attempt": str(attempt), "head_sha": run["head_sha"],
-            "build_sha": sources[0], "build": f"{run_id}{int(attempt):02d}", "artifacts": selected}
+            "build_sha": sources[0], "build": f"{run_id}{int(attempt):02d}", "artifacts": selected,
+            "prepared": chosen}
 
 
 def plan(run_id, attempt):
@@ -114,7 +160,8 @@ def plan(run_id, attempt):
     require(jobs.get("total_count", 101) <= 100 and artifacts.get("total_count", 101) <= 100,
             "source exceeds bounded lookup; refusing partial provenance")
     live_ok = os.environ.get("NIGHTLY_NEXT_SIGN_STAGE") == "true"
-    result = validate(run, jobs["jobs"], artifacts["artifacts"], repo, run_id, attempt, live_ok=live_ok)
+    result = validate(run, jobs["jobs"], artifacts["artifacts"], repo, run_id, attempt, live_ok=live_ok,
+                      prepared=os.environ.get("NIGHTLY_NEXT_PREPARED_ARTIFACT", ""))
     for base, head in ((result["head_sha"], os.environ["GITHUB_SHA"]),
                        (result["build_sha"], result["head_sha"])):
         comparison = download.api_json(f"{prefix}/compare/{base}...{head}", token)
@@ -133,12 +180,19 @@ def extract(archive, destination):
 
 def restore(receipt, root):
     root.mkdir(parents=True, exist_ok=True)
+    wanted = [(artifact, root / ARTIFACTS[name][1]) for name, artifact in receipt["artifacts"].items()
+              if not (receipt.get("prepared") and name in PREPARATION_INPUTS)]
+    if receipt.get("prepared"):
+        wanted.append((receipt["prepared"]["artifact"], root / "prepared"))
     with tempfile.TemporaryDirectory() as tmp:
-        for name, artifact in receipt["artifacts"].items():
+        for artifact, destination in wanted:
             archive = str(Path(tmp) / f"{artifact['id']}.zip")
             download.download(artifact, os.environ["GH_TOKEN"], archive, 32)
             download.verify(archive, artifact)
-            extract(archive, root / ARTIFACTS[name][1])
+            extract(archive, destination)
+    if receipt.get("prepared"):
+        require(sorted(p.name for p in (root / "prepared").iterdir()) == ["cmux-prepared-app.tar.gz"],
+                "the prepared app artifact holds exactly cmux-prepared-app.tar.gz")
     manifests = list((root / "daemon").glob("cmuxd-remote-manifest-*.json"))
     require(len(manifests) == 1 and manifests[0].name == f"cmuxd-remote-manifest-{receipt['build']}.json",
             "daemon build number does not match original run/attempt")
@@ -148,14 +202,15 @@ def restore(receipt, root):
     return version
 
 
-def bundled_client_commit(root):
+def bundled_client_commit(root, folder="app"):
     # The uploaded app artifact contains the precompressed unsigned tarball.
     # Open it only after the authenticated ZIP extraction and read the one
     # cmux-tui.version member, a regular file at a safe path, for the client
     # provenance the marker gate uses. Nothing is extracted: the app keeps its
     # framework symlinks (Versions/Current), and the folder is re-uploaded as
     # the artifact the signers untar, so it must hold only the original archive.
-    app_root = root / "app"
+    # The prepared app (folder "prepared") is the same bundle after the preparation, as one tarball too.
+    app_root = root / folder
     archives = list(app_root.glob("*.tar.gz"))
     require(len(archives) == 1, "resumed unsigned app has no unique app archive")
     texts = []
@@ -192,7 +247,8 @@ def main():
     outputs = {key: receipt[key] for key in ("run_id", "attempt", "build_sha", "build")}
     if args.command == "restore":
         outputs["version"] = restore(receipt, args.out)
-        outputs["cmux_tui_commit"] = bundled_client_commit(args.out)
+        outputs["cmux_tui_commit"] = bundled_client_commit(args.out, "prepared" if receipt["prepared"] else "app")
+        outputs["prepared"] = "true" if receipt["prepared"] else "false"
         (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in outputs.items():

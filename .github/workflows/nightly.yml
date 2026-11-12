@@ -2067,6 +2067,8 @@ jobs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
       cmux_tui_commit: ${{ steps.install_client.outputs.commit || steps.resume.outputs.cmux_tui_commit }}
+      # A sign stage restored the push run's prepared app: the sign run prepares nothing again.
+      prepared: ${{ steps.resume.outputs.prepared }}
       light_mini_runner: ${{ steps.place-light.outputs.mini_runner }}
       light_mini_jobs: ${{ steps.place-light.outputs.mini_jobs }}
       light_attempt: ${{ steps.place-light.outcome == 'success' && github.run_attempt || '' }}
@@ -2129,6 +2131,10 @@ jobs:
           SOURCE_RUN: ${{ inputs.nightly_next_unsigned_run }}
           SOURCE_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
           NIGHTLY_NEXT_SIGN_STAGE: ${{ inputs.nightly_next_sign_stage }}
+          # The push run prepared the app (prepare-nightly-variant before dispatch-nightly-next-sign): restore that
+          # prepared app, so this run starts at the signer (2.9 min of preparation and 2.0 min re-uploading the
+          # unsigned app in sign run 43282010692). An older push run that did not prepare resumes as before.
+          NIGHTLY_NEXT_PREPARED_ARTIFACT: ${{ inputs.nightly_next_sign_stage != '' && needs.decide.outputs.variants == '["arm64"]' && format('cmux-{0}-prepared-app-arm64-{1}', needs.decide.outputs.channel, needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha) || '' }}
           # This restore is the only way a finished build reaches the feed: a refused artifact call waits
           # up to 30 minutes for the token's quota to come back instead of failing in seconds. Runs
           # 43129190893 and 43139032769 (2026-11-12) threw away finished builds on one 403 each.
@@ -2138,7 +2144,7 @@ jobs:
       - name: Retain resumed cmux-nightly-unsigned-app
         id: upload-retain-resumed-cmux-nightly-unsigned-app
         continue-on-error: true
-        if: inputs.nightly_next_unsigned_run != ''
+        if: inputs.nightly_next_unsigned_run != '' && steps.resume.outputs.prepared != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
@@ -2148,7 +2154,7 @@ jobs:
           compression-level: 0
 
       - name: Retain resumed cmux-nightly-unsigned-app (retry)
-        if: "!cancelled() && steps.upload-retain-resumed-cmux-nightly-unsigned-app.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
+        if: "!cancelled() && steps.upload-retain-resumed-cmux-nightly-unsigned-app.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '' && steps.resume.outputs.prepared != 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-unsigned-app
@@ -2184,7 +2190,7 @@ jobs:
       - name: Retain resumed cmux-nightly-ghostty-cli-helper
         id: upload-retain-resumed-cmux-nightly-ghostty-cli-h
         continue-on-error: true
-        if: inputs.nightly_next_unsigned_run != ''
+        if: inputs.nightly_next_unsigned_run != '' && steps.resume.outputs.prepared != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-ghostty-cli-helper
@@ -2194,7 +2200,7 @@ jobs:
           compression-level: 0
 
       - name: Retain resumed cmux-nightly-ghostty-cli-helper (retry)
-        if: "!cancelled() && steps.upload-retain-resumed-cmux-nightly-ghostty-cli-h.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
+        if: "!cancelled() && steps.upload-retain-resumed-cmux-nightly-ghostty-cli-h.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '' && steps.resume.outputs.prepared != 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-ghostty-cli-helper
@@ -2207,7 +2213,7 @@ jobs:
       - name: Retain resumed cmux-next-license-trees
         id: upload-retain-resumed-cmux-next-license-trees
         continue-on-error: true
-        if: inputs.nightly_next_unsigned_run != ''
+        if: inputs.nightly_next_unsigned_run != '' && steps.resume.outputs.prepared != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-license-trees
@@ -2217,7 +2223,7 @@ jobs:
           compression-level: 0
 
       - name: Retain resumed cmux-next-license-trees (retry)
-        if: "!cancelled() && steps.upload-retain-resumed-cmux-next-license-trees.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '')"
+        if: "!cancelled() && steps.upload-retain-resumed-cmux-next-license-trees.outcome == 'failure' && (inputs.nightly_next_unsigned_run != '' && steps.resume.outputs.prepared != 'true')"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-license-trees
@@ -2248,6 +2254,34 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+          overwrite: true
+
+      # The push run's prepared app, under the name this run's signer downloads (only the preparation read the
+      # unsigned app, the helper and the license trees, so they are not kept again).
+      - name: Retain the resumed prepared app
+        id: upload-retain-resumed-prepared-app
+        continue-on-error: true
+        if: steps.resume.outputs.prepared == 'true'
+        env: &artifact-upload-concurrency-resume
+          ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: "32"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-arm64-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: unsigned-resume/prepared/cmux-prepared-app.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Retain the resumed prepared app (retry)
+        if: "!cancelled() && steps.upload-retain-resumed-prepared-app.outcome == 'failure' && (steps.resume.outputs.prepared == 'true')"
+        env: *artifact-upload-concurrency-resume
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-arm64-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: unsigned-resume/prepared/cmux-prepared-app.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
           overwrite: true
 
       - name: Retain unsigned resume provenance
@@ -3325,7 +3359,7 @@ jobs:
     # app it uploads and runs no bundle code itself (#21024).
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client]
     # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
-    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.pipeline != 'true'"
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.build-nightly-app.outputs.prepared != 'true'"
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
       contents: read
@@ -3583,7 +3617,9 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant-primary]
     # Never skipped: a skipped fallback skips signing and publishing (runs 40154003204,
     # 40155340212). After a primary success it finds that result and does nothing.
-    if: always() && (needs.prepare-nightly-variant-primary.result == 'failure' || needs.prepare-nightly-variant-primary.result == 'success') && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.pipeline != 'true'
+    # A sign run whose resume restored the push run's prepared app (prepared) skips the primary: this leg then
+    # only passes that result on.
+    if: always() && (needs.prepare-nightly-variant-primary.result == 'failure' || needs.prepare-nightly-variant-primary.result == 'success' || needs.build-nightly-app.result == 'success' && needs.build-nightly-app.outputs.prepared == 'true') && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     permissions:
       contents: read
       actions: read
@@ -3608,12 +3644,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PRIMARY_RESULT: ${{ needs.prepare-nightly-variant-primary.result }}
+          RESUMED_PREPARED: ${{ needs.build-nightly-app.outputs.prepared }}
           ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
         run: |
           set -euo pipefail
           # Every primary leg uploaded its prepared app; no API call, so a spent
           # installation rate limit cannot fail this no-op leg.
-          if [ "$PRIMARY_RESULT" = success ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # A sign stage's build-nightly-app re-uploaded the push run's digest-checked prepared app.
+          if [ "$PRIMARY_RESULT" = success ] || [ "$RESUMED_PREPARED" = true ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           # This read runs before the checkout (no budget wait yet); a refused one prepares here.
           if ! count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"; then
             echo "::warning::could not list this run's prepared artifacts; preparing the variant here"
@@ -3705,7 +3743,8 @@ jobs:
   # (Lawrence, 2026-10-30): every pick is a glaeda label, and an empty pick falls to the nightly pools.
   pick-nightly-sign-runner:
     needs: [decide, prepare-nightly-variant]
-    if: ${{ !cancelled() && needs.prepare-nightly-variant.result == 'success' }}
+    # A pipelined push run prepares the app and ends at the sign dispatch: its sign run picks the signer.
+    if: ${{ !cancelled() && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.pipeline != 'true' }}
     # A failed pick reads as success to the signing jobs, which then take the nightly pools.
     continue-on-error: true
     # The picker has no signing key: the nightly-only pool (tests/test_nightly_owned_minis_only.py).
@@ -4375,6 +4414,10 @@ jobs:
         id: upload-signed-app-for-the-verify-job
         continue-on-error: true
         if: "!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+        # A sign stage uploads 32 blocks at a time, as the unsigned and prepared apps do (94 and 100 s for these
+        # two uploads at the default 5 in sign run 43282010692). Every other run keeps upload-artifact's default, 5.
+        env: &sign-stage-upload-concurrency
+          ACTIONS_ARTIFACT_UPLOAD_CONCURRENCY: ${{ inputs.nightly_next_sign_stage != '' && '32' || '5' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -4386,6 +4429,7 @@ jobs:
 
       - name: Upload signed app for the verify job (retry)
         if: "!cancelled() && steps.upload-signed-app-for-the-verify-job.outcome == 'failure' && (!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true')"
+        env: *sign-stage-upload-concurrency
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -4399,6 +4443,7 @@ jobs:
       - name: Upload the signed unnotarized app
         if: "!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
         continue-on-error: true
+        env: *sign-stage-upload-concurrency
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-signed-unnotarized-${{ matrix.variant }}
@@ -4739,8 +4784,10 @@ jobs:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pick-nightly-sign-runner]
     # The macOS signer's app.
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+    # actions:read lets a sign stage's parallel download of the signed app resolve the blob URL.
     permissions:
       contents: read
+      actions: read
     # A failed-jobs rerun retains an older picker. Rejoin the fleet pool, never
     # that old runner choice, once; later attempts use the Blacksmith overflow.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}
@@ -4773,7 +4820,20 @@ jobs:
       - *select-xcode
       - *select-xcode-sdk
 
+      # download-artifact reads the blob over one connection: 264 s in sign run 43282010692. A sign stage reads it
+      # over ranged HTTP, checked against the artifact's sha256 digest (download-run-artifact.py), and keeps the
+      # action download as the fallback. The restore below still checks the tarball's own sha256.
+      - name: Download signed app (parallel)
+        id: signed-app-parallel
+        if: inputs.nightly_next_sign_stage != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+        run: python3 scripts/ci/download-run-artifact.py --name "$SIGNED_APP_ARTIFACT" --out signed-app-handoff --connections 32
+
       - name: Download signed app
+        if: steps.signed-app-parallel.outcome != 'success'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -6415,13 +6475,16 @@ jobs:
   # A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on
   # error, so it never delays a publication. The dSYMs come from the run that compiled the
   # published binary (its build number is that run's id and attempt). A rerun repairs a missing
-  # object; an existing one (exit 75 from --write-once) counts as kept. About a minute, so it stays in the
-  # run that published, as the GitHub release does; that run holds the push group until it ends, so this job
+  # object; an existing one (exit 75 from --write-once) counts as kept. A loop run keeps it in the run that
+  # published, as the GitHub release; a sign run (the record's sign_stage) leaves it to its tail run, so the sign
+  # group frees once the feed and the GitHub release are written: in sign run 43282010692 it held the group
+  # 6.3 min past the release, 4.3 of them waiting for the whole signing Mac. The release stays in the sign run:
+  # the next decide reads its body and tag (published_sha, the span of that build's notes and PR comments). It
   # takes the trusted signing runner (the whole Mac, after the signing is done), never GitHub-hosted Ubuntu,
   # whose queue (39 min for the oldest job on 2026-11-08) held the next push run for as long.
   keep-published-dsyms:
     needs: [published-build, pick-nightly-sign-runner]
-    if: "always() && !cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && (needs.published-build.outputs.publish_tag_status == 'updated' || needs.published-build.outputs.publish_tag_status == 'stale' || needs.published-build.outputs.publish_already_published == 'true') && needs.published-build.outputs.publish_build_sha != '' && needs.published-build.outputs.cross_run != 'true'"
+    if: "always() && !cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && (needs.published-build.outputs.publish_tag_status == 'updated' || needs.published-build.outputs.publish_tag_status == 'stale' || needs.published-build.outputs.publish_already_published == 'true') && needs.published-build.outputs.publish_build_sha != '' && (needs.published-build.outputs.cross_run != 'true' && needs.published-build.outputs.sign_stage != 'true' || needs.published-build.outputs.cross_run == 'true' && needs.published-build.outputs.sign_stage == 'true')"
     environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
     continue-on-error: true
     permissions:
@@ -7019,9 +7082,12 @@ jobs:
       cross_run: ${{ steps.record.outputs.cross_run }}
       comment: ${{ steps.record.outputs.comment }}
       run_tail: ${{ steps.record.outputs.cross_run == 'true' || steps.record.outputs.track != 'nightly-next' || github.event_name != 'push' && inputs.nightly_next_loop_retry == '' && inputs.nightly_next_sign_stage == '' }}
+      # A sign run published (the record's sign_stage): its tail run keeps the dSYMs (keep-published-dsyms).
+      sign_stage: ${{ steps.record.outputs.sign_stage }}
     env:
       SOURCE: ${{ inputs.nightly_next_post_publish }}
       NEEDS: ${{ toJSON(needs) }}
+      SIGN_STAGE: ${{ inputs.nightly_next_sign_stage }}
       RUN_ID: ${{ github.run_id }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
       SHA: ${{ github.sha }}
@@ -7071,8 +7137,10 @@ jobs:
   # dispatch failed on "API rate limit exceeded for installation" and nothing published for two hours. Any other
   # failure fails this job, retry-nightly-next retries the build and report-nightly-failure lists it.
   dispatch-nightly-next-sign:
-    needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon]
-    if: "!cancelled() && needs.decide.outputs.pipeline == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.build-nightly-app.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-remote-daemon.result == 'success'"
+    # It waits for the preparation too (prepare-nightly-variant, the app the signer signs): the sign run restores
+    # that prepared app and starts at the signer.
+    needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, prepare-nightly-variant]
+    if: "!cancelled() && needs.decide.outputs.pipeline == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.build-nightly-app.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && needs.prepare-nightly-variant.result == 'success'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     # Room for gh_budget_wait.sh's wait through a rate limit (a reset is up to an hour away).
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
@@ -7117,6 +7185,8 @@ jobs:
       RUN_ID: ${{ github.run_id }}
       RUN_ATTEMPT: ${{ github.run_attempt }}
       SHA: ${{ github.sha }}
+      # The record says a sign run published, so its tail run keeps the dSYMs.
+      SIGN_STAGE: ${{ inputs.nightly_next_sign_stage }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
