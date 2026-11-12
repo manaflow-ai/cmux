@@ -113,9 +113,11 @@ impl Hub {
             while wake.recv().await.is_some() {
                 while wake.try_recv().is_ok() {}
                 // `agents.subsessions.maxRunning` may have changed: sub-sessions waiting for a run
-                // slot look again (`subsession_runs.rs`).
+                // slot look again (`subsession_runs.rs`). What waits on a setting with no timer
+                // reads it again (the desktop bridge while off, `desktop_bridge.rs`).
                 if let Some(hub) = hub.upgrade() {
                     hub.subsession_runs.wake();
+                    hub.settings_changes.send_modify(|seq| *seq = seq.wrapping_add(1));
                 }
                 let Ok((now, router)) = tokio::task::spawn_blocking(|| {
                     (

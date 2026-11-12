@@ -73,17 +73,23 @@ pub enum SessionStatus {
     Closed,
 }
 
-impl std::fmt::Display for SessionStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+impl SessionStatus {
+    /// The status as a session list's `status` says it (its `Display`).
+    pub fn as_str(self) -> &'static str {
+        match self {
             Self::Idle => "idle",
             Self::Ready => "ready",
             Self::Running => "running",
             Self::Waiting => "waiting",
             Self::Disconnected => "disconnected",
             Self::Closed => "closed",
-        };
-        f.write_str(s)
+        }
+    }
+}
+
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -1487,7 +1493,7 @@ impl LocalStore {
         let path = session.join("session.json");
         let id = entry.file_name().to_string_lossy().into_owned();
         let Ok(file) = crate::config::private_state_file(&path) else {
-            if path.exists() {
+            if crate::home_fs::try_exists_nofollow(&path)? {
                 self.mark_unlisted(&id, true);
             }
             return Ok(None);
@@ -1529,7 +1535,7 @@ impl LocalStore {
     fn validate_session_dir(&self, session: &Path) -> Result<()> {
         crate::config::private_state_dir(session)?;
         let events = session.join("events");
-        match std::fs::symlink_metadata(&events) {
+        match crate::home_fs::symlink_metadata(&events) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
             Ok(_) => crate::config::private_state_dir(&events)?,
@@ -1548,14 +1554,16 @@ impl LocalStore {
     /// late save wrote back.
     /// A cold archive (`store/cold.rs`) is a log too, and is not opened.
     fn has_records(&self, id: &str) -> Result<bool> {
-        if std::fs::symlink_metadata(self.marker(id)).is_ok()
-            || std::fs::symlink_metadata(self.cold_path(id)).is_ok()
+        // A home that is no longer the held one is an error, never "no record" (#41721
+        // review F1): a closed chat with no record reads as purged.
+        if crate::home_fs::try_exists_nofollow(self.marker(id))?
+            || crate::home_fs::try_exists_nofollow(self.cold_path(id))?
         {
             return Ok(true);
         }
         for (_, path) in self.segment_files(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
-            match std::fs::symlink_metadata(&path) {
+            match crate::home_fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
                 _ => return Ok(true),
             }
@@ -1864,13 +1872,13 @@ impl Store for LocalStore {
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
         let session = self.dir(id);
-        match std::fs::symlink_metadata(&session) {
+        match crate::home_fs::symlink_metadata(&session) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
             Ok(_) => self.validate_session_dir(&session)?,
         }
         let path = session.join("session.json");
-        if !path.exists() {
+        if !crate::home_fs::try_exists_nofollow(&path)? {
             return Ok(None);
         }
         let mut text = String::new();
@@ -2152,7 +2160,7 @@ impl Store for LocalStore {
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
         for _ in 0..5 {
-            if !dir.exists() {
+            if !crate::home_fs::try_exists_nofollow(&dir)? {
                 return Ok(());
             }
             match crate::home_fs::remove_dir_all(&dir) {
@@ -2275,6 +2283,9 @@ mod journal_write_back_tests;
 
 #[cfg(test)]
 mod torn_append_tests;
+
+#[cfg(test)]
+mod held_home_reads_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.
