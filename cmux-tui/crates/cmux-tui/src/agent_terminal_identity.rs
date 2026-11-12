@@ -22,10 +22,11 @@ pub(crate) enum IdentityEdit {
 
 /// The edits for an agent whose launching environment reads `getenv`:
 /// none outside a cmux terminal.
-pub(crate) fn agent_identity_edits(
-    _getenv: impl Fn(&str) -> Option<OsString>,
-) -> Vec<IdentityEdit> {
-    Vec::new()
+pub(crate) fn agent_identity_edits(getenv: impl Fn(&str) -> Option<OsString>) -> Vec<IdentityEdit> {
+    if getenv("TERM_PROGRAM").is_none_or(|program| program != "cmux") {
+        return Vec::new();
+    }
+    vec![IdentityEdit::Set("TERM_PROGRAM", "ghostty"), IdentityEdit::Remove("TERM_PROGRAM_VERSION")]
 }
 
 /// Applies [`agent_identity_edits`] for this process's environment to `command`.
