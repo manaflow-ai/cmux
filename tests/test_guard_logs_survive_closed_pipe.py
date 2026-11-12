@@ -154,17 +154,17 @@ def closed_pipe() -> int:
     return write_end
 
 
+# tests/process_gone.py, loaded by path (`python3 -I` puts no script folder on sys.path). Its probe reads /proc where
+# /proc exists and asks `ps` where it does not: macOS has no /proc, and a probe that read a missing /proc entry as
+# "gone" passed assert_gone with the target still running (review of cmux#41850 F1).
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
+
+
 def alive(pid: int) -> bool:
-    """A process still running (a zombie this test has not reaped yet counts as gone)."""
-    try:
-        with open(f"/proc/{pid}/stat", encoding="ascii") as stat:
-            return stat.read().rsplit(")", 1)[1].split()[0] != "Z"
-    except FileNotFoundError:
-        return False
-    except OSError:
-        pass
-    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
-    return bool(state) and not state.startswith("Z")
+    """A process still running (a zombie counts as gone), with or without /proc."""
+    return process_gone.running(pid)
 
 
 class NoProcfs:
@@ -228,18 +228,11 @@ class GuardFixture(unittest.TestCase):
         return proc.wait(timeout=timeout)
 
     def assert_gone(self, pid: int, what: str, within: float = 5) -> None:
-        deadline = time.monotonic() + within
-        while alive(pid) and time.monotonic() < deadline:
-            try:
-                os.waitpid(pid, os.WNOHANG)
-            except ChildProcessError:
-                pass
-            time.sleep(0.1)
+        self.assertTrue(process_gone.died(pid, within=within), what)
         try:
-            os.waitpid(pid, os.WNOHANG)
+            os.waitpid(pid, os.WNOHANG)  # reap a child of this test's that died
         except ChildProcessError:
             pass
-        self.assertFalse(alive(pid), what)
 
     @staticmethod
     def function(path: str, name: str) -> str:
