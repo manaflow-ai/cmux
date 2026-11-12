@@ -234,6 +234,12 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
         await cdp.send("Profiler.start");
       }
       costs.push(await measureToggle(page, label, clicker(page, selector, nth), () => settle(page), cdp));
+      if (process.env.FOLD_DIAGNOSTICS)
+        console.log(
+          `FOLD_PROBE ${name} ${turns} ${label}\n${await page.evaluate(
+            () => (globalThis as unknown as { __foldRideProbe?: string[] }).__foldRideProbe?.join("\n") ?? "",
+          )}`,
+        );
       if (profile) {
         const { profile: data } = (await cdp.send("Profiler.stop")) as unknown as {
           profile: {
