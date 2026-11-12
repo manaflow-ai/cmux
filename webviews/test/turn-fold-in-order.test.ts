@@ -110,7 +110,8 @@ for (const family of ["codex", "claude"])
     const at = (id: string) =>
       opened.findIndex((shown) => shown.id === id || (shown.messageRun?.rows ?? []).includes(id));
     expect(at("m-1")).toBeGreaterThan(at(`${WORKED}-m-1`));
-    expect(at("t-2")).toBeGreaterThan(at("m-1"));
+    // The run after it joins the message's line (messageRuns.ts), or follows it.
+    expect(at("t-2")).toBeGreaterThanOrEqual(at("m-1"));
     expect(
       turnFoldFor(
         messaged,
