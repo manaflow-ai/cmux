@@ -42,9 +42,15 @@ impl TokenCache {
         url: &str,
         usable: impl FnOnce(&Tokens) -> bool,
     ) {
-        if let Some(kept) = book.tokens.get(name, url).filter(usable) {
-            let mut tokens = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
-            tokens.get_or_insert(kept);
+        match book.tokens.get(name, url) {
+            Some(kept) if usable(&kept) => {
+                let mut tokens = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+                tokens.get_or_insert(kept);
+            }
+            // A configured half now disagrees: what was kept is stale, so it leaves the file
+            // too, and is not presented again if that configuration is later removed.
+            Some(_) => book.tokens.forget(name, url),
+            None => {}
         }
         let _ = self.disk.set((book, name.to_owned(), url.to_owned()));
     }
@@ -65,14 +71,20 @@ impl TokenCache {
 
     pub(crate) fn forget(&self) {
         *self.tokens.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        if let Some((kept, name, _)) = self.kept() {
-            kept.forget(name);
+        if let Some((kept, name, url)) = self.kept() {
+            kept.forget(name, url);
         }
     }
 
-    /// A replacement of the same peer (`Hub::spawn_peer`) starts with what the old one read.
+    /// A replacement of the same peer (`Hub::spawn_peer`) starts with what the old one read,
+    /// only when both read over the same URL (the caller checks that too): tokens read from one
+    /// host are never kept as another's.
     pub(crate) fn carry(&self, from: &TokenCache) {
-        if let Some(tokens) = from.get() {
+        let same_url = match (self.disk.get(), from.disk.get()) {
+            (Some((_, _, to)), Some((_, _, of))) => to == of,
+            _ => true,
+        };
+        if same_url && let Some(tokens) = from.get() {
             self.keep(&tokens);
         }
     }
@@ -106,6 +118,23 @@ mod tests {
         assert_eq!(cache.get(), None);
     }
 
+    /// A replacement pointed at another URL never starts with, or keeps, the old host's tokens.
+    #[test]
+    fn carry_across_a_url_change_takes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let open = || Arc::new(LastGood::open(Some(dir.path())));
+        let old = TokenCache::default();
+        old.back(open(), "box", "ssh://box", |_| true);
+        old.keep(&("dash".into(), Some("peer".into())));
+        let moved = TokenCache::default();
+        moved.back(open(), "box", "ssh://elsewhere", |_| true);
+        moved.carry(&old);
+        assert_eq!(moved.get(), None);
+        let next = TokenCache::default();
+        next.back(open(), "box", "ssh://elsewhere", |_| true);
+        assert_eq!(next.get(), None, "nothing was kept under the new URL");
+    }
+
     /// What a peer keeps reaches the next run's peer of the same name and URL only, and a
     /// forget (refused, served as Web, the remote restarting) removes it from the file.
     #[test]
@@ -125,15 +154,20 @@ mod tests {
         let moved = TokenCache::default();
         moved.back(open(), "box", "ssh://elsewhere", |_| true);
         assert_eq!(moved.get(), None, "a changed URL reads again");
-        let configured = TokenCache::default();
-        configured.back(open(), "box", "ssh://box", |(token, _)| token == "configured");
-        assert_eq!(configured.get(), None, "a configured token it disagrees with wins");
 
         next.forget();
         assert_eq!(open().tokens.get("box", "ssh://box"), None, "forget removes the entry");
         let after = TokenCache::default();
         after.back(open(), "box", "ssh://box", |_| true);
         assert_eq!(after.get(), None);
+
+        // A configured token that disagrees wins, and the stale entry leaves the file: removing
+        // that configuration later does not bring it back.
+        after.keep(&read);
+        let configured = TokenCache::default();
+        configured.back(open(), "box", "ssh://box", |(token, _)| token == "configured");
+        assert_eq!(configured.get(), None, "a configured token it disagrees with wins");
+        assert_eq!(open().tokens.get("box", "ssh://box"), None, "and its entry is dropped");
     }
 
     /// Review of #38002: a token read that finished after `stop` opened a tunnel anyway.

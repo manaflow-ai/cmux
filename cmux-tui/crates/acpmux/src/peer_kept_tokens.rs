@@ -95,10 +95,12 @@ impl KeptTokens {
         self.save(name, &peers);
     }
 
-    /// Forget what `name` read: the remote no longer takes it, or it restarts.
-    pub fn forget(&self, name: &str) {
+    /// Forget what `name` read over `url`: the remote no longer takes it, or it restarts. An
+    /// entry another URL wrote (a replacement of the peer pointed elsewhere) stays.
+    pub fn forget(&self, name: &str, url: &str) {
         let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        if peers.remove(name).is_some() {
+        if peers.get(name).is_some_and(|entry| entry.url == url) {
+            peers.remove(name);
             self.save(name, &peers);
         }
     }
@@ -161,7 +163,13 @@ mod tests {
         let kept = KeptTokens::open(Some(dir.path()));
         kept.keep("a", "ssh://a", &tokens("dash-a", "peer-a"));
         kept.keep("b", "ssh://b", &tokens("dash-b", "peer-b"));
-        kept.forget("a");
+        kept.forget("a", "ssh://elsewhere");
+        assert_eq!(
+            kept.get("a", "ssh://a"),
+            Some(tokens("dash-a", "peer-a")),
+            "another URL's forget keeps it"
+        );
+        kept.forget("a", "ssh://a");
         let text = std::fs::read_to_string(dir.path().join(FILE_NAME)).unwrap();
         assert!(!text.contains("dash-a") && !text.contains("peer-a"), "{text}");
         let kept = KeptTokens::open(Some(dir.path()));
