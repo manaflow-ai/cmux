@@ -12,6 +12,49 @@ extension ConnectivityTelemetry {
         guard PhoneConnectivityStart.claim() else { return }
         setJournal(.applicationSupport())
         addSink(Self.unifiedLogSink(subsystem: "dev.cmux.mobile"))
+        // task-owner: the process's stat flush timer; runs for the life of the app (suspended with it).
+        Task.detached(priority: .utility) { [stats] in
+            let clock = ContinuousClock()
+            while !Task.isCancelled {
+                try? await clock.sleep(for: Self.statsFlushEvery)
+                await stats.flush()
+            }
+        }
+    }
+
+    /// Waiting stats go up at least this often while the app runs (and when it goes to the background).
+    static let statsFlushEvery: Duration = .seconds(60)
+
+    /// Sends this phone's stats to the Cloud service at `base` as the signed-in account.
+    public func uploadStats(to base: URL, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
+        let http = ConnectivityStatsHTTP(base: base, accessToken: accessToken)
+        stats.configure(client: .phone(), upload: { body in await http.post(body) })
+    }
+}
+
+extension ConnectivityStats.Client {
+    /// This iPhone app: its version, build, iOS version and channel.
+    public static func phone(bundle: Bundle = .main, processInfo: ProcessInfo = .processInfo) -> Self {
+        let id = bundle.bundleIdentifier ?? ""
+        let version = processInfo.operatingSystemVersion
+        return Self(
+            platform: "ios",
+            appVersion: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
+            build: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
+            osVersion: "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)",
+            channel: channel(bundleID: id, receipt: bundle.appStoreReceiptURL?.lastPathComponent)
+        )
+    }
+
+    /// dev for a debug or tagged build, testflight for a sandbox receipt, else production.
+    static func channel(bundleID: String, receipt: String?) -> String {
+        #if DEBUG
+        return "dev"
+        #else
+        if bundleID.hasPrefix("dev.") || bundleID.contains(".debug") || bundleID.contains(".dev.") { return "dev" }
+        if receipt == "sandboxReceipt" { return "testflight" }
+        return "production"
+        #endif
     }
 }
 

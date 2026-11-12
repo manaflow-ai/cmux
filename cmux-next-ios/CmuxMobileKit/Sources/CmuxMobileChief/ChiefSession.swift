@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxConnectivityTelemetry
 import CmuxConversationCore
 import CmuxMobileArtifacts
 import CmuxMobileModel
@@ -687,12 +688,20 @@ public final class ChiefSession {
             guard let self, let store, store === self.store else { return }
             self.refresh()
         }
+        // Open time (tab_open): until the newest page from the Mac is in (a kept transcript may show first).
+        openTimer = ConnectivityTabTimer(kind: "chief", cached: store.isShowingKeptTranscript)
         store.start()
         refresh()
         loadEngine()
     }
 
+    @ObservationIgnored private var openTimer: ConnectivityTabTimer?
+
     private func refresh() {
+        if let openTimer, store.hasLoadedNewest {
+            openTimer.finish(fields: ["messages": .number(Double(store.messages.count))])
+            self.openTimer = nil
+        }
         let newest = store.messages.last { $0.seq != nil && !$0.isScheduled }
         if newest != lastMessage {
             // A new reply from Chief replaces the streaming bubble of the live talk step.

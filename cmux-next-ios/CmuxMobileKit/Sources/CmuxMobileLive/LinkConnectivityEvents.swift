@@ -71,6 +71,23 @@ struct LinkConnectivityEvents: Sendable {
         telemetry.record(.link, "dial_failed", outcome: .failure, fields: fields, detail: String(describing: error))
     }
 
+    /// One timing stat (connect, reconnect, session): a local record and an upload.
+    func stat(_ stat: ConnectivityStat) {
+        telemetry.stat(stat)
+    }
+
+    /// A failed dial as a stat: how long it took to fail and why, as fixed words.
+    func dialFailedStat(_ error: any Error, transport: TransportKind, ms: Double) {
+        var fields: [String: ConnectivityEvent.Value] = ["transport": .code(transport.rawValue)]
+        if let error = error as? LinkError {
+            fields["error_code"] = .safeCode(error.code)
+            if !error.message.isEmpty { fields["error_message"] = .text(error.message) }
+        } else {
+            fields["error_code"] = .code(error is LiveAPI.Failure ? "service_refused" : "other")
+        }
+        telemetry.stat(ConnectivityStat(.linkFailure, outcome: .failure, ms: ms, fields: fields))
+    }
+
     func probed(_ result: Result<UInt32?, any Error>) {
         switch result {
         case .success(let rtt):

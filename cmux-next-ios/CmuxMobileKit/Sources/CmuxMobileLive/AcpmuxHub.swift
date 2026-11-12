@@ -107,6 +107,8 @@ public final class AcpmuxHub {
         lastError = nil
         for entry in sources.values { entry.source?.linkDown() }
         guard let channel else { return }
+        // From the link handing over its channel until the hub has its sessions (hub_ready).
+        let readyWatch = ConnectivityStopwatch()
         let connection = AcpmuxConnection(channel: channel)
         self.connection = connection
         await connection.start()
@@ -152,6 +154,9 @@ public final class AcpmuxHub {
                 "full_access": .flag(fullAccess),
                 "capabilities": .number(Double(capabilities.count)),
             ], detail: capabilities.sorted().joined(separator: ","))
+            ConnectivityTelemetry.shared.stat(ConnectivityStat(.hubReady, outcome: .success, ms: readyWatch.elapsedMilliseconds, fields: [
+                "sessions": .number(Double(next.count)), "full_access": .flag(fullAccess),
+            ]))
             for entry in sources.values { entry.source?.linkUp() }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
             await seedPending(connection, requestTimeout: requestTimeout)
@@ -171,6 +176,8 @@ public final class AcpmuxHub {
                 ConnectivityTelemetry.shared.record(.hub, "bind_failed", outcome: .failure,
                                                     fields: ["error_code": code, "reason": .text(lastError ?? "")],
                                                     detail: String(describing: error))
+                ConnectivityTelemetry.shared.stat(ConnectivityStat(.hubReady, outcome: .failure, ms: readyWatch.elapsedMilliseconds,
+                                                                   fields: ["error_code": code, "reason": .text(lastError ?? "")]))
             }
         }
     }
