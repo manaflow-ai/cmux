@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43195919789",
+  "recorded_at": "2026-11-12T10:04:41Z",
+  "reason": "cmux-tui 0a46e9a29d58 changes the image's cmux-tui (pinned 6fc91f005045)",
+  "dry_run": false,
+  "cmux_tui": "0a46e9a29d58a5c4218897377ed33edf01cb08c5",
+  "fixes": [
+    {
+      "sha": "0a46e9a29d58a5c4218897377ed33edf01cb08c5",
+      "mergedAt": "2026-11-12T01:41:05-08:00",
+      "subject": "acpmux tests: a held thread is released on every path out, so a timeout fails instead of hanging (#41627 F1) (#41816)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T10:04:41Z",
+    "snapshot_id": "sh-e006b336feb946aba7bb693673dd85d6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43195919789): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bba72cc43dc66d62144535bc1462f7746727226d",
+    "image": "cloud-native-auto-0a46e9a2-43195919789-1",
+    "revision": "ci-43195919789-1",
+    "at": "2026-11-12T10:04:41Z"
+  },
+  "rolled_back": false
+}
