@@ -78,6 +78,11 @@ Detectors (all line/regex heuristics, never an AST):
   lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID-v1.gitconfig,
   and a file planted there with core.hooksPath ran a hook in every fixture
   repo. Make the path with mktemp -d / tempfile.mkdtemp instead.
+- exit-trap-reraise-order: an EXIT trap under scripts/cmux-next/tests (its action, the function it names, or the
+    variable it expands) that puts the saved status back with a subshell `(exit "$s")` or a status-returning call
+    while errexit may still be on, or that runs a cleanup step after re-raising. Under `set -e` the status restore
+    ends the trap there, so the caller's cleanup never runs and a failing test leaks its temp repos (cmux#41195 F1).
+    Run every cleanup first, then `exit "$s"`; restore $? with a function's `return` only after `set +e`.
 - git-fixture-exit-trap: a shell test that sources
   scripts/cmux-next/tests/lib/git-fixture.sh and then sets `trap ... EXIT`
   itself. That replaces the helper's EXIT trap, so its private
@@ -209,6 +214,7 @@ RULE_GIT_WRITE_WITHOUT_FIXTURE = "git-write-without-fixture"
 RULE_WALL_CLOCK_EXPIRY = "wall-clock-expiry"
 RULE_FLOCK_RELEASED_BY_CLOSE = "flock-released-by-close"
 RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS = "exec-of-a-file-written-in-process"
+RULE_EXIT_TRAP_RERAISE_ORDER = "exit-trap-reraise-order"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -227,6 +233,7 @@ ALL_RULES = (
     RULE_WALL_CLOCK_EXPIRY,
     RULE_FLOCK_RELEASED_BY_CLOSE,
     RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS,
+    RULE_EXIT_TRAP_RERAISE_ORDER,
 )
 RUST_RULES = (RULE_WALL_CLOCK_EXPIRY, RULE_FLOCK_RELEASED_BY_CLOSE, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS)
 GIT_FIXTURE_RULES = (
@@ -235,6 +242,7 @@ GIT_FIXTURE_RULES = (
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_PREDICTABLE_TMP_PATH,
     RULE_GIT_FIXTURE_EXIT_TRAP,
+    RULE_EXIT_TRAP_RERAISE_ORDER,
     RULE_GIT_WRITE_WITHOUT_FIXTURE,
 )
 
@@ -4335,6 +4343,84 @@ def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str) -> lis
     return hits
 
 
+_EXIT_TRAP_SCOPE = "scripts/cmux-next/tests/"
+_SH_SINGLE_QUOTED_ASSIGN = re.compile(r"^\s*(?:local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?(\w+)='([^']*)'\s*$")
+_SH_FUNCTION_START = re.compile(r"^\s*(?:function\s+)?([\w.-]+)\s*\(\)\s*\{?(.*)$")
+_SH_FIXTURE_TRAP_EXIT = re.compile(r"(?:^|[\s;&|(])git_fixture_trap_exit\s+'([^']*)'")
+# Puts a saved status back as $?: a subshell exit, or a call/return that hands the status back.
+_TRAP_STATUS_RESTORE = re.compile(r"\(\s*exit\b|^\s*return\s+\S|^\s*\w*(?:return|status)\w*\s+[\"']?\$")
+_TRAP_RERAISE = re.compile(r"\(\s*exit\b|^\s*(?:exit|return)\b")
+_TRAP_ERREXIT_OFF = re.compile(r"^\s*set\s+\+[a-zA-Z]*e")
+# A step that cleans up: removes files, stops a process, removes a worktree, or runs the caller's/a cleanup action.
+_TRAP_CLEANUP = re.compile(r"\b(?:rm|rmdir|p?kill|umount|eval)\b|worktree\s+remove|\w*(?:cleanup|remove|teardown)\w*")
+
+
+def _trap_statements(action: str) -> list[str]:
+    """The action's top-level statements, split on ; and newlines outside quotes."""
+    flat = _SH_QUOTED.sub(lambda m: m.group(0).replace(";", ",").replace("\n", " "), action)
+    return [part.strip() for part in re.split(r"[;\n]", flat) if part.strip()]
+
+
+def _trap_action_problem(action: str) -> bool:
+    """True when the action restores the status with errexit possibly on, or cleans up after re-raising."""
+    errexit_off = False
+    raised = False
+    for statement in _trap_statements(action):
+        if _TRAP_ERREXIT_OFF.search(statement):
+            errexit_off = True
+        if raised and _TRAP_CLEANUP.search(statement):
+            return True
+        if _TRAP_STATUS_RESTORE.search(statement) and not errexit_off:
+            return True
+        if _TRAP_RERAISE.search(statement):
+            raised = True
+    return False
+
+
+def detect_exit_trap_reraise_order(code_lines: list[str], rel_posix: str) -> list[int]:
+    """0-based lines of EXIT traps under scripts/cmux-next/tests whose action re-raises before (or instead of) cleanup."""
+    if not rel_posix.startswith(_EXIT_TRAP_SCOPE) or not rel_posix.endswith(".sh"):
+        return []
+    assigned: dict[str, str] = {}
+    functions: dict[str, str] = {}
+    for index, line in enumerate(code_lines):
+        match = _SH_SINGLE_QUOTED_ASSIGN.match(line)
+        if match:
+            assigned[match.group(1)] = match.group(2)
+        start = _SH_FUNCTION_START.match(line)
+        if start:
+            body = [start.group(2)]
+            depth = line.count("{") - line.count("}")
+            for follow in code_lines[index + 1:]:
+                if depth <= 0:
+                    break
+                body.append(follow)
+                depth += follow.count("{") - follow.count("}")
+            functions[start.group(1)] = "\n".join(body).rstrip().rstrip("}")
+    hits: list[int] = []
+    for index, line in enumerate(code_lines):
+        actions: list[str] = []
+        fixture = _SH_FIXTURE_TRAP_EXIT.search(line)
+        if fixture:
+            actions.append(fixture.group(1))
+        match = _SH_TRAP.search(line)
+        if match:
+            rest = re.sub(r"^--\s+", "", match.group(1).strip())
+            quoted = re.match(r"""'([^']*)'|"((?:\\.|[^"\\])*)"|(\S+)""", rest)
+            if quoted and _SH_EXIT_SIGNAL.search(rest[quoted.end():].split(";")[0]):
+                text = next(group for group in quoted.groups() if group is not None)
+                variable = re.fullmatch(r"\$\{?(\w+)\}?", text)
+                if variable:
+                    actions.append(assigned.get(variable.group(1), ""))
+                elif quoted.group(3) is not None and text in functions:
+                    actions.append(functions[text])
+                else:
+                    actions.append(text)
+        if any(_trap_action_problem(action) for action in actions):
+            hits.append(index)
+    return hits
+
+
 # A temp base (no word, $, /, . or } before it, so "$TMP/build/tmp/x" is not one) and then a literal name.
 _TMP_BASE_SH = r"""(?<![\w$/.}-])(?:/tmp|/var/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp/?\})/[\w.$"{-]"""
 _SH_TMP_ASSIGN = re.compile(r"""^\s*(?:export\s+|local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?\w+=["']?""" + _TMP_BASE_SH)
@@ -4882,6 +4968,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         )
     for trap_line in detect_git_fixture_exit_trap(code_lines, suffix):
         findings.append(Finding(rel_posix, trap_line + 1, RULE_GIT_FIXTURE_EXIT_TRAP, raw_lines[trap_line].strip()))
+    for trap_line in detect_exit_trap_reraise_order(code_lines, rel_posix):
+        findings.append(Finding(rel_posix, trap_line + 1, RULE_EXIT_TRAP_RERAISE_ORDER, raw_lines[trap_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
@@ -5157,6 +5245,28 @@ def _self_test() -> int:
             "scripts/cmux-next/tests/bare.test.sh",
             'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit_q clone --bare "$d/src" "$d/o.git"\n',
             {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # An EXIT trap that restores the status with errexit on, or cleans up after re-raising (cmux#41195 F1).
+        (
+            "scripts/cmux-next/tests/reraise_subshell.test.sh",
+            "set -euo pipefail\ntmp=$(mktemp -d)\ntrap 's=$?; (exit \"$s\"); rm -rf \"$tmp\"' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/lib/reraise_variable.sh",
+            "_t='_s=$?; _remove_dir; (exit \"$_s\"); eval \"$caller\"'\nbuiltin trap -- \"$_t\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_function.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ntrap cleanup EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_status_call.test.sh",
+            "set -e\ntmp=$(mktemp -d)\nkeep_status() { return \"$1\"; }\n"
+            "trap 's=$?; keep_status \"$s\"; rm -rf \"$tmp\"' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
         ),
         # A test that writes with git and never loads the helper: an inherited GIT_DIR takes the commit.
         (
@@ -6349,6 +6459,14 @@ def _self_test() -> int:
             "import subprocess\nsubprocess.run(['git', 'rev-parse', 'HEAD'], check=True)\n",
         ),
         # Exit cleanup through the helper; an EXIT trap set before sourcing; INT alone; `trap -p EXIT`.
+        # Cleanup first, then re-raise; a status call only after set +e; no re-raise at all.
+        (
+            "scripts/cmux-next/tests/reraise_ok.test.sh",
+            "set -euo pipefail\ntmp=$(mktemp -d)\ntrap 's=$?; rm -rf \"$tmp\"; exit \"$s\"' EXIT\n"
+            "_t='_s=$?; set +e; _remove_dir; _keep_return \"$_s\"; eval \"$caller\"; exit \"$_s\"'\n"
+            "builtin trap -- \"$_t\" EXIT\ncleanup() { [[ -n \"$pid\" ]] && kill \"$pid\"; rm -rf \"$tmp\"; }\n"
+            "trap cleanup EXIT\n",
+        ),
         (
             "scripts/cmux-next/tests/trap_ok.test.sh",
             'trap \'echo early\' EXIT\nsource "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\n'
