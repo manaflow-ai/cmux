@@ -266,8 +266,10 @@ extension WorkspaceCreator {
         var workspace = placeholder(for: request, existing: [], now: now)
         workspace.title = title
         if case .agent(let harness) = request.start, !workspace.tabs.isEmpty {
-            workspace.tabs[0].title = task
-            workspace.tabs[0].subtitle = harness.isEmpty ? "Starting…" : "\(agentTitle(harness)) · Starting…"
+            // The tab is the agent (its chat names it so, "What should Claude do?"); the task is
+            // what it works on, as a running chat's tab reads.
+            workspace.tabs[0].title = agentTitle(harness)
+            workspace.tabs[0].subtitle = task
             workspace.tabs[0].agentStatus = .working
         }
         return workspace

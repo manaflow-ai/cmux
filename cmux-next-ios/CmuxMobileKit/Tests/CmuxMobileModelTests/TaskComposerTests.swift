@@ -64,6 +64,9 @@ import Testing
         #expect(store.isPending(placeholder.id))
         #expect(placeholder.title == "Fix the flaky upload test")
         #expect(placeholder.tabs.first?.task == "Fix the flaky upload test")
+        // The tab is the agent, its task the subtitle (no "task · task" title, no chat named for the task).
+        #expect(placeholder.tabs.first?.title == "Claude")
+        #expect(placeholder.tabs.first?.subtitle == "Fix the flaky upload test")
         #expect(placeholder.tabs.first?.agentStatus == .working)
         #expect(store.takeFocusOnOpen(placeholder.id))
         // The prompt goes; the agents and folder stay for the next task.
