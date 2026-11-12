@@ -72,7 +72,7 @@ lookup_once() {
     --extra "macos=$(sw_vers -productVersion)" --extra "macos_build=$(sw_vers -buildVersion)" \
     --extra "recipe=$recipe" \
     --extra "tui_tree=${CMUX_TUI_TREE_KEY:-}" \
-    "${flags[@]}" | sed -n 's/^fingerprint=//p')" || key=""
+    ${flags[@]+"${flags[@]}"} | sed -n 's/^fingerprint=//p')" || key=""
   echo "key=$key"
   python3 -I "$repo_root/scripts/ci/nightly_release_product_reuse.py" lookup --key "${key:-none}" \
     --skip "${SKIP_REASON:-}" --out "$work/lookup" --products "$products" --timeout 240

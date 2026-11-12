@@ -264,7 +264,7 @@ for existing in "$frameworks"/*" Helper"*.app; do
   [[ -e "$existing" ]] || continue
   base="$(basename "$existing")"
   keep=0
-  for w in "${wanted[@]}"; do [[ "$w" == "$base" ]] && keep=1; done
+  for w in ${wanted[@]+"${wanted[@]}"}; do [[ "$w" == "$base" ]] && keep=1; done
   (( keep )) || rm -rf "$existing"
 done
 

@@ -290,9 +290,9 @@ jobs:
                   awk '$2 == "T" && $3 ~ /^_(uniffi|ffi)_cmux_mobile_ffi_/ { print substr($3, 2) }' | sort -u
               )
               {
-                printf 'extern void %s(void);\n' "${symbols[@]}"
+                printf 'extern void %s(void);\n' ${symbols[@]+"${symbols[@]}"}
                 echo 'int main(void) { const void *volatile p[] = {'
-                printf '  (const void *)&%s,\n' "${symbols[@]}"
+                printf '  (const void *)&%s,\n' ${symbols[@]+"${symbols[@]}"}
                 echo '  0 }; return p[0] == 0; }'
               } > "$work/$slice.c"
               echo 'int main(void) { return 0; }' > "$work/empty.c"

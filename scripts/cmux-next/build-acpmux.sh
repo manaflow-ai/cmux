@@ -199,7 +199,7 @@ done
 echo "==> ensuring Rust targets ${rust_targets[*]} for the cmux-tui toolchain"
 # shellcheck source=scripts/lib/rust-targets.sh
 source "$repo_root/scripts/lib/rust-targets.sh"
-(cd "$source_root/cmux-tui" && ensure_rust_targets "${rust_targets[@]}")
+(cd "$source_root/cmux-tui" && ensure_rust_targets ${rust_targets[@]+"${rust_targets[@]}"})
 
 # A persistent target dir in the tree's own (ignored) cmux-tui/target: the
 # next commit of a warm tree or fleet slot compiles incrementally instead of
@@ -229,7 +229,7 @@ if [[ ${#built_slices[@]} -eq 1 ]]; then
   cp "${built_slices[0]}" "$staged"
 else
   command -v lipo >/dev/null 2>&1 || { echo "error: lipo is required for a universal acpmux" >&2; exit 1; }
-  lipo -create "${built_slices[@]}" -output "$staged"
+  lipo -create ${built_slices[@]+"${built_slices[@]}"} -output "$staged"
 fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"

@@ -14,7 +14,7 @@ bin="$here/target/release/rust-change-class"
 merges=(); for pair in "$@"; do merges+=("${pair#*:}"); done
 depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
 [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=2)
-git -C "$root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "${merges[@]}" || echo "fetch failed" >&2
+git -C "$root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin ${merges[@]+"${merges[@]}"} || echo "fetch failed" >&2
 : > "$out/buckets.jsonl"
 for pair in "$@"; do
   pr="${pair%%:*}" merge="${pair#*:}"

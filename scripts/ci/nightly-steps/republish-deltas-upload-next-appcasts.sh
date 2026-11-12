@@ -9,7 +9,7 @@ r2=.publish-tooling/scripts/ci/publish-nightly-next-r2.py
 # its length points there (an older build from before R2 keeps its release URL).
 files=()
 for delta in nightly-deltas/*.delta; do files+=(--file "$delta"); done
-python3 "$r2" upload "${files[@]}"
+python3 "$r2" upload ${files[@]+"${files[@]}"}
 for feed in nightly-deltas/appcast*.xml; do
   [ -f "$feed" ] || continue
   python3 "$r2" rewrite --feed "$feed" --if-public

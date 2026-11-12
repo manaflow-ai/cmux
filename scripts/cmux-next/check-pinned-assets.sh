@@ -65,7 +65,7 @@ verify_pin() {
   esac
 }
 
-for relative in "${changed_pins[@]}"; do
+for relative in ${changed_pins[@]+"${changed_pins[@]}"}; do
   verify_pin "$relative"
 done
 

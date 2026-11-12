@@ -206,7 +206,7 @@ if command -v rustup >/dev/null 2>&1; then
     || rustup toolchain install "$toolchain" --profile minimal --force >/dev/null
   # shellcheck source=scripts/lib/rust-targets.sh
   source "$repo_root/scripts/lib/rust-targets.sh"
-  ensure_rust_targets --toolchain "$toolchain" "${targets[@]}" >/dev/null
+  ensure_rust_targets --toolchain "$toolchain" ${targets[@]+"${targets[@]}"} >/dev/null
 fi
 
 mkdir -p "$cache_dir"
@@ -217,7 +217,7 @@ mkdir -p "$cache_dir"
 # directories are not links (checked above), so this stays inside the cache.
 rm -rf "$cache_bin" "$cache_bin.ref"
 slices=()
-for target in "${targets[@]}"; do
+for target in ${targets[@]+"${targets[@]}"}; do
   echo "==> building optchat-chief ($commit, $target)"
   # A persistent target dir under the crate keeps later fleet builds incremental.
   target_dir="${CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR:-$crate/target/app}"
@@ -235,7 +235,7 @@ for target in "${targets[@]}"; do
 done
 staged="$cache_bin.tmp.$$"
 rm -f "$staged"
-if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create "${slices[@]}" -output "$staged"; fi
+if [[ ${#slices[@]} -eq 1 ]]; then cp "${slices[0]}" "$staged"; else lipo -create ${slices[@]+"${slices[@]}"} -output "$staged"; fi
 chmod 755 "$staged"
 mv -f "$staged" "$cache_bin"
 # Write the provenance to a new file and rename it into place: a rename

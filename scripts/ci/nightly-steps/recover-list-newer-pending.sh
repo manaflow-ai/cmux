@@ -7,7 +7,7 @@ for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
   feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
 done
 candidates="$(python3 scripts/ci/find-nightly-next-recovery.py \
-  --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 5 "${feeds[@]}")"
+  --repo "$GITHUB_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" --limit 5 ${feeds[@]+"${feeds[@]}"})"
 # Never recover a build that lacks a required commit or does not
 # descend from the commit the NEXT feed serves (run 38868028629
 # published 0664bd98 from 10-14 over newer builds). The run head is an

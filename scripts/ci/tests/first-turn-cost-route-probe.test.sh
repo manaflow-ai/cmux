@@ -11,7 +11,7 @@ root="$(git rev-parse --show-toplevel)"
 tool="$root/Native/OptChat/optchat-chief/measure/first_turn_cost.py"
 work="$(mktemp -d)"
 pids=()
-cleanup() { for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; rm -rf "$work"; }
+cleanup() { for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done; rm -rf "$work"; }
 trap cleanup EXIT
 
 # mode 502: ready is 200, every POST 502. mode sr2: a POST without Claude Code's

@@ -1104,7 +1104,8 @@ jobs:
               # landing compile and the fast tier still run on this push.
               keep=()
               [[ "$DEV_LANDING_COMPILE" == 0 ]] && keep=(--keep scheme)
-              python3 scripts/ci/cmux_next_base_tier.py defer "$routed" "${keep[@]}" >> "$GITHUB_OUTPUT"
+              # ${keep[@]+...}: bash 3.2 (a mini's /bin/bash) calls an empty "${keep[@]}" unbound under set -u.
+              python3 scripts/ci/cmux_next_base_tier.py defer "$routed" ${keep[@]+"${keep[@]}"} >> "$GITHUB_OUTPUT"
               echo '- base tier (daemon tests, generated files, scheme compile): left to the cmux-next base tier run on the tip, at most 15 minutes away (cmux-next-base-tier-kick.yml).' >> "$GITHUB_STEP_SUMMARY"
             fi
           fi
@@ -3161,7 +3162,7 @@ jobs:
             {
               echo "### cmux-next fast tier on the build fleet: $1"
               echo
-              printf -- '- %s\n' "${reasons[@]}"
+              printf -- '- %s\n' ${reasons[@]+"${reasons[@]}"}
             } >> "$GITHUB_STEP_SUMMARY"
             case "$1" in
               pass) exit 0 ;;

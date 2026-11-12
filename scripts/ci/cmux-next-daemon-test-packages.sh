@@ -26,4 +26,4 @@ while IFS= read -r file; do
   args+=("-p" "$name")
 done < <(git grep -l 'cmux_next_' -- '*.rs')
 if (( ${#args[@]} == 0 )); then echo "--workspace"; exit 0; fi
-printf '%s %s\n' "${args[@]}" | sort -u | tr '\n' ' ' | sed 's/ $/\n/'
+printf '%s %s\n' ${args[@]+"${args[@]}"} | sort -u | tr '\n' ' ' | sed 's/ $/\n/'

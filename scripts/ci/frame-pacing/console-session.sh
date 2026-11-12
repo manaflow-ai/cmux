@@ -34,7 +34,7 @@ if [ -n "$console_user" ] && [ "$console_user" != root ] && [ "$console_user" !=
   done
   echo "Running in console user '$console_user' (uid $console_uid) Aqua session: $*" >&2
   exec sudo -n launchctl asuser "$console_uid" sudo -n -u "$console_user" \
-    env HOME="$console_home" "${env_pairs[@]}" \
+    env HOME="$console_home" ${env_pairs[@]+"${env_pairs[@]}"} \
     bash -c 'cd "${GITHUB_WORKSPACE:-.}" && exec "$@"' bash "$@"
 fi
 

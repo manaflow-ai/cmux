@@ -20,7 +20,7 @@ trap cleanup EXIT
 # Bound the download only where the checkout is already shallow; never turn a full clone shallow.
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-git fetch --no-tags "${depth[@]}" origin "$head_sha" "$base_sha"
+git fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$head_sha" "$base_sha"
 git worktree add --detach "$measured" "$head_sha"
 cd "$measured/webviews"
 test "$(git rev-parse HEAD)" = "$head_sha"

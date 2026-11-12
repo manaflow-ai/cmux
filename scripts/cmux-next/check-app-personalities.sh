@@ -23,7 +23,7 @@ fi
 limit=3
 status=0
 checked=0
-for binary in "${images[@]}"; do
+for binary in ${images[@]+"${images[@]}"}; do
 [[ -f "$binary" ]] || { echo "error: no binary at $binary" >&2; exit 2; }
 for arch in $(lipo -archs "$binary"); do
   info="$(xcrun objdump --macho --unwind-info --arch="$arch" "$binary" 2>&1 || true)"

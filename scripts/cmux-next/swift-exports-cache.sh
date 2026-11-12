@@ -24,11 +24,11 @@ exports=()
 while IFS= read -r rel; do exports+=("$rel"); done < <(python3 "$key" "$root" --list)
 
 if [[ "$mode" == pack ]]; then
-  for rel in "${exports[@]}"; do
+  for rel in ${exports[@]+"${exports[@]}"}; do
     [[ -f "$root/$rel" ]] || { echo "error: export $rel is missing" >&2; exit 1; }
   done
   rm -rf "$dir"
-  for rel in "${exports[@]}"; do
+  for rel in ${exports[@]+"${exports[@]}"}; do
     mkdir -p "$dir/$(dirname "$rel")"
     cp "$root/$rel" "$dir/$rel"
   done
@@ -47,7 +47,7 @@ fi
 # The digest of the pack's own files, computed as if they were installed.
 staged="$(mktemp -d)"
 trap 'rm -rf "$staged"' EXIT
-for rel in "${exports[@]}"; do
+for rel in ${exports[@]+"${exports[@]}"}; do
   [[ -f "$dir/$rel" ]] || { echo "error: the pack has no $rel" >&2; exit 1; }
   mkdir -p "$staged/$(dirname "$rel")"
   cp "$dir/$rel" "$staged/$rel"
@@ -56,7 +56,7 @@ if [[ "$(python3 "$key" "$staged" --outputs)" != "$packed_outputs" ]]; then
   echo "error: the pack's exports do not match the digest it was packed with" >&2
   exit 1
 fi
-for rel in "${exports[@]}"; do
+for rel in ${exports[@]+"${exports[@]}"}; do
   mkdir -p "$root/$(dirname "$rel")"
   cp "$staged/$rel" "$root/$rel"
 done

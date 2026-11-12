@@ -137,4 +137,4 @@ fi
 # Numbers stay numbers; everything else is a string.
 args=()
 for k in "${!out[@]}"; do args+=(--arg "$k" "${out[$k]}"); done
-jq -cn "${args[@]}" '$ARGS.named | with_entries(.value |= (tonumber? // .))'
+jq -cn ${args[@]+"${args[@]}"} '$ARGS.named | with_entries(.value |= (tonumber? // .))'

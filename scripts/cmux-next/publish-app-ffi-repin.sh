@@ -52,7 +52,7 @@ if inputs="$(bash scripts/cmux-next/check-app-ffi-pin.sh --list-inputs)" && [[ -
 fi
 same_inputs() { # same_inputs A B: exit 0 when the app FFI inputs of commits A and B are the same (a failed read: no)
   [[ "$1" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] || return 1
-  [[ "$1" == "$2" ]] || git diff --quiet "$1" "$2" -- "${input_paths[@]}"
+  [[ "$1" == "$2" ]] || git diff --quiet "$1" "$2" -- ${input_paths[@]+"${input_paths[@]}"}
 }
 previous="$(remote_head "$branch")"
 # The pin at the re-pin branch's head (fetched, since its signed commit may be newer than this checkout).

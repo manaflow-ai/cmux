@@ -59,7 +59,7 @@ if [[ "$vt_name" != ghostty ]]; then
     --release-source-offer "$(python3 "$archive_tool" offer)"
   python3 "$notices/verify-ghostty-license-bundle.py" --root "$out/$vt_name-licenses" --revision "$vt_revision"
   next_verify=(--next-name "$vt_name" --next-license-manifest "$out/$vt_name-licenses/SOURCE-MANIFEST.json" --next-revision "$vt_revision")
-  next_build=("${next_verify[@]}" --next-source "$vt")
+  next_build=(${next_verify[@]+"${next_verify[@]}"} --next-source "$vt")
 fi
 # CMUX_NEXT_SOURCE_ARCHIVE_TARBALL=0: the license trees only. A nightly that
 # will not publish the archive (vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE unset)

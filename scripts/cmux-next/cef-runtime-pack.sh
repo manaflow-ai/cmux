@@ -61,7 +61,7 @@ helpers=()
 while IFS= read -r -d '' helper; do helpers+=("$helper"); done \
   < <(find "$frameworks" -mindepth 1 -maxdepth 1 -type d -name '* Helper*.app' -print0 | sort -z)
 base_helper=""
-for helper in "${helpers[@]}"; do
+for helper in ${helpers[@]+"${helpers[@]}"}; do
   case "$(basename "$helper")" in *" Helper.app") base_helper="$(basename "$helper")" ;; esac
 done
 [[ -n "$base_helper" ]] || die "no base helper (<Product> Helper.app) in $frameworks"
@@ -119,7 +119,7 @@ rm -f "$out/reused" "$pin" "$out"/cef-runtime-*.tar.xz
 
 remove_engine() {
   rm -rf "${frameworks:?}/$FRAMEWORK" "${frameworks:?}/$SHIM"
-  for helper in "${helpers[@]}"; do rm -rf "$helper"; done
+  for helper in ${helpers[@]+"${helpers[@]}"}; do rm -rf "$helper"; done
 }
 
 write_pin() { # <sha256> <size> <url> <file>
@@ -170,7 +170,7 @@ runtime="$stage/$folder"
 mkdir -p "$runtime"
 # mv keeps the signatures (and their extended attributes) as sign-cef.sh wrote them.
 mv "$frameworks/$FRAMEWORK" "$frameworks/$SHIM" "$runtime/"
-for helper in "${helpers[@]}"; do mv "$helper" "$runtime/"; done
+for helper in ${helpers[@]+"${helpers[@]}"}; do mv "$helper" "$runtime/"; done
 echo '{"schema": 1, "key": "'"$key"'"}' > "$stage/cef-runtime.json"
 
 asset="cef-runtime-$key.tar.xz"

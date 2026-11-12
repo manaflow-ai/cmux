@@ -1091,6 +1091,18 @@ class Defer(unittest.TestCase):
         self.assertEqual((out["daemon"], out["scheme"], out["generated"]), ("false", "true", "false"))
 
 
+def _macos_bash_3() -> bool:
+    try:
+        version = subprocess.run(["/bin/bash", "-c", "echo ${BASH_VERSINFO[0]}"], capture_output=True, text=True,
+                                 timeout=30).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return version == "3"
+
+
+MACOS_BASH_3 = _macos_bash_3()
+
+
 def route_step() -> dict:
     steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["path_route"]["steps"]
     return next(step for step in steps if step.get("id") == "route")
@@ -1099,7 +1111,7 @@ def route_step() -> dict:
 class RouteStep(unittest.TestCase):
     """path_route's route step, run with a stub router: what a push and a base tier dispatch route."""
 
-    def run_step(self, event: str, **env: str) -> dict[str, str]:
+    def run_step(self, event: str, bash: str = "bash", **env: str) -> dict[str, str]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "scripts/ci").mkdir(parents=True)
@@ -1117,7 +1129,7 @@ class RouteStep(unittest.TestCase):
                       "GITHUB_RUN_ATTEMPT": "1", "DEV_DAILY": "false", "TIP_SWIFT_SUITE": "false",
                       "TIP_DAEMON_SUITE": "false", "BASE_TIER": "false", "BASE_TIER_COALESCE": "true",
                       "DEV_LANDING_COMPILE": "", **env}
-            subprocess.run(["bash", "-c", route_step()["run"]], cwd=root, env=values, check=True,
+            subprocess.run([bash, "-c", route_step()["run"]], cwd=root, env=values, check=True,
                            capture_output=True, text=True)
             return dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
 
@@ -1125,6 +1137,15 @@ class RouteStep(unittest.TestCase):
         out = self.run_step("push")
         self.assertEqual((out["daemon"], out["scheme"], out["generated"]), ("false", "false", "false"))
         self.assertEqual((out["native"], out["fast_tier"]), ("true", "true"))
+
+    @unittest.skipUnless(MACOS_BASH_3, "needs macOS /bin/bash 3.2, the shell path_route gets on a mini")
+    def test_a_feat_cmux_next_push_routes_under_macos_bash_3_2(self):
+        # path_route can run on an idle mini. Its /bin/bash 3.2 calls an empty "${keep[@]}" unbound
+        # under set -u, so the route step failed every feat push that kept no scheme compile there.
+        for env in ({}, {"DEV_LANDING_COMPILE": "0"}):
+            with self.subTest(env=env):
+                out = self.run_step("push", bash="/bin/bash", **env)
+                self.assertEqual((out["daemon"], out["generated"], out["fast_tier"]), ("false", "false", "true"))
 
     def test_coalescing_off_or_another_branch_runs_the_base_tier_on_the_push(self):
         for env in ({"BASE_TIER_COALESCE": "false"}, {"GITHUB_REF": "refs/heads/next-batch/1"}):

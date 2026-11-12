@@ -80,10 +80,10 @@ while IFS= read -r path; do
 done < <(git diff --name-only "$merge_base" "$base_ref" -- "${paths[@]}")
 
 if (( ${#stale[@]} )); then
-  mapfile -t stale < <(printf '%s\n' "${stale[@]}" | sort -u)
+  mapfile -t stale < <(printf '%s\n' ${stale[@]+"${stale[@]}"} | sort -u)
   {
     echo "generator merge snapshot is stale: it kept the PR side for a base input:"
-    printf '  %s\n' "${stale[@]}"
+    printf '  %s\n' ${stale[@]+"${stale[@]}"}
     echo "refusing to regenerate generated files"
   } >&2
   exit 1

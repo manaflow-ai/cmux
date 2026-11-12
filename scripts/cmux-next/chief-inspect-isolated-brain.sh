@@ -24,7 +24,7 @@ pids=()
 # Stops what this script started, and the children that run for this brain only
 # (its acpmux): matched by the brain's unique directory, never a broad pattern.
 cleanup() {
-  for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
+  for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done
   for p in $(pgrep -f "$BRAIN" || true); do kill "$p" 2>/dev/null || true; done
 }
 trap cleanup EXIT

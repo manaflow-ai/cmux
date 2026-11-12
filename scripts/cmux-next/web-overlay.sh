@@ -110,14 +110,14 @@ install_dirs() {
     echo "no web bundles in $pane, $pages or $app" >&2
     exit 1
   fi
-  for name in "${installed[@]}"; do
+  for name in ${installed[@]+"${installed[@]}"}; do
     # A symlink renamed over the old one: each surface switches in one step.
     ln -sfn ".gen-$stamp/$name" "$overlay/.$name.next"  # -n: a leftover link is replaced, not entered
     mv -fh "$overlay/.$name.next" "$overlay/$name" 2>/dev/null || mv -fT "$overlay/.$name.next" "$overlay/$name"
   done
   # The native interface the bundles need (their pages/web-abi.json): the app refuses an overlay
   # whose abi is not its own (WebDevOverride.refusal), as it refuses such a web update.
-  python3 - "$overlay" "$stamp" "$source_commit" "$pages/web-abi.json" "${installed[@]}" <<'PY'
+  python3 - "$overlay" "$stamp" "$source_commit" "$pages/web-abi.json" ${installed[@]+"${installed[@]}"} <<'PY'
 import json, os, sys, tempfile
 overlay, stamp, commit, abi_file, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
 manifest = {"stamp": stamp, "commit": commit, "surfaces": names}
@@ -686,7 +686,7 @@ PY
     fi
     out="$(mktemp -d "${TMPDIR:-/tmp}/web-overlay-fleet.XXXXXX")"
     trap 'rm -rf "$out"' EXIT
-    job_json="$(cd "$ROOT" && "$ci" build cmux --builder linux "${args[@]}")"
+    job_json="$(cd "$ROOT" && "$ci" build cmux --builder linux ${args[@]+"${args[@]}"})"
     job="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$job_json")"
     echo "fleet job $job" >&2
     "$ci" wait "$job" >&2 || { echo "job $job is not done; \`cmux-ci wait $job\` resumes, then \`web-overlay.sh install-app\`" >&2; exit 1; }

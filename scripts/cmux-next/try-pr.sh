@@ -255,7 +255,7 @@ live_swift() {
     fi
   fi
   log="$live_dir/live-code.log"; offset="$(stat -c %s "$log" 2>/dev/null || stat -f %z "$log" 2>/dev/null || echo 0)"
-  if ! patch="$(python3 "$ROOT/scripts/live-code/patch.py" --log "$live_log" --live "$live_dir" --tree "$src" "${files[@]}")"; then
+  if ! patch="$(python3 "$ROOT/scripts/live-code/patch.py" --log "$live_log" --live "$live_dir" --tree "$src" ${files[@]+"${files[@]}"})"; then
     drop; echo "live code: the patch did not compile against the build"; return 1
   fi
   drop

@@ -261,7 +261,7 @@ case "$cmd" in
     valid_name "$set_name" || die "not a set name: $set_name (letters, digits, . _ and -)"
     setd="$DIR/$set_name"; mkdir -p "$setd"; echo "$page" >"$setd/page"
     last="$(copies_of "$setd" | tail -1)"; k="${last:-0}"
-    for source in "${sources[@]}"; do
+    for source in ${sources[@]+"${sources[@]}"}; do
       k=$((k + 1))
       add_copy "$setd" "$k" "$source" "$set_name"
       echo "copy $k: $source -> $setd/$k/tree (branch $(meta "$setd/$k" branch))"

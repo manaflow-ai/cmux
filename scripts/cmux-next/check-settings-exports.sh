@@ -74,7 +74,7 @@ base_list="$temp/settings-exports-base.txt"
 git show "HEAD^1:$(git ls-files --full-name -- "$list")" > "$base_list" 2>/dev/null || cp "$list" "$base_list"
 gone=()
 while IFS= read -r path; do
-  printf '%s\n' "${exports[@]}" | grep -qxF "$path" || gone+=("$path")
+  printf '%s\n' ${exports[@]+"${exports[@]}"} | grep -qxF "$path" || gone+=("$path")
 done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$base_list")
 
 # A path HEAD does not have. `git checkout HEAD^1 -- path` below STAGES it, so deleting the file
@@ -96,14 +96,14 @@ restore() {
   for path in ${gone[@]+"${gone[@]}"}; do
     if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
   done
-  for path in "${inputs[@]}"; do
+  for path in ${inputs[@]+"${inputs[@]}"}; do
     if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
   done
   # HEAD's own build and fresh exports, kept before the base export: nothing to rebuild. The
   # sources' new mtimes only make a later build recompile what they feed, which is correct.
   if (( kept )); then
     local ok=1
-    for file in "${exports[@]}"; do
+    for file in ${exports[@]+"${exports[@]}"}; do
       if [[ -f "$head_exports/$file" ]]; then cp -p "$head_exports/$file" "$file" || ok=0; fi
     done
     if (( ok )) && rm -rf "$pkg_build" && mv "$head_build" "$pkg_build"; then
@@ -119,7 +119,7 @@ restore() {
   fi
   cat "$temp/settings-head-exported.txt" >&2
   echo "::error::the settings export could not be redone from HEAD's sources; restoring the committed exports instead" >&2
-  git checkout -q HEAD -- "${exports[@]}"
+  git checkout -q HEAD -- ${exports[@]+"${exports[@]}"}
   # The exports are HEAD's committed bytes, so nothing base-derived is collected. The BUILT products
   # are still the base export's, though: the sources above are HEAD's again, so a plain build of the
   # package puts them back. The export failing does not mean the build does (it also fails on an
@@ -140,7 +140,7 @@ trap 'restore || true' EXIT
 
 # HEAD's fresh exports (the export above left them in the checkout) and a clone of HEAD's build,
 # for the restore. No clone (kept=0): the restore rebuilds instead.
-for file in "${exports[@]}"; do
+for file in ${exports[@]+"${exports[@]}"}; do
   [[ -f "$file" ]] || continue
   mkdir -p "$head_exports/${file%/*}" && cp -p "$file" "$head_exports/$file"
 done
@@ -157,7 +157,7 @@ if [[ "${CMUX_NEXT_JOB_BUILT:-}" == plain && -d "$pkg_build" ]]; then
   fi
 fi
 
-for path in "${inputs[@]}"; do
+for path in ${inputs[@]+"${inputs[@]}"}; do
   if git cat-file -e "HEAD^1:$path" 2>/dev/null; then git checkout -q HEAD^1 -- "$path"; else rm -f "$path"; fi
 done
 # The base parent's own list: these sources write what the base listed, and HEAD's list would refuse
@@ -165,14 +165,14 @@ done
 CMUX_SETTINGS_EXPORTS_LIST="$base_list" \
   scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-base-exports" > "$temp/settings-base-exported.txt"
 based="$temp/settings-based"
-for file in "${stale[@]}"; do mkdir -p "$based/${file%/*}" && cp "$file" "$based/$file"; done
+for file in ${stale[@]+"${stale[@]}"}; do mkdir -p "$based/${file%/*}" && cp "$file" "$based/$file"; done
 
 restore || exit 1
 
 # A file this event did not edit whose fresh export is the same from either side's sources is the
 # base's lag (the base autofix regenerates it): a warning. Anything else is this event's.
 own=()
-for file in "${stale[@]}"; do
+for file in ${stale[@]+"${stale[@]}"}; do
   if ! git diff --quiet HEAD^1 HEAD -- "$file" || ! cmp -s "$file" "$based/$file"; then own+=("$file"); fi
 done
 if ((${#own[@]})); then

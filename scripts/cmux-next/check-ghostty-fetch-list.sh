@@ -73,7 +73,7 @@ case "$mode" in
       for name in http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY; do proxy+=("$name=http://127.0.0.1:9"); done
     fi
     CMUX_ZIG_MIRROR_ONLY="$mirror_only" CMUX_ZIG_LOCK_TAG=vt "$ROOT/scripts/ci/seed-zig-package-archives.sh" "$ZIG_GLOBAL_CACHE_DIR" "$src"
-    (cd "$src" && "${proxy[@]}" "${CMUX_VT_ZIG:-zig}" build "${flags[@]}" "-Dversion-string=$version" --prefix "$work/out")
+    (cd "$src" && "${proxy[@]}" "${CMUX_VT_ZIG:-zig}" build ${flags[@]+"${flags[@]}"} "-Dversion-string=$version" --prefix "$work/out")
     ;;
   helper)
     src="$(fresh_copy ghostty "$(git -C "$ROOT" rev-parse HEAD:ghostty)")"

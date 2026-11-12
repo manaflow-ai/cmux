@@ -109,18 +109,18 @@ pin_reader="$code/scripts/ci/app_ffi_pin.py"
 # the router and the classifier read too; cmux#41522, cmux#41508). Every diff
 # and log below excludes them.
 excluded=()
-while IFS= read -r dir; do excluded+=("$dir"); done < <(python3 -I "$pin_reader" not-built "$root" "${paths[@]}")
-specs=("${paths[@]}")
+while IFS= read -r dir; do excluded+=("$dir"); done < <(python3 -I "$pin_reader" not-built "$root" ${paths[@]+"${paths[@]}"})
+specs=(${paths[@]+"${paths[@]}"})
 for dir in ${excluded[@]+"${excluded[@]}"}; do specs+=(":(exclude,literal)$dir"); done
 # --list-inputs prints the inputs and --list-excluded the directories left out
 # (tests/app-ffi-release-paths.test.sh keeps the release workflow's push paths
 # in step with both).
 if [[ "$list_inputs" -eq 1 ]]; then
-  printf '%s\n' "${paths[@]}"
+  printf '%s\n' ${paths[@]+"${paths[@]}"}
   exit 0
 fi
 if [[ "$list_excluded" -eq 1 ]]; then
-  [[ "${#excluded[@]}" -eq 0 ]] || printf '%s\n' "${excluded[@]}"
+  [[ "${#excluded[@]}" -eq 0 ]] || printf '%s\n' ${excluded[@]+"${excluded[@]}"}
   exit 0
 fi
 # Every python3 here runs isolated (-I): neither the script's directory nor the working directory is on its import

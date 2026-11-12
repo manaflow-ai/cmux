@@ -146,7 +146,7 @@ cmd_weaken_compiler_rt() {
     # __stack_chk_fail) internal; those stay.
     while IFS= read -r s; do renames+=(--redefine-sym "$s=$s.cmux_xc_libsystem"); done \
       < <(comm -12 "$work/crt" "$work/system" | comm -23 - "$work/builtins" | grep -v -x -E '___stack_chk_(guard|fail)')
-    ((${#renames[@]})) && "$LLVM_BIN/llvm-objcopy" "${renames[@]}" "$work/compiler_rt.o"
+    ((${#renames[@]})) && "$LLVM_BIN/llvm-objcopy" ${renames[@]+"${renames[@]}"} "$work/compiler_rt.o"
     python3 "$repo_root/scripts/ci/macho_weaken.py" "$work/compiler_rt.o" >&2
     echo "weaken-compiler-rt $(basename "$archive"): $(( ${#renames[@]} / 2 )) libSystem routines left to libSystem" >&2
     (cd "$work" && "$LLVM_BIN/llvm-ar" r "$archive" compiler_rt.o)
@@ -364,7 +364,7 @@ cmd_parity_bins() {
 cmd_stubs_check() {
   local refs=()
   for n in "${BIN_NAMES[@]}"; do for t in "${TARGETS[@]}"; do refs+=("$XC_ROOT/ref/$n-$t"); done; done
-  MACOS_STUBS_SYSTEM_TBD="$SYSROOT/usr/lib/libSystem.tbd" python3 "$repo_root/scripts/ci/macos_stubs.py" check "$STUBS_DIR" "${refs[@]}"
+  MACOS_STUBS_SYSTEM_TBD="$SYSROOT/usr/lib/libSystem.tbd" python3 "$repo_root/scripts/ci/macos_stubs.py" check "$STUBS_DIR" ${refs[@]+"${refs[@]}"}
 }
 
 cmd_vt() {
@@ -472,7 +472,7 @@ cmd_ffi() {
     "$ct-libtool" -static -o "$out/slices/$t.a" "$out/work/$t.o"
     libs+=("$out/slices/$t.a")
   done
-  "$ct-lipo" -create "${libs[@]}" -output "$out/macos/libcmux_app_ffi.a"
+  "$ct-lipo" -create ${libs[@]+"${libs[@]}"} -output "$out/macos/libcmux_app_ffi.a"
   "$ct-lipo" -info "$out/macos/libcmux_app_ffi.a"
 }
 

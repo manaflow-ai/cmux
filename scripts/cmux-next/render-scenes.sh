@@ -73,7 +73,7 @@ PY
 
 manifest="$OUT/manifest.jsonl"
 : > "$manifest"
-for scene in "${scenes[@]}"; do
+for scene in ${scenes[@]+"${scenes[@]}"}; do
   path="$OUT/$scene.png"
   result=$(cli rpc debug.scene.render "$(printf '{"scene":%s,"path":%s}' "$(json_quote "$scene")" "$(json_quote "$path")")")
   python3 - "$result" "$scene" <<'PY'

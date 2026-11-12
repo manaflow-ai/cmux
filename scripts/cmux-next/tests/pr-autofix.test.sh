@@ -81,12 +81,12 @@ while IFS= read -r file; do settings_exports+=("$file"); done < <(
 (( ${#settings_exports[@]} >= 3 )) || fail "could not read the settings export list"
 for file in plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json \
   web/data/cmux-shortcuts.generated.json cmux-tui/crates/cmux-app-host/generated/scopes.json .github/workflows/x.yml \
-  "${settings_exports[@]}"; do
+  ${settings_exports[@]+"${settings_exports[@]}"}; do
   echo old > "$repo/$file"
 done
 git -C "$repo" init -q && git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm fixture
 for file in plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json \
-  web/data/cmux-shortcuts.generated.json cmux-tui/crates/cmux-app-host/generated/scopes.json "${settings_exports[@]}"; do
+  web/data/cmux-shortcuts.generated.json cmux-tui/crates/cmux-app-host/generated/scopes.json ${settings_exports[@]+"${settings_exports[@]}"}; do
   echo new > "$repo/$file"
 done
 git -C "$repo" diff --binary > "$tmp/exports.patch"
@@ -95,7 +95,7 @@ bash "$APPLY" "$tmp/exports.patch" "$repo" > "$tmp/out" 2>&1 || fail "the regene
 [[ "$(cat "$repo/plans/cmux-next/links.json")" == new ]] || fail "links.json must be applied"
 [[ "$(cat "$repo/cmux-tui/crates/cmux-app-host/generated/scopes.json")" == new ]] || fail "the app-host files must be applied"
 grep -q '^applied: plans/cmux-next/action-surfaces.json' "$tmp/out" || fail "the applied export must be reported"
-for file in "${settings_exports[@]}"; do
+for file in ${settings_exports[@]+"${settings_exports[@]}"}; do
   [[ "$(cat "$repo/$file")" == new ]] || fail "the settings export $file must be applied"
 done
 git -C "$repo" checkout -q -- .

@@ -757,7 +757,7 @@ jobs:
             args+=(--stop "$app")
           done
           [ "${#args[@]}" -gt 0 ] || { echo "no app built under ${TOUR_TAG}; nothing to stop"; exit 0; }
-          python3 "$tour" "${args[@]}"
+          python3 "$tour" ${args[@]+"${args[@]}"}
 
       - name: Keep the media for the publish job
         if: ${{ always() }}

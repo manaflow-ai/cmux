@@ -62,10 +62,10 @@ cleanup() {
   fi
   if [[ -n "$index_pid" ]] && kill -0 "$index_pid" 2>/dev/null; then kill -TERM "$index_pid" 2>/dev/null || true; fi
   if [[ -n "$hmr_pid" ]] && kill -0 "$hmr_pid" 2>/dev/null; then kill -TERM "$hmr_pid" 2>/dev/null || true; fi
-  for pid in "${server_pids[@]}"; do
+  for pid in ${server_pids[@]+"${server_pids[@]}"}; do
     if kill -0 "$pid" 2>/dev/null; then kill -TERM "$pid" 2>/dev/null || true; fi
   done
-  for pid in "${server_pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+  for pid in ${server_pids[@]+"${server_pids[@]}"}; do wait "$pid" 2>/dev/null || true; done
   [[ -z "$index_pid" ]] || wait "$index_pid" 2>/dev/null || true
   rm -rf "$work_dir"
   exit "$status"
@@ -77,7 +77,7 @@ wait_http() {
   local deadline=$(( $(date +%s) + 30 ))
   while (( $(date +%s) < deadline )); do
     if curl -fsS --max-time 1 "$url" >/dev/null 2>&1; then return 0; fi
-    for pid in "${server_pids[@]}"; do
+    for pid in ${server_pids[@]+"${server_pids[@]}"}; do
       if ! kill -0 "$pid" 2>/dev/null; then
         echo "error: a Vite server exited while waiting for $url (logs: $work_dir/*.log)" >&2
         exit 1

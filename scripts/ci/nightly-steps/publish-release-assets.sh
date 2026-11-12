@@ -35,4 +35,4 @@ done
 python3 "$PUBLISH_TOOLING/ci/publish-release-assets.py" \
   --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
   --github-output "$GITHUB_OUTPUT" \
-  --replace-feeds "${args[@]}"
+  --replace-feeds ${args[@]+"${args[@]}"}

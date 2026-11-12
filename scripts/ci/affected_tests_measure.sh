@@ -86,7 +86,7 @@ python_lane python-full
 if [[ $# -gt 0 ]]; then
   args=()
   for p in "$@"; do args+=(--path "$p"); done
-  python_lane python-affected "${args[@]}"
+  python_lane python-affected ${args[@]+"${args[@]}"}
 else
   echo '{"label": "python-affected", "rc": 0, "seconds": 0, "failed": []}' >>"$results"
 fi

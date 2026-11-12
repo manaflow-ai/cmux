@@ -85,7 +85,7 @@ report() {
   done
   echo "$# checks, $jobs at a time: $(( $# - ${#failed[@]} )) passed, ${#failed[@]} failed"
   [ "${#failed[@]}" -eq 0 ] && exit 0
-  for index in "${failed[@]}"; do
+  for index in ${failed[@]+"${failed[@]}"}; do
     command="$(cat "$work/$index.cmd")"
     echo "::error title=check failed::$command"
     echo "----- $command"
@@ -103,13 +103,13 @@ if [ "$mode" = wait ]; then
   pool="$(cat "$dir/pool.pid")"
   waited="$(date +%s)"
   # Stops when every result is in, or when the pool has exited (a missing result then counts as failed).
-  for index in "${indices[@]}"; do
+  for index in ${indices[@]+"${indices[@]}"}; do
     while [ ! -e "$dir/$index.rc" ] && [ ! -e "$dir/pool.done" ] && kill -0 "$pool" 2>/dev/null; do
       sleep 0.2
     done
   done
   echo "waited $(( $(date +%s) - waited ))s for $name's ${#indices[@]} commands"
-  report "$dir" "${indices[@]}"
+  report "$dir" ${indices[@]+"${indices[@]}"}
 fi
 
 if [ "$mode" = start ]; then

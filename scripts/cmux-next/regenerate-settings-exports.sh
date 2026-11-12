@@ -39,7 +39,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/warm-swiftpm.sh"
 # One EXIT trap for every temporary path: a second `trap ... EXIT` would replace
 # the first and leak what it cleaned up.
 cmux_next_cleanup_paths=()
-cmux_next_cleanup() { (( ${#cmux_next_cleanup_paths[@]} == 0 )) || rm -rf "${cmux_next_cleanup_paths[@]}"; }
+cmux_next_cleanup() { (( ${#cmux_next_cleanup_paths[@]} == 0 )) || rm -rf ${cmux_next_cleanup_paths[@]+"${cmux_next_cleanup_paths[@]}"}; }
 trap cmux_next_cleanup EXIT
 bundle=""
 if [[ "${1:?usage: $0 OUT}" == *.patch ]]; then
@@ -79,12 +79,12 @@ CMUX_UPDATE_ACTION_SURFACES=1 swift test ${cmux_next_swift_args[@]+"${cmux_next_
 cd "$root"
 # A file the exporters wrote that this list does not name would be left stale
 # by the bots: refuse it.
-listed="$(printf '%s\n' "${exports[@]}")"
+listed="$(printf '%s\n' ${exports[@]+"${exports[@]}"})"
 while IFS= read -r path; do
   [[ -n "$path" ]] || continue
   grep -qxF -- "$path" <<<"$listed" || { echo "::error::the settings export wrote $path, which regenerate-settings-exports.sh does not list" >&2; exit 1; }
 done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings | cut -c4-)
-for file in "${exports[@]}"; do
+for file in ${exports[@]+"${exports[@]}"}; do
   # OUT can sit in a kept .build (a fleet warm slot): drop an earlier run's copy, so only
   # what this run regenerated is handed over.
   rm -f -- "$out/$file"
@@ -108,7 +108,7 @@ else
   node web/scripts/export-next-docs.ts --settings # Node 22.18+ strips the types
 fi
 python3 scripts/ci/defaults_guard.py snapshot
-git add --intent-to-add -- "${exports[@]}" "${followers[@]}"
-git diff --binary HEAD -- "${exports[@]}" "${followers[@]}" > "$bundle"
+git add --intent-to-add -- ${exports[@]+"${exports[@]}"} "${followers[@]}"
+git diff --binary HEAD -- ${exports[@]+"${exports[@]}"} "${followers[@]}" > "$bundle"
 echo "bundle: $bundle"
-git diff --stat HEAD -- "${exports[@]}" "${followers[@]}"
+git diff --stat HEAD -- ${exports[@]+"${exports[@]}"} "${followers[@]}"

@@ -679,11 +679,11 @@ workspace_tests() {
   local no_tests=fail
   # A partition of a few affected crates can hold no test (2 tests over 4 shards).
   [[ -z "$affected_base" || -z "$shard" ]] || no_tests=warn
-  local args=(nextest run "${test_scope[@]}" --locked --profile ci --no-tests="$no_tests")
+  local args=(nextest run ${test_scope[@]+"${test_scope[@]}"} --locked --profile ci --no-tests="$no_tests")
   [[ "$fail_fast" != 1 ]] || args+=(--fail-fast)
   [[ -z "$shard" ]] || args+=(--partition "count:$shard")
   [[ -z "$filter" ]] || args+=("$filter")
-  [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
+  [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- ${skip_args[@]+"${skip_args[@]}"})
   mkdir -p "$(dirname "$test_log")"
   rm -f "$junit"
   local pty_start=""
@@ -695,7 +695,7 @@ workspace_tests() {
   # The custom test groups (nextest.toml [test-groups]) and their tests, so a
   # step shows which tests ran alone. The run above built every binary.
   echo "=== nextest test groups (profile ci)"
-  cargo nextest show-config test-groups "${test_scope[@]}" --locked --profile ci 2>&1 || echo "test groups: show-config failed"
+  cargo nextest show-config test-groups ${test_scope[@]+"${test_scope[@]}"} --locked --profile ci 2>&1 || echo "test groups: show-config failed"
   reap_leaked "after the full run, before reruns"
   [[ ! -f "$junit" ]] || cp "$junit" "$junit_full"
   [[ "$rc" -ne 0 ]] || return 0
@@ -716,7 +716,7 @@ workspace_tests() {
   expr="$(junit_tool expr "$junit_full")" || { echo "rerun: none (a failed test name does not fit a filterset)"; return "$rc"; }
   echo "=== rerun: the $n failed tests, each alone (--test-threads 1)"
   rm -f "$junit"
-  env "$run_marker" cargo nextest run "${test_scope[@]}" --locked --profile ci --no-tests=fail --test-threads 1 -E "$expr" 2>&1 | tee -a "$test_log"
+  env "$run_marker" cargo nextest run ${test_scope[@]+"${test_scope[@]}"} --locked --profile ci --no-tests=fail --test-threads 1 -E "$expr" 2>&1 | tee -a "$test_log"
   rrc="${PIPESTATUS[0]}"
   [[ ! -f "$junit" ]] || cp "$junit" "$junit_rerun"
   vrc=0
@@ -733,7 +733,7 @@ doc_tests() {
   # --workspace skips crates with no library; an affected scope excludes the rest instead of
   # naming crates with -p, which fails on a bin-only crate ("no library targets found").
   local args=(test --workspace ${doc_exclude[@]+"${doc_exclude[@]}"} --locked --doc ${no_fail_fast[@]+"${no_fail_fast[@]}"})
-  [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- "${skip_args[@]}")
+  [[ "${#skip_args[@]}" -eq 0 ]] || args+=(-- ${skip_args[@]+"${skip_args[@]}"})
   reap_leaked "before doc tests"
   env "$run_marker" cargo "${args[@]}"
 }
@@ -751,7 +751,7 @@ prune_target() {
   local deps="$CARGO_TARGET_DIR/debug/deps" list
   [[ -d "$deps" ]] || return 0
   list="$(mktemp "${TMPDIR:-/tmp}/rust-check-artifacts.XXXXXX")"
-  if ! cargo test "${test_scope[@]}" --locked --no-run --message-format=json >"$list" 2>/dev/null \
+  if ! cargo test ${test_scope[@]+"${test_scope[@]}"} --locked --no-run --message-format=json >"$list" 2>/dev/null \
     || { [[ "$mode" == all ]] && ! cargo clippy --workspace --exclude cmux-holder-v3 --all-targets --locked --message-format=json >>"$list" 2>/dev/null; }; then
     rm -f "$list"
     echo "prune: skipped (cargo did not list the build's artifacts)"
@@ -806,7 +806,7 @@ finish() {
   echo "=== cmux-tui-rust-check summary (mode $mode${filter:+, filter $filter}${shard:+, shard $shard}, $( [[ "$fail_fast" == 1 ]] && echo fail-fast || echo no-fail-fast ))"
   printf '%-28s %-22s %s\n' step result seconds
   local row
-  for row in "${step_rows[@]}"; do
+  for row in ${step_rows[@]+"${step_rows[@]}"}; do
     IFS=$'\t' read -r a b c <<<"$row"
     printf '%-28s %-22s %s\n' "$a" "$b" "$c"
   done
@@ -814,9 +814,9 @@ finish() {
     echo
     crate_table
   fi
-  [[ "${#skip_notes[@]}" -eq 0 ]] || printf '%s\n' "${skip_notes[@]}"
-  [[ "${#rerun_notes[@]}" -eq 0 ]] || printf '%s\n' "${rerun_notes[@]}"
-  [[ "${#leak_notes[@]}" -eq 0 ]] || printf '%s\n' "${leak_notes[@]}"
+  [[ "${#skip_notes[@]}" -eq 0 ]] || printf '%s\n' ${skip_notes[@]+"${skip_notes[@]}"}
+  [[ "${#rerun_notes[@]}" -eq 0 ]] || printf '%s\n' ${rerun_notes[@]+"${rerun_notes[@]}"}
+  [[ "${#leak_notes[@]}" -eq 0 ]] || printf '%s\n' ${leak_notes[@]+"${leak_notes[@]}"}
   [[ -z "$pty_note" ]] || echo "$pty_note"
   if [[ "$first_rc" -ne 0 ]]; then
     echo "cmux-tui-rust-check: RED (first red step exit $first_rc)"
@@ -957,8 +957,8 @@ api_compat_pack() {
   [[ "${#files[@]}" -gt 0 ]] || { echo "error: no api-compat spec file to return" >&2; return 1; }
   mkdir -p "$root/.build/artifacts"
   # No AppleDouble ._* entries from a macOS worker (bsdtar); GNU tar ignores the variable.
-  COPYFILE_DISABLE=1 tar -C "$root" -cf "$root/.build/artifacts/api-compat-spec.tar" "${files[@]}" || return 1
-  stat="$(git -C "$root" --no-pager diff --no-color --no-ext-diff --stat -- "${files[@]}")" || return 1
+  COPYFILE_DISABLE=1 tar -C "$root" -cf "$root/.build/artifacts/api-compat-spec.tar" ${files[@]+"${files[@]}"} || return 1
+  stat="$(git -C "$root" --no-pager diff --no-color --no-ext-diff --stat -- ${files[@]+"${files[@]}"})" || return 1
   if [[ -n "$stat" ]]; then
     echo "api-compat-write: changed: $stat"
   else

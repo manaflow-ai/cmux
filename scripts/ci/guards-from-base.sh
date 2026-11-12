@@ -133,5 +133,5 @@ for out in sys.argv[2:]:
 result = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join(context)}}
 if shown:
     result["systemMessage"] = "\n".join(shown)
-json.dump(result, sys.stdout)' "$merge" "${said[@]}" || true
+json.dump(result, sys.stdout)' "$merge" ${said[@]+"${said[@]}"} || true
 exit 0
