@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43170615695",
+  "recorded_at": "2026-11-12T06:54:43Z",
+  "reason": "cmux-tui eef1188edd1e changes the image's cmux-tui (pinned 5490a2907851)",
+  "dry_run": false,
+  "cmux_tui": "eef1188edd1e2a3d71f6d3e2fc7ae74f48274491",
+  "fixes": [
+    {
+      "sha": "eef1188edd1e2a3d71f6d3e2fc7ae74f48274491",
+      "mergedAt": "2026-11-11T22:31:39-08:00",
+      "subject": "cmux-tui: the launch snapshot writer has a byte budget"
+    },
+    {
+      "sha": "f9385aa2939d0d7ad49fe10e96ce6b7416c2f716",
+      "mergedAt": "2026-11-11T22:31:39-08:00",
+      "subject": "cmux-tui tests: a large launch snapshot is rewritten within a byte budget"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T06:54:43Z",
+    "snapshot_id": "sh-97b3dd53060c40e39c4c94e39eb7f039",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43170615695): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7e7452fd5d37cd8006bd49b0d6e0a1ef8b969b05",
+    "image": "cloud-native-auto-eef1188e-43170615695-1",
+    "revision": "ci-43170615695-1",
+    "at": "2026-11-12T06:54:43Z"
+  },
+  "rolled_back": false
+}
