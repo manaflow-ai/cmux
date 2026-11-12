@@ -448,7 +448,9 @@ fn snapshot_json(
             "blur": value("background_blur"),
         });
         if include_path {
-            object["path"] = Value::from(background.path.to_string_lossy().into_owned());
+            if let Value::Object(fields) = &mut object {
+                fields.insert("path".into(), background.path.to_string_lossy().into_owned().into());
+            }
         }
         object
     });

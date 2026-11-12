@@ -120,7 +120,7 @@ fn next_appearance_event(events: &crate::MuxEventReceiver, within: Duration) -> 
 
 #[test]
 fn appearance_is_advertised_and_its_event_has_the_wire_shape() {
-    assert!(capabilities::build_capabilities().contains(&APPEARANCE_CAPABILITY));
+    assert!(build_capabilities().contains(&APPEARANCE_CAPABILITY));
     assert_eq!(
         subscribed_event_json(&MuxEvent::AppearanceChanged { revision: 7 }),
         json!({"event":"appearance-changed","revision":7})
