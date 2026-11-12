@@ -133,6 +133,20 @@ fn a_stale_consent_read_never_overwrites_a_later_one() {
 }
 
 #[test]
+fn a_yes_queued_on_the_previous_connection_never_overwrites_the_new_ones_no() {
+    let control = Arc::new(SpareWarmControl::default());
+    let guard =
+        LiveGuard::new(Some(leased("user_a")), control.clone(), &params_for("user_a", Some(true)));
+    assert!(control.set_consent(7, 4, Some(true)));
+    // The app reconnected and sent the person's no on the new link (its numbering starts over);
+    // the old link's later read of yes arrives after it.
+    assert!(control.set_consent(9, 1, Some(false)));
+    assert!(!control.set_consent(7, 5, Some(true)), "an older connection is fenced");
+    assert_eq!(guard.consent(), Some(false));
+    assert!(control.set_consent(9, 2, Some(true)), "the newest connection still moves it");
+}
+
+#[test]
 fn a_consent_send_carries_its_generation() {
     let parsed: ConsentParams =
         serde_json::from_value(serde_json::json!({"consent": false, "generation": 3})).unwrap();

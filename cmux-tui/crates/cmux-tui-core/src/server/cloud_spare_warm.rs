@@ -125,7 +125,8 @@ pub struct ConsentParams {
     pub consent: Option<bool>,
     /// The app's number for this read of the consent, taken when it read it: a later read has a
     /// larger one. Sends can arrive out of order (a warm reads it, then awaits its tokens), so the
-    /// daemon keeps only a read newer than the last it took from the same connection.
+    /// daemon keeps only a read newer than the last it took from the same connection, and none
+    /// from a connection older than the newest it took one from.
     pub generation: u64,
 }
 
@@ -152,10 +153,14 @@ impl SpareWarmControl {
     /// The app's consent as read under `generation` on connection `client`; a changed one ends every
     /// copy begun before it. A read no newer than the last one kept from that connection is dropped
     /// (false): a stale yes never overwrites a later no. A new connection (the app restarted or
-    /// reconnected) starts its own numbering.
+    /// reconnected) starts its own numbering and fences every older one: connection ids only grow
+    /// in a daemon, so a yes still queued on the previous link never overwrites the new link's no.
     pub(crate) fn set_consent(&self, client: u64, generation: u64, consent: Option<bool>) -> bool {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.from.is_some_and(|(from, kept)| from == client && generation <= kept) {
+        if state
+            .from
+            .is_some_and(|(from, kept)| client < from || (client == from && generation <= kept))
+        {
             return false;
         }
         state.from = Some((client, generation));

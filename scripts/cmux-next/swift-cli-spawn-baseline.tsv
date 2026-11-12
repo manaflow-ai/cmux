@@ -1,5 +1,7 @@
 # path	kind	count	owner who moves it to a daemon command (check-no-swift-cli-spawn.py; counts only go down)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations/SettingsAgentIntegrations+Process.swift	process	1	lane:settings
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+Wiring.swift	cmux-cli	1	lane:cloud-share
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+Wiring.swift	main-actor	1	lane:cloud-share
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChiefMemoryImport/ChiefMemoryImportHandlers.swift	main-actor	1	lane:chief
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChiefMemoryImport/ChiefMemoryImportHandlers.swift	process	1	lane:chief
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessCLI.swift	process	1	lane:cloud-account
