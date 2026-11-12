@@ -53,8 +53,9 @@ public nonisolated struct SidebarHoverCardMetrics: Equatable, Sendable {
     /// The card's text column, in titles: 18 at a 12 pt title is 216 pt (232 pt with the padding; Leo 2026-11-12, of
     /// 22 titles: "the hover previews for the sidebar are still just too big").
     public static let textColumnInTitles: CGFloat = 18
-    /// The widest card's text column, in titles: room for a tab's detail line, 264 pt (280 pt with the padding).
-    public static let maxTextColumnInTitles: CGFloat = 22
+    /// The widest card's text column, in titles: room for a tab's whole detail line (WorkspaceHoverCardGridTests),
+    /// 288 pt (304 pt with the padding); 22 clipped a detail line.
+    public static let maxTextColumnInTitles: CGFloat = 24
     /// The narrowest card's text column, in titles: a short tab list draws a narrow card (Leo 2026-11-07: "the min
     /// can be a bit smaller"), 10 at a 12 pt title is 120 pt (136 pt with the padding).
     public static let minTextColumnInTitles: CGFloat = 10
