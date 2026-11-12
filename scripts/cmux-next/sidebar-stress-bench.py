@@ -508,7 +508,10 @@ def scenario_switch(pid, size, count=24):
     time.sleep(1)
     rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
     if len(rows) < 2:
-        return {"error": "fewer than two visible rows"}
+        # Keep what the bench saw: the stable perf runs of 2026-11-11/12 got this on every Debug and Release build
+        # (the click_to_idle row was never measured) while the switch matrix and the drag found rows.
+        seen = [{"title": r.get("title"), "frame": r.get("window_frame")} for r in workspace_rows()[:8]]
+        return {"error": "fewer than two visible rows", "window": WINDOW, "rows_seen": seen}
     a, b = rows[2] if len(rows) > 2 else rows[0], rows[-2]
     lat = []
     frames("start")

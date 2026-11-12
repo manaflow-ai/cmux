@@ -546,10 +546,12 @@ def run_phase(phase, only, plan, opts, runs, values):
     os.makedirs(scratch, exist_ok=True)
     for name in only:
         argv, report, mapper = plan[name]
-        # Some benches open files in their --out without making it.
+        # Some benches open files in their --out without making it. A --out that names a file (home-perf.py's
+        # home.json) gets its folder made, not itself: made as a folder, the bench measured and then failed to
+        # write it (IsADirectoryError, Release run 418845ccc7c1).
         for flag, value in zip(argv, argv[1:]):
             if flag == "--out":
-                os.makedirs(value, exist_ok=True)
+                os.makedirs(os.path.dirname(value) if value.endswith(".json") else value, exist_ok=True)
         if not os.path.exists(argv[1]):  # a bench another lane adds (anim-perf) on a checkout without it
             print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
             continue

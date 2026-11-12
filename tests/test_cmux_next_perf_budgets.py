@@ -112,6 +112,21 @@ class BuildConfigTests(unittest.TestCase):
         self.assertEqual(pb.baseline_name("apple-m4-pro-macos27", "debug"), "apple-m4-pro-macos27.json")
 
 
+class OutPathTests(unittest.TestCase):
+    def test_a_file_out_gets_its_folder_and_a_folder_out_is_made(self):
+        """home-perf.py's --out is a file (home.json); made as a folder, the bench measured and could not write it."""
+        with tempfile.TemporaryDirectory() as out:
+            script = os.path.join(out, "bench.py")
+            open(script, "w").close()
+            plan = {"home": ([sys.executable, script, "--out", os.path.join(out, "home.json")], "home.json", lambda r: {}),
+                    "palette": ([sys.executable, script, "--out", os.path.join(out, "palette")], "palette.json", lambda r: {})}
+            opts = type("Opts", (), {"out": out, "app": out, "bench_timeout": 1})()
+            with patch.object(pb, "run_bench", return_value={"exit": 0}), patch.object(pb, "load", return_value={}):
+                pb.run_phase("", ["home", "palette"], plan, opts, {}, {})
+            self.assertFalse(os.path.isdir(os.path.join(out, "home.json")))
+            self.assertTrue(os.path.isdir(os.path.join(out, "palette")))
+
+
 class GateTests(unittest.TestCase):
     def test_regression_needs_ten_percent_and_the_floor(self):
         rows = [{"name": "a", "p95": 11.5, "floor": 1.0},   # +15 %, +1.5 ms: regressed
