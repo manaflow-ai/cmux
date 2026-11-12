@@ -358,18 +358,23 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
   test("fails naming each leftover's owner, mtime and the processes that hold it open or name it", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "tmp-writers-"));
     const leftover = path.join(dir, "opencode");
-    const { spawn, spawnSync } = await import("node:child_process");
+    const { execFile, spawn } = await import("node:child_process");
     // One process holds the leftover open; another names it on its command line.
     const holder = spawn("bash", ["-c", 'exec 3>>"$1"; exec sleep 300', "holder", leftover], { stdio: "ignore" });
     const namer = spawn("sh", ["-c", "sleep 300; :", "namer", leftover], { stdio: "ignore" });
+    // `ps` exits 1 while the pid is not there yet; that reads as an empty command line.
     const command = (pid: number | undefined) =>
-      spawnSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+      new Promise<string>((resolve) =>
+        execFile("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }, (_error, stdout) => resolve(stdout.trim())),
+      );
     try {
       // Ready when the holder has the file open and has become `sleep 300`, and the namer runs with its name.
-      const ready = () =>
-        readdirSync(dir).includes("opencode") && command(holder.pid) === "sleep 300" && command(namer.pid).includes(leftover);
+      const ready = async () =>
+        readdirSync(dir).includes("opencode") &&
+        (await command(holder.pid)) === "sleep 300" &&
+        (await command(namer.pid)).includes(leftover);
       const deadline = Date.now() + 10_000;
-      while (!ready()) {
+      while (!(await ready())) {
         if (Date.now() > deadline) throw new Error("fixture: the holder or the namer did not start in 10 s");
         await new Promise((r) => setTimeout(r, 50));
       }
