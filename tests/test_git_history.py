@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -118,9 +119,9 @@ class ShallowClone(unittest.TestCase):
 
     def test_a_git_lock_that_never_frees_is_lock_contention_not_needs_history(self) -> None:
         self.hold_shallow_lock(None)
-        old = getattr(git_history, "GIT_LOCK_WAIT_SECONDS", None)
-        git_history.GIT_LOCK_WAIT_SECONDS = 1
-        self.addCleanup(setattr, git_history, "GIT_LOCK_WAIT_SECONDS", old)
+        patch = unittest.mock.patch.object(git_history, "GIT_LOCK_WAIT_SECONDS", 1, create=True)
+        patch.start()
+        self.addCleanup(patch.stop)
         reason = git_history.missing_history(self.clone, [self.b], depth=2)
         self.assertIsNotNone(reason)
         self.assertTrue(reason.startswith("git lock held: "), reason)

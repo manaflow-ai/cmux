@@ -2111,12 +2111,12 @@ class ChildPathStubNamesTests(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
-    def path_dir(self, label, *names):
+    def path_dir(self, label, *names, mode=0o755):
         directory = self.root / label
         directory.mkdir()
         for name in names:
             (directory / name).write_text("#!/bin/sh\nexit 0\n")
-            (directory / name).chmod(0o755)
+            (directory / name).chmod(mode)
         return str(directory)
 
     def child_path(self, *entries):
@@ -2146,12 +2146,21 @@ class ChildPathStubNamesTests(unittest.TestCase):
 
     def test_a_listed_name_keeps_its_own_stub_beside_a_case_variant(self):
         """node is in CHILD_TOOLS with no copy here; NODE on PATH must not take its stub."""
-        entry = self.path_dir("bin", "NODE")
-        # The lookups fold too, as on macOS: there an executable NODE is found as node (cmux#41666 review).
+        # Not executable: on macOS's case-insensitive volumes an executable NODE is node itself (the same file), and
+        # the hook rightly links it (cmux#41666 review). This test is about the stub name, so the lookups fold too.
+        entry = self.path_dir("bin", "NODE", mode=0o644)
         with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
             shims = self.child_path(entry)
         self.assertEqual(self.folded(shims).count("node"), 1)
         self.assertEqual(self.stub_kind(shims, "node"), "unresolved")
+
+    def test_on_a_case_insensitive_volume_an_executable_case_variant_is_the_listed_tool(self):
+        """There NODE and node are one file, so the hook links node to it (a NODE stub after it is never reached:
+        the links come first on the children's PATH)."""
+        entry = self.path_dir("bin", "NODE")
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
+            shims = self.child_path(entry)
+        self.assertEqual(os.readlink(shims / "node"), os.path.join(entry, "node"))
 
     def test_names_differing_only_in_normalization_get_one_stub(self):
         composed, decomposed = "caf\u00e9", "cafe\u0301"
