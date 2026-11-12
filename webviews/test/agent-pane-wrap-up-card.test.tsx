@@ -11,6 +11,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { NEXT_STEP, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { NextStepCard } from "../src/agent-session/acpmux/conversation/NextStepCard";
 import { execWrapUp, isWrapUp, wrapUpAsk } from "../src/agent-session/acpmux/conversation/wrapUp";
+import { nextStepText, shortLinks } from "../src/agent-session/acpmux/conversation/nextStepText";
 
 const RECAP = "The grid reserves a 4:5 box while images load, so it no longer shifts. All 14 tests pass.";
 const call = (input: Record<string, unknown>, title = "mcp__acpmux__wrap_up", status = "completed") =>
@@ -204,6 +205,53 @@ describe("NextStepCard with a recap", () => {
     expect(html).toContain("acpmux-next-step__recap");
     expect(html.indexOf("acpmux-next-step__recap")).toBeLessThan(html.indexOf("acpmux-next-step__question"));
     expect(html.match(/acpmux-next-step__answer\b/g)).toHaveLength(2);
+  });
+
+  // https://github.com/manaflow-ai/cmux/issues/38134: raw addresses in a recap drew as plain text,
+  // wrapped over lines. They draw as links with short labels; a pull request as its reference chip.
+  test("raw addresses in the recap and question draw as short links", () => {
+    const pr = "https://github.com/manaflow-ai/cmux/pull/38140";
+    const run = "https://github.com/manaflow-ai/cmux/actions/runs/19234567890/job/54321098765";
+    const dashboard = "https://cmux-dev-backend-1.tail137216.ts.net:4321/dashboard/vms";
+    const ask = wrapUpAsk(
+      call({
+        recap: `Opened ${pr} with the fix. CI is green on ${run} and the preview is up at ${dashboard}.`,
+        ask: `Deploy it to dev now (see ${dashboard}), or wait until \`${pr}\` merges?`,
+        actions: ["Deploy to dev", "Wait for merge"],
+      }).tool!,
+    )!;
+    const html = renderToStaticMarkup(
+      createElement(NextStepCard, { ask, onAnswer: async () => undefined, registerKey: () => () => undefined }),
+    );
+    const links = [...html.matchAll(/<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)].map(([, href, inner]) => ({
+      href,
+      label: inner!.replace(/<[^>]+>/g, ""),
+    }));
+    expect(links).toEqual([
+      { href: pr, label: "manaflow-ai/cmux#38140" },
+      { href: run, label: "github.com/…/54321098765" },
+      { href: dashboard, label: "cmux-dev-backend-1.tail137216.ts.net/…/vms" },
+      { href: dashboard, label: "cmux-dev-backend-1.tail137216.ts.net/…/vms" },
+    ]);
+    // An address in code stays code, and no label is a raw address.
+    expect(html).toContain(`<code class="cv-code">`);
+    expect(links.every((link) => !link.label.includes("://"))).toBe(true);
+    // The buttons' labels stay plain text, so a click on one always answers.
+    expect(html.match(/acpmux-next-step__answer\b[^>]*>(?:(?!<\/button>)[\s\S])*<a /g)).toBeNull();
+  });
+
+  test("an address in a mark, with parentheses or before punctuation keeps the mark and its whole address", () => {
+    expect(shortLinks("See **https://x.test/a/b** now.")).toBe("See **[x.test/…/b](https://x.test/a/b)** now.");
+    expect(shortLinks("~~https://x.test/a/b~~")).toBe("~~[x.test/…/b](https://x.test/a/b)~~");
+    expect(shortLinks("(https://en.wikipedia.org/wiki/Foo_(bar)).")).toBe(
+      "(" + "[en.wikipedia.org/…/Foo\\_(bar)](https://en.wikipedia.org/wiki/Foo_(bar))).",
+    );
+    expect(shortLinks("[docs](https://x.test/a) and `https://x.test/b` and <https://x.test/c>")).toBe(
+      "[docs](https://x.test/a) and `https://x.test/b` and <https://x.test/c>",
+    );
+    const html = renderToStaticMarkup(createElement("p", null, nextStepText("**https://x.test/a/b**")));
+    expect(html).toContain("<strong><a ");
+    expect(html).not.toContain("**");
   });
 
   test("a recap alone: the box with its text and no buttons", () => {

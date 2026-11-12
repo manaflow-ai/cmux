@@ -1,55 +1,99 @@
 /* A tagged ask at the end of a turn (NextStepCard.tsx), as Claude desktop's next-step box: a quiet
-   bordered card in the question card's tokens, the question in the text colour, a muted line under
-   it, then the answers as pills in one row. The first is filled and carries its ⌘↩ keycap; the
-   rest are a neutral fill. Answered, it is the answered question card (styles.css
-   .acpmux-question-answered). No transition: a click sends at once. */
+   bordered card in the question card's tokens. Its text is the transcript's (--text-content, the
+   agent pane font size the replies above it use, never the 13 px chrome step), so the card reads
+   as part of the conversation (https://github.com/manaflow-ai/cmux/issues/38134). The question is
+   in the emphasis weight; the recap above it and the line under it are muted. The answers are
+   compact controls on one baseline: row-height pills in the chrome step, the first filled with its
+   ⌘↩ keycap, the rest a neutral fill. Answered, it is the answered question card (styles.css
+   .acpmux-question-answered) at the same text size. No transition: a click sends at once. */
+.acpmux-next-step {
+  --acpmux-next-step-pad: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+}
 .acpmux-next-step:not(.acpmux-next-step--answered) {
   display: flex;
   flex-direction: column;
-  gap: var(--ds-space-2, 8px);
+  gap: var(--ds-space-1, 4px);
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
   margin: 0;
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  padding: var(--acpmux-next-step-pad);
   border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
   border-radius: 12px;
   background: var(--acpmux-question-bg);
   color: var(--agent-text);
-  font-size: var(--text-body);
-  letter-spacing: var(--text-body--letter-spacing);
-  line-height: var(--text-body--line-height);
 }
+.acpmux-next-step.acpmux-next-step {
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
+  letter-spacing: var(--cv-tracking, 0.045px);
+}
+.acpmux-next-step__recap,
 .acpmux-next-step__question,
 .acpmux-next-step__detail {
   margin: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
+.acpmux-next-step__question {
+  font-weight: var(--weight-emphasis);
+}
+/* A link is a short label (nextStepText.tsx): it moves to the next line whole, never breaks inside.
+   The renderer's soft breaks (<wbr> after `-`, `.`, `/`) still broke `host/…/vms` across two lines
+   under nowrap in WebKit (tagged build 38134-agent-ask-card-polish), so they are dropped here. */
+.acpmux-next-step :is(.acpmux-next-step__recap, .acpmux-next-step__question, .acpmux-next-step__detail) a {
+  white-space: nowrap;
+}
+.acpmux-next-step :is(.acpmux-next-step__recap, .acpmux-next-step__question, .acpmux-next-step__detail) a wbr {
+  display: none;
+}
+.acpmux-next-step__recap,
 .acpmux-next-step__detail {
-  margin-top: calc(var(--ds-space-1, 4px) * -1);
   color: var(--agent-muted);
+}
+/* The recap is its own paragraph: a paragraph's gap (8 px with the card's 4 px gap) above the
+   question. Alone, it is the whole box. */
+.acpmux-next-step__recap {
+  margin-bottom: var(--ds-space-1, 4px);
+}
+.acpmux-next-step--recap .acpmux-next-step__recap {
+  margin-bottom: 0;
+}
+.acpmux-next-step--answered .acpmux-next-step__recap {
+  margin-bottom: 0;
 }
 .acpmux-next-step__answers {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--ds-space-2, 8px);
-  padding-top: var(--ds-space-1, 4px);
+  margin-top: var(--ds-space-2, 8px);
 }
 .acpmux-next-step__answer {
   display: inline-flex;
+  flex: none;
   align-items: center;
+  justify-content: center;
   gap: var(--ds-space-2, 8px);
-  min-height: var(--ds-control-primary, 32px);
+  height: var(--ds-control-row, 28px);
   max-width: 100%;
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-3, 12px);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-control, 6px);
   background: var(--acpmux-question-hover);
   color: var(--agent-text);
-  font: inherit;
-  text-align: left;
+  font-family: inherit;
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  line-height: var(--text-body--line-height);
+  letter-spacing: var(--text-body--letter-spacing);
+  white-space: nowrap;
   cursor: default;
+}
+.acpmux-next-step__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .acpmux-next-step__answer:hover {
   background: var(--acpmux-question-highlight);
@@ -68,8 +112,14 @@
 .acpmux-next-step__answer.is-primary:hover {
   opacity: 0.9;
 }
-.acpmux-next-step__answer.is-primary .acpmux-keycap {
-  margin: 0 -4px 0 2px;
+/* The keycap sits inside the pill's inset, 8 px from the label and from the pill's end, so a
+   pill with a keycap is as tall as the others and its edges line up with theirs. */
+.acpmux-next-step__answer:has(.acpmux-keycap) {
+  padding-right: var(--ds-space-2, 8px);
+}
+.acpmux-next-step__answer .acpmux-keycap {
+  flex: none;
+  margin: 0;
   border-color: color-mix(in srgb, var(--acpmux-base) 30%, transparent);
   color: inherit;
   opacity: 0.7;
@@ -82,30 +132,8 @@
 .acpmux-next-step.acpmux-next-step--answered {
   align-self: stretch;
   width: auto;
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
-}
-/* The agent's wrap-up recap (wrapUp.ts): muted at the top of the box, a paragraph's gap above the
-   question, as Claude desktop's next-step box. Alone, it is the whole box. */
-.acpmux-next-step__recap {
-  margin: 0 0 var(--ds-space-2, 8px);
-  color: var(--agent-muted);
-  overflow-wrap: anywhere;
-}
-.acpmux-next-step--recap .acpmux-next-step__recap,
-.acpmux-next-step--answered .acpmux-next-step__recap {
-  margin-bottom: 0;
-}
-.acpmux-next-step--answered .acpmux-next-step__recap {
-  margin-bottom: var(--ds-space-2, 8px);
+  padding: var(--acpmux-next-step-pad);
 }
 .acpmux-next-step.acpmux-next-step--recap {
   display: block;
-  box-sizing: border-box;
-  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
-  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
-  border-radius: 12px;
-  background: var(--acpmux-question-bg);
-  font-size: var(--text-body);
-  letter-spacing: var(--text-body--letter-spacing);
-  line-height: var(--text-body--line-height);
 }

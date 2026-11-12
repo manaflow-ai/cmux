@@ -1,8 +1,9 @@
 import React, { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Keycap } from "../Keycap";
 import { useT } from "../i18n";
-import { inlineText } from "../question/inlineText";
+import { inlineText, plainText } from "../question/inlineText";
 import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
+import { nextStepText } from "./nextStepText";
 import { answerState, claimAnswer, setAnswerState, subscribeAnswers, type AnswerState } from "./waitingAskStore";
 import "./NextStepCard.css";
 
@@ -20,6 +21,10 @@ import "./NextStepCard.css";
 /// a draft keeps the key.
 /// The agent's own wrap-up call (wrapUp.ts) adds its recap, muted at the top of the same box
 /// (reference claude/web/october-recap-card); with no question the box holds the recap alone.
+/// Its text reads at the transcript's size (--text-content), the question in the emphasis weight
+/// over the muted recap and detail, and links as the transcript draws them (nextStepText.tsx), so
+/// an address is a short link, never a raw URL wrapped over lines
+/// (https://github.com/manaflow-ai/cmux/issues/38134).
 export const NextStepCard = memo(function NextStepCard({
   ask,
   answer,
@@ -63,7 +68,7 @@ export const NextStepCard = memo(function NextStepCard({
     if (!pending || !registerKey) return;
     return registerKey(() => primary.current?.click());
   }, [pending, registerKey]);
-  const recap = ask.recap ? <p className="acpmux-next-step__recap">{inlineText(ask.recap)}</p> : null;
+  const recap = ask.recap ? <p className="acpmux-next-step__recap">{nextStepText(ask.recap)}</p> : null;
   // A wrap-up with nothing to decide (wrapUp.ts): the recap alone, in the same box.
   if (!ask.question) return recap ? <div className="acpmux-next-step acpmux-next-step--recap">{recap}</div> : null;
   if (settled) {
@@ -74,7 +79,7 @@ export const NextStepCard = memo(function NextStepCard({
         {recap}
         <span className="acpmux-hidden-label">{t("question.answered")}</span>
         <div className="acpmux-question-answered-item">
-          <span className="acpmux-question-answered-prompt">{inlineText(ask.question)}</span>
+          <span className="acpmux-question-answered-prompt">{nextStepText(ask.question)}</span>
           {answer !== undefined && (
             <span className="acpmux-question-answered-answer">{made ? t(made) : inlineText(answer)}</span>
           )}
@@ -94,10 +99,10 @@ export const NextStepCard = memo(function NextStepCard({
     );
   };
   return (
-    <fieldset className="acpmux-next-step" aria-label={ask.question}>
+    <fieldset className="acpmux-next-step" aria-label={plainText(ask.question)}>
       {recap}
-      <p className="acpmux-next-step__question">{inlineText(ask.question)}</p>
-      {ask.detail && <p className="acpmux-next-step__detail">{inlineText(ask.detail)}</p>}
+      <p className="acpmux-next-step__question">{nextStepText(ask.question)}</p>
+      {ask.detail && <p className="acpmux-next-step__detail">{nextStepText(ask.detail)}</p>}
       {onAnswer && (
         <div className="acpmux-next-step__answers">
           {ask.options.map((option, index) => (
@@ -108,9 +113,11 @@ export const NextStepCard = memo(function NextStepCard({
               className={index === 0 ? "acpmux-next-step__answer is-primary" : "acpmux-next-step__answer"}
               aria-keyshortcuts={index === 0 && registerKey ? "Meta+Enter" : undefined}
               disabled={sending !== undefined}
+              // The label is cut to one line: its whole text on hover.
+              title={option.key ? undefined : plainText(option.label)}
               onClick={() => send(option.label)}
             >
-              {option.key ? t(option.key) : inlineText(option.label)}
+              <span className="acpmux-next-step__label">{option.key ? t(option.key) : inlineText(option.label)}</span>
               {index === 0 && registerKey && <Keycap>⌘↩</Keycap>}
             </button>
           ))}

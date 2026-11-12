@@ -4,7 +4,8 @@
 // The tagged-ask card (agent-pane.next-step-card, NextStepCard.tsx) in real Chromium on the gallery
 // frame, light and dark: every look draws its question and one button per answer, the shipped box's
 // buttons sit on one line at the normal width with the first carrying its ⌘↩ keycap, nothing draws
-// past the frame's right edge, and an answered card has no buttons. With FAST_CHECKS_OUT set, each
+// past the frame's right edge, and an answered card has no buttons. The wrap-up box with raw
+// addresses keeps the reply's text size, a heavier question, short one-line links and even pills. With FAST_CHECKS_OUT set, each
 // state's card is saved there at 2x for the PR. CI fails the file when Chromium cannot launch.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -16,6 +17,7 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
   setDefaultTimeout(240_000);
   const ENTRY = "agent-pane.next-step-card";
   const PANE_ENTRY = "agent-pane.next-step-in-pane";
+  const WRAP_UP_ENTRY = "agent-pane.next-step-wrap-up";
   const HEIGHT = 280;
   const WIDTH = 640;
   const VARIANTS: Record<string, { buttons: number }> = {
@@ -91,6 +93,71 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
                 .locator(".acpmux-next-step-gallery")
                 .screenshot({ path: path.join(out, `${variant}-${scheme}.png`) });
             expect(errors).toEqual([]);
+          } finally {
+            await page.close();
+          }
+        });
+  });
+
+  // https://github.com/manaflow-ai/cmux/issues/38134: the wrap-up box with raw addresses in its
+  // recap. Its text is the reply's size, the question weighs more than the recap, every link is a
+  // short label on one line, and the answers are pills of one height on one line, the ⌘↩ one too.
+  describe("wrap-up box proportions", () => {
+    for (const width of [420, 640] as const)
+      for (const scheme of ["dark", "light"] as const)
+        test(`box-links at ${width} (${scheme})`, async () => {
+          const page = await browser!.newPage({ viewport: { width, height: 320 }, deviceScaleFactor: 2 });
+          try {
+            const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
+            await page.goto(
+              base + galleryFrame(WRAP_UP_ENTRY, { variant: "box-links", width, height: 320, colorScheme: scheme }),
+            );
+            await page.waitForFunction(
+              () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
+              undefined,
+              { timeout: 90_000 },
+            );
+            expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+            await page.locator(".acpmux-next-step").first().waitFor();
+            const m = await page.evaluate(() => {
+              const card = document.querySelector(".acpmux-next-step")!;
+              const reply = card.parentElement!.querySelector(":scope > p")!;
+              const style = (el: Element) => getComputedStyle(el);
+              const recap = card.querySelector(".acpmux-next-step__recap")!;
+              const question = card.querySelector(".acpmux-next-step__question")!;
+              const answers = [...card.querySelectorAll(".acpmux-next-step__answer")].map((el) =>
+                el.getBoundingClientRect(),
+              );
+              const links = [...recap.querySelectorAll("a")].map((a) => ({
+                text: a.textContent ?? "",
+                lines: new Set([...a.getClientRects()].map((r) => Math.round(r.top))).size,
+              }));
+              return {
+                reply: style(reply).fontSize,
+                recap: style(recap).fontSize,
+                question: style(question).fontSize,
+                recapWeight: Number(style(recap).fontWeight),
+                questionWeight: Number(style(question).fontWeight),
+                heights: answers.map((box) => Math.round(box.height)),
+                tops: new Set(answers.map((box) => Math.round(box.top))).size,
+                links,
+              };
+            });
+            expect(m.recap).toBe(m.reply);
+            expect(m.question).toBe(m.reply);
+            expect(m.questionWeight).toBeGreaterThan(m.recapWeight);
+            expect(m.links.map((link) => link.text)).toEqual([
+              "manaflow-ai/cmux#38140",
+              "github.com/…/54321098765",
+              "cmux-dev-backend-1.tail137216.ts.net/…/vms",
+            ]);
+            expect(m.links.every((link) => link.lines === 1)).toBe(true);
+            expect(m.heights).toEqual([28, 28]);
+            expect(m.tops).toBe(1);
+            if (out)
+              await page
+                .locator(".acpmux-next-step-gallery")
+                .screenshot({ path: path.join(out, `wrap-up-box-links-${width}-${scheme}.png`) });
           } finally {
             await page.close();
           }
