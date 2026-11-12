@@ -14,6 +14,14 @@ extension CEFTab {
     /// (``ChildPageFocus``).
     public var canTakeKeys: Bool { isShown && pageWindowHostHasArea && !appearedThisTurn && browserID != nil }
 
+    /// Each condition a kept focus ask waits on (``grantPendingFocusIfShown()``), for the debug hooks' reports.
+    public var focusAskState: String {
+        let key = NSApp.keyWindow, owner = container.window
+        return "pending=\(pendingFocus) shown=\(isShown) area=\(pageWindowHostHasArea) appeared=\(appearedThisTurn) move=\(awaitsWindowMove)"
+            + " browser=\(browserID != nil) document=\(hasDocument) first-frame-hold=\(host.hostView.layerHosting.holdsFirstFrame())"
+            + " page-window=\(pageWindow != nil) key=\(key.map { $0 === owner ? "owner" : $0 === pageWindow ? "page" : $0.parent === owner ? "child" : "other" } ?? "none")"
+    }
+
     /// Keeps a focus ask the page cannot take now; granted once it can (``grantPendingFocusIfShown()``).
     public func keepFocusAsk() { pendingFocus = true }
 
