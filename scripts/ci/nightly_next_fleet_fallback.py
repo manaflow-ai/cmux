@@ -1017,13 +1017,15 @@ def read_public_feed(url: str) -> bytes | None:
         return path.read_bytes() if path.exists() else None
     request = urllib.request.Request(f"{url}?fleet-fallback={int(time.time())}",
                                      headers={"User-Agent": "cmux-nightly-fleet-fallback/1", "Cache-Control": "no-cache"})
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return response.read()
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        raise
+    sys.path.insert(0, str(HERE))
+    import deadline_http  # every call's transport: nothing is sent past its bound
+
+    status, body, _ = deadline_http.request(request, 30)
+    if status == 404:
+        return None
+    if status >= 400:
+        raise urllib.error.HTTPError(request.full_url, status, f"feed answered {status}", None, None)
+    return body
 
 
 def live_state(feed: bytes | None) -> tuple[int, str | None]:
