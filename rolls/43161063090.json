@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43161063090",
+  "recorded_at": "2026-11-12T05:31:05Z",
+  "reason": "cmux-tui 1aeacffb5d56 changes the image's cmux-tui (pinned 9c8b9b10288b)",
+  "dry_run": false,
+  "cmux_tui": "1aeacffb5d56aa3f4f4235acb8768b9b79627158",
+  "fixes": [
+    {
+      "sha": "1aeacffb5d56aa3f4f4235acb8768b9b79627158",
+      "mergedAt": "2026-11-11T21:11:44-08:00",
+      "subject": "cmux-tui journal: a one-time, opt-in compaction removes the upserts old resource records restate"
+    },
+    {
+      "sha": "ffcd59e06506e30e10fdc9c2a3f2edc26772cec9",
+      "mergedAt": "2026-11-11T21:11:44-08:00",
+      "subject": "cmux-tui journal: tests: a one-time compaction of the resource records that restate the session"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T05:31:05Z",
+    "snapshot_id": "sh-d627548b7278447f9580cbb8e48052df",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43161063090): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "77f4202c1af40d03e6afb9c1697d24b000b8fe12",
+    "image": "cloud-native-auto-1aeacffb-43161063090-1",
+    "revision": "ci-43161063090-1",
+    "at": "2026-11-12T05:31:05Z"
+  },
+  "rolled_back": false
+}
