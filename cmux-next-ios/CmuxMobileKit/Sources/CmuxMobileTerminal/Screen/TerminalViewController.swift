@@ -1372,8 +1372,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
         pacer.finished()
-        // A full-screen app taller than the phone: keep its cursor row on screen.
-        if model.isTUI, tuiRowShift > 0 || (model.session.remoteRows ?? 0) > tuiRows {
+        // A full-screen app taller than the phone, or partly under the
+        // keyboard: keep its cursor row on screen.
+        if model.isTUI, tuiRowShift > 0 || (model.session.remoteRows ?? 0) > tuiRows
+            || tuiKeyboardLift > 0 || tuiClip.bounds.height < CGFloat(tuiRows) * cell.height - 0.5 {
             applyTUIPlacement()
         }
         #if DEBUG
