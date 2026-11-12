@@ -57,13 +57,19 @@ fn project_chats_imports_nothing_while_the_index_is_not_ready_off_or_unread() {
 fn project_chats_leaves_out_a_harness_whose_list_is_already_imported() {
     let result = answer(json!([
         {"harness": "claude-code", "path": "/srv/a", "lastUsedMs": 4},
-        {"harness": "codex", "path": "/srv/b", "lastUsedMs": 7},
+        {"harness": "codex", "path": "/srv/b", "lastUsedMs": 6 + RECENCY_STEP_MS},
+        {"harness": "pi", "path": "/srv/c", "lastUsedMs": 5 + RECENCY_STEP_MS},
     ]));
     let mut imported = Imported::new();
     imported.insert("claude-code".to_owned(), vec![seen("/srv/a", 4)]);
     imported.insert("codex".to_owned(), vec![seen("/srv/b", 6)]);
-    // A newer chat in a known folder is a change; the same list is not.
-    assert_eq!(batches(&result, &imported), vec![("codex".to_owned(), vec![seen("/srv/b", 7)])]);
+    imported.insert("pi".to_owned(), vec![seen("/srv/c", 6)]);
+    // A chat a step newer in a known folder is a change; the same list and
+    // a time less than a step newer are not.
+    assert_eq!(
+        batches(&result, &imported),
+        vec![("codex".to_owned(), vec![seen("/srv/b", 6 + RECENCY_STEP_MS)])]
+    );
 }
 
 #[test]
