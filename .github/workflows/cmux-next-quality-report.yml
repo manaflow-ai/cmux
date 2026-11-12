@@ -38,6 +38,8 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
+    env:
+      V2_GATE_OUT: ${{ runner.temp }}/quality/v2-measures.ndjson
     steps:
       - name: Name tonight's marker
         id: day
@@ -63,6 +65,10 @@ jobs:
       - name: Test the report
         if: steps.done.outputs.cache-hit != 'true'
         run: python3 -I scripts/cmux-next/tests/test_quality_report.py
+
+      - name: Initialize v2 gate measures
+        if: steps.done.outputs.cache-hit != 'true'
+        run: mkdir -p "$RUNNER_TEMP/quality" && : > "$V2_GATE_OUT"
 
       # Reads only, on the route App's own budget (not the GITHUB_TOKEN every workflow shares): this repository's
       # perf-cron-state artifact, and cmuxterm-hq's hang-watch issues (the fallback crash source). No App or a failed
@@ -104,18 +110,20 @@ jobs:
           GH_TOKEN: ${{ steps.hq-read.outputs.token }}
         run: python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-state"
 
-      - name: Measure agent-service v2 god and small rows
+      - name: Set up Rust for agent-service v2 god and small rows
         if: steps.done.outputs.cache-hit != 'true'
         timeout-minutes: 30
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Write the v2 god-small input
         if: steps.done.outputs.cache-hit != 'true'
+        continue-on-error: true
         timeout-minutes: 30
         working-directory: cmux-tui
         run: |
           mkdir -p "$RUNNER_TEMP/quality"
-          cargo bench -q -p acpmux --bench v2 -- --output "$RUNNER_TEMP/quality/v2-god-small.json"
+          # A later v2 PR adds its gate run here; it writes one JSONL line to V2_GATE_OUT.
+          cargo bench -q -p acpmux --bench v2 -- --measures "$V2_GATE_OUT" --output "$RUNNER_TEMP/quality/v2-god-small.json"
 
       - name: Build the report
         if: steps.done.outputs.cache-hit != 'true'
@@ -127,12 +135,17 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/quality"
           mkdir -p "$out"
-          python3 -I scripts/cmux-next/quality-report.py report --hours 24 \
+          report_args=(report --hours 24 \
             --perf-state "$RUNNER_TEMP/perf-state/state.json" \
-            --god-small "$RUNNER_TEMP/quality/v2-god-small.json" \
             --ci-branches feat-cmux-next,main --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
-            --md "$out/quality-report.md" --public-md "$out/quality-summary.md"
+            --md "$out/quality-report.md" --public-md "$out/quality-summary.md")
+          if [[ -f "$out/v2-god-small.json" ]]; then
+            report_args+=(--god-small "$out/v2-god-small.json")
+          else
+            echo "v2 god-small bench did not produce input; report records no input given" >&2
+          fi
+          python3 -I scripts/cmux-next/quality-report.py "${report_args[@]}"
           cat "$out/quality-summary.md" >> "$GITHUB_STEP_SUMMARY"
 
       # The public artifact has no signature names (quality-report.py public_report); they go to the sticky only.

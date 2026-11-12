@@ -13,6 +13,12 @@ fn main() {
     let mut index = 0;
     while index < args.len() {
         match args[index].to_string_lossy().as_ref() {
+            // Cargo passes this selector through to harness-free bench binaries.
+            "--bench" => {
+                if args.get(index + 1).is_some_and(|arg| !arg.to_string_lossy().starts_with("--")) {
+                    index += 1;
+                }
+            }
             "--measures" => {
                 index += 1;
                 while index < args.len() && !args[index].to_string_lossy().starts_with("--") {
