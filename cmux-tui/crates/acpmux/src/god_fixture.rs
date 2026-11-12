@@ -168,7 +168,7 @@ pub fn peer_row(peer: &str, index: usize, keys: usize) -> Value {
         ("name", json!(format!("{peer} lane {index}"))),
         ("harness", json!("claude")),
         ("cwd", json!(format!("/home/agent/work/{peer}/{index}"))),
-        ("status", json!(if index % 3 == 0 { "running" } else { "idle" })),
+        ("status", json!(if index.is_multiple_of(3) { "running" } else { "idle" })),
         ("createdAt", json!(AT)),
         ("updatedAt", json!(AT + index as u64)),
         (
