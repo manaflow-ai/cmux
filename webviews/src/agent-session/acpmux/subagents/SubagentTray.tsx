@@ -65,6 +65,7 @@ import {
   type CSSProperties,
   type FocusEvent,
   memo,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
   useCallback,
@@ -135,6 +136,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
+import { hatDrag, setHatHeight, useHatHeight } from "./trayResize";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
@@ -604,6 +606,49 @@ export const SubagentTray = memo(function SubagentTray({
     setOpened(!open);
     rememberTrayOpen(chat, !open);
   };
+  // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
+  // its last line folds it, a double-click goes back to the default five lines.
+  const hatHeight = useHatHeight();
+  const resizes = !(headed && opensPanel === "header");
+  const onRimDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const list = trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list");
+    const start = open && list ? list.getBoundingClientRect().height : 0;
+    const startY = event.clientY;
+    const rim = event.currentTarget;
+    rim.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    let shown = open;
+    let last = hatHeight;
+    const move = (moved: PointerEvent) => {
+      const step = hatDrag(start, startY - moved.clientY, window.innerHeight);
+      if (step.kind === "rest") return;
+      if (step.kind === "fold") {
+        if (shown && headed) {
+          shown = false;
+          setOpened(false);
+          rememberTrayOpen(chat, false);
+        }
+        return;
+      }
+      if (!shown && headed) {
+        shown = true;
+        setOpened(true);
+        rememberTrayOpen(chat, true);
+      }
+      last = step.height;
+      setHatHeight(step.height, false);
+    };
+    const end = () => {
+      rim.removeEventListener("pointermove", move);
+      rim.removeEventListener("pointerup", end);
+      rim.removeEventListener("pointercancel", end);
+      setHatHeight(last, true);
+    };
+    rim.addEventListener("pointermove", move);
+    rim.addEventListener("pointerup", end);
+    rim.addEventListener("pointercancel", end);
+  };
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
   return (
@@ -640,7 +685,15 @@ export const SubagentTray = memo(function SubagentTray({
       data-tucks={onTuck ? tuckSide : undefined}
       data-chevron={headed ? chevronAt : undefined}
       data-row-motion={rowMotion}
-      style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
+      data-sized={(resizes && hatHeight !== undefined) || undefined}
+      style={
+        gutter > 0 || (resizes && hatHeight !== undefined)
+          ? ({
+              ...(gutter > 0 ? { "--acpmux-tray-gutter": `${gutter}px` } : {}),
+              ...(resizes && hatHeight !== undefined ? { "--acpmux-tray-list-height": `${hatHeight}px` } : {}),
+            } as CSSProperties)
+          : undefined
+      }
       data-tuck-quiet={(onTuck && tuckQuiet) || undefined}
       onPointerEnter={() => {
         setHovered(true);
@@ -832,6 +885,17 @@ export const SubagentTray = memo(function SubagentTray({
         >
           <Icon name="disclosure.expanded" size={12} />
         </button>
+      )}
+      {resizes && (
+        // The rim's grabber, a thin band along the hat's top edge under the tuck chevron (which sits
+        // later, so it keeps its own clicks). A pointer control only; the header stays the keyboard's.
+        <div
+          className="acpmux-running-tray__rim"
+          title={t("tray.resize")}
+          aria-hidden="true"
+          onPointerDown={onRimDown}
+          onDoubleClick={() => setHatHeight(undefined, true)}
+        />
       )}
       {onTuck && (
         <button
