@@ -18,9 +18,11 @@
 //! one mutex and two map increments when on. Each family keeps at most
 //! [`MAX_KEYS_PER_FAMILY`] keys (the rest count as [`OTHER`]), the per-day
 //! rollup keeps the newest [`KEEP_DAYS`] days, and the hour histogram has 24
-//! slots, so a file never grows past a fixed size. One thread per process
-//! rereads the setting every [`GATE_EVERY`] and writes the file at most every
-//! [`FLUSH_EVERY`] when something changed; it lives as long as the process.
+//! slots, so a file never grows past a fixed size. Nothing runs on a timer: the
+//! setting is read again when its file changes (a kernel file watch,
+//! `cmux_config::watch`), and one thread per process waits for a count, then
+//! writes the file at most every [`FLUSH_EVERY`]. An idle process never wakes
+//! for this crate.
 //!
 //! Reset: `cmux usage-patterns reset` deletes the files. A recorder that wrote its file
 //! and finds it gone drops what it holds instead of writing it back.
@@ -29,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -49,8 +52,6 @@ pub const MAX_KEY_BYTES: usize = 64;
 pub const MAX_WRITERS: usize = 64;
 /// The key a refused or overflowing key counts under.
 pub const OTHER: &str = "other";
-/// How often the background thread rereads the setting.
-pub const GATE_EVERY: Duration = Duration::from_secs(5);
 /// How often a changed rollup is written.
 pub const FLUSH_EVERY: Duration = Duration::from_secs(30);
 const VERSION: u32 = 1;
@@ -339,6 +340,8 @@ pub struct Recorder {
     config: PathBuf,
     enabled: AtomicBool,
     state: Mutex<State>,
+    /// Wakes the writer thread when the rollup becomes dirty (set by [`install`]).
+    wake: OnceLock<SyncSender<()>>,
 }
 
 #[derive(Default)]
@@ -365,6 +368,7 @@ impl Recorder {
             path,
             config,
             enabled: AtomicBool::new(false),
+            wake: OnceLock::new(),
             state: Mutex::new(State {
                 written: loaded.is_some(),
                 rollup: loaded.unwrap_or_default(),
@@ -399,7 +403,11 @@ impl Recorder {
         let now = now_ms();
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state.rollup.add(family, key, n, now);
-        state.dirty = true;
+        let was_dirty = std::mem::replace(&mut state.dirty, true);
+        drop(state);
+        if !was_dirty {
+            self.signal();
+        }
     }
 
     /// Raises the peak `name` to `value`.
@@ -412,8 +420,34 @@ impl Recorder {
         let name = clean_key(name);
         let before = state.rollup.peaks.get(name).copied().unwrap_or(0);
         state.rollup.peak(name, value, now);
-        if value > before {
-            state.dirty = true;
+        if value > before && !std::mem::replace(&mut state.dirty, true) {
+            drop(state);
+            self.signal();
+        }
+    }
+
+    /// Tells the writer thread, if any, that the rollup became dirty. Never blocks: a wake
+    /// already queued covers this one.
+    fn signal(&self) {
+        if let Some(wake) = self.wake.get() {
+            let _ = wake.try_send(());
+        }
+    }
+
+    /// How long until the next write may go: zero when [`FLUSH_EVERY`] passed since the
+    /// last one, or there was none.
+    fn flush_wait(&self) -> Duration {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.last_flush.map_or(Duration::ZERO, |last| FLUSH_EVERY.saturating_sub(last.elapsed()))
+    }
+
+    /// The settings file changed: reads the gate again, and writes what was held when
+    /// counting just stopped.
+    pub fn settings_changed(&self) {
+        let was = self.enabled();
+        let on = self.refresh_gate();
+        if was && !on {
+            let _ = self.flush();
         }
     }
 
@@ -465,8 +499,9 @@ impl Recorder {
         std::fs::rename(&tmp, &self.path)
     }
 
-    /// One pass of the background thread: the gate, then a flush when
-    /// [`FLUSH_EVERY`] passed since the last one (or counting just stopped).
+    /// The gate, then a flush when [`FLUSH_EVERY`] passed since the last one (or counting
+    /// just stopped), in one call. [`install`] does not call it: there the gate follows the
+    /// settings file and a count wakes the writer.
     pub fn tick(&self) {
         let was = self.enabled();
         let on = self.refresh_gate();
@@ -515,16 +550,44 @@ pub fn install(writer: &str) -> Option<Arc<Recorder>> {
     if GLOBAL.set(Arc::clone(&recorder)).is_err() {
         return GLOBAL.get().cloned();
     }
-    let worker = Arc::clone(&recorder);
-    // Lives as long as the process: one stat every GATE_EVERY, a write at
-    // most every FLUSH_EVERY and only after a count.
-    let _ = std::thread::Builder::new().name("usage-patterns".into()).spawn(move || {
-        loop {
-            std::thread::sleep(GATE_EVERY);
-            worker.tick();
-        }
-    });
+    start_writer(&recorder);
+    let gate = Arc::clone(&recorder);
+    // The gate follows the settings file through kernel file events (no timer). The watch
+    // lives as long as the process: its drop would join its thread.
+    if let Ok(watch) =
+        cmux_config::watch::Watcher::start(vec![recorder.config.clone()], move || {
+            gate.settings_changed();
+        })
+    {
+        std::mem::forget(watch);
+    }
     Some(recorder)
+}
+
+/// Starts `recorder`'s writer thread: it sleeps until a count makes the rollup dirty, so
+/// an idle process never wakes for it.
+fn start_writer(recorder: &Arc<Recorder>) {
+    let (wake, woken) = std::sync::mpsc::sync_channel(1);
+    if recorder.wake.set(wake).is_err() {
+        return;
+    }
+    let worker = Arc::clone(recorder);
+    let _ = std::thread::Builder::new()
+        .name("usage-patterns".into())
+        .spawn(move || write_when_dirty(&worker, &woken));
+}
+
+/// The writer thread: each wake is a rollup that became dirty. It writes it once
+/// [`FLUSH_EVERY`] passed since the last write. A count meanwhile adds to the same write.
+fn write_when_dirty(recorder: &Recorder, woken: &Receiver<()>) {
+    while woken.recv().is_ok() {
+        let wait = recorder.flush_wait();
+        if !wait.is_zero() {
+            // A bounded delay after a count, to batch counts into one write; never a poll.
+            std::thread::sleep(wait);
+        }
+        let _ = recorder.flush();
+    }
 }
 
 /// This process's recorder, when [`install`] ran.

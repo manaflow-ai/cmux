@@ -187,3 +187,57 @@ fn opaque_ids_are_sha_based_and_stable() {
     assert_eq!(opaque_id("main"), opaque_id("main"));
     assert_eq!(opaque_id("main").len(), 12);
 }
+
+/// The writer thread's wake channel, as `install` sets it: what the writer would receive.
+fn with_writer_channel(recorder: &Recorder) -> Receiver<()> {
+    let (wake, woken) = std::sync::mpsc::sync_channel(1);
+    assert!(recorder.wake.set(wake).is_ok());
+    woken
+}
+
+#[test]
+fn an_idle_recorder_never_wakes_its_writer() {
+    let dir = scratch("idle-off");
+    let recorder = Recorder::open(&dir.join("out"), "session-a", config(&dir, false));
+    let woken = with_writer_channel(&recorder);
+    recorder.count("command", "split");
+    recorder.peak("connections", 4);
+    assert!(woken.try_recv().is_err(), "counting off wakes nothing");
+
+    let dir = scratch("idle-on");
+    let recorder = Recorder::open(&dir.join("out"), "session-a", config(&dir, true));
+    let woken = with_writer_channel(&recorder);
+    assert!(woken.try_recv().is_err(), "counting on with no count wakes nothing");
+}
+
+#[test]
+fn a_count_wakes_the_writer_once_per_write() {
+    let dir = scratch("wake");
+    let recorder = Recorder::open(&dir.join("out"), "session-a", config(&dir, true));
+    let woken = with_writer_channel(&recorder);
+    recorder.count("command", "split");
+    assert!(woken.try_recv().is_ok(), "the first count wakes the writer");
+    recorder.count("command", "split");
+    recorder.peak("connections", 4);
+    assert!(woken.try_recv().is_err(), "counts before the write add to it: no second wake");
+    recorder.flush().unwrap();
+    assert!(recorder.flush_wait() > Duration::ZERO, "the next write waits FLUSH_EVERY");
+    recorder.peak("connections", 5);
+    assert!(woken.try_recv().is_ok(), "a count after the write wakes the writer again");
+}
+
+#[test]
+fn a_settings_change_turns_counting_off_and_writes() {
+    let dir = scratch("settings-changed");
+    let on = config(&dir, true);
+    let recorder = Recorder::open(&dir.join("out"), "session-a", on.clone());
+    recorder.count("command", "split");
+    // A different size so the stamp changes even within one mtime tick.
+    std::fs::write(&on, "{\"diagnostics\":{\"usagePatterns\":false}}  ").unwrap();
+    recorder.settings_changed();
+    assert!(!recorder.enabled());
+    assert!(recorder.path().exists(), "turning off writes what was counted");
+    std::fs::write(&on, "{\"diagnostics\":{\"usagePatterns\":true}}").unwrap();
+    recorder.settings_changed();
+    assert!(recorder.enabled(), "turning on again takes effect at the change");
+}
