@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { queuePauseReason } from "../queuePause";
-import { composerRows, composerView, sameComposerView } from "./composerView";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { COMPOSER_UNREAD, composerRows, composerView, sameComposerView } from "./composerView";
 
 const row = (id: string, kind: AcpmuxRow["kind"], extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
   ({ id, version: 1, at: 0, kind, ...extra }) as AcpmuxRow;
@@ -92,4 +94,32 @@ test("a turn's token counts and subagent progress, and another chat's status, le
   const fresh = (status: string) =>
     composerView({ ...snapshot([], "connected", commands), sessions: sessions(status) } as AcpmuxSnapshot);
   expect(sameComposerView(fresh("idle"), fresh("running"))).toBe(false);
+});
+
+test("the reader's seen cursor moving as rows stream in leaves the composer's view the same", () => {
+  const base = snapshot([start, prompt, reply]);
+  const before = composerView({ ...base, readThrough: 3 });
+  expect("readThrough" in before).toBe(false);
+  expect(sameComposerView(before, composerView({ ...base, readThrough: 4 }))).toBe(true);
+  expect(sameComposerView(before, composerView(base))).toBe(true);
+});
+
+test("no composer file reads a field its view leaves out", () => {
+  const acpmux = path.resolve(import.meta.dir, "..");
+  const files = [
+    ...readdirSync(acpmux)
+      .filter((name) => /^Composer.*\.tsx?$/.test(name))
+      .map((name) => path.join(acpmux, name)),
+    ...readdirSync(import.meta.dir)
+      .filter((name) => /\.tsx?$/.test(name) && !name.includes(".test.") && name !== "composerView.ts")
+      .map((name) => path.join(import.meta.dir, name)),
+  ];
+  expect(files.some((file) => file.endsWith("Composer.tsx"))).toBe(true);
+  const reads = files.flatMap((file) => {
+    const source = readFileSync(file, "utf8");
+    return COMPOSER_UNREAD.filter((key) => new RegExp(`\\b${key}\\b`).test(source)).map(
+      (key) => `${path.basename(file)}: ${key}`,
+    );
+  });
+  expect(reads).toEqual([]);
 });
