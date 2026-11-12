@@ -238,9 +238,9 @@ struct PastedImageTests {
         let before = Self.segments(data as Data, type: output)
         let rebuilt = try #require(PastedImage.pixelSegmentsOnly(data as Data, type: output.identifier), "\(before)")
         let after = Self.segments(rebuilt, type: output)
-        let allowed: Set<String> = output == .jpeg
-            ? ["D8", "E0", "E2", "DB", "C4", "CC", "DD", "DC", "DA", "EOI"] + (0xC0...0xCF).map { String(format: "%02X", $0) }
-            : ["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "gAMA", "cHRM", "sRGB", "iCCP", "cICP", "sBIT", "bKGD", "pHYs"]
+        let jpegKinds = ["E0", "E2", "DB", "C4", "CC", "DD", "DC", "DA", "EOI"] + (0xC0...0xCF).map { String(format: "%02X", $0) }
+        let pngKinds = ["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "gAMA", "cHRM", "sRGB", "iCCP", "cICP", "sBIT", "bKGD", "pHYs"]
+        let allowed = Set(output == .jpeg ? jpegKinds : pngKinds)
         let kinds = after.map { String($0.prefix { $0 != "(" && $0 != ":" }) }
         #expect(kinds.allSatisfy(allowed.contains), "\(source.identifier) to \(output.identifier): \(before) became \(after)")
         #expect(!after.contains { $0.contains("Exif") || $0.contains("Photoshop") || $0.hasPrefix("eXIf") })
