@@ -23,6 +23,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+use std::time::Instant;
 
 #[derive(Clone)]
 pub(super) struct OutboundStream {
@@ -75,6 +76,16 @@ pub(super) trait MessageSink: Send + Sync {
         self.send_stream(text, stream)
     }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
+    /// [`Self::send_control`] for a sender that may wait until `deadline`
+    /// for room in a control queue that is full. A sink with no such queue
+    /// sends at once.
+    fn send_control_backpressured(
+        &self,
+        text: Arc<BudgetedText>,
+        _deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.send_control(text)
+    }
     fn send_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -322,12 +333,36 @@ impl MessageWriter {
     }
 
     pub(super) fn send_control<T: Serialize + ?Sized>(&self, value: &T) -> std::io::Result<()> {
+        self.send_control_with_room_by(value, None)
+    }
+
+    /// [`Self::send_control`] for a thread that may wait: a control queue
+    /// with no room for the message has until `deadline` to get it, where
+    /// `send_control` closes the connection at once. For more than one large
+    /// message to one connection at one time, off its reader thread.
+    pub(super) fn send_control_backpressured<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        deadline: Instant,
+    ) -> std::io::Result<()> {
+        self.send_control_with_room_by(value, Some(deadline))
+    }
+
+    fn send_control_with_room_by<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        deadline: Option<Instant>,
+    ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self.render_service.serialize_control(value).and_then(|text| {
             let text = self.project_api_revision(self.project_conversation_tabs(text)?)?;
-            self.sink.send_control(self.mark_reply(text))
+            let text = self.mark_reply(text);
+            match deadline {
+                Some(deadline) => self.sink.send_control_backpressured(text, deadline),
+                None => self.sink.send_control(text),
+            }
         });
         if result.is_err() {
             self.close();

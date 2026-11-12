@@ -73,6 +73,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import focused_tests  # noqa: E402
+from ci_process_tree import run_bounded  # noqa: E402
 
 QUARANTINE = "scripts/cmux-next/quarantine.json"
 LINUX_LANES = {"linux-guard"}
@@ -175,8 +176,9 @@ def run_one(root: Path, entry: dict, timeout: float | None = None) -> dict:
     start = time.monotonic()
     timeout = timeout or TIMEOUT[entry["kind"]]
     try:
-        proc = subprocess.run(entry["cmd"], cwd=root / entry.get("cwd", "."), capture_output=True, text=True,
-                              timeout=timeout, env={**os.environ, **entry.get("env", {})})
+        # A timed-out entry is stopped with everything it started, so its retry and the next entries never race it.
+        proc = run_bounded(entry["cmd"], cwd=root / entry.get("cwd", "."), capture_output=True, text=True,
+                           timeout=timeout, env={**os.environ, **entry.get("env", {})})
         output = proc.stdout + proc.stderr
         if proc.returncode == 0:
             status = "pass"
