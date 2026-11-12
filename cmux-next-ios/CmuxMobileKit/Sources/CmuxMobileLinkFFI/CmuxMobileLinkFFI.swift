@@ -1329,6 +1329,429 @@ public func FfiConverterTypeChannelHandle_lower(_ value: ChannelHandle) -> UInt6
 
 
 /**
+ * One Cloud machine's carrier.
+ */
+public protocol CloudCarrierProtocol: AnyObject, Sendable {
+    
+    func close() async 
+    
+    /**
+     * Dial the machine unless a live session is up, within `deadline_ms`.
+     */
+    func connect(deadlineMs: UInt32) async throws 
+    
+    /**
+     * Whether a live session is up.
+     */
+    func isConnected() async  -> Bool
+    
+    /**
+     * One more daemon line stream on the live session (`Closed` when there is
+     * none: the app dials again with [`CloudCarrier::connect`]).
+     */
+    func openStream() async throws  -> CloudCarrierStream
+    
+    /**
+     * Replace the access token the carrier asks the platform with (tickets
+     * for a resume, grants for a fresh dial).
+     */
+    func setAccessToken(accessToken: String) 
+    
+}
+/**
+ * One Cloud machine's carrier.
+ */
+open class CloudCarrier: CloudCarrierProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_cloudcarrier(self.handle, $0) }
+    }
+    /**
+     * `api_base` is the Cloud API (`https://cloud-api.cmux.dev`), `team_id`
+     * the active team (sent as `x-cmux-team`), `machine_id` a `vm_…` id,
+     * `noise_private_key` this phone's 32-byte key ([`cloud_carrier_new_key`]).
+     */
+public convenience init(apiBase: String, teamId: String?, machineId: String, accessToken: String, noisePrivateKey: Data, deviceName: String)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_cloudcarrier_new(
+        FfiConverterString.lower(apiBase),
+        FfiConverterOptionString.lower(teamId),
+        FfiConverterString.lower(machineId),
+        FfiConverterString.lower(accessToken),
+        FfiConverterData.lower(noisePrivateKey),
+        FfiConverterString.lower(deviceName),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_cloudcarrier(handle, $0) }
+    }
+
+    
+
+    
+open func close()async   {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrier_close(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_void,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_void,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: nil
+            
+        )
+}
+    
+    /**
+     * Dial the machine unless a live session is up, within `deadline_ms`.
+     */
+open func connect(deadlineMs: UInt32)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrier_connect(
+                    self.uniffiCloneHandle(),
+                    FfiConverterUInt32.lower(deadlineMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_void,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_void,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+    /**
+     * Whether a live session is up.
+     */
+open func isConnected()async  -> Bool  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrier_is_connected(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_i8,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_i8,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: nil
+            
+        )
+}
+    
+    /**
+     * One more daemon line stream on the live session (`Closed` when there is
+     * none: the app dials again with [`CloudCarrier::connect`]).
+     */
+open func openStream()async throws  -> CloudCarrierStream  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrier_open_stream(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeCloudCarrierStream_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+    /**
+     * Replace the access token the carrier asks the platform with (tickets
+     * for a resume, grants for a fresh dial).
+     */
+open func setAccessToken(accessToken: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrier_set_access_token(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(accessToken),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudCarrier: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = CloudCarrier
+
+    public static func lift(_ handle: UInt64) throws -> CloudCarrier {
+        return CloudCarrier(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: CloudCarrier) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudCarrier {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: CloudCarrier, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudCarrier_lift(_ handle: UInt64) throws -> CloudCarrier {
+    return try FfiConverterTypeCloudCarrier.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudCarrier_lower(_ value: CloudCarrier) -> UInt64 {
+    return FfiConverterTypeCloudCarrier.lower(value)
+}
+
+
+
+
+
+
+/**
+ * One daemon line stream on a Cloud carrier.
+ */
+public protocol CloudCarrierStreamProtocol: AnyObject, Sendable {
+    
+    func close() async 
+    
+    /**
+     * The next bytes from the daemon, or None once the stream ended.
+     */
+    func recv() async  -> Data?
+    
+    func send(data: Data) async throws 
+    
+}
+/**
+ * One daemon line stream on a Cloud carrier.
+ */
+open class CloudCarrierStream: CloudCarrierStreamProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_cloudcarrierstream(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_cloudcarrierstream(handle, $0) }
+    }
+
+    
+
+    
+open func close()async   {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrierstream_close(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_void,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_void,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: nil
+            
+        )
+}
+    
+    /**
+     * The next bytes from the daemon, or None once the stream ended.
+     */
+open func recv()async  -> Data?  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrierstream_recv(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionData.lift,
+            errorHandler: nil
+            
+        )
+}
+    
+open func send(data: Data)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrierstream_send(
+                    self.uniffiCloneHandle(),
+                    FfiConverterData.lower(data)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_void,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_void,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudCarrierStream: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = CloudCarrierStream
+
+    public static func lift(_ handle: UInt64) throws -> CloudCarrierStream {
+        return CloudCarrierStream(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: CloudCarrierStream) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudCarrierStream {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: CloudCarrierStream, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudCarrierStream_lift(_ handle: UInt64) throws -> CloudCarrierStream {
+    return try FfiConverterTypeCloudCarrierStream.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudCarrierStream_lower(_ value: CloudCarrierStream) -> UInt64 {
+    return FfiConverterTypeCloudCarrierStream.lower(value)
+}
+
+
+
+
+
+
+/**
  * A connected link to one Mac.
  */
 public protocol LinkHandleProtocol: AnyObject, Sendable {
@@ -3836,6 +4259,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
     typealias SwiftType = LinkObserver?
 
@@ -4242,6 +4689,16 @@ public func classicCleanupVersion() -> Int64  {
     )
 })
 }
+/**
+ * A new Noise private key for this phone's carriers (the app keeps it in
+ * its Keychain).
+ */
+public func cloudCarrierNewKey()throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCmuxMobileError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_carrier_new_key($0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -4289,6 +4746,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_carrier_new_key() != 42528) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
@@ -4390,6 +4850,30 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_close() != 19682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_connect() != 1375) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_is_connected() != 11164) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_open_stream() != 374) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_set_access_token() != 7176) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrierstream_close() != 54068) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrierstream_recv() != 60068) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrierstream_send() != 21440) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_echo_latency_us() != 57421) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4427,6 +4911,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_cloudcarrier_new() != 29876) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprediction_new() != 21303) {
