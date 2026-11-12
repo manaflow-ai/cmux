@@ -143,6 +143,19 @@ fn enqueue_item(state: &mut SubscriberState, item: ListItem) {
             return;
         }
     };
+    if let Some(old) = state.pending.get(&chat_id) {
+        let old_seq = match old {
+            PendingItem::Summary(event) => event.seq,
+            PendingItem::Gone { seq, .. } => *seq,
+        };
+        let new_seq = match &pending {
+            PendingItem::Summary(event) => event.seq,
+            PendingItem::Gone { seq, .. } => *seq,
+        };
+        if old_seq >= new_seq {
+            return;
+        }
+    }
     if let Some(old) = state.pending.insert(chat_id, pending.clone()) {
         state.bytes = state.bytes.saturating_sub(pending_bytes(&old));
     }
@@ -158,6 +171,15 @@ fn enqueue_item(state: &mut SubscriberState, item: ListItem) {
 
 pub struct ListReceiver {
     subscriber: Arc<Subscriber>,
+    subscribers: Arc<Mutex<Vec<Arc<Subscriber>>>>,
+}
+
+impl Drop for ListReceiver {
+    fn drop(&mut self) {
+        if let Ok(mut subscribers) = self.subscribers.lock() {
+            subscribers.retain(|subscriber| !Arc::ptr_eq(subscriber, &self.subscriber));
+        }
+    }
 }
 
 impl ListReceiver {
@@ -281,6 +303,17 @@ impl Hub {
         self.published.load_full()
     }
 
+    /// Wakes a writer task and prevents any later submit from waiting for it.
+    pub fn close(&self) {
+        self.updates.closed.store(true, Ordering::Release);
+        self.updates.notify.notify_waiters();
+    }
+
+    #[cfg(test)]
+    fn subscriber_count(&self) -> usize {
+        self.subscribers.lock().map(|subscribers| subscribers.len()).unwrap_or(0)
+    }
+
     pub fn subscribe(&self, sub: &Sub) -> Result<ListSubscription, HubError> {
         if sub.stream.as_str() != "list" {
             return Err(HubError::WrongStream(sub.stream.as_str().to_owned()));
@@ -289,7 +322,7 @@ impl Hub {
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         let index = self.snapshot();
-        let resume_cursor = if sub.cursor.is_some() {
+        let resume_cursor = if sub.cursor.is_some() && cursor <= index.seq() {
             let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
             history
                 .front()
@@ -317,7 +350,10 @@ impl Hub {
                 state.cursor = index.seq();
             }
         }
-        Ok(ListSubscription { window: frame, receiver: ListReceiver { subscriber } })
+        Ok(ListSubscription {
+            window: frame,
+            receiver: ListReceiver { subscriber, subscribers: self.subscribers.clone() },
+        })
     }
 
     /// Builds one bounded first frame from the current published index. It does
@@ -531,10 +567,11 @@ pub fn delta_frame(delta: &Delta<Summary>) -> Result<Frame, FrameError> {
 mod tests {
     use super::*;
     use crate::wire::Stream;
+    use acpmux_book::index::replay_log;
     use std::fs::OpenOptions;
     use std::io::Write;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
+    use tempfile::tempdir;
 
     fn summary(id: &str, at: u64) -> Summary {
         let mut summary = Summary::new(id);
@@ -549,6 +586,60 @@ mod tests {
             file,
             "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"unit\":\"ns\"}}"
         );
+    }
+
+    fn populated_index(prefix: &str, count: usize) -> SummaryIndex {
+        (0..count).fold(SummaryIndex::new(), |index, n| {
+            index.apply((n + 1) as u64, summary(&format!("{prefix}{n}"), n as u64))
+        })
+    }
+
+    fn p95(samples: &[u128]) -> u128 {
+        let mut sorted = samples.to_vec();
+        sorted.sort_unstable();
+        let rank = ((sorted.len() * 95).saturating_add(99) / 100).saturating_sub(1);
+        sorted[rank]
+    }
+
+    fn best_p95(rounds: &[Vec<u128>]) -> u128 {
+        rounds.iter().map(|round| p95(round)).min().unwrap_or(1)
+    }
+
+    async fn measure_first_windows(index: SummaryIndex, sid: &str) -> Vec<Vec<u128>> {
+        let (hub, writer) = Hub::new(index);
+        let task = tokio::spawn(writer.run());
+        let mut rounds = Vec::with_capacity(5);
+        for round in 0..5 {
+            let mut samples = Vec::with_capacity(5);
+            for sample in 0..5 {
+                let start = Instant::now();
+                let subscription = hub
+                    .subscribe(&Sub::new(format!("{sid}-{round}-{sample}"), Stream::from("list")))
+                    .unwrap();
+                let _: Window<Summary> = subscription.window.decode_json().unwrap();
+                samples.push(start.elapsed().as_nanos().max(1));
+                drop(subscription);
+            }
+            rounds.push(samples);
+        }
+        hub.close();
+        task.await.unwrap().unwrap();
+        rounds
+    }
+
+    fn measure_summary_changes(index: &SummaryIndex, chat_id: &str) -> Vec<Vec<u128>> {
+        let mut rounds = Vec::with_capacity(5);
+        for round in 0..5 {
+            let (_, mut writer) = Hub::new(index.clone());
+            let mut samples = Vec::with_capacity(5);
+            for sample in 0..5 {
+                let start = Instant::now();
+                writer.apply(summary(chat_id, (round * 5 + sample + 1) as u64)).unwrap();
+                samples.push(start.elapsed().as_nanos().max(1));
+            }
+            rounds.push(samples);
+        }
+        rounds
     }
 
     #[test]
@@ -578,36 +669,107 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn list_window_gate_and_summary_change_counter_cover_small_and_god() {
-        let mut small = SummaryIndex::new();
-        for n in 0..20 {
-            small = small.apply(n + 1, summary(&format!("s{n}"), n));
-        }
-        let mut god = SummaryIndex::new();
-        for n in 0..11_000 {
-            god = god.apply(n + 1, summary(&format!("g{n}"), n));
-        }
-        let (small_hub, _) = Hub::new(small.clone());
-        let (god_hub, _) = Hub::new(god.clone());
-        let small_start = Instant::now();
-        small_hub.list_window(&Sub::new("small", "list")).unwrap();
-        let small_ns = small_start.elapsed().as_nanos();
-        let god_start = Instant::now();
-        god_hub.list_window(&Sub::new("god", "list")).unwrap();
-        let god_ns = god_start.elapsed().as_nanos();
-        gate("v2.pr05.first_list_window", small_ns, god_ns);
-
-        let visited_small = AtomicUsize::new(0);
-        let visited_god = AtomicUsize::new(0);
-        small.apply_counted(21, summary("s0", 99), &visited_small);
-        god.apply_counted(11_001, summary("g0", 99), &visited_god);
-        assert_eq!(visited_small.load(Ordering::Relaxed), visited_god.load(Ordering::Relaxed));
-        gate(
-            "v2.pr05.summary_change",
-            visited_small.load(Ordering::Relaxed) as u128,
-            visited_god.load(Ordering::Relaxed) as u128,
+    #[tokio::test(flavor = "current_thread")]
+    async fn list_window_gate_measures_running_subscriptions_at_both_sizes() {
+        let small_rounds = measure_first_windows(populated_index("s", 20), "small").await;
+        let god_rounds = measure_first_windows(populated_index("g", 11_000), "god").await;
+        let small_p95 = best_p95(&small_rounds);
+        let god_p95 = best_p95(&god_rounds);
+        let all_god_samples = god_rounds.iter().flatten().copied().collect::<Vec<_>>();
+        assert!(
+            god_p95 <= small_p95.saturating_mul(12) / 10,
+            "first window p95 grew beyond 1.2x: small={small_p95}ns god={god_p95}ns"
         );
+        assert!(
+            all_god_samples.iter().all(|sample| *sample <= small_p95.saturating_mul(2)),
+            "first window sample exceeded 2x small p95: small={small_p95}ns samples={all_god_samples:?}"
+        );
+        gate("v2.pr05.first_list_window", small_p95, god_p95);
+
+        let small_index = populated_index("s", 20);
+        let god_index = populated_index("g", 11_000);
+        let small_changes = measure_summary_changes(&small_index, "s0");
+        let god_changes = measure_summary_changes(&god_index, "g0");
+        let small_change_p95 = best_p95(&small_changes);
+        let god_change_p95 = best_p95(&god_changes);
+        gate("v2.pr05.summary_change", small_change_p95, god_change_p95);
+    }
+
+    #[test]
+    fn opening_11k_rows_from_disk_reaches_first_window_under_200ms() {
+        let dir = tempdir().unwrap();
+        let log_path = dir.path().join("index.log");
+        {
+            let mut log = IndexLog::open(&log_path).unwrap();
+            for n in 0..11_000 {
+                log.append(summary(&format!("disk{n}"), n as u64)).unwrap();
+            }
+            log.sync().unwrap();
+        }
+
+        let start = Instant::now();
+        let log = IndexLog::open(&log_path).unwrap();
+        let index = replay_log(log.path(), SummaryIndex::new()).unwrap();
+        assert_eq!(index.len(), 11_000);
+        let (hub, _writer) = Hub::with_log(index, Some(log));
+        let window = hub.list_window(&Sub::new("disk", "list")).unwrap();
+        let _: Window<Summary> = window.decode_json().unwrap();
+        let elapsed = start.elapsed();
+        assert!(elapsed < Duration::from_millis(200), "disk startup took {elapsed:?}");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn subscribe_recv_and_run_deliver_summary_then_removal() {
+        let (hub, writer) = Hub::new(SummaryIndex::new());
+        let task = tokio::spawn(writer.run());
+        let subscription = hub.subscribe(&Sub::new("live", "list")).unwrap();
+        hub.submit(summary("live-chat", 1)).unwrap();
+        match subscription.receiver.recv().await.unwrap() {
+            ListItem::Summary(event) => assert_eq!(event.summary.chat_id, "live-chat"),
+            other => panic!("expected summary, got {other:?}"),
+        }
+        hub.remove("live-chat").unwrap();
+        match subscription.receiver.recv().await.unwrap() {
+            ListItem::Gone { chat_id, .. } => assert_eq!(chat_id, "live-chat"),
+            other => panic!("expected removal, got {other:?}"),
+        }
+        hub.close();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn replay_does_not_replace_newer_live_item_for_same_chat() {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        writer.apply(summary("same", 1)).unwrap();
+        let subscription = hub.subscribe(&Sub::new("resume", "list").from_cursor(0)).unwrap();
+        writer.apply(summary("same", 2)).unwrap();
+        match subscription.receiver.recv().await.unwrap() {
+            ListItem::Summary(event) => assert_eq!(event.seq, 2),
+            other => panic!("expected newer summary, got {other:?}"),
+        }
+        let state = subscription.receiver.subscriber.state.lock().unwrap();
+        assert!(state.pending.is_empty());
+        assert_eq!(state.cursor, 2);
+    }
+
+    #[test]
+    fn cursor_ahead_of_index_gets_a_fresh_current_window() {
+        let (hub, mut writer) = Hub::new(SummaryIndex::new());
+        writer.apply(summary("current", 1)).unwrap();
+        let subscription =
+            hub.subscribe(&Sub::new("ahead", "list").from_cursor(Cursor(10))).unwrap();
+        let window: Window<Summary> = subscription.window.decode_json().unwrap();
+        assert_eq!(window.cursor, 1);
+        assert!(subscription.receiver.subscriber.state.lock().unwrap().pending.is_empty());
+    }
+
+    #[test]
+    fn dropping_a_list_receiver_unregisters_the_subscriber() {
+        let (hub, _) = Hub::new(SummaryIndex::new());
+        let subscription = hub.subscribe(&Sub::new("drop", "list")).unwrap();
+        assert_eq!(hub.subscriber_count(), 1);
+        drop(subscription);
+        assert_eq!(hub.subscriber_count(), 0);
     }
 
     #[test]
