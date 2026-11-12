@@ -980,6 +980,7 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
         start += 1
     certain = not command.dynamic and not command.nested and command.reached
     any_program = False
+    wrappers: list[str] = []
     while start < len(words) and not _opaque(words[start]):
         name = words[start].text
         if name in _WRAPPERS:
@@ -994,14 +995,15 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
             # `env` or `nice` alone runs itself; `exec` or `time` alone runs nothing.
             return Invocation([w.text for w in words[start:]], certain and sure, False)
         certain = certain and sure
+        wrappers.append(name)
         start = program
         if name in _SHELLS:
             # An unmodeled mode (-i reads rc files, --rcfile FILE, -l a profile) may run a file the words name
             # only as an option value, or none.
             any_program = not sure
             break  # the operand is a script file, whatever its name
-    if start < len(words) and words[start].text == "coproc" and not words[start].quoted:
-        # `time coproc cmd` and other wrappers reach coproc after their operands are unwrapped.
+    if wrappers == ["time"] and start < len(words) and words[start].text == "coproc" and not words[start].quoted:
+        # Only the shell's `time coproc cmd` form has a reserved coproc word after unwrapping.
         return Invocation([w.text for w in words[start:]], False, True)
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
