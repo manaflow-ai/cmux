@@ -2897,12 +2897,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         programRead?.cancel()
         programRead = nil
         surface.foregroundProgram = nil
-        guard model.isTUI else { return }
+        guard model.isTUI else { return tuiScroll.programRead() }
         let session = model.session
         programRead = Task { [weak self] in
             let program = await session.foregroundProgram()
-            guard !Task.isCancelled, let self, self.model.isTUI else { return }
-            self.surface.foregroundProgram = program
+            guard !Task.isCancelled, let self else { return }
+            if self.model.isTUI { self.surface.foregroundProgram = program }
+            self.tuiScroll.programRead()
         }
     }
 
