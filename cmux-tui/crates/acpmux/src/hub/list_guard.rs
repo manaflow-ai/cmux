@@ -1703,9 +1703,10 @@ mod tests {
         // The lazy build took longer than the base window, so its own window keeps the live entry.
         held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
         let before = guard.builds_for_tests();
-        for page in 0..PAGES {
+        for _ in 0..PAGES {
             let snapshot = guard.snapshot(&hub).await;
-            snapshot.page(None, &json!({"cursor": format!("s:page-{page}")}), 1024).unwrap();
+            let full = snapshot.full_rows(&hub);
+            snapshot.page(Some(&full), &json!({}), 1024).unwrap();
         }
         let builds = guard.builds_for_tests() - before;
         assert!(builds <= (PAGES / 3 + 3) as u64, "{builds} builds for {PAGES} follow-up pages");
