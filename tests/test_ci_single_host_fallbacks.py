@@ -216,6 +216,200 @@ class SingleHostFallbacks(unittest.TestCase):
         findings = self.scan({"callee.yml": callee, "caller.yml": caller})
         self.assertTrue([f for f in findings if "cannot be verified" in f], findings)
 
+    # Codex on #41015: `runner` and `fallback` default to each other. Caller A passes runner (and a fallback it never
+    # uses), caller B passes fallback. Each chain is finite; read through one scope for every caller, B's runner
+    # reached A's unused fallback and A's missing fallback looped back to runner.
+    PAIR = DEFAULTED % ("      runner: {type: string, default: '${{ inputs.fallback }}'}\n"
+                        "      fallback: {type: string, default: '${{ inputs.runner }}'}\n")
+    PAIR_CALLERS = ("jobs:\n  a:\n    uses: ./.github/workflows/callee.yml\n    with:\n"
+                    "      runner: ${{ vars.A_RUNNER }}\n      fallback: ${{ vars.A_FALLBACK }}\n"
+                    "  b:\n    uses: ./.github/workflows/callee.yml\n    with:\n      fallback: ${{ vars.B_FALLBACK }}\n")
+
+    def resolve_callee(self, files: dict[str, str]):
+        wj = checker.load_workflow_jobs()
+        workflows = wj.Workflows({name: wj.document(text) for name, text in files.items()})
+        return wj, workflows, wj.resolve(workflows.documents["callee.yml"]["jobs"]["a"], "a", "callee.yml", workflows)
+
+    def test_codex_repro_two_callers_whose_defaults_name_each_other_resolve_per_caller(self) -> None:
+        for callers in (self.PAIR_CALLERS, self.PAIR_CALLERS.replace("      fallback: ${{ vars.A_FALLBACK }}\n", "")):
+            with self.subTest(a_passes_fallback="A_FALLBACK" in callers):
+                _, _, resolved = self.resolve_callee({"callee.yml": self.PAIR, "caller.yml": callers})
+                self.assertEqual(resolved.unverifiable, frozenset())
+                self.assertEqual({r.name for r in resolved.vars_read if r.field == "runs-on"},
+                                 {"A_RUNNER", "B_FALLBACK"})
+                self.assertEqual((resolved.runs_on, resolved.runs_on_unresolved),
+                                 (set(), {"vars.A_RUNNER", "vars.B_FALLBACK"}))
+
+    def test_one_callers_chain_that_loops_is_still_unverifiable(self) -> None:
+        """Caller C passes neither input: its runner is its fallback is its runner. Only C's chain loops."""
+        callers = self.PAIR_CALLERS + "  c:\n    uses: ./.github/workflows/callee.yml\n"
+        _, _, resolved = self.resolve_callee({"callee.yml": self.PAIR, "caller.yml": callers})
+        self.assertTrue(resolved.unverifiable)
+        self.assertEqual({u.reason for u in resolved.unverifiable}, {"a loop for the call in caller.yml job c"})
+        self.assertEqual({r.name for r in resolved.vars_read if r.field == "runs-on"}, {"A_RUNNER", "B_FALLBACK"})
+        findings = self.scan({"callee.yml": self.PAIR, "caller.yml": callers})
+        self.assertTrue([f for f in findings if "cannot be verified" in f], findings)
+
+    def count_work(self, wj, run, budget: int | None = None):
+        """Calls of Workflows.input_values and of the resolve step for one run (the harness the PR body reports). Past
+        `budget` calls in all the run fails at once, so a trace that explodes is a failure, not a hang."""
+        counts = {"input_values": 0, "_resolve": 0}
+
+        def counted(name, real):
+            def wrapper(*args, **kwargs):
+                counts[name] += 1
+                if budget is not None and sum(counts.values()) > budget:
+                    raise AssertionError(f"more than {budget} calls: {counts}")
+                return real(*args, **kwargs)
+            return wrapper
+        with unittest.mock.patch.object(wj.Workflows, "input_values", counted("input_values", wj.Workflows.input_values)), \
+                unittest.mock.patch.object(wj, "_resolve", counted("_resolve", wj._resolve)):
+            run()
+        return counts
+
+    def test_codex_repro_a_default_chain_costs_callers_times_inputs(self) -> None:
+        """Codex on #41015: 16 inputs, each defaulting to the next, two callers passing nothing, cost 131,070
+        input_values calls (2^17 - 2). Read per caller and memoised it is O(callers x inputs)."""
+        inputs = 16
+        declared = "".join(f"      i{n}: {{type: string, default: '${{{{ inputs.i{n + 1} }}}}'}}\n" for n in range(inputs - 1))
+        declared += f"      i{inputs - 1}: {{type: string, default: '${{{{ vars.LAST }}}}'}}\n"
+        callee = ("on:\n  workflow_call:\n    inputs:\n" + declared + "jobs:\n  a:\n    runs-on: ${{ inputs.i0 }}\n")
+        callers = "jobs:\n" + "".join(f"  c{n}:\n    uses: ./.github/workflows/callee.yml\n" for n in range(2))
+        wj = checker.load_workflow_jobs()
+        workflows = wj.Workflows({"callee.yml": wj.document(callee), "caller.yml": wj.document(callers)})
+        job = workflows.documents["callee.yml"]["jobs"]["a"]
+        found = {}
+        counts = self.count_work(wj, lambda: found.setdefault("r", wj.resolve(job, "a", "callee.yml", workflows)))
+        print(f"\ndefault chain, 2 callers x {inputs} inputs: {counts}", file=sys.stderr)
+        self.assertEqual({r.name for r in found["r"].vars_read if r.field == "runs-on"}, {"LAST"})
+        self.assertEqual(found["r"].unverifiable, frozenset())
+        # resolve() traces runs-on twice (runs_on_cells, runs_on_values): k = 2 traces x 2 for slack.
+        self.assertLessEqual(counts["input_values"] + counts["_resolve"], 2 * inputs * 4, counts)
+
+    def test_a_chain_of_workflows_each_called_twice_costs_linear(self) -> None:
+        """The same class across workflows: w0's runner is what two jobs of w1 pass, each `inputs.runner` of w1,
+        which two jobs of w2 call, and so on. Read without memo it was 2^depth; each input is now read once."""
+        depth = 14
+        declared = "on:\n  workflow_call:\n    inputs:\n      runner: {type: string}\n"
+
+        def calls(target: str, value: str) -> str:
+            return "".join(f"  c{k}:\n    uses: ./.github/workflows/{target}\n    with:\n      runner: {json.dumps(value)}\n"
+                           for k in range(2))
+        files = {"w0.yml": declared + "jobs:\n  a:\n    runs-on: ${{ inputs.runner }}\n"}
+        for n in range(1, depth):
+            files[f"w{n}.yml"] = declared + "jobs:\n" + calls(f"w{n - 1}.yml", "${{ inputs.runner }}")
+        files[f"w{depth}.yml"] = "jobs:\n" + calls(f"w{depth - 1}.yml", "${{ vars.TOP }}")
+        wj = checker.load_workflow_jobs()
+        workflows = wj.Workflows({name: wj.document(text) for name, text in files.items()})
+        job = workflows.documents["w0.yml"]["jobs"]["a"]
+        found = {}
+        counts = self.count_work(wj, lambda: found.setdefault("r", wj.resolve(job, "a", "w0.yml", workflows)))
+        print(f"\nworkflow chain, {depth} workflows x 2 callers: {counts}", file=sys.stderr)
+        self.assertEqual({r.name for r in found["r"].vars_read if r.field == "runs-on"}, {"TOP"})
+        self.assertLessEqual(counts["input_values"] + counts["_resolve"], 2 * depth * 8, counts)
+
+    def default_chain(self, inputs: int, callers: int):
+        """`i0` .. `i<inputs-1>` of callee.yml, each defaulting to the next, the last to vars.LAST; runs-on reads i0;
+        `callers` jobs call it passing nothing."""
+        wj = checker.load_workflow_jobs()
+        declared = "".join(f"      i{n}: {{type: string, default: '${{{{ inputs.i{n + 1} }}}}'}}\n" for n in range(inputs - 1))
+        declared += f"      i{inputs - 1}: {{type: string, default: '${{{{ vars.LAST }}}}'}}\n"
+        callee = ("on:\n  workflow_call:\n    inputs:\n" + declared + "jobs:\n  a:\n    runs-on: ${{ inputs.i0 }}\n")
+        caller = "jobs:\n" + "".join(f"  c{n}:\n    uses: ./.github/workflows/callee.yml\n" for n in range(callers))
+        workflows = wj.Workflows({"callee.yml": wj.document(callee), "caller.yml": wj.document(caller)})
+        return wj, workflows, workflows.documents["callee.yml"]["jobs"]["a"]
+
+    def test_review_f2_a_default_chain_at_ten_callers_is_near_linear_in_inputs(self) -> None:
+        """Review F2 on #41015: at 10 callers, n inputs then 2n inputs in a default chain. The work must about double
+        (near linear in inputs, linear in callers); read through every caller at each level it was callers^inputs."""
+        callers, small = 10, 8
+        totals = {}
+        for inputs in (small, 2 * small):
+            wj, workflows, job = self.default_chain(inputs, callers)
+            found = {}
+            # resolve() traces runs-on twice (runs_on_cells, runs_on_values); x4 slack per trace.
+            budget = callers * inputs * 2 * 4
+            counts = self.count_work(wj, lambda: found.setdefault("r", wj.resolve(job, "a", "callee.yml", workflows)),
+                                     budget)
+            self.assertEqual({r.name for r in found["r"].vars_read if r.field == "runs-on"}, {"LAST"})
+            self.assertEqual(found["r"].unverifiable, frozenset())
+            totals[inputs] = sum(counts.values())
+            print(f"\ndefault chain, {callers} callers x {inputs} inputs: {counts}", file=sys.stderr)
+        ratio = totals[2 * small] / totals[small]
+        print(f"default chain, {callers} callers, inputs {small} -> {2 * small}: x{ratio:.2f}", file=sys.stderr)
+        self.assertLessEqual(ratio, 2.5, totals)
+
+    CALLS_NOTHING = "jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n"
+
+    def runner_default(self, default: str, extra: str = "") -> str:
+        """callee.yml whose `runner` defaults to `default` (YAML single-quoted) and whose runs-on reads it."""
+        return self.DEFAULTED % (f"      runner: {{type: string, default: '{default.replace(chr(39), chr(39) * 2)}'}}\n"
+                                 + extra)
+
+    def test_review_f1_an_input_named_inside_a_string_literal_is_not_read(self) -> None:
+        """Review F1 on #41015: the input reader was a regex over the expression, so `'inputs.runner'` (text) in
+        runner's own default read as a self-reference and the trace reported a loop it does not have. Inputs are
+        read by tokens now: a literal, a format() argument and a bracket form inside a literal read nothing."""
+        branches = "&& 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        for default in ("${{ 'inputs.runner' == 'x' " + branches,
+                        "${{ format('{0} inputs.runner', 'x') == 'y' " + branches,
+                        "${{ 'inputs[\"runner\"]' == 'x' " + branches,
+                        "${{ \"inputs.runner\" == 'x' " + branches):
+            with self.subTest(default=default):
+                files = {"callee.yml": self.runner_default(default), "caller.yml": self.CALLS_NOTHING}
+                _, _, resolved = self.resolve_callee(files)
+                self.assertEqual(resolved.unverifiable, frozenset())
+                self.assertEqual((resolved.runs_on, resolved.runs_on_unresolved),
+                                 ({"blacksmith-8vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"}, set()))
+                findings = self.scan(files)
+                self.assertFalse([f for f in findings if "cannot be verified" in f], findings)
+
+    def test_review_f1_a_real_input_beside_a_literal_is_read_and_only_that_input(self) -> None:
+        """`inputs.runner_count` is not `inputs.runner`, `github.event.inputs.note` is a property of another context,
+        and `inputs.size` inside a literal beside a real `inputs.runner` is text: only the real reads are traced."""
+        extra = ("      runner_count: {type: string}\n      size: {type: string}\n      note: {type: string}\n")
+        callee = self.runner_default("${{ inputs.runner_count == '2' && 'blacksmith-8vcpu-ubuntu-2404' || "
+                                     "'blacksmith-4vcpu-ubuntu-2404' }}", extra)
+        caller = ("jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n"
+                  "      runner_count: ${{ vars.NEW_RC }}\n")
+        files = {"callee.yml": callee, "caller.yml": caller}
+        _, _, resolved = self.resolve_callee(files)
+        self.assertEqual(resolved.unverifiable, frozenset())
+        self.assertEqual({r.name for r in resolved.vars_read if r.field == "runs-on"}, {"NEW_RC"})
+        beside = self.DEFAULTED.replace("${{ inputs.runner }}",
+                                        "${{ inputs.runner != 'inputs.size' && inputs.runner || "
+                                        "github.event.inputs.note || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        callee = beside % ("      runner: {type: string}\n" + extra)
+        caller = ("jobs:\n  c:\n    uses: ./.github/workflows/callee.yml\n    with:\n"
+                  "      runner: ${{ vars.NEW_X }}\n      size: ${{ vars.NOT_A_RUNNER }}\n"
+                  "      note: ${{ vars.NOT_A_RUNNER_EITHER }}\n")
+        files = {"callee.yml": callee, "caller.yml": caller}
+        _, _, resolved = self.resolve_callee(files)
+        self.assertEqual({r.name for r in resolved.vars_read if r.field == "runs-on"}, {"NEW_X"})
+        findings = self.scan(files)
+        self.assert_names(findings, "NEW_X")
+        self.assertFalse([f for f in findings if "NOT_A_RUNNER" in f], findings)
+
+    def test_review_f1_every_context_reader_parses_the_expression(self) -> None:
+        """The same class in the other readers over `${{ }}` text: a literal index inside a literal was rewritten to
+        dot form (the label `lab["el"]` came out `lab.el`), `'matrix.os'` made the field an unexpandable matrix read,
+        and `'secrets'` in a literal read every secret. Each reads by tokens now; real reads still count."""
+        wj = checker.load_workflow_jobs()
+        job = wj.document("jobs:\n  a:\n    runs-on: ${{ github.event_name == 'push' && 'lab[\"el\"]' || 'matrix.os' }}\n")
+        resolved = wj.resolve(job["jobs"]["a"], "a", "x.yml")
+        self.assertEqual((resolved.runs_on, resolved.runs_on_unresolved), ({'lab["el"]', "matrix.os"}, set()))
+        self.assertEqual(wj.secret_names({"env": {"A": "${{ 'secrets.X' == 'secrets' && secrets.REAL || '' }}"}}),
+                         {"REAL"})
+        for text, expected in (("${{ secrets['Y'] }}", {"Y"}), ('${{ secrets["Y"] }}', {"Y"}),
+                               ("${{ toJSON(secrets) }}", {wj.ALL_SECRETS}), ("${{ secrets[matrix.k] }}", {wj.ALL_SECRETS}),
+                               ("${{ SECRETS.y }}", {"Y"}), ("secrets.W != ''", {"W"})):
+            with self.subTest(text=text):
+                self.assertEqual(wj.secret_names({"if": text}), expected)
+        matrix = wj.document("jobs:\n  a:\n    strategy:\n      matrix:\n        os: [m1, m2]\n"
+                             "    runs-on: ${{ matrix['os'] }}-${{ 'matrix.os' }}\n")
+        self.assertEqual(wj.resolve(matrix["jobs"]["a"], "a", "x.yml").runs_on_cells, ["m1-${{ 'matrix.os' }}",
+                                                                                      "m2-${{ 'matrix.os' }}"])
+
     def test_the_resolver_records_each_variable_it_consumes_with_where_it_sits(self) -> None:
         """The checker reads its findings from workflow_jobs.resolve, which records every `vars` operand it consumed
         resolving a field: the file, the job and the key path it sits at, and the field that consumed it."""
@@ -506,15 +700,28 @@ class VarsReadOracle(unittest.TestCase):
     def input_reference(self, model, name, key, seen):
         if (name, key) in seen:
             raise LookupError((name, key))
-        callers = [(caller, call) for caller, flow in model.items() for call in flow["calls"] if call[0] == name]
+        callers = [(caller, index) for caller, flow in model.items() for index, call in enumerate(flow["calls"])
+                   if call[0] == name]
         found = set()
-        for caller, (_, cmatrix, passed) in callers:
-            here = seen | {(name, key)}
-            if key in passed:
-                found |= self.reference(model, caller, passed[key], cmatrix, here)
-            elif key in model[name]["defaults"]:
-                found |= self.reference(model, name, model[name]["defaults"][key], None, here)
+        for caller, index in callers:
+            found |= self.call_reference(model, name, caller, index, key, seen | {(name, key)})
         return found
+
+    def call_reference(self, model, name, caller, index, key, seen):
+        """What input KEY of NAME reads for the one call CALLER makes at INDEX: its `with:` value, read in the
+        caller, or else the default, whose own inputs are this same call's (defaults hold no matrix)."""
+        if (name, caller, index, key) in seen:
+            raise LookupError((name, caller, index, key))
+        here = seen | {(name, caller, index, key)}
+        _, cmatrix, passed = model[caller]["calls"][index]
+        if key in passed:
+            return self.reference(model, caller, passed[key], cmatrix, here)
+        default = model[name]["defaults"].get(key)
+        if default is None:
+            return set()
+        if default[0] in ("input", "cond_input"):
+            return self.call_reference(model, name, caller, index, default[1], here)
+        return self.reference(model, name, default, None, here)
 
     def test_vars_read_matches_the_reference_on_random_graphs(self) -> None:
         import random
