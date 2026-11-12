@@ -582,6 +582,58 @@ if fast is None or "inputs.nightly_next_sign_stage != ''" not in str(fast.get("i
 elif "download-run-artifact.py" not in str(fast.get("run", "")):
     failures.append("the ranged download is download-run-artifact.py, which checks the artifact's digest")
 
+# nightly-sign.yml (shadow) admits a run by the nightly-prepared-app notice of its prepare-nightly-variant job, or
+# of the primary leg it reused. A prepared resume skips the primary, so the fallback leg records the digest of the
+# restored prepared app, the tarball whose zip the resume checked against the push run's artifact digest.
+spec = importlib.util.spec_from_file_location("nightly_sign_admit", ROOT / "scripts" / "ci" / "nightly_sign_admit.py")
+admit = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(admit)
+import hashlib  # noqa: E402
+import os  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    tarball = Path(tmp) / "prepared" / "cmux-prepared-app.tar.gz"
+    tarball.parent.mkdir()
+    tarball.write_bytes(b"prepared app")
+    if getattr(resume, "prepared_sha256", lambda _root: None)(Path(tmp)) != hashlib.sha256(b"prepared app").hexdigest():
+        failures.append("the resume reports the sha256 of the restored prepared tarball (prepared_sha256)")
+if "steps.resume.outputs.prepared_sha256" not in str((build_app.get("outputs") or {}).get("prepared_sha256", "")):
+    failures.append("build-nightly-app outputs the restored prepared app's sha256 (prepared_sha256)")
+reuse = next((s for s in JOBS["prepare-nightly-variant"].get("steps", []) if s.get("id") == "reuse"), {})
+reuse_env = {k: str(v) for k, v in (reuse.get("env") or {}).items()}
+if "needs.build-nightly-app.outputs.prepared_sha256" not in reuse_env.get("PREPARED_SHA256", ""):
+    failures.append("the fallback leg reads the restored prepared app's sha256 (PREPARED_SHA256)")
+
+
+def reuse_notices(**env):
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "out"
+        out.touch()
+        base = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(out), "NIGHTLY_VARIANT": "arm64",
+                "NIGHTLY_FAST_BUILD": "false", "NIGHTLY_SHOULD_PUBLISH": "true", "ARTIFACT": PREPARED,
+                "PRIMARY_RESULT": "skipped", "RESUMED_PREPARED": "true", "PREPARED_SHA256": "c" * 64}
+        done = subprocess.run(["bash", "-c", str(reuse.get("run", ""))], env={**base, **env}, capture_output=True,
+                              text=True, timeout=30)
+        notices = re.findall(rf"^::notice title={admit.DIGEST_TITLE}::(.*)$", done.stdout, re.M)
+        return done.returncode, notices, out.read_text()
+
+
+code, notices, outputs = reuse_notices()
+if code != 0 or "exists=true" not in outputs or len(notices) != 1:
+    failures.append(f"a prepared resume's fallback leg records one {admit.DIGEST_TITLE} digest (got {notices})")
+else:
+    match = admit.DIGEST_MESSAGE.match(notices[0])
+    if not match or match.groups() != ("arm64", PREPARED, "c" * 64, "true", "false"):
+        failures.append(f"the fallback leg's digest record is the one nightly_sign_admit parses: {notices[0]!r}")
+code, notices, _ = reuse_notices(PREPARED_SHA256="")
+if code == 0 or notices:
+    failures.append("a prepared resume without the restored app's sha256 fails the fallback leg, records nothing")
+code, notices, _ = reuse_notices(PRIMARY_RESULT="success", RESUMED_PREPARED="", PREPARED_SHA256="")
+if code != 0 or notices:
+    failures.append("after a primary success the fallback records nothing: the primary's record is the producer's")
+
 if failures:
     print("FAIL: nightly-next build and sign stages pipelined\n  " + "\n  ".join(failures))
     sys.exit(1)
