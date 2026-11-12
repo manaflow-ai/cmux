@@ -891,7 +891,7 @@ export class SubagentFold {
 
   /// The subagent ids record `event` names, for a rebuild's cut (direct.ts `rebuild`): its
   /// `_meta.acpmux` tag and progress list (ids and parents), a child session under the chat's
-  /// (`ownerOf`), an acpmux child's session, and a Codex sender thread. More than the fold reads is
+  /// (`ownerOf`) and an acpmux child's session. More than the fold reads is
   /// fine: a name too many only moves a cut back.
   static namedIn(event: Event, update: any, chat: string | undefined, add: (id: string) => void): void {
     const params = event.msg?.params;
@@ -905,8 +905,11 @@ export class SubagentFold {
     const session = params?.sessionId;
     if (typeof session === "string" && chat && session.startsWith(`${chat}/`)) add(session);
     if (typeof event.msg?.childSessionId === "string") add(event.msg.childSessionId);
-    const sender = (update?._meta?.codex?.collaboration ?? params?._meta?.codex?.collaboration)?.senderThreadId;
-    if (typeof sender === "string") add(sender);
+  }
+
+  /// Whether `id` is the chat's own thread, never one of its subagents (``isChat``).
+  isChatThread(id: string): boolean {
+    return this.isChat(id);
   }
 
   /// Each subagent's own view (its text, thoughts and tool calls, and the subagents it spawned

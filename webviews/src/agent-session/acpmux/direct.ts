@@ -2317,12 +2317,39 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   private noteChange(id: string, seq: number): void {
     const last = this.changeSeqs.length - 1;
-    if (last >= 0 && seq < this.changeSeqs[last]!) return;
-    if (last >= 0 && this.changeIds[last] === id) this.changeSeqs[last] = seq;
-    else {
-      this.changeSeqs.push(seq);
-      this.changeIds.push(id);
+    if (last < 0 || seq >= this.changeSeqs[last]!) {
+      if (last >= 0 && this.changeIds[last] === id) this.changeSeqs[last] = seq;
+      else {
+        this.changeSeqs.push(seq);
+        this.changeIds.push(id);
+      }
+      return;
     }
+    // A write by an older record than the newest noted (a repair's record refolded past a cut, an
+    // older page) goes in its place: a later cut between it and its row must still see it.
+    const at = this.changesFrom(seq + 1);
+    this.changeSeqs.splice(at, 0, seq);
+    this.changeIds.splice(at, 0, id);
+  }
+
+  /// The index of the first change noted at or after record `seq`.
+  private changesFrom(seq: number): number {
+    let low = 0;
+    let high = this.changeSeqs.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (this.changeSeqs[middle]! < seq) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  }
+
+  /// A refold past a cut at `seq` writes every change from it on again: the ones noted go first,
+  /// so the log does not grow with each repair.
+  forgetChangesFrom(seq: number): void {
+    const at = this.changesFrom(seq);
+    this.changeSeqs.length = at;
+    this.changeIds.length = at;
   }
 
   /// The oldest place of a row made before record `seq` that a record from `seq` on changed:
@@ -2350,8 +2377,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     for (let index = 0; index < this.changeIds.length; index += 1)
       if (this.changeIds[index] === from) this.changeIds[index] = into;
     if (!Number.isFinite(made)) return;
-    let at = this.changeSeqs.length;
-    while (at > 0 && this.changeSeqs[at - 1]! > made) at -= 1;
+    const at = this.changesFrom(made + 1);
     this.changeSeqs.splice(at, 0, made);
     this.changeIds.splice(at, 0, into);
   }
@@ -2415,6 +2441,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.orderedIndex.delete(id);
     for (let index = at; index < ordered.length; index += 1) this.orderedIndex.set(ordered[index]!.id, index);
     this.changedSlot = MANY_SLOTS;
+    // The rows from its slot on moved: the next snapshot keeps only the ones before it.
+    this.changedFrom(at);
   }
 
   /// The oldest slot of the kept order a ``retain`` deleted, while it runs.
@@ -2484,6 +2512,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
           ordered.push(row);
         }
         this.changedSlot = MANY_SLOTS;
+        this.changedFrom(from);
       }
     }
     this.latest = 0;
@@ -7283,9 +7312,23 @@ export class AcpmuxDirectClient {
     // turns later, a call whose update does, a subagent that goes on) would start over in the
     // refold and draw twice, or lose what came above: the cut goes back to where it started,
     // until none spans it.
+    // The subagents named from the cut on: each step reads only the records it moved back over.
+    const named = new Set<string>();
+    let read = this.events.length;
+    if (cut > 0)
+      for (const agent of this.subagents.all())
+        if (agent.state === "running" || (agent.endedAt ?? -Infinity) >= this.events[cut]!.at) named.add(agent.id);
     while (cut > 0) {
-      const { seq, at } = this.events[cut]!;
-      const from = Math.min(this.subagentSpanFrom(cut, seq, at), this.rows.spanningFrom(seq));
+      const { seq } = this.events[cut]!;
+      for (; read > cut; read -= 1) {
+        const event = this.events[read - 1]!;
+        SubagentFold.namedIn(event, sessionUpdate(event), this.selectedSessionId, (id) => named.add(id));
+      }
+      let from = this.rows.spanningFrom(seq);
+      for (const id of named) {
+        const first = this.subagentFirstSeen.get(id);
+        if (first !== undefined && first < seq) from = Math.min(from, first);
+      }
       if (from === Infinity) break;
       const next = rebuildCut(this.events, Math.min(changedFrom!, from), openSince);
       if (next >= cut) break;
@@ -7339,7 +7382,10 @@ export class AcpmuxDirectClient {
       this.rows.retain(keep);
       this.rows.forgetChanges();
       this.subagentFirstSeen.clear();
-    } else this.rows.retainFrom(frozenBefore, keep);
+    } else {
+      this.rows.retainFrom(frozenBefore, keep);
+      this.rows.forgetChangesFrom(frozenBefore);
+    }
     // Found again as the held init lines are reduced: a seek back keeps no later model or version.
     // Past a cut, the ones above it stay: the refold finds only its own.
     const above = (seq: number) => frozenBefore !== undefined && seq < frozenBefore;
@@ -8239,8 +8285,10 @@ export class AcpmuxDirectClient {
 
   private reduce(event: EventRecord): void {
     this.rows.current = event.seq;
+    // The chat's own thread is named in every turn (a Codex spawn's parent): it spans no cut.
     SubagentFold.namedIn(event, sessionUpdate(event), this.selectedSessionId, (id) => {
-      if (event.seq < (this.subagentFirstSeen.get(id) ?? Infinity)) this.subagentFirstSeen.set(id, event.seq);
+      if (!this.subagents.isChatThread(id) && event.seq < (this.subagentFirstSeen.get(id) ?? Infinity))
+        this.subagentFirstSeen.set(id, event.seq);
     });
     try {
       this.reduceEvent(event);
@@ -12774,26 +12822,9 @@ export class AcpmuxDirectClient {
   private readonly presetApprovals = new PresetApprovalFold();
   /// The first record that named each subagent id (`SubagentFold.namedIn`), kept across rebuilds
   /// past a cut, whose fold starts over and knows only the subagents past it; a full rebuild
-  /// reads it again.
+  /// reads it again. A cut goes back to the first record of any subagent named on both sides of
+  /// it, in records the fold read or a repair just brought (`rebuild`).
   private readonly subagentFirstSeen = new Map<string, number>();
-  /// Where a rebuild cut at held record `cut` (record `seq`, time `at`) must go back to for the
-  /// subagents: the first record of any subagent named both before it and in a record from it on,
-  /// folded yet or not (a repair brings records the fold never read), and of any the fold still
-  /// knows to have run on past it. Infinity when none. O(records from the cut on).
-  private subagentSpanFrom(cut: number, seq: number, at: number): number {
-    let from = Infinity;
-    const add = (id: string) => {
-      const first = this.subagentFirstSeen.get(id);
-      if (first !== undefined && first < seq) from = Math.min(from, first);
-    };
-    for (let index = cut; index < this.events.length; index += 1) {
-      const event = this.events[index]!;
-      SubagentFold.namedIn(event, sessionUpdate(event), this.selectedSessionId, add);
-    }
-    for (const agent of this.subagents.all())
-      if (agent.state === "running" || (agent.endedAt ?? -Infinity) >= at) add(agent.id);
-    return from;
-  }
   /// The subagents' views as a rebuild past a cut left them (`rebuild`), under the live fold's.
   private frozenSubagentViews: Record<string, AcpmuxRow[]> | undefined;
   private subagentViewsOf:
