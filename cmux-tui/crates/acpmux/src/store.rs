@@ -1385,6 +1385,8 @@ pub struct LocalStore {
     rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
     /// The parts files written or read (`store/meta_parts.rs`).
     parts: meta_parts::PartsMemo,
+    #[cfg(test)]
+    pub(crate) meta_saves: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// The logs held open, at most `LocalStore::open_logs` (`store/open_logs.rs`): the least
@@ -1434,6 +1436,8 @@ impl LocalStore {
             cold: Default::default(),
             rehydrate_hook: Default::default(),
             parts: Default::default(),
+            #[cfg(test)]
+            meta_saves: Default::default(),
         })
     }
 
@@ -1899,6 +1903,8 @@ impl Store for LocalStore {
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
+        #[cfg(test)]
+        self.meta_saves.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let _open = self.writable()?;
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
