@@ -34,7 +34,7 @@ final class ConversationHeaderView: UIView {
     /// heavy, small scale, in tertiary label color.
     private let chevron = UIImageView(image: UIImage(systemName: "chevron.compact.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .heavy, scale: .small)))
     let trailingGlass = makeGlassView(cornerRadius: 22, interactive: true, clipsContent: false)
-    let trailingButton = UIButton(type: .system)
+    let trailingButton = ConversationHeaderCircleButton(type: .system)
     private let avatarTapButton = UIButton(type: .custom)
     let statusLabel = UILabel()
     /// iOS 27 sizes the soft top pocket from the elements inside its
@@ -381,6 +381,33 @@ final class ConversationHeaderView: UIView {
         return view === self ? nil : view
     }
 }
+/// The header's trailing glass circle button. When it opens the page menu,
+/// UIKit lifts the button into the menu and puts it back when the menu
+/// closes; with default preview parameters that preview is the button's
+/// square bounds on a background platter, so the circle showed as a square
+/// for a moment after the menu closed. Both previews are the circle itself,
+/// on a clear background, so the button keeps its shape throughout.
+final class ConversationHeaderCircleButton: UIButton {
+    /// The preview of the button: its own circle, nothing behind it.
+    func circlePreview() -> UITargetedPreview? {
+        guard window != nil, bounds.width > 0, bounds.height > 0 else { return nil }
+        let parameters = UIPreviewParameters()
+        parameters.backgroundColor = .clear
+        parameters.visiblePath = UIBezierPath(roundedRect: bounds, cornerRadius: min(bounds.width, bounds.height) / 2)
+        return UITargetedPreview(view: self, parameters: parameters)
+    }
+
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         previewForHighlightingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        circlePreview() ?? super.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: configuration)
+    }
+
+    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
+                                         previewForDismissingMenuWithConfiguration configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        circlePreview() ?? super.contextMenuInteraction(interaction, previewForDismissingMenuWithConfiguration: configuration)
+    }
+}
+
 /// Messages' top scroll edge: the transcript washes out toward the
 /// background under the header without blurring. Measured on iOS 26
 /// Messages: a flat 85.5% wash (60% in dark mode) down to 74 pt above the
