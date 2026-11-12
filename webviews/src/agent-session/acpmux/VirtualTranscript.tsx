@@ -9,6 +9,7 @@ import React, {
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -208,6 +209,19 @@ import {
   SCROLL_ANCHOR_SETTLE_MS,
 } from "./virtualTranscriptModel";
 
+/// How soon after the box's last width a new one counts as the same live resize (a drag's frames come
+/// every 8 to 17 ms; a window's or a strip's one-off change never has a second within it), and how
+/// long a width holds before the whole chat is measured at it.
+const LIVE_RESIZE_MS = 120;
+/// The rows past each end of the mounted ones a live resize's frame still measures at the new width.
+const LIVE_RESIZE_ROWS = 40;
+/// The live width steps before the rows flow (`FLOW_CLASS`).
+const LIVE_FLOW_STEPS = 2;
+/// The thread's class while a live drag flows its rows (conversation.css): the rows sit in normal
+/// flow from their placed range, and the browser rewraps them at each width.
+const FLOW_CLASS = "acpmux-thread--flow";
+/// With FLOW_CLASS while the view follows the latest row: the rows are anchored at its bottom.
+const FLOW_END_CLASS = "acpmux-thread--flow-end";
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
 
@@ -565,7 +579,14 @@ const RowFrame = React.memo(function RowFrame({
       // from the thread's padding edge, not where an unset one sat, so it adds the padding.
       // Large CSS numeric offsets lose fractional bits in WebKit. Keep the integer offset and
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
-      style={{ top: integralTop, marginTop: placedTop - integralTop }}
+      // The gap under it as a margin for a flowing drag (`FLOW_CLASS`), where the rows sit in flow.
+      style={
+        {
+          top: integralTop,
+          marginTop: placedTop - integralTop,
+          "--acpmux-row-gap": `${gapBelow}px`,
+        } as React.CSSProperties
+      }
       onFocus={() => onFocus(row.id)}
     >
       {/* The row's own trailing gap is the only row-local empty surface owned by transcript selection.
@@ -1213,6 +1234,46 @@ function useTranscriptReferences(source: readonly AcpmuxRow[]): TranscriptRefere
   return value;
 }
 
+/// The last layout estimate of a transcript: its rows, their layout, and the row width and chat it was made for.
+/// `partial`: made in a live resize, so only the rows around the mounted ones are at that width.
+interface LastEstimate {
+  rows: readonly AcpmuxRow[];
+  layout: ConversationLayout;
+  width: number;
+  sessionId?: string;
+  partial?: boolean;
+}
+
+/// What a new estimate takes from the last pass (layoutConversation's `last` and `resizing`). `last`: the last
+/// estimate, or none when nothing of it may be kept (a new registry, chat or look). `placed`: the rows the last
+/// placement mounted. `live`: the box's width changed again within LIVE_RESIZE_MS (a live resize).
+/// - `kept`: the last estimate, when it is whole and for this width and chat: the rows it starts with keep
+///   their heights.
+/// - `resizing`: a live resize's frame at a new width measures only the rows around the mounted ones; the rest
+///   keep the last layout's heights (O(rows in view), not O(rows)). A chat that window covers half of or more
+///   is measured whole (a short chat costs less measured whole than placed again from row 0 over a partial
+///   layout): that layout is not partial.
+function estimateFrom(
+  last: LastEstimate | undefined,
+  placed: { first: number; last: number } | undefined,
+  live: boolean,
+  rowWidth: number,
+  sessionId: string | undefined,
+  rowCount: number,
+): {
+  kept: LastEstimate | undefined;
+  resizing: { rows: readonly AcpmuxRow[]; layout: ConversationLayout; from: number; to: number } | undefined;
+  partial: boolean;
+} {
+  if (!last || last.sessionId !== sessionId) return { kept: undefined, resizing: undefined, partial: false };
+  if (last.width === rowWidth) return { kept: last.partial ? undefined : last, resizing: undefined, partial: false };
+  if (!live || !placed) return { kept: undefined, resizing: undefined, partial: false };
+  const from = Math.max(0, placed.first - LIVE_RESIZE_ROWS);
+  const to = placed.last + LIVE_RESIZE_ROWS;
+  if ((to - from) * 2 >= rowCount) return { kept: undefined, resizing: undefined, partial: false };
+  return { kept: undefined, resizing: { rows: last.rows, layout: last.layout, from, to }, partial: true };
+}
+
 function TranscriptView({
   rows: paneRows,
   streams = false,
@@ -1695,6 +1756,35 @@ function TranscriptView({
   };
   /// When the view last changed size: the passes that settle the rows after it never glide.
   const resizedAt = useRef(Number.NEGATIVE_INFINITY);
+  /// A live resize (a divider or window edge dragged): the box's width changed again within
+  /// LIVE_RESIZE_MS of its last change. Each frame of it measures only the rows around the view
+  /// (layoutConversation `resizing`); the whole chat is measured once, when the width holds.
+  /// `flow`: the row width the rows were placed at when the drag began to flow. While it is set the
+  /// mounted rows sit in normal flow (`FLOW_CLASS`) and the browser lays them out at each new width
+  /// as it does a web page; React places nothing until the width holds (Leo, 2026-11-11: "the
+  /// dragging responsiveness is slow for agent chat but fast for browser hmmm").
+  const liveResize = useRef<{
+    at: number;
+    live: boolean;
+    /// Width steps in a row, each within LIVE_RESIZE_MS of the one before.
+    steps: number;
+    flow?: number;
+    /// The chat the rows flow in: another chat ends the flow.
+    flowSession?: string;
+    /// The box's effect was cleaned up inside a live resize (its inputs changed): its next run starts
+    /// the settle's timer that the cleanup cleared, so the width's settle is not lost.
+    rearm?: boolean;
+  }>({
+    at: Number.NEGATIVE_INFINITY,
+    live: false,
+    steps: 0,
+  });
+  /// `liveResize.flow` as the render reads it: set and cleared in the same update as the ref, which
+  /// the handlers and effects read (a render reads no ref).
+  const [flowWidth, setFlowWidth] = useState<number | undefined>();
+  const [resizeSettled, settleResize] = useReducer((count: number) => count + 1, 0);
+  /// The chat of the last commit, for a flow that starts from the box's observer.
+  const sessionIdRef = useRef(sessionId);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
   // The native pane's width, distinct from the transcript scroller's width when Push always reserves
@@ -1970,6 +2060,8 @@ function TranscriptView({
   // left then, and kept room above the stack for FLOOR_HOLD_MS that then glided away (#24182).
   useLayoutEffect(() => noteQueue(), [sessionId, queueIds, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
+  /// The width the box last measured at, read by its ResizeObserver to tell a width change.
+  const widthRef = useRef(width);
   // The page zoom the column's cap is divided by: a new one measures every row again.
   const { scale: chatScale } = useChatSizing();
   // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
@@ -1987,9 +2079,7 @@ function TranscriptView({
   const pendingMeasures = useRef(new Map<HTMLElement, () => void>());
   const measurementCache = useRef(new Map<string, import("./model").PreparedRow>());
   /// The last estimate, whose unchanged leading rows the next one keeps.
-  const lastEstimate = useRef<
-    { rows: readonly AcpmuxRow[]; layout: ConversationLayout; width: number; sessionId?: string } | undefined
-  >(undefined);
+  const lastEstimate = useRef<LastEstimate | undefined>(undefined);
   /// Estimated heights by row object, for the registry they were measured with.
   const rowHeights = useRef<{ registry: NativeRegistry; heights: RowHeights }>({
     registry,
@@ -2007,7 +2097,23 @@ function TranscriptView({
   const drawnRef = useRef(drawn);
   drawnRef.current = drawn;
   const endReserve = Math.max(cardReserve, minimapBeside ? minimapReserve(width) : 0);
-  const scaledRowWidth = transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
+  // While a drag flows the rows keep the width they were placed at: nothing is estimated or placed
+  // again until the width holds (`flowWidth`, the render's copy of `liveResize.flow`).
+  const scaledRowWidth = flowWidth ?? transcriptRowWidth(width, chatColumnOf(chatLook, chatScale), endReserve);
+  /// Whether the last commit was a flowing one: its rows are at a width it did not place at, so no
+  /// height is read until a render that does not flow commits, even when the flow ended in between
+  /// (an end from inside a commit renders only after it).
+  const renderedFlowing = useRef(false);
+  const flowing = flowWidth !== undefined;
+  // Written as the render commits, before any layout effect's setup and any ref attach of that
+  // commit (the rows' own among them): every reader runs from one of those, an observer or a timer.
+  // A layout effect's CLEANUP of that commit runs before this write and still sees the commit before.
+  useInsertionEffect(() => {
+    renderedFlowing.current = flowing;
+    sessionIdRef.current = sessionId;
+  });
+  /// A flow ended from a commit: the first commit that does not flow reads the mounted rows.
+  const readAfterSettle = useRef(false);
   const rowWidthRef = useRef(scaledRowWidth);
   rowWidthRef.current = scaledRowWidth;
   const rowsRef = useRef(rows);
@@ -2190,6 +2296,8 @@ function TranscriptView({
   useEffect(() => () => olderRows.current?.disconnect(), []);
   const reportDrawn = useCallback<ReportDrawn>(
     (id, version, drawnHeight, actions, status) => {
+      // A flowing drag's rows are at a width they were not placed at: nothing is read until it holds.
+      if (liveResize.current.flow !== undefined || renderedFlowing.current) return;
       // A row not laid out (hidden, or no layout at all) has no height yet; 0 is one (drawnHeightOf).
       if (drawnHeight !== undefined)
         pendingDrawn.current.set(id, {
@@ -2240,6 +2348,8 @@ function TranscriptView({
         look: ReturnType<typeof useChatDisplay>;
         /// So does a new attachment view (inline or strip, UserBubble.tsx).
         view: typeof attachmentView;
+        /// Placed over a live resize's partial estimate (rows out of view at the last width's heights).
+        partial: boolean;
         first: number;
         last: number;
         /// Rows mounted outside that range because a margin drag's selection holds them (at most two).
@@ -2268,6 +2378,37 @@ function TranscriptView({
       return changes ? current.with(changes) : current;
     });
   }, []);
+  /// Where a flowing drag's rows hang from (`FLOW_CLASS`): the latest mounted row's placed bottom
+  /// while the view follows it, else the first mounted row's placed top. Set again by every commit
+  /// while the rows flow, so a row that arrives or mounts during the drag moves the anchor with it.
+  /// False when the mounted rows cannot flow (more than one range, a held row, a fold riding, rows
+  /// in the thread that are not the placed ones).
+  const anchorFlow = useCallback((): boolean => {
+    const placed = lastPlaced.current;
+    const threadNode = thread.current;
+    if (!placed || !threadNode || placed.held.length > 0 || placed.last <= placed.first) return false;
+    if (foldRide.current?.riding || placed.partial) return false;
+    if (threadNode.querySelectorAll(":scope > .acpmux-row").length !== placed.last - placed.first) return false;
+    const geometry = placed.layout.geometry;
+    const end = followingRef.current;
+    const at = end
+      ? geometry.topAt(placed.last - 1) + geometry.heightAt(placed.last - 1)
+      : geometry.topAt(placed.first);
+    threadNode.style.setProperty(end ? "--acpmux-flow-end" : "--acpmux-flow-start", `${THREAD_TOP + at}px`);
+    threadNode.style.removeProperty(end ? "--acpmux-flow-start" : "--acpmux-flow-end");
+    threadNode.classList.toggle(FLOW_END_CLASS, end);
+    return true;
+  }, []);
+  // A live drag's rows go into normal flow from where they were placed, so the browser rewraps
+  // them at each width in its own layout pass, with no React pass and no height read (Leo,
+  // 2026-11-11: "the dragging responsiveness is slow for agent chat but fast for browser hmmm").
+  const startFlow = useCallback(() => {
+    if (!anchorFlow()) return;
+    thread.current!.classList.add(FLOW_CLASS);
+    liveResize.current.flow = rowWidthRef.current;
+    liveResize.current.flowSession = sessionIdRef.current;
+    setFlowWidth(rowWidthRef.current);
+  }, [anchorFlow]);
   /// Reports the height `target` (a drawn row) lays out at now.
   const reportRow = useCallback(
     (target: HTMLElement) => {
@@ -2298,6 +2439,69 @@ function TranscriptView({
   // The ride lives across renders; it reports through the current session's `reportRow`.
   const reportRowRef = useRef(reportRow);
   reportRowRef.current = reportRow;
+  // The rows leave the flow and are placed at the width that holds, measured before the frame
+  // paints, in this one task: no frame draws them at their old places at the new width.
+  /// Reads every mounted row at the committed width, placing again only for a height that changed.
+  const readMounted = useCallback(() => {
+    const threadNode = thread.current;
+    if (threadNode)
+      for (const row of threadNode.querySelectorAll<HTMLElement>(":scope > .acpmux-row")) reportRowRef.current(row);
+    if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushDrawn();
+    else pendingDrawn.current = new Map();
+  }, [flushDrawn]);
+  /// Ends a flowing drag: the rows leave the flow and are placed at the width that holds. From its
+  /// timer (a task) that is one synchronous render before the frame paints, and its rows are read
+  /// once it committed. From a commit (`inCommit`) no render can run inside it: the settle is
+  /// scheduled, and the first commit that does not flow reads the rows (`readAfterSettle`).
+  const endFlow = useCallback(
+    (inCommit: boolean) => {
+      const live = liveResize.current;
+      const from = live.flow;
+      if (from === undefined) return;
+      live.flow = undefined;
+      live.flowSession = undefined;
+      const threadNode = thread.current;
+      threadNode?.classList.remove(FLOW_CLASS, FLOW_END_CLASS);
+      threadNode?.style.removeProperty("--acpmux-flow-end");
+      threadNode?.style.removeProperty("--acpmux-flow-start");
+      if (inCommit) {
+        readAfterSettle.current = true;
+        setFlowWidth(undefined);
+        settleResize();
+        return;
+      }
+      // At a new width the settle's render measures its rows at it (RowFrame's rowWidth). A width
+      // that came back to the one the rows were placed at renders nothing new: read them then.
+      flushSync(() => {
+        setFlowWidth(undefined);
+        settleResize();
+      });
+      if (rowWidthRef.current === from) flushSync(readMounted);
+    },
+    [readMounted],
+  );
+  // Every commit while the rows flow moves their anchor with what it mounted; one that cannot flow
+  // (another chat, a held row, a second range) ends the flow and places the rows after it.
+  useLayoutEffect(() => {
+    const live = liveResize.current;
+    if (live.flow !== undefined) {
+      if (live.flowSession !== sessionId || !anchorFlow()) endFlow(true);
+      return;
+    }
+    if (readAfterSettle.current && !renderedFlowing.current) {
+      readAfterSettle.current = false;
+      readMounted();
+    }
+  });
+  // A transcript that unmounts mid-drag leaves no flow (the box's effect cleared the settle's timer).
+  // The render's copy goes with it, for a transcript whose effects stop and start again.
+  useEffect(
+    () => () => {
+      liveResize.current.flow = undefined;
+      setFlowWidth(undefined);
+    },
+    [],
+  );
   foldRide.current ??= new FoldRide({
     placed: (row) => {
       const id = row.dataset.rowId;
@@ -2329,6 +2533,9 @@ function TranscriptView({
       typeof ResizeObserver === "undefined"
         ? undefined
         : new ResizeObserver((entries?: ResizeObserverEntry[]) => {
+            // A flowing drag's rows rewrap every frame at a width they were not placed at: their
+            // heights are read once, when the width holds (`endFlow`).
+            if (liveResize.current.flow !== undefined || renderedFlowing.current) return;
             const targets = (entries ?? []).map((entry) => entry.target as HTMLElement);
             const measure = () => {
               for (const target of targets) reportRow(target);
@@ -2440,6 +2647,8 @@ function TranscriptView({
     // Child layout effects enqueue; all sibling DOM writes finish before this parent effect.
     // Read the dirty rows together, then apply the existing pre-paint placement correction.
     // No frame/task deferral, and no scan of the mounted window or full transcript.
+    // A flowing drag keeps them for the render that ends it: a height read now is at another width.
+    if (liveResize.current.flow !== undefined || renderedFlowing.current) return;
     const measures = pendingMeasures.current;
     pendingMeasures.current = new Map();
     for (const measure of measures.values()) measure();
@@ -2538,9 +2747,40 @@ function TranscriptView({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
+    const live = liveResize.current;
+    /// The settle's timer: this run's own, cleared by its cleanup.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    /// The width held for LIVE_RESIZE_MS: the live resize is over.
+    const settle = () => {
+      timer = undefined;
+      live.live = false;
+      if (live.flow !== undefined) endFlow(false);
+      // Settle whatever left a partial layout, even a step that came late enough to end the drag.
+      else if (lastEstimate.current?.partial) settleResize();
+    };
+    if (live.rearm) {
+      // The run before had a settle on the way: it keeps its time, LIVE_RESIZE_MS after the last width.
+      live.rearm = false;
+      timer = setTimeout(settle, Math.max(0, live.at + LIVE_RESIZE_MS - performance.now()));
+    }
+    /// A new width from the box's observer or the page's show (never the first measure). A second
+    /// width within LIVE_RESIZE_MS is a live resize: its frames measure the rows in view, and the
+    /// whole chat is measured once LIVE_RESIZE_MS after its last width.
+    const widthStep = () => {
+      const now = performance.now();
+      live.live = now - live.at < LIVE_RESIZE_MS;
+      live.steps = live.live ? live.steps + 1 : 0;
+      live.at = now;
+      clearTimeout(timer);
+      timer = setTimeout(settle, LIVE_RESIZE_MS);
+      // Rows flow from the drag's third step on: two width changes close together can be a
+      // scrollbar or a column settling, never a drag.
+      if (live.steps >= LIVE_FLOW_STEPS && live.flow === undefined) startFlow();
+    };
     /// This transcript's box as last measured (`shown` below compares the box on show with it).
     const box = { height: -1, width: -1 };
-    const measure = (resized: boolean) => {
+    /// `resized`: the box changed (not the first measure); `stepped` then hears a new width.
+    const measure = (resized: boolean, stepped?: () => void) => {
       box.height = node.clientHeight;
       box.width = node.offsetWidth;
       // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.
@@ -2549,7 +2789,10 @@ function TranscriptView({
       // box past the content width, never below 0, so a box with no layout box (jsdom) keeps its
       // content width.
       const nextLane = Math.max(0, node.offsetWidth - node.clientWidth);
-      setWidth(node.clientWidth + nextLane);
+      const nextWidth = node.clientWidth + nextLane;
+      if (resized && nextWidth !== widthRef.current) stepped?.();
+      widthRef.current = nextWidth;
+      setWidth(nextWidth);
       setLane(nextLane);
       const shellWidth = node.closest<HTMLElement>(".acpmux-shell")?.clientWidth;
       setPaneWidth(shellWidth && shellWidth > 0 ? shellWidth : node.clientWidth + nextLane);
@@ -2560,7 +2803,7 @@ function TranscriptView({
     // transcript at its old offset and caught up a frame later.
     const observer = new ResizeObserver(() => {
       noteQueue();
-      flushSync(() => measure(true));
+      flushSync(() => measure(true, widthStep));
     });
     observer.observe(node);
     measure(false);
@@ -2577,14 +2820,17 @@ function TranscriptView({
       if (doc.visibilityState === "hidden" || node.clientHeight <= 0) return;
       if (node.clientHeight === box.height && node.offsetWidth === box.width) return;
       noteQueue();
-      flushSync(() => measure(true));
+      flushSync(() => measure(true, widthStep));
     };
     doc.addEventListener("visibilitychange", shown);
     return () => {
       observer.disconnect();
       doc.removeEventListener("visibilitychange", shown);
+      // The timer is this run's: a next run (new inputs inside a live resize) starts it again.
+      live.rearm = timer !== undefined;
+      clearTimeout(timer);
     };
-  }, [noteQueue]);
+  }, [noteQueue, startFlow, endFlow]);
   const previousLayout = useRef<PlacedLayout | null>(null);
   const previousRows = useRef<readonly AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace, dockCard });
@@ -2912,19 +3158,32 @@ function TranscriptView({
     if (rowHeights.current.registry !== registry || lookChanged)
       rowHeights.current = { registry, heights: new WeakMap() };
     const rowWidth = scaledRowWidth;
-    const last = lastEstimate.current;
+    // A live resize's frame at a new width: only the rows around the mounted ones are measured, the
+    // rest keep the last layout's heights (O(rows in view), not O(rows)). Its settle (`resizeSettled`)
+    // measures every row at the width that held; a partial layout is never a base to keep rows from.
+    void resizeSettled;
+    // What the last pass left, read once for this one (`estimateFrom`).
+    const { kept, resizing, partial } = estimateFrom(
+      fresh ? undefined : lastEstimate.current,
+      lastPlaced.current,
+      liveResize.current.live,
+      rowWidth,
+      sessionId,
+      rows.length,
+    );
     const layout = layoutConversation(
       rows,
       rowWidth,
       cache,
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
       measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
-      !fresh && last && last.width === rowWidth && last.sessionId === sessionId ? last : undefined,
+      kept,
       sessionId,
+      resizing,
     );
-    lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
-    return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth]);
+    lastEstimate.current = { rows, layout, width: rowWidth, sessionId, partial };
+    return { layout, partial, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
+  }, [rows, registry, sessionId, chatLook, attachmentView, scaledRowWidth, resizeSettled]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -2946,6 +3205,8 @@ function TranscriptView({
       last.registry === registry &&
       last.look === chatLook &&
       last.view === attachmentView &&
+      // A placement over a live resize's partial estimate keeps nothing once every row is measured.
+      !last.partial &&
       drawn.size > 0
     ) {
       const limit = Math.min(rows.length, last.rows.length);
@@ -3049,6 +3310,7 @@ function TranscriptView({
       registry,
       look: chatLook,
       view: attachmentView,
+      partial: estimated.partial,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
       held: last?.held ?? [],
