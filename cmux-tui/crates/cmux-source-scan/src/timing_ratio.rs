@@ -1234,21 +1234,30 @@ impl BodyScan<'_> {
     }
 }
 
+// A pattern binds after the expression it matches has run (a `let`'s initializer and its `else`,
+// an `if let` or `while let` scrutinee, a `for` loop's iterable), so that expression is visited
+// first, in the frame around it: an assignment there to an outer name outlives the pattern's
+// frame (review of cmux#41761 F2).
 impl<'ast> Visit<'ast> for BodyScan<'_> {
     fn visit_local(&mut self, l: &'ast syn::Local) {
         match &l.init {
             Some(init) => {
+                self.visit_expr(&init.expr);
+                if let Some((_, diverge)) = &init.diverge {
+                    self.visit_expr(diverge);
+                }
                 let k = self.sc.kind_of(&init.expr);
                 self.sc.bind(&l.pat, Some(&init.expr), &k);
             }
             None => self.sc.bind(&l.pat, None, &Kind::of(Base::Other)),
         }
-        visit::visit_local(self, l);
+        self.visit_pat(&l.pat);
     }
     fn visit_expr_let(&mut self, e: &'ast syn::ExprLet) {
+        self.visit_expr(&e.expr);
         let k = self.sc.kind_of(&e.expr);
         self.sc.bind(&e.pat, Some(&e.expr), &k);
-        visit::visit_expr_let(self, e);
+        self.visit_pat(&e.pat);
     }
     fn visit_block(&mut self, b: &'ast Block) {
         self.sc.open();
@@ -1256,10 +1265,12 @@ impl<'ast> Visit<'ast> for BodyScan<'_> {
         self.sc.close();
     }
     fn visit_expr_for_loop(&mut self, f: &'ast syn::ExprForLoop) {
+        self.visit_expr(&f.expr);
         let k = self.sc.kind_of(&f.expr);
         self.sc.open();
         self.sc.bind(&f.pat, None, &k);
-        visit::visit_expr_for_loop(self, f);
+        self.visit_pat(&f.pat);
+        self.visit_block(&f.body);
         self.sc.close();
     }
     fn visit_expr_if(&mut self, e: &'ast syn::ExprIf) {
