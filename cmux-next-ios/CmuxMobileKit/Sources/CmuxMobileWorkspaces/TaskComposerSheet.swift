@@ -49,7 +49,7 @@ struct TaskComposerSheet: View {
                 agentsSection
                 whereSection
             }
-            .scrollDismissesKeyboard(.interactively)
+            .scrollDismissesKeyboard(.immediately)
             .navigationTitle("New Task")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

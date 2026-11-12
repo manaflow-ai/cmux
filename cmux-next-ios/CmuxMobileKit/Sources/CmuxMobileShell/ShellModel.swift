@@ -185,6 +185,13 @@ final class ShellModel {
                 currentTab: { store?.workspace(id: workspaceID)?.tabs.first { $0.id == tabID } },
                 currentModel: { terminalTabs?.model(forTabID: tabID) })
         }
+        #if DEBUG
+        // `CMUX_MOBILE_TASK_DRAFT_IMAGES=N`: New Task opens with N photos attached (its captures;
+        // the system photo picker runs out of the app's process).
+        if let count = ProcessInfo.processInfo.environment["CMUX_MOBILE_TASK_DRAFT_IMAGES"].flatMap(Int.init), count > 0 {
+            creator.taskDraft.images = (0..<min(count, TaskDraft.imageLimit)).map { Self.demoTaskImage($0) }
+        }
+        #endif
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
@@ -199,6 +206,28 @@ final class ShellModel {
             shellLog.error("\(what, privacy: .public): \(message, privacy: .public)")
         }
     }
+
+    #if DEBUG
+    /// A screenshot-like picture for New Task's captures: a colored gradient with bars.
+    static func demoTaskImage(_ index: Int) -> TaskImage {
+        let colors: [(UIColor, UIColor)] = [(.systemBlue, .systemTeal), (.systemOrange, .systemPink), (.systemGreen, .systemMint),
+                                            (.systemPurple, .systemIndigo), (.systemRed, .systemYellow), (.systemGray, .systemBrown)]
+        let (top, bottom) = colors[index % colors.count]
+        let size = CGSize(width: 390, height: 844)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let data = UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: 0.8) { context in
+            let cg = context.cgContext
+            let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [top.cgColor, bottom.cgColor] as CFArray, locations: [0, 1])
+            if let gradient { cg.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 0, y: size.height), options: []) }
+            UIColor.white.withAlphaComponent(0.85).setFill()
+            for row in 0..<8 {
+                cg.fill(CGRect(x: 32, y: 120 + CGFloat(row) * 64, width: CGFloat(200 + (row * 37 + index * 23) % 130), height: 22))
+            }
+        }
+        return TaskImage(id: "demo-\(index)", data: data)
+    }
+    #endif
 
     /// Shows `workspace` in place of the one on screen (the Chats list's Open in New Workspace).
     /// The destination keeps its screen state at the same place in the path, so the path is
