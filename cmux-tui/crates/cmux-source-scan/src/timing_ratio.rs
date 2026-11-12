@@ -27,7 +27,7 @@
 //! follow (a parameter, a match binding) is read by its words: `latency`, `busy`, `*_ms` are
 //! timings, `p95`, `median` percentiles, `budget`, `limit`, `timeout` and SCREAMING_CASE bounds.
 //!
-//! Skipped: `#[ignore]`, `start_paused` (tokio's paused clock), a `// not wall-clock: <why>`
+//! Skipped: `#[ignore]`, `start_paused = true` (tokio's paused clock), a `// not wall-clock: <why>`
 //! comment on the line above the assert, and a test nextest runs alone or not at all
 //! ([`crate::nextest`]).
 //!
@@ -884,6 +884,21 @@ struct Items {
     clock_fns: HashMap<String, Option<Vec<bool>>>,
 }
 
+/// Whether an attribute's tokens set `start_paused = true` (tokio's paused clock), at any depth.
+/// `start_paused = false` runs on the wall clock (#41523 F3).
+fn starts_paused(tokens: TokenStream) -> bool {
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    trees.iter().enumerate().any(|(i, tree)| match tree {
+        TokenTree::Group(group) => starts_paused(group.stream()),
+        TokenTree::Ident(ident) if ident == "start_paused" => matches!(
+            (trees.get(i + 1), trees.get(i + 2)),
+            (Some(TokenTree::Punct(eq)), Some(TokenTree::Ident(value)))
+                if eq.as_char() == '=' && value == "true"
+        ),
+        _ => false,
+    })
+}
+
 fn macro_name(mac: &syn::Macro) -> String {
     mac.path.segments.last().map(|s| s.ident.to_string()).unwrap_or_default()
 }
@@ -898,7 +913,7 @@ impl Items {
             paths.iter().any(|p| p.last().is_some_and(|last| TEST_ATTRS.contains(&last.as_str())));
         if is_test {
             let ignored = paths.iter().any(|p| matches!(p.as_slice(), [only] if only == "ignore"));
-            let paused = attrs.iter().any(|a| has_ident(a.meta.to_token_stream(), "start_paused"));
+            let paused = attrs.iter().any(|a| starts_paused(a.meta.to_token_stream()));
             if !ignored && !paused {
                 self.tests.push(TestFn {
                     name: sig.ident.to_string(),

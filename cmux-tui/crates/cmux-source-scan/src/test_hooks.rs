@@ -564,6 +564,28 @@ struct Site {
     scope: Vec<String>,
 }
 
+/// An item's attributes, whatever its kind.
+fn item_attrs(item: &Item) -> &[Attribute] {
+    match item {
+        Item::Const(i) => &i.attrs,
+        Item::Enum(i) => &i.attrs,
+        Item::ExternCrate(i) => &i.attrs,
+        Item::Fn(i) => &i.attrs,
+        Item::ForeignMod(i) => &i.attrs,
+        Item::Impl(i) => &i.attrs,
+        Item::Macro(i) => &i.attrs,
+        Item::Mod(i) => &i.attrs,
+        Item::Static(i) => &i.attrs,
+        Item::Struct(i) => &i.attrs,
+        Item::Trait(i) => &i.attrs,
+        Item::TraitAlias(i) => &i.attrs,
+        Item::Type(i) => &i.attrs,
+        Item::Union(i) => &i.attrs,
+        Item::Use(i) => &i.attrs,
+        _ => &[],
+    }
+}
+
 /// The file's process-wide statics: every static outside a `thread_local!` or `task_local!`.
 struct Sites {
     out: Vec<Site>,
@@ -586,14 +608,9 @@ impl Sites {
 
 impl<'ast> Visit<'ast> for Sites {
     fn visit_item(&mut self, item: &'ast Item) {
-        let attrs: &[Attribute] = match item {
-            Item::Mod(i) => &i.attrs,
-            Item::Fn(i) => &i.attrs,
-            Item::Impl(i) => &i.attrs,
-            Item::Trait(i) => &i.attrs,
-            _ => &[],
-        };
-        let test = is_cfg_test(attrs);
+        // Every kind of item, a macro's too (#41523 F2): `#[cfg(test)] wrapped! { static .. }`
+        // and `#[cfg(test)] const _: () = { static .. };` gate the statics they hold.
+        let test = is_cfg_test(item_attrs(item));
         let inline = match item {
             Item::Mod(m) if m.content.is_some() => Some(m.ident.to_string()),
             _ => None,
@@ -610,6 +627,19 @@ impl<'ast> Visit<'ast> for Sites {
         let test = is_cfg_test(&i.attrs);
         self.test_depth += usize::from(test);
         visit::visit_impl_item_fn(self, i);
+        self.test_depth -= usize::from(test);
+    }
+    fn visit_impl_item_macro(&mut self, i: &'ast syn::ImplItemMacro) {
+        let test = is_cfg_test(&i.attrs);
+        self.test_depth += usize::from(test);
+        visit::visit_impl_item_macro(self, i);
+        self.test_depth -= usize::from(test);
+    }
+    fn visit_stmt_macro(&mut self, i: &'ast syn::StmtMacro) {
+        // `#[cfg(test)] wrapped! { static .. }` in a fn body (#41523 F2).
+        let test = is_cfg_test(&i.attrs);
+        self.test_depth += usize::from(test);
+        visit::visit_stmt_macro(self, i);
         self.test_depth -= usize::from(test);
     }
     fn visit_item_static(&mut self, i: &'ast syn::ItemStatic) {
