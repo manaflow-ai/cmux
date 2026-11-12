@@ -968,7 +968,7 @@ function warmAnchorTop(
 
 /// The rows in a view whose top is `top`, each with how far the view's top is past it: what a
 /// reconnect holds (`heldPlace`), so any of them that comes back first puts the view where it was.
-function heldRows(
+function rowsInView(
   top: number,
   placed: Parameters<typeof layoutGeometry>[0],
   shown: readonly { id: string }[],
@@ -4016,7 +4016,7 @@ function TranscriptView({
         // shorter tail, a rebuild's empty frame): the reader's place is held, not the offset the
         // shrink clamped to the end (`heldPlace`). A row renamed in place keeps the first row.
         if (kept === undefined && !heldPlace.current && oldRows.length > 0 && rows[0]?.id !== oldRows[0]?.id)
-          heldPlace.current = heldRows(logicalTop, old, oldRows, viewHeight);
+          heldPlace.current = rowsInView(logicalTop, old, oldRows, viewHeight);
         const held = heldPlace.current ? heldReaderPlace(heldPlace.current, rows, layout) : undefined;
         // Found, the row stays held where it was while the rows around it settle to their drawn
         // heights (a restore on estimated heights moved it when they measured): the reader's own
