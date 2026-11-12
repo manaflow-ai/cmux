@@ -245,16 +245,19 @@ impl Log {
                 // before it did not use goes after again.
                 let mut ahead = Budget {
                     rows: budget.rows.saturating_sub(budget.rows / 2),
-                    bytes: budget.bytes.saturating_sub(budget.bytes / 2),
+                    // The anchor may be the one oversized row, but it still consumes the shared
+                    // byte budget when it fits. Rows before and after it must not each get a half
+                    // budget after the anchor has been counted.
+                    bytes: budget.bytes,
                     first_free: true,
                     one_read: false,
                 };
-                let kept = (budget.rows / 2, budget.bytes / 2);
+                let kept_rows = budget.rows / 2;
                 let mut after = Vec::new();
                 let mut hi = self.walk(start, true, &mut ahead, &mut after);
                 budget = Budget {
-                    rows: kept.0.saturating_add(ahead.rows),
-                    bytes: kept.1.saturating_add(ahead.bytes),
+                    rows: kept_rows.saturating_add(ahead.rows),
+                    bytes: ahead.bytes,
                     first_free: after.is_empty(),
                     one_read: false,
                 };

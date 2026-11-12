@@ -288,6 +288,53 @@ fn check_segment_header(file: &File) -> Result<(), Error> {
     Ok(())
 }
 
+/// Repairs rows whose index still names a record in a torn tail. The old revision can be before
+/// the checkpoint, so this slow path scans the book only when a torn tail actually exists.
+fn restore_torn_rows(
+    rows: &mut RowIndex,
+    rows_dir: &Path,
+    last: u32,
+    candidates: &[(u64, Entry)],
+) -> Result<(u64, u64), Error> {
+    let mut newest = vec![None; candidates.len()];
+    let mut scan_seq = 0u64;
+    for seg in 1..=last {
+        let path = segment_path(rows_dir, seg);
+        let file = File::open(path)?;
+        check_segment_header(&file)?;
+        let scan = recover::scan(&file, SEGMENT_HEADER_LEN, |offset, header| {
+            if scan_seq.checked_add(1) != Some(header.seq) {
+                return Ok(false);
+            }
+            if let Some(at) = candidates.iter().position(|(row_id, _)| *row_id == header.row_id) {
+                newest[at] = Some(Entry {
+                    seg,
+                    off: u32::try_from(offset)
+                        .map_err(|_| Error::Corrupt("a segment is past 4 GiB"))?,
+                    len: header.len,
+                    rev: header.rev,
+                });
+            }
+            scan_seq = header.seq;
+            Ok(true)
+        })?;
+        if scan.torn && seg != last {
+            return Err(Error::Corrupt("a torn record before the last segment"));
+        }
+    }
+
+    let mut written = 0u64;
+    let mut writes = 0u64;
+    for ((row_id, _), entry) in candidates.iter().zip(newest) {
+        match entry {
+            Some(entry) => written = written.saturating_add(rows.set(*row_id, entry)?),
+            None => written = written.saturating_add(rows.clear(*row_id)?),
+        }
+        writes = writes.saturating_add(1);
+    }
+    Ok((written, writes))
+}
+
 /// The highest segment number in `rows_dir`; 0 when there is none.
 fn last_segment(rows_dir: &Path) -> Result<u32, Error> {
     let mut highest = 0u32;
@@ -403,6 +450,7 @@ impl Log {
         let (mut last_seq, mut min_row, mut max_row) = (mark.last_seq, mark.min_row, mark.max_row);
         let (mut rewritten, mut rewrites) = (0u64, 0u64);
         let mut scanned = Vec::new();
+        let mut torn_tail = None;
         let mut scan_seq = last_seq;
         for seg in mark.seg..=last {
             let path = segment_path(&rows_dir, seg);
@@ -432,6 +480,16 @@ impl Log {
                 fsio::sync(&file)?;
                 stats.syncs = stats.syncs.saturating_add(1);
                 recovered.truncated = len.saturating_sub(scan.end);
+                torn_tail = Some((seg, scan.end));
+            }
+        }
+
+        if let Some((seg, off)) = torn_tail {
+            let candidates = rows.entries_at_or_after(seg, off);
+            if !candidates.is_empty() {
+                let (bytes, writes) = restore_torn_rows(&mut rows, &rows_dir, last, &candidates)?;
+                rewritten = rewritten.saturating_add(bytes);
+                rewrites = rewrites.saturating_add(writes);
             }
         }
 
@@ -477,12 +535,18 @@ impl Log {
             if rows.get(header.row_id) != Some(entry) {
                 rewritten = rewritten.saturating_add(rows.set(header.row_id, entry)?);
                 rewrites = rewrites.saturating_add(1);
+            } else {
+                // The bytes may have reached the index before the previous process died. It is
+                // still part of this replay and must be included in the next checkpoint's sync.
+                rows.mark_dirty();
             }
             if header.seq.is_multiple_of(SEQ_STRIDE) {
                 let slot = header.seq / SEQ_STRIDE;
                 if seqs.get(slot)? != Some((seg, off)) {
                     rewritten = rewritten.saturating_add(seqs.set(slot, seg, off)?);
                     rewrites = rewrites.saturating_add(1);
+                } else {
+                    seqs.mark_dirty();
                 }
             }
             last_seq = header.seq;

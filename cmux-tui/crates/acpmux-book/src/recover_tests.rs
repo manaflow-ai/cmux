@@ -252,6 +252,61 @@ fn an_index_entry_after_the_checkpoint_is_cleared_before_replay() {
 }
 
 #[test]
+fn a_torn_patch_restores_the_previous_revision() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let old = b"old revision".to_vec();
+    let next = b"new revision".to_vec();
+    {
+        let (mut log, _) = open(&book);
+        log.append_settled(1, 1, RawRange::NONE, &old).unwrap();
+        log.write_checkpoint(&[]).unwrap();
+        log.patch(1, 2, RawRange::NONE, &next).unwrap();
+    }
+    let segment = book.join("rows/000001.seg");
+    let whole = fs::read(&segment).unwrap();
+    let patch_at = SEGMENT_HEADER_LEN as usize + old.len() + RECORD_OVERHEAD;
+    for cut in (patch_at + 1)..=whole.len() {
+        let copy = home.path().join(format!("patch-cut-{cut}"));
+        copy_book(&book, &copy);
+        fs::write(copy.join("rows/000001.seg"), &whole[..cut]).unwrap();
+        let (mut log, _) = open(&copy);
+        if cut < whole.len() {
+            let row = log.row(1).expect("the old revision remains settled");
+            assert_eq!(row.rev, 1, "cut {cut}");
+            assert_eq!(texts(&mut log, &[row]).0[0], old, "cut {cut}");
+            assert_eq!(log.patch(1, 2, RawRange::NONE, b"repaired").unwrap(), 2, "cut {cut}");
+        } else {
+            assert_eq!(log.row(1).unwrap().rev, 2, "cut {cut}");
+            assert_eq!(log.patch(1, 3, RawRange::NONE, b"third").unwrap(), 3, "cut {cut}");
+        }
+        drop(log);
+        fs::remove_dir_all(copy).unwrap();
+    }
+}
+
+#[test]
+fn replayed_indexes_are_synced_by_the_following_checkpoint() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    {
+        let (mut log, _) = open(&book);
+        settle(&mut log, 1, 1);
+        log.write_checkpoint(&[]).unwrap();
+        log.append_settled(2, 1, RawRange::NONE, &text(2)).unwrap();
+    }
+    let (mut log, recovered) = open(&book);
+    assert_eq!(recovered.replayed, 1);
+    let before = log.stats().syncs;
+    log.write_checkpoint(&[]).unwrap();
+    assert!(log.stats().syncs > before, "the checkpoint synced replayed indexes");
+    drop(log);
+    let (mut log, recovered) = open(&book);
+    assert_eq!((recovered.checkpoint, recovered.replayed), (true, 0));
+    assert_rows(&mut log, 2);
+}
+
+#[test]
 fn bad_segment_headers_request_a_rebuild() {
     for (offset, bytes) in [(0, b"NOPE".to_vec()), (4, 2u32.to_le_bytes().to_vec())] {
         let home = tempfile::tempdir().unwrap();

@@ -280,6 +280,17 @@ fn a_window_is_bounded_in_rows_and_bytes_and_says_what_lies_beyond() {
 }
 
 #[test]
+fn an_around_window_charges_rows_against_one_byte_budget() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    log.append_settled(1, 1, RawRange::NONE, &vec![b'b'; 5_000]).unwrap();
+    log.append_settled(2, 1, RawRange::NONE, &vec![b'a'; 8_000]).unwrap();
+    let window = log.window(Anchor::Row { id: 2, side: Side::Around }, 3, 10_000);
+    assert_eq!(ids(&window.rows), vec![2]);
+    assert_eq!(window.rows[0].len, 8_000);
+}
+
+#[test]
 fn unsettled_ids_between_settled_rows_are_stepped_over() {
     let home = tempfile::tempdir().unwrap();
     let (mut log, _) = open(home.path());
