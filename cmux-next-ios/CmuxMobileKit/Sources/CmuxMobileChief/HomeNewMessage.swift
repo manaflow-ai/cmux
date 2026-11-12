@@ -82,9 +82,26 @@ public final class HomeNewMessage {
         ChiefDemoHook.shared.compose = compose
         #endif
         if let draft { compose.setDraft(forwarding: draft) }
-        presenter.present(compose.makeSheet(), animated: true)
+        let sheetController = compose.makeSheet()
+        // Messages grows New Message out of its compose button (the iOS 27.0 reference's present
+        // and dismiss): the zoom transition from Home's compose button when it is on screen.
+        if draft == nil, let window = presenter.view.window, let button = Self.composeButton(in: window) {
+            sheetController.preferredTransition = .zoom { [weak button] _ in button }
+        }
+        presenter.present(sheetController, animated: true)
         loadTeam()
         return true
+    }
+
+    /// Home's compose button as a view: its identifier, else the navigation bar control
+    /// labeled New Message (SwiftUI may keep the identifier on the accessibility element only).
+    static func composeButton(in window: UIWindow) -> UIView? {
+        if let view = window.firstSubview(where: { $0.accessibilityIdentifier == "home.compose" && !$0.isHidden }) { return view }
+        let label = String(localized: "New Message")
+        let bar = window.firstSubview { ($0 as? UINavigationBar)?.isHidden == false }
+        return bar?.firstSubview { view in
+            (view is UIControl || view.accessibilityTraits.contains(.button)) && view.accessibilityLabel == label
+        }
     }
 
     // MARK: The team
