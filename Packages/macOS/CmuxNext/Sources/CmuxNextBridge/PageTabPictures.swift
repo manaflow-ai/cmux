@@ -35,6 +35,7 @@ public final class PageTabPictures {
     private struct Taken {
         var at: ContinuousClock.Instant
         var generation: Int
+        var look: String
     }
 
     private var taken: [String: Taken] = [:]
@@ -70,14 +71,15 @@ public final class PageTabPictures {
         inFlight.removeValue(forKey: key)?.cancel()
     }
 
-    /// Whether `key`'s kept picture still stands for `page`: taken since it last showed, and young enough.
+    /// Whether `key`'s kept picture still stands for `page`: taken since it last showed, in the theme it
+    /// shows now, and young enough.
     private func isCurrent(_ key: String, page: any PagePictureSubject) -> Bool {
-        guard let taken = taken[key], taken.generation == page.shownGeneration else { return false }
+        guard let taken = taken[key], taken.generation == page.shownGeneration, taken.look == page.pictureLook else { return false }
         return now() - taken.at < (page.isOnScreen ? Self.visibleLifetime : Self.hiddenLifetime)
     }
 
     private func startCapture(of page: any PagePictureSubject) -> Task<CGImage?, Never> {
-        let key = page.pictureKey, generation = page.shownGeneration
+        let key = page.pictureKey, generation = page.shownGeneration, look = page.pictureLook
         // task-owner: inFlight[key]; ends with the picture or its deadline, cancelled when the tab closes
         let task = Task { [weak self, weak page] () -> CGImage? in
             guard let self, let page, let image = await self.captureWithinDeadline(page) else {
@@ -91,7 +93,7 @@ public final class PageTabPictures {
             self.inFlight[key] = nil
             guard !blank else { return nil }
             self.cache.insertCompressingLater(fitted, for: key)
-            self.taken[key] = Taken(at: self.now(), generation: generation)
+            self.taken[key] = Taken(at: self.now(), generation: generation, look: look)
             return fitted
         }
         inFlight[key] = task
