@@ -98,8 +98,6 @@ enum FirstPartyPageSchemes {
         var out: [String: CEFPageSchemes.Entry] = [:]
         for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
             guard let page = descriptors.first(where: { $0.id == id }) else { continue }
-            // The shared build assets use the same scheme adapter as WebKit, including outside
-            // the live loop; the shim's ordinary file path is confined to the individual page.
             out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.union(["__shared"]).sorted(),
                                            entry: page.entry)
         }
