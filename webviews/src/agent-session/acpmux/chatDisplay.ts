@@ -122,6 +122,11 @@ export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 /// (conversation/PromptCoachCard.tsx). Off, the page asks acpmux for no rewrite and draws no card.
 /// Not part of ChatDisplay.
 export const PROMPT_COACH_KEY = "agentPane.display.promptCoach";
+/// Settings > Chats > Session Recap, on unless set false (Swift AgentPaneDisplaySetting.followedAppPaths):
+/// the recap acpmux makes for a chat the person comes back to (`hub/away_recap.rs`). The daemon gets
+/// the same setting and makes none while it is off; this hides a recap already drawn at once
+/// (rows/RecapRow.tsx). Not part of ChatDisplay.
+export const SESSION_RECAP_KEY = "agents.chats.sessionRecap";
 
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
@@ -322,6 +327,7 @@ let presentation: Presentation = "transcript";
 let featureTipsOn = true;
 let commandLabels = "null";
 let promptCoachOn = true;
+let sessionRecapOn = true;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -352,6 +358,7 @@ export function setChatDisplay(value: unknown): void {
   const tips = raw[FEATURE_TIPS_KEY] !== false;
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
+  const recap = raw[SESSION_RECAP_KEY] !== false;
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
     same &&
@@ -365,11 +372,14 @@ export function setChatDisplay(value: unknown): void {
     nextPresentation === presentation &&
     tips === featureTipsOn &&
     labels === commandLabels &&
-    coach === promptCoachOn
+    coach === promptCoachOn &&
+    recap === sessionRecapOn
   )
     return;
   commandLabels = labels;
   promptCoachOn = coach;
+  const recapChanged = recap !== sessionRecapOn;
+  sessionRecapOn = recap;
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
@@ -379,6 +389,9 @@ export function setChatDisplay(value: unknown): void {
   transcriptView = view;
   presentation = nextPresentation;
   featureTipsOn = tips;
+  // Session Recap changes rows' heights (model.ts): a new look makes the transcript measure them
+  // again, off-screen ones too, so a hidden recap keeps no space.
+  if (same && recapChanged) current = { ...current };
   if (same) {
     for (const listener of listeners) listener();
     return;
@@ -465,6 +478,13 @@ export const promptCoachEnabled = (): boolean => promptCoachOn;
 const promptCoachSnapshot = () => promptCoachOn;
 export const usePromptCoachOn = (): boolean =>
   useSyncExternalStore(subscribe, promptCoachSnapshot, promptCoachSnapshot);
+/// Whether session recaps show (SESSION_RECAP_KEY), for the row estimate (model.ts).
+export const sessionRecapEnabled = (): boolean => sessionRecapOn;
+const sessionRecapSnapshot = () => sessionRecapOn;
+/// Whether session recaps show (SESSION_RECAP_KEY): off, a recap row or a recap under "New since you
+/// looked" draws nothing.
+export const useSessionRecapOn = (): boolean =>
+  useSyncExternalStore(subscribe, sessionRecapSnapshot, sessionRecapSnapshot);
 const pinnedPlanSnapshot = () => pinnedPlanOn;
 /// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
 export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);

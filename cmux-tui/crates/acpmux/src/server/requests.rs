@@ -3034,6 +3034,7 @@ async fn dispatch_request_with_identity(
                 conn,
                 &s,
                 SubOpts { event_stream, filter: filter.clone(), hidden, remote: false, rows: None },
+                params.get("visible") == Some(&Value::Bool(true)),
             );
             let settled_key = match settled {
                 Some((_, Some(view))) => {

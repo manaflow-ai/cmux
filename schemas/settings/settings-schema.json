@@ -22108,7 +22108,7 @@
       },
       "help" : {
         "key" : "settings.chats.sessionRecap.help",
-        "text" : "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+        "text" : "When you come back to a chat after 5 minutes or more, show a line on its goal and next step. Claude chats ask Claude Code itself; other chats ask the agent's small model about the last few turns. Each recap is one small extra model call that counts toward your usage."
       },
       "kept_on_reset_all" : false,
       "key" : "agents.chats.sessionRecap",

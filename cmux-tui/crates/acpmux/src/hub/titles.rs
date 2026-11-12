@@ -411,7 +411,10 @@ impl Hub {
             return None;
         }
         let started = std::time::Instant::now();
-        let result = self.complete(crate::server::Origin::Local, &params).await.ok()?;
+        // The chat's own text: on the chat's own route (`complete::ChatRoute`).
+        let req = crate::complete::Request::parse(&params).ok()?;
+        let chat = super::complete::ChatRoute::of(session);
+        let result = self.complete_request_for(&req, Some(&chat)).await.ok()?;
         let title = result.get("text").and_then(Value::as_str).and_then(clean);
         tracing::info!(
             event = "chat_title",

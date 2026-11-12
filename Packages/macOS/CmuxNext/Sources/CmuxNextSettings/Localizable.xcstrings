@@ -8906,126 +8906,126 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage."
+            "value": "When you come back to a chat after 5 minutes or more, show a line on its goal and next step. Claude chats ask Claude Code itself; other chats ask the agent's small model about the last few turns. Each recap is one small extra model call that counts toward your usage."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "عند عودتك إلى محادثة Claude بعد 5 دقائق أو أكثر، يُعرض سطر يوضح ما وصلت إليه. كل ملخص هو استدعاء إضافي صغير للنموذج يُحتسب ضمن استخدامك."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Kada se vratite u Claude razgovor nakon 5 ili više minuta, prikaži red o tome gdje je stao. Svaki sažetak je jedan mali dodatni poziv modela koji se računa u vašu potrošnju."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Når du vender tilbage til en Claude-chat efter 5 minutter eller mere, vises en linje om, hvor den står. Hver opsummering er ét lille ekstra modelkald, der tæller med i dit forbrug."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Wenn du nach 5 Minuten oder länger zu einem Claude-Chat zurückkehrst, zeigt eine Zeile den aktuellen Stand. Jede Zusammenfassung ist ein kleiner zusätzlicher Modellaufruf, der auf deine Nutzung angerechnet wird."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Cuando vuelvas a un chat de Claude tras 5 minutos o más, muestra una línea sobre dónde está. Cada resumen es una pequeña llamada adicional al modelo que cuenta para tu uso."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Quand vous revenez à un chat Claude après 5 minutes ou plus, affiche une ligne sur son état. Chaque récapitulatif est un petit appel supplémentaire au modèle, compté dans votre utilisation."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Quando torni a una chat di Claude dopo 5 minuti o più, mostra una riga sul punto in cui si trova. Ogni riepilogo è una piccola chiamata aggiuntiva al modello che conta nel tuo utilizzo."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "5分以上離れてからClaudeのチャットに戻ると、現在の状況を1行で表示します。まとめごとにモデルを1回追加で呼び出し、使用量に含まれます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ពេលអ្នកត្រឡប់មកការជជែក Claude វិញក្រោយ 5 នាទី ឬលើសនេះ បង្ហាញមួយបន្ទាត់អំពីស្ថានភាពរបស់វា។ សេចក្ដីសង្ខេបនីមួយៗជាការហៅម៉ូដែលបន្ថែមតូចមួយ ដែលរាប់ក្នុងការប្រើប្រាស់របស់អ្នក។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "5분 이상 지난 뒤 Claude 채팅으로 돌아오면 현재 상황을 한 줄로 보여 줍니다. 요약마다 모델을 한 번 더 호출하며 사용량에 포함됩니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Når du kommer tilbake til en Claude-chat etter 5 minutter eller mer, vises en linje om hvor den står. Hvert sammendrag er ett lite ekstra modellkall som teller med i bruken din."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Gdy wrócisz do czatu Claude po 5 minutach lub dłużej, pokaż wiersz o tym, na czym stanął. Każde podsumowanie to jedno małe dodatkowe wywołanie modelu, wliczane do Twojego użycia."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Ao voltar a um chat do Claude após 5 minutos ou mais, mostra uma linha sobre onde ele está. Cada resumo é uma pequena chamada extra ao modelo que conta no seu uso."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Когда вы возвращаетесь в чат Claude через 5 минут или позже, показывать строку о том, на чём он остановился. Каждая сводка — один небольшой дополнительный вызов модели, который учитывается в вашем использовании."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "เมื่อคุณกลับมาที่แชต Claude หลังผ่านไป 5 นาทีขึ้นไป จะแสดงหนึ่งบรรทัดว่าอยู่ตรงไหนแล้ว สรุปแต่ละครั้งคือการเรียกโมเดลเพิ่มเล็กน้อยหนึ่งครั้งซึ่งนับรวมในการใช้งานของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "5 dakika veya daha uzun süre sonra bir Claude sohbetine döndüğünüzde, nerede kaldığını gösteren bir satır gösterir. Her özet, kullanımınıza sayılan küçük bir ek model çağrısıdır."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Коли ви повертаєтеся до чату Claude через 5 хвилин або пізніше, показувати рядок про те, на чому він зупинився. Кожен підсумок — один невеликий додатковий виклик моделі, що враховується у вашому використанні."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Khi bạn quay lại một cuộc trò chuyện Claude sau 5 phút trở lên, hiển thị một dòng về tình trạng hiện tại. Mỗi bản tóm tắt là một lần gọi mô hình nhỏ thêm, được tính vào mức sử dụng của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "离开 5 分钟或更久后回到 Claude 聊天时，显示一行说明当前进展。每次回顾是一次额外的小型模型调用，计入你的用量。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "離開 5 分鐘或更久後回到 Claude 聊天時，顯示一行說明目前進展。每次回顧是一次額外的小型模型呼叫，計入你的用量。"
           }
         }
@@ -30788,399 +30788,6 @@
         }
       }
     },
-    "settings.appearance.sidebarRowHeight": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace Row Height"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ارتفاع صف مساحة العمل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Visina reda radnog prostora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Højde på arbejdsområderækker"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Höhe der Arbeitsbereichszeilen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Altura de fila del espacio de trabajo"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hauteur des lignes d’espace de travail"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Altezza delle righe dell’area di lavoro"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ワークスペース行の高さ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្ពស់ជួរកន្លែងធ្វើការ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 공간 행 높이"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Høyde på arbeidsområderader"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wysokość wierszy obszarów roboczych"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Altura da linha do espaço de trabalho"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Высота строки рабочего пространства"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ความสูงแถวพื้นที่ทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Çalışma alanı satır yüksekliği"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Висота рядка робочого простору"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiều cao hàng không gian làm việc"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "工作区行高"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "工作區列高"
-          }
-        }
-      }
-    },
-    "settings.browser.vimKeys": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vim Keys in Pages"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مفاتيح Vim في الصفحات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vim tipke na stranicama"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vim-taster på sider"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vim-Tasten auf Seiten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Teclas de Vim en páginas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Touches Vim dans les pages"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tasti Vim nelle pagine"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ページでVimキーを使う"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "គ្រាប់ចុច Vim ក្នុងទំព័រ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "페이지에서 Vim 키"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vim-taster på sider"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Klawisze Vim na stronach"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Teclas do Vim nas Páginas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Клавиши Vim на страницах"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ปุ่มแบบ Vim ในหน้าเว็บ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sayfalarda Vim Tuşları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Клавіші Vim на сторінках"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Phím Vim trong trang"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "页面中的 Vim 按键"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "頁面中的 Vim 按鍵"
-          }
-        }
-      }
-    },
-    "settings.browser.vimKeys.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "خارج حقل النص، يضغط f رابطًا عبر تسميته، ويفتح Shift-F رابطًا في قسم جديد، ويمرر j وk الصفحة، وينتقل gg وShift-G إلى الأعلى والأسفل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Izvan tekstualnog polja, f klikne link po njegovoj oznaci, Shift-F ga otvori u novoj podjeli, j i k pomjeraju stranicu, gg i Shift-G idu na vrh i dno."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uden for et tekstfelt klikker f på et link via dets mærke, Shift-F åbner det i en ny opdeling, j og k ruller, gg og Shift-G går til toppen og bunden."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Außerhalb eines Textfelds klickt f einen Link über sein Kürzel, Shift-F öffnet ihn in einer neuen Teilung, j und k scrollen, gg und Shift-G springen an den Anfang und das Ende."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fuera de un campo de texto, f hace clic en un enlace por su etiqueta, Mayús-F lo abre en una nueva división, j y k desplazan, gg y Mayús-G van al principio y al final."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hors d’un champ de texte, f clique sur un lien par son repère, Maj-F l’ouvre dans une nouvelle division, j et k font défiler, gg et Maj-G vont en haut et en bas."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fuori da un campo di testo, f fa clic su un link tramite la sua etichetta, Maiusc-F lo apre in una nuova divisione, j e k scorrono, gg e Maiusc-G vanno all’inizio e alla fine."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "テキストフィールドの外で、fはラベルでリンクをクリックし、Shift-Fは新しい分割で開き、jとkでスクロールし、ggとShift-Gで先頭と末尾に移動します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នៅក្រៅប្រអប់អត្ថបទ f ចុចតំណតាមស្លាករបស់វា Shift-F បើកវាក្នុងការបំបែកថ្មី j និង k រំកិល gg និង Shift-G ទៅខាងលើ និងខាងក្រោមបំផុត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "텍스트 필드 밖에서 f는 레이블로 링크를 클릭하고, Shift-F는 새 분할에서 열며, j와 k는 스크롤하고, gg와 Shift-G는 맨 위와 맨 아래로 이동합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Utenfor et tekstfelt klikker f på en lenke via merket, Shift-F åpner den i en ny deling, j og k ruller, gg og Shift-G går til toppen og bunnen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Poza polem tekstowym f klika link po jego etykiecie, Shift-F otwiera go w nowym podziale, j i k przewijają, gg i Shift-G przechodzą na górę i na dół."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fora de um campo de texto, f clica em um link pelo rótulo, Shift-F o abre em uma nova divisão, j e k rolam, gg e Shift-G vão para o topo e o final."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вне текстового поля f нажимает ссылку по её метке, Shift-F открывает её в новом разделении, j и k прокручивают, gg и Shift-G переходят в начало и конец."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "นอกช่องข้อความ f คลิกลิงก์ตามป้ายกำกับ Shift-F เปิดในการแยกใหม่ j และ k เลื่อนหน้า gg และ Shift-G ไปบนสุดและล่างสุด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Metin alanı dışında f bir bağlantıya etiketiyle tıklar, Shift-F onu yeni bölmede açar, j ve k kaydırır, gg ve Shift-G en üste ve en alta gider."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поза текстовим полем f натискає посилання за міткою, Shift-F відкриває його в новому розділенні, j і k прокручують, gg і Shift-G переходять на початок і в кінець."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bên ngoài ô văn bản, f nhấp liên kết theo nhãn, Shift-F mở nó trong vùng chia mới, j và k cuộn, gg và Shift-G về đầu và cuối trang."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在文本框之外，f 按标签点击链接，Shift-F 在新分屏中打开，j 和 k 滚动，gg 和 Shift-G 跳到顶部和底部。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在文字欄位之外，f 依標籤點按連結，Shift-F 在新分割中開啟，j 和 k 捲動，gg 和 Shift-G 跳到頂端和底端。"
-          }
-        }
-      }
-    },
     "settings.browser.wakeTabsOnHover": {
       "comment": "Settings > Browser > Memory toggle: hover preload (browser.wakeTabsOnHover).",
       "extractionState": "manual",
@@ -44933,268 +44540,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "書籤"
-          }
-        }
-      }
-    },
-    "settings.browser.showLoadingBar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Loading Bar"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "読み込みバーを表示"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إظهار شريط التحميل"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikaži traku učitavanja"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis indlæsningslinje"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ladebalken anzeigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar barra de carga"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Afficher la barre de chargement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra barra di caricamento"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញរបារផ្ទុក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "로딩 막대 표시"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vis lastelinje"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż pasek ładowania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar barra de carregamento"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показывать полосу загрузки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงแถบการโหลด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yükleme Çubuğunu Göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показувати смугу завантаження"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện thanh tải"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "显示加载条"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "顯示載入列"
-          }
-        }
-      }
-    },
-    "settings.browser.showLoadingBar.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A thin progress line under the address bar while a page loads. The Stop button shows either way."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ページの読み込み中、アドレスバーの下に細い進行状況の線を表示します。停止ボタンはどちらの場合も表示されます。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "خط تقدم رفيع أسفل شريط العنوان أثناء تحميل الصفحة. يظهر زر الإيقاف في الحالتين."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tanka linija napretka ispod adresne trake dok se stranica učitava. Dugme Zaustavi se prikazuje u oba slučaja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En tynd statuslinje under adresselinjen, mens en side indlæses. Stop-knappen vises under alle omstændigheder."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eine dünne Fortschrittslinie unter der Adressleiste, während eine Seite lädt. Die Stopp-Taste wird in jedem Fall angezeigt."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Una línea de progreso fina bajo la barra de direcciones mientras se carga una página. El botón Detener se muestra en ambos casos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Une fine ligne de progression sous la barre d’adresse pendant le chargement d’une page. Le bouton Arrêter s’affiche dans tous les cas."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Una sottile linea di avanzamento sotto la barra degli indirizzi mentre una pagina si carica. Il pulsante Interrompi appare in ogni caso."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បន្ទាត់វឌ្ឍនភាពស្តើងនៅក្រោមរបារអាសយដ្ឋាន ពេលទំព័រកំពុងផ្ទុក។ ប៊ូតុងឈប់បង្ហាញក្នុងករណីទាំងពីរ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "페이지를 불러오는 동안 주소 표시줄 아래에 얇은 진행 선을 표시합니다. 중지 버튼은 어느 경우에나 표시됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "En tynn fremdriftslinje under adressefeltet mens en side lastes inn. Stopp-knappen vises uansett."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cienka linia postępu pod paskiem adresu podczas ładowania strony. Przycisk Zatrzymaj jest widoczny w obu przypadkach."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uma linha de progresso fina abaixo da barra de endereço enquanto a página carrega. O botão Parar aparece de qualquer forma."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тонкая линия прогресса под адресной строкой во время загрузки страницы. Кнопка «Остановить» отображается в любом случае."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เส้นความคืบหน้าบาง ๆ ใต้แถบที่อยู่ขณะที่หน้ากำลังโหลด ปุ่มหยุดจะแสดงไม่ว่ากรณีใด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir sayfa yüklenirken adres çubuğunun altında ince bir ilerleme çizgisi. Durdur düğmesi her durumda görünür."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тонка лінія поступу під адресним рядком під час завантаження сторінки. Кнопка «Зупинити» показується в будь-якому разі."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Một vạch tiến trình mỏng dưới thanh địa chỉ khi trang đang tải. Nút Dừng vẫn hiện trong mọi trường hợp."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "页面加载时在地址栏下方显示一条细进度线。无论是否开启，都会显示“停止”按钮。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "頁面載入時在網址列下方顯示一條細進度線。無論是否開啟，都會顯示「停止」按鈕。"
           }
         }
       }
@@ -219361,6 +218706,661 @@
           "stringUnit": {
             "state": "translated",
             "value": "右鍵選單中的「檢查元素」和「切換開發者工具」(⌥⌘I) 可在代理聊天、首頁、Markdown 和設定中使用。瀏覽器分頁一律可用。"
+          }
+        }
+      }
+    },
+    "settings.appearance.sidebarRowHeight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Row Height"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ارتفاع صف مساحة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Visina reda radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Højde på arbejdsområderækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Höhe der Arbeitsbereichszeilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura de fila del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hauteur des lignes d’espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altezza delle righe dell’area di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペース行の高さ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្ពស់ជួរកន្លែងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 공간 행 높이"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Høyde på arbeidsområderader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysokość wierszy obszarów roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altura da linha do espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Высота строки рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความสูงแถวพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanı satır yüksekliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Висота рядка робочого простору"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiều cao hàng không gian làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区行高"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區列高"
+          }
+        }
+      }
+    },
+    "settings.browser.vimKeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim Keys in Pages"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مفاتيح Vim في الصفحات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim tipke na stranicama"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster på sider"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-Tasten auf Seiten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas de Vim en páginas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Touches Vim dans les pages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasti Vim nelle pagine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ページでVimキーを使う"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្រាប់ចុច Vim ក្នុងទំព័រ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지에서 Vim 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vim-taster på sider"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klawisze Vim na stronach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teclas do Vim nas Páginas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавиши Vim на страницах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มแบบ Vim ในหน้าเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sayfalarda Vim Tuşları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клавіші Vim на сторінках"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phím Vim trong trang"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "页面中的 Vim 按键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頁面中的 Vim 按鍵"
+          }
+        }
+      }
+    },
+    "settings.browser.vimKeys.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خارج حقل النص، يضغط f رابطًا عبر تسميته، ويفتح Shift-F رابطًا في قسم جديد، ويمرر j وk الصفحة، وينتقل gg وShift-G إلى الأعلى والأسفل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izvan tekstualnog polja, f klikne link po njegovoj oznaci, Shift-F ga otvori u novoj podjeli, j i k pomjeraju stranicu, gg i Shift-G idu na vrh i dno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uden for et tekstfelt klikker f på et link via dets mærke, Shift-F åbner det i en ny opdeling, j og k ruller, gg og Shift-G går til toppen og bunden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Außerhalb eines Textfelds klickt f einen Link über sein Kürzel, Shift-F öffnet ihn in einer neuen Teilung, j und k scrollen, gg und Shift-G springen an den Anfang und das Ende."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuera de un campo de texto, f hace clic en un enlace por su etiqueta, Mayús-F lo abre en una nueva división, j y k desplazan, gg y Mayús-G van al principio y al final."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hors d’un champ de texte, f clique sur un lien par son repère, Maj-F l’ouvre dans une nouvelle division, j et k font défiler, gg et Maj-G vont en haut et en bas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuori da un campo di testo, f fa clic su un link tramite la sua etichetta, Maiusc-F lo apre in una nuova divisione, j e k scorrono, gg e Maiusc-G vanno all’inizio e alla fine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テキストフィールドの外で、fはラベルでリンクをクリックし、Shift-Fは新しい分割で開き、jとkでスクロールし、ggとShift-Gで先頭と末尾に移動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅក្រៅប្រអប់អត្ថបទ f ចុចតំណតាមស្លាករបស់វា Shift-F បើកវាក្នុងការបំបែកថ្មី j និង k រំកិល gg និង Shift-G ទៅខាងលើ និងខាងក្រោមបំផុត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "텍스트 필드 밖에서 f는 레이블로 링크를 클릭하고, Shift-F는 새 분할에서 열며, j와 k는 스크롤하고, gg와 Shift-G는 맨 위와 맨 아래로 이동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utenfor et tekstfelt klikker f på en lenke via merket, Shift-F åpner den i en ny deling, j og k ruller, gg og Shift-G går til toppen og bunnen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poza polem tekstowym f klika link po jego etykiecie, Shift-F otwiera go w nowym podziale, j i k przewijają, gg i Shift-G przechodzą na górę i na dół."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fora de um campo de texto, f clica em um link pelo rótulo, Shift-F o abre em uma nova divisão, j e k rolam, gg e Shift-G vão para o topo e o final."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вне текстового поля f нажимает ссылку по её метке, Shift-F открывает её в новом разделении, j и k прокручивают, gg и Shift-G переходят в начало и конец."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นอกช่องข้อความ f คลิกลิงก์ตามป้ายกำกับ Shift-F เปิดในการแยกใหม่ j และ k เลื่อนหน้า gg และ Shift-G ไปบนสุดและล่างสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin alanı dışında f bir bağlantıya etiketiyle tıklar, Shift-F onu yeni bölmede açar, j ve k kaydırır, gg ve Shift-G en üste ve en alta gider."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поза текстовим полем f натискає посилання за міткою, Shift-F відкриває його в новому розділенні, j і k прокручують, gg і Shift-G переходять на початок і в кінець."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bên ngoài ô văn bản, f nhấp liên kết theo nhãn, Shift-F mở nó trong vùng chia mới, j và k cuộn, gg và Shift-G về đầu và cuối trang."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在文本框之外，f 按标签点击链接，Shift-F 在新分屏中打开，j 和 k 滚动，gg 和 Shift-G 跳到顶部和底部。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在文字欄位之外，f 依標籤點按連結，Shift-F 在新分割中開啟，j 和 k 捲動，gg 和 Shift-G 跳到頂端和底端。"
+          }
+        }
+      }
+    },
+    "settings.browser.showLoadingBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Loading Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "読み込みバーを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار شريط التحميل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži traku učitavanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis indlæsningslinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ladebalken anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar barra de carga"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher la barre de chargement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra barra di caricamento"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញរបារផ្ទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로딩 막대 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis lastelinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż pasek ładowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar barra de carregamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать полосу загрузки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงแถบการโหลด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yükleme Çubuğunu Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати смугу завантаження"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện thanh tải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示加载条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示載入列"
+          }
+        }
+      }
+    },
+    "settings.browser.showLoadingBar.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A thin progress line under the address bar while a page loads. The Stop button shows either way."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ページの読み込み中、アドレスバーの下に細い進行状況の線を表示します。停止ボタンはどちらの場合も表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط تقدم رفيع أسفل شريط العنوان أثناء تحميل الصفحة. يظهر زر الإيقاف في الحالتين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tanka linija napretka ispod adresne trake dok se stranica učitava. Dugme Zaustavi se prikazuje u oba slučaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En tynd statuslinje under adresselinjen, mens en side indlæses. Stop-knappen vises under alle omstændigheder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine dünne Fortschrittslinie unter der Adressleiste, während eine Seite lädt. Die Stopp-Taste wird in jedem Fall angezeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una línea de progreso fina bajo la barra de direcciones mientras se carga una página. El botón Detener se muestra en ambos casos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une fine ligne de progression sous la barre d’adresse pendant le chargement d’une page. Le bouton Arrêter s’affiche dans tous les cas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una sottile linea di avanzamento sotto la barra degli indirizzi mentre una pagina si carica. Il pulsante Interrompi appare in ogni caso."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាត់វឌ្ឍនភាពស្តើងនៅក្រោមរបារអាសយដ្ឋាន ពេលទំព័រកំពុងផ្ទុក។ ប៊ូតុងឈប់បង្ហាញក្នុងករណីទាំងពីរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지를 불러오는 동안 주소 표시줄 아래에 얇은 진행 선을 표시합니다. 중지 버튼은 어느 경우에나 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En tynn fremdriftslinje under adressefeltet mens en side lastes inn. Stopp-knappen vises uansett."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cienka linia postępu pod paskiem adresu podczas ładowania strony. Przycisk Zatrzymaj jest widoczny w obu przypadkach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma linha de progresso fina abaixo da barra de endereço enquanto a página carrega. O botão Parar aparece de qualquer forma."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тонкая линия прогресса под адресной строкой во время загрузки страницы. Кнопка «Остановить» отображается в любом случае."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เส้นความคืบหน้าบาง ๆ ใต้แถบที่อยู่ขณะที่หน้ากำลังโหลด ปุ่มหยุดจะแสดงไม่ว่ากรณีใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir sayfa yüklenirken adres çubuğunun altında ince bir ilerleme çizgisi. Durdur düğmesi her durumda görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тонка лінія поступу під адресним рядком під час завантаження сторінки. Кнопка «Зупинити» показується в будь-якому разі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một vạch tiến trình mỏng dưới thanh địa chỉ khi trang đang tải. Nút Dừng vẫn hiện trong mọi trường hợp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "页面加载时在地址栏下方显示一条细进度线。无论是否开启，都会显示“停止”按钮。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "頁面載入時在網址列下方顯示一條細進度線。無論是否開啟，都會顯示「停止」按鈕。"
           }
         }
       }

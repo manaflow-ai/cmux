@@ -1,7 +1,8 @@
-//! Session recap (`hub/away_recap.rs`): a Claude chat the person comes back to
-//! after 5+ minutes away gets a `mux` `recap` record, asked of the running
-//! Claude Code as a transcript-free `side_question` while the person is away,
-//! never sent to the model as a prompt.
+//! Session recap (`hub/away_recap.rs`): a chat the person comes back to after
+//! 5+ minutes away gets a `mux` `recap` record, asked of the running Claude
+//! Code as a transcript-free `side_question` while the person is away, or, with
+//! no Claude Code process to ask, made by the harness's small model from the
+//! chat's recent turns; never sent to the chat's agent as a prompt.
 
 use super::fork_through::claude_setup;
 use super::*;
@@ -254,4 +255,143 @@ async fn a_chat_only_an_agent_drove_gets_no_recap() {
     assert_eq!(a.asked(), 0, "never asked");
     a.c.request("_acpmux/attach", json!({"sessionId": a.id})).await.unwrap();
     assert!(a.recaps().is_empty());
+}
+
+/// The small model's stand-in: answers `answer` and keeps each prompt it was given.
+fn writer(hub: &Hub, answer: &str) -> Arc<std::sync::Mutex<Vec<String>>> {
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let (kept, answer) = (asked.clone(), answer.to_owned());
+    hub.set_recap_writer(Some(Arc::new(move |prompt: String| {
+        kept.lock().unwrap().push(prompt);
+        Some(answer.clone())
+    })));
+    asked
+}
+
+/// Waits until the small model's stand-in was asked `n` times (it runs after a log read).
+async fn written(asked: &std::sync::Mutex<Vec<String>>, n: usize) {
+    for _ in 0..250 {
+        if asked.lock().unwrap().len() >= n {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+}
+
+const SMALL: &str = "The goal is a tolerant parser. Next, rerun the tests.";
+
+#[tokio::test]
+async fn a_claude_chat_whose_process_is_gone_gets_the_small_models_recap() {
+    let mut a = chat(3, &[]).await;
+    let asked = writer(&a.hub, SMALL);
+    let session = a.hub.resolve(&a.id).unwrap();
+    a.hub.detach_child(&session).await;
+    a.show(false).await;
+    a.advance(Duration::from_secs(3 * 60), 0).await;
+    written(&asked, 1).await;
+    assert_eq!(a.asked(), 0, "no process to ask, none started");
+    assert_eq!(session.meta().status, acpmux::store::SessionStatus::Idle, "none started for it");
+    {
+        let prompts = asked.lock().unwrap();
+        assert_eq!(prompts.len(), 1);
+        assert!(prompts[0].contains("Person: step 2"), "{}", prompts[0]);
+        assert!(prompts[0].len() <= acpmux::complete::MAX_PROMPT_BYTES);
+    }
+    a.advance(Duration::from_secs(2 * 60), 0).await;
+    a.show(true).await;
+    let recaps = a.recaps();
+    assert_eq!(recaps.len(), 1, "{recaps:?}");
+    assert_eq!(recaps[0]["text"], SMALL);
+    // Leaving again with no new turn asks nothing more.
+    a.show(false).await;
+    a.advance(Duration::from_secs(6 * 60), 0).await;
+    assert_eq!(asked.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_chat_on_another_harness_gets_the_small_models_recap() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    let asked = writer(&hub, SMALL);
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let view = |visible: bool| json!({"sessionId": id, "visible": visible});
+    c.request("_acpmux/view", view(true)).await.unwrap();
+    for n in 0..3 {
+        c.request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("step {n}")}]}),
+        )
+        .await
+        .unwrap();
+    }
+    c.request("_acpmux/view", view(false)).await.unwrap();
+    clock.advance(Duration::from_secs(3 * 60));
+    written(&asked, 1).await;
+    {
+        let prompts = asked.lock().unwrap();
+        assert_eq!(prompts.len(), 1, "asked once, 3 minutes after the person left");
+        assert!(prompts[0].contains("Agent: echo: step 2"), "{}", prompts[0]);
+        assert!(prompts[0].contains("Person: step 0"), "{}", prompts[0]);
+    }
+    clock.advance(Duration::from_secs(2 * 60));
+    c.request("_acpmux/view", view(true)).await.unwrap();
+    let recaps: Vec<Value> = hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.dir == "mux" && e.kind == "recap")
+        .map(|e| e.msg.clone())
+        .collect();
+    assert_eq!(recaps.len(), 1, "{recaps:?}");
+    assert_eq!(recaps[0]["text"], SMALL);
+}
+
+/// Another connection to `hub`, introduced with `hello` (`initialize` params).
+async fn connect_as(hub: &Arc<Hub>, hello: Value) -> TestClient {
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut client = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    client.request(method::INITIALIZE, hello).await.unwrap();
+    client
+}
+
+#[tokio::test]
+async fn an_automated_attach_never_makes_a_chat_eligible_for_a_recap() {
+    // #34075: a chat only an agent drove, then followed by automated clients.
+    let a = chat_viewed(0, &[], false).await;
+    // A supervisor (`mux/host`'s `AcpmuxClient.attach`): no `visible`.
+    let mut host = connect_as(
+        &a.hub,
+        json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "mux-host", "version": "0.1.0"}}),
+    )
+    .await;
+    host.request("_acpmux/attach", json!({"sessionId": a.id, "afterSeq": 0, "limit": 1_000_000}))
+        .await
+        .unwrap();
+    assert!(!a.hub.recap_person_seen(&a.id), "a supervisor's attach is no person");
+    // An agent's acpmux CLI, even one that says `visible` or views the chat.
+    let mut agent = connect_as(
+        &a.hub,
+        json!({"protocolVersion": 1, "clientInfo": {"name": "acpmux-cli"},
+            "_meta": {"acpmux": {"callerProtocol": 1, "callerKind": "agent"}}}),
+    )
+    .await;
+    agent
+        .request("_acpmux/attach", json!({"sessionId": a.id, "visible": true, "limit": 0}))
+        .await
+        .unwrap();
+    agent.request("_acpmux/view", json!({"sessionId": a.id, "visible": true})).await.unwrap();
+    assert!(!a.hub.recap_person_seen(&a.id), "an agent's attach or view is no person");
+    // A person's pane says what it shows.
+    let mut pane =
+        connect_as(&a.hub, json!({"protocolVersion": 1, "clientInfo": {"name": "pane"}})).await;
+    pane.request("_acpmux/attach", json!({"sessionId": a.id, "visible": true, "limit": 0}))
+        .await
+        .unwrap();
+    assert!(a.hub.recap_person_seen(&a.id), "a pane that shows the chat is a person");
 }

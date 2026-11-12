@@ -1580,6 +1580,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 "limit": .number(Double(pageSize)),
                 "kinds": kinds(hub),
                 "eventStream": .bool(true),
+                // The person reads it here: said outright, as acpmux counts only a said `visible`
+                // as a person looking (its `server/view.rs` `shows_person`; session recap).
+                "visible": .bool(true),
             ]
             if read.firstAttach {
                 params["maxBytes"] = .number(Double(openBytes))

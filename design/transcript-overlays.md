@@ -131,6 +131,24 @@ Every card over the composer that waits on the person can be put away (the compo
 - A started chat's name has the head's line to itself and its question the line under it, so neither is
   cut at a fixed share of the band.
 
+## Session recap
+
+Leo, 2026-11-12: "and also a gui enableable recap feature", pointing at Claude Code's terminal line
+"※ recap: The goal is ... Next, I'll ... (disable recaps in /config)". acpmux makes it (`hub/away_recap.rs`);
+the pane only draws it. Gallery: `agent-pane.recap-note`.
+
+- When: the person comes back to a chat after 5+ minutes away, and the chat ran turns meanwhile. One per
+  span: a turn since it was made drops it, and a dismissed one never shows again on this device
+  (`recapDismissed.ts`). An agent's or a link's attach never counts as the person looking.
+- What: the goal and the next step, two sentences at most, plain text.
+- Look (`terminal`, chosen): one italic run in the dim text color, "※ recap:" leading, set where the answer's
+  text starts, no card and no fill, at the detail type size. Its × keeps its slot and fades in on hover or
+  keyboard focus (`:has(:focus-visible)` while the page holds the keyboard, never `:focus-within`) on the transcript's shared action fade (`--cv-actions-in`, `--cv-actions-out`), so nothing moves. Under "New since you looked" it draws under the line.
+- Looks compared: `terminal` (chosen), `plain` (no lead: reads as the agent's own aside), `mark` (the ※
+  alone: means nothing to someone who never saw the terminal), and the earlier `card`, `line` and `rule`.
+- Off: Settings > Chats > Session Recap (`agents.chats.sessionRecap`, on by default) stops the daemon making
+  them and hides any already drawn at once; the composer's Options set it per chat.
+
 ## Tokens only
 
 Every colour, radius, size and motion of these controls is a token: `unread.css`, `jumpPair.css` and

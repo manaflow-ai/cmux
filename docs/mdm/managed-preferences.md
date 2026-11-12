@@ -147,7 +147,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.chats.enabled` | boolean | `true` |  | Enable Chats. Show chats stored on this device. Nothing is uploaded. |
 | `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find harness chat folders automatically. When off, only the listed folders are used. |
 | `agents.chats.roots` | array | `[]` |  | Chat Folders. Add absolute paths to harness data folders. Protected folders are refused. Your organization can add locked folders. |
-| `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage. |
+| `agents.chats.sessionRecap` | boolean | `true` |  | Session Recap. When you come back to a chat after 5 minutes or more, show a line on its goal and next step. Claude chats ask Claude Code itself; other chats ask the agent's small model about the last few turns. Each recap is one small extra model call that counts toward your usage. |
 | `agents.chats.coldArchive` | boolean | `false` |  | Compress Old Chats. Chats you have not used for a while are compressed into one small file each. They stay in the list with a preview, and open as before. |
 | `agents.chats.coldArchiveAfterDays` | real | `30` | 1 to 3650 | Compress Chats Idle For. How many days a chat goes unused before it is compressed. A chat with an agent running, a queued message or an open turn is never compressed. |
 | `chat.on` | string | `""` |  | Default Chat Target. Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here. |

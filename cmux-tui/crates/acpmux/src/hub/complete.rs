@@ -67,6 +67,25 @@ fn env_value(env: &BTreeMap<String, String>, key: &str) -> Option<String> {
         .filter(|m| !m.trim().is_empty() && !m.contains("${"))
 }
 
+/// The chat a daemon call speaks for (its recap, title or prompt coach): the call carries that
+/// chat's text, so it runs on the chat's own harness in the env its own spawn would take (its
+/// profile, preset, chat store and session env, then its route with its conversation's account
+/// home kept, `Hub::spawn_profile_read`), never another account's or the default route instead.
+pub(super) struct ChatRoute {
+    meta: SessionMeta,
+    /// It forks its parent's conversation (`Session::fork_from`), whose home it runs in.
+    forking: bool,
+}
+
+impl ChatRoute {
+    pub(super) fn of(session: &Session) -> Self {
+        Self {
+            meta: session.meta(),
+            forking: session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some(),
+        }
+    }
+}
+
 impl Hub {
     /// `_acpmux/complete` from a connection of `origin`: the unix socket
     /// only (`complete::allowed`). Logs the harness, model and duration only.
@@ -123,11 +142,21 @@ impl Hub {
         self: &Arc<Self>,
         req: &Request,
     ) -> Result<Value, CompleteError> {
+        self.complete_request_for(req, None).await
+    }
+
+    /// [`Self::complete_request`] for a call that carries chat `chat`'s text (its title): on
+    /// that chat's route.
+    pub(super) async fn complete_request_for(
+        self: &Arc<Self>,
+        req: &Request,
+        chat: Option<&ChatRoute>,
+    ) -> Result<Value, CompleteError> {
         let started = std::time::Instant::now();
         let deadline = tokio::time::Instant::now() + req.timeout;
         let (name, profile) = self.completion_harness(req.harness.as_deref()).await?;
         let recipe = recipes::recipe_for(&name, &profile)?;
-        let reply = self.complete_with(&name, &profile, recipe, req, deadline).await;
+        let reply = self.complete_with(&name, &profile, recipe, req, deadline, chat).await;
         let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         match &reply {
             Ok(v) => tracing::info!(
@@ -141,28 +170,36 @@ impl Hub {
         reply
     }
 
-    /// One headless call for the daemon's own use (`prompt_coach.rs`): harness `name` (else the
-    /// default harness) on its small model, the answer cut to about `max_tokens` tokens. The
-    /// prompt is the daemon's, so `_acpmux/complete`'s prompt size limit does not apply.
+    /// One headless call for the daemon's own use on chat `chat`'s text (`away_recap.rs`,
+    /// `prompt_coach.rs`): the chat's own harness alone, never another, on its small model, in
+    /// the env the chat's own spawn takes ([`ChatRoute`]), the answer cut to about `max_tokens`
+    /// tokens. An error when the harness has no headless recipe or that env cannot be built:
+    /// never the default route or another account instead. The prompt is the daemon's, so
+    /// `_acpmux/complete`'s prompt size limit does not apply.
     pub(super) async fn complete_own(
         self: &Arc<Self>,
-        name: Option<&str>,
+        chat: &ChatRoute,
         prompt: String,
         max_tokens: u32,
         timeout: std::time::Duration,
     ) -> Result<String, CompleteError> {
-        let (name, profile) = {
-            let cfg = self.config.read().await;
-            let found = |n: &str| cfg.harnesses.get(n).cloned().map(|p| (n.to_owned(), p));
-            name.and_then(found)
-                .filter(|(n, p)| recipes::recipe_for(n, p).is_ok())
-                .or_else(|| cfg.default_harness.as_deref().and_then(found))
-                .ok_or_else(|| CompleteError::UnknownHarness("(no default harness)".into()))?
-        };
+        let (name, profile) = self.completion_harness(Some(&chat.meta.harness)).await?;
+        self.complete_own_on(name, profile, prompt, max_tokens, timeout, Some(chat)).await
+    }
+
+    async fn complete_own_on(
+        self: &Arc<Self>,
+        name: String,
+        profile: HarnessProfile,
+        prompt: String,
+        max_tokens: u32,
+        timeout: std::time::Duration,
+        chat: Option<&ChatRoute>,
+    ) -> Result<String, CompleteError> {
         let recipe = recipes::recipe_for(&name, &profile)?;
         let req = Request { prompt, harness: Some(name.clone()), model: None, max_tokens, timeout };
         let deadline = tokio::time::Instant::now() + timeout;
-        let reply = self.complete_with(&name, &profile, recipe, &req, deadline).await?;
+        let reply = self.complete_with(&name, &profile, recipe, &req, deadline, chat).await?;
         Ok(reply.get("text").and_then(Value::as_str).unwrap_or_default().to_owned())
     }
 
@@ -195,6 +232,45 @@ impl Hub {
         }))
     }
 
+    /// The env chat `chat`'s own spawn would take now (`Hub::spawn_profile_read`: defaults,
+    /// profile, preset, chat store, session env, then its route with its conversation's account
+    /// home kept), for a completion of harness `name` on its text. An error, and no call, when
+    /// `name` is another harness or the chat's store cannot be told.
+    async fn chat_completion_env(
+        &self,
+        name: &str,
+        chat: &ChatRoute,
+    ) -> Result<BTreeMap<String, String>, String> {
+        let meta = &chat.meta;
+        if name != meta.harness {
+            return Err(format!(
+                "chat {} runs on {}: its text goes to no other harness",
+                meta.id, meta.harness
+            ));
+        }
+        if !meta.chat_store_applies() {
+            return Err(format!(
+                "chat {}'s conversation store does not apply to its harness: nothing is sent",
+                meta.id
+            ));
+        }
+        let (profile, defaults) = {
+            let cfg = self.config.read().await;
+            let profile = super::resolve::session_profile(
+                &cfg,
+                &meta.harness,
+                &meta.cwd,
+                meta.remote_origin,
+            )?;
+            (profile, cfg.defaults_for(&meta.harness))
+        };
+        let (spawn, ..) = self
+            .spawn_profile_read(meta, chat.forking, &profile, &defaults.env)
+            .await
+            .map_err(|e| e.message)?;
+        Ok(spawn.env)
+    }
+
     async fn complete_with(
         self: &Arc<Self>,
         name: &str,
@@ -202,17 +278,25 @@ impl Hub {
         recipe: Recipe,
         req: &Request,
         deadline: tokio::time::Instant,
+        chat: Option<&ChatRoute>,
     ) -> Result<Value, CompleteError> {
         let failed = |detail: String| CompleteError::Failed { harness: name.to_owned(), detail };
         let timed_out = || CompleteError::Timeout {
             harness: name.to_owned(),
             ms: u64::try_from(req.timeout.as_millis()).unwrap_or(u64::MAX),
         };
-        // The profile's env with its bound route (claude-sr, claude-cr, a route file).
-        let mut env = profile.env.clone();
-        self.apply_route_for(name, None, None, false, profile, &mut env)
-            .await
-            .map_err(|e| failed(e.message))?;
+        // The profile's env with its bound route (claude-sr, claude-cr, a route file); for a
+        // chat's own call, the env its own spawn takes (`ChatRoute`).
+        let env = match chat {
+            Some(chat) => self.chat_completion_env(name, chat).await.map_err(failed)?,
+            None => {
+                let mut env = profile.env.clone();
+                self.apply_route_for(name, None, None, false, profile, &mut env)
+                    .await
+                    .map_err(|e| failed(e.message))?;
+                env
+            }
+        };
         // Codex runs without the user's config: their provider comes back.
         let codex = match recipe {
             Recipe::Codex => codex_user_config(&env).await,

@@ -16,7 +16,7 @@
 // Every shape, colour and motion is a token (unread.css; check-design-tokens.ts TOKEN_ONLY_FILES).
 import { useCallback, useSyncExternalStore } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { setUnreadBannerMode, useUnreadBannerMode } from "../chatDisplay";
+import { setUnreadBannerMode, useSessionRecapOn, useUnreadBannerMode } from "../chatDisplay";
 import { useT } from "../i18n";
 import type { AcpmuxSince } from "../model";
 import { RecapNote } from "./RecapNote";
@@ -112,6 +112,7 @@ export function SinceDivider({
   const t = useT();
   const unread = useUnreadView();
   const mode = useUnreadBannerMode();
+  const recapOn = useSessionRecapOn();
   const isRead = read ?? unreadRead(since.key, unread);
   const label = t("since.label");
   return (
@@ -132,7 +133,9 @@ export function SinceDivider({
           )}
         </p>
       </ContextMenu>
-      {since.recap && <RecapNote recap={since.recap} onDismiss={onDismissRecap} lead={false} />}
+      {since.recap && (recapOn || since.recap.chatOn) && (
+        <RecapNote recap={since.recap} onDismiss={onDismissRecap} lead={false} />
+      )}
     </div>
   );
 }

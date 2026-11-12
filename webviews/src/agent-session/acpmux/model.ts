@@ -157,7 +157,8 @@ export type AcpmuxFailover = { from: string; to: string };
 /// A session recap (acpmux `recap` record, `hub/away_recap.rs`): where the chat stands, shown when
 /// the person comes back after 5+ minutes away. Never a prompt; the daemon decides when.
 /// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
-export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
+/// `chatOn`: the chat's own Session Recap option is on, so it shows with the app setting off.
+export type AcpmuxRecap = { key: string; text: string; awayMs?: number; chatOn?: boolean };
 
 /// "New since you looked" (conversation/SinceDivider.tsx): where the person left the chat, drawn
 /// after the record they had seen (acpmux `seenSeq`, `hub/seen.rs`) when turns ended since. The
@@ -2357,22 +2358,23 @@ function fallbackRowHeight(
   if (row.kind === TASK_LINE && row.tasks) return finish(row.tasks.length * toolRowHeight());
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return finish(row.agentPair?.resumed ? 37 : 37 + 24);
-  // A session recap (conversation/RecapNote.tsx): its card, a line per 70 characters of recap.
+  // A session recap (conversation/RecapNote.tsx): its italic line, a line per 70 characters of recap
+  // and its "※ recap:" lead; nothing while Session Recap is off (rows/RecapRow.tsx).
   if (row.kind === "recap")
     return finish(
-      24 +
-        Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
-          metrics().lineHeight,
+      sessionRecapEnabled() || row.recap?.chatOn
+        ? Math.max(1, Math.ceil(((row.recap?.text.length ?? 0) + 10) / Math.max(24, Math.floor(width / 8) - 6))) *
+            metrics().lineHeight
+        : 0,
     );
   // "New since you looked" (conversation/SinceDivider.tsx): its 28px line, and under it the recap's
-  // card as a recap row is estimated.
+  // line as a recap row is estimated.
   if (row.kind === SINCE_DIVIDER)
     return finish(
       28 +
-        (row.since?.recap
-          ? 24 +
-            Math.max(1, Math.ceil(row.since.recap.text.length / Math.max(24, Math.floor(width / 8) - 6))) *
-              metrics().lineHeight
+        (row.since?.recap && (sessionRecapEnabled() || row.since.recap.chatOn)
+          ? Math.max(1, Math.ceil((row.since.recap.text.length + 10) / Math.max(24, Math.floor(width / 8) - 6))) *
+            metrics().lineHeight
           : 0),
     );
   // A memory offer (conversation/MemoryOfferCard.tsx): its file line, a 24px diff line per open fact
@@ -3596,7 +3598,7 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { currentChatMetrics, promptCoachEnabled } from "./chatDisplay";
+import { currentChatMetrics, promptCoachEnabled, sessionRecapEnabled } from "./chatDisplay";
 import { messageOpened } from "./conversation/incomingOpened";
 import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
