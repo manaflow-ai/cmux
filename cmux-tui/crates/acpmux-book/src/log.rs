@@ -487,7 +487,7 @@ impl Log {
         let mut found_slots = std::collections::BTreeSet::new();
         for seg in mark.seg..=last {
             let path = segment_path(&rows_dir, seg);
-            let file = OpenOptions::new().read(true).write(seg == last).open(&path)?;
+            let mut file = OpenOptions::new().read(true).write(seg == last).open(&path)?;
             let segment_len = file.metadata()?.len();
             if seg == last && segment_len < SEGMENT_HEADER_LEN {
                 if segment_len >= 4 {
@@ -1140,7 +1140,7 @@ mod failure_tests {
         log.append_settled(2, 1, RawRange::NONE, b"second").unwrap();
         log.append_settled(3, 1, RawRange::NONE, b"third").unwrap();
         drop(log);
-        let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
+        let (log, _) = Log::open(home.path(), Options::default()).unwrap();
         assert_eq!(log.row(2).unwrap().len, 6);
         assert_eq!(log.row(3).unwrap().len, 5);
     }
