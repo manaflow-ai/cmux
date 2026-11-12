@@ -40,6 +40,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
+# Scanned besides scripts/: the cmux-tui bench scripts, which start and stop daemons the same way.
+SCANNED = (SCRIPTS, ROOT / "cmux-tui" / "scripts")
 
 
 # ---------------------------------------------------------------- the scan
@@ -192,12 +194,15 @@ def scan(source: str, name: str = "<source>") -> list[str]:
             if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
                 break
             if isinstance(parent, ast.Try) and node in parent.body:
-                for handler in parent.handlers:
-                    if _catches_permission_error(handler.type) and not _kills_directly(handler.body):
+                handler = next((h for h in parent.handlers if _catches_permission_error(h.type)), None)
+                if handler is not None:
+                    # The nearest try that catches the refusal decides; one that does not (an inner
+                    # `except ProcessLookupError`) lets it reach the next try out.
+                    if not _kills_directly(handler.body):
                         findings.append(f"{name}:{call.lineno}: a refused os.killpg (PermissionError, line "
                                         f"{handler.lineno}) is swallowed and nothing kills the leader directly; use "
                                         f"ci_process_tree.kill_group (cmux#41880 review F1)")
-                break  # the nearest try decides
+                    break
             if isinstance(parent, (ast.With, ast.AsyncWith)) and node in parent.body and any(
                     _is_suppress(item.context_expr) for item in parent.items):
                 findings.append(f"{name}:{call.lineno}: contextlib.suppress swallows a refused os.killpg "
@@ -243,7 +248,7 @@ def _kills_directly(body: list[ast.stmt]) -> bool:
 
 def scan_scripts() -> list[str]:
     findings = []
-    for path in sorted(SCRIPTS.rglob("*.py")):
+    for path in sorted(p for folder in SCANNED for p in folder.rglob("*.py")):
         try:
             source = path.read_text()
         except (OSError, UnicodeDecodeError):
@@ -380,8 +385,16 @@ class ScanTests(unittest.TestCase):
                     os.killpg(proc.pid, signal.SIGTERM)
                 except OSError:
                     log("refused")
+            def nested(proc):
+                try:
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        return
+                except OSError:
+                    pass
         """)
-        self.assertEqual(len(scan(source)), 4, scan(source))
+        self.assertEqual(len(scan(source)), 5, scan(source))
 
     def test_scan_passes_a_refused_killpg_with_a_direct_kill(self) -> None:
         source = textwrap.dedent("""
@@ -414,6 +427,16 @@ def _load(name: str, relative: str):
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _group_gone(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
 
 
 def _refused(*_args, **_kwargs):
@@ -481,8 +504,9 @@ class RefusedGroupKillTests(unittest.TestCase):
                 self.assertTrue(tree.kill_group(proc, signal.SIGKILL))
             self.assertTrue(logged.called, "the refused killpg was not logged")
             self._assert_dead(proc, child, "kill_group")
-            # The group is empty now: the real killpg says so, and kill_group reports it gone.
-            self.assertTrue(_wait_for(lambda: not tree.group_members(proc.pid), 10))
+            # The group is empty now: the real killpg says so (not a ps snapshot, which answers [] when ps fails), and
+            # kill_group reports it gone.
+            self.assertTrue(_wait_for(lambda: _group_gone(proc.pid), 10), "the leader's group is still there")
             self.assertFalse(tree.kill_group(proc, signal.SIGKILL))
 
 

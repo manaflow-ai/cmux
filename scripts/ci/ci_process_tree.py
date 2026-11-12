@@ -129,8 +129,8 @@ def kill_group(
     macOS can refuse os.killpg with EPERM (a group whose members are exiting, cmux-lawrence-2 2026-10-09). A cleanup
     that swallowed that refusal also lost the direct kill of the leader it used to make (cmux#41880 review F1). Here
     any refusal but ProcessLookupError signals the leader, the known CHILDREN and every member `ps` still lists in the
-    group one by one, and says so. The leader's own pid is skipped once it exited (a Popen whose poll() answers, or
-    REAPED), since it may name another process by then. Returns False only when the group is gone
+    group one by one, and says so. The leader's own pid is skipped once it was reaped (a Popen whose returncode is
+    set, or REAPED), since it may name another process by then. Returns False only when the group is gone
     (ProcessLookupError); a caller that escalates (SIGTERM, wait, SIGKILL) stops there."""
     pgid = int(leader) if isinstance(leader, int) else leader.pid
     try:
@@ -143,9 +143,10 @@ def kill_group(
 
 
 def _exited(leader: Union[int, subprocess.Popen]) -> bool:
-    """A Popen (or anything with poll()) that has exited: poll() reaps it, so its pid may name another process."""
-    poll = getattr(leader, "poll", None)
-    return poll is not None and poll() is not None
+    """A Popen that was already reaped (its returncode is set): its pid may name another process now. This never polls,
+    which would reap a leader its caller keeps unreaped on purpose; an exited, unreaped leader is a zombie whose pid
+    is still ours, and signalling it does nothing."""
+    return getattr(leader, "returncode", None) is not None
 
 
 def _kill_directly(pgid: int, signum: int, children: Iterable[int], refused: OSError, reaped: bool) -> None:

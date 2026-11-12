@@ -148,11 +148,19 @@ class Daemon:
             except Exception:  # noqa: BLE001 - teardown
                 pass
             self.conn.close()
-        if self.proc and self.proc.poll() is None:
+        if self.proc:
+            # The group whatever the daemon's state: an exited daemon can leave a child in it (cmux#41767 review F1).
+            # A refused killpg (macOS EPERM) signals the daemon by its handle instead of dropping the kill
+            # (cmux#41880 review F1).
             try:
                 os.killpg(self.proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            except OSError:
+                self.proc.terminate()
+            try:
                 self.proc.wait(timeout=10)
-            except Exception:  # noqa: BLE001 - teardown
+            except subprocess.TimeoutExpired:
                 pass
 
 

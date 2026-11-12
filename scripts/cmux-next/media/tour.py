@@ -109,8 +109,6 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             print(*args, **kwargs)
         except (BrokenPipeError, OSError, ValueError):
             pass
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'ci'))
-from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 MAX_SECONDS = 300
 
@@ -914,8 +912,15 @@ class App:
             # The group, whatever its leader's state: an exited leader can leave a child running in it (cmux#41767
             # review F1). The group keeps the leader's pid as its id while any member lives.
             for sig in (signal.SIGTERM, signal.SIGKILL):
-                if not kill_group(self.process, sig):
+                # The media workflow's stop step runs a copy of this file alone, with no scripts/ci beside it, so
+                # the fallback is inline: a refused killpg (macOS EPERM) signals the leader by its handle
+                # (cmux#41880 review F1).
+                try:
+                    os.killpg(self.process.pid, sig)
+                except ProcessLookupError:
                     break
+                except OSError:
+                    self.process.send_signal(sig)
                 if sig == signal.SIGTERM:
                     try:
                         self.process.wait(timeout=10)
