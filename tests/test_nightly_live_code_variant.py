@@ -70,7 +70,13 @@ class NightlyLiveCodeVariant(unittest.TestCase):
         self.assertEqual([a for a in args if a.startswith("OTHER_SWIFT_FLAGS=")],
                          ["OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_BROWSER_IMPORT"])
         self.assertFalse([a for a in args if a.startswith(("OTHER_LDFLAGS=", "LD_EXPORT_SYMBOLS=", "CMUX_LIVE_CODE_"))])
+        # A classic track keeps its optimization.
+        self.assertFalse([a for a in args if a.startswith(("SWIFT_OPTIMIZATION_LEVEL=", "CMUX_SWIFT_OPT_"))])
+        self.assertEqual(args[-1], "build")
+
+    def test_the_next_nightly_compiles_swift_for_size(self) -> None:
         # Release Swift is compiled for size, the hot targets at -O (scripts/cmux-next/lib/swift-size-opt.sh).
+        args = self.build(BUILD_TRACK="nightly-next")
         self.assertEqual([a for a in args if a.startswith("SWIFT_OPTIMIZATION_LEVEL=")],
                          ["SWIFT_OPTIMIZATION_LEVEL=$(CMUX_SWIFT_OPT_$(TARGET_NAME):default=-Osize)"])
         self.assertIn("CMUX_SWIFT_OPT_CmuxNextTerminal=-O", args)
