@@ -1521,14 +1521,55 @@ def blob_at(repo: Path, rev: str, path: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None) -> bytes | None:
+def tree_mode(repo: Path, rev: str, path: str) -> str | None:
+    """The Git tree mode for PATH at REV, or None when the path is absent."""
+    result = subprocess.run(["git", "-C", str(repo), "ls-tree", "-z", rev, "--", path], capture_output=True)
+    if result.returncode != 0:
+        return None
+    for entry in result.stdout.split(b"\0"):
+        if not entry:
+            continue
+        header, name = entry.split(b"\t", 1)
+        if name.decode(errors="surrogateescape") == path:
+            return header.split(b" ", 1)[0].decode("ascii")
+    return None
+
+
+def non_regular_inputs(repo: Path, rev: str, *paths: str) -> list[str]:
+    """Required check inputs present at REV that are directories, symlinks or other non-regular tree entries."""
+    return [path for path in paths if (mode := tree_mode(repo, rev, path)) is not None and not mode.startswith("100")]
+
+
+def deleted_inputs(repo: Path, base: str, head: str, *paths: str) -> list[str]:
+    """Each of PATHS (a file a check reads, a declaration it judges against, or the check itself) that BASE has and
+    HEAD does not. "HEAD has no such file, so the check does not apply" holds only for a branch older than the file:
+    BASE lacks it too. A push that deletes it is not older than the check, and skipping the check for it would let a
+    push turn a check off by deleting what the check reads (review F1 on #40894: deleting
+    .github/single-host-fallbacks.json passed undeclared runs-on variables). Every such exemption asks this first."""
+    return [path for path in paths if blob_at(repo, head, path) is None and blob_at(repo, base, path) is not None]
+
+
+def deleted_input_refusals(check: str, paths: list[str]) -> list[str]:
+    """The refusal for a push that deletes PATHS, which CHECK reads (deleted_inputs). Never subtracted as old debt."""
+    return [NoVerdict(f"prepush-gate: {check}: the push deletes {path}, which this check reads, so the check cannot "
+                      f"judge the pushed head and the push is refused (only a branch whose base lacks it too is "
+                      f"exempt); restore it, or land its removal with the check's own change") for path in paths]
+
+
+def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None, base: str | None = None) -> bytes | None:
     """The check script at PATH to run for a push to HEAD: the installed reviewed copy on a hook run (TRUSTED_SCRIPTS),
-    HEAD's own on a manual run; None when HEAD is older than the check. A hook run never falls back to the pushed head's
-    copy (the hook never runs code a push controls): an install that lacks a check HEAD has refuses the push."""
+    HEAD's own on a manual run; None when HEAD is older than the check (BASE, when given, lacks it too). A hook run
+    never falls back to the pushed head's copy (the hook never runs code a push controls): an install that lacks a
+    check HEAD has refuses the push. A push that deletes the check (BASE has it, HEAD not: deleted_inputs) still runs
+    it: the installed copy on a hook run, BASE's on a manual one."""
+    malformed = non_regular_inputs(repo, head, path)
+    if malformed:
+        raise SystemExit(f"prepush-gate: {path} must be a regular file at the pushed head; refusing the check.")
     at_head = blob_at(repo, head, path)
+    deleted = base is not None and bool(deleted_inputs(repo, base, head, path))
     if trusted_scripts is None:
-        return at_head
-    if at_head is None:
+        return blob_at(repo, base, path) if at_head is None and deleted else at_head
+    if at_head is None and not deleted:
         return None  # a commit older than this check
     installed = trusted_scripts / Path(path).name
     if not installed.is_file():
@@ -1543,9 +1584,13 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
         return result.stdout if result.returncode == 0 else None
 
     # The hook runs the installed reviewed checker (as for the scanners); a manual run, the checkout's.
-    script = check_script(repo, head, RESERVED_SCRIPT, trusted_scripts)
+    script = check_script(repo, head, RESERVED_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than this check
+    # A head without the list or the surfaces reads as no findings below: only a branch older than them may.
+    gone = deleted_inputs(repo, base, head, RESERVED_LIST, RESERVED_SURFACES)
+    if gone:
+        return deleted_input_refusals(RESERVED_CHECK, gone)
     with tempfile.TemporaryDirectory(prefix="cmux-reserved-") as tmp:
         work = absolute(Path(tmp))
         (work / "check.py").write_bytes(script)
@@ -1647,7 +1692,7 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
     (4268 files on feat-cmux-next, 2026-11-09): 9.6 s of an 18.8 s gate on a push of one Python file, plus one
     on-demand fetch (5-8 s) per source blob a blob:none clone lacks."""
     repo = absolute(repo)
-    script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts)
+    script = check_script(repo, head, UI_FONT_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-ui-font-") as tmp:
@@ -1791,7 +1836,7 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     if not checked_out or dirty:
         log("prepush-gate: Cargo.lock check skipped: the pushed head is not this checkout's clean HEAD")
         return []
-    script = check_script(repo, head, CARGO_LOCKS_SCRIPT, trusted_scripts)
+    script = check_script(repo, head, CARGO_LOCKS_SCRIPT, trusted_scripts, base)
     if script is None:
         return []  # a commit older than the shared check
     with tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-") as tmp:
@@ -2117,6 +2162,7 @@ def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str 
 
 
 FALLBACKS_STATUSES = ("found", "incomplete")
+FALLBACKS_RESOLVER = "tests/workflow_jobs.py"  # the shared resolve step the checker reads runs-on through
 FALLBACKS_INCOMPLETE = "incomplete"
 
 
@@ -2141,8 +2187,10 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     """Each runs-on variable or single-host label HEAD reads with no declared fallback that BASE did not already have.
 
     Runs only when BASE..HEAD changes .github/workflows/ or the declaration. The checker is the installed reviewed copy
-    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run. Only two cases pass unchecked: a HEAD without the
-    declaration (a branch older than it), and a hook install older than the checker (a warning). A checker that runs
+    on a hook run (TRUSTED_SCRIPTS), HEAD's own on a plain run (BASE's when the push deletes it). Only two cases pass
+    unchecked: a branch older than the declaration (BASE and HEAD both lack it), and a hook install older than the
+    checker (a warning). Review F1 on #40894: a HEAD without the declaration was exempt whatever BASE had, so deleting
+    it with a new `runs-on: ${{ vars.X }}` passed; a push that deletes it (deleted_inputs) now refuses. A checker that runs
     and crashes, exits non-zero or prints no JSON list REFUSES the push (Codex on #40799: a null `variables` crashed
     the checker and the layer passed), whatever the cause, a missing PyYAML included.
 
@@ -2155,17 +2203,33 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", ".github/").decode().split("\0")
     if not any(n == FALLBACKS_DECLARATION or n.startswith(".github/workflows/") for n in names if n):
         return []
+    malformed = non_regular_inputs(repo, head, FALLBACKS_DECLARATION)
+    if malformed:
+        return [NoVerdict(f"prepush-gate: {FALLBACKS_CHECK}: {path} must be a regular file at the pushed head, so the "
+                          "check cannot judge the declaration") for path in malformed]
+    gone = deleted_inputs(repo, base, head, FALLBACKS_DECLARATION)
+    if gone:
+        return deleted_input_refusals(FALLBACKS_CHECK, gone)
     if blob_at(repo, head, FALLBACKS_DECLARATION) is None:
-        return []  # a branch older than the declaration
+        return []  # a branch older than the declaration: its base lacks it too
     if trusted_scripts is None:
-        script = blob_at(repo, head, FALLBACKS_SCRIPT)
+        # A push that deletes the checker or its resolver still runs them (check_script): the base's copy.
+        script = check_script(repo, head, FALLBACKS_SCRIPT, None, base)
+        resolver = check_script(repo, head, FALLBACKS_RESOLVER, None, base)
     else:
         installed = trusted_scripts / Path(FALLBACKS_SCRIPT).name
         script = installed.read_bytes() if installed.is_file() else None
+        beside = trusted_scripts / Path(FALLBACKS_RESOLVER).name
+        resolver = beside.read_bytes() if beside.is_file() else None
     if script is None:
         log(f"prepush-gate: WARNING: no {Path(FALLBACKS_SCRIPT).name} in the hook's checks copy yet, so the single-host "
             "fallback check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
         return []
+    # The checker reads runs-on through the shared resolver beside it. A checker that needs one the install lacks
+    # (an install from before it) refuses with the reinstall command; it never reads the pushed copy.
+    if resolver is None and b"load_workflow_jobs" in script:
+        return [NoVerdict(f"prepush-gate: {STALE_INSTALL} (it has no {Path(FALLBACKS_RESOLVER).name}, which "
+                          f"{Path(FALLBACKS_SCRIPT).name} reads runs-on through).")]
     # The checker runs under this interpreter: the hook's own Python (its python3-path), as every other layer does.
     if not has_pyyaml(sys.executable):
         fix = pyyaml_install_command(sys.executable)
@@ -2173,6 +2237,8 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     with tempfile.TemporaryDirectory(prefix="cmux-fallbacks-") as tmp:
         work = absolute(Path(tmp))
         (work / "check.py").write_bytes(script)
+        if resolver is not None:
+            (work / Path(FALLBACKS_RESOLVER).name).write_bytes(resolver)
 
         def keyed(rev: str) -> tuple[dict[str, str], list[str]] | str:
             """(the findings at REV by key, the messages of its incomplete ones), or the reason the checker gave no
