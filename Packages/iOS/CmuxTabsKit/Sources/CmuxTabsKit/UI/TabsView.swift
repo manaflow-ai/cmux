@@ -248,7 +248,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .coordinateSpace(.named(TabsScreenSpace.name))
         .gesture(ZoomPinchGesture { handlePinch($0) })
-        .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
+        .onChange(of: size.width, initial: true) { old, w in
+            zoomDriver.span = Double(w - overviewLayout.cardWidth)
+            keepGridPlace(fromWidth: old)
+        }
         .onChange(of: overviewVisible) { _, visible in source.overviewVisibilityChanged(visible) }
         .onChange(of: zoomState.phase == .overview ? safeTop : -1) { _, top in
             if top >= 0 { gridTop = top }
@@ -599,6 +602,24 @@ struct TabsScreen<Source: TabsDataSource>: View {
             // Until the scroll view reports it, the fallback endpoint uses it too.
             gridScroll.offset = offset
         }
+    }
+
+    /// A foldable folding or unfolding under the settled grid changes its
+    /// column count: the card that led the screen leads it again, instead of
+    /// the old scroll offset landing somewhere else in the reflowed grid.
+    /// (Off the grid, `prepareOverview` reveals the active card on the way in.)
+    private func keepGridPlace(fromWidth old: CGFloat) {
+        guard zoomState.phase == .overview, old != size.width else { return }
+        let resized = overviewLayout
+        var before = resized
+        before.size.width = old
+        guard before.columns != resized.columns else { return }
+        let offset = before.offset(keepingPlace: overviewScroll, in: resized)
+        guard abs(offset - overviewScroll) > 0.5 else { return }
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) { overviewPosition = ScrollPosition(y: offset) }
+        gridScroll.offset = offset
     }
 
     /// Tabs button: page -> grid, or reverse a zoom that is heading to the page.
