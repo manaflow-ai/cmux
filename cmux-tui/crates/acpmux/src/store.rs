@@ -369,7 +369,7 @@ pub struct SessionMeta {
     pub last_return: Option<LastReturn>,
     /// Each person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they had on
     /// screen while they attended the chat, keyed by person id (`_meta.acpmux.author` id,
-    /// [`crate::hub::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
+    /// [`crate::hub::seen::OWNER_READER`] for the owner). Only `_acpmux/seen` moves it forward; a
     /// restart, update, reconnect, attach or `_acpmux/view` never does. Rows after it by an agent
     /// or another person are the person's unseen rows (the pane's Jump up).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]

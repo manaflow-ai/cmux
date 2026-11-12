@@ -239,7 +239,7 @@ mod question_replies;
 mod resume;
 mod secrets;
 mod seen;
-pub(crate) use seen::{Look, OWNER_READER, reader_of};
+pub(crate) use seen::{Look, reader_of};
 mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
