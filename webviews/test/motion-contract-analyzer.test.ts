@@ -11,11 +11,11 @@ import {
 } from "./support/motionContract";
 
 /// Frames at 120 Hz; `at(i)` gives each frame's elements.
-function frames(count: number, at: (index: number) => Record<string, Partial<ElementSample>>, slot = SLOT_MS) {
+function frames(count: number, at: (index: number) => Partial<Record<string, Partial<ElementSample>>>, slot = SLOT_MS) {
   const out: MotionFrame[] = [];
   for (let index = 0; index < count; index += 1) {
     const els: Record<string, ElementSample> = {};
-    for (const [key, el] of Object.entries(at(index))) els[key] = { top: 0, height: 20, opacity: 1, ...el };
+    for (const [key, el] of Object.entries(at(index))) if (el) els[key] = { top: 0, height: 20, opacity: 1, ...el };
     out.push({ t: index * slot, els, scrollTop: 0, fromEnd: 0, block: 2, marks: [] });
   }
   return { frames: out, animations: [] } satisfies MotionRecording;
