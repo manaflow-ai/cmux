@@ -93,7 +93,7 @@ struct NewTabHoldCloseKeyTests {
     /// (`incoming`: of Cmd-N's new workspace) with the line `ls` and Return in it, and the probe with the
     /// keyboard. With `besideTheFocusedPane` the page is in the second of two panes and the focus model names
     /// the first, as after a click on the + of a pane that is not the focused one. `body` ends the hold.
-    private static func withAHeldLine(incoming: Bool = false, besideTheFocusedPane: Bool = false, _ body: (Held) throws -> Void) async throws {
+    private static func withAHeldLine(incoming: Bool = false, besideTheFocusedPane: Bool = false, byScript: Bool = false, _ body: (Held) throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -159,7 +159,9 @@ struct NewTabHoldCloseKeyTests {
         input.holdLimit = .seconds(600)
         input.incomingHoldLimit = .seconds(600)
         input.scheduleDeadline = { _, _ in Task {} }
-        let token = try #require(incoming ? input.beginIncoming(in: window) : input.begin(for: pane))
+        // `byScript`: the opening is a run of the CLI that may not change the view, as `ActionRegistry` binds it.
+        let opening = byScript ? ActionRunScope(origin: .cli, allowsViewChange: false) : nil
+        let token = try #require(ActionRunScope.$current.withValue(opening) { incoming ? input.beginIncoming(in: window) : input.begin(for: pane) })
         if !incoming { input.didShow(in: window) }
         let line = [try keyDown("l", keyCode: 37, in: window), try keyDown("s", keyCode: 1, in: window), try keyDown("\r", keyCode: 36, in: window)]
         for event in line { try #require(router.interceptKeyDown(event, in: window), "the hold did not take a key of the line: \(input.log)") }
@@ -258,6 +260,19 @@ struct NewTabHoldCloseKeyTests {
             held.input.endIncoming(held.token, pageMade: false)
             #expect(made.typed == "ls\r", "the line typed after Cmd-N did not reach the terminal the creation made: \"\(made.typed)\" (hold log \(held.input.log))")
             Self.expectNoKeyReachedTheOldView(held, "Cmd-N made a terminal")
+        }
+    }
+
+    /// A script (the CLI, an agent) opens a New Tab page in a pane beside the one the person types in. The hold
+    /// has what the person types in their terminal. The page never takes the keyboard (a script's opening may
+    /// not move focus), so the hold ends at its limit: the person's terminal gets every key, in order. The drop
+    /// rule is only for an opening of the person, whose keys are for the new page.
+    @Test func aLineTypedWhileAScriptOpensAPageBesideTheFocusedPaneStillGoesToThePersonsTerminal() async throws {
+        try await Self.withAHeldLine(besideTheFocusedPane: true, byScript: true) { held in
+            held.passTheLimit()
+            #expect(!held.input.isHolding(in: held.window), "the hold did not end at its limit: \(held.input.log)")
+            #expect(held.probe.typed == "ls\r", "the line the person typed in their terminal while a script opened a page did not reach it in order: \"\(held.probe.typed)\" (hold log \(held.input.log))")
+            #expect(!held.input.log.contains { $0.hasPrefix("dropped") }, "the hold of a script's opening dropped keys: \(held.input.log)")
         }
     }
 
