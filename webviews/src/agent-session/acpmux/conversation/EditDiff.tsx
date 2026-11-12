@@ -1,6 +1,6 @@
 // An opened edit inside the transcript: a card per changed file with its name, the lines added
-// and removed, Wrap lines and copy, and the change on @pierre/diffs: its first lines under a fade
-// with Show all N lines when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
+// and removed, Wrap lines and copy, and the change on @pierre/diffs, scrolling in an eight-line
+// box when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
 // hanging indent; code keeps its lines whole, its right edge fading while more lies past it. The
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { cornerAction } from "./cornerActions";

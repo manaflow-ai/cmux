@@ -300,6 +300,19 @@ test("past eight lines the output scrolls in its box, with no Show all row", asy
   expect(container.querySelector(".cv-shell__body")?.textContent).toBe("");
 });
 
+test("Show less closes up a long output that Find in Chat opened", async () => {
+  const output = Array.from({ length: 1000 }, (_, at) => `case ${at + 1}`).join("\n");
+  await act(async () => root!.render(<ShellBlock command="bun test" output={output} reveal={1} />));
+  const shown = () => container.querySelector(".cv-shell__output")?.textContent ?? "";
+  expect(shown().startsWith("case 1\n")).toBe(true);
+  const less = [...container.querySelectorAll("button")].find((button) => button.textContent === "Show less")!;
+  await act(async () => less.click());
+  expect(shown().startsWith("case 601\n")).toBe(true);
+  expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Show all output")).toBe(
+    true,
+  );
+});
+
 test("while it runs, a reflow that grows the output keeps the newest line in view", async () => {
   const observers: { run: (entries: { target: Element }[]) => void; targets: Element[] }[] = [];
   Object.assign(dom!.window, {

@@ -49,20 +49,3 @@ export function useOutput(output: string | undefined, reveal = 0) {
     toggle: () => setAll((value) => !value),
   };
 }
-
-/// What a block with a preview (BlockParts.tsx) draws of `output`: all of it once Find in Chat
-/// opened the block or the reader asked for all of it (Show all output), else the end of a long one,
-/// which its box scrolls through.
-export function previewedOutput(
-  output: ReturnType<typeof useOutput>,
-  preview: { long: boolean; all: boolean },
-): ReturnType<typeof useOutput> {
-  if (!preview.long) return output;
-  const all = output.all || preview.all;
-  return {
-    ...output,
-    all,
-    shown: all || output.tail === undefined ? output.text : output.tail,
-    cut: !all && output.tail !== undefined,
-  };
-}
