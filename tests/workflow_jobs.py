@@ -533,7 +533,11 @@ class Workflows:
         return trace
 
 
-def _runs_on_items(job: Mapping[str, Any]) -> list[Any]:
+def runs_on_items(job: Mapping[str, Any]) -> list[Any]:
+    """The job's runs-on as the list of items it asks for, as written: a string is one item, a list its items, a
+    `group`/`labels` mapping its labels then its group; [] when it has none. For a reader of the written text (an
+    exact-match check, a pattern scan) that keeps lists as lists; a reader of labels reads runs_on_label_cells,
+    runs_on_cells or runs_on_values, which expand the matrix."""
     raw = job.get("runs-on")
     if raw is None or raw == "":
         return []
@@ -544,14 +548,13 @@ def _runs_on_items(job: Mapping[str, Any]) -> list[Any]:
     return raw if isinstance(raw, list) else [raw]
 
 
-def runs_on_cells(job: Mapping[str, Any], workflow: str | None = None,
-                  workflows: Workflows | None = None) -> list[str] | None:
-    """The job's runs-on as each matrix cell would write it (`${{ matrix.runner }}` replaced by every value the
-    matrix gives it; a list of labels joined by ", "), or None when a matrix value cannot be resolved (a
-    fromJSON matrix, a key the matrix lacks): a guard counts such a job as unclassified, never as off its route.
-    [] for a job with no runs-on (a reusable-workflow call)."""
+def runs_on_label_cells(job: Mapping[str, Any], workflow: str | None = None,
+                        workflows: Workflows | None = None) -> list[tuple[str, ...]] | None:
+    """runs_on_cells before it joins a cell's labels: each matrix cell's runs-on as the tuple of labels it asks
+    for (one for a string runs-on), so a reader that tells one label from a list of them keeps the difference.
+    None and [] as runs_on_cells."""
     cells: list[list[str]] = []
-    for item in _runs_on_items(job):
+    for item in runs_on_items(job):
         if not isinstance(item, str):
             return None
         expanded = expand_matrix(job, item.strip())
@@ -572,7 +575,19 @@ def runs_on_cells(job: Mapping[str, Any], workflow: str | None = None,
         cells.append(expanded)
     if not cells:
         return []
-    return list(dict.fromkeys(", ".join(combination) for combination in itertools.product(*cells)))
+    return list(dict.fromkeys(itertools.product(*cells)))
+
+
+def runs_on_cells(job: Mapping[str, Any], workflow: str | None = None,
+                  workflows: Workflows | None = None) -> list[str] | None:
+    """The job's runs-on as each matrix cell would write it (`${{ matrix.runner }}` replaced by every value the
+    matrix gives it; a list of labels joined by ", "), or None when a matrix value cannot be resolved (a
+    fromJSON matrix, a key the matrix lacks): a guard counts such a job as unclassified, never as off its route.
+    [] for a job with no runs-on (a reusable-workflow call)."""
+    cells = runs_on_label_cells(job, workflow, workflows)
+    if cells is None:
+        return None
+    return list(dict.fromkeys(", ".join(cell) for cell in cells))
 
 
 class UnresolvedRunsOn(ValueError):
@@ -605,7 +620,7 @@ def runs_on_values(job: Mapping[str, Any], workflow: str | None = None,
     unresolved part as unclassified, like environment_values. The single-host fallback test reads this."""
     values: set[str] = set()
     unresolved: set[str] = set()
-    for item in _runs_on_items(job):
+    for item in runs_on_items(job):
         if not isinstance(item, str):
             unresolved.add(repr(item))
             continue
