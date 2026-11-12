@@ -2196,6 +2196,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     } else if (this.current !== undefined) {
       this.latest = Math.max(this.latest, this.current);
       if (row.kind === "assistant") this.lastWrite.set(id, this.current);
+      if (!unchanged && this.current > (this.order.get(id) ?? Infinity)) this.noteChange(id, this.current);
     }
     // A row an event of a background turn made is that turn's, whoever updates it later. A prompt
     // never is: it starts a turn of its own (acpmux ends the background turn before it).
@@ -2307,6 +2308,54 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     return this.order.get(id) ?? Infinity;
   }
 
+  /// Each write of a row by a later record than the one that made it, in record order: the
+  /// record's seq and the row's id. Folding forward appends; a refold past a cut or an older page
+  /// reads older records again and adds nothing (their writes are here already, or are older than
+  /// any cut). A reply's chunks write its row one after another and take one entry.
+  private changeSeqs: number[] = [];
+  private changeIds: string[] = [];
+
+  private noteChange(id: string, seq: number): void {
+    const last = this.changeSeqs.length - 1;
+    if (last >= 0 && seq < this.changeSeqs[last]!) return;
+    if (last >= 0 && this.changeIds[last] === id) this.changeSeqs[last] = seq;
+    else {
+      this.changeSeqs.push(seq);
+      this.changeIds.push(id);
+    }
+  }
+
+  /// The oldest place of a row made before record `seq` that a record from `seq` on changed:
+  /// a rebuild cut at `seq` would draw it again from only part of its records (direct.ts
+  /// `rebuild`). Infinity when none. O(changes from `seq` on).
+  spanningFrom(seq: number): number {
+    let from = Infinity;
+    for (let index = this.changeSeqs.length - 1; index >= 0 && this.changeSeqs[index]! >= seq; index -= 1) {
+      const order = this.order.get(this.changeIds[index]!);
+      if (order !== undefined && order < seq) from = Math.min(from, order);
+    }
+    return from;
+  }
+
+  /// A full rebuild folds every record again from the start, noting each change again.
+  forgetChanges(): void {
+    this.changeSeqs = [];
+    this.changeIds = [];
+  }
+
+  /// Row `from`, made by record `made`, was merged into the older row `into` (an older page's fold
+  /// joins a compaction's notes or a shell's end to rows it brought): `from`'s changes and the
+  /// record that made it are `into`'s. Kept in record order; O(changes), on an older page only.
+  mergeChanges(from: string, into: string, made: number): void {
+    for (let index = 0; index < this.changeIds.length; index += 1)
+      if (this.changeIds[index] === from) this.changeIds[index] = into;
+    if (!Number.isFinite(made)) return;
+    let at = this.changeSeqs.length;
+    while (at > 0 && this.changeSeqs[at - 1]! > made) at -= 1;
+    this.changeSeqs.splice(at, 0, made);
+    this.changeIds.splice(at, 0, into);
+  }
+
   /// An event was reduced (it may have made no row).
   saw(seq: number): void {
     this.latest = Math.max(this.latest, seq);
@@ -2341,6 +2390,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.backgroundSpans = [];
     this.backgroundEnds.clear();
     this.compactionIds.clear();
+    this.forgetChanges();
     super.clear();
   }
 
@@ -3061,9 +3111,6 @@ export class AcpmuxDirectClient {
   /// COMPACTION_REPEAT_WINDOW of it is the same compaction, even after the next turn's start or a
   /// forced Stop noted the row as failed. A row whose turn ended for good, or that ended, has none.
   private compactionHeardAt = new Map<string, number>();
-  /// The newest record that changed each compaction row: its end can come turns after its start
-  /// (a forced Stop it outlived), so a rebuild's cut never falls between them (`rebuild`).
-  private compactionChangedAt = new Map<string, number>();
   private supersededMessageIds = new Set<string>();
   /// The rows each message streamed into; tool calls split one message into several.
   private messageRows = new Map<string, string[]>();
@@ -4003,7 +4050,6 @@ export class AcpmuxDirectClient {
     this.progressSuperseded = false;
     this.publishedProgress = undefined;
     this.compactionHeardAt.clear();
-    this.compactionChangedAt.clear();
     this.subagentStops = subagentStops();
     this.frozenSubagentViews = undefined;
     this.subagents = new SubagentFold(this.subagentStops);
@@ -7233,14 +7279,13 @@ export class AcpmuxDirectClient {
       this.replayThrough === undefined && changedFrom !== undefined
         ? rebuildCut(this.events, changedFrom, openSince)
         : 0;
-    // A subagent or a compaction row drawn from records on both sides of the cut would start over
-    // in the refold and draw twice: the cut goes back to its first record, until none spans it.
+    // A row or a subagent drawn from records on both sides of the cut (a compaction whose end comes
+    // turns later, a call whose update does, a subagent that goes on) would start over in the
+    // refold and draw twice, or lose what came above: the cut goes back to where it started,
+    // until none spans it.
     while (cut > 0) {
       const { seq, at } = this.events[cut]!;
-      let from = this.subagents.spanningFrom(seq, at);
-      for (const row of this.rows.compactionRows())
-        if ((row.seq ?? Infinity) < seq && (this.compactionChangedAt.get(row.id) ?? -Infinity) >= seq)
-          from = Math.min(from, row.seq!);
+      const from = Math.min(this.subagentSpanFrom(cut, seq, at), this.rows.spanningFrom(seq));
       if (from === Infinity) break;
       const next = rebuildCut(this.events, Math.min(changedFrom!, from), openSince);
       if (next >= cut) break;
@@ -7290,8 +7335,11 @@ export class AcpmuxDirectClient {
     // Those rows keep their place in the order.
     const keep = (row: AcpmuxRow) => row.failed === true || inFlight.has(row.id);
     // Past a cut, the rows above it stay as drawn and only the rest are read.
-    if (frozenBefore === undefined) this.rows.retain(keep);
-    else this.rows.retainFrom(frozenBefore, keep);
+    if (frozenBefore === undefined) {
+      this.rows.retain(keep);
+      this.rows.forgetChanges();
+      this.subagentFirstSeen.clear();
+    } else this.rows.retainFrom(frozenBefore, keep);
     // Found again as the held init lines are reduced: a seek back keeps no later model or version.
     // Past a cut, the ones above it stay: the refold finds only its own.
     const above = (seq: number) => frozenBefore !== undefined && seq < frozenBefore;
@@ -7339,7 +7387,6 @@ export class AcpmuxDirectClient {
       this.presetApprovals.clear();
       this.presetApprovalRemoved.clear();
       this.compactionHeardAt.clear();
-      this.compactionChangedAt.clear();
       this.toolRows.clear();
     } else {
       // Past a cut, the rows above it keep what finds them: a message's rows, a call's row, an
@@ -8192,6 +8239,9 @@ export class AcpmuxDirectClient {
 
   private reduce(event: EventRecord): void {
     this.rows.current = event.seq;
+    SubagentFold.namedIn(event, sessionUpdate(event), this.selectedSessionId, (id) => {
+      if (event.seq < (this.subagentFirstSeen.get(id) ?? Infinity)) this.subagentFirstSeen.set(id, event.seq);
+    });
     try {
       this.reduceEvent(event);
     } finally {
@@ -9159,7 +9209,6 @@ export class AcpmuxDirectClient {
       const compactionTurnId = compaction.state === "running" ? this.runningTurnId : running?.turnId;
       if (compaction.state === "running") this.compactionHeardAt.set(id, event.at);
       else this.compactionHeardAt.delete(id);
-      this.compactionChangedAt.set(id, event.seq);
       this.rows.set(id, {
         id,
         version: (running?.version ?? 0) + 1,
@@ -9219,7 +9268,9 @@ export class AcpmuxDirectClient {
   /// call. The row's version moves, so the row draws its new state wherever it is, an ended turn's
   /// included (conversation/turns.ts reshapes the turn whose row changed). A shell ends once: a
   /// late `running` leaves an ended one as it is.
-  private markBackgroundCall(task: BackgroundUpdate, at: number): boolean {
+  /// `mergedFrom` is the held record whose row an older page's call takes this end from: it changed
+  /// that call's row (`OrderedRows.mergeChanges`).
+  private markBackgroundCall(task: BackgroundUpdate, at: number, mergedFrom?: number): boolean {
     const found = this.backgroundCall(task);
     if (!found) return false;
     const [row, index] = found;
@@ -9236,6 +9287,7 @@ export class AcpmuxDirectClient {
     };
     items[index] = { ...item, tool: { ...tool, background } };
     this.rows.set(row.id, { ...row, version: row.version + 1, items }, true);
+    if (mergedFrom !== undefined) this.rows.mergeChanges(row.id, row.id, mergedFrom);
     return true;
   }
 
@@ -9425,7 +9477,6 @@ export class AcpmuxDirectClient {
     for (const row of this.rows.compactionRows())
       if (row.compaction?.state === "running" && (row.seq ?? 0) < seq) {
         if (!mayGoOn) this.compactionHeardAt.delete(row.id);
-        this.compactionChangedAt.set(row.id, seq);
         this.rows.set(row.id, {
           ...row,
           version: row.version + 1,
@@ -12721,6 +12772,28 @@ export class AcpmuxDirectClient {
   }
   /// The chat's preset approval cards, folded from their records (conversation/presetApproval.ts).
   private readonly presetApprovals = new PresetApprovalFold();
+  /// The first record that named each subagent id (`SubagentFold.namedIn`), kept across rebuilds
+  /// past a cut, whose fold starts over and knows only the subagents past it; a full rebuild
+  /// reads it again.
+  private readonly subagentFirstSeen = new Map<string, number>();
+  /// Where a rebuild cut at held record `cut` (record `seq`, time `at`) must go back to for the
+  /// subagents: the first record of any subagent named both before it and in a record from it on,
+  /// folded yet or not (a repair brings records the fold never read), and of any the fold still
+  /// knows to have run on past it. Infinity when none. O(records from the cut on).
+  private subagentSpanFrom(cut: number, seq: number, at: number): number {
+    let from = Infinity;
+    const add = (id: string) => {
+      const first = this.subagentFirstSeen.get(id);
+      if (first !== undefined && first < seq) from = Math.min(from, first);
+    };
+    for (let index = cut; index < this.events.length; index += 1) {
+      const event = this.events[index]!;
+      SubagentFold.namedIn(event, sessionUpdate(event), this.selectedSessionId, add);
+    }
+    for (const agent of this.subagents.all())
+      if (agent.state === "running" || (agent.endedAt ?? -Infinity) >= at) add(agent.id);
+    return from;
+  }
   /// The subagents' views as a rebuild past a cut left them (`rebuild`), under the live fold's.
   private frozenSubagentViews: Record<string, AcpmuxRow[]> | undefined;
   private subagentViewsOf:
@@ -13817,12 +13890,7 @@ export class AcpmuxDirectClient {
           const heard = live.compactionHeardAt.get(next.id);
           live.compactionHeardAt.delete(next.id);
           if (heard !== undefined) live.compactionHeardAt.set(into.id, heard);
-          const changed = Math.max(
-            this.compactionChangedAt.get(into.id) ?? -Infinity,
-            this.compactionChangedAt.get(next.id) ?? -Infinity,
-          );
-          this.compactionChangedAt.delete(next.id);
-          if (changed > -Infinity) this.compactionChangedAt.set(into.id, changed);
+          this.rows.mergeChanges(next.id, into.id, this.rows.orderOf(next.id));
           held.delete(next.id);
           this.rows.delete(next.id);
           // The held events' row now: what they said of it stands.
@@ -13836,6 +13904,7 @@ export class AcpmuxDirectClient {
         .sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0))[0];
       if (!open || !next.compaction) continue;
       this.rows.set(open.id, { ...open, version: open.version + 1, compaction: next.compaction });
+      this.rows.mergeChanges(next.id, open.id, this.rows.orderOf(next.id));
       held.delete(next.id);
       this.rows.delete(next.id);
     }
@@ -13851,7 +13920,7 @@ export class AcpmuxDirectClient {
     // A background shell the held events saw end while its call was not loaded ends on that call's
     // row now that this page brought it, and its own row goes.
     for (const row of held.values())
-      if (row.backgroundTask && this.markBackgroundCall(row.backgroundTask, row.at)) {
+      if (row.backgroundTask && this.markBackgroundCall(row.backgroundTask, row.at, this.rows.orderOf(row.id))) {
         held.delete(row.id);
         this.rows.delete(row.id);
       }

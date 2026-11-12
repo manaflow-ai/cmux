@@ -889,20 +889,24 @@ export class SubagentFold {
     return [...this.agents.values()];
   }
 
-  /// The oldest record a subagent drawn from records on both sides of `seq` started at: one that
-  /// started before it and is still running, ended at or after `at` (its time), or has an update
-  /// of its own from `seq` on. A refold from `seq` would start its fold over (direct.ts `rebuild`).
-  /// Infinity when none does.
-  spanningFrom(seq: number, at: number): number {
-    let from = Infinity;
-    for (const agent of this.agents.values()) {
-      const started = this.startedSeq.get(agent.id);
-      if (started === undefined || started >= seq) continue;
-      const last = this.own.get(agent.id)?.at(-1)?.event.seq ?? -Infinity;
-      if (agent.state === "running" || (agent.endedAt ?? -Infinity) >= at || last >= seq)
-        from = Math.min(from, started);
-    }
-    return from;
+  /// The subagent ids record `event` names, for a rebuild's cut (direct.ts `rebuild`): its
+  /// `_meta.acpmux` tag and progress list (ids and parents), a child session under the chat's
+  /// (`ownerOf`), an acpmux child's session, and a Codex sender thread. More than the fold reads is
+  /// fine: a name too many only moves a cut back.
+  static namedIn(event: Event, update: any, chat: string | undefined, add: (id: string) => void): void {
+    const params = event.msg?.params;
+    const mux = params?._meta?.acpmux;
+    if (typeof mux?.subagent === "string") add(mux.subagent);
+    if (Array.isArray(mux?.subagents))
+      for (const change of mux.subagents) {
+        if (typeof change?.id === "string") add(change.id);
+        if (typeof change?.parent === "string") add(change.parent);
+      }
+    const session = params?.sessionId;
+    if (typeof session === "string" && chat && session.startsWith(`${chat}/`)) add(session);
+    if (typeof event.msg?.childSessionId === "string") add(event.msg.childSessionId);
+    const sender = (update?._meta?.codex?.collaboration ?? params?._meta?.codex?.collaboration)?.senderThreadId;
+    if (typeof sender === "string") add(sender);
   }
 
   /// Each subagent's own view (its text, thoughts and tool calls, and the subagents it spawned
