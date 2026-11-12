@@ -116,9 +116,9 @@ impl Hub {
         if !own_only {
             let open = |r: &RemoteSession| !live_only || r.summary.status() != Some("closed");
             let remote = self.remote_sessions.snapshot();
-            rows.extend(remote.values().filter(|r| open(&***r)).cloned().map(Unbuilt::mirrored));
+            rows.extend(remote.values().filter(|r| open(r)).cloned().map(Unbuilt::mirrored));
             drop(remote);
-            rows.extend(self.mesh_book_rows(&open).into_iter().map(Unbuilt::mirrored));
+            rows.extend(self.mesh_book_rows(open).into_iter().map(Unbuilt::mirrored));
         }
         // As `session_pages::sort_session_summaries` sorts.
         rows.sort_by(|a, b| {

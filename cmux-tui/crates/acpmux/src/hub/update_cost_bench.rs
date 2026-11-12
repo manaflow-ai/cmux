@@ -49,13 +49,15 @@ fn update_cost_closed_rows_after_one_chats_record() {
     let _enter = runtime.enter();
     for n in SIZES {
         let (hub, live) = hub_of(n);
-        std::hint::black_box(hub.session_list_text(&json!({}), false, false, usize::MAX));
+        std::hint::black_box(hub.session_list_text(&json!({}), false, false, usize::MAX).unwrap());
         let rounds = 20;
         let started = Instant::now();
         for round in 0..rounds {
             let status = if round % 2 == 0 { "running" } else { "idle" };
             hub.append(&live[0], "mux", "status", json!({"status": status}));
-            std::hint::black_box(hub.session_list_text(&json!({}), false, false, usize::MAX));
+            std::hint::black_box(
+                hub.session_list_text(&json!({}), false, false, usize::MAX).unwrap(),
+            );
         }
         report("closed_rows_list_after_one_record", n, rounds, started.elapsed());
     }

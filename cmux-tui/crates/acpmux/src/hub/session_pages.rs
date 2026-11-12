@@ -41,8 +41,9 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     session_list_reply_borrowed(&sorted, params)
 }
 
-/// Pick rows by reference from the shared session-list snapshot, then clone only rows
-/// actually returned. A list page of one must not copy all 3,000 session keys first.
+/// Pick rows by reference, then clone only rows actually returned: the reference a page built
+/// from its own rows is checked against.
+#[cfg(test)]
 pub(crate) fn session_list_reply_borrowed(
     sorted: &[Value],
     params: &Value,
@@ -253,6 +254,7 @@ fn session_id_page<R: PageRow>(
 }
 
 /// `{sessions, nextCursor?}`, moving the sessions in: `json!` would deep-copy the whole list.
+#[cfg(test)]
 fn page(sessions: Vec<Value>, next: Option<Value>) -> Value {
     let mut reply = serde_json::Map::new();
     reply.insert("sessions".to_owned(), Value::Array(sessions));
