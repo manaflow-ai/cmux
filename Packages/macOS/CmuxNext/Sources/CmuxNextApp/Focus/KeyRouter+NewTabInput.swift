@@ -252,7 +252,7 @@ final class NewTabInputCoordinator {
     /// `keyboard` says so: it would go to what had the keyboard when the hold opened.
     static func replay(_ event: NSEvent, held: NSEvent, in window: NSWindow, router: KeyRouter, keyboard: NewTabHoldKeyboard? = nil) {
         router.dispatchingSynthetic(event) {
-            guard !router.interceptKeyDown(event, in: window) else { return }
+            guard !router.interceptKeyDown(event, in: window, heldBefore: true) else { return }
             // A page in Chromium has the keys in its own window, a child of this one: the key window,
             // or (the app not active yet) the shown agent page's window.
             if let page = Self.chromiumPageWindow(in: window) {
