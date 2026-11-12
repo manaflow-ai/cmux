@@ -526,6 +526,17 @@ fn f() {
         }
     });
 }
+=== refused lib.rs 4 closure :: review of cmux#41523 F1: `Wrapper(Inner)` reads the root `Inner` (a fn pointer), not only the same-named struct in `mod tests`
+pub struct Wrapper(Inner);
+struct Inner(fn());
+mod tests { struct Inner(u8); }
+static CELL: std::sync::OnceLock<Wrapper> = std::sync::OnceLock::new();
+=== refused lib.rs 5 closure :: review of cmux#41523 F1: every cfg alternative of a definition is read, not only the last
+#[cfg(unix)]
+type Hook = fn();
+#[cfg(not(unix))]
+type Hook = u8;
+static CELL: std::sync::OnceLock<Hook> = std::sync::OnceLock::new();
 === chain refused :: generated chain 0000 (seed 41418)
 type L0<T, W = T> = (T, L1<Mutex<Option<(u8, bool)>>, W>);
 type L1<Future, String> = std::sync::OnceLock<(L2<Box<Future>>, RwLock<Option<String>>)>;
