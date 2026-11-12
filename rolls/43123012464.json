@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43123012464",
+  "recorded_at": "2026-11-12T00:00:05Z",
+  "reason": "cmux-tui 78dd5a573562 changes the image's cmux-tui (pinned 947352148e20)",
+  "dry_run": false,
+  "cmux_tui": "78dd5a573562dab324b44f3cb86a72e1a995e8d5",
+  "fixes": [
+    {
+      "sha": "78dd5a573562dab324b44f3cb86a72e1a995e8d5",
+      "mergedAt": "2026-11-11T15:37:07-08:00",
+      "subject": "carrier: a parked link is redialed after 10 s, not held to the 180 s deadline (from Austin's cloud-multiplayer) (#41525)"
+    },
+    {
+      "sha": "8483c1d75ec946a23c2036743a503dc508a92745",
+      "mergedAt": "2026-11-11T15:29:40-08:00",
+      "subject": "ci: the cmux-next CI guard group is green again (12 red steps)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T00:00:05Z",
+    "snapshot_id": "sh-38b868955cf849939a03dbff1bc609b1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43123012464): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3d4e1e4e73f74e9c433f7405cc5e3f83515f692a",
+    "image": "cloud-native-auto-78dd5a57-43123012464-1",
+    "revision": "ci-43123012464-1",
+    "at": "2026-11-12T00:00:05Z"
+  },
+  "rolled_back": false
+}
