@@ -376,23 +376,28 @@ function insertPlain(view: EditorView, text: string) {
   view.dispatch(tr.scrollIntoView());
 }
 
-/** After a paste, a space at the caret when the text before it ends in a cmux deeplink
- * (`spacedAfterDeeplink`), so the next key typed does not run into the link's chip. Read from the
- * draft, not the paste, so a paste read as Markdown gets it too. Not in code, where a link draws
- * as text; an attachment after the caret is no space, a line break is. */
-function spaceAfterPastedLink(view: EditorView) {
+/** After a paste that began at `from`, a space at the caret when the pasted text ends in a cmux
+ * deeplink (`spacedAfterDeeplink`), so the next key typed does not run into the link's chip. Read
+ * from the draft, not the paste, so a paste read as Markdown gets it too; a link begun before the
+ * paste (a paste into its middle) is left whole. Not in code, where a link draws as text; an
+ * attachment after the caret is no space, a line break is. The space carries no mark, so a pasted
+ * link's mark does not take it in. */
+function spaceAfterPastedLink(view: EditorView, from: number) {
   const { empty, $head } = view.state.selection;
   if (!empty || $head.parent.type.spec.code) return;
-  const before = $head.parent.textBetween(0, $head.parentOffset, undefined, "￼");
+  const leaf = (node: ProseNode) => (node.type.name === "hardbreak" ? "\n" : "\uFFFC");
+  const before = $head.parent.textBetween(0, $head.parentOffset, undefined, leaf);
   const after = $head.nodeAfter;
   const next = after?.isText ? after.text!.charAt(0) : after?.type.name === "hardbreak" ? "\n" : "";
-  if (spacedAfterDeeplink(before, next) !== before) view.dispatch(view.state.tr.insertText(" ").scrollIntoView());
+  if (spacedAfterDeeplink(before, next, Math.max(0, from - $head.start())) === before) return;
+  view.dispatch(view.state.tr.insert($head.pos, view.state.schema.text(" ")).scrollIntoView());
 }
 
 /** A paste's plain text inserted as `insertPlain` does, then `spaceAfterPastedLink`. */
 function insertPasted(view: EditorView, text: string) {
+  const { from } = view.state.selection;
   insertPlain(view, text);
-  spaceAfterPastedLink(view);
+  spaceAfterPastedLink(view, from);
 }
 
 /** Each newline in `fragment`'s text, outside code, as a line break: a pasted paragraph keeps its
@@ -1206,8 +1211,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (markdown !== undefined) {
                   // The surface sees the text as copied first (a huge paste is the composer's chip).
                   if (beforeInput(editorView, data?.getData("text/plain") || markdown, true)) return true;
+                  const pastedFrom = editorView.state.selection.from;
                   if (insertMarkdown(editorView, markdown)) {
-                    spaceAfterPastedLink(editorView);
+                    spaceAfterPastedLink(editorView, pastedFrom);
                     showPastedEnd(editorView.state);
                     return true;
                   }

@@ -31,3 +31,16 @@ describe("spacedAfterDeeplink", () => {
     );
   });
 });
+
+describe("spacedAfterDeeplink, a paste into a link already in the draft", () => {
+  test("a link begun before the paste is not split", () => {
+    // The draft `cmux://workspace/ws_abc`, `123` pasted after `ws_`: the text before the caret.
+    expect(spacedAfterDeeplink("cmux://workspace/ws_123", "a", "cmux://workspace/ws_".length)).toBe(
+      "cmux://workspace/ws_123",
+    );
+  });
+
+  test("a link the paste begins gets the space after text typed before it", () => {
+    expect(spacedAfterDeeplink(`see ${WORKSPACE}`, "", "see ".length)).toBe(`see ${WORKSPACE} `);
+  });
+});
