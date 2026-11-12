@@ -243,6 +243,11 @@ struct Costs {
     delta_written: f64,
     delta_us: f64,
     rss_per_delta: f64,
+    /// Readers (all but the stalled watcher) that missed a delta, and the fewest one got.
+    short_readers: usize,
+    least_seen: u64,
+    stalled_held: usize,
+    stalled_told: bool,
 }
 
 /// Restart, open and stream at one history size, in this process (the meters are process-wide).
@@ -291,7 +296,7 @@ fn costs(bytes: u64) -> Costs {
                 let (mut seen, mut lagged) = (std::collections::HashSet::new(), false);
                 while (seen.len() as u64) < DELTAS {
                     let Ok(Some(line)) =
-                        tokio::time::timeout(Duration::from_secs(60), rx.recv()).await
+                        tokio::time::timeout(Duration::from_secs(5), rx.recv()).await
                     else {
                         break;
                     };
@@ -320,41 +325,37 @@ fn costs(bytes: u64) -> Costs {
             hub.append(&session, "in", "agent_message_chunk", delta(i));
         }
         let rss_before = rss_bytes().unwrap_or(0) as f64;
-        let (read, written, wall) = (process_read(), process_written(), Instant::now());
+        let (read, written) = (process_read(), process_written());
+        let mut appending = Duration::ZERO;
         for i in warm..DELTAS {
+            let one = Instant::now();
             hub.append(&session, "in", "agent_message_chunk", delta(i));
+            appending += one.elapsed();
+            // Paced at 16 deltas a millisecond at most (an agent streams far fewer), so the
+            // readers run between them; unpaced, a loop of appends outruns the hub's ring and
+            // readers lag by design (`_acpmux/lagged`, then a read of `_acpmux/events`).
             if i % 16 == 0 {
-                tokio::task::yield_now().await;
+                tokio::time::sleep(Duration::from_millis(1)).await;
             }
         }
         let ops = (DELTAS - warm) as f64;
-        let delta_us = wall.elapsed().as_secs_f64() * 1e6 / ops;
+        let delta_us = appending.as_secs_f64() * 1e6 / ops;
         let delta_read = (process_read() - read) as f64 / ops;
         let delta_written = (process_written() - written) as f64 / ops;
         let rss_per_delta = (rss_bytes().unwrap_or(0) as f64 - rss_before).max(0.0) / ops;
-        for (i, reader) in readers.into_iter().enumerate() {
-            let (seen, lagged) = reader.await.unwrap();
-            assert_eq!(
-                seen,
-                DELTAS,
-                "watcher {} of {WATCHERS}, beside a stalled one, got {seen} of {DELTAS} deltas \
-                 (told it lagged: {lagged})",
-                i + 2
-            );
+        let (mut short_readers, mut least_seen) = (0, DELTAS);
+        for reader in readers {
+            let (seen, _lagged) = reader.await.unwrap();
+            short_readers += usize::from(seen < DELTAS);
+            least_seen = least_seen.min(seen);
         }
         // The stalled watcher holds at most its queue and the ring behind it (draining the queue
         // lets its forwarder refill it from the ring), and is told it lagged so it reads again.
-        let (mut held, mut told) = (0, false);
+        let (mut stalled_held, mut stalled_told) = (0, false);
         while let Ok(line) = stalled_rx.try_recv() {
-            held += 1;
-            told |= line.contains("_acpmux/lagged");
+            stalled_held += 1;
+            stalled_told |= line.contains("_acpmux/lagged");
         }
-        eprintln!("STRESS god chat stalled watcher: {held} lines held of {DELTAS} deltas");
-        assert!(
-            held <= OUTPUT + EVENT_RING,
-            "a stalled watcher held {held} lines, past its queue of {OUTPUT} and the ring of {EVENT_RING}"
-        );
-        assert!(told, "a stalled watcher that missed deltas was not told it lagged");
         drop((stalled_tx, stalled_rx));
         drop(session);
         drop(hub);
@@ -370,6 +371,10 @@ fn costs(bytes: u64) -> Costs {
             delta_written,
             delta_us,
             rss_per_delta,
+            short_readers,
+            least_seen,
+            stalled_held,
+            stalled_told,
         }
     });
     // The hub's tasks end with its runtime, before the next size is measured.
@@ -381,7 +386,8 @@ fn print(size: &str, c: &Costs) {
     eprintln!(
         "STRESS god chat {size}: log={:.1} MB; restart read={:.0} B in {:.1} ms, then {:.0} B \
          in the background; open read={:.0} B reply={:.0} B in {:.1} ms; per delta to \
-         {WATCHERS} watchers (1 stalled) read={:.0} B written={:.0} B in {:.1} us, rss {:.0} B",
+         {WATCHERS} watchers (1 stalled) read={:.0} B written={:.0} B in {:.1} us, rss {:.0} B; \
+         {} readers short (fewest {} of {DELTAS}); the stalled one held {} lines, told it lagged: {}",
         c.log_mb,
         c.restart_read,
         c.restart_ms,
@@ -393,6 +399,10 @@ fn print(size: &str, c: &Costs) {
         c.delta_written,
         c.delta_us,
         c.rss_per_delta,
+        c.short_readers,
+        c.least_seen,
+        c.stalled_held,
+        c.stalled_told,
     );
 }
 
@@ -429,4 +439,24 @@ fn god_chat_alone() {
     flat("open reply bytes", small.open_reply, god.open_reply, 64.0 * 1024.0);
     flat("bytes read per delta", small.delta_read, god.delta_read, 512.0);
     flat("bytes written per delta", small.delta_written, god.delta_written, 512.0);
+    for (size, c) in [("small", &small), ("god", &god)] {
+        assert_eq!(
+            c.short_readers,
+            0,
+            "{size}: {} of {} readers beside a stalled one missed deltas (fewest {} of {DELTAS})",
+            c.short_readers,
+            WATCHERS - 1,
+            c.least_seen
+        );
+        assert!(
+            c.stalled_held <= OUTPUT + EVENT_RING,
+            "{size}: a stalled watcher held {} lines, past its queue of {OUTPUT} and the ring of \
+             {EVENT_RING}",
+            c.stalled_held
+        );
+        assert!(
+            c.stalled_told,
+            "{size}: a stalled watcher that missed deltas was not told it lagged"
+        );
+    }
 }
