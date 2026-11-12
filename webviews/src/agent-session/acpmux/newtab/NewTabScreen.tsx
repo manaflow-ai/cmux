@@ -587,11 +587,14 @@ export function NewTabScreen(props: Props) {
   // written for. The location the page opens with is a suggestion, not a draft: never stashed.
   const stashChat = NEW_TAB_STASH;
   const readingRef = useRef(reading);
-  readingRef.current = reading;
   const originalUploadsRef = useRef(originalUploads);
-  originalUploadsRef.current = originalUploads;
   const touchedRef = useRef(touched);
-  touchedRef.current = touched;
+  // The committed render's, for the stash's callbacks (a ref written in render could hold one React discards).
+  useLayoutEffect(() => {
+    readingRef.current = reading;
+    originalUploadsRef.current = originalUploads;
+    touchedRef.current = touched;
+  });
   const {
     stashed,
     unstash,

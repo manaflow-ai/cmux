@@ -21,6 +21,8 @@ export function SavePromptButton({ text }: { text: string }) {
   const button = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
+  /// The button the popover opened from (set by its click, not read from the ref in render).
+  const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const [name, setName] = useState("");
   const [state, setState] = useState<{ kind: "idle" | "saving" | "saved" } | { kind: "failed"; message: string }>({
     kind: "idle",
@@ -61,7 +63,8 @@ export function SavePromptButton({ text }: { text: string }) {
         aria-expanded={open}
         aria-label={label}
         title={label}
-        onClick={() => {
+        onClick={(event) => {
+          setAnchor(event.currentTarget);
           setName(suggestedName(text));
           setState({ kind: "idle" });
           setOpen(true);
@@ -73,7 +76,7 @@ export function SavePromptButton({ text }: { text: string }) {
         <Popover
           open
           onOpenChange={setOpen}
-          anchor={button.current}
+          anchor={anchor}
           label={label}
           className="cv-save-prompt-popover"
           side="top"

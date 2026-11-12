@@ -2,7 +2,7 @@
 // (draftStash.ts) and the prompt empties; on an empty prompt, or a pick from the Stashed chip, the
 // newest (or the picked) one comes back, before whatever was typed meanwhile, so nothing typed is
 // ever replaced. The composer gives its own draft's reads and writes.
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { ComposerAttachment } from "../attachments";
 import { dropStashed, readStashed, stashDraft, useStash } from "./draftStash";
 
@@ -36,11 +36,14 @@ export function useDraftStash(chat: string, composer: StashedComposer, leftovers
   const stashed = useMemo(() => (extra?.length ? [...own, ...extra] : own), [own, extra]);
   const stackOf = (id: string) => (extra?.some((entry) => entry.id === id) ? leftovers! : chat);
   const io = useRef(composer);
-  io.current = composer;
   // Whether the composer still shows `chat`: a stash's answer for a chat it left, or after it
   // closed, changes nothing here (the draft stays stashed, or stays where it was).
   const shownChat = useRef(chat);
-  shownChat.current = chat;
+  // Both from the committed render (a ref written in render could hold one React discards).
+  useLayoutEffect(() => {
+    io.current = composer;
+    shownChat.current = chat;
+  });
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
