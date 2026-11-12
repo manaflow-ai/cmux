@@ -71,9 +71,10 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
       await body.evaluate((node) => {
         const outer = node.ownerDocument.createElement("div");
         outer.id = "wheel-reader";
-        outer.style.cssText = "height:260px; overflow:auto; width:720px";
+        // Taller than the card's 24-line box, so hovering the box never scrolls the reader to it.
+        outer.style.cssText = "height:640px; overflow:auto; width:720px";
         const spacer = node.ownerDocument.createElement("div");
-        spacer.style.height = "900px";
+        spacer.style.height = "1800px";
         const card = node.closest(".cv-tool-output-card")!;
         card.parentElement!.insertBefore(outer, card);
         outer.append(card, spacer);
