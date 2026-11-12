@@ -951,9 +951,9 @@ fn git_lane_equal_reads_with_a_large_reply_each_get_it_and_the_connection_stays_
 
 /// A connection that stops to read while the copies of a shared reply go to
 /// it: the copies wait for room in its reply queue, and that wait holds no
-/// place of the lane. So while they wait, a `git.status` of another
-/// connection answers, a `git.status` of the same connection starts, and
-/// another connection's long reads take each of the long places.
+/// place of the lane. So while they wait, another connection's long reads
+/// take each of the long places, a `git.status` of another connection
+/// answers, and a `git.status` of the same connection starts.
 ///
 /// The connection reads up to the first of its 60 equal replies (the sign
 /// that their one run ended) and then nothing more until the checks are
@@ -997,35 +997,36 @@ fn git_lane_copies_that_wait_for_a_connection_that_does_not_read_hold_no_place()
     let first = slow.reply(&json!("e0"));
     assert_eq!(first["ok"], true, "the first of the equal reads: {first}");
 
-    let asked = Instant::now();
-    other.send("status", "git.status", json!({"path": seen}));
-    let status = other.reply_in(&json!("status"), SOON);
-    let other_status = asked.elapsed();
-    assert!(status.is_some(), "no git.status of another connection in {SOON:?}");
-
-    let asked = Instant::now();
-    slow.send("own-status", "git.status", json!({"path": own}));
-    while own_gate.runs_of("status") == 0 && asked.elapsed() < SOON {
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    let own_status = asked.elapsed();
-    assert!(own_status < SOON, "no git.status of the same connection started in {SOON:?}");
-
-    let asked = Instant::now();
+    // First the check that the repair decides: each long place is free.
+    let long_asked = Instant::now();
     for number in 0..LONG_GIT_RUNS {
         let params = json!({"path": held, "scope": "uncommitted", "context_lines": number + 1});
         other.send(&format!("long{number}"), "git.diff", params);
     }
     // Less than the 2 s limit of one write, which closes the slow
     // connection and so ends the wait of its copies.
-    while held_gate.active() < LONG_GIT_RUNS && asked.elapsed() < Duration::from_secs(1) {
+    while held_gate.active() < LONG_GIT_RUNS && long_asked.elapsed() < Duration::from_secs(1) {
         std::thread::sleep(Duration::from_millis(2));
     }
-    let long_reads = (held_gate.active(), asked.elapsed());
+    let long_reads = (held_gate.active(), long_asked.elapsed());
     assert_eq!(
         long_reads.0, LONG_GIT_RUNS,
         "long reads of another connection that run while the copies wait"
     );
+
+    let other_asked = Instant::now();
+    other.send("status", "git.status", json!({"path": seen}));
+    let status = other.reply_in(&json!("status"), SOON);
+    let other_status = other_asked.elapsed();
+    assert!(status.is_some(), "no git.status of another connection in {SOON:?}");
+
+    let own_asked = Instant::now();
+    slow.send("own-status", "git.status", json!({"path": own}));
+    while own_gate.runs_of("status") == 0 && own_asked.elapsed() < SOON {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let own_status = own_asked.elapsed();
+    assert!(own_status < SOON, "no git.status of the same connection started in {SOON:?}");
 
     // Now the connection reads: each copy and its own status come.
     let (replies, closed) = slow.replies(fill.len() + EQUAL, LONG);

@@ -40,8 +40,11 @@
 //!   above that queue's bound and the daemon closes a connection above it.
 //!   Before the lane, a git run was between two replies. That wait holds
 //!   no place: the run ended, so its place goes to the next request before
-//!   the first copy waits ([`Class::Copies`]), and a connection that reads
-//!   slowly holds back only the next shared run of its own. A read with other params is a
+//!   the first copy waits ([`Class::Copies`]). A connection that reads
+//!   slowly holds back only requests of its own: its next shared run, and
+//!   its next mutation with the reads behind it. A connection has at most
+//!   [`MAX_READ_RUNS`] runs whose copies wait, each with one reply, so
+//!   what waits for it has a bound in bytes. A read with other params is a
 //!   different question and is never cancelled: the wire does not say who
 //!   asks, and its caller waits for an answer.
 //! - **A mutation keeps its connection's order.** It starts when every
@@ -722,7 +725,7 @@ mod tests {
     }
 
     #[test]
-    fn copies_that_wait_hold_no_place_and_bar_only_the_shared_reads_of_their_connection() {
+    fn copies_that_wait_hold_no_place_and_hold_back_only_their_own_connection() {
         let mut schedule = Schedule::default();
         let mut runs = Vec::new();
         let mut start = |schedule: &mut Schedule<&'static str>| {
