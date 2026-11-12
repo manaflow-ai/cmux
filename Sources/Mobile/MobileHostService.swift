@@ -281,7 +281,7 @@ final class MobileHostService {
         // managed fresh-config defaults, and explicit color settings into a complete
         // effective palette; the phone applies it so its embedded terminal
         // renders with the Mac's colors instead of the built-in Monokai default.
-        let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.loadForCmux())
+        let theme = TerminalTheme.mobileHostStatusTheme()
         return [
             "routes": routes.mobileHostJSONObjects(for: .publicStatus, at: now),
             "terminal_fidelity": "render_grid",
