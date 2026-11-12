@@ -21,7 +21,12 @@ const HOP_LABEL = {
   agent: "prompt.delivery.hop.agent",
 } as const satisfies Record<NonNullable<PromptDelivery["hop"]>, StringKey>;
 
-/// The clock beside a prompt that is still on its way.
+/// The clock beside a prompt that is still on its way. A slow send keeps the clock and says no
+/// more: its bubble already stands in the transcript as sent, so "Still sending" beside it read as
+/// a contradiction (Leo, 2026-11-11: "what's up with this still sending thing? What's the point of
+/// that? But, like, it already, like, shows that it's sent. So this is incongruous."). A send that
+/// does not get there fails with its card (`DeliveryFailure`); the slow mark still asks acpmux
+/// whether the chat's stream stalled (direct.ts `deliveryTiming.slowMs`).
 export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
   const t = useT();
   const sending = delivery.state === "sending";
@@ -31,18 +36,12 @@ export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
     const timer = setTimeout(() => setLate(true), Math.max(0, CLOCK_AFTER_MS - (Date.now() - delivery.sentAt)));
     return () => clearTimeout(timer);
   }, [sending, late, delivery.sentAt]);
-  // Held while acpmux starts or reconnects (sendWhenReady.ts): once its clock shows, so do its words.
-  const words = delivery.slow || delivery.waitingForHost;
   if (!sending || (!late && !delivery.slow)) return null;
-  const label = t(
-    delivery.waitingForHost
-      ? "prompt.delivery.whenReady"
-      : delivery.slow
-        ? "prompt.delivery.stillSending"
-        : "prompt.delivery.sending",
-  );
-  // The clock alone names itself in a tooltip; once the send is slow its words show, and no tooltip.
-  if (!words)
+  // Held while acpmux starts or reconnects (sendWhenReady.ts): once its clock shows, so do its words,
+  // since the prompt waits on something the reader can see (the agent service starting).
+  if (!delivery.waitingForHost) {
+    const label = t("prompt.delivery.sending");
+    // The clock alone names itself in a tooltip.
     return (
       <output
         className="cv-user__status cv-user__delivery"
@@ -53,6 +52,8 @@ export function DeliveryMark({ delivery }: { delivery: PromptDelivery }) {
         <Clock size={12} />
       </output>
     );
+  }
+  const label = t("prompt.delivery.whenReady");
   return (
     <output className="cv-user__status cv-user__delivery" data-delivery={delivery.state} aria-label={label}>
       <Clock size={12} />

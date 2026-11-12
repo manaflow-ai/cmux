@@ -2468,6 +2468,21 @@ FFI_PIN_PATHS = (FFI_PIN_FILE, FFI_PIN_MANIFEST)  # a PR changing either moves t
 # --list-inputs); the other bindings (cpp, python, rust-sidebar) are not.
 FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/bindings/rust/", "cmux-tui/rust-toolchain.toml",
               "scripts/cmux-next/build-app-ffi.sh")
+FFI_CRATE_PARENTS = ("cmux-tui/crates/",)  # each folder below one is a crate; the other FFI_INPUTS folders are crates
+
+
+def ffi_input(path: str) -> bool:
+    """PATH may change the app FFI library: under FFI_INPUTS, and not in a crate's tests/, benches/ or examples/,
+    which Cargo never builds into it (app_ffi_pin.NOT_BUILT, the one definition check-app-ffi-pin.sh and the router
+    read). The pin check keeps such a folder an input when a library file names it; this tree-free reading calls
+    it not an input, the stricter verdict here: a pull request that changes no input needs a published base pin."""
+    if not any(touches(path, read) for read in FFI_INPUTS):
+        return False
+    crate = next((parent + path[len(parent):].split("/", 1)[0] for parent in FFI_CRATE_PARENTS
+                  if path.startswith(parent)), None)
+    crate = crate or next((read.rstrip("/") for read in FFI_INPUTS if read.endswith("/") and path.startswith(read)),
+                          None)
+    return crate is None or app_ffi_pin.is_input(path, [crate], [f"{crate}/{n}" for n in app_ffi_pin.NOT_BUILT])
 # The files that decide the pin check's verdict: the check, the pin reader it runs, every step's BASH_ENV, this
 # classifier and the workflow holding the pin step and its rollup (the checks job uses no .github/actions/). A PR
 # changing one could make the pin error print for any change, so neither rule below excuses it (review of cmux#39194,
@@ -2599,7 +2614,7 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, er
     elif swift := [path for path in paths if path.endswith(".swift")]:
         why = (f"#{number} changes Swift ({'; '.join(swift[:5])}): app code may call what the pinned library lacks; "
                "land the Rust alone, then the Swift after the re-pin")
-    elif not any(touches(path, read) for path in paths for read in FFI_INPUTS):
+    elif not any(ffi_input(path) for path in paths):
         why = f"#{number} changes no app FFI input"
     else:
         why = None

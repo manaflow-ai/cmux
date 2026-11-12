@@ -38,6 +38,7 @@ import { MAX_FRAME_STEP_MS } from "../threadMinimap/scrollMotion";
 import { cssTimeMs } from "./fold";
 import { FOLLOW_GLIDE_OFF } from "./followGlide";
 import type { FollowMotionArm } from "./followMotion.experiment";
+import { drawPinned } from "./pinnedLiveLine";
 
 /// The spring's response: the motion scale's standard step (180 ms, the glide it replaces), damping 1
 /// (critically damped), as the native `move` spring (motion.md, 150 ms) is.
@@ -140,6 +141,11 @@ export type FollowChase = {
   hold(following?: () => boolean): void;
   /// Followed again: a held chase goes on home from where it is drawn.
   resume(): void;
+  /// The reader took the view while another motion of the thread (the composer growth's rise,
+  /// VirtualTranscript `rowsMove`) still drew it `px` from its layout: that motion ends, and the chase
+  /// draws the thread there instead, so it holds where it was painted (with `hold`) and goes home
+  /// from there if the view is followed again (`resume`).
+  carry(thread: HTMLElement, px: number): void;
   /// A held chase hands `px` of what it draws to the scroll offset (VirtualTranscript's quiet fold): the
   /// thread is drawn `px` nearer its layout, at once and with no frame loop; what is left stays held.
   /// False, and nothing changes, while its frame loop runs (it is not held).
@@ -226,6 +232,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       thread.style.willChange = "translate";
       thread.style.translate = `0 ${x}px`;
     }
+    // The live line held at the bottom moves against the thread in the same frame (pinnedLiveLine.ts).
+    drawPinned(thread, x);
   };
   const stop = () => {
     cancelRecheck();
@@ -382,6 +390,16 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       });
     },
     resume,
+    carry(node, px) {
+      if (!(Math.abs(px) >= 0.01)) return;
+      if (thread && thread !== node) stop();
+      thread = node;
+      x += px;
+      v = 0;
+      chunk = { from: x, at: 0, duration: CHUNK_S };
+      arrival = undefined;
+      draw();
+    },
     release(px) {
       if (frame !== undefined || recheck !== undefined) return false;
       x -= px;
