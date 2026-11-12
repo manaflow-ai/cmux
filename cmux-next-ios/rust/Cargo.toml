@@ -27,6 +27,8 @@ cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
 # Predictive local echo, the engine the Mac app asks over cmux-app-ffi.
 cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
+# The Mac's theme derivation (PROTOCOL.md "Appearance"): the phone derives every color with it.
+cmux-theme-tokens = { path = "../../cmux-tui/crates/cmux-theme-tokens" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
