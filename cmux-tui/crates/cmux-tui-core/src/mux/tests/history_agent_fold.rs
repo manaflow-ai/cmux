@@ -26,7 +26,7 @@ fn list_agent_session_ids(mux: &Arc<Mux>) -> Vec<String> {
 /// `history.entries.list` of the agent kind through the resource router, the
 /// path of every client: the router checks each answer against the embedded
 /// operation catalog. Returns the whole response envelope.
-fn list_agents_through_the_router(mux: &Arc<Mux>) -> serde_json::Value {
+fn list_agents_through_the_router(mux: &Arc<Mux>) -> Value {
     let envelope = serde_json::json!({
         "protocol": "cmux.protocol/2",
         "type": "request",
