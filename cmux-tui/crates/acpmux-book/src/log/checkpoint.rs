@@ -37,7 +37,7 @@ fn check_budget(state: &[u8], open_count: usize) -> Result<(), Error> {
         };
         if tag == section::PROMPT_QUEUE {
             if queue.is_some()
-                || body.len() % PROMPT_BYTES != 0
+                || !body.len().is_multiple_of(PROMPT_BYTES)
                 || body.len() > PROMPT_BYTES * MAX_PROMPTS
             {
                 return Err(Error::InvalidInput("invalid checkpoint prompt queue"));

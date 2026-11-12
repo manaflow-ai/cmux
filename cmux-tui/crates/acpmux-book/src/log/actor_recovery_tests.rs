@@ -109,3 +109,34 @@ fn queue_allowance_cannot_pay_for_open_bodies() -> Result {
     assert!(matches!(log.write_checkpoint(state.as_bytes(), &[]), Err(Error::InvalidInput(_))));
     Ok(())
 }
+
+#[test]
+fn maximum_known_raw_span_is_still_checked() -> Result {
+    for source_end in [None, Some(u64::from(u32::MAX) - 1), Some(u64::from(u32::MAX))] {
+        let home = tempfile::tempdir()?;
+        let (mut log, _) = Log::open(home.path(), Options::default())?;
+        let file = log.append_raw_file(b"gapped-source")?;
+        log.write_checkpoint(b"cursor=0", &[])?;
+        log.append_settled(1, 1, RawRange { file, off: 1, len: u32::MAX - 1 }, b"known")?;
+        log.sync()?;
+        drop(log);
+        let (log, recovered) =
+            Log::open_with_raw_end(home.path(), Options::default(), |_| source_end)?;
+        let retained = source_end == Some(u64::from(u32::MAX));
+        assert_eq!(log.last_seq(), u64::from(retained));
+        assert_eq!(recovered.truncated == 0, retained);
+    }
+    Ok(())
+}
+
+#[test]
+fn oversized_checkpoint_requests_rebuild() -> Result {
+    let home = tempfile::tempdir()?;
+    let (mut log, _) = Log::open(home.path(), Options::default())?;
+    log.write_checkpoint(b"cursor=0", &[])?;
+    drop(log);
+    // A sparse damaged file must not make open allocate its declared length.
+    OpenOptions::new().write(true).open(home.path().join("checkpoint"))?.set_len(1 << 30)?;
+    assert!(matches!(Log::open(home.path(), Options::default()), Err(super::Error::Rebuild(_))));
+    Ok(())
+}

@@ -61,7 +61,7 @@ use crate::row::MAX_ROW_TEXT;
 use checkpoint::Mark;
 use index::{Entry, RowIndex, SeqIndex};
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::{self, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// A segment closes when the next record would take it past this.
@@ -441,8 +441,12 @@ impl Log {
         }
 
         let mut stats = Stats::default();
-        let saved_bytes = match fs::read(dir.join("checkpoint")) {
-            Ok(bytes) => Some(bytes),
+        let saved_bytes = match File::open(dir.join("checkpoint")) {
+            Ok(file) => {
+                let mut bytes = Vec::new();
+                file.take(MAX_CHECKPOINT as u64 + 1).read_to_end(&mut bytes)?;
+                Some(bytes)
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
             Err(error) => return Err(Error::Io(error)),
         };
