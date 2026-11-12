@@ -17,10 +17,10 @@ from nightly_workflow_text import nightly_text
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/nightly_next_ring.py"
-spec = importlib.util.spec_from_file_location("nightly_next_ring", SCRIPT)
-ring = importlib.util.module_from_spec(spec)
-sys.modules["nightly_next_ring"] = ring
-spec.loader.exec_module(ring)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import nightly_next_ring as ring  # noqa: E402
 
 GUARD = ROOT / "scripts/ci/nightly-next-guard.py"
 NIGHTLY_YML = ROOT / ".github/workflows/nightly.yml"

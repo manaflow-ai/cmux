@@ -130,7 +130,8 @@ struct ChatComposer: View {
         .onChange(of: store.returnedDraft) { _, draft in
             guard let draft else { return }
             store.returnedDraft = nil
-            if trimmed.isEmpty { text = draft.text }
+            // Typed meanwhile: the returned text goes before it, never lost.
+            text = trimmed.isEmpty ? draft.text : draft.text + "\n\n" + text
             attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
         }
         // The flip is placed even when the target stays (focused or drafting as the history
@@ -263,6 +264,10 @@ struct ChatComposer: View {
             .padding(.top, collapsed ? 2 : 0)
         }
         .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
+        // Its own height whatever it is offered: a min-height frame offered
+        // less takes the offer, and the grown draft ran outside the rounded
+        // card (user report 2026-11-12, the same rule as the terminal composer).
+        .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, collapsed ? 20 : 12)
     }
@@ -897,23 +902,7 @@ struct CameraPicker: UIViewControllerRepresentable {
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
-/// How the composer's voice button is drawn (CMUX-39). One filled circle per composer, as
-/// in ChatGPT's: alone (no draft) the voice button is the primary control and keeps its
-/// filled circle; beside Stop it is secondary, a plain glyph at the weight of the plus.
-/// Voice mode on is always the accent circle, so its state stays visible.
-struct ComposerVoiceStyle: Equatable {
-    let primaryIsVisible: Bool
-    let active: Bool
-
-    enum Fill: Equatable { case accent, neutral, plain }
-
-    var isFilled: Bool { active || !primaryIsVisible }
-
-    var fill: Fill {
-        if active { return .accent }
-        return isFilled ? .neutral : .plain
-    }
-
+extension ComposerVoiceStyle {
     var fillColor: Color {
         switch fill {
         case .accent: .cmuxMobileAccent

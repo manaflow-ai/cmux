@@ -559,7 +559,7 @@ pub fn liveness(dir: &Path, session_id: &str, start_nonce: &str) -> Liveness {
 #[cfg(unix)]
 pub fn liveness_of(path: &Path) -> Liveness {
     use std::os::fd::AsRawFd;
-    let file = match std::fs::OpenOptions::new().read(true).write(true).open(path) {
+    let file = match crate::home_fs::OpenOptions::new().read(true).write(true).open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Liveness::Dead,
         Err(_) => return Liveness::Unknown,
@@ -674,10 +674,10 @@ pub fn end_left_behind(_start_nonce: &str) {}
 pub fn remove_artifacts(dir: &Path, record: &HostRecord) {
     let path = record_path(dir, &record.session_id);
     if names_this_host(&path, &record.start_nonce) {
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(&record.socket);
+        let _ = crate::home_fs::remove_file(&path);
+        let _ = crate::home_fs::remove_file(&record.socket);
     }
-    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
+    let _ = crate::home_fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
 }
 
 /// Whether the record file at `path` names the host incarnation `nonce`. A
@@ -700,10 +700,10 @@ pub fn names_this_host(path: &Path, nonce: &str) -> bool {
 pub fn remove_own_artifacts(dir: &Path, record: &HostRecord) {
     let path = record_path(dir, &record.session_id);
     if names_this_host(&path, &record.start_nonce) && path.exists() {
-        let _ = std::fs::remove_file(&path);
-        let _ = std::fs::remove_file(&record.socket);
+        let _ = crate::home_fs::remove_file(&path);
+        let _ = crate::home_fs::remove_file(&record.socket);
     }
-    let _ = std::fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
+    let _ = crate::home_fs::remove_file(live_path(dir, &record.session_id, &record.start_nonce));
 }
 
 /// Hosts of pooled sessions (hidden sessions nobody took yet,
@@ -724,12 +724,12 @@ pub fn pool_dir(hosts: &Path) -> PathBuf {
 pub fn promote(from: &Path, to: &Path, record: &HostRecord) -> Result<()> {
     ensure_private_dir(to)?;
     let id = &record.session_id;
-    std::fs::rename(
+    crate::home_fs::rename(
         live_path(from, id, &record.start_nonce),
         live_path(to, id, &record.start_nonce),
     )
     .context("move the pooled host's lock")?;
-    std::fs::rename(record_path(from, id), record_path(to, id))
+    crate::home_fs::rename(record_path(from, id), record_path(to, id))
         .context("move the pooled host's record")?;
     Ok(())
 }
@@ -748,9 +748,9 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
         .and_then(|b| serde_json::from_slice::<HostRecord>(&b).ok())
         .is_some_and(|r| r.start_nonce == record.start_nonce);
     if ours {
-        let _ = std::fs::remove_file(&path);
+        let _ = crate::home_fs::remove_file(&path);
     }
-    let _ = std::fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
+    let _ = crate::home_fs::remove_file(live_path(hosts, &record.session_id, &record.start_nonce));
 }
 
 /// Write `value` to `path` through a temporary file and a rename.
@@ -762,9 +762,8 @@ pub fn remove_promoted(dir: &Path, record: &HostRecord) {
 #[cfg(unix)]
 pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
     let tmp = path.with_extension(format!("tmp-{}-{}", std::process::id(), record.start_nonce));
-    let mut f = std::fs::OpenOptions::new()
+    let mut f = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -773,11 +772,11 @@ pub fn write_record_atomic(path: &Path, record: &HostRecord) -> Result<()> {
     let written = (|| -> Result<()> {
         f.write_all(&serde_json::to_vec(record)?)?;
         f.sync_all()?;
-        std::fs::rename(&tmp, path)?;
+        crate::home_fs::rename(&tmp, path)?;
         Ok(())
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }

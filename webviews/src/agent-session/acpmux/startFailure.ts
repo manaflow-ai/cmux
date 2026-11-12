@@ -15,6 +15,9 @@ export type StartFailureView = {
   detail?: string;
   /// The command Install runs in a terminal tab.
   install?: string;
+  /// The agent is not on the machine: a surface without a terminal (New Tab) still offers Install,
+  /// through Agents setup, which installs it and continues the draft.
+  notInstalled?: true;
 };
 
 /// The spawn words for a binary that is not there: the spawn's own `ENOENT` ("spawn claude-agent-acp:
@@ -49,6 +52,7 @@ export function startFailureView(
     return {
       sentence: t("switch.notInstalled", { agent: switching.name }),
       detail: raw,
+      notInstalled: true,
       ...(install ? { install } : {}),
     };
   }

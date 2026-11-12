@@ -89,8 +89,11 @@ for attempt in 1 2 3 4 5; do
   tip="$(git rev-parse HEAD)"
   inputs=()
   while IFS= read -r path; do inputs+=("$path"); done < <(bash scripts/cmux-next/check-app-ffi-pin.sh --list-inputs)
+  # The crates' tests/, benches/ and examples/ are not inputs (check-app-ffi-pin.sh --list-excluded).
+  specs=("${inputs[@]}")
+  while IFS= read -r path; do specs+=(":(exclude,literal)$path"); done < <(bash scripts/cmux-next/check-app-ffi-pin.sh --list-excluded)
   behind=0
-  if ! git diff --quiet "$sha" "$tip" -- "${inputs[@]}"; then
+  if ! git diff --quiet "$sha" "$tip" -- "${specs[@]}"; then
     git merge-base --is-ancestor "$sha" "$tip" 2>/dev/null \
       || finish newer "the FFI sources at ${tip:0:12} are not those of $tag, and $tag is not on its history"
     behind=1

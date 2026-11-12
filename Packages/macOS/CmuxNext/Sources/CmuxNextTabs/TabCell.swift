@@ -345,12 +345,17 @@ final class TabCell {
                 : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
             let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
-            // The flush corner: the card's own surface, so the tab and the card read as one shape.
-            if runsIntoCard { backgroundLayer.backgroundColor = Palette.windowBackground.cgColor }
-            cornerFeetLayer?.fillColor = Palette.windowBackground.cgColor
-            if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
-                // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
-                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
+            // The flush corner: the content's own glass (`Palette.folderTabFill`: what the content paints, with the
+            // chrome's shade cut away under the tab), so the tab and the card read as one shape and the same
+            // transparency. Where that would not stand out of the chrome, the selection fill.
+            let folder = Palette.folderTabFill ?? selection
+            if runsIntoCard { backgroundLayer.backgroundColor = folder.cgColor }
+            cornerFeetLayer?.fillColor = folder.cgColor
+            if isLifted {
+                // The floating-card token (`Palette.elevatedBackground`, the window a step toward the text) keeps the
+                // tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
+                // glass-opaque-allow: `dragLiftFill` keeps it translucent over glass; solid only in an opaque window.
+                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(Palette.elevatedBackground).cgColor
             }
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
@@ -449,6 +454,7 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
+        backgroundLayer.cornerCurve = Metrics.tabCornerCurve
         // The flush corner: the selected tab runs down into the card, rounded only on top (no foot, no point).
         backgroundLayer.maskedCorners = runsIntoCard ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]

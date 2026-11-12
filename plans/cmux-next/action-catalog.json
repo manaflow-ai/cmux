@@ -26430,7 +26430,10 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "left"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26509,7 +26512,10 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "right"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26588,7 +26594,12 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "up",
+        "top",
+        "upper"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26667,7 +26678,12 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "down",
+        "bottom",
+        "lower"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26905,7 +26921,9 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "detach"
+        "detach",
+        "send",
+        "new workspace"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -29027,6 +29045,75 @@
 
       ],
       "title" : "cmux Remote: Restart Screen Sharing",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "remote",
+      "cliName" : "remote stop-screen-session",
+      "computed" : {
+        "canonical_action_id" : "remote.stopScreenSession",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "CmuxRemoteActionCatalog",
+      "hint" : null,
+      "id" : "remote.stopScreenSession",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "cmux remote",
+        "screen sharing",
+        "mac screen",
+        "stop",
+        "end",
+        "disconnect",
+        "viewer",
+        "session"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "stop.circle",
+      "targets" : [
+
+      ],
+      "title" : "cmux Remote: End Screen Sharing Session",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -35415,7 +35502,13 @@
       "keywords" : [
         "group",
         "move",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "right",
+        "down",
+        "left",
+        "up"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -35705,7 +35798,9 @@
       "keywords" : [
         "group",
         "move",
-        "window"
+        "window",
+        "pop out",
+        "detach"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -59213,6 +59308,298 @@
           "isTargetDescription" : false,
           "isTargetName" : false,
           "kind" : {
+            "int" : {
+              "max" : 99,
+              "min" : 1
+            }
+          },
+          "name" : "index",
+          "suggestions" : null,
+          "title" : "Position"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-profile-move",
+      "computed" : {
+        "canonical_action_id" : "browserProfile.move",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserProfileActionCatalog",
+      "hint" : null,
+      "id" : "browserProfile.move",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "profile",
+        "chrome",
+        "cookies",
+        "account",
+        "person",
+        "move",
+        "reorder",
+        "order",
+        "position"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.up.arrow.down",
+      "targets" : [
+        "browser-profile"
+      ],
+      "title" : "Move Browser Profile to Position…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "SOCKS5",
+                "value" : "socks5"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "HTTP",
+                "value" : "http"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "HTTPS",
+                "value" : "https"
+              }
+            ]
+          },
+          "name" : "scheme",
+          "suggestions" : null,
+          "title" : "Proxy Type"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "host",
+          "suggestions" : null,
+          "title" : "Proxy Host"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 65535,
+              "min" : 1
+            }
+          },
+          "name" : "port",
+          "suggestions" : null,
+          "title" : "Port"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-profile-set-proxy",
+      "computed" : {
+        "canonical_action_id" : "browserProfile.setProxy",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserProfileActionCatalog",
+      "hint" : null,
+      "id" : "browserProfile.setProxy",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "profile",
+        "chrome",
+        "cookies",
+        "account",
+        "person",
+        "proxy",
+        "socks",
+        "socks5",
+        "http",
+        "network",
+        "vpn"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "network",
+      "targets" : [
+        "browser-profile"
+      ],
+      "title" : "Set Browser Profile Proxy…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-profile-clear-proxy",
+      "computed" : {
+        "canonical_action_id" : "browserProfile.clearProxy",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserProfileActionCatalog",
+      "hint" : null,
+      "id" : "browserProfile.clearProxy",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "profile",
+        "chrome",
+        "cookies",
+        "account",
+        "person",
+        "proxy",
+        "direct",
+        "network",
+        "reset",
+        "clear"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "network.slash",
+      "targets" : [
+        "browser-profile"
+      ],
+      "title" : "Remove Browser Profile Proxy",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
             "target" : "browser-profile"
           },
           "name" : "browserProfile",
@@ -62844,6 +63231,76 @@
 
       ],
       "title" : "Notification Banners",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "notifications",
+      "cliName" : "action notifications-allow-desktop",
+      "computed" : {
+        "canonical_action_id" : "notifications.allowDesktop",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "notifications.allowDesktop",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "permission",
+        "allow",
+        "enable",
+        "banner",
+        "desktop",
+        "system",
+        "macos",
+        "notifications",
+        "setup"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "bell.badge",
+      "targets" : [
+
+      ],
+      "title" : "Allow cmux Notifications",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -73120,7 +73577,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy acpmux Session File",
+      "title" : "Copy cmux Session File",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -84230,6 +84687,77 @@
 
       ],
       "category" : "settings",
+      "cliName" : "action billing-open-portal",
+      "computed" : {
+        "canonical_action_id" : "billing.openPortal",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "billing.openPortal",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "billing",
+        "subscription",
+        "invoice",
+        "receipt",
+        "payment",
+        "card",
+        "plan",
+        "pro",
+        "stripe",
+        "portal"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "creditcard",
+      "targets" : [
+
+      ],
+      "title" : "Manage Billing",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
       "cliName" : "settings send-feedback",
       "computed" : {
         "canonical_action_id" : "sendFeedback",
@@ -93218,7 +93746,13 @@
       "keywords" : [
         "tab",
         "split",
-        "pane"
+        "pane",
+        "send",
+        "right",
+        "down",
+        "left",
+        "up",
+        "side by side"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -93287,7 +93821,9 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "column"
+        "column",
+        "send",
+        "scroll"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -93368,7 +93904,10 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "workspace"
+        "workspace",
+        "send",
+        "other",
+        "another"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -93432,9 +93971,9 @@
 
         ],
         "is_palette_visible" : true,
-        "palette_family" : null,
+        "palette_family" : "tab.move",
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -93511,7 +94050,10 @@
       "keywords" : [
         "tab",
         "window",
-        "detach"
+        "detach",
+        "pop out",
+        "tear off",
+        "send"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -93546,6 +94088,184 @@
         "tab"
       ],
       "title" : "Move Tab to New Window",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "target" : "window"
+          },
+          "name" : "window",
+          "suggestions" : null,
+          "title" : "Window"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "tab move-to-window",
+      "computed" : {
+        "canonical_action_id" : "tab.moveToWindow",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "tab.move",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "hint" : null,
+      "id" : "tab.moveToWindow",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tab",
+        "window",
+        "other",
+        "another",
+        "send"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "macwindow.and.cursorarrow",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Move Tab to Window…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Right",
+                "value" : "right"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Down",
+                "value" : "down"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Left",
+                "value" : "left"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Up",
+                "value" : "up"
+              }
+            ]
+          },
+          "name" : "direction",
+          "suggestions" : null,
+          "title" : "Direction"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "tab duplicate-to-new-split",
+      "computed" : {
+        "canonical_action_id" : "tab.duplicateToNewSplit",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "tab.move",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "hint" : null,
+      "id" : "tab.duplicateToNewSplit",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tab",
+        "copy",
+        "clone",
+        "split",
+        "pane",
+        "side by side"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "plus.square.on.square",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Duplicate Tab to New Split",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -116404,8 +117124,41 @@
       "browserTheme" : [
         "theme"
       ],
+      "moveSurfaceToPaneDown" : [
+        "move to split below",
+        "move to bottom split",
+        "move to lower split",
+        "move tab to split below",
+        "move tab down a split",
+        "send tab down"
+      ],
+      "moveSurfaceToPaneLeft" : [
+        "move to left split",
+        "move to split left",
+        "move tab to left split",
+        "move tab to split left",
+        "send tab left"
+      ],
+      "moveSurfaceToPaneRight" : [
+        "move to right split",
+        "move to split right",
+        "move tab to right split",
+        "move tab to split right",
+        "send tab right"
+      ],
+      "moveSurfaceToPaneUp" : [
+        "move to split above",
+        "move to top split",
+        "move to upper split",
+        "move tab to split above",
+        "send tab up"
+      ],
       "newCloudMachine" : [
         "machine"
+      ],
+      "palette.moveTabToNewWorkspace" : [
+        "move to new workspace",
+        "send tab to new workspace"
       ],
       "pane.setBackground" : [
         "background"
@@ -116413,6 +117166,47 @@
       "remote.connect" : [
         "machine",
         "ssh"
+      ],
+      "tab.duplicateToNewSplit" : [
+        "duplicate to split",
+        "duplicate to new split",
+        "duplicate tab to split",
+        "clone to split"
+      ],
+      "tab.moveToNewColumn" : [
+        "move to new column",
+        "send tab to new column"
+      ],
+      "tab.moveToNewSplit" : [
+        "move to new split",
+        "move tab to new split"
+      ],
+      "tab.moveToNewWindow" : [
+        "pop out",
+        "pop out tab",
+        "tear off tab",
+        "move to new window",
+        "detach tab"
+      ],
+      "tab.moveToWindow" : [
+        "move to window",
+        "move to other window",
+        "move to another window",
+        "move tab to other window",
+        "send tab to window"
+      ],
+      "tab.moveToWorkspace" : [
+        "move to workspace",
+        "move to other workspace",
+        "send tab to workspace"
+      ],
+      "tabGroup.moveToNewSplit" : [
+        "move group to new split",
+        "move group to split"
+      ],
+      "tabGroup.moveToNewWindow" : [
+        "move group to new window",
+        "pop out group"
       ],
       "terminal.decreaseFontSize" : [
         "font"
@@ -116586,8 +117380,11 @@
           "tab.moveToNewColumn",
           "tab.moveToNewDockColumn",
           "tab.moveToNewWindow",
+          "tab.moveToWindow",
           "tab.moveToWorkspace",
-          "palette.moveTabToNewWorkspace"
+          "palette.moveTabToNewWorkspace",
+          "tab.moveToSpace",
+          "tab.duplicateToNewSplit"
         ],
         "parent" : null,
         "symbol" : "arrow.left.arrow.right",

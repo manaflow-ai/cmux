@@ -91,7 +91,7 @@ struct StagedSegment {
 impl Drop for Staged {
     fn drop(&mut self) {
         for tmp in self.segments.iter().filter_map(|s| s.tmp.as_ref()) {
-            let _ = std::fs::remove_file(tmp);
+            let _ = crate::home_fs::remove_file(tmp);
         }
     }
 }
@@ -107,7 +107,7 @@ impl LocalStore {
     /// None for a cold-archived chat, which is not rehydrated to answer.
     pub(super) fn log_written_at(&self, id: &str) -> Option<u64> {
         let (_, newest) = self.segment_files(id).ok()?.pop()?;
-        let at = std::fs::metadata(newest).ok()?.modified().ok()?;
+        let at = crate::home_fs::symlink_metadata(newest).ok()?.modified().ok()?;
         let ms = at.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
         u64::try_from(ms).ok()
     }
@@ -133,7 +133,7 @@ impl LocalStore {
             Some(root) => {
                 let kept = Archive::create(root, id, &now_ms().to_string())?;
                 let meta = self.dir(id).join("session.json");
-                if meta.exists() {
+                if crate::home_fs::try_exists_nofollow(&meta)? {
                     // A copy: the chat's own file may be written again in place.
                     kept.keep(&meta, false, true)?;
                 }
@@ -150,7 +150,7 @@ impl LocalStore {
             let tmp = write.then(|| path.with_extension("ndjson.compact"));
             let mut out = match &tmp {
                 Some(tmp) => {
-                    let _ = std::fs::remove_file(tmp);
+                    let _ = crate::home_fs::remove_file(tmp);
                     let file = open_private_append(tmp)?;
                     Some(std::io::BufWriter::with_capacity(256 * 1024, file))
                 }
@@ -214,7 +214,7 @@ impl LocalStore {
             let unchanged = now.len() == staged.segments.len()
                 && now.iter().zip(&staged.segments).all(|((_, path), s)| {
                     *path == s.path
-                        && std::fs::symlink_metadata(path).is_ok_and(|m| m.len() == s.len)
+                        && crate::home_fs::symlink_metadata(path).is_ok_and(|m| m.len() == s.len)
                 });
             if !unchanged {
                 return Ok(false);
@@ -232,7 +232,7 @@ impl LocalStore {
             // ago opens each by its name.
             for segment in &mut staged.segments {
                 if let Some(tmp) = segment.tmp.take() {
-                    std::fs::rename(&tmp, &segment.path)?;
+                    crate::home_fs::rename(&tmp, &segment.path)?;
                 }
             }
         }

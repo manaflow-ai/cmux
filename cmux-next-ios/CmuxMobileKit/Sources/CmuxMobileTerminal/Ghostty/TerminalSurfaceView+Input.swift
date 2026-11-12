@@ -15,7 +15,12 @@ extension TerminalSurfaceView {
         // `onInput`, but never pass through here.
         if actions.contains(where: \.isUserInput) { onUserInput?() }
         let wasEncodingUserInput = isEncodingUserInput
-        defer { isEncodingUserInput = wasEncodingUserInput }
+        let wasPerformingInput = isPerformingInput
+        isPerformingInput = true
+        defer {
+            isEncodingUserInput = wasEncodingUserInput
+            isPerformingInput = wasPerformingInput
+        }
         for action in actions {
             isEncodingUserInput = action.isUserInput
             switch action {
@@ -42,17 +47,30 @@ extension TerminalSurfaceView {
         }
     }
 
-    /// A trackpad wheel at `point` (this view's points), `deltaY` points
+    /// A finger's wheel at `point` (this view's points), `deltaY` points
     /// (positive scrolls up, toward older content), through Ghostty's own
-    /// scroll path (T-SCROLL-12): an app that asked for the mouse gets wheel
-    /// reports at that cell, the alternate screen with alternate scroll gets
-    /// cursor keys, and the bytes reach `onInput`. Ghostty keeps the part of a
-    /// row not yet sent for the next event.
-    func scrollWheel(at point: CGPoint, deltaY: CGFloat, momentum: TerminalTUIScroll.Momentum) {
-        guard let surface else { return }
+    /// scroll path (T-SCROLL-12) when ``panRoute`` says the app takes it: an
+    /// app that asked for the mouse gets wheel reports at that cell and the
+    /// bytes reach `onInput`; Ghostty keeps the part of a row not yet sent for
+    /// the next event. Anything else sends nothing: Ghostty's alternate
+    /// scroll would make cursor keys of it, and a drag is never a keystroke.
+    /// Returns whether the wheel went to the app.
+    @discardableResult
+    func scrollWheel(at point: CGPoint, deltaY: CGFloat, momentum: TerminalTUIScroll.Momentum) -> Bool {
+        guard let surface, panRoute == .wheelReports else { return false }
         let scale = window?.screen.scale ?? contentScaleFactor
+        // The person's own scroll: its reports are input, not a reply.
+        let wasPerformingInput = isPerformingInput
+        isPerformingInput = true
+        defer { isPerformingInput = wasPerformingInput }
         ghostty_surface_mouse_pos(surface, Double(point.x), Double(point.y), GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, Double(deltaY * scale), ghostty_input_scroll_mods_t(TerminalTUIScroll.mods(momentum)))
+        return true
+    }
+
+    /// Where a drag over this screen goes now (``TerminalPanRoute``).
+    var panRoute: TerminalPanRoute {
+        TerminalPanRoute.route(alternateScreen: showsAlternateScreen, appReportsMouse: capturesMouse)
     }
 
     /// An app on the screen asked for the mouse (a tap is its click, not a link's).
@@ -69,6 +87,10 @@ extension TerminalSurfaceView {
     @discardableResult
     func click(at point: CGPoint) -> Bool {
         guard let surface, ghostty_surface_mouse_captured(surface) else { return false }
+        // The person's own tap: its click reports are input, not a reply.
+        let wasPerformingInput = isPerformingInput
+        isPerformingInput = true
+        defer { isPerformingInput = wasPerformingInput }
         ghostty_surface_mouse_pos(surface, Double(point.x), Double(point.y), GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, GHOSTTY_MODS_NONE)

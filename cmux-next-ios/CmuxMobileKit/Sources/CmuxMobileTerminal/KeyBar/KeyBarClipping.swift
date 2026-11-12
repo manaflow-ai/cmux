@@ -118,9 +118,9 @@ public struct ComposerDockState: Equatable, Sendable {
 
 /// The dock's metrics (classic cmux iOS): a 28 pt key row of keys that hug
 /// their labels (glyph keys exactly 32 pt) 4 pt apart, 8 pt above the
-/// composer; the composer's controls are 40 pt circles beside a field whose
-/// one line is 40 pt tall, with a 28 pt send circle inside it; 12 pt side
-/// insets. The stack rests 8 pt above the keyboard or the safe area.
+/// composer; the composer is one full-width field whose one line is 40 pt
+/// tall, with its 28 pt paperclip, voice and send circles inside it; 12 pt
+/// side insets. The stack rests 8 pt above the keyboard or the safe area.
 public struct TerminalDockMetrics: Sendable {
     public static let keyRowHeight: CGFloat = 28
     public static let keySpacing: CGFloat = 4

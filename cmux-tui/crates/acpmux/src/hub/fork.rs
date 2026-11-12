@@ -60,6 +60,9 @@ struct Target {
     family: String,
     spawn_model: bool,
     model: Option<String>,
+    /// The switch named its model (`Retarget::model`): a harness that cannot run it fails the
+    /// switch, as an explicit model fails `session/new`, rather than running its own default.
+    explicit_model: bool,
 }
 
 impl Hub {
@@ -186,7 +189,11 @@ impl Hub {
             return Err(super::new_request::terminal_harness_refusal(&r.agent));
         }
         let family = crate::config::derive_family(&r.agent, &r.profile);
-        let spawn_model = super::new_request::profile_takes_model_at_spawn(&r.profile);
+        // `${model}` in the profile or in its defaults' env, as `session/new` decides it
+        // (`lifecycle.rs`): the model is a spawn parameter there, not a set_model call.
+        let spawn_model = super::new_request::profile_takes_model_at_spawn(&r.profile)
+            || r.defaults.env.values().any(|v| v.contains("${model}"));
+        let explicit_model = retarget.model.is_some();
         Ok(Some(Target {
             remote,
             agent: r.agent.clone(),
@@ -194,6 +201,7 @@ impl Hub {
             family,
             spawn_model,
             model: retarget.model.or_else(|| r.profile.model.clone()),
+            explicit_model,
         }))
     }
 
@@ -353,6 +361,38 @@ impl Hub {
             Ok((fork_seq, held, reserved))
         };
         let mut cut_at_request = None;
+        // An idle Codex chat: a copy of its rollout as it stands now, under a thread id of the
+        // fork's own. Codex lets one process write a thread, and the chat's process keeps a
+        // thread it forked: `thread/unsubscribe` does not let go of it, so the fork's own
+        // process was refused it ("already has an active writer") and the fork fell back to a
+        // fresh thread fed acpmux's transcript, its tool state lost. With nothing stored yet,
+        // the chat's agent forks it (`session/fork`, below) as before.
+        let idle_codex_copy = if !empty
+            && target.is_none()
+            && before.is_none()
+            && cut.is_none()
+            && running.is_none()
+            && matches!(turn_cut, Some(crate::config::TurnCut::Codex))
+            && cwd == parent_meta.cwd
+        {
+            let homes = self.harness_homes().with_env(&[&fork_env]);
+            let handoff = session.input_handoff.clone().lock_owned().await;
+            let copy = super::fork_at::codex_rollout_through(&homes.codex, &sid, u64::MAX);
+            let rules = session.read_meta(rules_of);
+            drop(handoff);
+            match copy {
+                Ok(copy) => {
+                    rules_at_copy = Some(rules);
+                    Some(copy)
+                }
+                Err(e) => {
+                    tracing::info!(session = %session.id, "fork of an idle Codex chat by its agent: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let made = if empty {
             turn_count = 0;
             Made::Empty
@@ -442,6 +482,8 @@ impl Hub {
                     Made::Fresh
                 }
             }
+        } else if let Some(copy) = idle_codex_copy {
+            Made::Copy(copy)
         } else if is_claude {
             // The fork happens when the new session's process starts with
             // --resume <parent> --fork-session; no agent call now.
@@ -759,7 +801,18 @@ impl Hub {
         match made {
             Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),
             // Its first prompt carries the chat's transcript (`hub/turns.rs`).
-            Made::Fresh => new.rehydrate.store(true, Ordering::SeqCst),
+            Made::Fresh => {
+                // A fork onto another harness: its agent is told it was forked from the chat, and
+                // whose the earlier replies are (Leo, 2026-11-11: "ChatGPT can have, like, a small
+                // little briefing of, like, you were forked from this chat").
+                if new.meta().harness != parent_meta.harness {
+                    *new.rehydrate_note.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!(
+                        "this chat was forked from {} chat {} ({}) when the person switched to you; the conversation so far is below, and the earlier replies are {}'s, not yours; carry on from where it ended; tool state was not restored",
+                        parent_meta.harness, parent_meta.name, session.id, parent_meta.harness
+                    ));
+                }
+                new.rehydrate.store(true, Ordering::SeqCst)
+            }
             Made::Copy(_) | Made::Agent(..) | Made::Empty => {}
         }
         if let Err(e) = self.write_meta(&new) {
@@ -974,7 +1027,9 @@ impl Hub {
         } else if let Some(t) = &target {
             // Onto another harness: up, on the picked model and in the mode a new chat of it
             // starts in, before the reply, so the first prompt runs there (as `new_session`).
-            self.start_retargeted(&new, t).await;
+            if let Err(e) = self.start_retargeted(&new, t).await {
+                return Err(self.close_refused(&new, e).await);
+            }
         } else if start_later {
             let hub = self.clone();
             let fork = new.clone();
@@ -998,17 +1053,35 @@ impl Hub {
     /// Starts a fork onto another harness ([`Retarget`]): its agent, its model when the
     /// harness takes it after spawn, and the mode a new chat of that harness starts in
     /// (`start_mode.rs`). Soft, as a new chat's start defaults: a step that fails is recorded
-    /// on the fork, and its first prompt starts the agent again.
-    async fn start_retargeted(self: &Arc<Self>, fork: &Arc<Session>, target: &Target) {
+    /// on the fork, and its first prompt starts the agent again. Except a model the switch named
+    /// that the harness takes over ACP: its agent must be up and take it, or the switch fails
+    /// (the caller closes the fork), since the next prompt's start would run the harness's own
+    /// default, another model than the one picked (review of cmux#41030, F2). A model taken at
+    /// spawn is in the fork's `model_request`, which every start of its agent uses.
+    async fn start_retargeted(
+        self: &Arc<Self>,
+        fork: &Arc<Session>,
+        target: &Target,
+    ) -> Result<(), RpcError> {
+        let must_set = target.explicit_model && !target.spawn_model;
         if let Err(e) = self.child_for(fork).await {
             tracing::warn!(session = %fork.id, "fork child start failed: {e}");
+            if must_set {
+                return Err(e);
+            }
             self.append(fork, "mux", "fork_start_failed", json!({"error": e.message}));
-            return;
+            return Ok(());
         }
         if !target.spawn_model
             && let Some(model) = &target.model
             && let Err(e) = Box::pin(self.set_model(fork, model)).await
         {
+            if must_set {
+                return Err(RpcError::invalid_params(format!(
+                    "model {model:?} for {}: {}",
+                    target.agent, e.message
+                )));
+            }
             tracing::warn!(session = %fork.id, model = %model, "fork model skipped: {}", e.message);
             self.append(
                 fork,
@@ -1033,6 +1106,7 @@ impl Hub {
                 json!({"modeId": mode, "error": e.message}),
             );
         }
+        Ok(())
     }
 }
 
