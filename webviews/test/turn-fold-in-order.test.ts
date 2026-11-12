@@ -106,7 +106,9 @@ for (const family of ["codex", "claude"])
     const closed = view(messaged, family);
     expect(ids(closed)).toEqual(["u-0", `${WORKED}-u-0`, "a-before", `${WORKED}-m-1`, "a-final"]);
     const opened = view(messaged, family, new Set([`${WORKED}-m-1`]));
-    const at = (id: string) => opened.findIndex((shown) => shown.id === id);
+    // A received message draws on its own row or in a message run's line (messageRuns.ts).
+    const at = (id: string) =>
+      opened.findIndex((shown) => shown.id === id || (shown.messageRun?.rows ?? []).includes(id));
     expect(at("m-1")).toBeGreaterThan(at(`${WORKED}-m-1`));
     expect(at("t-2")).toBeGreaterThan(at("m-1"));
     expect(

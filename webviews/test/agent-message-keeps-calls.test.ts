@@ -229,19 +229,20 @@ function holds(row: AcpmuxRow): string[] {
 
 /// A row between two replies that draws something: a tool line with a call, a folded message run, or
 /// another agent's line.
+/// A turn's folds split in order at the message (turn-fold-in-order.test.ts): the fold after it is a line.
 const drawsSomething = (row: AcpmuxRow) =>
+  row.kind === "worked" ||
   (row.kind === "activity" && (row.items ?? []).some((item) => item.tool)) ||
   row.kind === MESSAGE_RUN ||
   row.kind === LANE_NOTICE_BATCH ||
   (row.kind === "user" && row.incoming !== undefined);
 
-/// The finished turn's closed fold, as a Claude chat draws it, and what sits between its two replies.
+/// The finished turn's folds, as a Claude chat draws them (every one open, or closed), and what sits
+/// between its two replies.
 function between(rows: AcpmuxRow[], open = true) {
   const closed = turnViewFrom(rows, new Set(), { now: START + 3_600_000, agentFamily: "claude" });
-  const worked = closed.rows.find((row) => row.kind === "worked")!;
-  const view = open
-    ? turnViewFrom(rows, new Set([worked.id]), { now: START + 3_600_000, agentFamily: "claude" })
-    : closed;
+  const worked = closed.rows.filter((row) => row.kind === "worked").map((row) => row.id);
+  const view = open ? turnViewFrom(rows, new Set(worked), { now: START + 3_600_000, agentFamily: "claude" }) : closed;
   const first = view.rows.findIndex((row) => row.kind === "assistant" && row.text === FIRST);
   const last = view.rows.findIndex((row) => row.kind === "assistant" && row.text === LAST);
   expect(first).toBeGreaterThanOrEqual(0);

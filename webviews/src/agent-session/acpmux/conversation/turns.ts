@@ -1218,14 +1218,17 @@ export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[], inOr
       pieces.push({ anchor: row, rows: [] });
     } else pieces.push({ anchor: row, rows: [row] });
   }
+  // The turn's answer is read over the whole turn, as one fold reads it: the fold that holds it ends
+  // on it, and work after it in that fold folds with the work before it.
+  const answer = drawn[answerAt(drawn)];
   return pieces.map((piece, index) => {
     const next = pieces[index + 1];
-    if (next) return { anchor: piece.anchor, rows: piece.rows, until: next.anchor.at };
-    const final = answerAt(piece.rows);
+    const final = answer ? piece.rows.indexOf(answer) : -1;
     return {
       anchor: piece.anchor,
       rows: final < 0 ? piece.rows : piece.rows.slice(0, final),
-      ...(final >= 0 && { takeaway: piece.rows[final], after: piece.rows.slice(final + 1) }),
+      ...(final >= 0 && { takeaway: answer, after: piece.rows.slice(final + 1) }),
+      ...(next && { until: next.anchor.at }),
     };
   });
 }
@@ -1454,8 +1457,7 @@ function shapeTurn(
   // after it folds below it and nothing draws above a message it came after.
   const inOrder = style.conclusion && experimentArm(turnFoldSteered) === "in-order";
   const segments = foldSegments(user, body, inOrder);
-  // The answer is the last disclosure's: an earlier stretch's last reply stays in sight on its own.
-  const answer = segments.at(-1)?.takeaway;
+  const answer = segments.find((segment) => segment.takeaway)?.takeaway;
   // A tagged ask the answer ends on (nextStepAsk.ts) draws as a card under it, answerable until a
   // later prompt picks one of its answers or the person moves on past a later card
   // (`settleNextSteps`), whatever turns come between. Read once per ended turn, never while the turn
@@ -1669,13 +1671,14 @@ function shapeTurn(
     shaped.push(...[...before, ...after].filter(isPlan).map(endedPlan));
     // A wrap-up in a turn with no answer to hang under goes after the turn's last row, under its
     // walkthrough: the strip always draws before the card.
-    if (nextStep && wrapUp && !underAnswer) {
+    if (nextStep && wrapUp && !underAnswer && final) {
       if (walked && !walkedDrawn) shaped.push(strip(summary.at));
       shaped.push(card(summary.at));
     }
     // A cut-off ask goes right under the reply that asked it, which drops the ask's lines; where
     // that reply is out of sight (in a closed fold), after the turn's last row, the reply whole.
-    if (cutOff) {
+    // Once, after the turn's last fold, which sees every row drawn before it.
+    if (cutOff && final) {
       const asked = shaped.findIndex((row) => row.id === cutOff.reply.id);
       if (asked < 0) shaped.push(card(summary.at));
       else {
