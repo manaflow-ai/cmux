@@ -114,6 +114,9 @@ test("a list that is not complete shows its rows and one quiet still-loading lin
 test("an empty list that is not complete says still loading, never No history", async () => {
   const { strings } = await render([]);
   expect(host.querySelectorAll(".history-row").length).toBe(0);
-  expect(host.querySelector(".history-empty")?.textContent).toBe(strings.t("page.stillLoading"));
+  const sign = host.querySelector(".history-empty");
+  expect(sign?.textContent).toBe(strings.t("page.stillLoading"));
+  // The same status region as the line above the rows: a screen reader hears it here too.
+  expect(sign?.tagName).toBe("OUTPUT");
   expect(host.textContent).not.toContain(strings.t("page.empty"));
 });

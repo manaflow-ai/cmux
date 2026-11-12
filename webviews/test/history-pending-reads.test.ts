@@ -61,20 +61,38 @@ test("a list that is not complete is read again after 1, 2, 4, then each 8 s, un
 test("history-changed makes the next read sooner; it adds no timer and does not start the waits again", async () => {
   const { provider, leave } = await pendingStore();
   const entry: HistoryEntry = { id: "page:local:new", kind: "page", at_ms: Date.now(), title: "new", available: true };
+  // Half of the first wait (1 s) is gone when the event comes.
+  jest.advanceTimersByTime(500);
+  await settle();
+  expect(lists(provider)).toBe(1);
   provider.push(entry);
   await settle();
   expect(lists(provider)).toBe(2);
-  // The one timer of the first reply still runs to its 1 s...
+  // The one timer of the first reply still runs to its 1 s: a timer that the event started again would read 500 ms later.
+  jest.advanceTimersByTime(500);
+  await settle();
+  expect(lists(provider)).toBe(3);
+  // The wait after it is 2 s, not 1 s: the event did not start the waits again, and there is no second timer.
   jest.advanceTimersByTime(1000);
   await settle();
   expect(lists(provider)).toBe(3);
-  // ...and the wait after it is 2 s: a second timer, or waits that start again, would read at 1 s.
-  jest.advanceTimersByTime(1000);
-  await settle();
-  expect(lists(provider)).toBe(3);
-  jest.advanceTimersByTime(1000);
+  // An event in that 2 s wait reads at once and moves neither the wait's end nor its length.
+  provider.push({ ...entry, id: "page:local:newer" });
   await settle();
   expect(lists(provider)).toBe(4);
+  jest.advanceTimersByTime(999);
+  await settle();
+  expect(lists(provider)).toBe(4);
+  jest.advanceTimersByTime(1);
+  await settle();
+  expect(lists(provider)).toBe(5);
+  // The next wait is 4 s.
+  jest.advanceTimersByTime(3999);
+  await settle();
+  expect(lists(provider)).toBe(5);
+  jest.advanceTimersByTime(1);
+  await settle();
+  expect(lists(provider)).toBe(6);
   leave();
 });
 
@@ -120,27 +138,48 @@ test("a re-read that fails does not end the reads: the list is still not complet
   leave();
 });
 
-test("a hidden page does not read on the timer; it reads when it shows again", async () => {
-  let shown: (() => void) | undefined;
+/** A document that the test hides and shows; `shown` is the page's `visibilitychange` listener while it has one. */
+function hiddenDocument() {
   const page = {
     visibilityState: "hidden",
+    shown: undefined as (() => void) | undefined,
     addEventListener: (type: string, listener: () => void) => {
-      if (type === "visibilitychange") shown = listener;
+      if (type === "visibilitychange") page.shown = listener;
     },
     removeEventListener: (type: string, listener: () => void) => {
-      if (type === "visibilitychange" && shown === listener) shown = undefined;
+      if (type === "visibilitychange" && page.shown === listener) page.shown = undefined;
     },
   };
   scope.document = page;
+  return page;
+}
+
+test("a hidden page does not read on the timer; it reads when it shows again", async () => {
+  const page = hiddenDocument();
   const { provider, leave } = await pendingStore();
   jest.advanceTimersByTime(60_000);
   await settle();
   expect(lists(provider)).toBe(1);
-  expect(shown).toBeDefined();
+  expect(page.shown).toBeDefined();
   page.visibilityState = "visible";
-  shown?.();
+  page.shown?.();
   await settle();
   expect(lists(provider)).toBe(2);
+  // The page that shows again waits on its timer again, with no listener left.
+  expect(page.shown).toBeUndefined();
   leave();
-  expect(shown).toBeUndefined();
+});
+
+test("a page that the person leaves while it is hidden keeps no listener and reads no more", async () => {
+  const page = hiddenDocument();
+  const { provider, leave } = await pendingStore();
+  jest.advanceTimersByTime(1000);
+  await settle();
+  expect(page.shown).toBeDefined();
+  leave();
+  expect(page.shown).toBeUndefined();
+  page.visibilityState = "visible";
+  jest.advanceTimersByTime(60_000);
+  await settle();
+  expect(lists(provider)).toBe(1);
 });

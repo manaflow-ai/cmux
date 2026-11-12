@@ -168,10 +168,36 @@ import Testing
         page.cancel()
         let shown = await page.value
         #expect(shown == 1)
-        #expect(clock.sleeperCount == 0, "the wait ended with the page")
-        clock.advance(by: .seconds(60))
-        await Task.yield()
-        #expect(reads.count == 1, "no read after the person left")
+        // The cancel ends the wait, so no task is left that can read: nothing here depends on a real time.
+        for _ in 0..<100 where clock.sleeperCount > 0 { await Task.yield() }
+        #expect(clock.sleeperCount == 0, "the wait did not end with the page")
+        #expect(reads.count == 1, "a read after the person left")
+    }
+
+    /// The palette hides with no close of its pages when the person picks a row, clicks outside it or
+    /// toggles it: the list must not read on behind the hidden palette. A palette that shows the same
+    /// page again (a refused command's notice) reads again.
+    @Test(.timeLimit(.minutes(1))) func theReadsStopWhenThePaletteHides() async throws {
+        let clock = ManualClock()
+        let reads = Reads([HistoryRead(entries: [], pending: [.agent])])
+        let model = PaletteModel(persistence: nil)
+        defer { model.send(.close) }
+        model.reset(to: PalettePageSpec(id: "history.agents", title: "Agent Sessions", placeholder: "",
+                                        providers: [Self.provider(reads, clock: clock)]))
+        try await clock.waitForSleeper()
+        #expect(reads.count == 1)
+
+        model.didHide()
+        for _ in 0..<100 where clock.sleeperCount > 0 { await Task.yield() }
+        #expect(clock.sleeperCount == 0, "the wait for the next read goes on behind the hidden palette")
+        clock.advance(by: .seconds(8))
+        for _ in 0..<100 { await Task.yield() }
+        #expect(reads.count == 1, "the list was read again behind the hidden palette")
+
+        let before = reads.count
+        model.didShowAgain()
+        try await clock.waitForSleeper()
+        #expect(reads.count == before + 1, "the page that shows again does not read again")
     }
 
     @Test(.timeLimit(.minutes(1))) func aHeadlessReadOfTheListDoesNotWaitForTheRest() async {

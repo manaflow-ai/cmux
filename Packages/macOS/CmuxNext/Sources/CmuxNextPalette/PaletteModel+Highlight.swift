@@ -26,6 +26,9 @@ extension PaletteModel {
         for state in stack.reversed() { leave(state) }
     }
 
+    /// The palette shows again on the page it hid on (a refused command's notice).
+    public func didShowAgain() {}
+
     func leave(_ state: PageState) {
         let wasHighlighted = state.highlightedItemID != nil
         state.highlightedItemID = nil
