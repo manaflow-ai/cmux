@@ -172,6 +172,15 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
@@ -297,10 +306,12 @@ FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (vari
 REDEFINITION_CHECK = "Test redefinitions (scripts/cmux-next/check-test-redefinitions.py)"
 REDEFINITION_SCRIPT = SCRIPTS + "/check-test-redefinitions.py"
 REDEFINITION_FILE = re.compile(r"^tests/.+\.py$")
-REDEFINITION_LINE = re.compile(r"^(?P<path>[^:]+):\d+: (?P<what>.+?) redefines line \d+")
-# A file the checker could not parse, so never read: no verdict on it, whatever the exit (an installed copy older than
-# its exit 2 for this said 1, a verdict, and the file passed with whatever it held).
-REDEFINITION_UNPARSED = re.compile(r"^[^:]+:\d+: does not parse: ", re.M)
+# What follows `<path>:` on a checker line. The path is never read from the text (a test path may hold `:`, and a
+# `[^:]+` path pattern then matched nothing, so a finding or an older checker's parse error with exit 1 read as clean:
+# #41827 review, F1); it is the one of the files the gate passed that the line starts with (redefinition_record).
+REDEFINITION_REST = re.compile(r"^\d+: (?:(?P<what>.+?) redefines line \d+|(?P<unparsed>does not parse): )")
+# The checker's own stderr summaries; any other line on a run that exits 1 is output the gate cannot read.
+REDEFINITION_SUMMARY = re.compile(r"^\d+ redefinition\(s\) in tests/ |^a tests/ file does not parse")
 REDEFINITION_HINT = ("Keep one definition of each name: Python keeps only the last `def` of a name in a class or module, "
                      "so the earlier one never runs (a lock it held, a fixture it set up, a test it was). Merge what "
                      "the two did into the one that stays, then push.")
@@ -963,6 +974,21 @@ def escaped(tree: Path, rel: str, index: int, rule: str) -> bool:
     return False
 
 
+def ast_grep_shape_fault(matches) -> str | None:
+    """Why MATCHES (ast-grep's parsed `--json=compact` output) is not a list of matches, or None when it is: each a dict
+    with a str `file`, an int `range.start.line`, and str `ruleId` and `message`. Valid JSON of another shape (an
+    `{"error": ...}` object) made the reads below raise and crash the gate instead of refusing (#41827 review, F1)."""
+    if not isinstance(matches, list):
+        return f"a {type(matches).__name__}, not a list"
+    for index, m in enumerate(matches):
+        start = m.get("range", {}).get("start", {}) if isinstance(m, dict) and isinstance(m.get("range"), dict) else None
+        if (not isinstance(m, dict) or not isinstance(m.get("file"), str) or not isinstance(start, dict)
+                or not isinstance(start.get("line"), int) or isinstance(start.get("line"), bool)
+                or not isinstance(m.get("ruleId"), str) or not isinstance(m.get("message"), str)):
+            return f"match {index} has no file, range.start.line, ruleId and message"
+    return None
+
+
 def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
@@ -977,6 +1003,9 @@ def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
         matches = json.loads(result.stdout)
     except json.JSONDecodeError:
         return f"ast-grep failed: {result.stderr.strip()}"
+    fault = ast_grep_shape_fault(matches)
+    if fault:
+        return f"ast-grep failed: printed JSON of the wrong shape ({fault}): {result.stdout.strip()[:200]}"
     lines = []
     for m in matches:
         rel, index = m["file"], m["range"]["start"]["line"]
@@ -1004,7 +1033,12 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     # (70), and keeping only the finding lines of that run passed a push it never read.
     if code not in (0, 1):
         return f"SwiftFormat gave no verdict: exit {code}: {' '.join(out.strip().splitlines()[-2:])[:300]}"
-    return "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
+    found = "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
+    # Exit 1 is "the lint failed": with no line the gate reads as a finding (a changed output format), it is no verdict,
+    # never "clean" (#41827 review: unrecognized checker output must not count as a pass).
+    if code == 1 and not found:
+        return f"SwiftFormat gave no verdict: exit 1 with no finding line: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    return found
 
 
 RUST_SCOPE = "cmux-tui/"
@@ -1057,13 +1091,26 @@ def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
     return rust_edition(repo)
 
 
+# rustup's answers when the toolchain rust-toolchain.toml pins, or its rustfmt component, is not installed
+# (RUSTUP_AUTO_INSTALL=0): `error: 'rustfmt' is not installed for the toolchain 'T'` (newer: `... 'T'.`, `... for
+# the custom toolchain 'T'`), `error: toolchain 'T' is not installed`, `error: override toolchain 'T' is not
+# installed`, and `error: the 'rustfmt' binary, normally provided by the 'rustfmt' component, is not applicable to the
+# 'T' toolchain`, each a whole line.
+RUSTUP_MISSING = re.compile(
+    rb"(?m)^error: (?:'rustfmt(?:\.exe)?' is not installed for the (?:custom )?toolchain '[^'\n]+'\.?"
+    rb"|(?:override )?toolchain '[^'\n]+' is not installed"
+    rb"|the 'rustfmt(?:\.exe)?' binary, normally provided by the 'rustfmt' component, is not applicable to the "
+    rb"'[^'\n]+' toolchain)\r?(?:\n|$)")
+
+
 def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     """One finding per changed cmux-tui Rust file that rustfmt would change: `<path>: not rustfmt-clean ...`.
 
     Each file goes through rustfmt's stdin mode, so only that file is judged (a path argument would also format the
     files its `mod` lines name). The rustfmt is the one the cmux-tui checkout pins (rust-toolchain.toml, run in
-    cmux-tui/), never installed for this check; with no such rustfmt the layer warns and finds nothing. The tip's
-    `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    cmux-tui/), never installed for this check; with no rustfmt on PATH, or rustup's own answer that the pinned
+    toolchain or its rustfmt is not installed, the layer warns and finds nothing; a rustfmt that will not start is no
+    verdict. The tip's `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
     present = [p for p in rust if (tree / p).is_file()]
     if not present or not config.is_file():
         return ""
@@ -1080,17 +1127,29 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         except subprocess.TimeoutExpired:
             # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
             return f"rustfmt gave no verdict: timed out after 60s on {path}"
-        except OSError as error:
-            log(f"prepush-gate: WARNING: rustfmt did not run ({type(error).__name__}); Rust formatting NOT checked")
+        except FileNotFoundError:
+            # No rustfmt (and no rustup proxy) on PATH: not available here, which warns.
+            log("prepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked")
             return ""
+        except OSError as error:
+            # A rustfmt that is there and would not start (not executable, a bad interpreter): no verdict (#41888
+            # review).
+            return f"rustfmt gave no verdict: it could not be started on {path} ({type(error).__name__}: {error})"
         if done.returncode != 0:
-            if b"error[" in done.stderr or (b"error:" in done.stderr and b"toolchain" not in done.stderr and b"not installed" not in done.stderr):
+            # Only rustup's own "no such toolchain or component" answer is "not available here" and warns, matched in
+            # its exact forms, each a whole line: a rustfmt diagnostic quotes the source, which can say "toolchain"
+            # or "not installed" anywhere (#41888 review). Then a parse error is a finding; any other failure (a panic,
+            # a crash) is no verdict, never a pass (#41827 review).
+            if RUSTUP_MISSING.search(done.stderr):
+                log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
+                    f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
+                return ""
+            if b"error[" in done.stderr or b"error:" in done.stderr:
                 findings.append(f"{path}: rustfmt cannot parse it: "
                                 f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
                 continue
-            log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
-                f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
-            return ""
+            tail = " ".join(done.stderr.decode(errors="replace").strip().splitlines()[-2:])[:300] or "no output"
+            return f"rustfmt gave no verdict: exit {done.returncode} on {path}: {tail}"
         if done.stdout != source:
             findings.append(f"{path}: not rustfmt-clean; run `cargo fmt` in cmux-tui/ (the pre-commit hook does this)")
     return "\n".join(findings)
@@ -1106,7 +1165,11 @@ def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     # or a signal, and keeping only the located lines of that run passed a push it never read.
     if code not in (0, 2, 3):
         return f"SwiftLint gave no verdict: exit {code}: {' '.join(out.strip().splitlines()[-2:])[:300]}"
-    return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    found = "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    # Exit 2 or 3 says it found violations: with no located line the gate reads, that is no verdict, never "clean".
+    if code in (2, 3) and not found:
+        return f"SwiftLint gave no verdict: exit {code} with no located finding: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    return found
 
 
 # ---------------------------------------------------------------- gate
@@ -1431,8 +1494,11 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
                 (work / "base-list.json").write_bytes(base_list)
                 cmd += ["--base-reserved", str(work / "base-list.json")]
             code, out = run(cmd, work)
-            # Its verdicts exit 0 (none) or 1 (findings); anything else, a traceback or a timeout is no verdict.
-            return [line for line in out.splitlines() if line.strip()], no_verdict(code, out, (0, 1))
+            # Its verdicts exit 0 (none) or 1 (findings); anything else, a traceback or a timeout is no verdict, and so
+            # is an exit 1 that prints no finding.
+            lines = [line for line in out.splitlines() if line.strip()]
+            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
+                                                            else None)
 
         head_lines, head_stopped = findings(head, blob(base, RESERVED_LIST)) or ([], None)
         base_lines, base_stopped = findings(base, None) or ([], None)
@@ -1481,8 +1547,10 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
             lines = [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
-            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict.
-            return lines, no_verdict(code, out, (0, 1))
+            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1 that
+            # prints no finding (only its `ui font:` summary).
+            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
+                                                            else None)
 
         head_lines, head_stopped = findings("--rev", head, "--base", base)
         # A guard stop (a read outside the check's INPUTS) prints the same line on both passes, so the diff below
@@ -1546,7 +1614,13 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     if NO_VERDICT.search(out) and code != 0:
         return [NoVerdict(f"{CARGO_LOCKS_SCRIPT} crashed instead of judging the locks, so the push is refused: "
                           f"{' '.join(out.strip().splitlines()[-2:])[:300]}")]
-    return [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
+    stale = [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
+    # Its exit 1 means "a lock is stale" and comes with the `stale:` lines; an exit 1 the gate cannot read one from is
+    # no verdict, never a pass (#41827 review: unrecognized checker output).
+    if code == 1 and not stale:
+        return [NoVerdict(f"{CARGO_LOCKS_SCRIPT} exited 1 but named no stale lock, so the push is refused: "
+                          f"{' '.join(out.strip().splitlines()[-2:])[:300] or 'no output'}")]
+    return stale
 
 
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
@@ -1580,6 +1654,53 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
+def redefinition_record(line: str, files: list[str]) -> tuple[str, str, bool] | None:
+    """(path, dotted name, whether it is a parse error) for one checker line about one of FILES, else None. The longest
+    file the line starts with wins, so `tests/a:1.py` is never read as `tests/a` line 1."""
+    for path in sorted(files, key=len, reverse=True):
+        if line.startswith(path + ":"):
+            rest = REDEFINITION_REST.match(line[len(path) + 1:])
+            if rest:
+                return path, rest["what"] or "", bool(rest["unparsed"])
+    return None
+
+
+def redefinition_verdict(code: int, out: str, files: list[str]) -> tuple[list[tuple[str, tuple[str, str]]], str | None]:
+    """([(finding line, (path, name))], why the run gave no verdict or None) for one checker run over FILES.
+
+    No verdict: run()'s timeout, a signal, a crash or an exit outside 0 and 1 (no_verdict); a file the checker could
+    not parse, whatever the exit; an exit 1 that names no finding or prints a line the gate cannot read; an exit 0 that
+    names a finding or prints a line the gate cannot read. Exit 1 is the checker's "findings" verdict only when its
+    output says which."""
+    found, unread, unparsed = [], [], None
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        record = redefinition_record(line, files)
+        if record is None:
+            if not REDEFINITION_SUMMARY.match(line):
+                unread.append(line)
+        elif record[2]:
+            unparsed = unparsed or line
+        else:
+            found.append((line, record[:2]))
+    if unparsed and code in (1, 2):  # its parse-error exit, or 1 from a copy older than it
+        return [], f"could not parse {unparsed}"
+    stopped = no_verdict(code, out, (0, 1))
+    if stopped:
+        return [], stopped
+    if unparsed:
+        return [], f"could not parse {unparsed}"
+    if code == 1 and (unread or not found):
+        return [], (f"exited 1 with output it cannot read: {unread[0][:200]}" if unread
+                    else "exited 1 but named no redefinition")
+    if code == 0 and found:
+        return [], "exited 0 but named a redefinition"
+    if code == 0 and unread:  # a line in no shape it reads: nothing it can trust, whatever the exit (#41888 review)
+        return [], f"exited 0 with output it cannot read: {unread[0][:200]}"
+    return found, None
+
+
 def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
                                restrict: set[str] | None = None) -> list[str]:
     """Each name a tests/**/*.py file the push changes defines twice in one class or module body at HEAD and not at
@@ -1607,7 +1728,7 @@ def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
 
-        def findings(rev: str) -> tuple[list[str], str | None]:
+        def findings(rev: str) -> tuple[list[tuple[str, tuple[str, str]]], str | None]:
             tree = work / rev[:12]
             files = []
             for name in names:
@@ -1620,10 +1741,7 @@ def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts
             if not files:
                 return [], None
             code, out = run(["python3", "-I", str(work / "check.py"), "--root", str(tree), *files], tree)
-            unparsed = REDEFINITION_UNPARSED.search(out)
-            stopped = (f"could not parse {out[unparsed.start():].splitlines()[0]}" if unparsed
-                       else no_verdict(code, out, (0, 1)))
-            return [line for line in out.splitlines() if REDEFINITION_LINE.match(line)], stopped
+            return redefinition_verdict(code, out, files)
 
         head_lines, stopped = findings(head)
         if stopped:
@@ -1631,12 +1749,8 @@ def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts
                               "push is refused")]
         base_lines, base_stopped = findings(base)
 
-    def key(line: str) -> tuple[str, str]:
-        match = REDEFINITION_LINE.match(line)
-        return (match["path"], match["what"]) if match else (line, "")
-
-    old = set() if base_stopped else {key(line) for line in base_lines}
-    return [line for line in head_lines if key(line) not in old]
+    old = set() if base_stopped else {key for _, key in base_lines}
+    return [line for line, key in head_lines if key not in old]
 
 
 def yaml_problem(text: str) -> tuple[bool, str | None]:
@@ -1944,9 +2058,13 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
                 problems = json.loads(result.read_text(encoding="utf-8")) if code == 0 else None
             except (OSError, ValueError):
                 problems = None
-            if not isinstance(problems, dict):
+            # A dict of highlight name to a list of problem strings; any other shape (a value that is not a list, a
+            # problem that is not a string) raised in the loop below and crashed the gate (#41827 review).
+            if not isinstance(problems, dict) or not all(
+                    isinstance(v, list) and all(isinstance(x, str) for x in v) for v in problems.values()):
                 tail = out.strip().splitlines()[-1] if out.strip() else "no output"
-                return [NoVerdict(f"the What's New validator gave no verdict on {', '.join(files)} (exit {code}: "
+                shape = "" if problems is None else ", wrote a result of the wrong shape"
+                return [NoVerdict(f"the What's New validator gave no verdict on {', '.join(files)} (exit {code}{shape}: "
                                   f"{tail[:300]}), so the push is refused; run python3 scripts/whats-new/test_digest.py")]
     except (Exception, SystemExit) as error:  # noqa: BLE001 - no validator here: CI's release-notary test still runs it
         log(f"prepush-gate: WARNING: the What's New highlights were not validated ({type(error).__name__}: {error}); "
@@ -2945,14 +3063,14 @@ def advisory_finish(started, summary: str | None, seconds: float) -> None:
             process.wait(timeout=GRACE_SECONDS + 5)
         except subprocess.TimeoutExpired:
             pass
-        print(f"::warning title=prepush advisory timed out::the hook-only checks gave no result in {seconds:g}s and "
-              "were stopped; this step's result is unchanged. Run the pre-push hook (or prepush-gate.py) locally.",
-              flush=True)
+        safe_print(f"::warning title=prepush advisory timed out::the hook-only checks gave no result in {seconds:g}s and "
+                   "were stopped; this step's result is unchanged. Run the pre-push hook (or prepush-gate.py) locally.",
+                   flush=True)
         _summary(summary, [(name, f"incomplete: timed out after {seconds:g}s") for name in ADVISORY_LAYERS])
         return
     if code != 0:
-        print(f"::warning title=prepush advisory incomplete::the advisory pass exited {code}; this step's result is "
-              "unchanged.", flush=True)
+        safe_print(f"::warning title=prepush advisory incomplete::the advisory pass exited {code}; this step's result is "
+                   "unchanged.", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
