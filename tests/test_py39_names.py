@@ -467,7 +467,9 @@ def unguarded(python, files=None):
     found = [(p, s) for p in files for s in sites(p)]
     bad = []
     for p, (m, a, line, ok, kind) in found:
-        lacks = _SCOPE["attr_lacks"] if kind == "attr" else _SCOPE["import_lacks"]
+        # A direct `module.name` read is also satisfied by an importable submodule (`http.client`); only guard
+        # evaluation above needs the attribute-presence probe to distinguish that case.
+        lacks = _SCOPE["import_lacks"]
         if ok or (m, a) not in lacks or (m, a) in PLATFORM_ONLY or (a is not None and any(
                 m == pm and a.startswith(pre) for pm, pre in PLATFORM_PREFIX)):
             continue
