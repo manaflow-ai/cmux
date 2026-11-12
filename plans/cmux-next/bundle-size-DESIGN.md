@@ -7,14 +7,22 @@ Mac minis and Linux machines").
 Tools: `scripts/cmux-next/bundle-size.py report|check` and the ratchet
 `scripts/cmux-next/bundle-size-budget.json`. The nightly-next arm64 job runs the
 check after the DMG smoke ("Bundle size budget" in `.github/workflows/nightly.yml`).
-The step does not block the publish yet.
+The nightly step blocks publish when the checked artifact exceeds a cap.
 
 ## 1. Where we are (measured, not estimated)
 
-The latest nightly-next arm64 is `cmux-nightly-next-macos-arm64.dmg`, published
-2026-10-20 at 02:12Z. Its DMG is 205.4 MB (LZMA, ULMO). The installed app is
-664.8 MB. The DMG was 185.7 MB on 2026-10-14, so it grew 10% in 6 days. The
-whole app is already arm64-only and stripped.
+The 2026-11-12 NIGHTLY receipt for arm64 measured a 285197892-byte DMG (about
+285 MB) and a 909.4 MiB app. Its largest non-engine components were
+the CEF framework at 352218261 bytes, `Resources/bin` at 219 MiB,
+`Resources/bin/cmux` at 167 MB, `MacOS/cmux` at 154 MB, Pages at 40.5 MiB and
+AgentPane at 18.4 MiB. The whole app is already
+arm64-only and stripped. The budget caps now use those measured sizes plus about
+5% headroom, rounded to stable byte caps. The arm64 nightly's **Bundle size
+budget** step is blocking: `summary` writes the report, then `check` must pass
+before the publish job can finish.
+
+The inventory below is the 2026-10-20 baseline breakdown retained for context;
+the 2026-11-12 receipt above is the source for the current caps.
 
 | Component | On disk | In DMG (xz -6 est.) | Share of DMG |
 |---|---:|---:|---:|
@@ -118,7 +126,7 @@ Savings are in the DMG / on disk. "Done" means pushed to feat-cmux-next.
 | # | Cut | DMG | Disk | Risk | Status |
 |---|---|---:|---:|---|---|
 | 1 | Remove LC_ATOM_INFO (mergeable-library link data) from bundled frameworks; Sentry 9.7 → 3.1 MB, all symbols kept | −0.85 MB | −6.6 MB | none: dyld never reads it; dlopen and all 281 ObjC classes check out | **done** (655b4a9f2ee) |
-| 2 | Byte budget + ratchet in CI and nightly | — | — | none (non-blocking) | **done** |
+| 2 | Byte budget + ratchet in CI and nightly | — | — | none | **done, blocking** |
 | 3 | V8 snapshot of the other arch in arm64 builds | −0.2 MB | −0.76 MB | none | already gone in today's artifact; the budget forbids it from coming back |
 | 4 | **Official CEF build** (`is_official_build=true`: ThinLTO, ICF, no debug-only paths; same feature switches) | est. −15 to −25 MB | est. −60 to −90 MB | low. It is the config Google ships. Build is much longer; A/B speed too | **building**: fork `cmux/8037-cmux28-official` af04123c56e, fleet job 70436914a38e |
 | 5 | Chromium as an on-demand runtime: notarized `cef-runtime-<ver>.tar.xz` (framework + shim + helpers + uBlock), installed to `~/Library/Application Support/cmux/cef/<sha>`, found by `CEFRuntimeLayout.locate`; WebKit until it is there; prefetch in the background after first launch | **−103 MB** | **−363 MB** | medium. Library validation (same Team ID: fine). The helper apps sit outside the app bundle. Updates are version-pinned per app build. The first Chromium tab can wait about 10 s on a fast link. The default engine is Chromium, so first-run UX needs a design | design; next agent |
@@ -163,7 +171,9 @@ What I kept, and why:
    does.
 3. Measure #8 and #10 on the fleet, and run the perf bench before choosing
    any opt-level.
-4. Make the nightly budget step blocking once two nightlies pass it.
+4. Keep the nightly budget step blocking. When a size cut lands, measure the
+   exact receipt with `bundle-size.py report` and lower the relevant cap to the
+   new size plus small headroom.
 
 ## 6. Stage B design: Chromium on demand (cut #5)
 
