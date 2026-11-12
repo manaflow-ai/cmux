@@ -124,7 +124,7 @@ impl Client {
 
 #[tokio::test]
 async fn a_list_and_a_row_each_past_the_message_limit_still_list_every_id() {
-    super::list_test_within(
+    super::list_web_page_tests::list_test_within(
         "a_list_and_a_row_each_past_the_message_limit_still_list_every_id",
         a_list_and_a_row_each_past_the_message_limit_still_list_every_id_body(),
     )
@@ -184,7 +184,7 @@ fn token(seed: &str) -> String {
 /// secret its preview's cut would split is masked before the cut, never left as a head.
 #[tokio::test]
 async fn a_trimmed_row_still_goes_to_a_peer_masked() {
-    super::list_test_within(
+    super::list_web_page_tests::list_test_within(
         "a_trimmed_row_still_goes_to_a_peer_masked",
         a_trimmed_row_still_goes_to_a_peer_masked_body(),
     )

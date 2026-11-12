@@ -30,6 +30,27 @@ const MIRRORED: &str = "box-chat";
 /// The most a reply line adds to its result: the frame's id and envelope.
 const FRAME: usize = 256;
 
+/// A heavy list test's own deadline: it fails by name in `LIST_TEST_DEADLINE` rather than leave
+/// CI's job to its 40-minute cut, which names nothing. On 2026-11-12 a list test that rebuilt the
+/// list for every page ran past the job's limit and the job was cancelled, not failed (cmux run
+/// 43164890485). Generous: a busy runner makes these minutes slower, and must not fail them.
+pub(crate) const LIST_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+pub(crate) async fn list_test_within<T>(
+    test: &str,
+    body: impl std::future::Future<Output = T>,
+) -> T {
+    let started = std::time::Instant::now();
+    match tokio::time::timeout(LIST_TEST_DEADLINE, body).await {
+        Ok(done) => done,
+        Err(_) => panic!(
+            "{test}: not done in {:?} (deadline {LIST_TEST_DEADLINE:?}): a paged list read that never \
+             ends, or a build per page; the list guard's `list_cost` debug log names each build",
+            started.elapsed()
+        ),
+    }
+}
+
 async fn hub() -> Arc<crate::hub::Hub> {
     hub_of(OWN, TITLE_BYTES, "idle").await
 }
@@ -141,7 +162,7 @@ fn every_id() -> Vec<String> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
-    super::list_test_within(
+    list_test_within(
         "a_web_connection_reads_a_large_whole_list_in_bounded_pages",
         a_web_connection_reads_a_large_whole_list_in_bounded_pages_body(),
     )
@@ -160,7 +181,7 @@ async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages_body() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_peer_link_reads_its_own_rows_in_bounded_pages() {
-    super::list_test_within(
+    list_test_within(
         "a_peer_link_reads_its_own_rows_in_bounded_pages",
         a_peer_link_reads_its_own_rows_in_bounded_pages_body(),
     )
@@ -180,7 +201,7 @@ async fn a_peer_link_reads_its_own_rows_in_bounded_pages_body() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
-    super::list_test_within(
+    list_test_within(
         "a_peer_link_reads_a_whole_sessions_list_in_bounded_pages",
         a_peer_link_reads_a_whole_sessions_list_in_bounded_pages_body(),
     )
@@ -202,7 +223,7 @@ async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages_body() {
 /// Unix socket's feeds, the agent pane's) included: they were the ones sent 31 MB replies.
 #[tokio::test(flavor = "multi_thread")]
 async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
-    super::list_test_within(
+    list_test_within(
         "no_list_reply_passes_a_few_megabytes_on_any_connection",
         no_list_reply_passes_a_few_megabytes_on_any_connection_body(),
     )

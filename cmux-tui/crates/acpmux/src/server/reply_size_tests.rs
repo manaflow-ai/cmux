@@ -47,7 +47,7 @@ fn row_id(row: &Value) -> Option<&str> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn no_reply_on_a_client_path_is_larger_than_a_page() {
-    super::list_test_within(
+    super::list_web_page_tests::list_test_within(
         "no_reply_on_a_client_path_is_larger_than_a_page",
         no_reply_on_a_client_path_is_larger_than_a_page_body(),
     )
