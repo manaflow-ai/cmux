@@ -335,4 +335,6 @@ impl WorkspaceRegistry {
 }
 
 #[cfg(test)]
+mod part_deleted_tests;
+#[cfg(test)]
 mod tests;

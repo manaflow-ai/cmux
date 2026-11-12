@@ -115,7 +115,7 @@ fn send(mux: &Arc<Mux>, agent: &Agent, event: &str, mut native: Value) {
 
 /// One step of the session's mix: a turn's start, a turn's end, a program
 /// status edge or a project observation with a newer time.
-fn step(mux: &Arc<Mux>, agents: &[Agent], index: u64) {
+pub(super) fn step(mux: &Arc<Mux>, agents: &[Agent], index: u64) {
     let agent = &agents[usize::try_from(index / 4).unwrap() % ACTIVE_AGENTS];
     match index % 4 {
         0 => send(mux, agent, "UserPromptSubmit", json!({ "prompt": format!("step {index}") })),

@@ -45,6 +45,7 @@ mod history_agent_fold;
 mod journal_lane_full;
 mod journal_retention_base;
 mod journal_retention_bound;
+mod journal_retention_holds;
 mod journal_retention_readers;
 mod journal_roster;
 mod kitty_budget;

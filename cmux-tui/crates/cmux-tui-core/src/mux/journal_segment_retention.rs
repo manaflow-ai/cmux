@@ -41,6 +41,24 @@ const JOURNAL_RETENTION_REBUILD_FOLD_BUDGET: Duration = Duration::from_secs(2);
 /// hold the registry at its size.
 const JOURNAL_RETENTION_REBUILD_FOLD_TICKS: u32 = 20;
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs on this thread at each point where the retention
+    /// pass gave the registry lock back after a hold of its delete.
+    pub(crate) static AFTER_RETENTION_HOLD_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn after_retention_hold_for_test() {
+    // Taken while it runs: the seam may run the pass again.
+    let hook = AFTER_RETENTION_HOLD_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(mut hook) = hook {
+        hook();
+        AFTER_RETENTION_HOLD_FOR_TEST.with(|slot| *slot.borrow_mut() = Some(hook));
+    }
+}
+
 impl Mux {
     /// One retention pass. True while work remains for the next tick.
     pub(super) fn retain_journal(&self) -> anyhow::Result<bool> {
@@ -86,6 +104,8 @@ impl Mux {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .prune_oldest_journal_segment(floor)?;
+            #[cfg(test)]
+            after_retention_hold_for_test();
             if !deleted {
                 break;
             }
