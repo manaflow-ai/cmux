@@ -67,7 +67,10 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     // The page on the frames' clock: what each frame draws follows from the frames before it, so a
     // loaded host draws the same motion later instead of more text and more pixels in one frame.
-    const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?clock=frames&${query}`, { clock: "frames" });
+    // `rows=end`: from the turn's end on, each frame samples every mounted row where it paints (below).
+    const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?clock=frames&rows=end&${query}`, {
+      clock: "frames",
+    });
     try {
       await frames.page.waitForFunction(() => "__sendStream" in window);
       await frames.page.getByText("History answer 6.").waitFor();
@@ -125,8 +128,16 @@ await requireBrowserLane("send-stream-motion.test.ts", async () => {
       const report = await measure("", scenario);
       console.log(`send-stream-motion default ${scenario}: ${JSON.stringify(report, null, 2)}`);
       // Nothing jumps: no frame of the turn moves the rows more than a line (a 120 Hz slot), and
-      // most frames of the stream within the trail bound under 0.85 of a line.
+      // most frames of the stream within the trail bound under 0.85 of a line. At the turn's end the
+      // move is where the rows in view paint (sendStreamMotionReport `paintedMove`): the fold slides
+      // each row from where it was drawn, so the thread's own box can shift while nothing on screen
+      // does (the tools turn: the thread 48.57 px in one frame, every row in view under 0.5 px).
       expect(report.jumpPx.max).toBeLessThanOrEqual(MAX_FRAME_PX);
+      // And at the turn's end, row by row, the thread's shift plus the row's own layout move plus the
+      // fold's offset on it nets within a line: the fold's offsets cover the shift, and a fold that
+      // stopped covering it moves every row by the whole shift (turn-end-net-move.test.ts).
+      expect(report.turnEnd.frames).toBeGreaterThan(0);
+      expect(report.turnEnd.netPx).toBeLessThanOrEqual(MAX_FRAME_PX);
       expect(report.jumpPx.streamCalmP95).toBeLessThanOrEqual(P95_STREAM_FRAME_PX);
       // The end of the turn moves nothing.
       expect(report.jumpPx.after).toBeLessThanOrEqual(1);

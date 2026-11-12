@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture markup, not shipped UI.
 // A sent prompt's bubble opens leftward on the send motion with a clip (conversation.css
 // SEND-ENTRANCE). The clip is the entrance's only: once it ends the bubble draws unclipped, so the
-// "Sending" clock and "Still sending" label, which sit just outside the bubble's left edge
+// "Sending" clock and "Sending when ready" label, which sit just outside the bubble's left edge
 // (PromptDelivery.tsx, `.cv-user__delivery`), show for a send still pending after a second.
 // Review of #38159, F1.
 //
@@ -28,7 +28,7 @@ await requireBrowserLane("send-entrance-delivery-mark.test.ts", async () => {
     await browser?.close();
   });
 
-  test("a send still pending past its entrance shows its Still sending mark beside the bubble", async () => {
+  test("a send still pending past its entrance shows its delivery mark beside the bubble", async () => {
     const css = readFileSync(
       path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
       "utf8",
@@ -41,7 +41,7 @@ await requireBrowserLane("send-entrance-delivery-mark.test.ts", async () => {
           <article class="acpmux-row acpmux-user acpmux-row--message-enter"><div class="acpmux-row__message-presentation">
             <div class="cv-user"><div class="cv-user__body"><div class="cv-user__bubble" style="position: relative; width: 300px">
               <p>still on its way</p>
-              <output class="cv-user__status cv-user__delivery" data-delivery="sending"><span id="mark">Still sending</span></output>
+              <output class="cv-user__status cv-user__delivery" data-delivery="sending"><span id="mark">Sending when ready</span></output>
             </div></div></div>
           </div></article>
         </div></body></html>`);

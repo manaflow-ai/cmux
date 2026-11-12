@@ -359,7 +359,7 @@ async function run(name: string, engine: BrowserType) {
     if (tracing) {
       tracing.on(
         "Tracing.dataCollected",
-        (event: unknown) => void traceEvents.push(...(event as { value: typeof traceEvents }).value),
+        (event) => void traceEvents.push(...(event.value as unknown as typeof traceEvents)),
       );
       await tracing.send("Tracing.start", {
         categories: `toplevel,devtools.timeline,disabled-by-default-devtools.timeline,blink.user_timing${process.env.TRACE_WHY === "1" ? ",disabled-by-default-devtools.timeline.invalidationTracking" : ""}`,
