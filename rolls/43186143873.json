@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43186143873",
+  "recorded_at": "2026-11-12T08:59:42Z",
+  "reason": "cmux-tui 82c74d1cbb4a changes the image's cmux-tui (pinned d27dc2329739)",
+  "dry_run": false,
+  "cmux_tui": "82c74d1cbb4acdda3fafb7b39140e722c707662d",
+  "fixes": [
+    {
+      "sha": "82c74d1cbb4acdda3fafb7b39140e722c707662d",
+      "mergedAt": "2026-11-12T00:38:00-08:00",
+      "subject": "acpmux: a cold settle reads the held home it removes from; the home-writers detector reads whole builder chains (#41462 F1, F2) (#41697)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T08:59:42Z",
+    "snapshot_id": "sh-3638b939359c43379be76916393ee8d7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43186143873): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "93fb050bcba006423b0ca0a29bf587d35c69cc43",
+    "image": "cloud-native-auto-82c74d1c-43186143873-1",
+    "revision": "ci-43186143873-1",
+    "at": "2026-11-12T08:59:42Z"
+  },
+  "rolled_back": false
+}
