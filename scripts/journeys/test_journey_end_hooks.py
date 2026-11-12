@@ -83,7 +83,8 @@ def install_extension(*hooks):
     module = types.ModuleType("ext_test_recorder")
     module.install = lambda driver: None
     module.JOURNEY_END = tuple(hooks)
-    saved = sys.modules.get(module.__name__)
+    missing = object()  # absent, as distinct from a stored None (a blocked import), which goes back as it was
+    saved = sys.modules.get(module.__name__, missing)
     sys.modules[module.__name__] = module
     original = D.__file__
     try:
@@ -93,7 +94,7 @@ def install_extension(*hooks):
             D.load_extensions(D)
     finally:
         D.__file__ = original
-        if saved is None:
+        if saved is missing:
             sys.modules.pop(module.__name__, None)
         else:
             sys.modules[module.__name__] = saved

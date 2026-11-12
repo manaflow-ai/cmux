@@ -326,7 +326,7 @@ ONE_OBJECT_PER_FILE = textwrap.dedent('''
 
 # Run in a fresh interpreter: imports each test module in the given order and reports, per file, every sys.modules
 # entry named after a repository module (a stem from argv[3]) that its import added or replaced with a stub (None, a
-# SimpleNamespace, a bare ModuleType with no spec or file). A stub left there is what the next test's `import name`
+# SimpleNamespace, a bare ModuleType with no spec or file), a None entry too: absent before is not None before. A stub left there is what the next test's `import name`
 # gets instead of the real module.
 STUBS_LEFT = textwrap.dedent('''
     import importlib, json, os, sys, types
@@ -335,6 +335,7 @@ STUBS_LEFT = textwrap.dedent('''
         return isinstance(module, types.ModuleType) and (
             getattr(module, "__spec__", None) is not None or getattr(module, "__file__", None))
     left, unimportable = {}, {}
+    MISSING = object()  # a name absent before the import: `.get()`'s None would match a stored None entry
     for rel in order:
         folder = os.path.dirname(os.path.join(root, rel))
         if folder not in sys.path:
@@ -345,7 +346,7 @@ STUBS_LEFT = textwrap.dedent('''
         except BaseException as error:  # a test that needs a Mac library cannot import here
             unimportable[rel] = type(error).__name__ + ": " + str(error)[:200]
         names = sorted(name for name, module in sys.modules.items()
-                       if name in stems and before.get(name) is not module and not real(module))
+                       if name in stems and before.get(name, MISSING) is not module and not real(module))
         if names:
             left[rel] = names
     print(json.dumps({"left": left, "unimportable": unimportable}))
