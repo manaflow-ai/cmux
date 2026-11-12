@@ -31,7 +31,11 @@ fi
 # cmux settings for the benchmark: no person is at the VM, so no takeover
 # pause, and the deny list is emptied so cmux may use every app the tasks
 # name (Terminal and System Settings are on its default list; Codex Computer
-# Use has no such list). The cmux Remote helper's grants are below (TCC).
+# Use has no such list). Foreground input is allowed for the same reason:
+# Codex Computer Use brings apps to the front as it works, and many tasks are
+# graded on the frontmost app (macOSWorld checks "window 1 of the frontmost
+# process"); cmux keeps the person's focus unless foreground is allowed.
+# The cmux Remote helper's grants are below (TCC).
 mkdir -p ~/.config/cmux
 cat > ~/.config/cmux/cmux-next.json <<'JSON'
 {
@@ -39,6 +43,7 @@ cat > ~/.config/cmux/cmux-next.json <<'JSON'
     "mode": "fullAccess",
     "deniedApps": [],
     "pauseOnTakeover": false,
+    "allowForeground": true,
     "showCursor": true
   }
 }

@@ -390,7 +390,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
                 errors::exit_with(&anyhow::Error::new(app), cli.json)
             }
         },
-        Some(Command::ComputerUseMcp) => crate::computer_use::mcp::run().await,
+        Some(Command::ComputerUseMcp) => crate::computer_use::mcp::run(false).await,
         Some(Command::SecretMcp) => crate::secret_mcp::run().await,
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,

@@ -3,6 +3,7 @@
 // Apache-2.0, Copyright Kiruna Labs): a listen-only session tap, health
 // proven by a marked round trip, re-enabled when the system disables it.
 import ApplicationServices
+import Carbon
 import Darwin
 import Foundation
 import os
@@ -95,6 +96,9 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
         let userData = event.getIntegerValueField(.eventSourceUserData)
         let sourcePID = event.getIntegerValueField(.eventSourceUnixProcessID)
         let provenance = classifyInput(type: type.rawValue, userData: userData, sourcePID: sourcePID, ownPID: ownPID)
+        if provenance != .agent, TapEventType.textInputKeys.contains(type.rawValue) {
+            gate.noteTextInputKey()
+        }
         if userData == TakeoverMarker.value {
             state.withLock { $0.markedSeen += 1 }
         }
@@ -104,9 +108,10 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
 
     private func run() {
         let box = Unmanaged.passUnretained(self).toOpaque()
+        let keys = listenKeys()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
-            eventsOfInterest: CGEventMask(listenKeys() ? TapEventType.mask : TapEventType.pointerOnlyMask),
+            eventsOfInterest: CGEventMask(keys ? TapEventType.mask : TapEventType.pointerOnlyMask),
             callback: { _, type, event, info in
                 if let info { Unmanaged<TakeoverTap>.fromOpaque(info).takeUnretainedValue().handle(type: type, event: event) }
                 return Unmanaged.passUnretained(event)
@@ -120,11 +125,24 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
         CGEvent.tapEnable(tap: tap, enable: true)
         var healthy = provenanceRoundTrips()
-        gate.setHealthy(healthy)
+        // The current Secure Event Input state before the tap counts as
+        // healthy, so a new tap never carries an old reading.
+        gate.noteSecureInput(IsSecureEventInputEnabled())
+        gate.setHealthy(healthy, seesKeys: keys)
         var lastProof = TakeoverGate.uptimeNanos()
         while !state.withLock({ $0.stop }) {
             // A run loop wake, not a poll of the gate: events arrive as sources.
             CFRunLoopRunInMode(.defaultMode, 0.25, false)
+            // Secure Event Input hides the person's keys from every tap.
+            gate.noteSecureInput(IsSecureEventInputEnabled())
+            // Key coverage is fixed when the tap is created: when Input
+            // Monitoring is granted or revoked, end this tap (a blind period:
+            // the thread marks the gate unhealthy) and let the next acting call
+            // create one that matches.
+            if listenKeys() != keys {
+                takeoverLogger.info("Input Monitoring changed; recreating the takeover tap")
+                break
+            }
             if !CGEvent.tapIsEnabled(tap: tap) {
                 healthy = false
                 gate.setHealthy(false)

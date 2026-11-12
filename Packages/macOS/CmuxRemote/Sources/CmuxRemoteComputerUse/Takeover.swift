@@ -3,6 +3,7 @@
 // (kiruna-labs/petal @ 7ac436a, Apache-2.0, Copyright Kiruna Labs), ported
 // to Swift (first for the Computer Use helper v2, #36080), now the Computer Use
 // worker's `wait_idle` for libcmux_computer_use.
+import Carbon
 import Foundation
 import os
 
@@ -43,6 +44,8 @@ enum TapEventType {
     static let rightMouseDragged: UInt32 = 7
     static let keyDown: UInt32 = 10
     static let flagsChanged: UInt32 = 12
+    /// NX_SYSDEFINED: media and special keys (the dictation microphone key).
+    static let systemDefined: UInt32 = 14
     static let scrollWheel: UInt32 = 22
     static let otherMouseDown: UInt32 = 25
     static let otherMouseDragged: UInt32 = 27
@@ -53,15 +56,22 @@ enum TapEventType {
     ]
     static let pointer: Set<UInt32> = [mouseMoved]
 
+    /// Keys that can start dictation or an input method (fn twice, the
+    /// microphone key): not deliberate input, but the text that follows
+    /// arrives without key events.
+    static let textInputKeys: Set<UInt32> = [flagsChanged, systemDefined]
+
     /// Every type above, as a CGEventMask.
     static var mask: UInt64 {
-        (deliberate.union(pointer)).reduce(0) { $0 | (1 << UInt64($1)) }
+        (deliberate.union(pointer).union(textInputKeys)).reduce(0) { $0 | (1 << UInt64($1)) }
     }
 
     /// Without Input Monitoring: everything but keys, so creating the tap
     /// never asks for that grant. Clicks, drags and scrolls still take over.
     static var pointerOnlyMask: UInt64 {
-        mask & ~(1 << UInt64(keyDown))
+        // No keyboard type at all: listening to one is what asks for Input
+        // Monitoring (and system-defined events carry media and dictation keys).
+        mask & ~(1 << UInt64(keyDown)) & ~(1 << UInt64(flagsChanged)) & ~(1 << UInt64(systemDefined))
     }
 }
 
@@ -134,12 +144,25 @@ final class TakeoverGate: Sendable {
 
     private struct State {
         var healthy = false
+        /// The tap listens to key events too (Input Monitoring granted when it
+        /// was created); without it only the pointer is seen.
+        var seesKeys = false
+        /// Secure Event Input is on (a password field, Secure Keyboard Entry):
+        /// the tap gets no key events, whatever it listens to.
+        var secureInput = false
+        /// Rises whenever the person's keys may have gone uncounted: a reading
+        /// with Secure Event Input on, the tap going blind, a dictation or
+        /// input-method key. Separate from personEvents, which counts only
+        /// real events (the focus guard's person rule).
+        var keyBlindEpoch: UInt64 = 0
         var lastPerson: UInt64?
         var pointer: PointerSample?
         var stats = TakeoverStats()
     }
 
     let rule: TakeoverRule
+    /// Reads Secure Event Input now (IsSecureEventInputEnabled; tests pass a fake).
+    private let secureInputNow: @Sendable () -> Bool
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let now: Clock
     private let sleep: Sleeper
@@ -148,8 +171,10 @@ final class TakeoverGate: Sendable {
     /// `starter` (re)starts the detector; `waitIdle` calls it, so a grant
     /// given after launch brings the detector up on the next acting call.
     init(rule: TakeoverRule = TakeoverRule(), now: @escaping Clock = TakeoverGate.uptimeNanos,
-         sleep: @escaping Sleeper = TakeoverGate.timedWait, starter: (@Sendable () -> Void)? = nil) {
+         sleep: @escaping Sleeper = TakeoverGate.timedWait, starter: (@Sendable () -> Void)? = nil,
+         secureInputNow: @escaping @Sendable () -> Bool = { IsSecureEventInputEnabled() }) {
         self.rule = rule
+        self.secureInputNow = secureInputNow
         self.now = now
         self.sleep = sleep
         self.starter = starter
@@ -170,8 +195,55 @@ final class TakeoverGate: Sendable {
 
     // MARK: Fed by the tap
 
-    func setHealthy(_ healthy: Bool) {
-        state.withLock { $0.healthy = healthy }
+    func setHealthy(_ healthy: Bool, seesKeys: Bool? = nil) {
+        state.withLock { state in
+            // A period the tap could not see counts as the person's input:
+            // whatever they did meanwhile was not counted, so a reading taken
+            // before it never equals one taken after.
+            if state.healthy, !healthy { state.keyBlindEpoch &+= 1 }
+            state.healthy = healthy
+            if let seesKeys { state.seesKeys = seesKeys }
+        }
+    }
+
+    /// Whether personEventCount() counts the person's keys as well as the
+    /// pointer (the tap is watching, listens to key events, and Secure Event
+    /// Input is off).
+    func personEventsCoverKeys() -> Bool {
+        state.withLock { $0.healthy && $0.seesKeys && !$0.secureInput }
+    }
+
+    /// The key-blind epoch while personEventCount() covers keys, else nil.
+    /// Two equal readings mean the person's keys were counted all along.
+    /// Secure Event Input is read here too, not only on the tap's wake, so
+    /// the 0.25 s after it turns on never reads as covered.
+    func keyBlindEpoch() -> UInt64? {
+        let secure = secureInputNow()
+        return state.withLock { state in
+            if secure {
+                state.keyBlindEpoch &+= 1
+                state.secureInput = true
+            }
+            return (state.healthy && state.seesKeys && !state.secureInput) ? state.keyBlindEpoch : nil
+        }
+    }
+
+    /// The tap's reading of Secure Event Input, on each wake. While it is on
+    /// the person's keys go unseen: each reading with it on raises the
+    /// key-blind epoch, and the count does not cover keys. The person's
+    /// event count is not touched (the focus guard's person rule stays).
+    func noteSecureInput(_ on: Bool) {
+        state.withLock { state in
+            if on { state.keyBlindEpoch &+= 1 }
+            state.secureInput = on
+        }
+    }
+
+    /// A key that starts dictation or an input method (fn, the microphone
+    /// key) whose text then arrives without key events: the person may be
+    /// entering text the count does not see.
+    func noteTextInputKey() {
+        state.withLock { $0.keyBlindEpoch &+= 1 }
     }
 
     /// Record one classified event seen at `at` (uptime nanoseconds).

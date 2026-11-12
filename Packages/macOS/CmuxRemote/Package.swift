@@ -48,7 +48,7 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: swiftSettings,
             linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"),
-                             .linkedFramework("ScreenCaptureKit"), .linkedFramework("QuartzCore")]
+                             .linkedFramework("ScreenCaptureKit"), .linkedFramework("QuartzCore"), .linkedFramework("Carbon")]
         ),
         .target(
             name: "CmuxRemoteScreenSharing",

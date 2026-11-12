@@ -13,6 +13,8 @@ private final class FakeClock: Sendable {
 
     var now: UInt64 { nanos.withLock { $0 } }
     func advance(_ duration: Duration) { nanos.withLock { $0 += UInt64(duration.totalNanos) } }
+    /// What the gate reads as Secure Event Input right now.
+    let secure = OSAllocatedUnfairLock(initialState: false)
 
     func gate(_ rule: TakeoverRule = TakeoverRule(), starter: (@Sendable () -> Void)? = nil) -> TakeoverGate {
         TakeoverGate(rule: rule, now: { self.now }, sleep: { duration in
@@ -20,7 +22,7 @@ private final class FakeClock: Sendable {
             self.advance(duration)
             let next = self.duringSleep.withLock { $0.isEmpty ? nil : $0.removeFirst() }
             next?()
-        }, starter: starter)
+        }, starter: starter, secureInputNow: { self.secure.withLock { $0 } })
     }
 }
 
@@ -124,6 +126,54 @@ private final class FakeClock: Sendable {
         #expect(gate.personEventCount() == start.map { $0 + 1 })
         gate.setHealthy(false)
         #expect(gate.personEventCount() == nil)
+    }
+
+    /// A period the tap could not see counts as the person's input, so a reading from before it
+    /// never matches one after; and the count covers keys only when the tap listens to them.
+    @Test func aBlindPeriodCountsAsInputAndKeyCoverageIsReported() {
+        let clock = FakeClock()
+        let gate = clock.gate()
+        gate.setHealthy(true, seesKeys: false)
+        #expect(gate.personEventsCoverKeys() == false, "pointer only: the person's keys are not counted")
+        let count = gate.personEventCount()
+        gate.setHealthy(true, seesKeys: true)
+        let epoch = gate.keyBlindEpoch()
+        gate.setHealthy(false)
+        #expect(gate.personEventsCoverKeys() == false, "unwatched")
+        gate.setHealthy(true, seesKeys: true)
+        #expect(gate.personEventsCoverKeys())
+        #expect(gate.keyBlindEpoch() != epoch, "what the person typed while the tap was blind was not counted")
+        #expect(gate.personEventCount() == count, "the person rule counts real events only")
+        let before = gate.keyBlindEpoch()
+        gate.noteTextInputKey()
+        #expect(gate.keyBlindEpoch() != before, "a dictation or input-method key")
+    }
+
+    /// Secure Event Input (a password field): while on, the person's keys are unseen, so the
+    /// count does not cover them and every reading with it on moves the count.
+    @Test func secureEventInputIsABlindPeriodForKeys() {
+        let clock = FakeClock()
+        let gate = clock.gate()
+        gate.setHealthy(true, seesKeys: true)
+        gate.noteSecureInput(false)
+        #expect(gate.personEventsCoverKeys())
+        let count = gate.personEventCount()
+        let epoch = gate.keyBlindEpoch()
+        #expect(epoch != nil)
+        gate.noteSecureInput(true)
+        #expect(gate.personEventsCoverKeys() == false)
+        #expect(gate.keyBlindEpoch() == nil, "keys are not covered while it is on")
+        #expect(gate.personEventCount() == count, "the person rule counts real events only")
+        gate.noteSecureInput(false)
+        #expect(gate.personEventsCoverKeys())
+        #expect(gate.keyBlindEpoch() != epoch, "a reading from before it never equals one after")
+        // Turned on between two wakes: the read itself sees it.
+        let lastEpoch = gate.keyBlindEpoch()
+        clock.secure.withLock { $0 = true }
+        #expect(gate.keyBlindEpoch() == nil, "Secure Event Input read at read time")
+        clock.secure.withLock { $0 = false }
+        gate.noteSecureInput(false)
+        #expect(gate.keyBlindEpoch() != lastEpoch)
     }
 
     @Test func ourOwnInputNeverTakesOver() {
