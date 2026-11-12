@@ -889,6 +889,22 @@ export class SubagentFold {
     return [...this.agents.values()];
   }
 
+  /// The oldest record a subagent drawn from records on both sides of `seq` started at: one that
+  /// started before it and is still running, ended at or after `at` (its time), or has an update
+  /// of its own from `seq` on. A refold from `seq` would start its fold over (direct.ts `rebuild`).
+  /// Infinity when none does.
+  spanningFrom(seq: number, at: number): number {
+    let from = Infinity;
+    for (const agent of this.agents.values()) {
+      const started = this.startedSeq.get(agent.id);
+      if (started === undefined || started >= seq) continue;
+      const last = this.own.get(agent.id)?.at(-1)?.event.seq ?? -Infinity;
+      if (agent.state === "running" || (agent.endedAt ?? -Infinity) >= at || last >= seq)
+        from = Math.min(from, started);
+    }
+    return from;
+  }
+
   /// Each subagent's own view (its text, thoughts and tool calls, and the subagents it spawned
   /// as group rows), for the child view. Unchanged views keep their rows.
   views(): Record<string, AcpmuxRow[]> {

@@ -3061,6 +3061,9 @@ export class AcpmuxDirectClient {
   /// COMPACTION_REPEAT_WINDOW of it is the same compaction, even after the next turn's start or a
   /// forced Stop noted the row as failed. A row whose turn ended for good, or that ended, has none.
   private compactionHeardAt = new Map<string, number>();
+  /// The newest record that changed each compaction row: its end can come turns after its start
+  /// (a forced Stop it outlived), so a rebuild's cut never falls between them (`rebuild`).
+  private compactionChangedAt = new Map<string, number>();
   private supersededMessageIds = new Set<string>();
   /// The rows each message streamed into; tool calls split one message into several.
   private messageRows = new Map<string, string[]>();
@@ -4000,6 +4003,7 @@ export class AcpmuxDirectClient {
     this.progressSuperseded = false;
     this.publishedProgress = undefined;
     this.compactionHeardAt.clear();
+    this.compactionChangedAt.clear();
     this.subagentStops = subagentStops();
     this.frozenSubagentViews = undefined;
     this.subagents = new SubagentFold(this.subagentStops);
@@ -7225,10 +7229,23 @@ export class AcpmuxDirectClient {
     let openSince = Infinity;
     for (const agent of this.subagents.all())
       if (agent.state === "running") openSince = Math.min(openSince, agent.startedAt);
-    const cut =
+    let cut =
       this.replayThrough === undefined && changedFrom !== undefined
         ? rebuildCut(this.events, changedFrom, openSince)
         : 0;
+    // A subagent or a compaction row drawn from records on both sides of the cut would start over
+    // in the refold and draw twice: the cut goes back to its first record, until none spans it.
+    while (cut > 0) {
+      const { seq, at } = this.events[cut]!;
+      let from = this.subagents.spanningFrom(seq, at);
+      for (const row of this.rows.compactionRows())
+        if ((row.seq ?? Infinity) < seq && (this.compactionChangedAt.get(row.id) ?? -Infinity) >= seq)
+          from = Math.min(from, row.seq!);
+      if (from === Infinity) break;
+      const next = rebuildCut(this.events, Math.min(changedFrom!, from), openSince);
+      if (next >= cut) break;
+      cut = next;
+    }
     // Records read as pages (an open, an older page) hold a streamed call's every update; a replay,
     // which can seek between updates, keeps them. Past a cut only the records refolded are thinned,
     // in place, so a repair stays O(window): the held records above it were thinned when they were.
@@ -7322,6 +7339,7 @@ export class AcpmuxDirectClient {
       this.presetApprovals.clear();
       this.presetApprovalRemoved.clear();
       this.compactionHeardAt.clear();
+      this.compactionChangedAt.clear();
       this.toolRows.clear();
     } else {
       // Past a cut, the rows above it keep what finds them: a message's rows, a call's row, an
@@ -9141,6 +9159,7 @@ export class AcpmuxDirectClient {
       const compactionTurnId = compaction.state === "running" ? this.runningTurnId : running?.turnId;
       if (compaction.state === "running") this.compactionHeardAt.set(id, event.at);
       else this.compactionHeardAt.delete(id);
+      this.compactionChangedAt.set(id, event.seq);
       this.rows.set(id, {
         id,
         version: (running?.version ?? 0) + 1,
@@ -9406,6 +9425,7 @@ export class AcpmuxDirectClient {
     for (const row of this.rows.compactionRows())
       if (row.compaction?.state === "running" && (row.seq ?? 0) < seq) {
         if (!mayGoOn) this.compactionHeardAt.delete(row.id);
+        this.compactionChangedAt.set(row.id, seq);
         this.rows.set(row.id, {
           ...row,
           version: row.version + 1,
@@ -13797,6 +13817,12 @@ export class AcpmuxDirectClient {
           const heard = live.compactionHeardAt.get(next.id);
           live.compactionHeardAt.delete(next.id);
           if (heard !== undefined) live.compactionHeardAt.set(into.id, heard);
+          const changed = Math.max(
+            this.compactionChangedAt.get(into.id) ?? -Infinity,
+            this.compactionChangedAt.get(next.id) ?? -Infinity,
+          );
+          this.compactionChangedAt.delete(next.id);
+          if (changed > -Infinity) this.compactionChangedAt.set(into.id, changed);
           held.delete(next.id);
           this.rows.delete(next.id);
           // The held events' row now: what they said of it stands.
