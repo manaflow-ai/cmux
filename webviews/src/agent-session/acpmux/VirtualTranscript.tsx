@@ -350,6 +350,21 @@ function entersAsSend(row: AcpmuxRow): boolean {
   return row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice";
 }
 
+/// Whether a prompt entering as a send is mounted above `index` (in the mounted ranges, in order).
+function sendEntersAbove(
+  rows: readonly AcpmuxRow[],
+  ranges: readonly { first: number; last: number }[],
+  index: number,
+  entering: ReadonlySet<string>,
+): boolean {
+  for (const { first, last } of ranges)
+    for (let at = first; at < Math.min(last, index); at++) {
+      const row = rows[at]!;
+      if (entersAsSend(row) && entering.has(rowFrameKey(row))) return true;
+    }
+  return false;
+}
+
 const RowFrame = React.memo(function RowFrame({
   row,
   kind,
@@ -5423,24 +5438,6 @@ function TranscriptView({
   // (conversation/olderReserve.ts), a frame at a time, and placing each row under it rewrote the top
   // of every mounted row, and rendered each, on every such frame (Leo, 2026-11-11: "scrolling up is
   // slow and it layout shift and everythng lag"). Now such a frame moves one element.
-  // A prompt entering as a send has been drawn above: the thinking lines entering after it take the
-  // send's clock (RowFrame `sendPaced`), in the order the rows render. Read in one pass over the
-  // mounted rows (as the placement below), not by a flag the row callback reassigns.
-  // A session switch is a load, not a live arrival. The reset effect runs after this render, so it is
-  // gated here as well, to keep a reused row id from animating once.
-  const entering = sessionChanged ? undefined : enteringRows.current;
-  const sendPacedRows = new Set<string>();
-  if (entering?.size) {
-    let sendEntering = false;
-    for (const { first, last } of mountedRanges)
-      for (let index = first; index < last; index++) {
-        const row = rows[index]!;
-        const key = rowFrameKey(row);
-        if (!entering.has(key)) continue;
-        if (row.kind === THINKING && sendEntering) sendPacedRows.add(key);
-        if (entersAsSend(row)) sendEntering = true;
-      }
-  }
   const roomAbove = layout.origin ?? 0;
   const threadRoom = Math.floor(roomAbove);
   const threadRoomFraction = roomAbove - threadRoom;
@@ -5634,8 +5631,11 @@ function TranscriptView({
                 {mountedRanges.flatMap(({ first, last }) =>
                   rows.slice(first, last).map((row, index) => {
                     const absoluteIndex = first + index;
+                    const entering = sessionChanged ? undefined : enteringRows.current;
                     const enter = entering?.has(rowFrameKey(row)) === true;
-                    const sendPaced = enter && sendPacedRows.has(rowFrameKey(row));
+                    // A thinking line entering after a prompt that enters as a send takes the send's clock.
+                    const sendPaced =
+                      enter && row.kind === THINKING && sendEntersAbove(rows, mountedRanges, absoluteIndex, entering!);
                     const next = nextDrawnRow(rows, absoluteIndex);
                     const actions = hasReplyActions(row, next);
                     const kind = rowKind(row);
