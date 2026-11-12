@@ -164,6 +164,8 @@ FIXTURES = [
      'X[0]"="v=w gh', set(), None),
     ("time before an assignment leaves coproc ordinary (dep-fleet-6 follow-up)", "time X=1 coproc a", set(), set()),
     ("an assignment before time leaves coproc ordinary (dep-fleet-6 follow-up)", "X=1 time coproc a", set(), set()),
+    ("an assignment before ! runs ! as the command (dep-fleet-6 F1)", "X=1 ! true", set(), None),
+    ("an assignment before coproc runs coproc as the command (dep-fleet-6 F1)", "X=1 coproc true", set(), None),
     ("a quoted time leaves coproc ordinary (dep-fleet-6 follow-up)", '"time" coproc a', set(), set()),
     ("a negated coprocess remains reserved (dep-fleet-6 follow-up)", "! coproc a; wait", {"a"}, set()),
     ("an assignment before ! leaves coproc ordinary (dep-fleet-6 follow-up)", "X=1 ! coproc a", set(), set()),
@@ -321,6 +323,10 @@ def possible(script: str) -> set[str]:
 
 
 class AgainstBash(unittest.TestCase):
+    def test_prefix_assignments_leave_bang_and_coproc_as_programs(self) -> None:
+        self.assertEqual(must_run("X=1 ! true"), [["!", "true"]])
+        self.assertEqual(must_run("X=1 coproc true"), [["coproc", "true"]])
+
     def test_quoted_subscript_operator_does_not_credit_gh(self) -> None:
         self.assertEqual(must_run('X[0]"="v=w gh'), [])
 
