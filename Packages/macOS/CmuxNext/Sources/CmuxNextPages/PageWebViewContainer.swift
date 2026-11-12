@@ -28,14 +28,15 @@ extension PageWebView {
     /// (Settings, the Markdown page with its bar below) it doubled the window's top line (Lucas
     /// 2026-11-12: "the top border looks thicker than the others"), as on New Tab before #40286. Only
     /// the active constraint from `content`'s top to `host`'s top moves; a page under a bar keeps its
-    /// place. The page asks its host for this layout when Chromium starts or stops showing it
-    /// (``chromiumSession``).
+    /// place. The page asks its host, its superview, for this layout when Chromium starts or stops
+    /// showing it (``chromiumSession``), so only a page that is the content itself lifts: a container's
+    /// page (the docked Home) would never ask, and its native views would stay lifted.
     ///
     /// - Parameters:
-    ///   - content: The host's page content (``shown(in:)``).
-    ///   - host: The view that holds `content` and clips it.
+    ///   - content: The host's page content.
+    ///   - host: The view that holds `content`; the pane around it clips the lifted point.
     public static func clipChromiumFrame(of content: NSView, in host: NSView) {
-        let lift: CGFloat = shown(in: content)?.showsChromium == true ? chromiumFrameBand : 0
+        let lift: CGFloat = (content as? PageWebView)?.showsChromium == true ? chromiumFrameBand : 0
         for top in host.constraints where top.firstItem === content && top.firstAttribute == .top
             && top.secondItem === host && top.secondAttribute == .top && top.constant != -lift {
             top.constant = -lift

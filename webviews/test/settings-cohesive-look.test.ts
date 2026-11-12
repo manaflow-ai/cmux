@@ -97,6 +97,8 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
         sidebarDivider: parseFloat(sidebarStyle.borderRightWidth),
         panelEdge: parseFloat(getComputedStyle(sidebar.parentElement!, "::before").borderLeftWidth) || 0,
         panelCorner: parseFloat(getComputedStyle(sidebar.parentElement!, "::before").borderTopLeftRadius),
+        panelOnSidebarEdge:
+          Math.abs(parseFloat(getComputedStyle(sidebar.parentElement!, "::before").left) - sidebar.getBoundingClientRect().width) <= 0.5,
         title: sidebar.querySelector<HTMLElement>(".sidebar-title")?.textContent?.trim() ?? null,
         titleAboveSearch:
           (sidebar.querySelector(".sidebar-title")?.getBoundingClientRect().bottom ?? Infinity) <=
@@ -124,6 +126,7 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
             expect(look.sidebarDivider).toBe(0);
             expect(look.panelEdge).toBe(0);
             expect(look.panelCorner).toBeGreaterThan(0);
+            expect(look.panelOnSidebarEdge).toBe(true);
             expect(look.title).toBe("Settings");
             expect(look.titleAboveSearch).toBe(true);
             expect(look.columnWidth).toBeLessThanOrEqual(680);

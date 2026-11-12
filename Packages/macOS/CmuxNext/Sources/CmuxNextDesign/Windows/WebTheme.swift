@@ -411,7 +411,6 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return String(format: "#%02x%02x%02x", channel(color.red), channel(color.green), channel(color.blue))
     }
 
-    /// `rgba(r, g, b, a)` with 0-255 channels.
     /// `--cmux-sidebar-surface`: the window sidebar's own fill over the window's color, as CSS.
     @MainActor
     static func sidebarSurface(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds, windowTint: Double) -> String {
@@ -420,6 +419,15 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return shade > 0 ? css(ThemeRGB(red: 0, green: 0, blue: 0, alpha: Double(shade))) : "transparent"
     }
 
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders` and the separate
+    /// chrome shade (`--cmux-sidebar-surface`, ``sidebarSurface(_:backgrounds:windowTint:)``). The app
+    /// repaints every page when one changes (`AppServices.observeBorders`).
+    @MainActor
+    public static var pushInputs: [String] {
+        [Borders.current.mode.rawValue, "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
+    }
+
+    /// `rgba(r, g, b, a)` with 0-255 channels.
     public static func css(_ color: ThemeRGB) -> String {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
         let alpha = (color.alpha * 1000).rounded() / 1000
