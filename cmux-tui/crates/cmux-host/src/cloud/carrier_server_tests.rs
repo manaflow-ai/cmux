@@ -1043,6 +1043,8 @@ mod model {
         seeded_binds: u64,
         invalidated_seeds: u64,
         local_binds: u64,
+        /// Fresh bind seeds installed after a resume crossed their capture.
+        bind_seeds_crossing_resume: u64,
         trace: Vec<String>,
     }
 
@@ -1069,6 +1071,7 @@ mod model {
                 seeded_binds: 0,
                 invalidated_seeds: 0,
                 local_binds: 0,
+                bind_seeds_crossing_resume: 0,
                 trace: Vec::new(),
             }
         }
@@ -1309,6 +1312,7 @@ mod model {
         let mut overtaken = 0;
         let mut initial_prefetches = 0;
         let (mut seeded_binds, mut invalidated_seeds, mut local_binds) = (0, 0, 0);
+        let mut bind_seeds_crossing_resume = 0;
         for seed in 0..SEEDS {
             let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
             let mut model = Model::new();
@@ -1353,9 +1357,14 @@ mod model {
             seeded_binds += model.seeded_binds;
             invalidated_seeds += model.invalidated_seeds;
             local_binds += model.local_binds;
+            bind_seeds_crossing_resume += model.bind_seeds_crossing_resume;
         }
         // Every path the invariants guard was driven, many times over.
         let reached = [
+            (
+                "bind seeds with a resume between capture and installation",
+                bind_seeds_crossing_resume,
+            ),
             ("initial-bind prefetches", initial_prefetches),
             ("seeded binds retaining their seed", seeded_binds),
             ("seeded binds replacing an invalidated seed", invalidated_seeds),
