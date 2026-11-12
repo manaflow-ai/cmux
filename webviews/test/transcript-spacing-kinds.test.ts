@@ -257,9 +257,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       };
       const after = (row: Element | undefined, gap: number | null) =>
         gap == null ? null : Math.round((gap - below(row)) * 100) / 100;
-      const live = rows.find(
-        (row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"),
-      );
+      // The turn's live line at its bottom: with the clock on top (liveTurnClock.experiment.ts `top`),
+      // "Working for" over the work is an `acpmux-working` row too, and stands first.
+      const live = rows
+        .filter((row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"))
+        .at(-1);
       const footer = document
         .querySelector('[data-row-id="received-footer"] .cv-turn-actions button svg')
         ?.getBoundingClientRect();
