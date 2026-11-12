@@ -46,14 +46,18 @@ import sys
 import tempfile
 
 # The names children of the hook may look up on PATH. Each gets a link in the
-# private PATH directory of the children when the resolver finds a checked one; a
-# name not listed here is simply not found by a child.
+# private PATH directory of the children when the resolver finds a checked one.
+# Every other name on PATH gets a stub there, after them, that says it is not
+# listed here and exits 127, so a child (by name, exec or shebang) that needs
+# one more tool fails loudly with the fix. Add a tool with the child that needs it.
 CHILD_TOOLS = (
     "git", "sed", "grep", "head", "cut", "sort", "awk", "cat", "mkdir", "mv", "rm", "find", "env",
     "mktemp", "tail", "sleep", "sh", "bash", "node", "npm", "npx", "bun", "bunx", "rustup", "rustfmt",
     "cargo", "python3", "dirname", "basename", "readlink", "realpath", "uname", "chmod", "ln", "cp",
     "tr", "xargs", "touch", "wc", "date", "id", "which", "tar", "gzip",
 )
+# The stubs for every other name, the second entry of the PATH children get.
+NOT_LISTED = ".not-listed"
 
 
 def real(path):
@@ -210,10 +214,42 @@ def child_path(search_path, dirs, found):
         sys.exit(1)
     plain(real(base))  # the directory name must reach bash whole, or nothing is made
     shims = real(tempfile.mkdtemp(prefix="cmux-pre-commit-path.", dir=base))
+    linked = set()
     for name in CHILD_TOOLS:
         tool = found[name] if name in found else find(name, search_path, dirs)
         if tool:
             os.symlink(tool, os.path.join(shims, name))
+            linked.add(name)
+    # Two stubs, after the links: one for a name CHILD_TOOLS does not list, one
+    # for a listed name with no copy the resolver accepts (none on PATH, or each
+    # one inside this checkout). Each runs nothing from PATH: /bin/sh, its own
+    # name, a message, 127. It covers a child running the name by name, by exec
+    # and by a #!/usr/bin/env shebang alike.
+    os.mkdir(os.path.join(shims, ".stub"))
+    stubs = {}
+    for kind, message in (
+        ("not-listed", "${0##*/} isn\x27t in CHILD_TOOLS (scripts/git-hooks/pre-commit); a child of the hook"
+                       " ran it by name. Add it there, with the reason."),
+        ("unresolved", "${0##*/} is in CHILD_TOOLS (scripts/git-hooks/pre-commit), but PATH has no copy of it"
+                       " outside this checkout; a child of the hook ran it by name."),
+    ):
+        stubs[kind] = os.path.join(shims, ".stub", kind)
+        with open(stubs[kind], "w") as handle:
+            handle.write("#!/bin/sh\necho \"pre-commit: " + message + "\" >&2\nexit 127\n")
+        os.chmod(stubs[kind], 0o755)
+    not_listed = os.path.join(shims, NOT_LISTED)
+    os.mkdir(not_listed)
+    names = set()
+    for entry in search_path.split(":"):
+        if entry.startswith("/"):
+            try:
+                names.update(os.listdir(entry))
+            except OSError:
+                pass
+    for name in names.union(CHILD_TOOLS).difference(linked):
+        if not name.startswith(".") and "/" not in name:
+            kind = "unresolved" if name in CHILD_TOOLS else "not-listed"
+            os.symlink(stubs[kind], os.path.join(not_listed, name))
     return shims
 
 
@@ -286,8 +322,10 @@ fi
 # Children (vp's and npm's `#!/usr/bin/env node`, a rustup proxy, the registry
 # helper's git) look tools up by name: their only PATH is the private directory
 # of links to checked tools the boot made. A PATH directory itself is never
-# handed on: an outside one may hold node -> <checkout>/payload.
-export PATH="$CHILD_PATH_DIR"
+# handed on: an outside one may hold node -> <checkout>/payload. After the
+# links come the stubs for every other name on PATH, which say the name is
+# not in CHILD_TOOLS instead of a bare "not found".
+export PATH="$CHILD_PATH_DIR:$CHILD_PATH_DIR/.not-listed"
 # Removed however the hook ends (cleanup, below, takes this trap over).
 trap '"$TOOL_RM" -rf "$CHILD_PATH_DIR"' EXIT
 # The one checked resolver: a name (looked up on the caller's PATH) or an

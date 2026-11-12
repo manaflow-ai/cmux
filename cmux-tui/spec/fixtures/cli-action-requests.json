@@ -2362,6 +2362,17 @@
     },
     {
       "params": {
+        "action": "cloud move-to-machine",
+        "args": {
+          "machine": "machine:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud move-to-machine --machine machine:contract-1"
+    },
+    {
+      "params": {
         "action": "cloud exec",
         "args": {
           "command": "/tmp/contract"
@@ -2880,12 +2891,13 @@
           "cwd": "/tmp/contract",
           "fromFolder": "/tmp/contract",
           "login": "/tmp/contract",
+          "model": "/tmp/contract",
           "name": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --from-folder /tmp/contract --login /tmp/contract"
+      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --from-folder /tmp/contract --login /tmp/contract --model /tmp/contract"
     },
     {
       "params": {
@@ -3047,6 +3059,40 @@
         "wait": true
       },
       "source": "cmux appearance reset --scope window --property theme"
+    },
+    {
+      "params": {
+        "action": "divider insert",
+        "args": {
+          "kind": "terminal",
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider insert --kind terminal --split /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "divider hide",
+        "args": {
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider hide --split /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "divider show",
+        "args": {
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider show --split /tmp/contract"
     },
     {
       "params": {

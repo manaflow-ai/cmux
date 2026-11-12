@@ -107,9 +107,11 @@ def app_linked_rust(paths: list[str], repo: Path = ROOT) -> list[str]:
     inputs = [p for p in route.SWIFT_JOB_INPUTS if p.startswith("cmux-tui/")]
     try:
         inputs += list(route.app_ffi_inputs(Path(repo))) + list(route.scheme_phase_rust_inputs(Path(repo)))
+        excluded = route.app_ffi_excluded(Path(repo))  # the FFI crates' tests/, benches/, examples/: not linked
     except Exception:  # noqa: BLE001 - a router that cannot read the tree: treat every Rust path as linked
         return [p for p in paths if p.startswith("cmux-tui/")]
-    return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)]
+    return [p for p in paths if any(p == i or p.startswith(i.rstrip("/") + "/") for i in inputs)
+            and not any(p.startswith(d + "/") for d in excluded)]
 
 
 def full_inputs(paths: list[str]) -> list[str]:

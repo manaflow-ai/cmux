@@ -17,36 +17,25 @@
 // the app's own split of one picture, and a reader sees only the picture. Each item still drawn must
 // have moved by exactly that scroll; an item gone while the scroll alone would leave it in view is a
 // blank flash. The picture moves only while the reader's own scroll is under way: from the frame their
-// first wheel event acted on until that scroll has ended: the browser's `scrollend` after their last
-// wheel event, and the last step of the app's own easing of a notch (wheelGlide.ts). A notch is the
-// reader's distance, eased by the app over a motion step; each step writes the offset, and Chromium
-// fires `scrollend` after the first, so `scrollend` alone settled the scroll mid-notch and counted the
-// rest of the reader's own notch as late. The test reads all of that from the order of events (steps
-// counted, wheels counted), never from a clock, so a starved runner that stretches frames, skips one
-// mid-scroll, runs the next step before the last frame is read, or delivers the wheel late, changes
-// nothing it measures.
+// first wheel event acted on until that scroll has ended. A notch is the reader's distance, eased by
+// the app over a motion step (wheelGlide.ts); it ends when the app says so (WHEEL_GLIDE_END_EVENT, on
+// its last step or when anything cancels it), not at `scrollend`, which Chromium fires after each of
+// the glide's writes. A scroll the browser runs itself (a precise wheel, WebKit's here) ends at its
+// `scrollend`. Then the view must hold for PARKED_FRAMES painted frames at least, its offset still,
+// so a scroll still under way at the last frame read can never pass for one that came to rest
+// (review of #40918 F1: 100 frames still moving were read as settled). The test reads all of that
+// from the order of events (wheels and glides counted), never from a clock, so a starved runner that
+// stretches frames, skips one mid-scroll, or delivers the wheel late, changes nothing it measures.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { PARKED, parkedAfterScroll, stillness, type Sample } from "./support/parkedStill";
+import { WHEEL_GLIDE_END_EVENT, WHEEL_GLIDE_START_EVENT } from "../src/agent-session/acpmux/wheelGlide";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// One painted frame: its time, the offset and how far it rests from the end, the view's edges, how
-/// many wheel events the page had seen when it was read, whether the scroller's scroll had ended since
-/// the last of them, how many steps of an eased notch had run, and the screen top of each row and reply block in view.
-type Sample = {
-  t: number;
-  top: number;
-  fromEnd: number;
-  wheels: number;
-  ended: boolean;
-  eased: number;
-  /// The follow motion's translate on the thread, px: rows drawn off their layout by it.
-  lag: number;
-  view: [number, number];
-  items: Record<string, number>;
-};
 type Probe = Window & {
   __still: {
     samples: Sample[];
@@ -54,89 +43,13 @@ type Probe = Window & {
     done: boolean;
     wheels: number;
     ended: boolean;
-    /// Steps of the app's easing of a notch (MOTION_SCROLL_EVENT) so far.
-    eased: number;
+    glides: number;
+    gliding: boolean;
     run?: Promise<unknown>;
   };
   __streamingText: { run(options: { cadence: string }): Promise<unknown> };
 };
-/// An item that moved apart from the scroll, or vanished in view, between two painted frames.
-type Event = { t: number; key: string; kind: "moved" | "vanished"; px?: number; scrolled: number };
-
 await requireBrowserLane("streaming-parked-still.test.ts", async () => {
-  const round = (value: number) => Math.round(value * 100) / 100;
-
-  /// How far the picture scrolled from `before` to `now`, toward the end positive: the move most of
-  /// the items drawn in both frames share (the middle one), so one item moving on its own cannot pass
-  /// for the scroll. With no item in both, the offset less the follow motion's translate.
-  function pictureScroll(before: Sample, now: Sample) {
-    const moves = Object.keys(before.items)
-      .filter((key) => key in now.items)
-      .map((key) => before.items[key]! - now.items[key]!)
-      .sort((a, b) => a - b);
-    if (moves.length > 0) return moves[Math.floor(moves.length / 2)]!;
-    return now.top - before.top - (now.lag - before.lag);
-  }
-
-  /// What moved apart from the scroll in `samples`, and how often the picture scrolled.
-  function stillness(samples: Sample[]) {
-    const events: Event[] = [];
-    let offsetMoves = 0;
-    /// Scrolls toward the end, or after the reader's scroll has settled: not the reader's.
-    const unprompted: { t: number; px: number }[] = [];
-    /// Scrolls, either way, after the reader's scroll has settled.
-    const late: { t: number; px: number }[] = [];
-    let blockFrames = 0;
-    const wheels = samples.at(-1)?.wheels ?? 0;
-    // The frame the reader's first wheel event acted on: the last one read before the page saw it
-    // (paintedFrames.ts runs a painted frame's read before any input event's handlers). Frames before
-    // it are of the followed view, the reader's input still on its way to the page.
-    const from = Math.max(0, samples.findIndex((sample) => sample.wheels > 0) - 1);
-    // The reader's scroll has settled at the first frame read after the scroller's `scrollend` that
-    // followed their last wheel event (the browser's own word that the scroll it eased in is done),
-    // and after the last step of the app's easing of their notch: no wheel comes after it, so nothing
-    // eases after it either, and any scroll from there on is not the reader's.
-    const eased = samples.at(-1)?.eased ?? 0;
-    const found = samples.findIndex((sample) => sample.wheels === wheels && sample.ended && sample.eased === eased);
-    const settled = found < 0 ? undefined : found;
-    const t0 = samples[from]?.t ?? 0;
-    for (let index = from + 1; index < samples.length; index += 1) {
-      const before = samples[index - 1]!;
-      const now = samples[index]!;
-      const scrolled = pictureScroll(before, now);
-      const t = Math.round(now.t - t0);
-      if (Object.keys(now.items).some((key) => key.startsWith("block:"))) blockFrames += 1;
-      if (Math.abs(scrolled) > 0.5) {
-        offsetMoves += 1;
-        const after = settled !== undefined && index > settled;
-        if (after) late.push({ t, px: round(scrolled) });
-        if (after || scrolled > 0) unprompted.push({ t, px: round(scrolled) });
-      }
-      for (const [key, top] of Object.entries(before.items)) {
-        const expected = top - scrolled;
-        if (!(key in now.items)) {
-          if (expected > now.view[0] + 2 && expected < now.view[1] - 2)
-            events.push({ t, key, kind: "vanished", scrolled: round(scrolled) });
-          continue;
-        }
-        const px = now.items[key]! - expected;
-        if (Math.abs(px) > 0.5) events.push({ t, key, kind: "moved", px: round(px), scrolled: round(scrolled) });
-      }
-    }
-    return {
-      frames: samples.length - from,
-      blockFrames,
-      offsetMoves,
-      fromEnd: round(samples.at(-1)?.fromEnd ?? 0),
-      wheels,
-      settled: settled === undefined ? undefined : Math.round(samples[settled]!.t - t0),
-      unprompted: unprompted.slice(0, 16),
-      late: late.slice(0, 16),
-      events: events.length,
-      first: events.slice(0, 16),
-    };
-  }
-
   setDefaultTimeout(240_000);
   const engines: [string, BrowserType][] = [];
   for (const engine of [
@@ -176,69 +89,80 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
     await page.getByText("History answer 6.").waitFor();
     // fixed-wait: nothing marks the page's start-up as done (as streaming-text-frames.test.ts)
     await page.waitForTimeout(500);
-    await page.evaluate(() => {
-      const w = window as unknown as Probe;
-      w.__still = { samples: [], sampling: false, done: false, wheels: 0, ended: false, eased: 0 };
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      // Each wheel event, before the page's own handlers see it (and after the read of the frame
-      // painted before it, which paintedFrames.ts runs from its window capture first).
-      const wheel = () => {
-        w.__still.wheels += 1;
-        w.__still.ended = false;
-      };
-      // The scroll the browser eased in for them has ended (or an offset the page wrote has landed).
-      const ended = () => (w.__still.ended = true);
-      // A step of the app's easing of a notch, sent on the frame it writes the offset in
-      // (threadMinimap/scrollMotion.ts MOTION_SCROLL_EVENT): the reader's scroll is still under way.
-      const eased = () => (w.__still.eased += 1);
-      scroller.addEventListener("wheel", wheel, { capture: true, passive: true });
-      scroller.addEventListener("scrollend", ended, { passive: true });
-      scroller.addEventListener("acpmux-motion-scroll", eased);
-      // Read after each frame paints (paintedFrames.ts), until the page is done.
-      window.cmuxAfterPaint((t) => {
-        if (w.__still.done) {
-          scroller.removeEventListener("wheel", wheel, { capture: true });
-          scroller.removeEventListener("scrollend", ended);
-          scroller.removeEventListener("acpmux-motion-scroll", eased);
-          return false;
-        }
-        if (w.__still.sampling) {
-          const view = scroller.getBoundingClientRect();
-          const items: Record<string, number> = {};
-          const inView = (rect: DOMRect) => rect.height > 0 && rect.bottom > view.top && rect.top < view.bottom;
-          // A new block or row rises 4px as it fades in (conversation.css `cv-enter`): designed
-          // motion, so an item counts once its own animations have finished.
-          const entering = (node: Element) =>
-            node.getAnimations().some((animation) => animation.playState === "running");
-          for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
-            const rect = row.getBoundingClientRect();
-            if (inView(rect) && !entering(row)) items[`row:${row.dataset.rowId}`] = rect.top;
+    await page.evaluate(
+      ({ START, END }) => {
+        const w = window as unknown as Probe;
+        w.__still = { samples: [], sampling: false, done: false, wheels: 0, ended: false, glides: 0, gliding: false };
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        // Each wheel event, before the page's own handlers see it (and after the read of the frame
+        // painted before it, which paintedFrames.ts runs from its window capture first).
+        const wheel = () => {
+          w.__still.wheels += 1;
+          w.__still.ended = false;
+        };
+        // The scroll the browser eased in for them has ended (or an offset the page wrote has landed).
+        const ended = () => (w.__still.ended = true);
+        // The app's easing of a notch (wheelGlide.ts): started in the wheel's own handler, ended on its
+        // last step or when anything cancels it. Until it ends, the reader's scroll is under way.
+        const glideStart = () => {
+          w.__still.glides += 1;
+          w.__still.gliding = true;
+        };
+        const glideEnd = () => (w.__still.gliding = false);
+        scroller.addEventListener("wheel", wheel, { capture: true, passive: true });
+        scroller.addEventListener("scrollend", ended, { passive: true });
+        scroller.addEventListener(START, glideStart);
+        scroller.addEventListener(END, glideEnd);
+        // Read after each frame paints (paintedFrames.ts), until the page is done.
+        window.cmuxAfterPaint((t) => {
+          if (w.__still.done) {
+            scroller.removeEventListener("wheel", wheel, { capture: true });
+            scroller.removeEventListener("scrollend", ended);
+            scroller.removeEventListener(START, glideStart);
+            scroller.removeEventListener(END, glideEnd);
+            return false;
           }
-          const reply = scroller.querySelector<HTMLElement>('.acpmux-row[data-row-id="live-answer"] .cv-md');
-          if (reply)
-            [...reply.children].forEach((child, index) => {
-              const rect = child.getBoundingClientRect();
-              if (inView(rect) && !entering(child)) items[`block:${index}:${child.tagName}`] = rect.top;
+          if (w.__still.sampling) {
+            const view = scroller.getBoundingClientRect();
+            const items: Record<string, number> = {};
+            const inView = (rect: DOMRect) => rect.height > 0 && rect.bottom > view.top && rect.top < view.bottom;
+            // A new block or row rises 4px as it fades in (conversation.css `cv-enter`): designed
+            // motion, so an item counts once its own animations have finished.
+            const entering = (node: Element) =>
+              node.getAnimations().some((animation) => animation.playState === "running");
+            for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")) {
+              const rect = row.getBoundingClientRect();
+              if (inView(rect) && !entering(row)) items[`row:${row.dataset.rowId}`] = rect.top;
+            }
+            const reply = scroller.querySelector<HTMLElement>('.acpmux-row[data-row-id="live-answer"] .cv-md');
+            if (reply)
+              [...reply.children].forEach((child, index) => {
+                const rect = child.getBoundingClientRect();
+                if (inView(rect) && !entering(child)) items[`block:${index}:${child.tagName}`] = rect.top;
+              });
+            w.__still.samples.push({
+              t,
+              top: scroller.scrollTop,
+              lag:
+                Number.parseFloat(
+                  getComputedStyle(scroller.querySelector<HTMLElement>(".acpmux-thread")!).translate.split(" ")[1] ??
+                    "",
+                ) || 0,
+              fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
+              wheels: w.__still.wheels,
+              ended: w.__still.ended,
+              glides: w.__still.glides,
+              gliding: w.__still.gliding,
+              view: [view.top, view.bottom],
+              items,
             });
-          w.__still.samples.push({
-            t,
-            top: scroller.scrollTop,
-            lag:
-              Number.parseFloat(
-                getComputedStyle(scroller.querySelector<HTMLElement>(".acpmux-thread")!).translate.split(" ")[1] ?? "",
-              ) || 0,
-            fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
-            wheels: w.__still.wheels,
-            ended: w.__still.ended,
-            eased: w.__still.eased,
-            view: [view.top, view.bottom],
-            items,
-          });
-        }
-        return true;
-      });
-      w.__still.run = w.__streamingText.run({ cadence: "claude" });
-    });
+          }
+          return true;
+        });
+        w.__still.run = w.__streamingText.run({ cadence: "claude" });
+      },
+      { START: WHEEL_GLIDE_START_EVENT, END: WHEEL_GLIDE_END_EVENT },
+    );
     await page.waitForFunction(
       () => (document.querySelector('.acpmux-row[data-row-id="live-answer"] .cv-md')?.textContent?.length ?? 0) > 1_200,
       undefined,
@@ -269,6 +193,18 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       const page = await streaming(name);
       await page.evaluate(() => ((window as unknown as Probe).__still.sampling = true));
       await page.mouse.wheel(0, -Number(px));
+      // With CMUX_MOTION_STILLS=<dir>: whole-window stills of the parked view as the reply streams on
+      // below it, for review (#41454). They read the same picture each time: the view holds.
+      const stills = process.env.CMUX_MOTION_STILLS;
+      if (stills && px === "120") {
+        const dir = path.join(stills, "parked-reader", name);
+        mkdirSync(dir, { recursive: true });
+        for (const at of [1, 2, 3]) {
+          // fixed-wait: the reply streams on between stills.
+          await page.waitForTimeout(600);
+          await page.screenshot({ path: path.join(dir, `${at}-parked-${at * 600}ms-after-wheel.png`) });
+        }
+      }
       const report = stillness(await sampleToEnd(page));
       console.log(`streaming-parked-still ${label}: ${JSON.stringify(report)}`);
       // The reply was on screen, and the reader stayed off its latest line (past the follow
@@ -278,7 +214,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       expect(report.fromEnd).toBeGreaterThan(4);
       // The page saw the wheel and its scroll came to rest: what follows is the parked view.
       expect(report.wheels).toBe(1);
-      expect(report.settled).toBeNumber();
+      expect(parkedAfterScroll(report)).toEqual(PARKED);
       expect({ unprompted: report.unprompted, events: report.first }).toEqual({ unprompted: [], events: [] });
     },
   );
@@ -301,7 +237,7 @@ await requireBrowserLane("streaming-parked-still.test.ts", async () => {
       expect(report.offsetMoves).toBeGreaterThan(10);
       expect(report.fromEnd).toBeGreaterThan(4);
       expect(report.wheels).toBeGreaterThan(0);
-      expect(report.settled).toBeNumber();
+      expect(parkedAfterScroll(report)).toEqual(PARKED);
       // While the wheel turns, the view follows it and, at the latest line, the reply; once the
       // reader's last scroll has settled, parked again, nothing moves it.
       expect({ late: report.late, events: report.first }).toEqual({ late: [], events: [] });

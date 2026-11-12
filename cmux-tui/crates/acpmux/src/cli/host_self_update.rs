@@ -280,12 +280,12 @@ fn prune(downloads: &Path, keep: &str) {
         }
         let dir = entry.path();
         if !dir.join(ROLLED_BACK).is_file() {
-            let _ = std::fs::remove_dir_all(&dir);
+            let _ = crate::home_fs::remove_dir_all(&dir);
             continue;
         }
         for file in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             if file.file_name() != ROLLED_BACK {
-                let _ = std::fs::remove_file(file.path());
+                let _ = crate::home_fs::remove_file(file.path());
             }
         }
     }
@@ -323,15 +323,12 @@ fn keep(dir: &Path, target: &str, bytes: &[u8]) -> Result<()> {
     if std::fs::read(&path).is_ok_and(|have| have == bytes) {
         return Ok(());
     }
-    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    crate::home_fs::create_dirs(dir).with_context(|| format!("creating {}", dir.display()))?;
     let part = dir.join(format!(".acpmux-{target}.part"));
-    std::fs::write(&part, bytes).with_context(|| format!("writing {}", part.display()))?;
+    crate::home_fs::write(&part, bytes).with_context(|| format!("writing {}", part.display()))?;
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))?;
-    }
-    std::fs::rename(&part, &path).with_context(|| format!("writing {}", path.display()))?;
+    crate::home_fs::set_mode(&part, 0o755)?;
+    crate::home_fs::rename(&part, &path).with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 
@@ -360,7 +357,7 @@ pub(super) fn apply(remote: &dyn Remote, plan: &Plan, target: &'static str) -> P
     }
     if up.outcome == Outcome::RolledBack {
         let mark = dir.join(ROLLED_BACK);
-        if let Err(e) = std::fs::write(&mark, up.error.as_deref().unwrap_or("")) {
+        if let Err(e) = crate::home_fs::write(&mark, up.error.as_deref().unwrap_or("")) {
             let why = up.error.take().unwrap_or_default();
             up.error = Some(format!(
                 "{why}; marking the build rolled back failed ({}: {e}), so the next run tries it again",

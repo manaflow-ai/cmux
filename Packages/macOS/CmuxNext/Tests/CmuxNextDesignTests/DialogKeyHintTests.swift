@@ -24,7 +24,7 @@ import Testing
         let spec = Self.approval
         #expect(CmuxDialogKeys.hint(for: spec.buttons[0], in: spec) == .escape)
         #expect(CmuxDialogKeys.hint(for: spec.buttons[1], in: spec) == .return)
-        #expect(CmuxDialogKeyHint.escape.glyph == "⎋")
+        #expect(CmuxDialogKeyHint.escape.glyph == "esc")
         #expect(CmuxDialogKeyHint.return.glyph == "↩")
     }
 
