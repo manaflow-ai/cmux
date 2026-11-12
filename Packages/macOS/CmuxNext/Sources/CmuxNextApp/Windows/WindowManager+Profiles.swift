@@ -234,16 +234,12 @@ enum WindowOwnSpace {
         let machines = windows.services.machines, store = machines.local.store, logger = windows.services.daemon.logger, connected = store.connectionState
         let ids = WindowProfiles.visible(windows.registry.members(of: id), profile: state.profileID, machines: machines)
         let space = ProfileID.generate(), name = RoomStrings.defaultName(store.profileIDs.count + 1), browser = store.profile(state.profileID)?.browserProfileID, color = GroupColor.automatic(used: Set(store.profiles.compactMap(\.color))) ?? .grey
-        Task {
-            do {
+        Task { do {
                 _ = try await connection.createProfile(name: name, id: space, color: color.rawValue, browserProfileID: browser)
                 let reported = { ids.compactMap { WindowProfiles.qualified($0, machines: machines) } } // one made for the move may not be yet
                 let waiting = Task { await store.mirrored(profile: space); for await done in ObservationStream({ reported().count == ids.count || store.connectionState != connected }) where done { break } }
                 let bound = DemandTimer(owner: "WindowOwnSpace.give"); bound.schedule(after: .seconds(10)) { waiting.cancel() }; await waiting.value; bound.cancel() // a reconnect or 10 s
-                for workspace in reported() {
-                    try await connection.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: space)
-                }
-            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)") }
-        }
+                for workspace in reported() { try await connection.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: space) }
+            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)") } }
     }
 }
