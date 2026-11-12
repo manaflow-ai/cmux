@@ -50,9 +50,12 @@ public final class GitHubConnect {
         if state != .pending { connectKey = nil }
     }
 
-    /// Connect GitHub: the list first (already connected: nothing to do), then the App's
-    /// installation page.
-    public func connect() async {
+    /// Connect GitHub: the list first (already connected: nothing to do), then the page GitHub
+    /// needs. `repo` (a chat's failed call's `OWNER/REPO`) and `returnTo` (that chat's cmux link)
+    /// come from a chat's Connect GitHub: with a repository the API decides what covers it, so an
+    /// active connection elsewhere does not end it; `connected: true` is done and opens nothing;
+    /// GitHub's return opens `returnTo`. The Mac's `connect(repo:returnTo:)` is the same.
+    public func connect(repo: String? = nil, returnTo: String? = nil) async {
         guard !working, let account = account() else { return }
         working = true
         defer { working = false }
@@ -60,16 +63,25 @@ public final class GitHubConnect {
         do {
             state = Self.state(try await account.read("integration.list"))
             forgetFinishedAttempt()
-            if case .connected = state { return }
+            if case .connected = state, repo == nil { return }
             guard state != .unavailable else {
                 failure = String(localized: "GitHub isn't set up on this cmux Cloud.")
                 return
             }
             let key = connectKey ?? UUID().uuidString.lowercased()
             connectKey = key
-            let value = try await account.mutate("integration.connect", params: ["provider": "github"], key: key)
-            guard let object = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any],
-                  let raw = object["authorize_url"] as? String, let url = Self.installationURL(raw) else {
+            var params: [String: any Sendable] = ["provider": "github"]
+            if let repo { params["repo"] = repo }
+            if let returnTo { params["return_to"] = returnTo }
+            let value = try await account.mutate("integration.connect", params: params, key: key)
+            let object = (try? JSONSerialization.jsonObject(with: value)) as? [String: Any]
+            if object?["connected"] as? Bool == true {
+                // Already covered: nothing to open; the list says so.
+                connectKey = nil
+                state = Self.state(try await account.read("integration.list"))
+                return
+            }
+            guard let raw = object?["authorize_url"] as? String, let url = Self.installationURL(raw) else {
                 connectKey = nil
                 failure = AccountCloud.Failure.badReply.description
                 return
@@ -102,13 +114,21 @@ public final class GitHubConnect {
         return configured ? .notConnected : .unavailable
     }
 
-    /// Only the App installation page `integration.connect` returns may open (the Mac's check).
+    /// Only the GitHub pages `integration.connect` answers may open (the Mac's check): the App's
+    /// installation page, its page for one owner, and GitHub's OAuth authorize page.
     public nonisolated static func installationURL(_ raw: String) -> URL? {
         guard let url = URL(string: raw), url.scheme == "https", url.host() == "github.com",
               url.user == nil, url.password == nil, url.port == nil,
-              url.path().range(of: #"^/apps/[A-Za-z0-9-]+/installations/new$"#, options: .regularExpression) != nil else { return nil }
+              connectPaths.contains(where: { url.path().range(of: $0, options: .regularExpression) != nil }) else { return nil }
         return url
     }
+
+    /// The paths of the pages ``installationURL(_:)`` lets open.
+    nonisolated static let connectPaths = [
+        #"^/apps/[A-Za-z0-9-]+/installations/new$"#,
+        #"^/apps/[A-Za-z0-9-]+/installations/new/permissions$"#,
+        #"^/login/oauth/authorize$"#,
+    ]
 }
 
 #if os(iOS)
