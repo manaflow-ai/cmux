@@ -52,10 +52,10 @@ extension TabStripView {
         move.addScroll(scroll, to: pinnedDivider)
     }
 
-    /// The theme's separator tone at the tab separators' strength; clear under `appearance.borders` none.
+    /// The chrome's divider colour at the tab separators' strength; clear under `appearance.borders` none.
     func applyPinnedDividerColor() {
         pinnedDivider.backgroundColor = themeScope.perform {
-            Borders.color(Palette.separator.withAlphaComponent(metrics.separatorOpacity)).cgColor
+            Borders.color(Palette.chromeDivider(opacity: metrics.separatorOpacity)).cgColor
         }
     }
 }

@@ -146,10 +146,19 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),
             "--cmux-separator": Borders.drawsLines ? Self.css(tokens.separator) : "transparent",
-            // The window sidebar's edge line at rest (DividerHandleView: the split divider's color
-            // override, else the separator), so a page's hairlines can match it (Settings, Lucas 2026-11-11).
-            "--cmux-sidebar-line": Borders.drawsLines
-                ? Self.css(backgrounds.fill(for: .splitDivider, tokens: tokens) ?? tokens.separator) : "transparent",
+            // The chrome's one divider (`Palette.chromeDivider`: the sidebar's edge, the split lines, the
+            // tab row's divider), from this scope's tokens, so a page's lines match the native ones.
+            "--cmux-chrome-divider": Self.chromeDivider(tokens, backgrounds: backgrounds),
+            // The window sidebar's edge line at rest, so a page's hairlines can match it (Settings,
+            // Lucas 2026-11-11): the chrome's divider, which the native edge draws.
+            "--cmux-sidebar-line": Self.chromeDivider(tokens, backgrounds: backgrounds),
+            // 1 when the chrome is toned apart from the content (Subtle Tone, a shaded chrome style),
+            // else 0 (One Color): a page draws its chrome as the native one does.
+            "--cmux-chrome-tone": Metrics.mainPaneChromeShade(isDark: tokens.isDark) > 0 ? "1" : "0",
+            // The fill a selected item takes to join the content (the native folder tab,
+            // `Palette.folderTabFill`): the page's surface where the tone reads, else none.
+            "--cmux-folder-fill": Metrics.mainPaneChromeShade(isDark: tokens.isDark) >= Metrics.folderTabMinimumShade
+                ? Self.css(page) : "transparent",
             // The window sidebar's own fill over the window's color, so a page's sidebar can match it
             // (Settings, Lucas 2026-11-12: Lawrence did not like a lighter one): the user's sidebar
             // color (`appearance.surfaces.sidebar`), else the separate chrome shade
@@ -419,12 +428,26 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return shade > 0 ? css(ThemeRGB(red: 0, green: 0, blue: 0, alpha: Double(shade))) : "transparent"
     }
 
-    /// The inputs of the page theme that no theme change pushes: `appearance.borders` and the separate
-    /// chrome shade (`--cmux-sidebar-surface`, ``sidebarSurface(_:backgrounds:windowTint:)``). The app
-    /// repaints every page when one changes (`AppServices.observeBorders`).
+    /// `--cmux-chrome-divider`: `Palette.chromeDivider` for `tokens`, as CSS: the split divider's color
+    /// override when set, else the separator with its alpha × `chrome.dividerStrength`; none under
+    /// `appearance.borders` none.
+    @MainActor
+    static func chromeDivider(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds) -> String {
+        guard Borders.drawsLines else { return "transparent" }
+        if let override = backgrounds.fill(for: .splitDivider, tokens: tokens) { return css(override) }
+        let separator = tokens.separator
+        return css(separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value)))
+    }
+
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, the divider
+    /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
+    /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
+    /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
-        [Borders.current.mode.rawValue, "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
+        let design = DesignSettings.shared
+        return [Borders.current.mode.rawValue, "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+                "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.
