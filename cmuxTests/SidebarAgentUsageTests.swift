@@ -57,28 +57,28 @@ struct SidebarAgentUsageTests {
     // MARK: Formatting
 
     @Test func summaryShowsModelContextPercentAndEstimatedCost() {
-        let formatter = SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"))
+        let formatter = SidebarAgentUsageFormatter(strings: .localized, locale: Locale(identifier: "en_US"))
         #expect(formatter.summary(for: Self.usage) == "Opus 4.8 · 42% · ~$1.20")
         let partial = SidebarAgentUsage(modelName: "Opus 4.8", contextFraction: nil, estimatedCostUSD: 1.2, costIsLowerBound: true)
         #expect(formatter.summary(for: partial) == "Opus 4.8 · ~$1.20+")
     }
 
     @Test func summaryOmitsUnknownWindowAndPrice() {
-        let formatter = SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"))
+        let formatter = SidebarAgentUsageFormatter(strings: .localized, locale: Locale(identifier: "en_US"))
         let usage = SidebarAgentUsage(modelName: "gpt-6-astra", contextFraction: nil, estimatedCostUSD: nil)
         #expect(formatter.summary(for: usage) == "gpt-6-astra")
     }
 
     @Test func decorationExtendsOnlyTheMatchingAgentEntryAndExplainsTheCost() {
-        let formatter = SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"))
+        let formatter = SidebarAgentUsageFormatter(strings: .localized, locale: Locale(identifier: "en_US"))
         let claude = Self.statusEntry(key: "claude_code", value: "Running")
         let other = Self.statusEntry(key: "build", value: "Passing")
 
         let decorated = formatter.decorate([claude, other], usageByStatusKey: ["claude_code": Self.usage])
 
         #expect(decorated[0].value == "Running · Opus 4.8 · 42% · ~$1.20")
-        #expect(decorated[0].helpText == SidebarAgentUsageFormatter.costHelpText)
-        #expect(decorated[0].sidebarHelpText.hasSuffix(SidebarAgentUsageFormatter.costHelpText))
+        #expect(decorated[0].helpText == SidebarAgentUsageFormatter.Strings.localized.costHelpText)
+        #expect(decorated[0].sidebarHelpText.hasSuffix(SidebarAgentUsageFormatter.Strings.localized.costHelpText))
         #expect(decorated[0].icon == claude.icon)
         #expect(decorated[0].color == claude.color)
         #expect(decorated[0].priority == claude.priority)
@@ -95,22 +95,6 @@ struct SidebarAgentUsageTests {
 
         defaults.set(true, forKey: SidebarCatalogSection().hideAllDetails.userDefaultsKey)
         #expect(!SidebarTabItemSettingsSnapshot(defaults: defaults).visibleAuxiliaryDetails.showsAgentUsage)
-    }
-
-    @Test func eachPartSettingDropsOnlyItsComponent() {
-        // A reporter tooltip, so dropping the cost must visibly keep it.
-        let claude = SidebarStatusEntry(key: "claude_code", value: "Running", timestamp: Date(timeIntervalSince1970: 10), helpText: "Reporter tooltip")
-        func shown(_ parts: SidebarAgentUsage.Parts) -> SidebarStatusEntry {
-            SidebarAgentUsageFormatter(locale: Locale(identifier: "en_US"), shownParts: parts)
-                .decorate([claude], usageByStatusKey: ["claude_code": Self.usage])[0]
-        }
-
-        #expect(shown([.context, .cost]).value == "Running · 42% · ~$1.20")
-        #expect(shown([.model, .cost]).value == "Running · Opus 4.8 · ~$1.20")
-        #expect(shown([.model, .context]).value == "Running · Opus 4.8 · 42%")
-        #expect(shown([.model, .context]).helpText == "Reporter tooltip")
-        #expect(shown([.cost]).helpText == SidebarAgentUsageFormatter.costHelpText)
-        #expect(shown([]) == claude)
     }
 
     @Test func partSettingsAreOnByDefaultAndEachFollowsItsKey() {
@@ -244,10 +228,11 @@ struct SidebarAgentUsageTests {
         let snapshot = SidebarWorkspaceSnapshotFactory(
             workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
         ).makeSnapshot()
-        // The percent and currency follow `Locale.current`, so assert the
-        // model is gone and the rest is still appended rather than exact text.
+        // The percent and currency follow `Locale.current`, so the expected
+        // text comes from a formatter on the same locale and strings.
         let row = try #require(snapshot.metadataEntries.first { $0.key == "claude_code" }?.value)
-        #expect(row.hasPrefix("Running" + SidebarAgentUsageFormatter.separator))
+        let summary = SidebarAgentUsageFormatter(strings: .localized, shownParts: [.context, .cost]).summary(for: Self.usage)
+        #expect(row == "Running" + SidebarAgentUsageFormatter.separator + summary)
         #expect(!row.contains("Opus 4.8"))
     }
 

@@ -1,42 +1,63 @@
-import CmuxSidebar
-import Foundation
+public import Foundation
 
 /// Formats coding-agent usage for the sidebar and appends it to the matching
 /// agent status entry, e.g. `Running · Opus 4.8 · 42% · ~$1.20`.
 ///
 /// The percentage is the share of the model's context window in use; the
-/// dollar figure is an estimate at published API list prices, prefixed with
-/// the localized "estimated" marker, suffixed with `+` when some usage could
-/// not be priced, and explained in the entry's tooltip.
-struct SidebarAgentUsageFormatter {
-    /// Separator between the status text and each usage component.
-    static let separator = " · "
+/// dollar figure is an estimate at published API list prices, marked by the
+/// localized ``Strings`` the app supplies and explained in the entry's tooltip.
+public struct SidebarAgentUsageFormatter: Sendable {
+    /// Localized text the app supplies from its string catalog.
+    public struct Strings: Sendable {
+        /// Marks a formatted cost as an estimate, e.g. `$1.20` → `~$1.20`.
+        public let estimatedCost: @Sendable (String) -> String
+        /// Marks a formatted cost as an estimate that is a lower bound
+        /// because some usage could not be priced, e.g. `$1.20` → `~$1.20+`.
+        public let estimatedCostAtLeast: @Sendable (String) -> String
+        /// Tooltip for an entry that shows an estimated cost.
+        public let costHelpText: String
 
+        /// Creates the formatter's localized text.
+        /// - Parameters:
+        ///   - estimatedCost: Marks a formatted cost as an estimate.
+        ///   - estimatedCostAtLeast: Marks a formatted cost as an estimate
+        ///     and a lower bound.
+        ///   - costHelpText: Tooltip for an entry that shows a cost.
+        public init(
+            estimatedCost: @escaping @Sendable (String) -> String,
+            estimatedCostAtLeast: @escaping @Sendable (String) -> String,
+            costHelpText: String
+        ) {
+            self.estimatedCost = estimatedCost
+            self.estimatedCostAtLeast = estimatedCostAtLeast
+            self.costHelpText = costHelpText
+        }
+    }
+
+    /// Separator between the status text and each usage component.
+    public static let separator = " · "
+
+    let strings: Strings
     let locale: Locale
     /// The components to show; the rest are left out.
     let shownParts: SidebarAgentUsage.Parts
 
     /// Creates a formatter.
     /// - Parameters:
+    ///   - strings: The localized cost marks and tooltip.
     ///   - locale: Locale for the percent and currency formats.
     ///   - shownParts: The components to show.
-    init(locale: Locale = .current, shownParts: SidebarAgentUsage.Parts = .all) {
+    public init(strings: Strings, locale: Locale = .current, shownParts: SidebarAgentUsage.Parts = .all) {
+        self.strings = strings
         self.locale = locale
         self.shownParts = shownParts
     }
 
-    /// Tooltip for an entry that shows an estimated cost (resolved once;
-    /// the app language only changes across launches).
-    static let costHelpText = String(
-        localized: "sidebar.agentUsage.costHelp",
-        defaultValue: "Cost is an API list-price estimate, not your subscription bill."
-    )
-
     /// The compact usage summary, e.g. `Opus 4.8 · 42% · ~$1.20`.
     ///
     /// Components that are unknown (context window, price) or not in
-    /// ``shownParts`` are omitted; with none left the summary is empty.
-    func summary(for usage: SidebarAgentUsage) -> String {
+    /// `shownParts` are omitted; with none left the summary is empty.
+    public func summary(for usage: SidebarAgentUsage) -> String {
         var parts: [String] = []
         if shownParts.contains(.model) {
             parts.append(usage.modelName)
@@ -46,22 +67,23 @@ struct SidebarAgentUsageFormatter {
         }
         if shownParts.contains(.cost), let cost = usage.estimatedCostUSD {
             let costText = cost.formatted(.currency(code: "USD").precision(.fractionLength(2)).locale(locale))
-            // The tilde marks the figure as an estimate, the plus a lower bound.
-            parts.append(usage.costIsLowerBound
-                ? String(localized: "sidebar.agentUsage.estimatedCostAtLeast", defaultValue: "~\(costText)+")
-                : String(localized: "sidebar.agentUsage.estimatedCost", defaultValue: "~\(costText)"))
+            parts.append(usage.costIsLowerBound ? strings.estimatedCostAtLeast(costText) : strings.estimatedCost(costText))
         }
         return parts.joined(separator: Self.separator)
     }
 
     /// Appends usage to each status entry whose key has usage.
     ///
+    /// An entry whose summary comes out empty is returned unchanged. When the
+    /// summary shows a cost, ``Strings/costHelpText`` replaces the entry's
+    /// tooltip; every other field is kept.
+    ///
     /// - Parameters:
     ///   - entries: Status entries in display order.
     ///   - usageByStatusKey: Usage keyed by agent status key; pass an empty
     ///     dictionary when `sidebar.showAgentUsage` is off.
     /// - Returns: The entries, with matching values extended in place.
-    func decorate(
+    public func decorate(
         _ entries: [SidebarStatusEntry],
         usageByStatusKey: [String: SidebarAgentUsage]
     ) -> [SidebarStatusEntry] {
@@ -79,7 +101,8 @@ struct SidebarAgentUsageFormatter {
                 priority: entry.priority,
                 format: entry.format,
                 timestamp: entry.timestamp,
-                helpText: shownParts.contains(.cost) && usage.estimatedCostUSD != nil ? Self.costHelpText : entry.helpText
+                helpText: shownParts.contains(.cost) && usage.estimatedCostUSD != nil ? strings.costHelpText : entry.helpText,
+                workState: entry.workState
             )
         }
     }
