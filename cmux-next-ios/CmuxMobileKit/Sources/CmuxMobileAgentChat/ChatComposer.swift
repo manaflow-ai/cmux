@@ -130,7 +130,8 @@ struct ChatComposer: View {
         .onChange(of: store.returnedDraft) { _, draft in
             guard let draft else { return }
             store.returnedDraft = nil
-            if trimmed.isEmpty { text = draft.text }
+            // Typed meanwhile: the returned text goes before it, never lost.
+            text = trimmed.isEmpty ? draft.text : draft.text + "\n\n" + text
             attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
         }
         // The flip is placed even when the target stays (focused or drafting as the history
@@ -263,6 +264,10 @@ struct ChatComposer: View {
             .padding(.top, collapsed ? 2 : 0)
         }
         .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
+        // Its own height whatever it is offered: a min-height frame offered
+        // less takes the offer, and the grown draft ran outside the rounded
+        // card (user report 2026-11-12, the same rule as the terminal composer).
+        .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
         .padding(.horizontal, collapsed ? 20 : 12)
     }

@@ -24,6 +24,7 @@ from pathlib import Path
 import os
 import re
 import shutil
+import sys
 import subprocess
 import tempfile
 import unittest
@@ -32,6 +33,8 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 CHECKER = ROOT / "scripts/ci/check-browser-data-import-absent.sh"
 APP = "build-universal/Build/Products/Release/cmux.app"
@@ -203,7 +206,7 @@ class BackgroundStepTests(unittest.TestCase):
 
 
     def test_nightly_next_uploads_to_sentry_off_the_build_path(self):
-        doc = yaml.safe_load(WORKFLOW.read_text())
+        doc = workflow_jobs.document(WORKFLOW)
         jobs = doc["jobs"]
         off_track = "needs.decide.outputs.track != 'nightly-next'"
         for name in (SENTRY_START, SENTRY_FINISH):
@@ -237,7 +240,7 @@ class BackgroundStepTests(unittest.TestCase):
         self.assertIn("dsyms-find-attempt.sh", producer["run"])
         self.assertEqual(download["with"]["artifact-ids"], "${{ steps.producer.outputs.artifacts }}")
         self.assertEqual(download["with"]["run-id"], "${{ steps.producer.outputs.run }}")
-        self.assertEqual(sentry["env"]["BUILD_SHA"], "${{ needs.published-build.outputs.publish_build_sha }}")
+        self.assertEqual(workflow_jobs.effective_env(doc, sentry)["BUILD_SHA"], "${{ needs.published-build.outputs.publish_build_sha }}")
         build_sha = "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}"
         kept = step(APP_JOB, "Keep the nightly-next dSYMs for publication")["with"]["name"]
         rust = step(APP_JOB, "Keep the cmux-tui client dSYMs for Sentry")

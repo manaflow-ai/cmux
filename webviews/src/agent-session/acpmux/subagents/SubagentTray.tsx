@@ -65,6 +65,7 @@ import {
   type CSSProperties,
   type FocusEvent,
   memo,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
   useCallback,
@@ -108,6 +109,7 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
 import { StopButton } from "./SubagentGroup";
+import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
 import { commandStatus, trayItemKey, type TrayItem } from "./runningTray";
@@ -135,6 +137,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
+import { hatDrag, setHatHeight, useHatHeight } from "./trayResize";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
@@ -173,6 +176,7 @@ export const SubagentTray = memo(function SubagentTray({
   onOpenPanel,
   stop,
   stopProcess,
+  resume,
   placement = "tray",
   shown,
   enters = false,
@@ -212,6 +216,9 @@ export const SubagentTray = memo(function SubagentTray({
   stop?: (id: string) => Promise<unknown>;
   /// Stops a registry process (`_acpmux/process/kill`).
   stopProcess?: (processId: string) => Promise<unknown>;
+  /// Resume on a stopped subagent's finished line (ResumeControl.tsx): the chat's `resumeAgent`,
+  /// as the transcript's end line has it. The tray sits outside the transcript's TurnActionsContext.
+  resume?: ResumeActions;
   /// The default is the existing bottom tray; the alternate is fixture/Labs-driven.
   placement?: SubagentTrayPlacement;
   /// The chat on screen, as of the latest render (App.tsx): the tray plays its exit only when it
@@ -263,6 +270,8 @@ export const SubagentTray = memo(function SubagentTray({
   const [oneName, setOneName] = useState(false);
   // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
   const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
+  // The list height the person dragged the rim to (trayResize.ts), shared by every hat.
+  const hatHeight = useHatHeight();
   // The lines open in place (TrayLineDetail.tsx): a click on a line expands it, never navigates.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const toggleLine = useCallback(
@@ -604,6 +613,67 @@ export const SubagentTray = memo(function SubagentTray({
     setOpened(!open);
     rememberTrayOpen(chat, !open);
   };
+  // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
+  // its last line folds it, a double-click goes back to the default five lines.
+  const resizes = !(headed && opensPanel === "header");
+  const onRimDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const list = trayNode.current?.querySelector<HTMLElement>(".acpmux-running-tray__list");
+    const start = open && list ? list.getBoundingClientRect().height : 0;
+    const { clientX: startX, clientY: startY } = event;
+    const rim = event.currentTarget;
+    rim.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    let shown = open;
+    // The height before the drag: a drag that folds the hat, or never moves past the slop, keeps it.
+    const before = hatHeight;
+    let last = before;
+    let dragged = false;
+    const move = (moved: PointerEvent) => {
+      const step = hatDrag(start, startY - moved.clientY, window.innerHeight);
+      if (step.kind === "rest") return;
+      dragged = true;
+      if (step.kind === "fold") {
+        last = before;
+        setHatHeight(before, false);
+        if (shown && headed) {
+          shown = false;
+          setOpened(false);
+          rememberTrayOpen(chat, false);
+        }
+        return;
+      }
+      if (!shown && headed) {
+        shown = true;
+        setOpened(true);
+        rememberTrayOpen(chat, true);
+      }
+      last = step.height;
+      setHatHeight(step.height, false);
+    };
+    const end = (ended: PointerEvent) => {
+      rim.removeEventListener("pointermove", move);
+      rim.removeEventListener("pointerup", end);
+      rim.removeEventListener("pointercancel", end);
+      rim.removeEventListener("lostpointercapture", end);
+      if (dragged) {
+        setHatHeight(last, true);
+        return;
+      }
+      // No drag: the press was a click on what the band lies over (the header's top, a lone line's,
+      // the composer seam), so it goes there, never swallowed by the rim.
+      if (ended.type !== "pointerup") return;
+      rim.style.pointerEvents = "none";
+      const under = document.elementFromPoint(startX, startY);
+      rim.style.pointerEvents = "";
+      if (under instanceof HTMLElement && !rim.contains(under)) under.click();
+    };
+    rim.addEventListener("pointermove", move);
+    rim.addEventListener("pointerup", end);
+    rim.addEventListener("pointercancel", end);
+    // The hat leaves mid-drag (its last line ended): the drag ends, and what it reached is kept.
+    rim.addEventListener("lostpointercapture", end);
+  };
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
   return (
@@ -640,7 +710,15 @@ export const SubagentTray = memo(function SubagentTray({
       data-tucks={onTuck ? tuckSide : undefined}
       data-chevron={headed ? chevronAt : undefined}
       data-row-motion={rowMotion}
-      style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
+      data-sized={(resizes && hatHeight !== undefined) || undefined}
+      style={
+        gutter > 0 || (resizes && hatHeight !== undefined)
+          ? ({
+              ...(gutter > 0 ? { "--acpmux-tray-gutter": `${gutter}px` } : {}),
+              ...(resizes && hatHeight !== undefined ? { "--acpmux-tray-list-height": `${hatHeight}px` } : {}),
+            } as CSSProperties)
+          : undefined
+      }
       data-tuck-quiet={(onTuck && tuckQuiet) || undefined}
       onPointerEnter={() => {
         setHovered(true);
@@ -833,6 +911,17 @@ export const SubagentTray = memo(function SubagentTray({
           <Icon name="disclosure.expanded" size={12} />
         </button>
       )}
+      {resizes && (
+        // The rim's grabber, a thin band along the hat's top edge under the tuck chevron (which sits
+        // later, so it keeps its own clicks). A pointer control only; the header stays the keyboard's.
+        <div
+          className="acpmux-running-tray__rim"
+          title={t("tray.resize")}
+          aria-hidden="true"
+          onPointerDown={onRimDown}
+          onDoubleClick={() => setHatHeight(undefined, true)}
+        />
+      )}
       {onTuck && (
         <button
           type="button"
@@ -931,9 +1020,11 @@ export const SubagentTray = memo(function SubagentTray({
               via={parent ? subagentTaskLabel(t, parent) : undefined}
               onOpen={toggleThis}
               after={
-                stop &&
-                item.agent.state === "running" &&
-                !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+                item.agent.state === "running"
+                  ? stop && !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+                  : // A stopped one's Resume sits in Stop's column (Leo, 2026-11-12: "WHY CANT WE
+                    // RESTART AGENTS THAT WERE STOPPED").
+                    resume && <ResumeControl agent={item.agent} actions={resume} />
               }
             />,
             // An agent a shell call started stops with that call, not through the harness.
