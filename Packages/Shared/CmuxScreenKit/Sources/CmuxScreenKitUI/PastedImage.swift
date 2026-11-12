@@ -4,15 +4,18 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// A photo from the picker, in a form the Mac's pasteboard takes, at its full size, upright in its
-/// pixels and with no location in it (not in GPS, IPTC or XMP). A PNG or JPEG that is already
-/// upright goes as it is when it names no location; when it names one, ImageIO copies it with no
-/// metadata at all and the same pixels (no second lossy encode). Anything else (HEIC, a turned
-/// photo, …) is decoded by ImageIO with its orientation applied to the pixels (an agent that reads
-/// pixels, not the EXIF tag, sees it the right way up), and written as PNG when it has transparency
-/// or was a PNG (lossless, so the same pixels), JPEG otherwise, with orientation 1 and no other
-/// metadata. A photo whose pixel size ImageIO cannot
-/// read is refused. No UIKit drawing context is made. No size limit: the image goes to the Mac in
-/// chunks (``ScreenInput/pasteImageChunks(_:type:id:)``). Builds on macOS too, so its tests run there.
+/// pixels and with no metadata in it: no EXIF, GPS, IPTC, XMP or maker note, whatever its tags are
+/// named (an allow-list, so an unknown tag is dropped, never sent).
+///
+/// An upright PNG or JPEG is copied by ImageIO with empty metadata and the same pixels (no second
+/// lossy encode); the copy is read back, and anything beyond what describes the pixels sends the
+/// photo down the decode path instead. Anything else (HEIC, a turned photo, a copy ImageIO cannot
+/// make clean) is decoded with its orientation applied to the pixels (an agent that reads pixels,
+/// not the EXIF tag, sees it the right way up) and written again with no metadata: PNG when it has
+/// transparency or was a PNG (lossless, so the same pixels), JPEG otherwise. The image's color
+/// profile travels with its pixels on both paths. A photo whose pixel size ImageIO cannot read is
+/// refused. No UIKit drawing context is made. No size limit: the image goes to the Mac in chunks
+/// (``ScreenInput/pasteImageChunks(_:type:id:)``). Builds on macOS too, so its tests run there.
 struct PastedImage: Sendable, Equatable {
     let data: Data
     /// The uniform type identifier (`public.png`, `public.jpeg`).
@@ -37,52 +40,63 @@ struct PastedImage: Sendable, Equatable {
         guard let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
               width > 0, height > 0 else { return nil }
         let upright = (properties[kCGImagePropertyOrientation] as? Int ?? 1) == 1
-        if upright, let type = Self.passThroughType(of: photo) {
-            if !Self.namesALocation(source, properties: properties) {
-                self.init(data: photo, type: type)
-                return
-            }
-            if let copied = Self.copyWithNoMetadata(source, type: type) {
-                self.init(data: copied, type: type)
-                return
-            }
+        let format = Self.passThroughType(of: photo)
+        if upright, let format, let copied = Self.copyWithNoMetadata(source, type: format) {
+            self.init(data: copied, type: format)
+            return
         }
-        let lossless = Self.passThroughType(of: photo) == UTType.png.identifier
+        let lossless = format == UTType.png.identifier
         guard let converted = Self.convert(source, properties: properties, width: width, height: height, lossless: lossless)
         else { return nil }
         self = converted
     }
 
-    /// Whether the first image names where it was taken: a GPS dictionary, an IPTC place, or an XMP
-    /// GPS or place tag (`exif:GPS…`, `photoshop:City`, `Iptc4xmpCore:Location`, …).
-    static func namesALocation(_ source: CGImageSource, properties: [CFString: Any]) -> Bool {
-        if properties[kCGImagePropertyGPSDictionary] != nil { return true }
-        if let iptc = properties[kCGImagePropertyIPTCDictionary] as? [CFString: Any],
-           [kCGImagePropertyIPTCCity, kCGImagePropertyIPTCSubLocation, kCGImagePropertyIPTCProvinceState,
-            kCGImagePropertyIPTCCountryPrimaryLocationName, kCGImagePropertyIPTCCountryPrimaryLocationCode]
-               .contains(where: { iptc[$0] != nil }) { return true }
-        guard let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil),
-              let tags = CGImageMetadataCopyTags(metadata) as? [CGImageMetadataTag] else { return false }
+    /// What describes only the pixels, by properties dictionary (`{JFIF}` density, `{PNG}` gamma
+    /// and color, `{TIFF}` orientation and resolution). Any other dictionary or key is metadata.
+    private static var pixelOnly: [String: Set<String>] {
+        [
+            kCGImagePropertyJFIFDictionary as String: [
+                kCGImagePropertyJFIFVersion, kCGImagePropertyJFIFXDensity, kCGImagePropertyJFIFYDensity,
+                kCGImagePropertyJFIFDensityUnit, kCGImagePropertyJFIFIsProgressive,
+            ].reduce(into: Set<String>()) { $0.insert($1 as String) },
+            kCGImagePropertyPNGDictionary as String: [
+                kCGImagePropertyPNGGamma, kCGImagePropertyPNGChromaticities, kCGImagePropertyPNGsRGBIntent,
+                kCGImagePropertyPNGInterlaceType, kCGImagePropertyPNGXPixelsPerMeter, kCGImagePropertyPNGYPixelsPerMeter,
+                kCGImagePropertyPNGCompressionFilter,
+            ].reduce(into: Set<String>()) { $0.insert($1 as String) },
+            kCGImagePropertyTIFFDictionary as String: [
+                kCGImagePropertyTIFFOrientation, kCGImagePropertyTIFFXResolution, kCGImagePropertyTIFFYResolution,
+                kCGImagePropertyTIFFResolutionUnit,
+            ].reduce(into: Set<String>()) { $0.insert($1 as String) },
+        ]
+    }
+
+    /// Whether the first image of `source` carries anything beyond what describes its pixels: a
+    /// dictionary or key not in ``pixelOnly``, an XMP tag other than those `tiff:` ones, or an
+    /// orientation other than 1. Fails closed: what it does not know counts as metadata.
+    static func carriesMetadata(_ source: CGImageSource, properties: [CFString: Any]) -> Bool {
+        if (properties[kCGImagePropertyOrientation] as? Int ?? 1) != 1 { return true }
+        let allowed = pixelOnly
+        for (key, value) in properties {
+            guard let dictionary = value as? [String: Any] else { continue }
+            guard let keys = allowed[key as String], dictionary.keys.allSatisfy(keys.contains) else { return true }
+        }
+        if let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any],
+           (tiff[kCGImagePropertyTIFFOrientation] as? Int ?? 1) != 1 { return true }
+        guard let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) else { return false }
+        let tiffNames = allowed[kCGImagePropertyTIFFDictionary as String] ?? []
+        let tags = CGImageMetadataCopyTags(metadata) as? [CGImageMetadataTag] ?? []
         return tags.contains { tag in
-            guard let name = CGImageMetadataTagCopyName(tag) as String? else { return false }
-            return name.hasPrefix("GPS") || placeTagNames.contains(name)
+            (CGImageMetadataTagCopyPrefix(tag) as String?) != "tiff" || !tiffNames.contains((CGImageMetadataTagCopyName(tag) as String?) ?? "")
         }
     }
 
-    /// XMP tag names (photoshop, IPTC Core and IPTC Extension) that name a place.
-    private static let placeTagNames: Set<String> = [
-        "City", "State", "Country", "CountryCode", "CountryName", "Location", "LocationCreated", "LocationShown",
-        "Sublocation", "ProvinceState", "WorldRegion",
-    ]
-
-    /// The first image of an upright PNG or JPEG `source` with its pixels as they are and no
-    /// metadata (EXIF, GPS, IPTC, XMP); nil when ImageIO cannot copy it so, or the copy still names
-    /// a location (the caller then decodes and re-encodes it).
+    /// The first image of an upright PNG or JPEG `source`, its pixels as they are, with empty
+    /// metadata in place of the source's (not merged, so nothing of it is kept); nil when ImageIO
+    /// cannot copy it so or the copy read back still carries metadata (the caller then decodes).
     private static func copyWithNoMetadata(_ source: CGImageSource, type: String) -> Data? {
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, type as CFString, 1, nil) else { return nil }
-        // Empty metadata, not merged, replaces all of it (EXIF, IPTC and XMP). ShouldExcludeXMP is
-        // not set: with kCGImageDestinationMetadata it keeps the EXIF and IPTC.
         let options: [CFString: Any] = [
             kCGImageDestinationMetadata: CGImageMetadataCreateMutable(),
             kCGImageDestinationMergeMetadata: false,
@@ -91,9 +105,9 @@ struct PastedImage: Sendable, Equatable {
         // CopyImageSource finalizes the destination itself.
         guard CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, nil) else { return nil }
         let copied = output as Data
-        guard let check = CGImageSourceCreateWithData(copied as CFData, nil), CGImageSourceGetCount(check) > 0 else { return nil }
-        let properties = CGImageSourceCopyPropertiesAtIndex(check, 0, nil) as? [CFString: Any] ?? [:]
-        guard (properties[kCGImagePropertyOrientation] as? Int ?? 1) == 1, !namesALocation(check, properties: properties) else { return nil }
+        guard let check = CGImageSourceCreateWithData(copied as CFData, nil), CGImageSourceGetCount(check) > 0,
+              let properties = CGImageSourceCopyPropertiesAtIndex(check, 0, nil) as? [CFString: Any],
+              !carriesMetadata(check, properties: properties) else { return nil }
         return copied
     }
 
@@ -105,8 +119,9 @@ struct PastedImage: Sendable, Equatable {
         return nil
     }
 
-    /// The photo's first image, turned upright at its full size and re-encoded with no location:
-    /// PNG when it has transparency or is `lossless` (a PNG stays a PNG, with the same pixels), else JPEG.
+    /// The photo's first image, turned upright at its full size and written again with no
+    /// metadata: PNG when it has transparency or is `lossless` (a PNG stays a PNG, with the same
+    /// pixels), else JPEG.
     private static func convert(_ source: CGImageSource, properties: [CFString: Any], width: Int, height: Int,
                                 lossless: Bool) -> PastedImage? {
         // The full-size "thumbnail" with the transform applies the EXIF orientation to the pixels.
@@ -122,10 +137,9 @@ struct PastedImage: Sendable, Equatable {
         let type = png ? UTType.png : UTType.jpeg
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, type.identifier as CFString, 1, nil) else { return nil }
-        // Only what the Mac needs: no GPS, no EXIF (its own copy of the place and the camera), orientation 1.
-        var written: [CFString: Any] = [kCGImagePropertyOrientation: 1]
-        if let profile = properties[kCGImagePropertyProfileName] { written[kCGImagePropertyProfileName] = profile }
-        if !png { written[kCGImageDestinationLossyCompressionQuality] = 0.9 }
+        // No properties but the JPEG quality: no orientation tag (none means upright) and no metadata.
+        // The color profile is the image's color space, written with its pixels.
+        let written: [CFString: Any] = png ? [:] : [kCGImageDestinationLossyCompressionQuality: 0.9]
         CGImageDestinationAddImage(destination, image, written as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return PastedImage(data: output as Data, type: type.identifier)

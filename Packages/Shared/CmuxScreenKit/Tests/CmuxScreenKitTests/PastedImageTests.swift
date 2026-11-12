@@ -107,12 +107,17 @@ struct PastedImageTests {
 
     /// What describes only the pixels, by dictionary: the rest is metadata. Written apart from the
     /// code under test, so the test does not take that code's word for what is safe.
-    static let pixelOnly: [String: Set<String>] = [
-        "{JFIF}": ["Version", "XDensity", "YDensity", "DensityUnit", "IsProgressive"],
-        "{PNG}": ["Gamma", "Chromaticities", "sRGBIntent", "InterlaceType", "XPixelsPerMeter", "YPixelsPerMeter",
-                  "CompressionFilter"],
-        "{TIFF}": ["Orientation", "XResolution", "YResolution", "ResolutionUnit"],
-    ]
+    static var pixelOnly: [String: Set<String>] {
+        [
+            "{JFIF}": Set([kCGImagePropertyJFIFVersion, kCGImagePropertyJFIFXDensity, kCGImagePropertyJFIFYDensity,
+                           kCGImagePropertyJFIFDensityUnit, kCGImagePropertyJFIFIsProgressive].map { $0 as String }),
+            "{PNG}": Set([kCGImagePropertyPNGGamma, kCGImagePropertyPNGChromaticities, kCGImagePropertyPNGsRGBIntent,
+                          kCGImagePropertyPNGInterlaceType, kCGImagePropertyPNGXPixelsPerMeter, kCGImagePropertyPNGYPixelsPerMeter,
+                          kCGImagePropertyPNGCompressionFilter].map { $0 as String }),
+            "{TIFF}": Set([kCGImagePropertyTIFFOrientation, kCGImagePropertyTIFFXResolution, kCGImagePropertyTIFFYResolution,
+                           kCGImagePropertyTIFFResolutionUnit].map { $0 as String }),
+        ]
+    }
 
     /// Every metadata field of the first image of `source` (see ``Read/metadata``).
     static func metadata(_ source: CGImageSource, properties: [CFString: Any]) -> [String] {
