@@ -2999,3 +2999,17 @@ request until the verdict comes. A feat-cmux-next push with no fallback (superse
 
 `tests/test_ci_cmux_next_compile_status.py` `test_a_pull_request_with_no_fallback_hands_off_to_the_overflow_compile`
 runs the real step against a 530.
+
+## note-347
+
+Above `light_runner` in macos-placement's outputs and `LIGHT_SPILL_JOBS` in its place step in `.github/workflows/cmux-next.yml`.
+
+A pull request's swift-canary, daemon-test and generated-files take an idle light side runner
+(glaeda-side-light-xcode-26.6) when no idle std side runner took them, before the cascade
+(side_lane_placement.light_spill_route(); Leo, 2026-11-11: "nobody seems to be doing stuff rn", with
+the std minis at 95 to 100% CPU and the light minis at 21 of 92 capacity units). Only these three: they
+build the same CmuxNext package seed the fast tier builds, which the 16 GB light minis already run, and
+on a pull request they need no GUI session. The Release and app scheme compiles stay on std. Attempt 1
+only, one job per idle light runner beyond its queue, never while a nightly or release job waits on the
+light family, and nothing with an unread or stale pool snapshot. Each job's runs-on and its
+CMUX_NEXT_RUNNER copy read `light_jobs` right after the fork clause.
