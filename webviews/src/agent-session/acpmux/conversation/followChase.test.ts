@@ -377,6 +377,38 @@ test("a row that arrived holds all of its move back, then comes home on the arri
   }
 });
 
+test("a chase whose first frame comes long after it was asked for (a covered view) lands before that frame paints", () => {
+  // #41252: one block arrives while another workspace covers the chat and nothing moves after it.
+  // The page draws no frames for a second; the first one back must draw the rows home, not 79 px off.
+  const line = currentChatMetrics().lineHeight;
+  const real = performance.now.bind(performance);
+  try {
+    for (const arm of ["spring", "blocks", "chunk", "linear"] as FollowMotionArm[])
+      for (const arrived of [false, true])
+        for (const [lateMs, glides] of [
+          [1000, false],
+          // FRAMELESS_MS itself is a covered stretch: "150 ms or more".
+          [150, false],
+          [60, true],
+        ] as const) {
+          const chase = createFollowChase(arm);
+          const { node, frame, drawn, pending } = fixture();
+          let skew = 0;
+          performance.now = () => real() + skew;
+          chase.shift(node, -132, line * 10, false, arrived);
+          expect(drawn()).toBeGreaterThan(0);
+          skew = lateMs;
+          frame();
+          // Late past FRAMELESS_MS: home, the loop ended. A busy page's frame (60 ms) still glides.
+          expect({ arm, arrived, lateMs, moving: drawn() > 0 }).toEqual({ arm, arrived, lateMs, moving: glides });
+          if (!glides) expect(pending()).toBe(0);
+          performance.now = real;
+        }
+  } finally {
+    performance.now = real;
+  }
+});
+
 test("a move that comes during an arrival's step keeps the step's end", () => {
   const line = currentChatMetrics().lineHeight;
   const chase = createFollowChase("blocks");
@@ -419,4 +451,32 @@ test("in the earlier looks a row that arrived holds all of its move back, and is
   const other = fixture();
   growth.shift(other.node, -2 * line, line * 10);
   expect(other.drawn()).toBeCloseTo((2 - Math.min(2 - CHASE_HOLD_LINES, CHASE_LAND_LINES)) * line);
+});
+
+test("carry: another motion's part the reader froze is drawn by the chase, held there, and goes home when followed again", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  // The composer growth's rise drew the rows 14 px down when the reader's wheel came.
+  chase.carry(node, 14);
+  chase.hold();
+  expect(drawn()).toBeCloseTo(14);
+  expect(pending()).toBe(0);
+  frame();
+  frame();
+  // Held: nothing moves but the reader's own scroll.
+  expect(drawn()).toBeCloseTo(14);
+  expect(chase.outstanding()).toBeCloseTo(14);
+  // Followed again: home from where it was painted, never past it.
+  chase.resume();
+  let previous = drawn();
+  while (pending() > 0) {
+    const at = frame();
+    expect(at).toBeLessThanOrEqual(previous + 1e-9);
+    expect(at).toBeGreaterThanOrEqual(0);
+    previous = at;
+  }
+  expect(drawn()).toBe(0);
+  // Nothing to carry moves nothing.
+  chase.carry(node, 0);
+  expect(drawn()).toBe(0);
 });

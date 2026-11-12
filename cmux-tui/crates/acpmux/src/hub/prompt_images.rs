@@ -200,7 +200,7 @@ fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
                     .map_err(std::io::Error::other)
                     // Through the folder this daemon holds (`home_fs`): a home replaced after
                     // the check never gets the image.
-                    .and_then(|()| crate::home_fs::create_dir_all(&dir(), 0o777))
+                    .and_then(|()| crate::home_fs::create_dir_all(dir(), 0o777))
                     .and_then(|()| {
                         // Written aside and renamed, so a reader never sees half an image.
                         let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));

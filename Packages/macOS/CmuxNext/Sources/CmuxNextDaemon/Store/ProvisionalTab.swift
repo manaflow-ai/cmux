@@ -140,16 +140,24 @@ public struct ProvisionalTab: Sendable, Hashable {
     }
 
     /// The daemon's raw `tab-added` of an app-rendered browser tab (`new-frontend-browser-tab`
-    /// takes no transaction): most likely the OLDEST pending browser create of the pane on the same
-    /// engine, when it is the pane's newest daemon tab. As for a conversation tab (``guess``), it
+    /// and `create-workspace {first_tab}` take no transaction): most likely the OLDEST pending browser create of the
+    /// pane, or of the pane's new workspace, on the same engine, when it is the pane's newest daemon tab. As for a conversation tab (``guess``), it
     /// is only hidden, the stand-in showing, until the reply names its create.
     @MainActor private static func guessBrowser(_ surface: SurfaceID, in pane: PaneID, engine: String?, in store: DaemonStore) {
         guard store.tab(surface: surface) != nil,
               !store.intentLog.entries.contains(where: { $0.createdSurface == surface }) else { return }
+        // A created tab's create in this pane, or a new browser workspace's first tab in a pane of that workspace
+        // (`BrowserWorkspaceStandIn`): the stand-in's screen and page stay until the reply names the tab.
+        let workspaceKey = store.workspace(containing: pane)?.key
         let waiting = store.intentLog.entries.first { entry in
-            guard entry.createdSurface == nil, case .createTab(let target, let provisional) = entry.kind, target == pane,
-                  provisional.kind == .browser, provisional.isFrontendOwned else { return false }
-            return provisional.browserEngine == engine
+            guard entry.createdSurface == nil else { return false }
+            let provisional: TabSnapshot
+            switch entry.kind {
+            case .createTab(let target, let tab) where target == pane: provisional = tab
+            case .createWorkspace(let workspace, _) where workspace.key == workspaceKey: provisional = workspace.tab
+            default: return false
+            }
+            return provisional.kind == .browser && provisional.isFrontendOwned && provisional.browserEngine == engine
         }
         guard let entry = waiting else { return }
         let daemonTabs = store.pane(pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []

@@ -398,7 +398,7 @@ export default agentPaneEntry({
   ],
   variants: withAllChats({
     "start-refused": {
-      note: "A refused new chat keeps the typed prompt and SSH machine, with the host's reason inline.",
+      note: "A refused new chat keeps the typed prompt and SSH machine, says why in plain words, and keeps the host's reason under Details.",
       ready: newTab({ template: "minimal", pageWidgets: [] }),
       snapshot: noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" } }),
       native: { "chat.new": { nativeError: { code: "agent.start_failed", userMessage: "devbox: agent unavailable" } } },
@@ -414,7 +414,9 @@ export default agentPaneEntry({
         await ctx.waitFor(
           () =>
             !ctx.document.querySelector(".nt-field") ||
-            !!ctx.document.querySelector('[role="alert"]')?.textContent?.includes("agent unavailable"),
+            !!ctx.document.querySelector('[role="alert"]')?.textContent?.includes("agent unavailable") ||
+            // Plain words over the box; the host's reason waits under Details (newtab/StartFailure.tsx).
+            !!ctx.document.querySelector("[data-error-detail]")?.textContent?.includes("agent unavailable"),
         );
       },
     },

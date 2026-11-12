@@ -104,7 +104,7 @@ enum DebugInstantCreateBench {
         let keyMilliseconds = BenchSpans.ms(.now - start)
         let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000, watchCommits: true)
         let committed = frames.lastCommitted
-        let chrome = visible == nil || command != .newBrowser ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
+        let chrome = visible == nil || (command != .newBrowser && !(command == .newWorkspace && params["run"] != nil)) ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
         let opensRight = command == .linkRight || command == .splitBrowser
         // The GitHub page: the frame after it drew the pull request (its `shown` mark, not its loading state), with or without `visible`.

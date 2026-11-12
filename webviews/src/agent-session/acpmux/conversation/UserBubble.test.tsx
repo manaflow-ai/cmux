@@ -99,7 +99,7 @@ test("an image-only prompt keeps slow delivery feedback without an empty bubble"
   expect(container.querySelector(".cv-user__bubble-wrap.is-empty")).toBeNull();
   expect(container.querySelector(".cv-user__images .cv-user__delivery")).not.toBeNull();
   expect(container.querySelector(".cv-user__delivery")?.getAttribute("aria-label")).toBe(
-    translate("prompt.delivery.stillSending"),
+    translate("prompt.delivery.sending"),
   );
   expect(container.querySelector(".cv-user__actions")).not.toBeNull();
   expect(container.querySelector(`button[aria-label="${translate("turn.retry")}"]`)).toBeNull();
