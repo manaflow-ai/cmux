@@ -125,19 +125,20 @@ Prevention, in the desktop (macOS):
   person's keyboard while it shows, and the result says so (`menu.keyboard`
   `menu`). A menu in the person's own app holds their keyboard inside that
   app.
-  - While anything is denied, a menu is left open only when it hides
-    nothing and has no submenu at all (the person's own arrows and Return
-    reach every level, and AX gives no sign of a submenu an app fills when
-    it opens). Otherwise it is closed again and its titles listed
-    (`menu.state` `listed`, submenu parents marked).
+  - Such a menu is left open only when it hides nothing (no item the deny
+    list or the protected apps cover), has no submenu at all, and the app
+    names its items are checked against are ready: the person's own arrows,
+    Return and typing reach every level, and AX gives no sign of a submenu
+    an app fills when it opens. Otherwise, whether or not anything is
+    denied (a protected app's item could sit under a submenu), it is closed
+    again and its titles listed (`menu.state` `listed`, submenu parents
+    marked); while something is denied and the names are still loading the
+    call says so instead (retry).
   - Picks run in one call: `click` with `menu_item` (a right click or
     control-click, a pop-up or menu button), with a path for a submenu's
     item ("Open With > TextEdit", "Sort By > Name"), or `set_value` on a
     pop-up. A pick holds the keyboard while it picks (about 0.5 to 1.5 s),
     as Codex's does.
-  - Any menu with an item the deny list or the protected apps cover is
-    listed and closed too, even with nothing denied, so such an item never
-    sits under the person's keys.
   - Display screenshots show a menu the agent opened as it is on screen,
     hidden items' titles included (only the windows of blocked apps are
     redacted; a window screenshot leaves menus out). Codex Computer Use

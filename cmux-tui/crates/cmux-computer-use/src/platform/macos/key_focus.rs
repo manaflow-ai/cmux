@@ -2,8 +2,10 @@
 //! EXPERIMENTAL handoff, off unless `CMUX_CU_KEY_HANDOFF=1` is in the
 //! worker's environment, and only on macOS 12 through 26. Off (the default),
 //! nothing here runs: an open menu holds the person's keyboard while it shows,
-//! as Codex Computer Use's does, and the engine lists and closes a menu that
-//! hides items or has submenus.
+//! as Codex Computer Use's does, and the engine leaves such a menu open only
+//! when it hides nothing (no denied or protected item), has no submenu and
+//! the app names are ready; else it lists and closes it, whether or not
+//! anything is denied (`menus::held_menu_decision`).
 //!
 //! An app that is not active and opens a menu (a pop-up, a menu button, a
 //! context menu) takes key focus for it: AppKit's menu tracking calls

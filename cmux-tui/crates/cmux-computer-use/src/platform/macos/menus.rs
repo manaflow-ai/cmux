@@ -463,6 +463,41 @@ pub(super) fn item_path_checked(el: &Ax) -> Option<Vec<String>> {
     Some(path)
 }
 
+/// What becomes of a menu that just opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HeldMenu {
+    /// Left open with its items for the next call.
+    LeaveOpen,
+    /// Closed again and its titles listed (`menu.state` `listed`), for a
+    /// one-call pick with a path.
+    List,
+    /// Closed again: the app names are still loading while something is
+    /// denied (APP_NAMES_LOADING).
+    Loading,
+}
+
+/// The rule for a menu that holds the person's keyboard (the handoff did
+/// not arm, or did not give the keyboard back): their own arrows, Return
+/// and typing reach every level of it, and AX gives no sign of a submenu an
+/// app fills when it opens. So it is left open only when it hides nothing
+/// (no item the deny list or the protected apps cover), has no submenu at
+/// all, and the app names its items are checked against are ready; else it
+/// is listed and closed, whether or not anything is denied (a protected
+/// app's item could sit under a submenu). A menu that does not hold the
+/// keyboard is left open. Pure, for tests.
+pub(super) fn held_menu_decision(
+    held: bool,
+    any_hidden: bool,
+    any_submenu: bool,
+    denies_any: bool,
+    names_ready: bool,
+) -> HeldMenu {
+    if !held || (!any_hidden && !any_submenu && names_ready) {
+        return HeldMenu::LeaveOpen;
+    }
+    if denies_any && !names_ready { HeldMenu::Loading } else { HeldMenu::List }
+}
+
 impl MacDesktop {
     /// Refuses leaving a menu open in the app the person is using (it would
     /// track their pointer and keyboard until the next call).
@@ -713,9 +748,11 @@ impl MacDesktop {
     }
 
     /// Whether a menu left open (any app) holds the person's keyboard and
-    /// hides an item at some level while something is denied: arrows and
-    /// opening submenus are refused then. (A menu left open on the fallback
-    /// hides nothing at any level, so it is fully reachable, as Codex's.)
+    /// may hide an item at some level (one recorded because it would not
+    /// close): arrows and opening submenus are refused then, whether or not
+    /// anything is denied (a protected app's item counts). A menu left open
+    /// by list_opened has no hidden item and no submenu, so it is fully
+    /// reachable, as Codex's.
     pub(super) fn held_menu_guards_keys(&self) -> bool {
         let held = {
             let opened = self.opened.lock().unwrap_or_else(|e| e.into_inner());
@@ -723,13 +760,14 @@ impl MacDesktop {
                 .as_ref()
                 .is_some_and(|o| o.keyboard_held && o.nested_hidden && showing(&o.windows))
         };
-        held && self.denies_any()
+        // Whether or not anything is denied: a protected app's item counts.
+        held
     }
 
     /// Refuses pressing or clicking a menu item that opens a submenu while a
-    /// menu holding the person's keyboard is open and something is denied:
-    /// the submenu's hidden items could get the highlight, and the person's
-    /// Return would run one. Items are pressed by element; `click` with
+    /// menu holding the person's keyboard is open and may hide an item
+    /// (denied or protected): the submenu's hidden items could get the
+    /// highlight, and the person's Return would run one. Items are pressed by element; `click` with
     /// `menu_item` picks in one call.
     pub(super) fn refuse_submenu_open(&self, el: &Ax) -> DResult<()> {
         if !self.held_menu_guards_keys() {
@@ -847,19 +885,21 @@ impl MacDesktop {
         let kept = guard.armed() && keyboard == "menu";
         let all = items(self, &menu);
         let held = !guard.armed() || kept;
-        // A menu that holds the person's keyboard reaches every level by
-        // their own keys, and AX gives no sign of a submenu the app fills
-        // when it opens (an "Item" placeholder or a stale list that becomes
-        // "Terminal"). So while anything is denied it is left open only
-        // when it hides nothing and has no submenu at all; else it is
-        // closed and its titles listed, for a one-call pick with a path.
-        // An item the deny list or the protected apps cover never sits under
-        // the person's keys, even with nothing denied.
-        let any_denied = all.iter().any(|i| i.denied);
-        let nested_hidden =
-            held && (any_denied || (self.denies_any() && all.iter().any(|i| i.info.submenu)));
-        if nested_hidden || kept {
-            if self.denies_any() && !workspace::app_names_ready() {
+        let decision = match held_menu_decision(
+            held,
+            all.iter().any(|i| i.denied),
+            all.iter().any(|i| i.info.submenu),
+            self.denies_any(),
+            workspace::app_names_ready(),
+        ) {
+            // A handoff that did not give the keyboard back leaves the
+            // person's window looking active: that menu is never left open.
+            HeldMenu::LeaveOpen if kept => HeldMenu::List,
+            other => other,
+        };
+        let nested_hidden = decision != HeldMenu::LeaveOpen;
+        if nested_hidden {
+            if decision == HeldMenu::Loading {
                 let refused = DesktopError::Unsupported(menus::APP_NAMES_LOADING.into());
                 return Err(self.close_and_fail(t, &menu, &windows, refused));
             }

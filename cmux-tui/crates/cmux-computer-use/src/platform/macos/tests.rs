@@ -1273,3 +1273,26 @@ fn the_keyboard_handoff_is_off_unless_its_variable_is_1() {
         assert_eq!(key_focus::counts(), (0, 0));
     }
 }
+
+#[test]
+fn a_menu_holding_the_keyboard_is_left_open_only_when_nothing_can_hide_under_it() {
+    use menus::{HeldMenu, held_menu_decision as d};
+    // (held, any_hidden, any_submenu, denies_any, names_ready)
+    // Not holding the keyboard (the handoff gave it back): left open.
+    assert_eq!(d(false, true, true, true, false), HeldMenu::LeaveOpen);
+    // Holding it, nothing hidden, no submenu, names ready: left open.
+    assert_eq!(d(true, false, false, true, true), HeldMenu::LeaveOpen);
+    assert_eq!(d(true, false, false, false, true), HeldMenu::LeaveOpen);
+    // Any submenu: listed, with nothing denied too (a protected item could
+    // sit under it).
+    assert_eq!(d(true, false, true, false, true), HeldMenu::List);
+    assert_eq!(d(true, false, true, true, true), HeldMenu::List);
+    // A hidden (denied or protected) item: listed, with nothing denied too.
+    assert_eq!(d(true, true, false, false, true), HeldMenu::List);
+    // Names still loading: listed with nothing denied; while something is
+    // denied the call says the names are loading.
+    assert_eq!(d(true, false, false, false, false), HeldMenu::List);
+    assert_eq!(d(true, false, false, true, false), HeldMenu::Loading);
+    // A listed menu's report says so.
+    assert_eq!(crate::menus::MenuReport::listed(vec![], 0).state, "listed");
+}
