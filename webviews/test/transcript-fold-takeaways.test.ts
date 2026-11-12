@@ -2,9 +2,18 @@
 // stays in sight, as Codex ends a turn (Lawrence, 2026-11-11). The arms that keep every reply in sight
 // (Leo, 2026-11-06) are tested in turn-fold-keeps-replies.test.ts.
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { isTakeaway, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+/// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
+/// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.
+const oneFoldPerTurn = () => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-steered": "nested-open" };
+};
+afterEach(() => {
+  if (globalThis.cmuxExperiments) delete (globalThis.cmuxExperiments as Record<string, string>)["turn-fold-steered"];
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -196,6 +205,7 @@ test("a stopped turn says so on its one Worked for line", () => {
 });
 
 test("Find opens the right fold for a row after a summary a steer continued", () => {
+  oneFoldPerTurn();
   const rows = [
     row("u", "user"),
     ran("tool1"),

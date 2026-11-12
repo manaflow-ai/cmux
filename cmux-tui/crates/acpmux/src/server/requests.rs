@@ -17,6 +17,10 @@ mod presets;
 mod queued;
 mod session_open;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
+mod settled_attach;
+#[cfg(test)]
+#[path = "requests/settled_attach_tests.rs"]
+mod settled_attach_tests;
 mod successor;
 mod turn_opener;
 mod workflow_dispatch;
@@ -2998,13 +3002,17 @@ async fn dispatch_request_with_identity(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             let hidden = params.get("visible") == Some(&Value::Bool(false));
+            // `settled`: the chat's settled view first, read before any log wait; a restart's
+            // queue then comes from it (`settled_attach.rs`, cmuxterm-hq#9655).
+            let settled = settled_attach::saved(hub, &s, &params);
+            let answered_settled = settled.as_ref().is_some_and(|(_, view)| view.is_some());
             // A restart reads the chat logs after its ready line: the queue, turn and status
             // shown here come from this chat's (`hub/log_load.rs`). A chat opened on screen
             // reads it, and its first page below, ahead of agent work (`qos.rs`).
             // A visible page asks for the newest records immediately (`waitLogs:false`); waiting
             // for the full restore here made a restarted long chat blank for tens of seconds.
             // Callers that need authoritative queue/status details keep the old default.
-            if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
+            if !answered_settled && params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
                 if hidden {
                     hub.session_log(&s).await;
                 } else {
@@ -3023,6 +3031,17 @@ async fn dispatch_request_with_identity(
                 &s,
                 SubOpts { event_stream, filter: filter.clone(), hidden, remote: false, rows: None },
             );
+            let settled_key = match settled {
+                Some((_, Some(view))) => {
+                    let key = view.key.clone();
+                    if let Some(reply) = settled_attach::reply(hub, conn, &s, view)? {
+                        return Ok(reply);
+                    }
+                    Some(key)
+                }
+                Some((key, None)) => Some(key),
+                None => None,
+            };
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
@@ -3066,6 +3085,11 @@ async fn dispatch_request_with_identity(
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
             let mut reply = json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener});
+            // Asked `settled` and none answered: say so, and write it for the chat's next open.
+            if let Some(key) = settled_key {
+                reply["settled"] = Value::Null;
+                hub.settle_view_for_open(&s, key);
+            }
             // The page and its opener each keep a record of up to 14 MiB: together they could
             // pass one message, and the chat then never opened (`hub::fit_reply`).
             crate::hub::fit_reply(&mut reply);

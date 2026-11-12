@@ -198,6 +198,13 @@ class RedefinitionTest(unittest.TestCase):
             self.assertEqual(dirty.returncode, 1, dirty.stdout + dirty.stderr)
             self.assertIn("tests/nested/test_dup.py:5: a redefines line 1", dirty.stdout)
 
+    def test_a_path_with_a_colon_is_scanned_without_crashing(self) -> None:
+        # #41827 review: the hits were sorted by `int(hit.split(":")[1])`, which raised on `tests/a:b.py`.
+        hits = check.scan_source("def a():\n    pass\n\n\ndef a():\n    pass\n\n\ndef b():\n    pass\n\n\n"
+                                 "def b():\n    pass\n", "tests/test_a:b.py")
+        self.assertEqual([hit.split(";")[0] for hit in hits],
+                         ["tests/test_a:b.py:5: a redefines line 1", "tests/test_a:b.py:13: b redefines line 9"])
+
     def test_a_file_that_does_not_parse_is_no_verdict(self) -> None:
         # #41818 review (F2): it exited 1, a verdict, and the gate took that as "no redefinition" for the file.
         with tempfile.TemporaryDirectory() as tmp:
@@ -320,6 +327,49 @@ class GateRowTest(unittest.TestCase):
         found = dict(gate.gate_own(self.repo, own_range, {"redefinitions"}, False))
         self.assertEqual(list(found), [gate.REDEFINITION_CHECK], found)
         self.assertEqual([line.split(":")[0] for line in found[gate.REDEFINITION_CHECK]], ["tests/test_b.py"], found)
+
+    def old_checker(self, body: str) -> Path:
+        """An installed checker copy that prints BODY's lines, as an older or broken one would."""
+        installed = Path(tempfile.mkdtemp(dir=self.repo.parent))
+        (installed / "check-test-redefinitions.py").write_text(body)
+        return installed
+
+    def test_a_redefinition_in_a_test_path_with_a_colon_is_refused(self) -> None:
+        # #41827 review (F1): the finding pattern read the path as `[^:]+`, so `tests/test_a:b.py:5: ...` matched
+        # nothing and the push passed the redefinition it added.
+        base = self.commit({"tests/test_a:b.py": LOCKED})
+        head = self.commit({"tests/test_a:b.py": SHADOWED})
+        found = gate.test_redefinition_problems(self.repo, base, head)
+        self.assertEqual(len(found), 1, found)
+        self.assertTrue(found[0].startswith("tests/test_a:b.py:5: T.helper redefines line 2"), found)
+
+    def test_an_old_checkers_parse_error_on_a_path_with_a_colon_refuses(self) -> None:
+        # #41827 review (F1): an installed checker older than exit 2 says exit 1 for a parse error, and the parse
+        # pattern's `[^:]+` path never matched `tests/test_a:b.py`, so the push read as clean.
+        installed = self.old_checker("print('tests/test_a:b.py:7: does not parse: invalid syntax')\nraise SystemExit(1)\n")
+        base = self.commit({"tests/test_a:b.py": LOCKED})
+        head = self.commit({"tests/test_a:b.py": SHADOWED + "\ndef broken(:\n    pass\n"})
+        found = gate.test_redefinition_problems(self.repo, base, head, trusted_scripts=installed)
+        self.assertEqual(len(found), 1, found)
+        self.assertIsInstance(found[0], gate.NoVerdict, found)
+        self.assertIn("could not parse tests/test_a:b.py:7", found[0])
+
+    def test_an_exit_1_the_gate_cannot_read_refuses(self) -> None:
+        # Exit 1 is the checker's "findings" verdict only when its output names them; a line in another shape, or none,
+        # is no verdict.
+        for body in ("print('something went sideways')\nraise SystemExit(1)\n", "raise SystemExit(1)\n"):
+            with self.subTest(body=body):
+                installed = self.old_checker(body)
+                base = self.commit({"tests/test_a.py": LOCKED + "\n# " + body[:5] + "\n"})
+                head = self.commit({"tests/test_a.py": SHADOWED + "\n# " + body[:5] + "\n"})
+                found = gate.test_redefinition_problems(self.repo, base, head, trusted_scripts=installed)
+                self.assertEqual(len(found), 1, found)
+                self.assertIsInstance(found[0], gate.NoVerdict, found)
+
+    def test_old_debt_in_a_path_with_a_colon_still_subtracts(self) -> None:
+        base = self.commit({"tests/test_a:b.py": SHADOWED})
+        head = self.commit({"tests/test_a:b.py": "import os\n\n\n" + SHADOWED})
+        self.assertEqual(gate.test_redefinition_problems(self.repo, base, head), [])
 
     def test_the_gate_reports_it_under_its_own_check(self) -> None:
         base = self.commit({"tests/test_a.py": LOCKED})
