@@ -17,6 +17,8 @@ git-fixture-exit-trap fails a test that traps EXIT directly.
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -143,6 +145,268 @@ class ShellCleanup(unittest.TestCase):
         hits = [line for line in done.stdout.splitlines() if "git-fixture-exit-trap" in line]
         self.assertIn("git-fixture-exit-trap", CHECKER.read_text(), "the checker has no git-fixture-exit-trap rule")
         self.assertEqual(hits, [], "\n".join(hits))
+
+
+# Each converted caller pattern (git_fixture_trap_exit with a quoted command, a function name, on the mktemp line,
+# a later call that replaces an earlier one; a trap set before sourcing), run under `set -euo pipefail`.
+# "$2" is the scratch folder for the caller's own temp dir; "$3" the marker its cleanup writes.
+CALLER_PATTERNS = {
+    "quoted command": (
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
+        'tmp=$(mktemp -d "$2/caller.XXXXXX")\n'
+        'git_fixture_trap_exit \'s=$?; rm -rf "$tmp"; echo "ran $s" >"$MARKER"\'\n'
+    ),
+    "function name": (
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
+        'TMP=$(mktemp -d "$2/caller.XXXXXX")\n'
+        'cleanup() { local status=$?; git -C "$TMP/repo" worktree remove --force "$TMP/wt" >/dev/null 2>&1 || true; '
+        'rm -rf "$TMP"; echo "ran $status" >"$MARKER"; }\n'
+        'git_fixture_trap_exit cleanup\n'
+        'git_fixture_init "$TMP/repo"; git_q -C "$TMP/repo" commit -q --allow-empty -m x\n'
+        'git_q -C "$TMP/repo" worktree add -q --detach "$TMP/wt"\n'
+    ),
+    "on the mktemp line": (
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
+        'T=$(mktemp -d "$2/caller.XXXXXX"); git_fixture_trap_exit \'s=$?; rm -rf "$T"; echo "ran $s" >"$MARKER"\'\n'
+    ),
+    "a later call replaces the first": (
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
+        'A=$(mktemp -d "$2/caller.XXXXXX"); git_fixture_trap_exit \'echo "wrong cleanup" >"$MARKER"\'\n'
+        'B=$(mktemp -d "$2/caller.XXXXXX"); git_fixture_trap_exit \'s=$?; rm -rf "$A" "$B"; echo "ran $s" >"$MARKER"\'\n'
+    ),
+    "a direct trap after sourcing (the trap wrapper)": (
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
+        'tmp=$(mktemp -d "$2/caller.XXXXXX"); trap \'s=$?; rm -rf "$tmp"; echo "ran $s" >"$MARKER"\' EXIT INT\n'
+    ),
+    "a trap set before sourcing": (
+        'set -euo pipefail; MARKER=$3\n'
+        'tmp=$(mktemp -d "$2/caller.XXXXXX"); trap \'s=$?; rm -rf "$tmp"; echo "ran $s" >"$MARKER"\' EXIT\n'
+        'source "$1"\n'
+    ),
+}
+# Ways a test body fails under `set -e`, with the status the script must keep: `exit 7`, `false` (errexit, 1), and
+# a command that fails with 7 under errexit.
+FAILURES = {
+    "exit 7": ("exit 7\n", 7),
+    "false": ("false\necho unreachable\n", 1),
+    "errexit 7": ("sh -c 'exit 7'\necho unreachable\n", 7),
+}
+
+
+class FailedTestCleanup(unittest.TestCase):
+    """A test that fails under `set -euo pipefail` still runs its chained cleanup (Codex F1 (P2) on cmux#41195).
+
+    At 54e23b34 the helper's EXIT trap set $? with `(exit "$status")`, which tripped errexit inside the trap when
+    the test had failed, so the caller's cleanup never ran and its temp dirs (and worktrees) stayed behind.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="git-fixture-errexit-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
+        self.env = Env.clean(self.tmp)
+        self.tmpdir = Path(self.env["TMPDIR"])
+        self.scratch = self.tmp / "scratch"
+
+    def run_case(self, script: str) -> tuple[subprocess.CompletedProcess[str], Path]:
+        shutil.rmtree(self.scratch, ignore_errors=True)
+        self.scratch.mkdir()
+        marker = self.tmp / "marker"
+        marker.unlink(missing_ok=True)
+        done = subprocess.run(["bash", "-c", script, "_", str(LIB), str(self.scratch), str(marker)], env=self.env,
+                              capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=self.tmp)
+        return done, marker
+
+    def test_every_caller_pattern_cleans_up_and_keeps_the_failing_status(self):
+        for pattern, setup in CALLER_PATTERNS.items():
+            for failure, (body, status) in FAILURES.items():
+                with self.subTest(pattern=pattern, failure=failure):
+                    done, marker = self.run_case(setup + body)
+                    self.assertEqual(done.returncode, status, done.stderr)
+                    self.assertNotIn("unreachable", done.stdout)
+                    self.assertTrue(marker.exists(), f"the chained cleanup never ran: {done.stderr}")
+                    self.assertEqual(marker.read_text().strip(), f"ran {status}")
+                    self.assertEqual(sorted(os.listdir(self.scratch)), [], "the caller's temp dir was left")
+                    self.assertEqual(sorted(os.listdir(self.tmpdir)), [], "the fixture folder was left")
+
+    def test_a_passing_test_keeps_exit_0_and_cleans_up(self):
+        for pattern, setup in CALLER_PATTERNS.items():
+            with self.subTest(pattern=pattern):
+                done, marker = self.run_case(setup + "true\n")
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(marker.read_text().strip(), "ran 0")
+                self.assertEqual(sorted(os.listdir(self.scratch)), [])
+                self.assertEqual(sorted(os.listdir(self.tmpdir)), [])
+
+    def test_a_folder_rm_cannot_finish_still_runs_the_cleanup(self):
+        """The folder removal step has the same hole: a failed rm under errexit must not end the trap."""
+        if os.geteuid() == 0:
+            self.skipTest("root removes a read-only folder; the failing rm cannot be set up")
+        script = (
+            'set -euo pipefail; source "$1"\n'
+            'locked=${GIT_CONFIG_GLOBAL%/*}/locked; mkdir "$locked"; : >"$locked/file"; chmod 500 "$locked"\n'
+            'tmp=$(mktemp -d "$2/caller.XXXXXX"); MARKER=$3\n'
+            'git_fixture_trap_exit \'s=$?; chmod 700 "$locked"; rm -rf "$tmp"; echo "ran $s" >"$MARKER"\'\n'
+            "exit 7\n"
+        )
+        done, marker = self.run_case(script)
+        for root, dirs, _ in os.walk(self.tmpdir):
+            for name in dirs:
+                os.chmod(os.path.join(root, name), 0o700)
+        self.assertEqual(done.returncode, 7, done.stderr)
+        self.assertTrue(marker.exists(), f"the chained cleanup never ran after a failed rm: {done.stderr}")
+        self.assertEqual(marker.read_text().strip(), "ran 7")
+        self.assertEqual(sorted(os.listdir(self.scratch)), [])
+
+
+class ExitStatusAndDoubleSource(unittest.TestCase):
+    """The cmux#41021 review: the EXIT chain must hand the script's status to the caller's action (F1), and a second
+    source after GIT_CONFIG_GLOBAL is unset must not lose the first private folder (F2)."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="git-fixture-status-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
+        self.env = Env.clean(self.tmp)
+        self.tmpdir = Path(self.env["TMPDIR"])
+
+    def bash(self, script: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["bash", "-c", script, "_", str(LIB)], env=self.env, capture_output=True, text=True,
+                              timeout=120, stdin=subprocess.DEVNULL, cwd=self.tmp)
+
+    def assertNoFolder(self, done: subprocess.CompletedProcess[str]) -> None:
+        self.assertEqual(sorted(os.listdir(self.tmpdir)), [], f"a fixture folder was left: {done.stderr}")
+
+    def test_a_caller_trap_that_exits_with_its_status_keeps_the_failure(self):
+        """`trap 'exit "$?"' EXIT` after sourcing, then a failure with 7: the script exits 7, not 0."""
+        for errexit in ("", "set -euo pipefail; "):
+            for set_trap in ("trap 'exit \"$?\"' EXIT", "git_fixture_trap_exit 'exit \"$?\"'"):
+                for failure in ("exit 7", "sh -c 'exit 7'; exit 7"):
+                    with self.subTest(errexit=bool(errexit), trap=set_trap, failure=failure):
+                        done = self.bash(errexit + 'source "$1"\n' + set_trap + "\n" + failure + "\n")
+                        self.assertEqual(done.returncode, 7, done.stderr)
+                        self.assertNoFolder(done)
+
+    def test_a_second_source_after_unset_leaves_no_folder(self):
+        for errexit in ("", "set -euo pipefail; "):
+            with self.subTest(errexit=bool(errexit)):
+                done = self.bash(
+                    errexit + 'source "$1"\nfirst=$GIT_CONFIG_GLOBAL\nunset GIT_CONFIG_GLOBAL\nsource "$1"\n'
+                    '[[ "$GIT_CONFIG_GLOBAL" != "$first" && -f "$first" && -f "$GIT_CONFIG_GLOBAL" ]] || exit 9\n'
+                    'git_fixture_trap_exit \'echo chained >"$PWD/chained"\'\nexit 7\n')
+                self.assertEqual(done.returncode, 7, done.stderr)
+                self.assertEqual((self.tmp / "chained").read_text().strip(), "chained")
+                (self.tmp / "chained").unlink()
+                self.assertNoFolder(done)
+
+
+class SavedTrapAndSubshellSource(unittest.TestCase):
+    """The review of hq#9676, ported (guard-causes-the-harm): the helper's own EXIT guard skipped the cleanup it exists
+    for.
+
+    F1: `saved=$(trap -p EXIT); eval "$saved"` handed the helper's own dispatcher to the wrapper as the caller's
+    action, so at exit the dispatcher eval'd itself until bash segfaulted and the caller's cleanup never ran.
+    F2: `(unset GIT_CONFIG_GLOBAL; source lib)` made a folder in the subshell, but the guard read the parent's trap
+    text (a subshell still shows it) and never armed EXIT there, so the subshell's folder stayed behind.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="git-fixture-saved-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
+        self.env = Env.clean(self.tmp)
+        self.tmpdir = Path(self.env["TMPDIR"])
+
+    def bash(self, script: str, *args: str) -> subprocess.CompletedProcess[str]:
+        subprocess.run(["rm", "-rf", str(self.tmpdir)], check=True)
+        self.tmpdir.mkdir()
+        return subprocess.run(["bash", "-c", script, "_", str(LIB), *args], env=self.env, capture_output=True,
+                              text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=self.tmp)
+
+    def test_sourcing_twice_and_restoring_a_saved_exit_trap_runs_the_caller_cleanup_once(self):
+        for saved in ("saved=$(trap -p EXIT)", "saved=$(trap -p)"):
+            with self.subTest(saved=saved):
+                marker = self.tmp / "cleanup"
+                marker.unlink(missing_ok=True)
+                done = self.bash('trap \'echo cleanup >>"$2"\' EXIT\nsource "$1"\nsource "$1"\n'
+                                 + saved + '\neval "$saved"\nexit 5\n', str(marker))
+                self.assertEqual(done.returncode, 5, f"exit {done.returncode} (-11 is a segfault): "
+                                                     f"{done.stderr[-2000:]}")
+                self.assertTrue(marker.exists(), "the caller's cleanup never ran")
+                self.assertEqual(marker.read_text(), "cleanup\n", "the caller's cleanup did not run exactly once")
+                self.assertEqual(sorted(os.listdir(self.tmpdir)), [], "a fixture folder was left")
+
+    def test_a_subshell_source_removes_both_folders(self):
+        for errexit in ("", "set -euo pipefail; "):
+            with self.subTest(errexit=bool(errexit)):
+                marker = self.tmp / "folders"
+                marker.unlink(missing_ok=True)
+                done = self.bash(
+                    errexit + 'source "$1"\nfirst=${GIT_CONFIG_GLOBAL%/*}\n'
+                    '(unset GIT_CONFIG_GLOBAL; source "$1"; second=${GIT_CONFIG_GLOBAL%/*}\n'
+                    ' [[ -d $second && $second != "$first" ]] || exit 9; echo "$second" >"$2")\n'
+                    '[[ -d $first ]] || exit 8\nexit 0\n', str(marker))
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertTrue(marker.exists(), "the subshell never made its own folder, so this case tests nothing")
+                self.assertEqual(sorted(os.listdir(self.tmpdir)), [], f"a fixture folder was left: {done.stderr}")
+
+
+    def test_a_saved_exit_trap_comes_back_after_it_was_cleared(self):
+        """The review of hq#9715 F2, ported: `saved=$(trap -p EXIT); trap - EXIT; eval "$saved"` must bring the
+        caller's action back. `trap -p` printed this file's own dispatcher, the restore ignored it, and the cleared
+        action stayed gone. Under `set -e` too: a dispatcher that restores $? with `(exit "$status")` is stopped by
+        errexit before the restored action runs (cmux#41195 F1, cmux#41677)."""
+        for errexit in ("", "set -euo pipefail; "):
+            for when in ("before", "after"):
+                for saved in ("saved=$(trap -p EXIT)", "saved=$(trap -p)"):
+                    with self.subTest(errexit=bool(errexit), trap_set=when, saved=saved):
+                        marker = self.tmp / "cleanup"
+                        marker.unlink(missing_ok=True)
+                        set_trap = 'trap \'echo cleanup >>"$2"\' EXIT\n'
+                        script = (errexit + (set_trap if when == "before" else "") + 'source "$1"\n'
+                                  + (set_trap if when == "after" else "")
+                                  + saved + '\ntrap - EXIT\neval "$saved"\nexit 5\n')
+                        done = self.bash(script, str(marker))
+                        self.assertEqual(done.returncode, 5, done.stderr[-2000:])
+                        self.assertTrue(marker.exists(), f"the restored cleanup never ran: {done.stderr[-2000:]}")
+                        self.assertEqual(marker.read_text(), "cleanup\n")
+                        self.assertEqual(sorted(os.listdir(self.tmpdir)), [], "a fixture folder was left")
+
+    def test_trap_p_still_lists_other_signals_and_nothing_for_a_cleared_exit(self):
+        done = self.bash('source "$1"\ntrap \'echo int\' INT\ntrap \'echo bye\' EXIT\ntrap -p\necho ---\n'
+                         'trap - EXIT\ntrap -p EXIT\necho ---\ntrap -p INT\n')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        listed, cleared, int_only = done.stdout.split("---\n")
+        self.assertIn("trap -- 'echo int' SIGINT", listed)
+        self.assertIn("trap -- 'echo bye' EXIT", listed)
+        self.assertNotIn("_git_fixture", listed, "trap -p showed the helper's own dispatcher")
+        self.assertEqual(cleared, "")
+        self.assertEqual(int_only.strip(), "trap -- 'echo int' SIGINT")
+
+
+class Bash32(unittest.TestCase):
+    """The review of hq#9715 F1, ported: macOS's /bin/bash is 3.2, which has no $BASHPID, so a `set -u` caller died
+    sourcing the file ("BASHPID: unbound variable"). bash 4+ always sets BASHPID, so no run here can reproduce that;
+    this row rejects the bash-4-only names in the file's code. The real check is this whole file under a bash 3.2
+    (the `bash:3.2` container image, or a stock Mac): `python3 -I tests/test_git_fixture_cleanup.py`."""
+
+    BASH4_ONLY = re.compile(r"\bBASHPID\b|\bmapfile\b|\breadarray\b|\bcoproc\b|\b(?:declare|local|typeset) -[a-zA-Z]*[An]"
+                            r"|\$\{[^}]*(?:,,|\^\^)[^}]*\}|&>>|\|&")
+
+    def test_the_file_uses_no_bash_4_only_name(self):
+        hits = []
+        for number, line in enumerate(LIB.read_text().splitlines(), 1):
+            code = re.sub(r"(^|\s)#.*$", "", line)
+            if self.BASH4_ONLY.search(code):
+                hits.append(f"{number}: {line.strip()}")
+        self.assertEqual(hits, [], "bash 3.2 (macOS /bin/bash) lacks these")
+
+    def test_sourcing_under_set_u_in_the_running_bash(self):
+        tmp = Path(tempfile.mkdtemp(prefix="git-fixture-bash32-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)], check=False)
+        env = Env.clean(tmp)
+        done = subprocess.run(["bash", "-c", 'set -u; source "$1"; echo "ok $BASH_VERSION"', "_", str(LIB)], env=env,
+                              capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=tmp)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(done.stdout.startswith("ok "), done.stdout)
+        self.assertEqual(sorted(os.listdir(env["TMPDIR"])), [])
 
 
 if __name__ == "__main__":
