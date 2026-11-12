@@ -49,7 +49,12 @@ export function WebUpdatesCard() {
   const [running, setRunning] = useState<Run | null>(null);
   const [failed, setFailed] = useState<Run | null>(null);
   const state = host?.web_updates;
-  if (!state) return <PartReadState card="web-updates" read={hostRead} onRetry={() => void store.refreshHost()} />;
+  // A failed host read is said once, by the App Update card above it on the same page, with the one
+  // Try Again (the two cards come from the same read); this card only holds its place until then.
+  if (!state)
+    return hostRead === "failed" ? null : (
+      <PartReadState card="web-updates" read={hostRead} onRetry={() => void store.refreshHost()} />
+    );
   const busy = running !== null || state.phase === "checking" || state.phase === "downloading";
   const run = async (action: Run) => {
     setRunning(action);
