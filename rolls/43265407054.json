@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43265407054",
+  "recorded_at": "2026-11-12T17:21:54Z",
+  "reason": "cmux-tui 16a4e678de75 changes the image's cmux-tui (pinned e7dd2d9fe047)",
+  "dry_run": false,
+  "cmux_tui": "16a4e678de75caa259bbaf3f815532b2a2dcecb1",
+  "fixes": [
+    {
+      "sha": "16a4e678de75caa259bbaf3f815532b2a2dcecb1",
+      "mergedAt": "2026-11-12T08:36:00-08:00",
+      "subject": "cmux-tui-core: three local JSON getters read through cmux-json's JsonGet (#42053)"
+    },
+    {
+      "sha": "1f9264110ce155d467e0100b53b4085ce103a71e",
+      "mergedAt": "2026-11-12T08:29:05-08:00",
+      "subject": "fix(cmux-tui): export the Windows PTY poll handle seam (#42048)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T17:21:54Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
