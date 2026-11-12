@@ -872,18 +872,7 @@ impl SessionMeta {
     /// Claude's own config file, and with it the person's login. OpenCode's
     /// store `<data>/opencode` is `XDG_DATA_HOME=<data>`.
     pub fn apply_chat_store(&self, env: &mut BTreeMap<String, String>) {
-        let Some(dir) = &self.chat_store else { return };
-        let (var, default, dir) = match self.family.as_deref() {
-            Some("claude") => ("CLAUDE_CONFIG_DIR", ".claude", dir.as_path()),
-            Some("codex") => ("CODEX_HOME", ".codex", dir.as_path()),
-            Some("opencode") => match dir.parent() {
-                Some(data) if dir.file_name().is_some_and(|name| name == "opencode") => {
-                    ("XDG_DATA_HOME", ".local/share", data)
-                }
-                _ => return,
-            },
-            _ => return,
-        };
+        let Some((var, default, dir)) = self.chat_store_var() else { return };
         let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let default = dirs::home_dir().map(|home| real(&home.join(default)));
         if default.is_some_and(|default| default == real(dir)) {
@@ -891,6 +880,30 @@ impl SessionMeta {
         } else {
             env.insert(var.to_owned(), dir.to_string_lossy().into_owned());
         }
+    }
+
+    /// `chat_store`'s variable, the harness's default for it and its value
+    /// ([`Self::apply_chat_store`]); None when there is none or its family has
+    /// no such variable.
+    fn chat_store_var(&self) -> Option<(&'static str, &'static str, &Path)> {
+        let dir = self.chat_store.as_deref()?;
+        match self.family.as_deref() {
+            Some("claude") => Some(("CLAUDE_CONFIG_DIR", ".claude", dir)),
+            Some("codex") => Some(("CODEX_HOME", ".codex", dir)),
+            Some("opencode") => match dir.parent() {
+                Some(data) if dir.file_name().is_some_and(|name| name == "opencode") => {
+                    Some(("XDG_DATA_HOME", ".local/share", data))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Whether a spawn's env can name this chat's store: it has none, or its
+    /// family's variable can point at it ([`Self::apply_chat_store`]).
+    pub fn chat_store_applies(&self) -> bool {
+        self.chat_store.is_none() || self.chat_store_var().is_some()
     }
 
     /// The Claude store this session's harness reads when it spawns on a

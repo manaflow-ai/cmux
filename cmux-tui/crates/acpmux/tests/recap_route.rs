@@ -107,6 +107,16 @@ fn acpmux_home() {
 }
 
 async fn chat(name: &str, env: Value) -> Chat {
+    chat_with(name, env, |root| {
+        add_route(root, "route-a", ROUTE_A);
+        bind(root, "global", "route-a");
+        json!({"fake": {"argv": [root.join("agent.sh")], "family": "opencode"}})
+    })
+    .await
+}
+
+/// [`chat`] with the harnesses `setup` writes (`fake` is the chat's) and its routes and bindings.
+async fn chat_with(name: &str, env: Value, setup: impl FnOnce(&Path) -> Value) -> Chat {
     acpmux_home();
     let root = scratch(name);
     let script = root.join("agent.sh");
@@ -123,10 +133,9 @@ async fn chat(name: &str, env: Value) -> Chat {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
-    add_route(&root, "route-a", ROUTE_A);
-    bind(&root, "global", "route-a");
+    let harnesses = setup(&root);
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": [script], "family": "opencode"}},
+        "harnesses": harnesses,
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
     }))
@@ -231,4 +240,59 @@ async fn a_chat_whose_route_is_gone_gets_no_recap_and_nothing_is_sent() {
     );
     assert!(recaps.is_empty(), "{recaps:?}");
     let _ = std::fs::remove_dir_all(&a.root);
+}
+
+/// An account route of the Codex family: its chats run in `home` (`CODEX_HOME`).
+fn add_account_route(root: &Path, id: &str, home: &Path) {
+    std::fs::create_dir_all(home).unwrap();
+    let file = routes::file_from_json(&json!({
+        "kind": "direct-subscription", "families": ["codex"], "accountHome": home,
+    }))
+    .unwrap();
+    routes::add(Some(&routes_dir(root)), id, &file, false).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_chat_with_a_recorded_account_home_gets_its_recap_in_that_home() {
+    // A Codex chat started in account A's home, which it keeps as its store
+    // (`route_account::record`); the default route then moves to account B. Its spawn stays in
+    // A (`route_account::keep_home`), and so does its recap, never B's login.
+    let home_a = std::env::temp_dir().join(format!("acpmux-recap-home-a-{}", std::process::id()));
+    let home_b = std::env::temp_dir().join(format!("acpmux-recap-home-b-{}", std::process::id()));
+    let mut a = chat_with("account", json!({}), |root| {
+        add_account_route(root, "account-a", &home_a);
+        add_account_route(root, "account-b", &home_b);
+        bind(root, "global", "account-a");
+        // `codex exec` (the headless recipe) answers with the home it runs in.
+        let headless = root.join("codex-headless.sh");
+        std::fs::write(
+            &headless,
+            format!(
+                "#!/bin/sh\nout=\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = --output-last-message ]; then out=$2; fi\n  shift\ndone\necho \"exec ${{CODEX_HOME:-no-home}}\" >> '{}'\nprintf 'Recap from %s\\n' \"${{CODEX_HOME:-no-home}}\" > \"$out\"\n",
+                ran(root).display()
+            ),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&headless, std::fs::Permissions::from_mode(0o755)).unwrap();
+        json!({"fake": {"argv": ["python3", FAKE], "family": "codex",
+                        "env": {"CODEX_PATH": headless}}})
+    })
+    .await;
+    assert_eq!(
+        a.hub.resolve(&a.id).unwrap().meta().chat_store,
+        Some(home_a.clone()),
+        "the chat keeps account A's home as its store"
+    );
+    bind(&a.root, "global", "account-b");
+    let recaps = a.away_and_back().await;
+    let ran_with = std::fs::read_to_string(ran(&a.root)).unwrap_or_default();
+    assert!(ran_with.contains(&home_a.display().to_string()), "ran in A's home: {ran_with}");
+    assert!(!ran_with.contains(&home_b.display().to_string()), "ran in B's home: {ran_with}");
+    assert_eq!(recaps.len(), 1, "{recaps:?}");
+    let text = recaps[0]["text"].as_str().unwrap();
+    assert!(text.contains(&home_a.display().to_string()), "{text}");
+    for dir in [&a.root, &home_a, &home_b] {
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

@@ -27,7 +27,7 @@
 //!     instead of a fresh read of the whole conversation;
 //!   - any other chat (Codex, OpenCode, pi, ..., or a Claude chat whose
 //!     process is gone) is recapped by one headless call of its own harness's
-//!     small model (`Hub::complete_own_strict`, `crate::complete`): from its
+//!     small model (`Hub::complete_own`, `crate::complete`): from its
 //!     last few prompts and the final reply to each ([`recent_said`]), newest
 //!     kept, the whole prompt under `complete::MAX_PROMPT_BYTES`
 //!     ([`recap_prompt`]), never the whole history. A harness with no headless
@@ -439,8 +439,8 @@ impl Hub {
         let answer = match writer {
             Some(write) => write(prompt),
             None => {
-                let meta = session.meta();
-                match self.complete_own_strict(&meta, prompt, MAX_TOKENS, TIMEOUT).await {
+                let chat = super::complete::ChatRoute::of(session);
+                match self.complete_own(&chat, prompt, MAX_TOKENS, TIMEOUT).await {
                     Ok(text) => Some(text),
                     Err(e) => {
                         tracing::debug!(session = %session.id, reason = e.reason(), "recap: no small-model answer");

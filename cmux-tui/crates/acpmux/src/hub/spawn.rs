@@ -199,7 +199,7 @@ impl Hub {
 
     /// `spawn_profile_for`, and the approval digest of the preset contents
     /// it read (under the one config lock it read them with).
-    async fn spawn_profile_read(
+    pub(super) async fn spawn_profile_read(
         &self,
         meta: &SessionMeta,
         forking: bool,
