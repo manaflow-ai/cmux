@@ -35,10 +35,17 @@ fi
 # Codex Computer Use brings apps to the front as it works, and many tasks are
 # graded on the frontmost app (macOSWorld checks "window 1 of the frontmost
 # process"); cmux keeps the person's focus unless foreground is allowed.
+# agents.cmuxMcp is on: no person is there to answer the cmux Tools
+# question, and from b2d1553 an unanswered question gives agents no cmux MCP
+# server (the benchmark's cmux arm starts `cmux computer-use mcp --primary`
+# itself, which this does not gate; on keeps any later path working).
 # The cmux Remote helper's grants are below (TCC).
 mkdir -p ~/.config/cmux
 cat > ~/.config/cmux/cmux-next.json <<'JSON'
 {
+  "agents": {
+    "cmuxMcp": "on"
+  },
   "computerUse": {
     "mode": "fullAccess",
     "deniedApps": [],
