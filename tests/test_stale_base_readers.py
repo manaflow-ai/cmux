@@ -276,5 +276,182 @@ class BaseFetchOnce(StaleBaseFixture):
         self.assertIn("could not be fetched", stderr.getvalue())
 
 
+
+# A stand-in for ssh, a GIT_SSH wrapper or a credential helper: it records how it was started (its arguments, its
+# session, the prompt settings it was handed) and fails, as a remote that wants a credential does.
+FAKE_PROGRAM = """#!{python}
+import json, os, sys
+if sys.argv[1:2] in (["get"], ["store"], ["erase"]):
+    sys.stdin.read()  # a credential helper's request
+with open({record!r}, "a") as out:
+    out.write(json.dumps({{"name": os.path.basename(sys.argv[0]), "args": sys.argv[1:], "sid": os.getsid(0),
+                          "env": {{k: os.environ.get(k) for k in ("GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE",
+                                                                 "GIT_TERMINAL_PROMPT", "GCM_INTERACTIVE")}}}}) + "\\n")
+sys.exit({code})
+"""
+
+# One pre-push checker: its own process, loading push_range.py by path as every checker does.
+CHECKER = ("import importlib.util, sys\n"
+           "from pathlib import Path\n"
+           "spec = importlib.util.spec_from_file_location('checker_push_range', sys.argv[1])\n"
+           "module = importlib.util.module_from_spec(spec)\n"
+           "sys.modules[spec.name] = module\n"
+           "spec.loader.exec_module(module)\n"
+           "print(module.refresh_upstream(Path(sys.argv[2]), 'origin', key=sys.argv[3]))\n")
+
+
+class BaseFetchFailsOnceAndNeverPrompts(StaleBaseFixture):
+    """cmux#41715 review: a failed base fetch is tried once per hook run, and no route git takes can prompt.
+
+    Each pre-push checker is its own process: a failed fetch wrote no stamp, so every checker of one hook run tried
+    the same fetch again (up to 30 s each). And a fetch only cleared the prompts it named: a GIT_SSH program got no
+    BatchMode, and anything the fetch started (ssh, a GIT_SSH wrapper, a credential helper) shared the hook's
+    session, so it could open the terminal and ask. One row per way git connects or asks."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.push_range = load("stale_base_push_range_fails", "scripts/cmux-next/push_range.py")
+        self.key = f"refs/heads/topic {self.git(self.work, 'rev-parse', 'HEAD')} refs/heads/topic {'0' * 40}"
+        self.record = self.tmp / "record.jsonl"
+        self.asker = self.tmp / "askpass"
+        self.asker.write_text(f"#!/bin/sh\ntouch '{self.tmp / 'asked'}'\necho secret\n")
+        self.asker.chmod(0o755)
+        for name in ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"):
+            os.environ.pop(name, None)
+
+    def fake(self, name: str, code: int = 255) -> Path:
+        folder = self.tmp / "bin" / name.replace("/", "_")
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / name
+        path.write_text(FAKE_PROGRAM.format(python=sys.executable, record=str(self.record), code=code))
+        path.chmod(0o755)
+        return path
+
+    def calls(self) -> list[dict]:
+        if not self.record.exists():
+            return []
+        calls = [json.loads(line) for line in self.record.read_text().splitlines() if line.strip()]
+        # `GIT_SSH -G`: git's probe of which ssh an unknown GIT_SSH program is (ssh.variant auto); it connects nowhere.
+        return [call for call in calls if call["args"][:1] != ["-G"]]
+
+    def over_ssh(self) -> None:
+        self.git(self.work, "remote", "set-url", "origin", "ssh://fixture.invalid/origin.git")
+
+    def checker(self, run: str) -> subprocess.Popen:
+        env = {**os.environ, "CMUX_PREPUSH_RUN": run}
+        return subprocess.Popen([sys.executable, "-I", "-c", CHECKER, str(ROOT / "scripts/cmux-next/push_range.py"),
+                                 str(self.work), self.key], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, stdin=subprocess.DEVNULL)
+
+    def finish(self, proc: subprocess.Popen) -> str:
+        out, err = proc.communicate(timeout=120)
+        self.assertEqual(proc.returncode, 0, err)
+        return out.strip()
+
+    def assert_no_prompt(self, call: dict) -> None:
+        self.assertNotEqual(call["sid"], os.getsid(0),
+                            f"{call['name']} ran in the hook's session, so it could open the terminal and ask")
+        self.assertIn(call["env"]["GIT_ASKPASS"], ("", None))
+        self.assertIn(call["env"]["SSH_ASKPASS"], ("", None))
+        self.assertFalse((self.tmp / "asked").exists(), "no askpass helper ran")
+
+    # -- F1: one fetch per hook run, a failed one included -------------------------------------------------------
+
+    def test_a_failed_fetch_is_tried_once_by_the_checkers_of_one_hook_run(self):
+        self.over_ssh()
+        os.environ["GIT_SSH_COMMAND"] = str(self.fake("ssh"))
+        notes = [self.finish(self.checker("run-1")) for _ in range(3)]
+        self.assertEqual(len(self.calls()), 1, f"three checker processes, one fetch: {self.calls()}")
+        for note in notes:
+            self.assertIn("could not be fetched", note, "every checker still says the base is stale")
+
+    def test_checkers_that_start_together_fetch_once(self):
+        self.over_ssh()
+        os.environ["GIT_SSH_COMMAND"] = str(self.fake("ssh"))
+        procs = [self.checker("run-1") for _ in range(3)]
+        notes = [self.finish(proc) for proc in procs]
+        self.assertEqual(len(self.calls()), 1, f"three checkers at once, one fetch: {self.calls()}")
+        self.assertTrue(all("could not be fetched" in note for note in notes), notes)
+
+    def test_the_next_hook_run_tries_a_failed_fetch_again(self):
+        self.over_ssh()
+        os.environ["GIT_SSH_COMMAND"] = str(self.fake("ssh"))
+        self.finish(self.checker("run-1"))
+        self.finish(self.checker("run-2"))
+        self.assertEqual(len(self.calls()), 2, "a failure stamp holds for its own run only")
+
+    # -- F2 and its class: every route git takes to connect or ask -----------------------------------------------
+
+    def fetch_note(self) -> str:
+        return self.push_range.refresh_upstream(self.work, "origin")
+
+    def test_git_ssh_command_gets_batchmode_and_no_terminal(self):
+        self.over_ssh()
+        os.environ.update(GIT_SSH_COMMAND=str(self.fake("ssh")), GIT_ASKPASS=str(self.asker),
+                          SSH_ASKPASS=str(self.asker), SSH_ASKPASS_REQUIRE="force")
+        self.assertIn("could not be fetched", self.fetch_note())
+        [call] = self.calls()
+        self.assertIn("BatchMode=yes", call["args"])
+        self.assert_no_prompt(call)
+
+    def test_core_sshcommand_gets_batchmode_and_no_terminal(self):
+        self.over_ssh()
+        self.git(self.work, "config", "core.sshCommand", str(self.fake("ssh")))
+        self.assertIn("could not be fetched", self.fetch_note())
+        [call] = self.calls()
+        self.assertIn("BatchMode=yes", call["args"])
+        self.assert_no_prompt(call)
+
+    def test_git_ssh_set_to_openssh_gets_batchmode(self):
+        self.over_ssh()
+        os.environ["GIT_SSH"] = str(self.fake("ssh"))
+        self.assertIn("could not be fetched", self.fetch_note())
+        [call] = self.calls()
+        self.assertIn("BatchMode=yes", call["args"], "GIT_SSH takes no options, so OpenSSH could still ask")
+        self.assert_no_prompt(call)
+
+    def test_a_git_ssh_wrapper_runs_with_no_terminal(self):
+        self.over_ssh()
+        os.environ["GIT_SSH"] = str(self.fake("ssh-wrapper"))
+        self.assertIn("could not be fetched", self.fetch_note())
+        [call] = self.calls()
+        self.assertNotIn("BatchMode=yes", call["args"], "a wrapper's options are its own")
+        self.assert_no_prompt(call)
+
+    def test_an_http_credential_helper_and_askpass_never_prompt(self):
+        import http.server
+        import threading
+
+        class WantsCredentials(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 (http.server's name)
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="fixture"')
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), WantsCredentials)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        port = server.server_address[1]
+        self.git(self.work, "remote", "set-url", "origin", f"http://127.0.0.1:{port}/origin.git")
+        self.git(self.work, "config", "credential.helper", str(self.fake("git-credential-fixture", code=0)))
+        self.git(self.work, "config", "core.askPass", str(self.asker))
+        for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
+            os.environ.pop(name, None)
+        os.environ.update(GIT_ASKPASS=str(self.asker), SSH_ASKPASS=str(self.asker), GIT_TERMINAL_PROMPT="1",
+                          GCM_INTERACTIVE="always", no_proxy="*", NO_PROXY="*")
+        self.assertIn("could not be fetched", self.fetch_note())
+        helpers = [call for call in self.calls() if call["args"][:1] == ["get"]]
+        self.assertTrue(helpers, f"the credential helper was asked: {self.calls()}")
+        for call in helpers:
+            self.assertEqual(call["env"]["GIT_TERMINAL_PROMPT"], "0")
+            self.assertEqual(call["env"]["GCM_INTERACTIVE"], "never")
+            self.assert_no_prompt(call)
+
+
 if __name__ == "__main__":
     unittest.main()
