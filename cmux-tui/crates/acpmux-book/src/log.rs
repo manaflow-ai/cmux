@@ -133,6 +133,8 @@ pub enum Error {
     /// The files do not agree with each other. The book is derived from the raw file: the
     /// owner deletes the book and translates it again.
     Corrupt(&'static str),
+    /// The caller supplied a value that cannot describe a book record or checkpoint.
+    InvalidInput(&'static str),
     /// A derived entry is damaged; callers can still serve the book's other rows.
     CorruptRow {
         row_id: u64,
@@ -164,6 +166,7 @@ impl std::fmt::Display for Error {
                 write!(f, "book: a checkpoint of {bytes} bytes (it must be under 65536)")
             }
             Error::Corrupt(what) => write!(f, "book: {what}"),
+            Error::InvalidInput(what) => write!(f, "book: invalid input: {what}"),
             Error::CorruptRow { row_id, reason } => write!(f, "book: row {row_id}: {reason}"),
             Error::Rebuild(what) => write!(f, "book: rebuild this book from raw ({what})"),
             Error::Stopped => write!(f, "book: a write failed; open the book again"),
@@ -242,6 +245,29 @@ struct Tail {
     len: u64,
 }
 
+#[cfg(test)]
+struct FailAfter<'a> {
+    file: &'a File,
+    remaining: usize,
+}
+
+#[cfg(test)]
+impl Write for FailAfter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if self.remaining == 0 {
+            return Err(io::Error::other("injected short write"));
+        }
+        let amount = self.remaining.min(bytes.len());
+        let written = self.file.write(&bytes[..amount])?;
+        self.remaining = self.remaining.saturating_sub(written);
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
+
 /// One book's log. The chat actor owns it and is its only writer; a second `open` of the same
 /// directory fails with [`Error::Busy`] until this value is dropped.
 pub struct Log {
@@ -269,6 +295,8 @@ pub struct Log {
     /// its record: the files are only known to agree again after the next open.
     broken: bool,
     stats: Stats,
+    #[cfg(test)]
+    fail_after: Option<usize>,
 }
 
 fn segment_path(rows_dir: &Path, seg: u32) -> PathBuf {
@@ -323,6 +351,11 @@ fn check_segment_header(file: &File) -> Result<(), Error> {
         return Err(Error::Rebuild("a segment has an unknown version"));
     }
     Ok(())
+}
+
+fn write_segment_header(file: &mut File) -> io::Result<()> {
+    file.write_all(&SEGMENT_MAGIC.to_le_bytes())?;
+    file.write_all(&SEGMENT_VERSION.to_le_bytes())
 }
 
 /// The highest segment number in `rows_dir`; 0 when there is none.
@@ -454,7 +487,22 @@ impl Log {
         let mut found_slots = std::collections::BTreeSet::new();
         for seg in mark.seg..=last {
             let path = segment_path(&rows_dir, seg);
-            let file = OpenOptions::new().read(true).write(seg == last).open(&path)?;
+            let mut file = OpenOptions::new().read(true).write(seg == last).open(&path)?;
+            let segment_len = file.metadata()?.len();
+            if seg == last && segment_len < SEGMENT_HEADER_LEN {
+                if segment_len >= 4 {
+                    let mut magic = [0u8; 4];
+                    fsio::read_at(&file, &mut magic, 0)?;
+                    if magic != SEGMENT_MAGIC.to_le_bytes() {
+                        return Err(Error::Rebuild("a segment has the wrong magic"));
+                    }
+                }
+                file.set_len(0)?;
+                file.seek(SeekFrom::Start(0))?;
+                write_segment_header(&mut file)?;
+                fsio::sync(&file)?;
+                stats.syncs = stats.syncs.saturating_add(1);
+            }
             check_segment_header(&file)?;
             let from = if seg == mark.seg { mark.off } else { SEGMENT_HEADER_LEN };
             let scan = recover::scan(&file, from, |offset, header| {
@@ -574,6 +622,8 @@ impl Log {
             unsynced: recovered.replayed != 0,
             broken: false,
             stats,
+            #[cfg(test)]
+            fail_after: None,
         };
         Ok((log, recovered))
     }
@@ -581,11 +631,10 @@ impl Log {
     fn create_segment(rows_dir: &Path, seg: u32) -> Result<File, Error> {
         let mut file = OpenOptions::new()
             .read(true)
-            .write(true)
+            .append(true)
             .create_new(true)
             .open(segment_path(rows_dir, seg))?;
-        file.write_all(&SEGMENT_MAGIC.to_le_bytes())?;
-        file.write_all(&SEGMENT_VERSION.to_le_bytes())?;
+        write_segment_header(&mut file)?;
         fsio::sync(&file)?;
         fsio::sync_dir(rows_dir)?;
         file.seek(SeekFrom::End(0))?;
@@ -672,7 +721,7 @@ impl Log {
             return Err(Error::Stopped);
         }
         if line.iter().any(|byte| *byte == b'\n' || *byte == b'\r') {
-            return Err(Error::Corrupt("a raw.map line contains a newline"));
+            return Err(Error::InvalidInput("a raw.map line contains a newline"));
         }
         let file = self.raw_files.checked_add(1).ok_or(Error::Corrupt("raw.map is full"))?;
         let result = (|| -> io::Result<()> {
@@ -782,7 +831,7 @@ impl Log {
                 });
             }
             if !seen.insert(patch.row_id) {
-                return Err(Error::Corrupt("a patch batch repeats a row"));
+                return Err(Error::InvalidInput("a patch batch repeats a row"));
             }
             self.validate_record(patch.raw, patch.text)?;
         }
@@ -810,10 +859,10 @@ impl Log {
     fn validate_record(&self, raw: RawRange, text: &[u8]) -> Result<u32, Error> {
         if raw.len == 0 {
             if raw.file != 0 {
-                return Err(Error::Corrupt("a raw range with no bytes has a file number"));
+                return Err(Error::InvalidInput("a raw range with no bytes has a file number"));
             }
         } else if raw.file == 0 || raw.file > self.raw_files {
-            return Err(Error::Corrupt("a record names a raw file absent from raw.map"));
+            return Err(Error::InvalidInput("a record names a raw file absent from raw.map"));
         }
         u32::try_from(text.len())
             .ok()
@@ -844,7 +893,19 @@ impl Log {
         }
         let off =
             u32::try_from(self.tail.len).map_err(|_| Error::Corrupt("a segment is past 4 GiB"))?;
-        if let Err(error) = (&self.tail.file).write_all(&self.scratch) {
+        #[cfg(test)]
+        let fail_after = self.fail_after.take();
+        #[cfg(test)]
+        let write_result = match fail_after {
+            Some(remaining) => {
+                let mut writer = FailAfter { file: &self.tail.file, remaining };
+                writer.write_all(&self.scratch)
+            }
+            None => (&self.tail.file).write_all(&self.scratch),
+        };
+        #[cfg(not(test))]
+        let write_result = (&self.tail.file).write_all(&self.scratch);
+        if let Err(error) = write_result {
             // Part of the record may be in the file. Cut it back to where it was, so the next
             // record does not follow a torn one.
             if self.tail.file.set_len(self.tail.len).is_err() {
@@ -910,7 +971,10 @@ impl Log {
             return Err(Error::Stopped);
         }
         if self.unsynced {
-            fsio::sync(&self.tail.file)?;
+            if let Err(error) = fsio::sync(&self.tail.file) {
+                self.broken = true;
+                return Err(Error::Io(error));
+            }
             self.stats.syncs = self.stats.syncs.saturating_add(1);
             self.unsynced = false;
         }
@@ -921,22 +985,14 @@ impl Log {
     /// together under 64 KB. The segment and both indexes are synced first, so the next open
     /// reads only what is appended after this call. The file is replaced atomically: a kill at
     /// any moment leaves the old checkpoint or the new one.
-    pub fn write_checkpoint(&mut self, state: &[u8]) -> Result<(), Error> {
-        self.write_checkpoint_with_open_rows(state, &[])
-    }
-
     /// Checkpoint the actor state and the ids it has allocated but has not settled. The log
     /// needs these ids explicitly: it never parses the actor's opaque state or row text.
-    pub fn write_checkpoint_with_open_rows(
-        &mut self,
-        state: &[u8],
-        open_rows: &[u64],
-    ) -> Result<(), Error> {
+    pub fn write_checkpoint(&mut self, state: &[u8], open_rows: &[u64]) -> Result<(), Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
         if open_rows.iter().any(|id| *id == 0 || self.rows.get(*id).is_some()) {
-            return Err(Error::Corrupt("checkpoint open rows contain a settled or zero id"));
+            return Err(Error::InvalidInput("checkpoint open rows contain a settled or zero id"));
         }
         let mark = Mark {
             last_seq: self.last_seq,
@@ -949,7 +1005,21 @@ impl Log {
         };
         let bytes = checkpoint::encode(&mark, state, open_rows)?;
         self.sync()?;
-        let synced = u64::from(self.rows.sync()?).saturating_add(u64::from(self.seqs.sync()?));
+        let rows_synced = match self.rows.sync() {
+            Ok(synced) => synced,
+            Err(error) => {
+                self.broken = true;
+                return Err(Error::Io(error));
+            }
+        };
+        let seqs_synced = match self.seqs.sync() {
+            Ok(synced) => synced,
+            Err(error) => {
+                self.broken = true;
+                return Err(Error::Io(error));
+            }
+        };
+        let synced = u64::from(rows_synced).saturating_add(u64::from(seqs_synced));
         fsio::write_atomic(&self.dir.join("checkpoint"), &bytes)?;
         self.stats.syncs = self.stats.syncs.saturating_add(synced).saturating_add(1);
         self.stats.bytes_written = self.stats.bytes_written.saturating_add(bytes.len() as u64);
@@ -1036,7 +1106,7 @@ mod failure_tests {
             let home = tempfile::tempdir().unwrap();
             let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
             log.append_settled(1, 1, RawRange::NONE, b"old").unwrap();
-            log.write_checkpoint(&[]).unwrap();
+            log.write_checkpoint(&[], &[]).unwrap();
             // Read-only descriptors produce a real failed write without production fault hooks.
             let error = if map_failure {
                 log.raw_map = File::open(home.path().join("raw.map")).unwrap();
@@ -1051,11 +1121,38 @@ mod failure_tests {
                 Err(Error::Stopped)
             ));
             assert!(matches!(log.patch(1, 2, RawRange::NONE, b"patch"), Err(Error::Stopped)));
-            assert!(matches!(log.write_checkpoint(&[]), Err(Error::Stopped)));
+            assert!(matches!(log.write_checkpoint(&[], &[]), Err(Error::Stopped)));
             assert!(matches!(log.append_raw_file(b"raw"), Err(Error::Stopped)));
             drop(log);
             let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
             assert_eq!(log.append_settled(2, 1, RawRange::NONE, b"new").unwrap(), 2);
         }
+    }
+
+    #[test]
+    fn a_short_write_in_a_new_segment_does_not_shift_the_next_record() {
+        let home = tempfile::tempdir().unwrap();
+        let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
+        log.append_settled(1, 1, RawRange::NONE, b"first").unwrap();
+        log.roll().unwrap();
+        log.fail_after = Some(3);
+        assert!(matches!(log.append_settled(2, 1, RawRange::NONE, b"second"), Err(Error::Io(_))));
+        log.append_settled(2, 1, RawRange::NONE, b"second").unwrap();
+        log.append_settled(3, 1, RawRange::NONE, b"third").unwrap();
+        drop(log);
+        let (log, _) = Log::open(home.path(), Options::default()).unwrap();
+        assert_eq!(log.row(2).unwrap().len, 6);
+        assert_eq!(log.row(3).unwrap().len, 5);
+    }
+
+    #[test]
+    fn a_failed_sync_stops_the_log() {
+        let home = tempfile::tempdir().unwrap();
+        let (mut log, _) = Log::open(home.path(), Options::default()).unwrap();
+        let file = log.append_raw_file(b"raw").unwrap();
+        log.append_settled(1, 1, RawRange { file, off: 0, len: 1 }, b"row").unwrap();
+        log.tail.file = File::open("/dev/full").unwrap();
+        assert!(matches!(log.sync(), Err(Error::Io(_))));
+        assert!(matches!(log.append_settled(2, 1, RawRange::NONE, b"row"), Err(Error::Stopped)));
     }
 }
