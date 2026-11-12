@@ -395,8 +395,11 @@ def run(args: argparse.Namespace) -> int:
     deadline = None if args.budget_seconds is None else time.monotonic() + args.budget_seconds
     try:
         export_tree(repo, args.base, holder)
-        active = [(name, argv) for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true")
-                  if argv is not None]
+        active = [
+            (name, argv)
+            for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true")
+            if argv is not None
+        ]
         # Web lint and webviews checks can both run bun install in webviews/. Keep those two in separate batches;
         # every other gate reads the merge and its exported base tree, so they share the critical path safely.
         batches = [[entry for entry in active if entry[0] != "webviews checks"],
