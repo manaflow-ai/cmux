@@ -390,13 +390,33 @@ async fn run(shape: Shape, dhat: bool) -> Value {
 
 /// The frame a dhat site is named by: the first one in acpmux's own code below the allocator,
 /// with the function and its file and line.
+/// With line tables, a generic frame (`poll<acpmux::...>`, `call_mut<...>`) names acpmux in its
+/// type and a std file as its place: only a frame whose file is under `acpmux/src/` is acpmux's.
+/// The site is the first three such frames, innermost first.
 fn acpmux_frame(frames: &[&str]) -> String {
-    let own = frames.iter().find(|f| {
-        (f.contains("acpmux::") || f.contains("crates/acpmux/"))
-            && !f.contains("heap_profile")
-            && !f.contains("dhat")
-    });
-    own.or(frames.get(1)).map_or_else(|| "[unknown]".to_owned(), |f| short_frame(f))
+    let own: Vec<String> =
+        frames.iter().filter(|f| own_file(f)).take(3).map(|f| place(f)).collect();
+    if own.is_empty() {
+        return frames.get(1).map_or_else(|| "[unknown]".to_owned(), |f| short_frame(f));
+    }
+    own.join(" < ")
+}
+
+/// A frame in acpmux's own source, not the allocator hook in `main.rs` or the profiler's.
+fn own_file(frame: &str) -> bool {
+    frame.contains("acpmux/src/")
+        && !frame.contains("acpmux/src/main.rs")
+        && !frame.contains("heap_profile")
+}
+
+/// A frame as `function (file:line)`: the function's last two path segments, its generics cut.
+fn place(frame: &str) -> String {
+    let frame = short_frame(frame);
+    let (name, file) = frame.rsplit_once(" (").map_or((frame.as_str(), ""), |(n, f)| (n, f));
+    let name = name.split('<').next().unwrap_or(name);
+    let name: Vec<&str> = name.rsplit("::").take(2).collect();
+    let file = file.trim_end_matches(')').split("acpmux/src/").last().unwrap_or(file);
+    format!("{} ({file})", name.into_iter().rev().collect::<Vec<_>>().join("::"))
 }
 
 /// `0x1234: acpmux::watch_delta::Known::patched (src/watch_delta.rs:107:9)` without the address
