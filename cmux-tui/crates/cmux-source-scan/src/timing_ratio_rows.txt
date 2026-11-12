@@ -528,3 +528,41 @@ fn wrapped_clock_fn() {
         assert!(ready && lap() < lap() * 4);
     }
 }
+=== flagged :: p99 < Duration::from_millis(5) :: percentile bound :: review of cmux#41523 F3: a `let` that shadows in an inner block ends with the block
+#[test]
+fn shadowed_in_a_block() {
+    let p99 = Instant::now().elapsed();
+    {
+        let p99 = 0u128;
+        assert!(p99 < 5);
+    }
+    assert!(p99 < Duration::from_millis(5));
+}
+=== flagged :: p99 >= budget :: percentile bound :: review of cmux#41523 F4: `!(p99 >= budget)` is `p99 < budget`, an upper bound
+#[test]
+fn negated_upper_bound() {
+    let p99 = helper();
+    let budget = Duration::from_millis(5);
+    assert!(!(p99 >= budget));
+}
+=== clean :: p99 < floor :: - :: review of cmux#41523 F4: `!(p99 < floor)` is `p99 >= floor`, a lower bound
+#[test]
+fn negated_lower_bound() {
+    let p99 = helper();
+    let floor = Duration::from_millis(1);
+    assert!(!(p99 < floor));
+}
+=== flagged :: busy < idle * 4 :: ratio of two timings :: review of cmux#41523 F5: only profile.ci runs it alone, and nextest's implicit default profile runs it beside others
+#[test]
+fn alone_case() {
+    let (busy, idle) = (helper(), helper());
+    assert!(busy < idle * 4);
+}
+--- nextest
+[test-groups]
+timing-alone = { max-threads = 1 }
+
+[[profile.ci.overrides]]
+filter = 'test(=alone_case)'
+test-group = 'timing-alone'
+threads-required = 'num-test-threads'
