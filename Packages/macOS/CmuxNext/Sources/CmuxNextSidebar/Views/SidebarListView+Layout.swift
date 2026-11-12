@@ -195,12 +195,30 @@ extension SidebarListViewComponents {
         // has one, and the first one goes to the selection (`revealFirstViewport`, REOPEN-F7).
         if let clip = enclosingScrollView?.contentView, clip.bounds.height <= 0 { return .null }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
-        return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
+        let near = visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
+        // Responsive scrolling moves the clip off the main thread and shows only rows that have views: a flick during
+        // a busy main-thread turn (an agent's stream, a page's IPC) ran past the 3 rows of overscan and showed empty
+        // rows until the turn ended (Leo 2026-11-12: "Sidebar, though, still kind of a little bit whack"). The rows
+        // AppKit asks to have ready (`prepareContent(in:)`, toward the scroll) are realized too, at most half a screen
+        // past each edge (`SidebarStyle.prepareScreens`), so the cost stays two screens of rows at any list length.
+        guard !askedPrepare.isNull else { return near }
+        let ahead = askedPrepare.intersection(visible.insetBy(dx: 0, dy: -visible.height * SidebarStyle.prepareScreens))
+        return ahead.isNull ? near : near.union(ahead)
+    }
+    /// The realization rect with no overdraw: what the row view pool is sized for, so a scroll's overdraw rows are
+    /// recycled, never parked in growing numbers.
+    func nearRealizationRect() -> NSRect {
+        let asked = askedPrepare
+        askedPrepare = .null
+        defer { askedPrepare = asked }
+        return realizationRect()
     }
     /// Responsive scrolling (`SidebarScrollView`) asks for content past the visible rows before it scrolls there off
-    /// the main thread. The list prepares exactly the rows it realizes, and says so (`realizeVisibleRows` keeps
-    /// `preparedContentRect` the realization rect), so AppKit never counts a row as drawn that has no view.
+    /// the main thread. The list keeps the asked rect (capped, `realizationRect`), realizes its rows and says it
+    /// prepared exactly those (`realizeVisibleRows` keeps `preparedContentRect` the realization rect), so AppKit never
+    /// counts a row as drawn that has no view.
     override func prepareContent(in rect: NSRect) {
+        askedPrepare = rect
         super.prepareContent(in: realizationRect())
         realizeVisibleRows()
     }
@@ -566,7 +584,7 @@ extension SidebarListViewComponents {
         let width = Self.rowsWidth(in: scroll)
         if frame.width != width { setFrameSize(NSSize(width: width, height: frame.height)) }
         // The pool parks two realization rects of rows: a space switch's leaving and returning pages.
-        rowPool.limit = SidebarRowViewPool.limit(forHeight: realizationRect().height, rowHeight: metrics.rowHeight)
+        rowPool.limit = SidebarRowViewPool.limit(forHeight: nearRealizationRect().height, rowHeight: metrics.rowHeight)
         updateDocumentHeight()
         revealFirstViewport()
         realizeVisibleRows()

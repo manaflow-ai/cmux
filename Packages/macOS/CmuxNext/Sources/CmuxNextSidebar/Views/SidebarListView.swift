@@ -205,6 +205,9 @@ final class SidebarListView: NSView {
     /// realized for it only. Nil realizes the list's bounds, every row (space-switch-fast: a page
     /// made every row view of its space, so a switch cost grew with the space's workspaces).
     var pageViewport: NSRect?
+    /// The rect responsive scrolling last asked the list to prepare (`prepareContent(in:)`): AppKit's overdraw past
+    /// the visible rows, toward where the scroll goes. Null until it asks.
+    var askedPrepare: NSRect = .null
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
