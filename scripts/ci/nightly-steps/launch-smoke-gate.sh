@@ -153,7 +153,10 @@ if silent:
     if [ -n "$unjudged" ]; then
       echo "::warning title=nightly-next launch smoke::$unjudged; the app launched and the build is not held"
       printf '\nDaemon: %s. The app launched; the build is not held.\n' "$unjudged" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-    fi ;;
+    fi
+    # A pass is exit 0, said here: without it a summary line above that could not be written (the branch's last
+    # command) gave its status to the script, and a build that passed was held with no error line.
+    exit 0 ;;
   crash)
     # Which home each attempt's failure was in: report.json's `arm` (empty, or seeded when the empty home passed). And
     # what it was: the app's end, or (`daemon_down` alone) a live app whose daemon was not connected. The 2 attempts
