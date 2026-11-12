@@ -120,3 +120,95 @@ fn nothing_to_read_makes_no_prompt() {
     assert_eq!(recap_prompt(&[], crate::complete::MAX_PROMPT_BYTES), None);
     assert_eq!(recap_prompt(&[Said::Prompt("hi".into())], 10), None);
 }
+
+fn message(seq: u64, id: &str, text: &str) -> crate::store::EventRecord {
+    crate::store::EventRecord {
+        seq,
+        at: seq,
+        dir: "in".into(),
+        kind: "agent_message_chunk".into(),
+        msg: json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "chat",
+            "update": {"sessionUpdate": "agent_message_chunk", "messageId": id,
+                       "content": {"type": "text", "text": text}}}}),
+        host_seq: None,
+    }
+}
+
+#[test]
+fn a_reply_the_harness_abandoned_after_a_steer_is_not_read() {
+    // A prompt, a steer while its reply streams, then the harness retries (`stream.rs`
+    // `message_superseded`): the abandoned reply is hidden from the recap as in the transcript.
+    let superseded = crate::store::EventRecord {
+        seq: 5,
+        at: 5,
+        dir: "mux".into(),
+        kind: "message_superseded".into(),
+        msg: json!({"oldMessageId": "m1", "newMessageId": "m2", "reason": "harness_retry"}),
+        host_seq: None,
+    };
+    let records = vec![
+        prompt(1, "t1", "make the parser tolerate missing fields"),
+        message(2, "m1", "Half an answer that was abandoned"),
+        prompt(3, "t1", "and keep the old format working"),
+        message(4, "m1", " and more of it"),
+        superseded,
+        message(6, "m2", "Both formats parse now."),
+        turn_end(7, "t1"),
+        // A record the recap does not read.
+        crate::store::EventRecord {
+            seq: 8,
+            at: 8,
+            dir: "mux".into(),
+            kind: "cost".into(),
+            msg: json!({}),
+            host_seq: None,
+        },
+    ];
+    // What `read_recent` reads: its kinds only.
+    let read: Vec<_> =
+        records.into_iter().filter(|r| READ_KINDS.contains(&r.kind.as_str())).collect();
+    let said = recent_said(&read);
+    assert!(
+        !said.iter().any(|s| matches!(s, Said::Reply(t) if t.contains("abandoned"))),
+        "{said:?}"
+    );
+    assert_eq!(said.last(), Some(&Said::Reply("Both formats parse now.".into())), "{said:?}");
+}
+
+#[test]
+fn the_recap_walks_back_only_its_scan_budget_of_records() {
+    let mut config: crate::config::Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["true"]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+    let hub = Hub::new(config, store);
+    let filler = |seq: u64| crate::store::EventRecord {
+        seq,
+        at: seq,
+        dir: "mux".into(),
+        kind: "cost".into(),
+        msg: json!({}),
+        host_seq: None,
+    };
+    let mut records =
+        vec![prompt(1, "t1", "an old prompt"), chunk(2, "An old reply."), turn_end(3, "t1")];
+    records.extend((4..=103).map(filler));
+    records.extend([
+        prompt(104, "t2", "the newest prompt"),
+        chunk(105, "The newest reply."),
+        turn_end(106, "t2"),
+    ]);
+    for record in &records {
+        hub.store.append("chat", record).unwrap();
+    }
+    // Within a budget of 10 records: the newest turn only, never a walk back to the first.
+    assert_eq!(
+        read_recent(&hub, "chat", 106, 10),
+        vec![Said::Prompt("the newest prompt".into()), Said::Reply("The newest reply.".into())]
+    );
+    // A budget past the log's start reads it all.
+    assert_eq!(read_recent(&hub, "chat", 106, 1000).len(), 4);
+}

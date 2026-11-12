@@ -76,11 +76,16 @@ const INSTRUCTION: &str = "The person stepped away from this chat with a coding 
 const MAX_SAID_BYTES: usize = 1024;
 /// An older line cut shorter than this to fit is left out instead.
 const MIN_SAID_BYTES: usize = 64;
-/// The record kinds the small model's recap is read from (`recent_said`).
-const READ_KINDS: [&str; 3] = ["user_message", "agent_message_chunk", "turn_result"];
+/// The record kinds the small model's recap is read from (`recent_said`): a reply a harness
+/// abandoned and sent again (`message_superseded`) is hidden there, as the transcript hides it.
+const READ_KINDS: [&str; 4] =
+    ["user_message", "agent_message_chunk", "turn_result", "message_superseded"];
 /// The most records, and about the most bytes, read back from the log's end for it.
 const READ_RECORDS: usize = 4000;
 const READ_BYTES: usize = 512 * 1024;
+/// The most records walked back from the log's end to find them, read or not: a chat whose
+/// last turns are mostly tool calls is not walked to its start for its few prompts.
+const SCAN_RECORDS: u64 = 20_000;
 
 /// What writes a fallback recap from its prompt in place of the small model (tests).
 pub type RecapWriter = Arc<dyn Fn(String) -> Option<String> + Send + Sync>;
@@ -143,10 +148,12 @@ fn recent_said(records: &[crate::store::EventRecord]) -> Vec<Said> {
 }
 
 /// Chat `id`'s recent prompts and replies: its newest `READ_KINDS` records only, at most
-/// `READ_RECORDS` and about `READ_BYTES` of them, read back from the log's end.
-fn read_recent(hub: &Hub, id: &str) -> Vec<Said> {
+/// `READ_RECORDS` and about `READ_BYTES` of them, read back from the log's end (`last`, its
+/// newest seq) among its last `scan` records at most.
+fn read_recent(hub: &Hub, id: &str, last: u64, scan: u64) -> Vec<Said> {
     let filter = EventFilter::parse(Some(&json!(READ_KINDS))).unwrap_or_default();
-    match hub.events_page(id, 0, None, READ_RECORDS, Some(READ_BYTES), true, &filter) {
+    let after = last.saturating_sub(scan);
+    match hub.events_page(id, after, None, READ_RECORDS, Some(READ_BYTES), true, &filter) {
         Ok(page) => recent_said(&page.events),
         Err(e) => {
             tracing::debug!(session = %id, "recap: the log read failed: {e:#}");
@@ -432,7 +439,10 @@ impl Hub {
         let said = {
             let hub = self.clone();
             let id = session.id.clone();
-            tokio::task::spawn_blocking(move || read_recent(&hub, &id)).await.ok()?
+            let last = session.seq.load(Ordering::SeqCst);
+            tokio::task::spawn_blocking(move || read_recent(&hub, &id, last, SCAN_RECORDS))
+                .await
+                .ok()?
         };
         let prompt = recap_prompt(&said, crate::complete::MAX_PROMPT_BYTES)?;
         let writer = self.recap_writer.lock().unwrap_or_else(|e| e.into_inner()).clone();
