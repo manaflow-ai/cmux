@@ -146,8 +146,20 @@ public final class TerminalModel {
     public func restoreLastFrame(_ image: UIImage?) {
         guard let image else { return }
         coldFrame = image
+        restoredFrame = image
         if snapshot == nil { snapshot = image }
     }
+
+    /// The cached frame this host was given (`restoreLastFrame`), kept after
+    /// live output replaces `coldFrame`: what the tab keeps when its host
+    /// goes before its page drew anything worth keeping.
+    @ObservationIgnored private var restoredFrame: UIImage?
+
+    /// The page drew the Mac's output while attached, since this host was
+    /// built. Until then the surface holds nothing of the Mac's (a blank
+    /// page, or one from before the first attach), and no frame from it may
+    /// replace the tab's cached frame (`TerminalFrameKeep`).
+    @ObservationIgnored public private(set) var drewLiveOutput = false
 
     /// Set by the controller.
     weak var controller: TerminalViewController?
@@ -198,7 +210,10 @@ public final class TerminalModel {
     /// frame over the live one, R2-5). Throttled, the new frame is saved for
     /// the next cold launch.
     func liveOutputDrawn() {
-        if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
+        if connectionState.isAttached {
+            drewLiveOutput = true
+            if coldFrame != nil { coldFrame = nil }
+        }
         lastDrawnOutput = CACurrentMediaTime()
         saveFrameSoon()
     }
@@ -211,13 +226,24 @@ public final class TerminalModel {
     @ObservationIgnored private var lastFrameSave: CFTimeInterval = 0
     @ObservationIgnored private var frameSavePending = false
 
-    /// The page for the next cold launch, without the cursor block (R3-4).
+    /// The page for the next cold launch, without the cursor block (R3-4):
+    /// nil while it may not replace the cached frame (`TerminalFrameKeep`).
     public func frameForSaving() -> UIImage? {
-        controller?.snapshot(hidingCursor: true)
+        guard drewLiveOutput else { return nil }
+        return TerminalFrameKeep.kept(controller?.snapshot(hidingCursor: true), drewLiveOutput: drewLiveOutput)
+    }
+
+    /// What the tab keeps as its cached frame when this host goes (cooled,
+    /// or replaced by its live session): the live page once it drew the
+    /// Mac's output, else the cached frame the host was given. Never a blank
+    /// page, nor one from before the first attach.
+    public func frameToKeep() -> UIImage? {
+        if drewLiveOutput, let live = frameForSaving() ?? TerminalFrameKeep.kept(snapshot, drewLiveOutput: true) { return live }
+        return restoredFrame
     }
 
     func saveFrameSoon() {
-        guard frameSaver != nil, !frameSavePending else { return }
+        guard drewLiveOutput, frameSaver != nil, !frameSavePending else { return }
         let wait = TerminalFrameSaveSchedule.delay(sinceLastSave: lastFrameSave == 0 ? .infinity : CACurrentMediaTime() - lastFrameSave)
         frameSavePending = true
         let requested = CACurrentMediaTime()
@@ -235,7 +261,7 @@ public final class TerminalModel {
             // Taken here, rendered off the main thread (V8 claim 7).
             guard let capture = controller?.captureForSaving(), let write = frameSaver?() else { return }
             Task.detached(priority: .utility) {
-                if let image = capture.render() { write(image) }
+                if let image = TerminalFrameKeep.kept(capture.render(), drewLiveOutput: true) { write(image) }
             }
         }
     }
