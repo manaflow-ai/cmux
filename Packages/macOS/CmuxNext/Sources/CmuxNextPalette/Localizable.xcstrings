@@ -1,6 +1,40 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "palette.target": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a target"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象を選択"
+          }
+        }
+      }
+    },
+    "palette.target.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索…"
+          }
+        }
+      }
+    },
     "palette.accessory.current": {
       "extractionState": "manual",
       "localizations": {

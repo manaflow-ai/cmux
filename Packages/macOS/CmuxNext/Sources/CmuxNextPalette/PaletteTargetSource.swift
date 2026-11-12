@@ -11,14 +11,32 @@ public struct PaletteTargetOption: Identifiable, Sendable, Hashable {
     public var swatches: [ThemeRGB]
     /// False keeps an unavailable destination visible but prevents choosing it.
     public var isEnabled: Bool
+    /// The action taken by choosing this row, visible beside its state.
+    public var accessory: String?
+    /// A source may offer a repair instead of selecting an unavailable object.
+    public var recovery: PaletteTargetRecovery?
 
-    public init(id: String, title: String, subtitle: String? = nil, symbol: String? = nil, swatches: [ThemeRGB] = [], isEnabled: Bool = true) {
+    public init(id: String, title: String, subtitle: String? = nil, symbol: String? = nil, swatches: [ThemeRGB] = [], isEnabled: Bool = true,
+                accessory: String? = nil, recovery: PaletteTargetRecovery? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.symbol = symbol
         self.swatches = swatches
         self.isEnabled = isEnabled
+        self.accessory = accessory
+        self.recovery = recovery
+    }
+}
+
+/// A repair offered inline by an object source, run through the action registry.
+public struct PaletteTargetRecovery: Sendable, Hashable {
+    public var action: ActionID
+    public var title: String
+
+    public init(action: ActionID, title: String) {
+        self.action = action
+        self.title = title
     }
 }
 

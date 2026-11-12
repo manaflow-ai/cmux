@@ -25,8 +25,23 @@ extension CloudHandlers {
                 show(try await firstWorkspace(on: session, context), context)
             }
         }
-        bind("cloudOpenDesktop", registry, reason: reason) { invocation in
-            try openDesktop(try machine(invocation, context), context, viewer: invocation["viewer"]?.stringValue)
+        registry.bindEffect("cloudOpenDesktop", unavailable: reason) { invocation in
+            do {
+                let session = try machine(invocation, context)
+                return registry.trackedWorkEffect(cancellationFailure: ActionWorkFailure(refusal: .unavailable, reason: CloudStrings.notConnected)) {
+                    runTracked("open Cloud desktop", context) {
+                        // A paused machine resumes through the same user-owned attach
+                        // path as Open Machine. Opening the carrier desktop then dials
+                        // its socket-activated service.
+                        try await attached(session, invocation, waitsForLink: true)
+                        try Task.checkCancellation()
+                        try openDesktop(session, context, viewer: invocation["viewer"]?.stringValue)
+                    }
+                    return nil
+                }
+            } catch {
+                return .refused(RefusalStrings.describe(error))
+            }
         }
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)

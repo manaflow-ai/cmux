@@ -109,7 +109,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
             let registry = provider.registry
             let descriptor = entry.descriptor
             let actionID = descriptor.id
-            guard descriptor.isPaletteVisible, !provider.hiddenIDs.contains(actionID), registry.isAvailable(actionID) else { return }
+            guard descriptor.isPaletteVisible, !provider.hiddenIDs.contains(actionID),
+                  registry.isAvailable(actionID, in: provider.paletteContext(for: descriptor)) else { return }
             // An override is decided when its row runs (`PaletteEffect.deferred`), never on open:
             // Rename Tab and Rename Workspace read every tab and workspace, an action page builds
             // its page. Declining there (nothing to rename) falls back to the action itself.
@@ -148,8 +149,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
         let descriptor = entry.descriptor
         let action = registry.action(for: descriptor.id)
         // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
-        let paletteReason = overridden ? nil : action?.paletteUnavailableReason?()
-        let runs = overridden || (registry.canPerform(descriptor.id) && paletteReason == nil)
+        let collectsTarget = descriptor.paletteTarget.map { kind in !capturedTargets.contains { $0.kind == kind } } ?? false
+        let paletteReason = overridden || collectsTarget ? nil : action?.paletteUnavailableReason?()
+        let runs = overridden || (registry.canPerform(descriptor.id, in: paletteContext(for: descriptor)) && paletteReason == nil)
         // A row a person can run past its reason (Sign In, then the action: ``ActionRecovery``) stays enabled.
         let recovery = runs || paletteReason != nil ? nil : registry.personRecovery(for: descriptor.id)
         let isEnabled = runs || recovery != nil
@@ -176,6 +178,12 @@ public final class RegistryPaletteProvider: PaletteProvider {
             overridden: overridden,
             editsShortcut: editShortcut != nil
         )
+    }
+
+    /// A subject picker can supply the context implied by that target kind.
+    /// Feature, sign-in and other availability predicates still run normally.
+    private func paletteContext(for descriptor: ActionDescriptor) -> ActionContext {
+        registry.context.union(ActionContext.implied(byTargetKind: descriptor.paletteTarget))
     }
 
     /// The localized command titles a built row uses, read once per open that builds any row.
@@ -205,7 +213,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
             isEnabled: face.isEnabled,
             primary: PaletteCommand(
                 id: "run",
-                title: descriptor.arguments.contains(where: \.palettePrompts) ? labels.open : labels.runCommand,
+                title: descriptor.paletteTarget != nil || descriptor.arguments.contains(where: \.palettePrompts) ? labels.open : labels.runCommand,
                 symbol: "return",
                 effect: effect
             ),
@@ -243,13 +251,18 @@ public final class RegistryPaletteProvider: PaletteProvider {
     private static func defaultEffect(for descriptor: ActionDescriptor, registry: ActionRegistry,
                                       context: RegistryPaletteRows.RunContext, flipsInPlace: Bool = false) -> PaletteEffect {
         let id = descriptor.id
-        guard descriptor.arguments.contains(where: \.palettePrompts) else {
+        guard descriptor.paletteTarget != nil || descriptor.arguments.contains(where: \.palettePrompts) else {
             // A setting's on/off row flips in place: the palette stays open and the row reads its new state.
             if flipsInPlace { return .performKeepingOpen { registry.perform(id, invocation: ActionInvocation()) } }
             return .perform { registry.perform(id, invocation: ActionInvocation()) }
         }
         return .deferred {
-            PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: context.targets, captured: context.capturedTargets,
+            // Sign in before reading the account's inventory. The recovery
+            // returns to collection once it has the signed-in machine list.
+            if registry.personRecovery(for: id) != nil {
+                return .perform { registry.perform(id, invocation: ActionInvocation()) }
+            }
+            return PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: context.targets, captured: context.capturedTargets,
                                 preview: context.argumentPreview, swatches: context.argumentSwatches,
                                 creators: context.targetCreators)
                 .effect(collected: ActionInvocation())
@@ -266,7 +279,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
     }
 
     static func primaryTitle(for descriptor: ActionDescriptor) -> String {
-        descriptor.arguments.contains(where: \.palettePrompts) ? PaletteStrings.open : PaletteStrings.runCommand
+        descriptor.paletteTarget != nil || descriptor.arguments.contains(where: \.palettePrompts) ? PaletteStrings.open : PaletteStrings.runCommand
     }
 
     /// The section for a catalog category.

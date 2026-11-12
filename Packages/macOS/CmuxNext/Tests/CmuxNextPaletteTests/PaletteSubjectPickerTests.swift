@@ -8,9 +8,10 @@ import Testing
 struct PaletteSubjectPickerTests {
     private final class Targets: PaletteTargetSource {
         var reads = 0
+        var options = [PaletteTargetOption(id: "chosen", title: "Design desktop")]
         func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
             reads += 1
-            return [PaletteTargetOption(id: "chosen", title: "Design desktop")]
+            return options
         }
     }
 
@@ -67,5 +68,51 @@ struct PaletteSubjectPickerTests {
         guard case .textInput = choice.primary.effect.resolved() else {
             Issue.record("the file path must follow the shared machine picker"); return
         }
+    }
+
+    @Test func inlineRepairRunsCreationWithoutTargetingTheOldMachine() async throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        var created = false, opened = false
+        registry.bind("cloudOpenDesktop", invoke: { _ in opened = true })
+        registry.bind("newCloudMachine", invoke: {
+            #expect($0.target == nil)
+            created = true
+        })
+        targets.options = [PaletteTargetOption(id: "old", title: "Older machine", subtitle: "This image has no desktop",
+            recovery: PaletteTargetRecovery(action: "newCloudMachine", title: "Create desktop machine"))]
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets)
+        guard case .push(let page) = item.primary.effect.resolved() else { Issue.record("missing picker"); return }
+        let choice = try #require(await page.providers.first?.items().first)
+        #expect(choice.accessory == "Create desktop machine")
+        guard case .perform(let run) = choice.primary.effect.resolved() else { Issue.record("missing repair"); return }
+        run()
+        #expect(created)
+        #expect(!opened)
+    }
+
+    @Test func missingTargetSourceNeverAsksForAControlSocketID() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "cloudOpenDesktop" })
+        let flow = PaletteArgumentFlow(registry: .standard(), descriptor: descriptor, targets: nil)
+        guard case .push = flow.effect(collected: ActionInvocation()) else {
+            Issue.record("a missing target source must never become a CLI text input"); return
+        }
+    }
+
+    @Test func targetContextDoesNotBypassGlobalAvailability() throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        registry.bind("cloudOpenDesktop", unavailable: { "Account is unavailable" }, invoke: { _ in })
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets)
+        #expect(!item.isEnabled)
+        #expect(item.subtitle == "Account is unavailable")
+    }
+
+    @Test func creationWithNoSubjectKeepsItsExistingMeaning() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "newCloudWorkspace" })
+        let targets = Targets()
+        let flow = PaletteArgumentFlow(registry: .standard(), descriptor: descriptor, targets: targets)
+        guard case .perform = flow.effect(collected: ActionInvocation()) else {
+            Issue.record("creating a machine must not ask for an existing machine"); return
+        }
+        #expect(targets.reads == 0)
     }
 }

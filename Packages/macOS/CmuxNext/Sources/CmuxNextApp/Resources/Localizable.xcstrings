@@ -1,6 +1,125 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cloud.palette.createDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create desktop machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップマシンを作成"
+          }
+        }
+      }
+    },
+    "cloud.palette.imageMissingDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This image has no desktop"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このイメージにはデスクトップがありません"
+          }
+        }
+      }
+    },
+    "cloud.palette.machine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドマシン"
+          }
+        }
+      }
+    },
+    "cloud.palette.paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時停止中"
+          }
+        }
+      }
+    },
+    "cloud.palette.resumeDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume and open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開して開く"
+          }
+        }
+      }
+    },
+    "cloud.palette.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動中…"
+          }
+        }
+      }
+    },
+    "cloud.palette.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを利用できません"
+          }
+        }
+      }
+    },
     "classicImport.toast.sshScrollbackStays": {
       "comment": "Added to the Import Workspaces from Classic cmux toast when SSH terminals of classic cmux (the older app) had saved scrollback: they open on their host without it.",
       "extractionState": "manual",
