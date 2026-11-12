@@ -1664,6 +1664,184 @@ class RatchetTests(Repo):
         self.assertEqual(code, 1, out.getvalue())
         self.assertIn("not on upstream", out.getvalue())
 
+    def orphaned_record(self):
+        """A record whose measured_sha is no commit here, as a squash merge leaves the --update of a branch
+        (9c4b1ccc1285, 2026-10-24): the commit that records it, a singleton that lands on upstream past the hook,
+        and the runner's own commit. Returns (orphan, recording commit, landed)."""
+        self.assertEqual(self.update()[0], 0)
+        data = self.recorded()
+        orphan = "9c4b1ccc1285b2b9078289302ea8aef7fc9122b4"
+        data["measured_sha"] = orphan
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        recording = self.commit("the squash of the branch whose --update measured the orphan")
+        landed = self.add_singleton()  # lands on origin/feat-cmux-next past the hook
+        self.git("branch", "upstream", landed)
+        self.write("README", "the runner's own commit\n")
+        self.commit("the runner's own commit")
+        return orphan, recording, landed
+
+    def test_the_anchor_commit_s_own_rise_is_attributed(self):
+        # The squash that carries the orphaned record also adds a singleton: anchoring there must name it (review F1).
+        self.assertEqual(self.update()[0], 0)
+        data = self.recorded()
+        orphan = "9c4b1ccc1285b2b9078289302ea8aef7fc9122b4"
+        before = data["totals"]["stateful_singletons"]
+        data["measured_sha"] = orphan
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        self.write(f"{SRC}/CmuxNextDomain/Store+Shared.swift", "extension Store {\n    static let shared = Store()\n}\n")
+        recording = self.commit("the squash carries the record and a singleton")
+        self.git("branch", "upstream", recording)
+        self.write("README", "the runner's own commit\n")
+        self.commit("the runner's own commit")
+        self.assertEqual(ratchet.anchor_boundary(self.repo, orphan, recording), self.git("rev-parse", f"{recording}^1"))
+        code, out = self.update_at(anchor=recording)
+        self.assertEqual(code, 0, out)
+        data = self.recorded()
+        entry = data["exceptions"][-1]
+        self.assertEqual((data["totals"]["stateful_singletons"], entry["row"], entry["raised_by"]),
+                         (before + 1, "stateful_singletons", [recording]))
+        update = self.commit("--update --anchor")
+        refusals, notes = ratchet.check_range(self.repo, recording, update, [], upstream_ref="upstream")
+        self.assertEqual(refusals, [], notes)
+
+    def update_at(self, **kwargs):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = ratchet.update(self.repo, upstream_ref="upstream", **kwargs)
+        return code, out.getvalue()
+
+    def test_update_names_the_anchor_for_a_measured_sha_a_squash_orphaned(self):
+        orphan, recording, landed = self.orphaned_record()
+        recorded = self.recorded()
+        code, out = self.update_at()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"measured_sha {orphan} is not a commit of upstream", out)
+        self.assertIn(f"--anchor {recording}", out)
+        self.assertEqual(self.recorded(), recorded, "a refused update writes nothing")
+        # An anchor that does not record the orphan (nor is its merge base) is refused too.
+        code, out = self.update_at(anchor=self.base)
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"--anchor {self.base} is not a commit of upstream", out)
+
+    def test_update_refuses_an_anchor_for_a_record_on_upstream(self):
+        self.assertEqual(self.update()[0], 0)
+        record = self.commit("record")
+        self.git("branch", "upstream", record)
+        code, out = self.update_at(anchor=self.base)
+        self.assertEqual(code, 1, out)
+        self.assertIn("--anchor is only for", out)
+        self.assertEqual(self.update_at()[0], 0)
+
+    def test_update_with_the_anchor_records_the_upstream_rise_and_the_record_rule_takes_it(self):
+        orphan, recording, landed = self.orphaned_record()
+        before = self.recorded()["totals"]["stateful_singletons"]
+        code, out = self.update_at(anchor=recording)
+        self.assertEqual(code, 0, out)
+        data = self.recorded()
+        self.assertEqual(data["reanchor"], {"measured_sha": orphan, "at": recording})
+        self.assertEqual(data["totals"]["stateful_singletons"], before + 1)
+        entry = data["exceptions"][-1]
+        self.assertEqual((entry["row"], entry["allow"], entry["raised_by"]), ("stateful_singletons", 1, [landed]))
+        update = self.commit("--update --anchor")
+        refusals, notes = ratchet.check_range(self.repo, landed, update, [], upstream_ref="upstream")
+        self.assertEqual(refusals, [], notes)
+        # A reanchor that names a commit not recording the orphan gives the generated entry nothing.
+        self.write(counts.RATCHET_JSON, json.dumps(dict(data, reanchor={"measured_sha": orphan, "at": self.base})))
+        forged = self.commit("a hand-written reanchor")
+        refusals, _ = ratchet.check_range(self.repo, landed, forged, [], upstream_ref="upstream")
+        self.assertEqual(self.rows(refusals), [ratchet.RECORD_ROW])
+        # The next --update counts from the new, reachable measured_sha and drops the reanchor.
+        self.git("reset", "--quiet", "--hard", update)
+        self.git("branch", "--force", "upstream", update)
+        code, out = self.update_at()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("reanchor", self.recorded())
+
+    def test_an_orphan_still_on_a_local_ref_offers_its_merge_base(self):
+        self.assertEqual(self.update()[0], 0)
+        fork = self.commit("record")
+        self.git("checkout", "--quiet", "-b", "side")
+        self.write("README", "a side branch\n")
+        side = self.commit("the branch --update measured")  # it lands squashed: side is on no upstream history
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        data = self.recorded()
+        data["measured_sha"] = side
+        self.write(counts.RATCHET_JSON, json.dumps(data))
+        self.commit("the squash records the side commit")
+        self.git("branch", "upstream", "HEAD")
+        candidates = [sha for sha, _ in ratchet.anchor_candidates(self.repo, side, "upstream")]
+        self.assertEqual(candidates, [self.git("rev-parse", "HEAD"), fork])
+        self.assertTrue(ratchet.valid_anchor(self.repo, side, fork, "upstream"))
+        self.assertFalse(ratchet.valid_anchor(self.repo, side, self.base, "upstream"))
+
+    def test_a_reanchor_is_ignored_while_the_old_record_is_on_upstream(self):
+        self.assertEqual(self.update()[0], 0)
+        record = self.commit("record")
+        self.git("branch", "upstream", record)
+        old = self.recorded()
+        new = dict(old, reanchor={"measured_sha": old["measured_sha"], "at": record})
+        self.assertEqual(ratchet.record_anchor(self.repo, old, new, "upstream"), old["measured_sha"])
+        # A record measured on a branch off upstream still bounds the commits when the new record's history has it
+        # (a branch's own earlier --update, which --update accepts too).
+        self.git("checkout", "--quiet", "-b", "perf")
+        self.write("README", "a perf branch\n")
+        branch = self.commit("measured on a branch")
+        self.write("README", "later on the branch\n")
+        later = self.commit("the next --update's commit")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        measured = dict(old, measured_sha=branch)
+        self.assertEqual(ratchet.record_anchor(self.repo, measured, dict(old, measured_sha=later), "upstream"), branch)
+        self.assertIsNone(ratchet.record_anchor(self.repo, measured, old, "upstream"))
+        # An orphan with no valid reanchor bounds nothing (and is never looked up).
+        orphan = dict(old, measured_sha="9c4b1ccc1285b2b9078289302ea8aef7fc9122b4")
+        self.assertIsNone(ratchet.record_anchor(self.repo, orphan, old, "upstream"))
+
+    def test_the_audit_counts_an_orphaned_record_from_its_recording_commit(self):
+        orphan, recording, landed = self.orphaned_record()
+        self.git("branch", "--force", "origin/feat-cmux-next", "upstream")
+        result = ratchet.audit(self.repo)
+        self.assertTrue(result["orphaned"])
+        self.assertEqual(result["anchored_at"], recording)
+        self.assertIn(f"--anchor {recording}", "\n".join(ratchet.audit_lines(result)))
+        self.assertEqual([c["sha"] for c in result["over"]["stateful_singletons"]["raised_by"]], [landed[:11]])
+
+    def test_app_lines_rise_matches_the_delta_count(self):
+        app = f"{SRC}/CmuxNextApp"
+        steps = [
+            ({f"{app}/A.swift": "struct A {}\nlet a = 1\n"}, ()),  # a new App file
+            ({f"{app}/A.swift": "struct A {}\n", f"{app}/Nested/B.swift": "struct B {}\n\n\n"}, ()),  # an edit, a nested one
+            ({f"{app}/C.txt": "not swift\n", f"{SRC}/CmuxNextDomain/D.swift": "struct D {}\n"}, ()),  # not App Swift
+            ({}, (f"{app}/Nested/B.swift",)),  # a removal
+            ({f"{app}/E.swift": "struct E {}"}, ()),  # no final newline
+        ]
+        for files, removed in steps:
+            for path, text in files.items():
+                self.write(path, text)
+            for path in removed:
+                self.remove(path)
+            sha = self.commit("an App change")
+            want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
+            self.assertEqual(ratchet.app_lines_rise(self.repo, sha), want, files or removed)
+            self.assertEqual(ratchet.commit_rises(self.repo, sha, {"app_lines"}), {"app_lines": want})
+        # A manifest change that keeps the closure's packages takes the fast count too.
+        self.write(counts.MANIFEST, MANIFEST % "")
+        self.write(f"{app}/F.swift", "struct F {}\n")
+        sha = self.commit("a manifest and an App file")
+        want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
+        self.assertEqual(ratchet.app_lines_rise(self.repo, sha), want)
+        # One that links another local package changes the closure: only the full delta count tells.
+        self.write("Packages/Shared/Extra/Package.swift", "// swift-tools-version: 6.2\nimport PackageDescription\n"
+                   "let package = Package(name: \"Extra\", targets: [.target(name: \"Extra\")])\n")
+        self.write("Packages/Shared/Extra/Sources/Extra/G.swift", "struct G {}\nlet g = 1\n")
+        self.write(counts.MANIFEST, MANIFEST.replace('name: "CmuxNext",', 'name: "CmuxNext",\n    dependencies: '
+                                                     '[.package(path: "../../Shared/Extra")],') % "")
+        sha = self.commit("links a local package")
+        self.assertIn("Packages/Shared/Extra", counts.read_paths(self.repo, sha).packages)
+        self.assertNotIn("Packages/Shared/Extra", counts.read_paths(self.repo, f"{sha}^1").packages)
+        self.assertIsNone(ratchet.app_lines_rise(self.repo, sha))
+        want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
+        self.assertEqual(ratchet.commit_rises(self.repo, sha, {"app_lines"}), {"app_lines": want})
+
     def test_an_exception_added_and_applied_in_one_push_passes_both_rules(self):
         self.assertEqual(self.update()[0], 0)
         base = self.commit("record")

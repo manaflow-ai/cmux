@@ -53,8 +53,17 @@ enum SidebarDensityTokens {
     /// rule, read from its two inputs. Every row frame reads it several times (`SidebarListView.frame(for:)`), and
     /// `SidebarRowTokens.current` builds the whole token set, fonts too, for each read.
     static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
-    /// A row's content from its fill's edge: 8 pt at Default (Codex's `--padding-row-x`), else `horizontalInset`.
-    static var contentInset: CGFloat { matchesCodex ? Metrics.space4 : horizontalInset }
+    /// The padding between a one-line row's fill and its content on every side (Lawrence 2026-11-09: "for each
+    /// workspace row, padding on left/bottom/top/right should be even, on all densities"): the room the row's title
+    /// has above its capitals and below its baseline, which the row centers, so the first glyph, the last trailing box
+    /// and the text all sit this far inside the fill. On the half-point grid. Read from the density's list row (one
+    /// line, not Minimal Mode's shorter row) and the title font, so a text size or type scale change follows. At
+    /// Default (``matchesCodex``) it is Codex's `--padding-row-x`, 8 pt, on both sides (#39984).
+    static var contentInset: CGFloat {
+        if matchesCodex { return Metrics.space4 }
+        let row = Metrics.sidebarRowHeight + (isComfortable ? Metrics.space2 : 0) + textSize.rowStep
+        return ((row - SidebarStyle.titleFont.capHeight) / 2 * 2).rounded() / 2
+    }
     static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
     /// Compatibility name used by the existing session-tree layout. The tree's base indent is
     /// independent of the sidebar's group nesting grid and remains the original space4.

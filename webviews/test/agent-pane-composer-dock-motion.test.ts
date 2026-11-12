@@ -10,8 +10,8 @@
 // and without a busy main thread. On every painted frame (paintedFrames.ts) it reads the composer
 // box's top, the transcript's rows on screen, the hat's pull tab and the sent bubble:
 // (a) typing five lines, each Shift-Return: `rowLagFrames`, frames where the composer's top moved
-//     and the rows over it did not move with it in the same frame (push-up's measure only), and
-//     `rowMovedFrames`, frames any row moved at all (overlay keeps them at 0), and `boxRunMax`, the
+//     and the rows over it did not move with it in the same frame (0 in both looks at the latest
+//     row), and `rowMovedFrames`, frames any row moved at all (0 under overlay scrolled up), and `boxRunMax`, the
 //     most frames the composer's top took to settle one line (Leo's "slowly, a step per line");
 // (b) the send: `sendMoves`, separate moves of the rows from the press until the bubble rests (a
 //     move is frames of motion with no more than two still frames inside it), `sendMaxStep`, the
@@ -380,10 +380,10 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
           console.log(`DOCK_MOTION_REPORT ${JSON.stringify({ engine: name, look, lagging, ...report })}`);
           await page.close();
           expect(report.frames).toBeGreaterThan(40);
-          // (a) push-up moves in the same frame as the composer's growth; overlay moves no row.
-          // `rowLagFrames` is push-up's measure only: under overlay the rows hold still by design.
-          if (look === "overlay") expect(report.rowMovedFrames).toBe(0);
-          else expect(report.rowLagFrames).toBe(0);
+          // (a) At the latest row both looks raise the rows with the composer's growth in the same
+          // frame, by as much: the rise lags the card by no frame. (Scrolled up, overlay moves no row:
+          // the case below.)
+          expect(report.rowLagFrames).toBe(0);
           // Either look: each typed line's growth settles inside one structural step (about 12 frames
           // at 60 Hz), never a slow climb.
           expect(report.boxRunMax).toBeLessThanOrEqual(lagging ? 16 : 12);
@@ -394,6 +394,40 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
           // (c) the hat's tab rides the composer's top in the same frame.
           expect(report.tabLag).toBeLessThanOrEqual(1);
         });
+
+  // (a') Scrolled up, the overlay composer grows over the transcript's foot as glass: no row moves while
+  // five lines are typed (the overlay look's point; at the latest row the rows rise with it, above).
+  for (const [name] of engines)
+    for (const lagging of [false, true])
+      test(`${name}, overlay${lagging ? ", lagging" : ""}: scrolled up, the composer grows over still rows`, async () => {
+        const page = await open(name, "overlay");
+        if (lagging) await lag(page, 40, 70);
+        const scroller = page.locator(".acpmux-scroll").first();
+        const box = (await scroller.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
+        await page.mouse.wheel(0, -320);
+        // fixed-wait: the wheel's scroll comes to rest and the view stops following.
+        await page.waitForTimeout(600);
+        const field = page.locator(".acpmux-composer-box .ProseMirror").first();
+        await field.click();
+        await sample(page);
+        await phase(page, "typing");
+        for (const [index, line] of LINES.entries()) {
+          await page.keyboard.type(line, { delay: 8 });
+          if (index < LINES.length - 1) await page.keyboard.press("Shift+Enter");
+          // fixed-wait: a person's pace between lines, so each line's growth plays out.
+          await page.waitForTimeout(260);
+        }
+        const report = await stop(page);
+        const scrolled = await scroller.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop);
+        console.log(`DOCK_SCROLLED_REPORT ${JSON.stringify({ engine: name, lagging, scrolled, ...report })}`);
+        await page.close();
+        expect(report.frames).toBeGreaterThan(40);
+        // The view really was away from the latest row.
+        expect(scrolled).toBeGreaterThan(100);
+        expect(report.rowMovedFrames).toBe(0);
+        expect(report.boxRunMax).toBeLessThanOrEqual(lagging ? 16 : 12);
+      });
 
   // (c) The hat's pull tab (or the hat, untucked) rides the composer's top edge in the frame the edge
   // moves, never a frame behind it, while a running turn's draft grows three lines.
