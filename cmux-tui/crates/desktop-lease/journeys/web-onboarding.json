@@ -8,7 +8,7 @@
       "name": "open onboarding: the agents step (Claude signed in, Codex not, Gemini expired, OpenCode unchecked)",
       "tool": "desktop_open_url",
       "args": {"url": "http://127.0.0.1:4291/gallery/src/pages/onboarding/index.html?mock", "wait_ms": 3000},
-      "expect_text": ["Sign In to Your Agents", "Claude Code", "Signed in", "Codex", "Not signed in", "Gemini CLI", "Sign-in expired", "Sign-in not checked", "Continue"]
+      "expect_text": ["Sign In to Your Agents", "Claude Code", "Signed in", "Codex", "Not signed in", "Gemini CLI", "Sign-in expired", "Sign-in not checked", "Skip"]
     },
     {
       "name": "click Sign In on Codex: the page says where to finish",

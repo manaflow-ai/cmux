@@ -272,6 +272,7 @@ impl Desktop for LinuxDesktop {
         let before = self.read_u64("memory.current");
         let t = Instant::now();
         self.write("memory.zswap.writeback", "0")?;
+        self.write("memory.zswap.max", "max")?;
         self.write("cgroup.freeze", "1")?;
         self.wait_frozen(true)?;
         let freeze_ms = ms(t);
@@ -315,6 +316,10 @@ impl Desktop for LinuxDesktop {
             }
             Action::OpenUrl { url, wait_ms } => {
                 self.xdotool(&["key", "ctrl+l"])?;
+                // The omnibox takes focus a moment after ctrl+l; keys typed before it are lost
+                // (a run typed "7.0.0.1" for "127.0.0.1").
+                std::thread::sleep(Duration::from_millis(150));
+                self.xdotool(&["key", "ctrl+a"])?;
                 self.xdotool(&["type", "--delay", "4", "--", url])?;
                 self.xdotool(&["key", "Return"])?;
                 std::thread::sleep(Duration::from_millis((*wait_ms).min(30_000)));
@@ -347,7 +352,10 @@ impl Desktop for LinuxDesktop {
     fn evict(&mut self) -> Result<SuspendReport> {
         let before = self.read_u64("memory.current");
         let t = Instant::now();
+        // Writeback alone moves little on kernel 7.0; a zero zswap limit makes the reclaim
+        // write every compressed page out (measured: 56 -> 21 MB resident, zswap 30 -> 0 MB).
         self.write("memory.zswap.writeback", "1")?;
+        self.write("memory.zswap.max", "0")?;
         self.reclaim();
         Ok(self.report(before, 0.0, ms(t)))
     }
