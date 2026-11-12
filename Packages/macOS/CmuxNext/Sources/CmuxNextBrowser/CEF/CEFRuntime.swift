@@ -66,8 +66,6 @@ final class CEFRuntime {
     private(set) lazy var accessibility = CEFAccessibility(
         apply: { [weak self] browser, enabled in self?.shim?.setAccessibility(browser, enabled ? 1 : 0) },
         browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
-    /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
-    private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
     var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?

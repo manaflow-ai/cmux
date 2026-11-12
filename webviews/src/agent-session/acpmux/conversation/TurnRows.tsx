@@ -74,6 +74,8 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
+import { FinishCheck } from "../finish/FinishCheck";
+import { useFinishedTurn } from "../finish/finishMoments";
 import { groupDisclosureKey, runDisclosureKey, runShape, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
@@ -99,6 +101,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   );
 }
 
+/// The turn ends that are no success: stopped (`turns.ts` isStopped) or failed.
+const UNFINISHED = new Set(["cancelled", "interrupted", "failed", "error"]);
+
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
 /// as Codex does (Lucas, 2026-11-06): the turn's tokens stay on the running line (WorkingFor.tsx).
 export function WorkedFor({
@@ -112,10 +117,15 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
+  // A long turn that just ended shows its short done state here (finish/finishMoments.ts); a turn
+  // that was stopped or failed did not succeed, so it gets none.
+  const ended = useFinishedTurn(row.at, row.durationMs === undefined ? undefined : row.at + row.durationMs);
+  const finished = ended && !UNFINISHED.has(row.status ?? "");
   return (
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
+      data-finish={finished ? "turn" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -124,6 +134,7 @@ export function WorkedFor({
         <WorkedLabel row={row} />
       </span>
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+      {finished && <FinishCheck />}
     </button>
   );
 }

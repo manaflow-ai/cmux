@@ -2,9 +2,12 @@
 // The jump pair's look (jumpPair.experiment.ts, jumpPair.css, VirtualTranscript.tsx `JumpToLatest`
 // and `JumpUp`). Leo, 2026-11-12, on the fisheye disc over the transcript: "I feel like this jump to
 // top button is a little bit strange-looking, no? Like, did we redesign that [stuff] yet?"
-// Each variant parks the reader mid-chat below an unread "New" line, so Jump up and Jump to latest
-// both show over real prose; `frosted-image` over a wallpaper. `pair` pins no arm, so View Compare
-// arms draws it once per look side by side; the other variants pin one look each. Light and dark:
+// Only one of the two shows at a time (Leo, 2026-11-12: the two stacked are "maybe a bit extra?"):
+// the variants park the reader mid-chat, scrolled up, where Jump to latest shows over real prose; the
+// `-up` variants leave them at the latest message under an unread "New" line far above, where Jump up
+// shows; `single` pins the look that draws no Jump up at all; `frosted-image` over a wallpaper. `pair`
+// and `up` pin no arm, so View Compare arms draws them once per look side by side; the other variants
+// pin one look each. Light and dark:
 // ?colorScheme=light / dark.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play, PlayContext } from "../../gallery/play";
@@ -51,14 +54,27 @@ const snapshot = chat(
 
 const scroller = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
 
-/// Below the unread line (Jump up shows: the line is above) and above the latest message (Jump to
-/// latest shows), with prose under both buttons.
+const shown = (ctx: PlayContext, selector: string) => ctx.document.querySelector(`${selector}[data-shown]`) !== null;
+const LATEST = ".acpmux-jump-latest:not(.acpmux-jump-up)";
+const UP = ".acpmux-jump-up";
+
+/// Above the latest message, with prose under the button: Jump to latest shows, and Jump up waits.
 const park: Play = async (ctx) => {
   await ctx.waitFor(() => (scroller(ctx)?.scrollHeight ?? 0) > 2_000);
   const view = scroller(ctx)!;
   await ctx.scroll({ selector: ".acpmux-scroll" }, view.scrollHeight - view.clientHeight - 700);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
+  await ctx.waitFor(() => shown(ctx, LATEST) && !shown(ctx, UP));
+};
+
+/// At the latest message, the unread line far above: Jump up shows, alone. The single look draws no
+/// Jump up, so there neither button shows.
+const atLatest: Play = async (ctx) => {
+  await ctx.waitFor(() => (scroller(ctx)?.scrollHeight ?? 0) > 2_000);
+  if (ctx.document.querySelector(`${LATEST}[data-look="single"]`)) {
+    await ctx.waitFor(() => !shown(ctx, LATEST));
+    return;
+  }
+  await ctx.waitFor(() => shown(ctx, UP) && !shown(ctx, LATEST));
 };
 
 const overImage: Play = async (ctx) => {
@@ -89,9 +105,20 @@ export default agentPaneEntry({
   experiment: { definition: jumpPairLook, script: [{ name: "Park mid-chat under the New line", run: park }] },
   variants: {
     pair: {
-      note: "The pair in the app's look (the experiment's arm, frosted by default); View Compare arms puts every look side by side.",
+      note: "Jump to latest in the app's look (the experiment's arm, frosted by default); View Compare arms puts every look side by side.",
       snapshot,
       play: park,
+    },
+    up: {
+      note: "Jump up alone at the latest message, the New line far above, in the app's look; View Compare arms puts every look side by side.",
+      snapshot,
+      play: atLatest,
+    },
+    "labeled-up": {
+      note: "Labeled Jump up: its own words, alone at the latest message.",
+      snapshot,
+      play: atLatest,
+      ...look("labeled"),
     },
     frosted: {
       note: "Selected (ships): a 32 px frosted disc at the composer's glass level; the words under it frost, nothing bends.",
@@ -110,6 +137,12 @@ export default agentPaneEntry({
       snapshot,
       play: park,
       ...look("stacked"),
+    },
+    single: {
+      note: 'Single: the frosted disc alone, no Jump up over it (Leo, 2026-11-12: "maybe a bit extra?").',
+      snapshot,
+      play: park,
+      ...look("single"),
     },
     lens: {
       note: "Before: the fisheye lens disc; the words under it magnify and bend behind the arrow.",

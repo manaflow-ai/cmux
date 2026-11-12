@@ -95,6 +95,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 
 use anyhow::Context as _;
+use cmux_json::JsonGet as _;
 use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::Value;
@@ -228,10 +229,6 @@ struct RecordHead {
     resource_revision: Option<u64>,
 }
 
-fn change_text<'a>(change: &'a Value, field: &str) -> Option<&'a str> {
-    change.get(field).and_then(Value::as_str)
-}
-
 /// Every string inside `value`, object keys excluded.
 fn collect_strings<'a>(value: &'a Value, strings: &mut HashSet<&'a str>) {
     match value {
@@ -274,11 +271,9 @@ pub(super) fn fold_record(
     let mut kept = Vec::with_capacity(changes.len());
     let mut removed = Vec::new();
     for change in changes {
-        let (Some(kind), Some(resource), Some(id)) = (
-            change_text(&change, "kind"),
-            change_text(&change, "resource"),
-            change_text(&change, "id"),
-        ) else {
+        let (Some(kind), Some(resource), Some(id)) =
+            (change.get_str("kind"), change.get_str("resource"), change.get_str("id"))
+        else {
             kept.push(change);
             continue;
         };
@@ -332,8 +327,8 @@ pub(super) fn fold_record(
                 subjects
                     .iter()
                     .filter(|subject| {
-                        let id = change_text(subject, "id").unwrap_or_default();
-                        change_text(subject, "kind") == Some("session")
+                        let id = subject.get_str("id").unwrap_or_default();
+                        subject.get_str("kind") == Some("session")
                             || !gone.contains(id)
                             || held.contains(id)
                     })

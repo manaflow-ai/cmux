@@ -383,6 +383,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "billing.openPortal",
+        group: GROUP,
+        title: t("ActionCatalog", "action.billing.openPortal", "Manage Billing"),
+        keywords: &["billing", "subscription", "invoice", "receipt", "payment", "card", "plan", "pro", "stripe", "portal"],
+        category: "settings",
+        symbol: "creditcard",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action billing-open-portal",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "sendFeedback",
         group: GROUP,
         title: t("ActionCatalog", "action.sendFeedback", "Send Feedback"),

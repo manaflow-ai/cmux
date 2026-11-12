@@ -1,7 +1,7 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 public import CmuxMobileRealtime
-import CmuxMobileDesign
+public import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -32,6 +32,15 @@ public final class TerminalModel {
     /// Whether the screen shows the Mac's terminal; anything else draws the
     /// connecting placeholder over it.
     public internal(set) var connectionState: TerminalConnectionState
+    /// Says when a dropped connection may show its line (after 10 s).
+    @ObservationIgnored public let quietStatus: QuietStatusGate
+    /// The one quiet status line by the composer: nil while attached and for
+    /// the first ``QuietStatusGate/threshold`` of an outage (the page keeps
+    /// showing its last frame meanwhile), then what is going on. Retry sits
+    /// beside it (``reconnect``).
+    public var connectionLine: String? {
+        quietStatus.isShown ? connectionState.quietLine : nil
+    }
     var sticky = TerminalStickyModifiers()
 
     // Composer
@@ -143,12 +152,15 @@ public final class TerminalModel {
     /// Set by the controller.
     weak var controller: TerminalViewController?
 
-    public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh") {
+    public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh",
+                quietStatus: QuietStatusGate = QuietStatusGate()) {
+        self.quietStatus = quietStatus
         self.session = session
         self.artifactSource = artifactSource
         self.title = title
         self.programName = session.programName
         self.connectionState = session.connectionState
+        quietStatus.update(down: !session.connectionState.isAttached)
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
@@ -171,6 +183,7 @@ public final class TerminalModel {
 
     /// The app is in the foreground (false: background, locked).
     public func setAppActive(_ active: Bool) {
+        controller?.appActiveChanged(active)
         sizeClaimer.set(appActive: active)
     }
 
@@ -229,7 +242,13 @@ public final class TerminalModel {
 
     func ingest(_ event: TerminalSessionEvent) {
         let connection = connectionState.applying(event)
-        if connection != connectionState { connectionState = connection }
+        if connection != connectionState {
+            connectionState = connection
+            quietStatus.update(down: !connection.isAttached)
+        }
+        // Attached again: a held composer send went out (or was dropped, which says so
+        // first); a later drop must never put already-sent text back.
+        if connection.isAttached { heldComposerSend = nil }
         switch event {
         case .output:
             // The bytes are scanned once per display frame (`scanOutput`).
@@ -246,6 +265,12 @@ public final class TerminalModel {
             break
         case .inputNotSent:
             composerNotice = TerminalConnectionState.inputNotSentNotice
+            // A composer send that waited out a blip and was dropped comes back to edit.
+            if let held = heldComposerSend, composerText.isEmpty,
+               ProcessInfo.processInfo.systemUptime - held.at <= Self.heldComposerSendWindow {
+                composerText = held.text
+            }
+            heldComposerSend = nil
         case .hostGrid, .hostGridOwner:
             break
         }
@@ -404,6 +429,14 @@ public final class TerminalModel {
     public var debugState: String { controller?.debugState ?? "-" }
     #endif
 
+    /// Grid sizes this page sent the Mac (`TerminalViewController.sendResize`),
+    /// for demos and UI tests: the soft keyboard must not add any.
+    public internal(set) var ptyResizesSent = 0
+    #if DEBUG
+    /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
+    var demoNote = "start"
+    #endif
+
     /// Refreshes `snapshot` from the live page (the grid is about to show it).
     public func captureSnapshot() {
         if let image = controller?.snapshot() {
@@ -455,8 +488,21 @@ public final class TerminalModel {
             sendAttachments(pressReturn: true)
             return
         }
+        holdComposerText()
         controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
         composerText = ""
+    }
+
+    /// A composer send made while the terminal is not attached (a blip): the
+    /// session holds its keys, and drops them if the terminal does not come
+    /// back in time. Its text, with when it was sent, comes back then.
+    @ObservationIgnored var heldComposerSend: (text: String, at: TimeInterval)?
+    /// How long after a held send its text may come back (the session's hold, with room for the attach).
+    static let heldComposerSendWindow: TimeInterval = 30
+
+    private func holdComposerText() {
+        heldComposerSend = connectionState.isAttached || composerText.isEmpty
+            ? nil : (composerText, ProcessInfo.processInfo.systemUptime)
     }
 
     /// Voice mode's prompt: the user's words typed into the terminal with
@@ -476,6 +522,7 @@ public final class TerminalModel {
             sendAttachments(pressReturn: false)
             return
         }
+        holdComposerText()
         controller?.surface.sendText(composerText, pressReturn: false, fullScreenApp: isTUI)
         composerText = ""
     }
@@ -552,6 +599,24 @@ public final class TerminalModel {
     // MARK: Key bar
 
     #if DEBUG
+    /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
+    /// file attached when asked, for gallery captures of the composer.
+    public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
+        composerText = text
+        guard withAttachments else { return }
+        let colors: [UIColor] = [.systemOrange, .systemTeal]
+        for (index, color) in colors.enumerated() {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 168, height: 168)).image { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 168, height: 168))
+                UIColor.white.withAlphaComponent(0.35).setFill()
+                context.cgContext.fillEllipse(in: CGRect(x: 40, y: 40, width: 88, height: 88))
+            }
+            addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
+        }
+        addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
     /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
     public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
         guard let surface = controller?.surface else { return }

@@ -131,6 +131,49 @@ public actor AcpmuxConnection {
         }
     }
 
+    /// Writes a request and returns its id once the channel took it; ``reply(to:)`` waits for
+    /// its answer. Requests a caller submits one after another reach the Mac in that order
+    /// (``request(_:_:)`` writes from a task of its own), and the caller need not wait for an
+    /// answer before the next: a `session/prompt` is answered only when its turn ends.
+    public func submit(_ method: String, _ params: JSONValue) async throws -> Int {
+        try Task.checkCancellation()
+        if let terminalError { throw terminalError }
+        start()
+        let id = nextID
+        nextID += 1
+        let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
+        let data = try JSONEncoder().encode(message)
+        rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes (submitted)")
+        submitted.insert(id)
+        do {
+            try await channel.send(data)
+        } catch {
+            submitted.remove(id)
+            answered[id] = nil
+            throw error
+        }
+        return id
+    }
+
+    /// The answer to a ``submit(_:_:)``ed request (one that came before this call was kept).
+    public func reply(to id: Int) async throws -> JSONValue {
+        if let early = answered.removeValue(forKey: id) {
+            submitted.remove(id)
+            return try early.get()
+        }
+        guard submitted.contains(id) else {
+            throw terminalError ?? LinkError(code: "closed", message: "acpmux channel closed")
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            pending[id] = continuation
+        }
+    }
+
+    /// Submitted requests not yet answered to their ``reply(to:)``, and answers that came
+    /// before it was called.
+    private var submitted: Set<Int> = []
+    private var answered: [Int: Result<JSONValue, any Error>] = [:]
+
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
     public func notify(_ method: String, _ params: JSONValue) async throws {
         if let terminalError { throw terminalError }
@@ -178,21 +221,29 @@ public actor AcpmuxConnection {
 
     private func dispatch(_ value: JSONValue) {
         if let id = value["id"]?.numberValue, value["method"] == nil {
-            guard let continuation = pending.removeValue(forKey: Int(id)) else {
-                rpcLog.debug("<- \(Int(id)) with no request waiting")
-                return
-            }
-            rpcLog.debug("<- \(Int(id)) \(value["error"] == nil ? "result" : "error", privacy: .public)")
+            let outcome: Result<JSONValue, any Error>
             if let error = value["error"] {
-                continuation.resume(throwing: RPCError(
+                outcome = .failure(RPCError(
                     code: Int(error["code"]?.numberValue ?? 0),
                     message: error["message"]?.stringValue ?? "error",
                     reason: error["data"]?["reason"]?.stringValue,
                     retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) }
                 ))
             } else {
-                continuation.resume(returning: value["result"] ?? .null)
+                outcome = .success(value["result"] ?? .null)
             }
+            guard let continuation = pending.removeValue(forKey: Int(id)) else {
+                // A submitted request answered before its `reply(to:)`: kept for it.
+                if submitted.contains(Int(id)) {
+                    answered[Int(id)] = outcome
+                } else {
+                    rpcLog.debug("<- \(Int(id)) with no request waiting")
+                }
+                return
+            }
+            submitted.remove(Int(id))
+            rpcLog.debug("<- \(Int(id)) \(value["error"] == nil ? "result" : "error", privacy: .public)")
+            continuation.resume(with: outcome)
         } else if let method = value["method"]?.stringValue {
             continuation.yield(Notification(method: method, params: value["params"] ?? .null))
         }
@@ -266,6 +317,9 @@ public actor AcpmuxConnection {
         guard terminalError == nil else { return }
         terminalError = error
         for (_, continuation) in pending { continuation.resume(throwing: error) }
+        // A submitted request whose `reply(to:)` is still to come fails there.
+        for id in submitted where pending[id] == nil && answered[id] == nil { answered[id] = .failure(error) }
+        submitted.subtract(pending.keys)
         pending.removeAll()
         continuation.finish()
     }
