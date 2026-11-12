@@ -156,7 +156,7 @@ export default historyPageEntry({
       error: "network",
     },
     "permission-error": {
-      note: "A refused remove announces the host error and leaves the timeline intact.",
+      note: "A refused remove announces a plain error (never the host's own text) and leaves the timeline intact.",
       entries,
       error: "permission",
       query: { menuIndex: 1 },
@@ -167,7 +167,7 @@ export default historyPageEntry({
         await ctx.waitFor(
           () =>
             ctx.document.querySelector<HTMLElement>('[role="alert"].history-error')?.textContent ===
-            "history cannot be changed",
+            "Something went wrong. Try again.",
         );
         if (!ctx.document.querySelector(".history-row")) throw new Error("history rows disappeared after refusal");
       },
