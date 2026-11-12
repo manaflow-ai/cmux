@@ -135,3 +135,7 @@ pub fn read_delta(reply: &Value) -> Option<(Vec<Value>, Vec<String>)> {
 #[cfg(test)]
 #[path = "watch_delta_tests.rs"]
 mod tests;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "watch_delta_bench.rs"]
+mod watch_delta_bench;
