@@ -24,8 +24,10 @@ async fn status_answers_while_a_chat_holds_its_child_lock() {
     let hub = hub_in(&dir);
     let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let s = hub.new_session(req).await.unwrap();
-    hub.ensure_child(&s).await.unwrap();
+    let blocks = vec![json!({"type": "text", "text": "hi"})];
+    hub.prompt_with(&s, blocks, "test", false, PromptOptions::default()).await.unwrap();
     let held = s.child.lock().await;
+    assert!(held.is_some(), "the chat's agent did not start");
     let status = tokio::time::timeout(Duration::from_secs(5), hub.status())
         .await
         .expect("status waited on a chat's child lock");
