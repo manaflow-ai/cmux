@@ -69,7 +69,11 @@ type Snapshot = {
 
 /// The chat drawn after its last record, dropped live, came back through a lag read, and the same
 /// chat drawn again whole (a full rebuild).
-async function cutAndWhole(special: (sessionId: string) => Map<number, Omit<EventRecord, "sessionId" | "seq" | "at">>) {
+async function cutAndWhole(
+  special: (sessionId: string) => Map<number, Omit<EventRecord, "sessionId" | "seq" | "at">>,
+  /// More rebuilds past a cut after the lag read's, before the cut rows are read.
+  more?: (rebuild: (changedFrom: number) => void) => void,
+) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   let target = "";
@@ -132,6 +136,11 @@ async function cutAndWhole(special: (sessionId: string) => Map<number, Omit<Even
     expect(await settle(() => pane.events.at(-1)?.seq === HELD)).toBe(true);
     for (let index = 0; index < 20; index += 1) await tick();
     flush();
+    if (more) {
+      more((changedFrom) => pane.rebuild(changedFrom));
+      pane.emit();
+      flush();
+    }
     const cut = snapshot;
     pane.rebuild();
     pane.emit();
@@ -292,5 +301,104 @@ test("a compaction whose end comes past a cut is one note", async () => {
   const notes = (snapshot: Snapshot) => snapshot.rows.filter((row) => row.kind === "compaction");
   expect(notes(whole)).toHaveLength(1);
   expect(notes(cut)).toHaveLength(1);
+  expect(shown(cut)).toEqual(shown(whole));
+});
+
+// The class F1 and F2 belong to: any row drawn above a cut that a record past it changes.
+const spanning = (records: (sessionId: string) => EventRecord[]) => (sessionId: string) => {
+  const special = new Map<number, Omit<EventRecord, "sessionId" | "seq" | "at">>();
+  for (const record of records(sessionId)) {
+    const { sessionId: _s, seq: _q, at: _a, ...rest } = record;
+    special.set(record.seq, rest);
+  }
+  return special;
+};
+
+test("a tool call that starts above a cut and ends past it is one row, ended", async () => {
+  const { cut, whole } = await cutAndWhole(
+    spanning((sessionId) => [
+      update(sessionId, 6_990, {
+        sessionUpdate: "tool_call",
+        toolCallId: "long-call",
+        title: "Run the build",
+        kind: "execute",
+        status: "in_progress",
+      }),
+      update(sessionId, 7_050, {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "long-call",
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: "built" } }],
+      }),
+    ]),
+  );
+  expect(shown(cut)).toEqual(shown(whole));
+  expect(JSON.stringify(cut.rows)).toEqual(JSON.stringify(whole.rows));
+});
+
+test("a background task that starts above a cut and ends past it is one row, ended", async () => {
+  const { cut, whole } = await cutAndWhole(
+    spanning((sessionId) => [
+      update(sessionId, 6_990, {
+        sessionUpdate: "tool_call",
+        toolCallId: "bg-call",
+        title: "npm run dev",
+        kind: "execute",
+        status: "completed",
+        rawOutput: { backgroundTaskId: "bg-1" },
+      }),
+      update(sessionId, 7_050, {
+        sessionUpdate: "background_task_update",
+        taskId: "bg-1",
+        toolCallId: "bg-call",
+        state: "completed",
+        command: "npm run dev",
+      }),
+    ]),
+  );
+  expect(shown(cut)).toEqual(shown(whole));
+  expect(JSON.stringify(cut.rows)).toEqual(JSON.stringify(whole.rows));
+});
+
+const helperProgress = (sessionId: string, seq: number, state: string) =>
+  update(
+    sessionId,
+    seq,
+    { sessionUpdate: "subagent_progress" },
+    { subagents: [{ id: "helper", parent: null, name: "Reviewer", state }] },
+  );
+
+test("a subagent's record a repair brings past a cut joins its group above it", async () => {
+  // The record the lag read brings back (the fold never read it) is a reply of a helper that started
+  // and ended at records 10-12: the refold must not take it for a new subagent.
+  const { cut, whole } = await cutAndWhole(
+    spanning((sessionId) => [
+      helperProgress(sessionId, 10, "running"),
+      update(sessionId, 11, say("First helper reply", "helper-m1"), { subagent: "helper" }),
+      helperProgress(sessionId, 12, "completed"),
+      update(sessionId, HELD, say("Late helper reply", "helper-m2"), { subagent: "helper" }),
+    ]),
+  );
+  const groups = (snapshot: Snapshot) => snapshot.rows.filter((row) => row.kind === "subagents");
+  expect(groups(cut)).toHaveLength(groups(whole).length);
+  expect(JSON.stringify(cut.subagentViews?.helper)).toContain("First helper reply");
+  expect(shown(cut)).toEqual(shown(whole));
+});
+
+test("a second cut, older than the first, still sees a subagent that started above both", async () => {
+  // The first cut (about 7,001) starts the subagent fold over; a later repair from 6,950 cuts at
+  // 6,801, between the helper's start at 6,610 and its records at 6,960-6,990.
+  const { cut, whole } = await cutAndWhole(
+    spanning((sessionId) => [
+      helperProgress(sessionId, 6_610, "running"),
+      update(sessionId, 6_611, say("First helper reply", "helper-m1"), { subagent: "helper" }),
+      update(sessionId, 6_960, say("Second helper reply", "helper-m2"), { subagent: "helper" }),
+      helperProgress(sessionId, 6_990, "completed"),
+    ]),
+    (rebuild) => rebuild(6_950),
+  );
+  const groups = (snapshot: Snapshot) => snapshot.rows.filter((row) => row.kind === "subagents");
+  expect(groups(cut)).toHaveLength(groups(whole).length);
+  expect(cut.subagentViews?.helper?.length).toBe(whole.subagentViews?.helper?.length);
   expect(shown(cut)).toEqual(shown(whole));
 });
