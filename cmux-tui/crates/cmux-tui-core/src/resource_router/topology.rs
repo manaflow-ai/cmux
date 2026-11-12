@@ -612,7 +612,7 @@ mod tests {
 
         let refused = terminal_workspace(&mux, "keep-mark-fails");
         let tab = refused["value"]["tab_id"].as_str().unwrap().to_owned();
-        mux.workspace_registry.lock().unwrap().refuse_terminal_keep_for_test();
+        mux.workspace_registry.lock().unwrap().refuse_terminal_keep_for_test().unwrap();
         let revision = mux.with_state(|state| state.resource_revision);
         let failed = close("keep-mark-fails-close", &tab);
         assert!(failed.is_err(), "a keep close whose mark failed answered {failed:?}");

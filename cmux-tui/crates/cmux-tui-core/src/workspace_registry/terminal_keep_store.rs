@@ -104,14 +104,12 @@ impl WorkspaceRegistry {
 
     /// Makes every later `keep` mark fail, as a storage fault would.
     #[cfg(test)]
-    pub(crate) fn refuse_terminal_keep_for_test(&self) {
-        self.connection
-            .get()
-            .execute_batch(
-                "CREATE TRIGGER refuse_terminal_keep BEFORE INSERT ON terminal_keep
-                 BEGIN SELECT RAISE(ABORT, 'forced keep failure'); END;",
-            )
-            .unwrap();
+    pub(crate) fn refuse_terminal_keep_for_test(&self) -> anyhow::Result<()> {
+        self.connection.get().execute_batch(
+            "CREATE TRIGGER refuse_terminal_keep BEFORE INSERT ON terminal_keep
+             BEGIN SELECT RAISE(ABORT, 'forced keep failure'); END;",
+        )?;
+        Ok(())
     }
 
     /// Whether one terminal is marked `keep`.

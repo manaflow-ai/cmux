@@ -312,7 +312,11 @@ impl Mux {
         else {
             return;
         };
-        let host = self.workspace_registry.lock().unwrap().terminal_host_id(&public_id);
+        let host = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .terminal_host_id(&public_id);
         let cleared = match host {
             Ok(Some(host)) => self.set_terminal_keep(&host, false),
             Ok(None) => Ok(()),
