@@ -99,7 +99,11 @@ runner lost communication with the server"), and so does one with a step
 GitHub cancelled while the job failed: its runner was stopped mid-job ("The
 runner has received a shutdown signal"). A failed Select Xcode or Select
 helper Xcode step also counts, without a time limit, because a missing pin is
-a machine fault even when a helper build succeeded first. The watcher lets the rest of the
+a machine fault even when a helper build succeeded first. So does a job whose failed step ran
+the mini's disk out ("No space left on device", classify_failures.py's disk-full signature, read
+once from the finished job's log: disk_full()): the build itself was fine, the runner had no room
+for it (cmux run 43119216549, 2026-11-11: the fast tier's link of CmuxNextPackageTests stopped at
+ld errno=28 on a mini with 19.8 GiB free). The watcher lets the rest of the
 run finish, since GitHub re-runs no job of a run in progress and cancelling
 it would kill every healthy sibling, then confirms the head has not moved and
 re-runs its failed jobs. Only a run still going at the watch's end, or main's
@@ -1099,10 +1103,43 @@ def feed_timeouts(api: "GitHub", target: "Target", jobs: Sequence[Mapping[str, A
         return []
 
 
+# The key GitHub.jobs() sets on a failed owned job whose failed step ran the runner's disk out, to the log line that
+# says so (disk_full()). refused() counts such a job: re-run on another runner, never left red as the code's.
+DISK_FULL = "disk_full"
+# classify_failures.SIGNATURES' name for that line ("No space left on device", ld's errno=28 among them).
+DISK_FULL_SIGNATURE = "disk-full"
+
+
+def disk_full_candidate(job: Mapping[str, Any]) -> bool:
+    """A finished, failed owned job that refused() does not already count and whose failed step is a workflow step:
+    the only jobs whose log disk_full() reads (one read per job, GitHub.disk_full_evidence())."""
+    if not job_pool(job) or job.get("status") != "completed" or job.get("conclusion") != "failure" \
+            or not job.get("id") or job.get(DISK_FULL) or refused(job):
+        return False
+    return any(isinstance(step, Mapping) and step.get("conclusion") == "failure"
+               and step.get("name") not in SETUP_STEPS for step in job.get("steps") or [])
+
+
+def disk_full(lines: Sequence[str]) -> str:
+    """The line of a finished job's log that says its failed step ran the disk out, or "" (classify_failures.py's
+    disk-full signature, matched only in a step that printed `##[error]`, as its classify_text() does)."""
+    import classify_failures  # its imports are heavier than this module's; only a failed owned job needs it
+    signature = next(sig for sig in classify_failures.SIGNATURES if sig.name == DISK_FULL_SIGNATURE)
+    for _command, failed, output in classify_failures.log_sections("".join(lines)):
+        if failed:
+            for line in output:
+                if signature.pattern.search(line):
+                    return line.strip()[:200]
+    return ""
+
+
 def refused(job: Mapping[str, Any]) -> bool:
     """An owned runner's setup or Xcode pin failure, or a lost runner."""
     if not job_pool(job) or job.get("status") != "completed" or job.get("conclusion") != "failure":
         return False
+    if job.get(DISK_FULL):
+        # Its failed step ran the runner's disk out (GitHub.jobs() marks it from the job's log: disk_full()).
+        return True
     steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
     if not steps:
         # The runner ran nothing, not even "Set up job": GitHub failed a job whose
@@ -1515,6 +1552,10 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     turned_away = [job for job in jobs if refused(job)]
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
+        full = [job for job in turned_away if job.get(DISK_FULL)]
+        if full and len(full) == len(turned_away):
+            return Look("refused", f"{names} ran out of disk on {route(full[0])} ({full[0].get(DISK_FULL)}): "
+                                   "the runner's fault, re-run on another runner")
         return Look("refused", f"{names} refused by {route(turned_away[0])} at job start or Xcode selection")
     lost = [job for job in jobs if stranded and unacquired(job)]
     if lost:
@@ -1718,6 +1759,8 @@ class GitHub:
         # This rescue job's own workflow run (GITHUB_RUN_ID), which rescue_jobs() never waits on.
         self.own_run = 0
         self._log_lines: dict[int, list[str]] = {}
+        # disk_full_evidence() by job id: "" for a log that says nothing of a full disk.
+        self._disk_full: dict[int, str] = {}
         # Requests by (kind, "charged" | "not modified"), for the budget lines.
         self.counts: dict[tuple[str, str], int] = {}
         self.started = time.monotonic()
@@ -2158,7 +2201,27 @@ class GitHub:
             found.extend(batch)
             if len(batch) < 100:
                 break
-        return found
+        return [self.mark_disk_full(job) for job in found]
+
+    def mark_disk_full(self, job: Mapping[str, Any]) -> Mapping[str, Any]:
+        """`job`, with DISK_FULL set when it is a disk_full_candidate() whose log says its failed step ran the
+        runner's disk out, so refused() counts it everywhere the jobs go."""
+        if not disk_full_candidate(job):
+            return job
+        evidence = self.disk_full_evidence(int(job["id"]))
+        return {**job, DISK_FULL: evidence} if evidence else job
+
+    def disk_full_evidence(self, job_id: int) -> str:
+        """disk_full() of a finished job's log, read once per job (a finished job's log no longer changes); ""
+        when the log cannot be read whole (_read_log_lines())."""
+        with self._lock:
+            if job_id in self._disk_full:
+                return self._disk_full[job_id]
+        lines = self._read_log_lines(job_id)
+        evidence = disk_full(lines) if lines is not None else ""
+        with self._lock:
+            self._disk_full[job_id] = evidence
+        return evidence
 
     def rescue_jobs(self, earliest_end: dt.datetime, run_id: int = 0, *,
                     events: Sequence[str] | None = None,
