@@ -285,7 +285,10 @@ import UIKit
         }
         let sorted = samples.sorted()
         let median = sorted[sorted.count / 2]
-        print("APPEARANCE_LIVE_CHANGE_MS median=\(String(format: "%.2f", median)) max=\(String(format: "%.2f", sorted.last ?? 0)) samples=\(samples.map { String(format: "%.2f", $0) })")
+        let line = "APPEARANCE_LIVE_CHANGE_MS median=\(String(format: "%.2f", median)) max=\(String(format: "%.2f", sorted.last ?? 0)) samples=\(samples.map { String(format: "%.2f", $0) })"
+        print(line)
+        // The console is not kept by every runner: the number also travels as an attachment.
+        Attachment.record(line, named: "appearance-live-change-ms.txt")
         #expect(median < 100)
         window.isHidden = true
     }
