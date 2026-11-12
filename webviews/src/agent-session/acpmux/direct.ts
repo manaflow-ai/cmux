@@ -1860,15 +1860,15 @@ const MANY_SLOTS = Symbol("many");
 
 /// Whether two texts are one message at different completeness: one holds the other's opening or
 /// ending whole (a repair read back chunks before or after it, or split a reply a lost call had
-/// joined), and the shorter is at least half as long, so a short reply is never taken for part of a
-/// long one. Linear in the longer; under 8 characters, only itself.
+/// joined), 40 characters of it, and the shorter is at least half as long, so a short reply is never
+/// taken for part of a long one, nor two replies for one by a common opening line. Linear in the longer; under 8 characters, only itself.
 function sameWords(a: string | undefined, b: string | undefined): boolean {
   const [x, y] = [a?.trim() ?? "", b?.trim() ?? ""];
   if (!x || !y) return false;
   if (x === y) return true;
   const [short, long] = x.length <= y.length ? [x, y] : [y, x];
   if (short.length < 8 || short.length * 2 < long.length) return false;
-  const holds = (text: string, other: string) => text.includes(other.slice(0, 20)) || text.includes(other.slice(-20));
+  const holds = (text: string, other: string) => text.includes(other.slice(0, 40)) || text.includes(other.slice(-40));
   return holds(long, short) || holds(short, long);
 }
 
@@ -2050,7 +2050,13 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const fresh = [...this.values()].filter(
       (row) => isMessage(row) && row.frame === undefined && !previous.has(row.id),
     );
+    // The frames rows draw in now. `previous` holds the rows shown before a reset too, which can name
+    // a frame a row since took: a frame in use is never given again, so no two rows share one.
+    const inUse = new Set<string>();
+    for (const row of this.values()) inUse.add(rowFrameKey(row));
     for (const old of gone) {
+      const frame = rowFrameKey(old);
+      if (inUse.has(frame)) continue;
       const length = old.text?.trim().length ?? 0;
       let best: AcpmuxRow | undefined;
       // A tie goes to the newer row: the one a rebuild named anew is the newest of its copies.
@@ -2064,7 +2070,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         )
           best = row;
       if (!best) continue;
-      this.frames.set(best.id, rowFrameKey(old));
+      inUse.add(frame);
+      this.frames.set(best.id, frame);
       this.set(best.id, best);
     }
     this.current = current;

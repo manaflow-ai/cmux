@@ -158,3 +158,34 @@ test("a frame goes back to its own row when that row returns", () => {
   rows.adoptFrames(new Map(rows));
   expect([...rows.values()].map(rowFrameKey)).toEqual(["assistant-49", "assistant-50"]);
 });
+
+// The rows shown before a reset come back in `previous` with the frames they had: one a row since took is never
+// given to another row (two rows in one frame are one React key).
+test("a frame a row draws in is never given to another", () => {
+  const text = "guard in `step2` runs after the total, so the first pass lets a value past the ceiling through.";
+  const rows = new OrderedRows();
+  rows.set("assistant-49", reply("assistant-49", `Turn 2: the ${text}`));
+  rows.adoptFrames(new Map([["assistant-50", reply("assistant-50", text)]]));
+  // A later reset: the rows shown before it named assistant-50's frame, and a newer copy of the reply came in.
+  rows.set("assistant-48", reply("assistant-48", `Now: Turn 2: the ${text}`));
+  rows.adoptFrames(
+    new Map([
+      ["assistant-50", reply("assistant-50", text)],
+      ["assistant-49", rows.get("assistant-49")!],
+    ]),
+  );
+  const frames = [...rows.values()].map(rowFrameKey);
+  expect(new Set(frames).size).toBe(frames.length);
+});
+
+test("two replies that open with the same line are not one reply", () => {
+  const opening = "I'll look at the code first. ";
+  const rows = new OrderedRows();
+  rows.set("assistant-49", reply("assistant-49", `${opening}The parser drops the last token of every line it reads.`));
+  rows.adoptFrames(
+    new Map([
+      ["assistant-50", reply("assistant-50", `${opening}The cache key forgets the session id when a pane closes.`)],
+    ]),
+  );
+  expect(rowFrameKey(rows.get("assistant-49")!)).toBe("assistant-49");
+});
