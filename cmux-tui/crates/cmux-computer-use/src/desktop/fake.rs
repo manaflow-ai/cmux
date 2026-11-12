@@ -50,6 +50,9 @@ pub struct FakeDesktop {
     pub steal_on_input: Mutex<Option<FocusSnapshot>>,
     /// Focus from focus reading number `.0` on (counting every reading).
     pub steal_on_read: Mutex<Option<(u32, FocusSnapshot)>>,
+    /// Set: launch_identities answers these and the desktop launches by
+    /// identity (as macOS does with bundle ids).
+    pub launch_names: Mutex<Option<Vec<String>>>,
     /// Focus readings so far.
     pub focus_reads: Mutex<u32>,
     /// `restore_focus` calls so far.
@@ -115,6 +118,7 @@ impl FakeDesktop {
             focus: Mutex::new(None),
             steal_on_input: Mutex::new(None),
             steal_on_read: Mutex::new(None),
+            launch_names: Mutex::new(None),
             focus_reads: Mutex::new(0),
             restores: Mutex::new(vec![]),
             restore_works: true,
@@ -351,7 +355,16 @@ impl Desktop for FakeDesktop {
         Ok(ActionOutcome::confirmed("fake"))
     }
     /// Like Windows: a bare name launches `<name>.exe`, matched lowercased.
+    fn launches_by_identity(&self) -> bool {
+        self.launch_names.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
+    }
+
     fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
+        if let Some(names) =
+            self.launch_names.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        {
+            return Ok(names);
+        }
         let file = app_id.rsplit(['\\', '/']).next().unwrap_or(app_id).to_ascii_lowercase();
         Ok(vec![if file.contains('.') { file } else { format!("{file}.exe") }])
     }
