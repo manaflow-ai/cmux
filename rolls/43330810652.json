@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43330810652",
+  "recorded_at": "2026-11-12T23:49:29Z",
+  "reason": "cmux-tui d92e7a703e74 changes the image's cmux-tui (pinned cb0e49cfd4ff)",
+  "dry_run": false,
+  "cmux_tui": "d92e7a703e74343ad235ad1da656a0cd93961441",
+  "fixes": [
+    {
+      "sha": "d92e7a703e74343ad235ad1da656a0cd93961441",
+      "mergedAt": "2026-11-12T13:50:54-08:00",
+      "subject": "Rust: one socket-path rule in cmux-unix-socket (#42079)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T23:49:29Z",
+    "snapshot_id": "sh-ffeda98b8d2c461db9305ac7dbe65c1a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43330810652): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a8851885cefa5ef6a8032c4825d0c156dc3e2686",
+    "image": "cloud-native-auto-d92e7a70-43330810652-1",
+    "revision": "ci-43330810652-1",
+    "at": "2026-11-12T23:49:29Z"
+  },
+  "rolled_back": false
+}
