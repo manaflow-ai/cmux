@@ -256,6 +256,11 @@ def mab_check(env, root: str) -> tuple[float, dict]:
 
 # ------------------------------------------------------------------ attempt
 
+# An agent that ran this long before the guest became unreachable started
+# work; its attempt is scored, not dropped as infrastructure.
+AGENT_STARTED_SECONDS = 20
+
+
 def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
     aid = f"{task['id'].replace('/', '_')}__{arm}__{trial}"
     adir = os.path.join(out_dir, "attempts", aid)
@@ -289,6 +294,17 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
             if not r.stdout.strip() and r.returncode != 0:
                 probe = vm.ssh("cat ~/cub/out/rc 2>/dev/null; test -s ~/cub/out/events.jsonl && echo ran")
                 said = probe.stdout.split() if probe.returncode == 0 else []
+                if probe.returncode != 0 and row["agent_seconds"] >= AGENT_STARTED_SECONDS:
+                    # The guest is gone after the agent ran for a while (it
+                    # rebooted, logged out or crashed the guest): a failed
+                    # attempt of that arm, never dropped from its denominator.
+                    row.update(agent_rc="guest lost after the agent ran", score=0.0, success=False,
+                               check={"guest": "unreachable after the agent ran"})
+                    row.update(summarize_events(os.path.join(adir, "events.jsonl")))
+                    row["finished"] = time.time()
+                    with open(os.path.join(adir, "row.json"), "w") as f:
+                        json.dump(row, f, indent=1)
+                    return row
                 if "ran" not in said:
                     raise RuntimeError(f"ssh to the guest failed (exit {r.returncode}) before the agent ran")
                 row["agent_rc"] = next((w for w in said if w != "ran"), f"ssh {r.returncode} after the agent ran")
@@ -395,19 +411,21 @@ def cmd_report(args):
         infra = len(rs) - len(scored)
         print(f"{arm:10} {len(scored):6} {succ:8} {sum(r['score'] for r in scored)/max(1,len(scored)):6.3f} "
               f"{infra:6} {100*infra/max(1,len(rs)):5.1f}% {secs[len(secs)//2] if secs else 0:6} {calls[len(calls)//2] if calls else 0:6}")
-    # Paired: only tasks every arm scored, so infrastructure losses (which
-    # drop an attempt from one arm's denominator) cannot favour either arm.
-    best = {}
+    # Paired: only (task, trial) pairs every arm scored, one row each (the
+    # latest), so infrastructure losses, which drop an attempt from one arm,
+    # cannot give either arm more tries or a smaller denominator.
+    latest = {}
     for r in rows:
         if r.get("score") is not None:
-            key = (r["task"], r["arm"])
-            best[key] = max(best.get(key, 0.0), r["score"])
+            key = (r["task"], r.get("trial", 0), r["arm"])
+            if key not in latest or r.get("finished", 0) >= latest[key].get("finished", 0):
+                latest[key] = r
     arms = sorted(by)
-    tasks = {t for (t, _) in best}
-    paired = sorted(t for t in tasks if all((t, a) in best for a in arms))
-    print(f"paired over {len(paired)} tasks every arm scored:")
+    pairs = {(t, tr) for (t, tr, _) in latest}
+    paired = sorted(p for p in pairs if all((*p, a) in latest for a in arms))
+    print(f"paired over {len(paired)} (task, trial) pairs every arm scored:")
     for arm in arms:
-        ok = sum(1 for t in paired if best[(t, arm)] >= 1.0)
+        ok = sum(1 for p in paired if latest[(*p, arm)]["score"] >= 1.0)
         print(f"  {arm:10} {ok:4} / {len(paired)}")
 
 
