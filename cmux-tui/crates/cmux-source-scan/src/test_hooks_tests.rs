@@ -109,3 +109,84 @@ fn generated_chains_base_refuses_implies_this_refuses() {
         "chains the python check refused and this one passes: {base_only:#?}"
     );
 }
+
+/// A crate of several files: `judge_tree` follows a path of the crate (`crate::`, `super::`,
+/// `self::`, a module declared as a file, a `use` or a re-export of one) into the file that
+/// defines it, and judges what it finds there as if it were written in place.
+#[test]
+fn the_tree_follows_paths_into_other_files() {
+    let files: &[(&str, &str)] = &[
+        (
+            "lib.rs",
+            "mod a;\nmod b;\nmod c;\nmod e;\nuse std::sync::{LazyLock, Mutex, OnceLock};\n\
+             use crate::a::Plain;\n\
+             static OK_USE: Mutex<Option<Plain>> = Mutex::new(None);\n\
+             static OK_PATH: LazyLock<crate::a::Plain> = LazyLock::new(Default::default);\n\
+             static OK_TESTS_USE: Mutex<Option<crate::e::Holder>> = Mutex::new(None);\n\
+             static OK_GENERIC: Mutex<crate::a::Wrap<u8>> = Mutex::new(crate::a::Wrap { inner: 0 });\n\
+             static BAD_PATH: Mutex<Option<crate::a::Hooky>> = Mutex::new(None);\n\
+             static BAD_NO_FILE: OnceLock<crate::nope::X> = OnceLock::new();\n\
+             static BAD_REEXPORT: Mutex<Option<b::Again>> = Mutex::new(None);\n\
+             static BAD_ARG: Mutex<Option<crate::a::Wrap<Box<dyn Fn() + Send>>>> = Mutex::new(None);\n\
+             #[cfg(unix)]\nuse crate::a::Plain as Pick;\n#[cfg(windows)]\nuse crate::a::Hooky as Pick;\n\
+             static BAD_ONE_CFG: Mutex<Option<Pick>> = Mutex::new(None);\n\
+             mod inline {\n    use super::a::Hooky;\n    \
+             static BAD_INLINE: std::sync::Mutex<Option<Hooky>> = std::sync::Mutex::new(None);\n}\n",
+        ),
+        (
+            "a.rs",
+            "pub struct Plain { at: u64, name: String, next: Option<Box<Plain>> }\n\
+             pub struct Hooky { run: Box<dyn Fn() + Send> }\n\
+             pub struct Wrap<T> { pub inner: T }\n",
+        ),
+        ("b.rs", "pub use crate::a::Hooky as Again;\n"),
+        (
+            "c.rs",
+            "mod d;\nuse self::d::Inner;\nuse std::sync::Mutex;\n\
+             static BAD_CHILD: Mutex<Option<Inner>> = Mutex::new(None);\n\
+             static OK_CHILD: Mutex<Option<d::Calm>> = Mutex::new(None);\n",
+        ),
+        // The tests module's `use super::Calm` comes back to the top's `use f::Calm`: no cycle.
+        (
+            "e.rs",
+            "mod f;\nuse f::Calm;\npub struct Holder { c: Calm }\nmod tests {\n    use super::Calm;\n}\n",
+        ),
+        ("e/f.rs", "pub struct Calm(u8);\n"),
+        (
+            "c/d.rs",
+            "pub struct Inner(super::super::a::Hooky);\npub struct Calm(crate::a::Plain);\n",
+        ),
+    ];
+    let dir = std::env::temp_dir().join(format!(
+        "cmux-source-scan-tree-{}-{:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    for (rel, text) in files {
+        let path = dir.join("src").join(rel);
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("mkdir");
+        std::fs::write(&path, text).expect("write");
+    }
+    let found = judge_tree(&dir);
+    std::fs::remove_dir_all(&dir).expect("remove the tree this test wrote");
+    let why = |name: &str| found.iter().find(|f| f.name == name).map(|f| f.why.clone());
+    for name in ["OK_USE", "OK_PATH", "OK_TESTS_USE", "OK_GENERIC", "OK_CHILD"] {
+        assert_eq!(why(name), None, "{name}: {found:#?}");
+    }
+    for name in ["BAD_PATH", "BAD_REEXPORT", "BAD_ARG", "BAD_ONE_CFG", "BAD_INLINE", "BAD_CHILD"] {
+        assert!(
+            why(name).is_some_and(|w| w.starts_with("a closure in a process-wide cell")),
+            "{name}: {found:#?}"
+        );
+    }
+    assert!(
+        why("BAD_NO_FILE").is_some_and(|w| w.contains("unresolved: its type names crate::nope::X")),
+        "{found:#?}"
+    );
+    // One file alone still calls each of these unresolved.
+    let alone = judge_source(&format!("{SRC}lib.rs"), files[0].1);
+    assert!(
+        alone.iter().any(|f| f.name == "OK_USE" && f.why.starts_with("unresolved")),
+        "{alone:#?}"
+    );
+}

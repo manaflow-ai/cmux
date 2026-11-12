@@ -11,24 +11,10 @@ use cmux_source_scan::test_hooks::{Finding, judge_tree};
 
 const SRC: &str = "cmux-tui/crates/acpmux/src/";
 
-/// The statics the crate held when this check replaced check-test-hooks.py, `path NAME` from
-/// `src/`: each is to be fixed or marked. A new finding fails this test, and so does a row whose
-/// static no longer has one (take the row out).
-const KNOWN: &[&str] = &[
-    "agent_host/link.rs RECEIPTS",
-    "config.rs HELD_HOME_DIR",
-    "config.rs CHECKED",
-    "config.rs BEFORE_RENAME",
-    "daemon/router_owner.rs ROUTER",
-    "harness_fixture.rs LOADED",
-    "harness_fixture.rs EMPTY",
-    "lost_home_race_tests.rs TARGET",
-    "route_probe.rs LAST",
-    "server/chats/team_audit.rs HELD",
-    "server/dual_requests.rs BOOK",
-    "shadow_admission.rs KEPT",
-    "vault.rs LOADED",
-];
+/// The statics this check refuses that are not fixed yet, `path NAME` from `src/`: each is to be
+/// fixed or marked. A new finding fails this test, and so does a row whose static no longer has
+/// one (take the row out). Empty since the check follows paths into the crate's other files.
+const KNOWN: &[&str] = &[];
 
 #[test]
 fn the_crate_adds_no_process_wide_test_hook() {
