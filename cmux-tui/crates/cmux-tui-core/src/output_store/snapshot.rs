@@ -14,9 +14,11 @@
 //! file each [`super::TAIL_FLUSH_INTERVAL`] (`tail.rs`), and a snapshot is
 //! written at most once per [`super::SNAPSHOT_INTERVAL`] while the content
 //! changes, at once for a terminal this daemon has no snapshot of (a new
-//! generation), after a resize, when the tail passes its cap (at most once
-//! per [`super::TAIL_COMPACT_SPACING`] while it stays under
-//! [`super::TAIL_FLOOD_MAX_BYTES`]), and at quit.
+//! generation), after a resize and when the tail passes its cap (at most
+//! once per [`super::TAIL_COMPACT_SPACING`] while it stays under
+//! [`super::TAIL_FLOOD_MAX_BYTES`]). At quit the tail takes the last bytes
+//! (synced), and a snapshot is written only where the tail cannot carry
+//! them (`quit_pass_tests.rs`).
 //! The snapshot records the stream offset its screen ends at, read under
 //! the parser lock with no parsed chunk in flight, so the tail continues it
 //! byte for byte; then the tail file goes.
@@ -372,19 +374,34 @@ impl Plan {
         // Snapshot mode: the tail continues only a snapshot of this
         // generation and size that this daemon wrote; it is compacted at the
         // interval, when it grows past its cap (once per spacing, at once
-        // past the flood cap), when unchanged redraws pile up in memory, and
-        // at quit. Never during a write backoff, except
+        // past the flood cap) and when unchanged redraws pile up in memory.
+        // Never during a write backoff, except
         // at quit and at a journal checkpoint (`write_now`, at most every
         // checkpoint interval): the last or a rare chance.
         if self.retry_wait.is_some() && !quitting {
             return false;
         }
         let new_generation = self.snapshot_generation.as_deref() != Some(&*self.generation);
+        if quitting {
+            // At quit the tail takes the unwritten bytes whenever it can: no
+            // daemon answers until the next one adopts the hosts, and that
+            // daemon reads a snapshot and its tail alike. A snapshot is only
+            // for what the tail cannot carry (no snapshot of this generation
+            // from this daemon, a new size, a cap); compaction waits for the
+            // next daemon (quit_pass_tests.rs).
+            let carries = self.tail_continues
+                && !new_generation
+                && self.snapshot_size == Some(size)
+                && self.tail_bytes < super::TAIL_HARD_MAX_BYTES
+                && self.pending <= super::TAIL_MAX_UNWRITTEN_BYTES;
+            return self.force
+                || (!carries && (changed || self.pending > 0 || self.tail_bytes > 0));
+        }
         // A resized terminal waits until its new size holds (a divider drag
         // writes one snapshot at its end, not one per pass), whatever else
-        // asks for one; quit does not wait.
+        // asks for one.
         let resized = !new_generation && self.snapshot_size != Some(size);
-        if resized && !size_settled && !quitting {
+        if resized && !size_settled {
             return false;
         }
         self.force
@@ -394,7 +411,6 @@ impl Plan {
             || (self.tail_bytes >= super::TAIL_MAX_BYTES && self.compaction_spaced)
             || self.tail_bytes >= super::TAIL_FLOOD_MAX_BYTES
             || self.pending >= super::TAIL_IDLE_BYTES
-            || (quitting && (changed || self.pending > 0 || self.tail_bytes > 0))
     }
 }
 
@@ -503,8 +519,9 @@ fn flush_tail(
 ) {
     let job = {
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let sync_due =
-            state.tail_synced_at.is_none_or(|at| at.elapsed() >= super::TAIL_SYNC_INTERVAL);
+        // At quit the last bytes are synced now: no later pass syncs them.
+        let sync_due = quitting
+            || state.tail_synced_at.is_none_or(|at| at.elapsed() >= super::TAIL_SYNC_INTERVAL);
         // An unfinished Kitty upload's bytes change nothing the digest sees
         // but are content: never held as redraws.
         let redraw = state.tail_digest == Some(seen.digest) && !seen.upload;
@@ -863,3 +880,7 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
 #[cfg(test)]
 #[path = "snapshot_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "quit_pass_tests.rs"]
+mod quit_pass_tests;
