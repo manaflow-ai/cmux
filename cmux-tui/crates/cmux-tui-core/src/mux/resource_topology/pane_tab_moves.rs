@@ -317,13 +317,16 @@ impl Mux {
                     }
                     target_record = source_record.clone();
                 } else {
-                    source_record.active_tab = source_order
-                        .get(
-                            state.panes[&source_pane]
-                                .active_tab
-                                .min(source_order.len().saturating_sub(1)),
-                        )
-                        .cloned();
+                    // The live move's rule (`move_tab_in_state`): the old active index into the
+                    // order without the moved tab named the tab after the live active one when
+                    // the moved tab was before it, and a later scoped projection trusted that.
+                    let active = tree_edit::active_after_tab_left(
+                        state.panes[&source_pane].active_tab,
+                        old_index,
+                        source_order.len(),
+                    );
+                    source_record.active_tab =
+                        source_order.get(active.min(source_order.len().saturating_sub(1))).cloned();
                     target_record.active_tab = Some(tab_id.clone());
                 }
                 // The tab order rewrites the position of every tab after the
