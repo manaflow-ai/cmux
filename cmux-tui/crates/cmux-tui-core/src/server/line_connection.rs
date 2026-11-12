@@ -187,12 +187,17 @@ pub(super) fn serve_line_connection(
     }
     if drain_accepted {
         surface_scheduler.finish_and_wait();
-        // The git requests it sent still answer before it closes (server/git_lane.rs).
-        mux.control_clients.git_lane.drain(client);
+        // A client that only ended its writes still reads: the git requests
+        // it sent answer before it closes. One that closed its whole end reads
+        // nothing, so nothing waits for it (server/git_lane.rs). Asked once.
+        if !reader.get_ref().peer_gone() {
+            git_lane::GitLane::drain(&mux, client, &writer);
+        }
     } else {
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
-        mux.control_clients.git_lane.abandon(client);
     }
+    // Nobody reads a reply now: the reads that still wait start no git.
+    mux.control_clients.git_lane.abandon(client);
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     drop(connection_permit);

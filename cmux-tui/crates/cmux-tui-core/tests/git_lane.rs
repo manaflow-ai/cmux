@@ -801,10 +801,11 @@ fn git_lane_a_client_whose_writer_closed_leaves_while_its_next_git_read_waits() 
     assert_eq!(mux.client_count(), clients + 1, "a client that ended its writes stays");
     drop(cli);
     // Its status runs to its end; the write of that reply fails.
+    let released_at = Instant::now();
     gate.release("hold-all");
 
     let left = done_in(GONE, || mux.client_count() == clients);
-    let (places_held, diffs) = (held.active(), gate.runs_of("diff"));
+    let (stayed, places_held, diffs) = (released_at.elapsed(), held.active(), gate.runs_of("diff"));
     held.release("hold-all");
     for number in 0..LONG_GIT_RUNS {
         let id = format!("fill{number}");
@@ -813,50 +814,21 @@ fn git_lane_a_client_whose_writer_closed_leaves_while_its_next_git_read_waits() 
     }
     eprintln!(
         "git-lane: a client that closed after it ended its writes, with a git.diff that waits: \
-         left in {GONE:?}: {left} ({places_held} git runs of the app held then); git runs of \
-         its diff: {diffs}"
+         left in {GONE:?}: {left} (looked for {stayed:?}, {places_held} git runs of the app \
+         held then); git runs of its diff: {diffs}"
     );
     assert!(left, "a client whose writer closed stayed a client while its git.diff waited");
     assert_eq!(diffs, 0, "the git.diff of a client that closed started git");
 }
 
-/// What the system says of the socket `near` when it is asked one time, with
-/// no wait: the events of a poll for writing, of a poll for reading, and the
-/// result of a send of no bytes.
-fn asked_one_time(near: &UnixStream) -> (i16, i16, String) {
-    let fd = std::os::fd::AsRawFd::as_raw_fd(near);
-    let poll = |events: i16| {
-        let mut asked = libc::pollfd { fd, events, revents: 0 };
-        // SAFETY: one pollfd for a descriptor `near` owns; a zero timeout never blocks.
-        let ready = unsafe { libc::poll(&mut asked, 1, 0) };
-        assert!(ready >= 0, "poll failed: {}", std::io::Error::last_os_error());
-        asked.revents
-    };
-    #[cfg(target_os = "linux")]
-    let flags = libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL;
-    #[cfg(not(target_os = "linux"))]
-    let flags = libc::MSG_DONTWAIT;
-    let none = [0u8; 1];
-    // SAFETY: a send of 0 bytes from a buffer that lives past the call, on a
-    // descriptor `near` owns; it never blocks.
-    let sent = unsafe { libc::send(fd, none.as_ptr().cast(), 0, flags) };
-    let sent = if sent < 0 {
-        format!("error {:?}", std::io::Error::last_os_error().kind())
-    } else {
-        format!("{sent}")
-    };
-    (poll(libc::POLLOUT), poll(libc::POLLIN), sent)
-}
-
-/// The one ask the daemon can make at the end of a client's input: is the
-/// client gone, or did it only end its writes and still reads its replies?
-/// A poll for writing must say "hung up" for a peer that closed its whole
-/// end, and must not for a peer that ended its writes. The poll for reading
-/// and the send of no bytes are printed beside it: they do not tell the two
-/// apart on each system.
+/// The one ask the daemon makes at the end of a client's input
+/// (`transport::Stream::peer_gone`): is the client gone, or did it only end
+/// its writes and still reads its replies? Beside it, what the older ask
+/// says (`peer_closed`, a poll for reading), which is "closed" for both on
+/// macOS.
 #[test]
-fn git_lane_a_poll_for_writing_tells_a_closed_peer_from_one_that_ended_its_writes() {
-    let hung_up = |events: i16| events & (libc::POLLHUP | libc::POLLERR) != 0;
+fn git_lane_a_closed_peer_is_gone_and_one_that_ended_its_writes_is_not() {
+    use cmux_tui_core::platform::transport::Stream;
     let mut said = Vec::new();
     for state in ["open", "ended its writes", "closed", "sent a line and closed"] {
         let (mut near, mut far) = UnixStream::pair().unwrap();
@@ -874,14 +846,9 @@ fn git_lane_a_poll_for_writing_tells_a_closed_peer_from_one_that_ended_its_write
             let mut input = Vec::new();
             std::io::Read::read_to_end(&mut near, &mut input).unwrap();
         }
-        let (write, read, sent) = asked_one_time(&near);
-        eprintln!(
-            "git-lane: the peer {state}: a poll for writing says {write:#06x} (hung up: {}), a \
-             poll for reading says {read:#06x} (hung up: {}), a send of no bytes gives {sent}",
-            hung_up(write),
-            hung_up(read),
-        );
-        said.push((state, hung_up(write)));
+        let (gone, closed) = (near.peer_gone(), near.peer_closed());
+        eprintln!("git-lane: the peer {state}: gone: {gone} (the older ask, closed: {closed})");
+        said.push((state, gone));
     }
     let wanted = [
         ("open", false),
@@ -889,7 +856,7 @@ fn git_lane_a_poll_for_writing_tells_a_closed_peer_from_one_that_ended_its_write
         ("closed", true),
         ("sent a line and closed", true),
     ];
-    assert_eq!(said, wanted, "what a poll for writing says of each peer");
+    assert_eq!(said, wanted, "whether each peer is gone");
 }
 
 /// A script that sends a save and closes its whole end with no wait for the
