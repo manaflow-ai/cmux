@@ -136,6 +136,7 @@ impl RegistryConnection {
                 crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                 | crate::journal_ingress::JournalIngressEvent::Producer { .. }
                 | crate::journal_ingress::JournalIngressEvent::Effect(_)
+                | crate::journal_ingress::JournalIngressEvent::AgentHookCleared { .. }
                 | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => None,
             })
             .collect::<HashSet<_>>();
@@ -156,6 +157,21 @@ impl RegistryConnection {
         for event in events {
             ensure_journal_deadline(deadline)?;
             if matches!(*event, crate::journal_ingress::JournalIngressEvent::TerminalBarrier) {
+                commits.push(crate::journal_ingress::JournalBatchReceipt::None);
+                continue;
+            }
+            if let crate::journal_ingress::JournalIngressEvent::AgentHookCleared {
+                producer_id,
+                origin,
+                idempotency_key,
+            } = *event
+            {
+                resource_store::clear_agent_hook_pending_on(
+                    &tx,
+                    producer_id,
+                    origin,
+                    idempotency_key,
+                )?;
                 commits.push(crate::journal_ingress::JournalBatchReceipt::None);
                 continue;
             }
@@ -479,6 +495,7 @@ impl RegistryConnection {
                     crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                     | crate::journal_ingress::JournalIngressEvent::Producer { .. }
                     | crate::journal_ingress::JournalIngressEvent::Effect(_)
+                    | crate::journal_ingress::JournalIngressEvent::AgentHookCleared { .. }
                     | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => {
                         unreachable!()
                     }

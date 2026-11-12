@@ -6,11 +6,12 @@
 // person declined, a `<tool_use_error>`, a timeout; Codex's `{"status":"declined"}` and exit code;
 // an MCP server's JSON error. Compare arms shows the `tool-error-look` experiment's three looks.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { AcpmuxActivity } from "../model";
 import type { PlayContext } from "../../../gallery/play";
 import { toolErrorLook } from "./toolError.experiment";
+import { openEndedStretch } from "./endedStretchPlay";
 
 const times = (at: number) => ({ startedAt: minutesAgo(at), endedAt: minutesAgo(at - 0.02) });
 
@@ -23,8 +24,13 @@ const shell = (command: string, description: string | undefined, output: string,
     ...times(at),
   });
 
-/// Each call in its own run of a working turn, with the agent's note on it after: a note of two
+/// Each call in its own run of a working chat, with the agent's note on it after: a note of two
 /// paragraphs keeps the runs apart (turns.ts mergeShortNotes), so every call draws as its own row.
+/// The stretch ended with its summary while the chat works on: under the live-turn-work
+/// `line` a stretch still running draws none of its calls, only its notes and the live line
+/// (turns.ts `codexRuns`). The ended stretch folds under its "Worked for" line, which draws its
+/// notes and none of its calls (turnFoldReplies.experiment.ts `replies`): a variant draws its calls
+/// only when its play opens that line (endedStretchPlay.ts), as `long-label` and `exit-opened` do.
 const calls = (prompt: string, entries: [AcpmuxActivity, string][], harness = "claude") =>
   chat(
     [
@@ -33,6 +39,7 @@ const calls = (prompt: string, entries: [AcpmuxActivity, string][], harness = "c
         activity([call], 5.8 - index * 0.4),
         assistant(`${note}\n\nOn to the next step.`, 5.7 - index * 0.4),
       ]),
+      summary(5.7 - entries.length * 0.4, { status: "completed", toolCount: entries.length }),
     ],
     { isWorking: true, harness, model: harness === "codex" ? "gpt-5.5-codex" : "claude-opus-5-5" },
   );
@@ -275,6 +282,7 @@ const openRun = async (ctx: PlayContext) => {
 /// reads as what it would have done; it reads as the fixture's own description (commandActions.ts
 /// commandSaid), which no label rule rewrites.
 const openTraceback = async (ctx: PlayContext) => {
+  await openEndedStretch(ctx);
   await ctx.click({ role: "button", name: /Check the retry schedule/ });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
 };
@@ -313,6 +321,7 @@ export default agentPaneEntry({
     "long-label": {
       note: "Failed calls whose labels run past the line: each label takes the ellipsis to the line's end; the failure word (Failed, Denied) is for screen readers only (Codex parity).",
       snapshot: longLabels,
+      play: openEndedStretch,
     },
     "failed-step-mixed": {
       note: 'A run where a Read and a command failed, opened: both steps say "Failed" to a screen reader and draw no word (Codex parity).',

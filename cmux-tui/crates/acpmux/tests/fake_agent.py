@@ -37,6 +37,9 @@ advertises steering; a prompt while a turn runs is read into that turn and
 answered at once with stopReason "steered"; the turn runs on and its own
 prompt is answered when it ends. With FAKE_STEER_STEP=<fifo> a steer is
 answered only once the test writes to that FIFO (the agent's next tool step).
+With FAKE_STEER_NO_TURN_AT_END=1 a steer is never read: the turn ends first, and the
+steer is answered "steer: no turn is running" after the turn's own answer, as
+Claude Code's translator answers a message it held for a tool step that never came.
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -332,6 +335,8 @@ claude_turns = set()
 # taken back (`_acpmux/steer_withdraw`, as Claude Code's cancel_async_message drops one).
 claude_unread = set()
 claude_withdrawn = set()
+# FAKE_STEER_NO_TURN_AT_END: the steers each session's running turn holds unread, by request id.
+claude_held = {}
 
 
 def claude_prompt(rid, params):
@@ -342,6 +347,10 @@ def claude_prompt(rid, params):
         steer = sid in claude_turns
         if not steer:
             claude_turns.add(sid)
+    if steer and os.environ.get("FAKE_STEER_NO_TURN_AT_END") == "1":
+        with lock:
+            claude_held.setdefault(sid, []).append(rid)
+        return
     if steer:
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
         # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
@@ -365,6 +374,9 @@ def claude_prompt(rid, params):
     finally:
         with lock:
             claude_turns.discard(sid)
+            held = claude_held.pop(sid, [])
+        for steer_id in held:
+            send({"jsonrpc": "2.0", "id": steer_id, "error": {"code": -32602, "message": "steer: no turn is running"}})
 
 
 def run_hostname(rid, sid):
@@ -736,6 +748,15 @@ def handle_prompt(rid, params):
             gate.read()
         update("child-1", {"sessionUpdate": "tool_call_update", "toolCallId": "cg-1", "status": "completed"})
         update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "notice-gate: PATH" anywhere in the prompt (an inbox notice carries another agent's message
+    # after its own lines) works as "gate: PATH".
+    if "notice-gate:" in text:
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text.split("notice-gate:", 1)[1].split()[0].rstrip("\"'`).,;")) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
@@ -1607,6 +1628,17 @@ CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("clau
                  ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
 
 
+HELD = []
+HELD_CANCELS = []
+
+
+def write_atomic(path, text):
+    """`text` to `path`, whole or not at all: a reader never sees half of it."""
+    with open(path + ".tmp", "w") as f:
+        f.write(text)
+    os.replace(path + ".tmp", path)
+
+
 def stdin_lines(early):
     """stdin's lines, starting with the bytes read while waiting at the start gate."""
     if early:
@@ -1664,6 +1696,23 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        # FAKE_SET_MODE_HOLD=<dir>: hold every session/set_mode unanswered, writing how many wait
+        # to <dir>/held and the ids each `$/cancel_request` names to <dir>/cancels. Once all but one
+        # are cancelled, answer every held one, the cancelled ones too: their answers come late
+        # and the daemon drops them (tests/cancel_request.rs).
+        hold = os.environ.get("FAKE_SET_MODE_HOLD")
+        if hold and m == "$/cancel_request":
+            HELD_CANCELS.append(params.get("requestId"))
+            write_atomic(os.path.join(hold, "cancels"), json.dumps(HELD_CANCELS))
+            if len(HELD) > 1 and len(set(map(str, HELD_CANCELS))) >= len(HELD) - 1:
+                for held in HELD:
+                    send({"jsonrpc": "2.0", "id": held, "result": {}})
+                HELD.clear()
+            continue
+        if hold and m == "session/set_mode":
+            HELD.append(rid)
+            write_atomic(os.path.join(hold, "held"), str(len(HELD)))
+            continue
         # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
         if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
             continue

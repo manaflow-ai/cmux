@@ -910,6 +910,13 @@
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
   ],
+  "src/agent-session/acpmux/conversation/sendStateCoherence.test.tsx": [
+    "listener: a \"storage\" listener on globalThis from <anonymous> (src/agent-session/acpmux/conversation/transcriptView.ts), added as it loaded",
+    "module state: src/agent-session/acpmux/conversation/relativeTime.ts `lastWords` is still set",
+    "module state: src/agent-session/acpmux/conversation/transcriptDisclosureModel.ts `choices` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
+    "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
+  ],
   "src/agent-session/acpmux/conversation/spinnerTurns.test.tsx": [
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
     "module state: src/agent-session/acpmux/i18n.ts `translators` holds entries it did not hold when loaded"
@@ -1188,6 +1195,17 @@
     "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
     "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
   ],
+  "src/agent-session/acpmux/lostPromptRow.test.ts": [
+    "module state: src/agent-session/acpmux/attention.ts `page` is still set",
+    "module state: src/agent-session/acpmux/conversation/prefixFlatMap.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
+    "module state: src/agent-session/acpmux/mock.ts `MockAcpmuxSocket` changed since it loaded",
+    "module state: src/agent-session/acpmux/rowChanges.ts `serial` is still set",
+    "module state: src/agent-session/acpmux/rowUpdates.ts `generation` is still set",
+    "module state: src/agent-session/acpmux/wire.ts `acpWire` changed since it loaded",
+    "timer: a setTimeout from <anonymous> (src/agent-session/acpmux/lostPrompt.ts) is still pending",
+    "timer: a setTimeout from readHostTail (src/agent-session/acpmux/tailCache.ts) is still pending"
+  ],
   "src/agent-session/acpmux/machineShare.test.ts": [
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set"
   ],
@@ -1271,7 +1289,8 @@
     "module state: src/agent-session/acpmux/newtab/strings.ts `translators` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/perf.ts `acpmuxPerf` changed since it loaded",
     "module state: src/agent-session/acpmux/toastAvoidance.ts `posted` is still set",
-    "module state: src/agent-session/acpmux/toastAvoidance.ts `unsupported` is still set"
+    "module state: src/agent-session/acpmux/toastAvoidance.ts `unsupported` is still set",
+    "timer: a setTimeout from <anonymous> (node_modules/prosemirror-view/dist/index.js) is still pending"
   ],
   "src/agent-session/acpmux/newtab/agentHomeTrust.test.tsx": [
     "module state: src/agent-session/acpmux/useFolderTrustAsk.ts `known` is still set"

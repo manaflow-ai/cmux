@@ -1073,7 +1073,7 @@ export function QuickModelMenu({
           {widthProbe}
           {showField && (
             <div className="acpmux-quick-search">
-              <SearchIcon size={14} />
+              <SearchIcon size={12} />
               <input
                 ref={field}
                 type="search"

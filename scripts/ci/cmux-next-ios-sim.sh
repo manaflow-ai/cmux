@@ -22,7 +22,10 @@
 #           argument pattern has no spaces, so lists are comma-separated):
 #             only=TARGET/SUITE[,TARGET/SUITE...]   run only those kit tests
 #               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
-#               (a suite, or TARGET/SUITE/test for an XCTest method)
+#               (a suite, or TARGET/SUITE/test for an XCTest method).
+#               A filter naming TickHarnessCellsTests also sets
+#               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
+#               runs for seconds, so the kit's full run skips it)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against a Debug app; with ui= and no only=, the kit run is skipped
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
@@ -107,6 +110,7 @@ fi
 
 # test's optional selection (see MODE above), checked before anything is built.
 kit_only=()
+kit_env=()
 ui_suites=()
 ui_video=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
@@ -118,6 +122,7 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+){0,2}$ ]] ||
             { echo "cmux-next-ios-sim.sh: only= wants TARGET/SUITE names, got '$item'" >&2; exit 2; }
           kit_only+=("-only-testing:$item")
+          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
         done ;;
       ui=?*)
         IFS=',' read -r -a items <<< "${sel#ui=}"
@@ -502,7 +507,7 @@ if [[ ( "$mode" == test || "$mode" == all ) && $run_kit -eq 1 ]]; then
   # iPhone there, deleted by its UDID afterwards (never another step's device).
   test_udid="$(xcrun simctl create "cmux-next-ios-sim-test-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   set +e
-  (cd cmux-next-ios/CmuxMobileKit && xcodebuild test -scheme CmuxMobileKit-Package \
+  (cd cmux-next-ios/CmuxMobileKit && env ${kit_env[@]+"${kit_env[@]}"} xcodebuild test -scheme CmuxMobileKit-Package \
     -destination "id=$test_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-test" \
     -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet ${kit_only[@]+"${kit_only[@]}"}) >"$work/test.log" 2>&1
   test_status=$?

@@ -218,6 +218,16 @@ def touches(flag: dict, changes: dict[str, list[tuple[int, int]]]) -> bool:
     return False
 
 
+def today_utc() -> datetime.date:
+    """CMUX_NOW_EPOCH (seconds) when set, else today. Tests pass --today; the tooling-tests
+    time-bomb row sets CMUX_NOW_EPOCH far in the future, so a test leaning on the real clock
+    goes red there, not on the day a fixture date passes."""
+    epoch = os.environ.get("CMUX_NOW_EPOCH")
+    if epoch:
+        return datetime.datetime.fromtimestamp(int(epoch), datetime.timezone.utc).date()
+    return datetime.date.today()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Lint PostHog feature flag declarations.")
     parser.add_argument(
@@ -225,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
         help="fail an expired reviewBy only where the diff since REF edits that flag "
              "(default: FEATURE_FLAG_LINT_BASE, HEAD^1 in CI, else the merge-base "
              "with the remote default branch)")
+    parser.add_argument(
+        "--today", metavar="YYYY-MM-DD", type=datetime.date.fromisoformat,
+        help="the date reviewBy is judged against (default: CMUX_NOW_EPOCH when set, else today)")
     args = parser.parse_args([] if argv is None else argv)
     warnings.clear()
     flags, registry_files = collect_flags()
@@ -233,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         print("lint-feature-flags: no flags declared")
         return 0
 
-    today = datetime.date.today()
+    today = args.today or today_utc()
     base = args.base or default_base()
     changes = changed_lines(base, registry_files) if base else None
     if base and changes is None:
