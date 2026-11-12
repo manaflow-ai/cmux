@@ -20,6 +20,50 @@ for (const name of await readdir(root)) {
   if (await stat(path.join(root, name, "index.html")).catch(() => null)) pages.push(name);
 }
 if (!pages.length) throw new Error("No built page documents found");
+// This is the production set emitted by build-pages-web.sh. Refusing a partial directory keeps
+// a validation run from looking green while silently skipping a newly shipped page.
+const expectedPages = new Set([
+  "apps",
+  "artifacts",
+  "bookmarks",
+  "certificate",
+  "changelog",
+  "chief-inspector",
+  "chief-usage",
+  "chief-views",
+  "cloud",
+  "cloud-progress",
+  "coderouter",
+  "cookie-import",
+  "debug-settings",
+  "feed",
+  "files",
+  "github",
+  "group-editor",
+  "history",
+  "home-channels",
+  "home-messages",
+  "icon-picker",
+  "import-history",
+  "keybindings",
+  "machines",
+  "mobile-pairing",
+  "onboarding",
+  "passwords",
+  "server-cards",
+  "settings",
+  "setup-card",
+  "sidebar-chats",
+  "site-data",
+  "site-settings",
+  "stash",
+  "stats",
+  "task-manager",
+  "tasks",
+]);
+const missingPages = [...expectedPages].filter((name) => !pages.includes(name));
+if (missingPages.length) throw new Error(`Production page validation is missing: ${missingPages.join(", ")}`);
+pages.sort();
 configureSystemChrome(chromium);
 const browser = await chromium.launch({ headless: true, timeout: 30_000 });
 const receipts = [];
@@ -114,8 +158,12 @@ try {
       .locator("#root")
       .innerText()
       .catch(() => "");
-    await page.screenshot({ path: path.join(output, `${name}.png`) });
-    const receipt = { page: name, rendered, text: text.slice(0, 300), errors, missing, requests };
+    const capture = `${name}.png`;
+    const capturePath = path.join(output, capture);
+    await page.screenshot({ path: capturePath });
+    const captureSize = (await stat(capturePath)).size;
+    if (!captureSize) errors.push("production capture is empty");
+    const receipt = { page: name, rendered, text: text.slice(0, 300), capture, captureSize, errors, missing, requests };
     receipts.push(receipt);
     console.log(JSON.stringify(receipt));
     await context.close();
@@ -123,5 +171,17 @@ try {
 } finally {
   await browser.close();
   await writeFile(path.join(output, "results.json"), JSON.stringify(receipts, null, 2));
+  await writeFile(
+    path.join(output, "page-captures.json"),
+    JSON.stringify(
+      { pages: receipts.map(({ page, capture, captureSize, rendered }) => ({ page, capture, captureSize, rendered })) },
+      null,
+      2,
+    ),
+  );
 }
-if (receipts.some((item) => !item.rendered || item.missing.length || item.errors.length)) process.exitCode = 1;
+if (
+  receipts.length !== expectedPages.size ||
+  receipts.some((item) => !item.rendered || item.missing.length || item.errors.length)
+)
+  process.exitCode = 1;

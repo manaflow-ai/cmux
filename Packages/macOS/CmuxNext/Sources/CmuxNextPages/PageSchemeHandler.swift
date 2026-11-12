@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 import UniformTypeIdentifiers
 import WebKit
 
@@ -295,7 +296,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         // Build-owned JavaScript shared by the first-party pages. Keep the page's origin and
         // CSP; only this sibling asset directory is mounted, never another page's resources.
         // `root` is already the page's pinned bundle/update/overlay, so chunks follow that tree.
-        if components.first == "__shared", PageID.isFirstParty(page.id),
+        if components.first == "__shared", FirstPartyPages.shippedIDs.contains(page.id.lowercased()),
            root.lastPathComponent == page.resource, root.deletingLastPathComponent().lastPathComponent == "pages" {
             guard components.count == 2, components[1].hasSuffix(".js") else { return nil }
             let shared = root.standardizedFileURL.resolvingSymlinksInPath().deletingLastPathComponent()
