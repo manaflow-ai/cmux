@@ -132,8 +132,25 @@ extension TerminalTheme {
     /// the Mac is showing (including its light or dark variant and rendering
     /// settings), or the config-resolved theme before any snapshot exists.
     static func mobileHostStatusTheme() -> TerminalTheme {
-        MobileHostTerminalThemeSnapshot.latest()
-            ?? TerminalTheme(ghosttyConfig: GhosttyConfig.loadForCmux())
+        if let snapshot = MobileHostTerminalThemeSnapshot.latest() {
+            return snapshot
+        }
+        // Take the first snapshot here when this runs on the main thread, so
+        // even the first status carries the live variant and rendering keys.
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated { currentMacTerminalThemeSnapshot() }
+        }
+        return TerminalTheme(ghosttyConfig: GhosttyConfig.loadForCmux())
+    }
+
+    /// Returns this theme with `fallback`'s rendering settings when it has
+    /// none. The renderer exports colors only, so a frame's theme takes its
+    /// rendering keys from the Mac's live config snapshot.
+    func fillingRendering(from fallback: TerminalTheme) -> TerminalTheme {
+        guard rendering == nil else { return self }
+        var resolved = self
+        resolved.rendering = fallback.rendering
+        return resolved
     }
 
     /// Returns this config-resolved theme with surface-effective OSC colors
@@ -146,11 +163,6 @@ extension TerminalTheme {
             var resolved = effectiveTheme
             if resolved.boldColor == nil {
                 resolved.boldColor = boldColor
-            }
-            // The renderer exports colors only; the rendering settings come
-            // from the Mac's live config.
-            if resolved.rendering == nil {
-                resolved.rendering = rendering
             }
             return resolved.validatedOrDefault()
         }

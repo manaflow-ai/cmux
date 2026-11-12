@@ -293,6 +293,8 @@ import UIKit
     #expect(ghosttyBool(legacyConfig, "palette-generate") == false)
     #expect(ghosttyBool(legacyConfig, "palette-harmonious") == false)
     #expect(ghosttyEnum(legacyConfig, "window-colorspace") == "srgb")
+    // Ghostty's non-macOS default; the phone's `linear` must not survive.
+    #expect(ghosttyEnum(legacyConfig, "alpha-blending") == "linear-corrected")
     // xterm's default for index 200 is #ff00d7.
     #expect(ghosttyPaletteEntry(legacyConfig, 200) == "#ff00d7")
 
