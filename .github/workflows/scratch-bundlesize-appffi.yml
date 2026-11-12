@@ -1,0 +1,24 @@
+# Scratch measurement (bundle size lane): the app FFI's linked size with LTO off
+# and fat, built on one GitHub macOS runner. Never merged.
+name: scratch app FFI size
+on:
+  push:
+    branches: [scratch/bundlesize-appffi-measure]
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Measure
+        run: bash scripts/measure/app-ffi-size.sh off fat
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: app-ffi-size
+          path: artifacts/app-ffi-size.json
