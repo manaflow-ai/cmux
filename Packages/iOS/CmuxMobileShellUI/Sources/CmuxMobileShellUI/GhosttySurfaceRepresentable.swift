@@ -1304,13 +1304,27 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             }
         }
 
+        /// Reconciles the output stream when the Mac connection comes back.
+        ///
+        /// A surface mounted before the connection is up can miss its only
+        /// output-start chance: a reconnect briefly drops the terminal's row,
+        /// so its viewport preparation fails and nothing remounts it. The
+        /// foreground reconcile restarts a mount that does not own a stream
+        /// and leaves a live one alone.
         func setConnectionLive(_ isLive: Bool) {
+            let wasLive = connectionIsLive
             connectionIsLive = isLive
+            guard isLive, wasLive == false, let surfaceView else { return }
+            reconcileOutputConsumer(surfaceView: surfaceView)
         }
 
         func ghosttySurfaceViewDidBecomeActive(_ surfaceView: GhosttySurfaceView) {
-            guard self.surfaceView === surfaceView,
-                  terminalPresentationIsActive,
+            guard self.surfaceView === surfaceView else { return }
+            reconcileOutputConsumer(surfaceView: surfaceView)
+        }
+
+        private func reconcileOutputConsumer(surfaceView: GhosttySurfaceView) {
+            guard terminalPresentationIsActive,
                   surfaceView.window != nil else { return }
 
             let ownsCurrentStream: Bool
