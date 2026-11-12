@@ -52,6 +52,31 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         attach(app, "keyboard-up-scrolled-up")
     }
 
+    /// Hide Toolbar folds the key row and the composer; scrolled up, the pill
+    /// is the stack's only row, on the solid backing (not over the rows).
+    @MainActor
+    func testJumpToBottomWithHideToolbar() throws {
+        let app = launch()
+        let keyboardKey = app.descendants(matching: .any)["terminal.key.keyboard"]
+        let hide = app.buttons["Hide Toolbar"]
+        let window = app.windows.firstMatch.frame
+        let rowY = (keyboardKey.frame.midY - window.minY) / window.height
+        for _ in 0..<8 where !(hide.exists && hide.isHittable) {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: rowY))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.38, dy: rowY)))
+        }
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
+        hide.tap()
+        XCTAssertTrue(keyboardKey.waitForNonExistence(timeout: 5), "Hide Toolbar hides the key row")
+        let jump = app.buttons["terminal.jumpToBottom"]
+        XCTAssertTrue(scrollUp(app, until: jump), "scrolled up with the toolbar hidden: Jump to bottom shows\n\(app.debugDescription)")
+        XCTAssertEqual(jump.frame.midX, window.midX, accuracy: 2, "centered")
+        attach(app, "hide-toolbar-scrolled-up")
+        jump.tap()
+        XCTAssertTrue(jump.waitForNonExistence(timeout: 5), "a tap goes to the bottom and hides it")
+        attach(app, "hide-toolbar-after-jump")
+    }
+
     @MainActor
     func testSettingOffRemovesJumpToBottom() throws {
         // Control: with the setting on, the same scroll shows it.

@@ -824,10 +824,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         host.view.setNeedsLayout()
         view.setNeedsLayout()
         view.layoutIfNeeded()
+        updateBottomBacking()
         applyScroll()
     }
 
     private var jumpRowHeight: CGFloat { jumpRowHost?.view.bounds.height ?? 0 }
+
+    /// The solid background under the stack shows while any row of it does:
+    /// the key row, the composer, or the Jump to bottom pill (with Hide
+    /// Toolbar on, the pill alone; without it the scrolled rows drew under the
+    /// pill's glass, CMUX-10 review).
+    private func updateBottomBacking() {
+        bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer && jumpRowHeight == 0
+    }
 
     private var composerGrowth: CGFloat {
         dock.showsComposer ? max(0, composerHost.view.bounds.height - restingComposerHeight) : 0
@@ -954,7 +963,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Unfolding: the row fades in once its slot is open, never over the composer.
         if revealsKeyRow { keyBarClip.alpha = 0 }
         composerHost.view.isHidden = !dock.showsComposer
-        bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer
+        updateBottomBacking()
         view.setNeedsLayout()
         // motion: allow UIKit dock reflow, one bounded 0.25 s pass like classic's band; Reduce Motion applies it at once.
         let animate = view.window != nil && !UIAccessibility.isReduceMotionEnabled
@@ -2289,6 +2298,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             host.layoutIfNeeded()
             view.layoutIfNeeded()
         }
+        updateBottomBacking()
     }
 
     /// Jump to bottom: one tap lands at the live bottom and follows, whatever
