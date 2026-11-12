@@ -601,7 +601,7 @@ test("under a trackpad pinch a surface is reported where it shows, so the App's 
   surface(doc);
   await frames();
   expect(reports.at(-1)).toEqual([
-    { id: "g1", level: "popover", left: 60, top: 80, right: 460, bottom: 320, radius: 24, opacity: 1 },
+    { id: "g1", level: "popover", left: 60, top: 80, right: 460, bottom: 320, radius: 24, opacity: 1, zoom: 1 },
   ]);
 });
 
