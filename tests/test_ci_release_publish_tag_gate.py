@@ -48,7 +48,8 @@ from typing import Any, Callable, Mapping, NamedTuple
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-from shell_invocations import Options, first_operand, gh_api_request, may_run_nested  # noqa: E402
+from shell_invocations import (Options, first_operand, gh_api_request, leading_options,  # noqa: E402
+                              may_run_nested)
 
 WORKFLOWS = ROOT / ".github/workflows"
 
@@ -124,23 +125,30 @@ def gated(expression: Any, policy: Policy) -> bool:
 RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")
 
 
-def _options(values: str = "", flags: str = "", boolean_values: bool = False) -> Options:
-    return Options(frozenset(values.split()), frozenset(flags.split()), boolean_values)
+def _options(values: str = "", flags: str = "", booleans: str = "") -> Options:
+    """VALUES take a value; FLAGS and BOOLEANS take none, and BOOLEANS may take an explicit true or false."""
+    return Options(frozenset(values.split()), frozenset(flags.split()) | frozenset(booleans.split()),
+                   frozenset(booleans.split()))
 
 
 # Each tool's options before its subcommand (its --help): those that take a value, then those that take none. The
 # subcommand is the first operand after them, so an option's value (`--dir upload`, `-p publish`) is never read as
-# one, and an option this does not know before it leaves the subcommand unknown, which counts as publishing.
+# one, and an option this does not know before it leaves the subcommand unknown, which counts as publishing. npm and
+# pnpm: the third list is their Boolean options (npm's config definitions, pnpm's), the only ones that take an
+# explicit true or false; --silent, --quiet, -d, --verbose expand to --loglevel X (pnpm: --reporter=silent) and take
+# none, so in `npm --silent false publish` npm runs `false` (the review of #41735).
 GH_ROOT = _options(flags="-h --help --version")
 GH_RELEASE = _options("-R --repo", "-h --help")
 PACKAGE_MANAGERS = {
     "npm": _options("-w --workspace --registry --prefix -C --userconfig --loglevel --tag --access --otp --cache",
-                    "-ws --workspaces -g --global -s --silent -q --quiet -d -dd --verbose --dry-run --provenance "
-                    "--ignore-scripts --include-workspace-root -y --yes --no-audit --no-fund -h --help", True),
+                    "-s --silent -q --quiet -d -dd --verbose",
+                    "-ws --workspaces -g --global --dry-run --provenance --ignore-scripts --include-workspace-root "
+                    "-y --yes --no-audit --no-fund -h --help"),
     "pnpm": _options("-C --dir -F --filter --registry --tag --access --otp --reporter --loglevel "
                      "--workspace-concurrency",
-                     "-r --recursive -w --workspace-root -s --silent --dry-run --no-git-checks --frozen-lockfile "
-                     "--provenance -h --help", True),
+                     "-s --silent",
+                     "-r --recursive -w --workspace-root --dry-run --no-git-checks --frozen-lockfile --provenance "
+                     "-h --help"),
     "yarn": _options("--cwd", "-s --silent --verbose -h --help"),
     "bun": _options("--cwd -c --config", "--silent -h --help"),
     "cargo": _options("--color --config -Z -C --explain",
@@ -200,13 +208,22 @@ def _python_module(args: list[str]) -> tuple[str | None, list[str]]:
         if word in PYTHON.values:
             index += 2
             continue
+        # A short cluster, letter by letter: flags, then -m (its module the rest of the word or the next word), or
+        # -W/-X with its value attached (`-Wignore`, `-Xdev`) or next; anything else is unknown.
         letters = word[1:]
-        if "m" in letters and all("-" + letter in PYTHON.flags for letter in letters[:letters.index("m")]):
-            module = letters[letters.index("m") + 1:]
-            if module:
-                return module, args[index + 1:]
-            return (args[index + 1], args[index + 2:]) if index + 1 < len(args) else ("", [])
-        return None, []
+        for at, letter in enumerate(letters):
+            if letter == "m":
+                module = letters[at + 1:]
+                if module:
+                    return module, args[index + 1:]
+                return (args[index + 1], args[index + 2:]) if index + 1 < len(args) else ("", [])
+            if "-" + letter in PYTHON.values:
+                index += 1 if at < len(letters) - 1 else 2
+                break
+            if "-" + letter not in PYTHON.flags:
+                return None, []
+        else:
+            index += 1
     return "", []
 
 
@@ -243,9 +260,11 @@ def publishing_command(words: list[str]) -> bool:
     if program == "productsign":
         return True
     if program == "xcrun":
-        index = first_operand(rest, XCRUN)
-        if index is not None and any(word in ("-f", "--find") for word in rest[:index]):
-            return False  # `xcrun --find TOOL` prints a path and runs nothing; a -f after TOOL is TOOL's own
+        options = leading_options(rest, XCRUN)
+        if options is not None and ("-f" in options or "--find" in options):
+            # `xcrun --find TOOL` (or -f in a cluster, `-vf`) prints a path and runs nothing; a -f after TOOL is
+            # TOOL's own, and one that is --sdk's or --toolchain's value is no --find (the review of #41735).
+            return False
         command, _ = subcommand(rest, XCRUN)
         return command == "notarytool" or (command is None and "notarytool" in rest)
     return False
