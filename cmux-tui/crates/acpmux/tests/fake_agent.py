@@ -1318,6 +1318,39 @@ def handle_prompt(rid, params):
         chunk("g")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "reply-checklist-ticks" draws the turn's checklist, then streams one message (m1) across a
+    # usage tick, a call's update and the checklist's update: none is a new turn, so the pane keeps
+    # the message one row and acpmux one segment (#41540 review F1).
+    if text == "reply-checklist-ticks":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        step = [{"content": "step", "status": "pending", "priority": "medium"}]
+        update(sid, {"sessionUpdate": "plan", "entries": step})
+        chunk("a")
+        update(sid, {"sessionUpdate": "usage_update", "used": 10, "size": 1000})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tick-ts", "status": "completed"})
+        update(sid, {"sessionUpdate": "plan", "entries": [{**step[0], "status": "in_progress"}]})
+        chunk("b")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "reply-dsh-todo" streams one message (m1) across DeepSeek Harness todo_write calls, which
+    # acpmux hides and turns into the plan (acp_todo_plan.rs): a | call 1 | b | its result, the
+    # turn's first plan | c | call 2 | d | its result, a plan update | e (#41540 review F2).
+    if text == "reply-dsh-todo":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        todos = lambda status: {"todos": [{"content": "step", "status": status}]}
+        call = lambda n, status: update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"dsh-todo-{n}", "title": "todo_write", "kind": "other", "status": "pending", "rawInput": todos(status)})
+        done = lambda n: update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": f"dsh-todo-{n}", "status": "completed"})
+        chunk("a")
+        call(1, "pending")
+        chunk("b")
+        done(1)
+        chunk("c")
+        call(2, "in_progress")
+        chunk("d")
+        done(2)
+        chunk("e")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "reply-segments":
         chunk = lambda t, mid=None: update(sid, {"sessionUpdate": "agent_message_chunk", **({"messageId": mid} if mid else {}), "content": {"type": "text", "text": t}})
         chunk("a", "m1")

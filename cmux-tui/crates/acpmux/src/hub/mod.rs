@@ -42,6 +42,7 @@ pub(crate) mod clone_boot;
 mod exit_reason;
 mod fallback_start;
 pub(crate) mod session_auth;
+pub(crate) mod settled_view;
 pub(crate) mod subagent_retry;
 pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
@@ -166,6 +167,7 @@ mod model_hint;
 mod model_probe;
 mod models_view;
 pub(crate) mod native_messaging;
+mod page_first;
 mod paging;
 mod personal_stats;
 mod policy_gate;
@@ -758,6 +760,9 @@ pub struct Hub {
     /// Closed rows parsed back from their cached bytes (tests).
     #[cfg(test)]
     pub(super) closed_summary_parses: AtomicU64,
+    /// Session summaries built, live or closed, with tools or without (tests).
+    #[cfg(test)]
+    pub(super) summaries_built: AtomicU64,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -1246,6 +1251,8 @@ impl Hub {
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
             closed_summary_parses: AtomicU64::new(0),
+            #[cfg(test)]
+            summaries_built: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),

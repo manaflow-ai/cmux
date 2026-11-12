@@ -1091,13 +1091,26 @@ def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
     return rust_edition(repo)
 
 
+# rustup's answers when the toolchain rust-toolchain.toml pins, or its rustfmt component, is not installed
+# (RUSTUP_AUTO_INSTALL=0): `error: 'rustfmt' is not installed for the toolchain 'T'` (newer: `... 'T'.`, `... for
+# the custom toolchain 'T'`), `error: toolchain 'T' is not installed`, `error: override toolchain 'T' is not
+# installed`, and `error: the 'rustfmt' binary, normally provided by the 'rustfmt' component, is not applicable to the
+# 'T' toolchain`, each a whole line.
+RUSTUP_MISSING = re.compile(
+    rb"(?m)^error: (?:'rustfmt(?:\.exe)?' is not installed for the (?:custom )?toolchain '[^'\n]+'\.?"
+    rb"|(?:override )?toolchain '[^'\n]+' is not installed"
+    rb"|the 'rustfmt(?:\.exe)?' binary, normally provided by the 'rustfmt' component, is not applicable to the "
+    rb"'[^'\n]+' toolchain)\r?(?:\n|$)")
+
+
 def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     """One finding per changed cmux-tui Rust file that rustfmt would change: `<path>: not rustfmt-clean ...`.
 
     Each file goes through rustfmt's stdin mode, so only that file is judged (a path argument would also format the
     files its `mod` lines name). The rustfmt is the one the cmux-tui checkout pins (rust-toolchain.toml, run in
-    cmux-tui/), never installed for this check; with no such rustfmt the layer warns and finds nothing. The tip's
-    `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    cmux-tui/), never installed for this check; with no rustfmt on PATH, or rustup's own answer that the pinned
+    toolchain or its rustfmt is not installed, the layer warns and finds nothing; a rustfmt that will not start is no
+    verdict. The tip's `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
     present = [p for p in rust if (tree / p).is_file()]
     if not present or not config.is_file():
         return ""
@@ -1114,20 +1127,27 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         except subprocess.TimeoutExpired:
             # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
             return f"rustfmt gave no verdict: timed out after 60s on {path}"
-        except OSError as error:
-            log(f"prepush-gate: WARNING: rustfmt did not run ({type(error).__name__}); Rust formatting NOT checked")
+        except FileNotFoundError:
+            # No rustfmt (and no rustup proxy) on PATH: not available here, which warns.
+            log("prepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked")
             return ""
+        except OSError as error:
+            # A rustfmt that is there and would not start (not executable, a bad interpreter): no verdict (#41888
+            # review).
+            return f"rustfmt gave no verdict: it could not be started on {path} ({type(error).__name__}: {error})"
         if done.returncode != 0:
-            if b"error[" in done.stderr or (b"error:" in done.stderr and b"toolchain" not in done.stderr and b"not installed" not in done.stderr):
-                findings.append(f"{path}: rustfmt cannot parse it: "
-                                f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
-                continue
-            # Only rustup's own "no such toolchain or component" answer is "not available here" and warns; any other
-            # failure that is not a parse error (a panic, a crash) is no verdict, never a pass (#41827 review).
-            if b"toolchain" in done.stderr or b"not installed" in done.stderr:
+            # Only rustup's own "no such toolchain or component" answer is "not available here" and warns, matched in
+            # its exact forms, each a whole line: a rustfmt diagnostic quotes the source, which can say "toolchain"
+            # or "not installed" anywhere (#41888 review). Then a parse error is a finding; any other failure (a panic,
+            # a crash) is no verdict, never a pass (#41827 review).
+            if RUSTUP_MISSING.search(done.stderr):
                 log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
                     f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
                 return ""
+            if b"error[" in done.stderr or b"error:" in done.stderr:
+                findings.append(f"{path}: rustfmt cannot parse it: "
+                                f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
+                continue
             tail = " ".join(done.stderr.decode(errors="replace").strip().splitlines()[-2:])[:300] or "no output"
             return f"rustfmt gave no verdict: exit {done.returncode} on {path}: {tail}"
         if done.stdout != source:
@@ -1650,7 +1670,8 @@ def redefinition_verdict(code: int, out: str, files: list[str]) -> tuple[list[tu
 
     No verdict: run()'s timeout, a signal, a crash or an exit outside 0 and 1 (no_verdict); a file the checker could
     not parse, whatever the exit; an exit 1 that names no finding or prints a line the gate cannot read; an exit 0 that
-    names a finding. Exit 1 is the checker's "findings" verdict only when its output says which."""
+    names a finding or prints a line the gate cannot read. Exit 1 is the checker's "findings" verdict only when its
+    output says which."""
     found, unread, unparsed = [], [], None
     for line in out.splitlines():
         if not line.strip():
@@ -1675,6 +1696,8 @@ def redefinition_verdict(code: int, out: str, files: list[str]) -> tuple[list[tu
                     else "exited 1 but named no redefinition")
     if code == 0 and found:
         return [], "exited 0 but named a redefinition"
+    if code == 0 and unread:  # a line in no shape it reads: nothing it can trust, whatever the exit (#41888 review)
+        return [], f"exited 0 with output it cannot read: {unread[0][:200]}"
     return found, None
 
 

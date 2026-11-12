@@ -47,6 +47,50 @@ pub(crate) fn session_list_reply_borrowed(
     sorted: &[Value],
     params: &Value,
 ) -> Result<Value, RpcError> {
+    let picked = pick_page(sorted, params)?;
+    let rows = picked.rows.iter().filter_map(|&at| sorted.get(at)).cloned().collect();
+    Ok(page(rows, picked.next))
+}
+
+/// What paging reads of a row: its id, `updatedAt`, `peer` and `status`. A built summary has
+/// them as fields; a row not built yet (`page_first.rs`) has them from the session's metadata or
+/// the peer's mirrored row, so a page is picked before any of its rows is built.
+pub(crate) trait PageRow {
+    fn session_id(&self) -> &str;
+    fn updated_ms(&self) -> u64;
+    fn peer(&self) -> Option<&str>;
+    fn status(&self) -> Option<&str>;
+}
+
+impl PageRow for Value {
+    fn session_id(&self) -> &str {
+        self.get("sessionId").and_then(Value::as_str).unwrap_or("")
+    }
+
+    fn updated_ms(&self) -> u64 {
+        self.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)
+    }
+
+    fn peer(&self) -> Option<&str> {
+        self.get("peer").and_then(Value::as_str)
+    }
+
+    fn status(&self) -> Option<&str> {
+        self.get("status").and_then(Value::as_str)
+    }
+}
+
+/// The rows a session list request picks of `sorted` (in list order, [`sort_session_summaries`]),
+/// by their place in it, in reply order, and the reply's `nextCursor`: `None` when the reply has
+/// none (no `limit`), else the cursor or null.
+pub(crate) struct Picked {
+    pub(crate) rows: Vec<usize>,
+    pub(crate) next: Option<Value>,
+}
+
+/// The page `params` asks for of `sorted`: its filters, cursor, order and `limit`, as the
+/// module doc says. It reads only each row's [`PageRow`] keys, so the rows need not be built.
+pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Picked, RpcError> {
     let limit = match params.get("limit") {
         None | Some(Value::Null) => None,
         Some(v) => Some(
@@ -77,31 +121,31 @@ pub(crate) fn session_list_reply_borrowed(
         return Err(RpcError::invalid_params("orderBy sessionId requires localOnly"));
     }
     let excluded = status_filter(params, "excludeStatus")?;
-    let selected: Vec<&Value> = sorted
+    let selected: Vec<usize> = sorted
         .iter()
-        .filter(|s| peer.is_none_or(|p| s.get("peer").and_then(Value::as_str) == Some(p)))
-        .filter(|s| status.is_none_or(|st| s.get("status").and_then(Value::as_str) == Some(st)))
-        .filter(|s| !local_only || s.get("peer").and_then(Value::as_str).is_none())
-        .filter(|s| {
-            s.get("status").and_then(Value::as_str).is_none_or(|st| !excluded.contains(&st))
-        })
+        .enumerate()
+        .filter(|(_, s)| peer.is_none_or(|p| s.peer() == Some(p)))
+        .filter(|(_, s)| status.is_none_or(|st| s.status() == Some(st)))
+        .filter(|(_, s)| !local_only || s.peer().is_none())
+        .filter(|(_, s)| s.status().is_none_or(|st| !excluded.contains(&st)))
+        .map(|(at, _)| at)
         .collect();
     if order.is_some() {
-        return session_id_page(selected, params, limit);
+        return session_id_page(sorted, selected, params, limit);
     }
-    let start = cursor.map_or(0, |c| c.start(&selected));
-    let mut sessions: Vec<&Value> = selected.into_iter().skip(start).collect();
+    let start = cursor.map_or(0, |c| c.start(sorted, &selected));
+    let mut rows: Vec<usize> = selected.into_iter().skip(start).collect();
     let Some(limit) = limit else {
-        return Ok(page(sessions.into_iter().cloned().collect(), None));
+        return Ok(Picked { rows, next: None });
     };
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    let next = if sessions.len() > limit {
-        sessions.truncate(limit);
-        sessions.last().map(|last| SessionCursor::after(last).to_text())
+    let next = if rows.len() > limit {
+        rows.truncate(limit);
+        rows.last().and_then(|&last| sorted.get(last)).map(cursor_after)
     } else {
         None
     };
-    Ok(page(sessions.into_iter().cloned().collect(), Some(next.map_or(Value::Null, Value::String))))
+    Ok(Picked { rows, next: Some(next.map_or(Value::Null, Value::String)) })
 }
 
 /// A page cut by bytes rather than by count, for a reply that has no `limit` to page by (ACP's
@@ -159,11 +203,12 @@ pub(crate) fn byte_page<R>(
 }
 
 /// IDs are immutable: an unread session updating between pages cannot be lost.
-fn session_id_page(
-    mut rows: Vec<&Value>,
+fn session_id_page<R: PageRow>(
+    sorted: &[R],
+    mut rows: Vec<usize>,
     params: &Value,
     limit: Option<u64>,
-) -> Result<Value, RpcError> {
+) -> Result<Picked, RpcError> {
     let after = match params.get("cursor") {
         None | Some(Value::Null) => None,
         Some(Value::String(text)) => Some(
@@ -173,19 +218,20 @@ fn session_id_page(
         ),
         Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
     };
-    rows.retain(|row| after.is_none_or(|id| session_id(row) > id));
-    rows.sort_by(|a, b| session_id(a).cmp(session_id(b)));
+    let id = |at: usize| sorted.get(at).map_or("", PageRow::session_id);
+    rows.retain(|&at| after.is_none_or(|after| id(at) > after));
+    rows.sort_by(|&a, &b| id(a).cmp(id(b)));
     let Some(limit) = limit else {
-        return Ok(page(rows.into_iter().cloned().collect(), None));
+        return Ok(Picked { rows, next: None });
     };
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let next = if rows.len() > limit {
         rows.truncate(limit);
-        rows.last().map(|row| Value::String(format!("s:{}", session_id(row))))
+        rows.last().map(|&last| Value::String(format!("s:{}", id(last))))
     } else {
         None
     };
-    Ok(page(rows.into_iter().cloned().collect(), Some(next.unwrap_or(Value::Null))))
+    Ok(Picked { rows, next: Some(next.unwrap_or(Value::Null)) })
 }
 
 /// `{sessions, nextCursor?}`, moving the sessions in: `json!` would deep-copy the whole list.
@@ -263,7 +309,7 @@ pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
 /// for a client that stops in the middle of a page (`acpmux ls --limit` with a filter of its own).
 /// A daemon whose cursor keys differ starts at the first session no newer than it
 /// ([`SessionCursor::start`]): one of that same millisecond may repeat, none is skipped.
-pub(crate) fn cursor_after(session: &Value) -> String {
+pub(crate) fn cursor_after<R: PageRow + ?Sized>(session: &R) -> String {
     SessionCursor::after(session).to_text()
 }
 
@@ -275,7 +321,7 @@ struct SessionCursor {
 }
 
 impl SessionCursor {
-    fn after(session: &Value) -> Self {
+    fn after<R: PageRow + ?Sized>(session: &R) -> Self {
         Self { updated_ms: stamp(session), key: row_key(session) }
     }
 
@@ -295,39 +341,45 @@ impl SessionCursor {
         })
     }
 
-    /// Where the page starts in `sorted`. The named session gone or moved, the
-    /// page starts at the first session no newer than it was: one updated in
+    /// Where the page starts in `selected` (places in `sorted`). The named session gone or
+    /// moved, the page starts at the first session no newer than it was: one updated in
     /// that same millisecond may repeat, none is skipped.
-    fn start(self, sorted: &[&Value]) -> usize {
-        sorted
+    fn start<R: PageRow>(self, sorted: &[R], selected: &[usize]) -> usize {
+        let row = |at: &usize| sorted.get(*at);
+        selected
             .iter()
-            .position(|s| stamp(s) == self.updated_ms && row_key(s) == self.key)
+            .position(|at| {
+                row(at).is_some_and(|s| stamp(s) == self.updated_ms && row_key(s) == self.key)
+            })
             .map(|at| at + 1)
             .unwrap_or_else(|| {
-                sorted.iter().position(|s| stamp(s) <= self.updated_ms).unwrap_or(sorted.len())
+                selected
+                    .iter()
+                    .position(|at| row(at).is_some_and(|s| stamp(s) <= self.updated_ms))
+                    .unwrap_or(selected.len())
             })
     }
 }
 
-fn updated_ms(session: &Value) -> u64 {
-    session.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)
+fn updated_ms<R: PageRow + ?Sized>(session: &R) -> u64 {
+    session.updated_ms()
 }
 
 /// The cursor's timestamp: `updatedAt` clamped to 12 hex digits (year 10889), the same in the
 /// cursor and in both comparisons, so a huge stamp still matches its own cursor and the cursor
 /// stays at most 30 characters.
-fn stamp(session: &Value) -> u64 {
+fn stamp<R: PageRow + ?Sized>(session: &R) -> u64 {
     updated_ms(session).min(MAX_STAMP)
 }
 
 const MAX_STAMP: u64 = 0xffff_ffff_ffff;
 
-fn session_id(session: &Value) -> &str {
-    session.get("sessionId").and_then(Value::as_str).unwrap_or("")
+fn session_id<R: PageRow + ?Sized>(session: &R) -> &str {
+    session.session_id()
 }
 
-fn peer(session: &Value) -> Option<&str> {
-    session.get("peer").and_then(Value::as_str)
+fn peer<R: PageRow + ?Sized>(session: &R) -> Option<&str> {
+    session.peer()
 }
 
 /// Where a row stands in [`byte_page`]'s order: two FNV-1a hashes of its `sessionId` and
@@ -340,11 +392,11 @@ fn page_key(session: &Value) -> u128 {
 
 /// FNV-1a of the session id, then, for a peer's row, a NUL and the peer's name: the same in
 /// every daemon run, and this daemon's own rows keep the key they had before peers were in it.
-fn row_key(session: &Value) -> u64 {
+fn row_key<R: PageRow + ?Sized>(session: &R) -> u64 {
     fnv(0xcbf2_9ce4_8422_2325, row_key_bytes(session))
 }
 
-fn row_key_bytes(session: &Value) -> impl Iterator<Item = u8> + '_ {
+fn row_key_bytes<R: PageRow + ?Sized>(session: &R) -> impl Iterator<Item = u8> + '_ {
     let peer = peer(session).map(|p| std::iter::once(0).chain(p.bytes()));
     session_id(session).bytes().chain(peer.into_iter().flatten())
 }
