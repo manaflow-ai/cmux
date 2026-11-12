@@ -55,11 +55,12 @@ def process_tree(root: int) -> list[tuple[int, str]]:
     return tree
 
 
-def wait_group_gone(pgid: int, seconds: float = KILL_REAP_SECONDS) -> None:
+def wait_group_gone(pgid: int, seconds: Optional[float] = None) -> None:
     """Return once no process is left in group PGID, or after SECONDS. SIGKILL is delivered asynchronously: a
     member that was sent it may still be running for a moment, and a caller that returns then (and its retry, or
     the test that checks) would see it alive (cmux#41767 review F1)."""
-    deadline = time.monotonic() + seconds
+    # KILL_REAP_SECONDS is read now, not at definition, so a caller (or a test) that lowers it is obeyed.
+    deadline = time.monotonic() + (KILL_REAP_SECONDS if seconds is None else seconds)
     while True:
         try:
             os.killpg(pgid, 0)
