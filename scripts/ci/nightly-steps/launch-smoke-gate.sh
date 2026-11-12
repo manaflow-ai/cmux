@@ -39,6 +39,10 @@
 #               harness exits as it would without that arm, and its report's `arms` says "not-run" or
 #               "cannot-run"). A pass then carries a warning and a summary line that the seeded home
 #               was not checked, so a pass of the empty home alone is never read as a pass of both.
+#               Also a pass whose app used the daemon of another launch: the daemon's socket is the
+#               account's, by session, so on a host where a build of the same channel is live the
+#               app says "connected" of THAT daemon (the report's `of_launch`). The warning says so:
+#               the daemon was not judged, and that is never a pass.
 #
 # Evidence goes to $RUNNER_TEMP/launch-smoke (attempt-N/, status-N, evidence.md) and the job summary.
 set -uo pipefail
@@ -140,5 +144,12 @@ daemon = report.get("daemon_down") and not ended
 print(("the app'"'"'s daemon was not connected after launch" if daemon else "the app crashed at launch") + " from " + home)' "$last/report.json" 2>/dev/null)"
     echo "::error title=nightly-next launch smoke::${what:-the app crashed at launch from a fresh home} on both attempts; this build is not published"
     exit 1 ;;
-  *) cannot_run "the smoke could not run here (verdict $verdict)" ;;
+  *)
+    # Said, never a pass: the app passed and used the daemon of another launch (report.json's `of_launch`).
+    foreign="$(python3 -I -c 'import json, sys
+report = json.load(open(sys.argv[1]))
+arms = [report] + [arm for arm in (report.get("arms") or {}).values() if isinstance(arm, dict)]
+if report.get("verdict") == "pass" and any(read.get("of_launch") is False for arm in arms for read in arm.get("daemon") or []):
+    print("the app launched, but the daemon that it used was not of this launch (another build of its session is live on this account), so its daemon was not judged")' "$last/report.json" 2>/dev/null)"
+    cannot_run "${foreign:-the smoke could not run here (verdict $verdict)}" ;;
 esac

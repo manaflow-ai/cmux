@@ -73,6 +73,16 @@ NIGHTLY_CHANNELS = (None, "cmux-next-stable", "cmux-next")
 LOG_TAIL = 40
 
 
+def daemon_not_of_launch(report: dict) -> bool:
+    """The harness marked a daemon read `of_launch` False, in either home: the app said "connected", and no daemon
+    process of that launch was alive. The daemon's socket is the account's, by session, so the app used the daemon of
+    another launch (an installed build of the same channel, another run on the host)."""
+    arms = report.get("arms") if isinstance(report.get("arms"), dict) else {}
+    groups = [report.get("daemon"), *(arm.get("daemon") for arm in arms.values() if isinstance(arm, dict))]
+    return any(isinstance(read, dict) and read.get("of_launch") is False
+               for group in groups if isinstance(group, list) for read in group)
+
+
 def attempt_result(status: int, report: dict, daemon: bool = False) -> str:
     """One harness run's result.
 
@@ -81,6 +91,8 @@ def attempt_result(status: int, report: dict, daemon: bool = False) -> str:
     With DAEMON (the publish gate's --daemon) also its own word, two times, that its daemon is not
     connected after Home rendered (the harness's `daemon_down`: the app is up and takes no key). That
     counts as a crash counts, with the same rule. Without DAEMON such a report is cannot-run, as before.
+    With DAEMON a pass whose daemon was not of that launch (daemon_not_of_launch) is cannot-run: the daemon
+    was not judged, and the gate must not call that a pass.
     A failed report from a live app that never rendered Home is not a launch crash, so it cannot roll a
     build back. Exit 1 without the harness or app evidence (a console-session hop or setup error) could
     not run.
@@ -93,7 +105,7 @@ def attempt_result(status: int, report: dict, daemon: bool = False) -> str:
     or of a live app with no Home, has no such evidence and is cannot-run. A cut attempt is never a pass.
     """
     if status == 0 and report.get("verdict") == "pass":
-        return PASS
+        return CANNOT_RUN if daemon and daemon_not_of_launch(report) else PASS
     exit_status = report.get("exit")
     app_crashed = (
         isinstance(exit_status, int) and not isinstance(exit_status, bool) and exit_status != 0

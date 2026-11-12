@@ -44,7 +44,9 @@ counts only when it is of that launch (not_of_launch); another is kept under
 
 --daemon (the publish gate only): a build with a dead daemon (cmux-tui) shows Home and takes no key. So each
 arm asks the app when its watch ends: a daemon failure, or a daemon that is not connected then and
-DAEMON_REREAD_SECONDS later, fails the launch (report.json's `daemon_down`).
+DAEMON_REREAD_SECONDS later, fails the launch (report.json's `daemon_down`). The daemon's socket is the account's,
+by session, not the home's (DaemonLauncher.swift runtimeBase): "connected" counts only with a daemon of this
+launch's app copy (app_daemons), else the read is not judged and is no pass.
 
 --dmg copies the app out of the DMG (mounted read-only, detached at once);
 --app copies it too. Every process the run starts runs from its private root
@@ -431,9 +433,25 @@ def snapshot(socket_path: Path, timeout: float = 5.0, request: int = 1) -> dict 
     return result if isinstance(result, dict) else None
 
 
-def daemon_at_end(socket_path: Path) -> list[dict]:
+def app_daemons(app: Path) -> tuple[list[str], list[str]]:
+    """This user's app daemons (cmux-tui --headless --session cmux-app...; a Chief's is cmux-chief-...): the
+    sessions of those whose program is below APP (this launch's), and the others of such a session (of each app
+    session when this launch has none) as "pid N PROGRAM (SESSION)"."""
+    own, others = [], []
+    for pid, args in user_processes():
+        session = re.search(r" --session (cmux-app\S*)", args)
+        if session and " --headless" in args:
+            if args.startswith((f"{app}/", f"{os.path.realpath(app)}/")):
+                own.append(session[1])
+            else:
+                others.append((session[1], f"pid {pid} {args.partition(' --')[0]} ({session[1]})"))
+    return own, [text for session, text in others if not own or session in own]
+
+
+def daemon_at_end(socket_path: Path, app: Path) -> list[dict]:
     """The app's daemon_state and daemon_failure (snapshot.get topology): one read, and when it is not clean one
-    more DAEMON_REREAD_SECONDS later (a reconnect in work). No answer or no such field (None) is not judged."""
+    more DAEMON_REREAD_SECONDS later (a reconnect in work). None (no answer, no field) is not judged, as is
+    "connected" with no daemon of this launch (`of_launch` False: no pass). Each read is said in the log."""
     reads: list[dict] = []
     for request in (2, 3):
         snap = snapshot(socket_path, request=request)
@@ -441,21 +459,29 @@ def daemon_at_end(socket_path: Path) -> list[dict]:
         state = topology.get("daemon_state")
         reads.append({"state": state if isinstance(state, str) else None,
                       "failure": str(topology.get("daemon_failure") or "")[:300] or None})
-        log(f"daemon: {reads[-1]['state'] or 'not judged (' + ('no field' if snap else 'no answer') + ')'}")
+        if state == "connected" and not app_daemons(app)[0]:
+            reads[-1]["of_launch"] = False
+        log("daemon: " + ("not judged (not of this launch)" if "of_launch" in reads[-1] else reads[-1]["state"]
+                          or f"not judged ({'no field' if snap else 'no answer'})"))
         if request == 3 or (reads[0]["state"] in (None, "connected") and not reads[0]["failure"]):
             break
         time.sleep(float(os.environ.get("CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS", DAEMON_REREAD_SECONDS)))
     return reads
 
 
-def daemon_down(reads: list[dict] | None) -> str | None:
-    """Why READS (daemon_at_end) fail the launch: the last tells a daemon failure, or both are not connected."""
+def daemon_down(reads: list[dict] | None, app: Path) -> str | None:
+    """Why READS fail the launch: the last tells a daemon failure, or both are not connected; with the live app
+    daemons of other launches, a possible cause."""
     if reads and reads[-1]["failure"]:
-        return f"the app's daemon (cmux-tui) failed: {reads[-1]['failure']}"
-    if reads and len(reads) == 2 and all(read["state"] not in (None, "connected") for read in reads):
-        return (f"the app's daemon (cmux-tui) was not connected when the watch ended ({reads[0]['state']}) "
-                f"and at the next read ({reads[1]['state']})")
-    return None
+        why = f"the app's daemon (cmux-tui) failed: {reads[-1]['failure']}"
+    elif reads and len(reads) == 2 and all(read["state"] not in (None, "connected") for read in reads):
+        why = (f"the app's daemon (cmux-tui) was not connected when the watch ended ({reads[0]['state']}) "
+               f"and at the next read ({reads[1]['state']})")
+    else:
+        return None
+    own, others = app_daemons(app)
+    return (f"{why}; daemons of {' or '.join(sorted(set(own))) or 'an app session'} that are not of this launch: "
+            f"{', '.join(others[:3]) or 'none'}")
 
 
 def visible_windows(snap: dict | None) -> int:
@@ -691,20 +717,21 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
             + ("" if own is None else " and not this launch's files"))
 
 
-def pids_under(root: Path) -> list[int]:
-    """This user's processes whose command line names the run's private root, never by name."""
-    real = os.path.realpath(root)
+def user_processes() -> list[tuple[int, str]]:
+    """(pid, command line) of this user's other processes."""
     try:
         out = subprocess.run(["ps", "-ww", "-o", "pid=", "-o", "args=", "-U", str(os.getuid())],
                              capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         return []
-    pids = []
-    for line in out.splitlines():
-        pid, _, args = line.strip().partition(" ")
-        if pid.isdigit() and int(pid) != os.getpid() and (f"{root}/" in args or f"{real}/" in args):
-            pids.append(int(pid))
-    return pids
+    pairs = [line.strip().partition(" ") for line in out.splitlines()]
+    return [(int(pid), args.strip()) for pid, _, args in pairs if pid.isdigit() and int(pid) != os.getpid()]
+
+
+def pids_under(root: Path) -> list[int]:
+    """This user's processes whose command line names the run's private root, never by name."""
+    real = os.path.realpath(root)
+    return [pid for pid, args in user_processes() if f"{root}/" in args or f"{real}/" in args]
 
 
 # Where a cmux NEXT terminal host records itself under the run's HOME: <id>.json names its host_pid. A build from
@@ -853,12 +880,12 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 if seed is None or scan is not None or rendered_at is None or elapsed >= scan_wait:
                     break
             time.sleep(0.25)
-    reads = None
+    reads, app = None, Path(process.args[0]).parents[2]  # the launch's app copy
     if daemon and status is None and rendered_at is not None and ready is None:
-        reads = daemon_at_end(socket_path)
+        reads = daemon_at_end(socket_path, app)
         status = process.poll()
     seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status, "daemon": reads,
-            "daemon_down": daemon_down(reads), "seconds_up": round(time.monotonic() - started, 1)}
+            "daemon_down": daemon_down(reads, app), "seconds_up": round(time.monotonic() - started, 1)}
     if seed is not None:
         seen["cookie_sync"] = {**seed, "scanned_at": scanned_at, "scanned_hosts": (scan or {}).get("hosts")}
     return seen
