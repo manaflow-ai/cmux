@@ -52,7 +52,7 @@ class RedefinitionTest(unittest.TestCase):
                     pass
         """)
         self.assertEqual(len(hits), 1, hits)
-        self.assertTrue(hits[0].startswith("tests/test_x.py:9: ShallowClone.count_fetches redefines line 3"), hits)
+        self.assertTrue(hits[0].startswith("tests/test_x.py:10: ShallowClone.count_fetches redefines line 3"), hits)
 
     def test_a_module_function_defined_twice_is_refused(self) -> None:
         hits = scan("""
