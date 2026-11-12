@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43300036571",
+  "recorded_at": "2026-11-12T20:39:41Z",
+  "reason": "cmux-tui ddfc3af2937b changes the image's cmux-tui (pinned c10dc5bc9540)",
+  "dry_run": false,
+  "cmux_tui": "ddfc3af2937bbbb0f5e73ee68434b8cf3df38127",
+  "fixes": [
+    {
+      "sha": "ddfc3af2937bbbb0f5e73ee68434b8cf3df38127",
+      "mergedAt": "2026-11-12T13:56:17-06:00",
+      "subject": "fix(chatmux-relay): an ended control closes its socket while the handle lives on"
+    },
+    {
+      "sha": "604648d29b15343918e90e34a44c387aafbc49c4",
+      "mergedAt": "2026-11-12T13:56:17-06:00",
+      "subject": "test(chatmux-relay): an ended control closes its socket while the handle lives on"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T20:39:41Z",
+    "snapshot_id": "sh-f697f695777942a08ce071b2c2c095a4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43300036571): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "822dd1cddbd9f4e535b731e0e6ae93ed4c4536a0",
+    "image": "cloud-native-auto-ddfc3af2-43300036571-1",
+    "revision": "ci-43300036571-1",
+    "at": "2026-11-12T20:39:41Z"
+  },
+  "rolled_back": false
+}
