@@ -135,6 +135,19 @@ for mode in explicit ci; do
   grep -q "Seeded 1 of 3 Zig package archives from the mirror" "$TMP/out" || fail "$mode: the mirror summary miscounts"
   grep -q "Mirror only" "$TMP/out" || fail "$mode: mirror only was not reported"
 done
+# A cache path with a backslash, as on a Windows runner (C:\Users\...\zig): GNU
+# sha256sum, and shasum, put a "\" before the hash of a file whose name has one,
+# so every mirror copy failed its check ("has sha256 \<hash>, the lock pins
+# <hash>", "Seeded 0 of 38", cmux-tui run 43137287296, job 130915587979).
+back="$TMP/back\\slash-cache"
+rm -rf "$back"; mkdir -p "$back"
+CMUX_ZIG_LOCK="$TMP/mirror.lock" CMUX_ZIG_MIRROR_ONLY=1 "$SEED" "$back" "$TMP/mirror-src" > "$TMP/out" 2>&1 \
+  || fail "a mirror-only seed into a cache path with a backslash did not exit 0"
+cmp -s "$back/p/N-m1.tar.gz" "$TMP/www/one.tar.gz" || fail "a mirrored copy was not seeded into a cache path with a backslash"
+grep -q "Seeded 1 of 3 Zig package archives from the mirror" "$TMP/out" || fail "a cache path with a backslash miscounts the mirror seed"
+! grep -q 'has sha256 \\' "$TMP/out" || fail "a hash was read with sha256sum's escape backslash"
+rm -rf "$back"
+
 # Not mirror only: the mirror first, then the upstream URLs for the rest.
 rm -rf "$TMP/mirror-cache"; mkdir -p "$TMP/mirror-cache"
 CMUX_ZIG_LOCK="$TMP/mirror.lock" "$SEED" "$TMP/mirror-cache" "$TMP/mirror-src" > "$TMP/out" 2>&1 || fail "a mirror-then-upstream seed failed"
