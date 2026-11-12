@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43158418040",
+  "recorded_at": "2026-11-12T05:15:35Z",
+  "reason": "cmux-tui 85b943afdf84 changes the image's cmux-tui (pinned 79cbe348cd5d)",
+  "dry_run": false,
+  "cmux_tui": "85b943afdf84906d4ca576e8f4a2d7aa615b26ec",
+  "fixes": [
+    {
+      "sha": "85b943afdf84906d4ca576e8f4a2d7aa615b26ec",
+      "mergedAt": "2026-11-12T04:47:34Z",
+      "subject": "test(acpmux): the daemon memory and list guard tests read the whole list page by page (#41726)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T05:15:35Z",
+    "snapshot_id": "sh-f912eac7b59143609d1e65b91087dd12",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43158418040): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "45b8587011a0366aa70710721e1ea02bca857f2d",
+    "image": "cloud-native-auto-85b943af-43158418040-1",
+    "revision": "ci-43158418040-1",
+    "at": "2026-11-12T05:15:35Z"
+  },
+  "rolled_back": false
+}
