@@ -94,4 +94,26 @@ struct FocusUnreadPaneFlashTests {
         try await PinnedPageTests.until({ fixture.content.layoutModel.attention[pane] == nil })
         #expect(!fixture.content.layoutModel.attentionReadByEntry.contains(pane), "the focus blinked with the flash off")
     }
+
+    /// The stuck ring in cmux#42210's follow-up: an agent chat's Chromium page is a child window
+    /// that takes the key from the cmux window (`windowKey` false). The pane it shows is still the
+    /// one looked at, so focusing it reads its notification and its ring goes.
+    @Test func aPageWindowHoldingTheKeyStillReadsTheFocusedPane() async throws {
+        let fixture = try await Self.open()
+        let page = NSWindow(contentRect: CGRect(x: 300, y: 300, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer {
+            fixture.window.removeChildWindow(page)
+            page.close()
+            fixture.controller.teardown()
+            fixture.window.close()
+        }
+        fixture.window.addChildWindow(page, ordered: .above)
+        fixture.services.keyWindowSource = { page }
+        fixture.controller.focus.send(.windowKey(false))
+        try await PinnedPageTests.until({ !fixture.controller.focus.state.windowKey })
+        let pane = LayoutPaneID(fixture.unread.id)
+        fixture.content.layoutModel.focus(pane, source: .keyboard)
+        try await PinnedPageTests.until({ fixture.unread.tabs.first?.hasUnread == false && fixture.content.layoutModel.attention[pane] == nil },
+                                        report: { "the pane under a key page window kept its ring" })
+    }
 }
