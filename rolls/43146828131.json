@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43146828131",
+  "recorded_at": "2026-11-12T03:21:48Z",
+  "reason": "cmux-tui 856a5732d189 changes the image's cmux-tui (pinned 237756b5b50a)",
+  "dry_run": false,
+  "cmux_tui": "856a5732d1899bfad093ab10f97973659a17d10f",
+  "fixes": [
+    {
+      "sha": "856a5732d1899bfad093ab10f97973659a17d10f",
+      "mergedAt": "2026-11-12T03:01:34Z",
+      "subject": "cmux-tui test: a dial parked past the 10 s redial connects on a new link (tip red: carrier_dial) (#41656)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T03:21:48Z",
+    "snapshot_id": "sh-d686733843f44d52afb818a06f01dc1c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43146828131): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "80340fbfebf7096c440fe161b7d811dc2e1e1f63",
+    "image": "cloud-native-auto-856a5732-43146828131-1",
+    "revision": "ci-43146828131-1",
+    "at": "2026-11-12T03:21:48Z"
+  },
+  "rolled_back": false
+}
