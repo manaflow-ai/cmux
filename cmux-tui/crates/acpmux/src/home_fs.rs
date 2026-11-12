@@ -204,6 +204,58 @@ pub(crate) fn exists_nofollow(path: impl AsRef<Path>) -> bool {
     }
 }
 
+/// A name in a folder [`read_dir`] listed, and whether it is a regular file itself (a symlink
+/// is not).
+pub(crate) struct DirEntry {
+    pub(crate) name: std::ffi::OsString,
+    pub(crate) is_file: bool,
+}
+
+/// `std::fs::read_dir(path)`, read in the held home when `path` is below it: a writer that
+/// removes or renames by what a folder holds reads the folder it changes, not a replacement made
+/// at the same path (#41462 review F1).
+pub(crate) fn read_dir(path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::read_dir(path)
+    }
+    #[cfg(not(unix))]
+    {
+        held(path)?;
+        std::fs::read_dir(path)?
+            .map(|entry| {
+                let entry = entry?;
+                Ok(DirEntry { name: entry.file_name(), is_file: entry.file_type()?.is_file() })
+            })
+            .collect()
+    }
+}
+
+/// `config::private_state_file(path)` (an existing regular file of this user, its final
+/// symlink never followed, opened to read), opened in the held home when `path` is below it:
+/// what a removal decides by is read from the folder it removes from (#41462 review F1).
+pub(crate) fn private_state_file(path: impl AsRef<Path>) -> anyhow::Result<File> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        use anyhow::Context as _;
+        let file = OpenOptions::new()
+            .read(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+            .with_context(|| format!("open private state file {}", path.display()))?;
+        crate::config::validate_private_state_file(&file, path)?;
+        Ok(file)
+    }
+    #[cfg(not(unix))]
+    {
+        held(path)?;
+        crate::config::private_state_file(path)
+    }
+}
+
 /// `std::fs::remove_dir(path)`: an empty folder.
 pub(crate) fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> {
     let path = path.as_ref();
@@ -772,6 +824,52 @@ mod unix {
 
     pub(super) fn exists_nofollow(path: &Path) -> bool {
         at(path, None).is_ok_and(|at| is_symlink_at(at.dirfd(), &at.name).is_ok())
+    }
+
+    pub(super) fn read_dir(path: &Path) -> io::Result<Vec<super::DirEntry>> {
+        if crate::config::held_home_dir(path).is_none() {
+            return std::fs::read_dir(path)?
+                .map(|entry| {
+                    let entry = entry?;
+                    let is_file = entry.file_type()?.is_file();
+                    Ok(super::DirEntry { name: entry.file_name(), is_file })
+                })
+                .collect();
+        }
+        let at = at(path, None)?;
+        // SAFETY: a valid descriptor and a NUL-terminated name. A final symlink is followed, as
+        // `std::fs::read_dir` follows it.
+        let folder = owned(unsafe {
+            libc::openat(
+                at.dirfd(),
+                at.name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            )
+        })?;
+        let mut out = Vec::new();
+        for name in list(&folder)? {
+            // SAFETY: an all-zero `stat` is a valid value for fstatat to fill.
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            let c_name = c(&name)?;
+            // SAFETY: a valid descriptor, a NUL-terminated name and a `stat` to fill.
+            let found = unsafe {
+                libc::fstatat(
+                    folder.as_raw_fd(),
+                    c_name.as_ptr(),
+                    &mut stat,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            };
+            match check(found) {
+                Ok(_) => out.push(super::DirEntry {
+                    name,
+                    is_file: stat.st_mode & libc::S_IFMT == libc::S_IFREG,
+                }),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(out)
     }
 
     pub(super) fn hard_link(original: &Path, link: &Path) -> io::Result<()> {
