@@ -91,6 +91,9 @@ class PullRequestScope(unittest.TestCase):
                 self.assertEqual(result.stdout, "")
                 self.assertIn("error: the app FFI inputs cannot be listed: a Rust string that does not end",
                               result.stderr)
+                # It names the next step (review of #40095 at 694d83e8, F3).
+                self.assertIn("; fix the source the walk cannot read, or add a reviewed scripts/ci/app_ffi_pin.py "
+                              "entry", result.stderr)
 
     def test_a_valid_canonical_pin_passes(self):
         result = self.check()
@@ -307,6 +310,17 @@ class EveryReaderAgrees(unittest.TestCase):
                 verdicts = self.verdicts(path)
                 del verdicts["build_class.classify_path"]  # outside the crates: its own rule, before the inputs
                 self.assertEqual(set(verdicts.values()), {True}, verdicts)
+
+
+    def test_the_refused_walk_side_covers_every_input_the_walk_lists(self):
+        # Review of #40095 at 694d83e8 (F2): when the walk refuses, the router, build_class.py and the dev-loop apply
+        # tools count app_ffi_pin.REFUSED_INPUTS as the inputs, so an input the walk lists outside it
+        # (design-tokens.json, which cmux-motion's build script compiles in) would count as none there: routes would
+        # run less and hot-apply would hot-swap a change that needs a new app.
+        inputs, _ = app_ffi_pin.listed(ROOT)
+        self.assertIn("plans/cmux-next/spec-proposals/visuals/design-tokens.json", inputs)
+        refused = list(app_ffi_pin.REFUSED_INPUTS)
+        self.assertEqual([path for path in inputs if not app_ffi_pin.is_input(path, refused, [])], [])
 
 
 # The checks job's pin step and its pull request scope (the base's copy, --base the merge commit's first parent) are
