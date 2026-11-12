@@ -246,12 +246,15 @@ import Testing
         #expect(geometry.thumbOffset(for: CGSize(width: 4, height: -3)) == CGSize(width: 4, height: -3))
         // The screenshot's case: a long drag up moves the dot 6 pt, not 48.
         #expect(geometry.thumbOffset(for: CGSize(width: 0, height: -120)) == CGSize(width: 0, height: -6))
-        #expect(geometry.thumbOffset(for: CGSize(width: 60, height: 80)) == CGSize(width: 6, height: 6))
-        // The dot (12 pt) never leaves the 28 pt circle, even in a corner.
+        #expect(geometry.thumbOffset(for: CGSize(width: 200, height: 0)) == CGSize(width: 6, height: 0))
+        // Diagonally it keeps the finger's direction at 6 pt.
+        let diagonal = geometry.thumbOffset(for: CGSize(width: 60, height: 80))
+        #expect(abs(hypot(diagonal.width, diagonal.height) - 6) < 0.001)
+        #expect(abs(diagonal.width / diagonal.height - 0.75) < 0.001)
+        // The dot (12 pt, 1.2x while touched) never leaves the 28 pt circle,
+        // even in a corner.
         let corner = geometry.thumbOffset(for: CGSize(width: -500, height: 500))
-        #expect(hypot(corner.width, corner.height) + 6 <= JoystickGeometry.circle / 2 + 0.5)
-        // The direction still reads the finger, not the clamped dot.
-        #expect(JoystickEngine.direction(for: CGSize(width: 60, height: 80)) == .down)
+        #expect(hypot(corner.width, corner.height) + 6 * 1.2 <= JoystickGeometry.circle / 2)
     }
 }
 
