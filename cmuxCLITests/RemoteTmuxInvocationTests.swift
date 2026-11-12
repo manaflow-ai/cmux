@@ -98,4 +98,27 @@ import Testing
             try RemoteTmuxInvocation.parse(arguments)
         }
     }
+
+    /// The CLI executable has no string catalog, so the `--socket-name` errors must take their
+    /// text from the bundle the command hands in (the enclosing app) and not from `Bundle.main`.
+    @Test(arguments: [
+        (["dev@host", "--socket-name"], "translated: name required"),
+        (["dev@host", "--socket-name", "a/b"], "translated: name invalid"),
+    ])
+    func socketNameErrorsReadTheirTextFromTheGivenBundle(_ arguments: [String], _ expected: String) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-socket-name-strings-\(UUID().uuidString).bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try """
+        "cli.sshTmux.error.socketNameRequired" = "translated: name required";
+        "cli.sshTmux.error.socketNameInvalid" = "translated: name invalid";
+        """.write(to: directory.appendingPathComponent("Localizable.strings"), atomically: true, encoding: .utf8)
+        let bundle = try #require(Bundle(url: directory))
+
+        let error = try #require(throws: CLIError.self) {
+            try RemoteTmuxInvocation.parse(arguments, localizationBundle: bundle)
+        }
+        #expect(error.message == expected)
+    }
 }

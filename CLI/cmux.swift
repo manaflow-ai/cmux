@@ -13924,7 +13924,10 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
-        let invocation = try RemoteTmuxInvocation.parse(commandArgs)
+        let invocation = try RemoteTmuxInvocation.parse(
+            commandArgs,
+            localizationBundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
+        )
         if case .list = invocation.action {
             try runRemoteTmuxList(invocation: invocation, client: client, jsonOutput: jsonOutput)
             return
@@ -22371,7 +22374,8 @@ struct CMUXCLI {
                 defaultValue: """
                 --socket-name <name>  Mirror the tmux server started with tmux -L <name> instead of the default server. Each socket name is its own connection, so two windows can mirror two servers on one host. Names are 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'.
                   cmux ssh-tmux dev@my-host --socket-name alpha
-                """
+                """,
+                bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
             )
             return "\(help)\n\n\(newWindowHelp)\n\n\(helperPathHelp)\n\n\(socketNameHelp)\n\n\(Self.openFocusFlagsHelp)"
         case "local-tmux", "tmux":

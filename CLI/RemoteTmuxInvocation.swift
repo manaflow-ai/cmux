@@ -27,7 +27,14 @@ struct RemoteTmuxInvocation: Equatable {
     ///
     /// The destination remains the first positional argument for compatibility with the
     /// existing command. The default action is the historical bulk mirror.
-    static func parse(_ commandArgs: [String]) throws -> RemoteTmuxInvocation {
+    ///
+    /// `localizationBundle` is where the `--socket-name` errors look up their text. The CLI
+    /// executable has no string catalog of its own, so the command passes the enclosing app
+    /// bundle; this file also compiles into a test target that has no app bundle to find.
+    static func parse(
+        _ commandArgs: [String],
+        localizationBundle: Bundle = .main
+    ) throws -> RemoteTmuxInvocation {
         var destination: String?
         var action: Action?
         var requestedSession: String?
@@ -134,14 +141,16 @@ struct RemoteTmuxInvocation: Equatable {
                       !commandArgs[index + 1].hasPrefix("-") else {
                     throw CLIError(message: String(
                         localized: "cli.sshTmux.error.socketNameRequired",
-                        defaultValue: "ssh-tmux: --socket-name requires a tmux server name"
+                        defaultValue: "ssh-tmux: --socket-name requires a tmux server name",
+                        bundle: localizationBundle
                     ))
                 }
                 let name = commandArgs[index + 1]
                 guard RemoteTmuxSocketName.isValid(name) else {
                     throw CLIError(message: String(
                         localized: "cli.sshTmux.error.socketNameInvalid",
-                        defaultValue: "ssh-tmux: --socket-name must be 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'"
+                        defaultValue: "ssh-tmux: --socket-name must be 1-64 ASCII letters, digits, '.', '_' or '-', and cannot start with '-'",
+                        bundle: localizationBundle
                     ))
                 }
                 socketName = name
