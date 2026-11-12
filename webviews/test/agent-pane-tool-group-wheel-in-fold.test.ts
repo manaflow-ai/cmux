@@ -1,9 +1,13 @@
 // l10n-allow-file: the gallery fixture supplies the long tool-call transcript.
+// cmux-web-test-timeout: 300
 // RED TEST, never to merge. A wheel that a boxed run's own scroller takes must not move the
 // transcript. agent-pane-tool-group-scroll.test.ts sends that wheel after the run's fold ended and
 // reads the transcript's offset at once. This file sends it INSIDE the fold and at rest, then
 // watches the transcript for 2.5 s (the input-quiet time of a deferred follow is 1 s), and prints
 // one REPORT line for each case with the offsets and the frames in which they changed.
+// The gallery frame runs this state's own play by itself (gallery/frame/main.ts: when the DOM was
+// still, it clicks "Worked for" and the run's line, then sets the ready mark). Each case waits for
+// that mark first, so that the play's clicks cannot undo the clicks of this file.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -20,6 +24,8 @@ type Plan = {
   shorten: number;
   /** Wait for the end of the run's fold before the wheel. */
   rest: boolean;
+  /** Keep the open run as the frame's own play left it: this file does not close and open it. */
+  firstOpen: boolean;
   /** Send a wheel of 40 px over the box. */
   wheel: boolean;
   /** Px taken from the transcript's height after the wheel: a layout pass that is no reader input. */
@@ -32,6 +38,7 @@ type Outcome = {
   moved: boolean;
   seen: Recorded;
 };
+type Sizes = { boxHeight: number; boxRoom: number; rowHeight: number; top: number; room: number };
 
 await requireBrowserLane("agent-pane-tool-group-wheel-in-fold.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -114,11 +121,46 @@ await requireBrowserLane("agent-pane-tool-group-wheel-in-fold.test.ts", async ()
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", { variant: "tool-run-scrolled-fade" })}`,
     );
+    // The frame's own play ends before this file clicks anything.
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined, undefined, {
+      timeout: 30_000,
+    });
+    const frame = await page.evaluate(() => ({
+      ready: document.documentElement.dataset.galleryReady ?? "",
+      play: document.documentElement.dataset.galleryPlay ?? "",
+    }));
+    expect(frame.ready).toBe("1");
     const worked = page.locator(".cv-worked").first();
     if ((await worked.getAttribute("aria-expanded")) !== "true") await worked.click();
     const run = page.locator(".cv-tools > .cv-tool.is-toggle").first();
     await run.waitFor();
     const transcript = page.locator(".acpmux-scroll");
+    const sizes = (): Promise<Sizes> =>
+      page.evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const box = document.querySelector<HTMLElement>(".cv-run-scroll");
+        const row = (box ?? document.querySelector<HTMLElement>(".cv-tools"))?.closest<HTMLElement>(".acpmux-row");
+        return {
+          boxHeight: box ? box.clientHeight : -1,
+          boxRoom: box ? box.scrollHeight - box.clientHeight : -1,
+          rowHeight: row ? Math.round(row.getBoundingClientRect().height * 10) / 10 : -1,
+          top: scroller.scrollTop,
+          room: scroller.scrollHeight - scroller.clientHeight,
+        };
+      });
+    // What the play left: the run open at rest (its first open on this page).
+    await held(page, ".cv-tools > .cv-tool.is-toggle", "__afterPlay", "the page after the frame's play");
+    const playOpen = (await run.getAttribute("aria-expanded")) === "true";
+    const atReady = await sizes();
+    if (!plan.firstOpen && playOpen) {
+      await run.click();
+      await page.waitForFunction(
+        () => document.querySelector(".cv-tools > .cv-tool.is-toggle")?.getAttribute("aria-expanded") !== "true",
+        undefined,
+        { timeout: 5_000 },
+      );
+      await held(page, ".cv-tools > .cv-tool.is-toggle", "__closed", "the run closed by this file");
+    }
     if (plan.shorten > 0) {
       // A layout precondition, as in the inline case of agent-pane-tool-group-scroll.test.ts: the
       // chat still fits before the run opens, and the open run makes it overflow by more px.
@@ -177,6 +219,7 @@ await requireBrowserLane("agent-pane-tool-group-wheel-in-fold.test.ts", async ()
     });
     expect(await box.evaluate((node) => node.scrollHeight - node.clientHeight)).toBeGreaterThan(40);
     const before = await transcript.evaluate((node) => node.scrollTop);
+    const atOpen = await sizes();
     if (plan.wheel) {
       const bounds = (await box.boundingBox())!;
       await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
@@ -202,16 +245,18 @@ await requireBrowserLane("agent-pane-tool-group-wheel-in-fold.test.ts", async ()
       );
     if (moved) await held(page, ".cv-run-scroll", "__afterMove", "the transcript after its move");
     const after = await transcript.evaluate((node) => node.scrollTop);
-    const boxTop = await box.evaluate((node) => node.scrollTop);
+    // A read of the page, not of the locator: a box that is gone gives -1 and no 30 s wait.
+    const boxTop = await page.evaluate(() => document.querySelector<HTMLElement>(".cv-run-scroll")?.scrollTop ?? -1);
+    const atEnd = await sizes();
     const seen = await page.evaluate(() => (globalThis as unknown as { __wheelFold: Recorded }).__wheelFold);
     console.log(
-      `REPORT wheel-in-fold ${JSON.stringify({ case: plan.name, before, after, boxTop, moved, wheel: seen.wheel, frames: seen.frames })}`,
+      `REPORT wheel-in-fold ${JSON.stringify({ case: plan.name, before, after, boxTop, moved, play: frame.play, playOpen, atReady, atOpen, atEnd, wheel: seen.wheel, frames: seen.frames })}`,
     );
     await page.close();
     return { before, after, boxTop, moved, seen };
   }
 
-  const fixture = { shorten: 0, shrinkAfter: 0 };
+  const fixture = { shorten: 0, shrinkAfter: 0, firstOpen: false };
 
   test("boxed run, a wheel INSIDE the fold that the box takes: the transcript does not move", async () => {
     const result = await drive({ ...fixture, name: "1 in the fold", rest: false, wheel: true });
@@ -245,6 +290,58 @@ await requireBrowserLane("agent-pane-tool-group-wheel-in-fold.test.ts", async ()
     expect(result.seen.wheel?.inBox).toBe(true);
     expect(result.boxTop).toBeGreaterThan(2);
     expect(Math.abs(result.after - result.before)).toBeLessThanOrEqual(1);
+  });
+
+  test("boxed run AT REST as the frame's play opened it (its first open), a wheel that the box takes: the transcript does not move in 2.5 s", async () => {
+    const result = await drive({
+      ...fixture,
+      name: "2f at rest, first open",
+      firstOpen: true,
+      rest: true,
+      wheel: true,
+    });
+    expect(result.seen.wheel?.inBox).toBe(true);
+    expect(result.boxTop).toBeGreaterThan(2);
+    expect(Math.abs(result.after - result.before)).toBeLessThanOrEqual(1);
+  });
+
+  // A chat 100 px shorter: the open run leaves about 100 px of scroll room, so a move says whether
+  // its bound is the follow deadband (4 px) or the whole overflow.
+  test("boxed run in a chat 100 px shorter, a wheel INSIDE the fold: the transcript does not move", async () => {
+    const result = await drive({
+      ...fixture,
+      name: "1c in the fold, 100 px shorter",
+      shorten: 100,
+      rest: false,
+      wheel: true,
+    });
+    expect(result.seen.wheel?.inBox).toBe(true);
+    expect(result.boxTop).toBeGreaterThan(2);
+    expect(Math.abs(result.after - result.before)).toBeLessThanOrEqual(1);
+  });
+
+  test("boxed run in a chat 100 px shorter, a wheel AT REST: the transcript does not move in 2.5 s", async () => {
+    const result = await drive({
+      ...fixture,
+      name: "2c at rest, 100 px shorter",
+      shorten: 100,
+      rest: true,
+      wheel: true,
+    });
+    expect(result.seen.wheel?.inBox).toBe(true);
+    expect(result.boxTop).toBeGreaterThan(2);
+    expect(Math.abs(result.after - result.before)).toBeLessThanOrEqual(1);
+  });
+
+  test("MEASURE boxed run in a chat 100 px shorter, the fold with NO wheel", async () => {
+    const result = await drive({
+      ...fixture,
+      name: "0c control: the fold, no wheel, 100 px shorter",
+      shorten: 100,
+      rest: false,
+      wheel: false,
+    });
+    expect(result.seen.wheel).toBeNull();
   });
 
   // The MEASURE cases assert no offset; they print what the transcript does with no wheel in the
