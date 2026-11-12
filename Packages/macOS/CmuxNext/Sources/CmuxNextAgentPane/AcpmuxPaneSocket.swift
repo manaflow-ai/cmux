@@ -464,7 +464,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     /// Tests: returns once every inbound pass queued so far ran (frames checked and queued for the
     /// page, a shed episode's end). Off the main thread only.
-    func waitForInboundPasses() { inbound.sync {} }
+    func waitForInboundPasses() { inbound.blockingSync {} }
 
     var queuedFrames: Int { state.withLock { $0.inbox.count } }
 
