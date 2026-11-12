@@ -37,3 +37,35 @@ extension SettingsApplier {
         if design.titleAreaContrast != contrast { design.titleAreaContrast = contrast }
     }
 }
+
+/// `appearance.titleAreaTone` in cmux-next.json (Settings > Appearance > Panes, Title Area): "twoTone" (the
+/// default) or "oneColor" (`TitleAreaTone`). A missing key is the default; a bad value is the default plus a
+/// diagnostic. Its path, default and choices are generated from schemas/settings/source/appearance.json.
+public nonisolated struct TitleAreaToneSetting: Sendable {
+    public init() {}
+
+    static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> TitleAreaTone {
+        guard let value = root.value(at: configPath) else { return fallback }
+        guard let text = value.stringValue, let tone = TitleAreaTone(rawValue: text) else {
+            let choices = TitleAreaTone.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: configPath.joined(separator: "."),
+                                                  message: "expected one of \(choices)"))
+            return fallback
+        }
+        return tone
+    }
+
+    /// The tone `snapshot` asks for.
+    public static func effective(in snapshot: CmuxConfigSnapshot) -> TitleAreaTone {
+        var ignored: [SettingsDiagnostic] = [] // the parse reported them (`ChromePlacementSetting.parse`)
+        return parse(snapshot.root, diagnostics: &ignored)
+    }
+}
+
+extension SettingsApplier {
+    /// Copies `appearance.titleAreaTone` into `design`, writing only a change.
+    static func applyTitleAreaTone(_ snapshot: CmuxConfigSnapshot, to design: DesignSettings) {
+        let tone = TitleAreaToneSetting.effective(in: snapshot)
+        if design.titleAreaTone != tone { design.titleAreaTone = tone }
+    }
+}

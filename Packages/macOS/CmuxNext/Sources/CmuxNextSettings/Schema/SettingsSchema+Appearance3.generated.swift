@@ -201,6 +201,20 @@ extension AppearanceSettingsSchema {
                 keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps", "blocks"]
             ),
             SettingDescriptor(
+                TitleAreaToneSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.titleAreaTone", "Title Area"),
+                help: SettingsText.keyed("settings.appearance.titleAreaTone.help", "Two Tones shades the title bar, the tab bar and the sidebar apart from the content, and the selected tab opens into the content. One Color draws them in the content's color, with a divider under the tabs and a highlighted selected tab."),
+                summary: SettingsText.keyed("settings.appearance.titleAreaTone.summary", "Two tones or one color for the title and tab bar"),
+                kind: .choice([
+                    SettingChoice(TitleAreaTone.twoTone.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.twoTone", "Two Tones")),
+                    SettingChoice(TitleAreaTone.oneColor.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.oneColor", "One Color")),
+                ]),
+                default: .string(TitleAreaToneSetting.fallback.rawValue),
+                keywords: ["tone", "two tone", "one color", "single color", "monochrome", "title", "titlebar", "tab bar", "tabs", "chrome", "divider", "contrast", "background"]
+            ),
+            SettingDescriptor(
                 TitleAreaContrastSetting.configPath,
                 section: .appearance,
                 group: group,

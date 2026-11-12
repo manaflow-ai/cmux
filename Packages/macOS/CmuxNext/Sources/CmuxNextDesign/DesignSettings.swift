@@ -289,6 +289,12 @@ public final class DesignSettings {
     public var titleAreaContrast: CGFloat = 1 {
         didSet { if titleAreaContrast != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.titleAreaTone`: two tones (the chrome shaded apart from the content, the default) or one
+    /// colour (``TitleAreaTone``). One colour overrides ``titleAreaContrast`` to no shade; a change repaints, as
+    /// the contrast does.
+    public var titleAreaTone: TitleAreaTone = .twoTone {
+        didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler

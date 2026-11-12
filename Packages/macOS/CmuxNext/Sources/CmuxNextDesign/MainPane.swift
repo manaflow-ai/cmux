@@ -51,6 +51,17 @@ extension Metrics {
         let flush: Bool? = CornerFlush.current.isOn ? true : nil
         return tunable.override ?? flush ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
     }
+    /// The card's edge is the sidebar's seam, so the sidebar's edge line stays in the titlebar band and its hover
+    /// and drag glow light nothing: the curved main pane, where the flush corner counts only when picked in Debug
+    /// Settings (``CornerFlush/isChosen``). Since #40282 made the flush corner the default, ``mainPaneCurved`` is
+    /// true under the stock `flat` style too, and the sidebar lost its full-height line and its resize highlight.
+    /// Leo, 2026-11-12: "you've, like, slightly regressed the border thing, the border divider. And then there's,
+    /// like, no more drag divider highlight or anything like that." The default folder tab keeps both.
+    public static var cardEdgeIsSidebarSeam: Bool {
+        let tunable = ChromeTunables.mainPaneCurved
+        let flush: Bool? = CornerFlush.isChosen ? true : nil
+        return tunable.override ?? flush ?? DesignSettings.shared.chromeStyle.curvedMainPane ?? tunable.defaultValue
+    }
     /// Floating panes (`appearance.chromeStyle` floating): every pane is its
     /// own card, tab strip included, left unshaded on the shaded chrome
     /// (`MainPaneChromeShadeView`); the main pane itself draws no card.
@@ -135,7 +146,7 @@ extension Metrics {
     /// adjustable." At most 1.
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
         let base = mainPaneChromeShadeBase(isDark: isDark)
-        let contrast = DesignSettings.shared.titleAreaContrast
+        let contrast = effectiveTitleAreaContrast
         return contrast == 1 ? base : min(1, max(0, base * contrast))
     }
 
@@ -150,7 +161,15 @@ extension Metrics {
     /// selected tab's pill are the only separation). Leo, 2026-11-12: "THERE IS THE DIVIDER THERE ARE WAYS TO
     /// MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
     public static var tabRowDividerStrength: CGFloat {
-        min(1, max(0, 1 - DesignSettings.shared.titleAreaContrast))
+        min(1, max(0, 1 - effectiveTitleAreaContrast))
+    }
+
+    /// The title area contrast the chrome draws with: `appearance.titleAreaContrast` under two tones, 0 under one
+    /// colour (`appearance.titleAreaTone`), so the toggle and the slider move the same shade, corner, divider and
+    /// selected tab.
+    public static var effectiveTitleAreaContrast: CGFloat {
+        let design = DesignSettings.shared
+        return design.titleAreaTone == .oneColor ? 0 : design.titleAreaContrast
     }
 
     /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the

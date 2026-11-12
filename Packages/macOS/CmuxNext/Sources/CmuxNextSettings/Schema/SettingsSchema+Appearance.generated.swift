@@ -213,6 +213,12 @@ extension ChromeStyleSetting {
     public nonisolated static let fallback: ChromeStyle = .flat
 }
 
+extension TitleAreaToneSetting {
+    /// `appearance.titleAreaTone`: Two tones (the chrome shaded apart from the content by appearance.titleAreaContrast) or one colour (no shade; the tab row's divider and the selected tab's pill separate). Leo 2026-11-12: Lawrence doesn't want two tones as a default, so it must toggle back and forth really well.
+    public nonisolated static let configPath = ["appearance", "titleAreaTone"]
+    public nonisolated static let fallback: TitleAreaTone = .twoTone
+}
+
 extension TitleAreaContrastSetting {
     /// `appearance.titleAreaContrast`: Scales the chrome's shade around the content card (Metrics.mainPaneChromeShade); 1 is the shade as it was. Leo 2026-11-11: the title area's contrast may be too intense for some people, so it needs to be adjustable.
     public nonisolated static let configPath = ["appearance", "titleAreaContrast"]

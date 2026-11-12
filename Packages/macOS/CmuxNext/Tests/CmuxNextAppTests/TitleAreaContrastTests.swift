@@ -129,4 +129,52 @@ import Testing
             #expect(line.path == nil, "the shipped contrast drew a divider")
         }
     }
+
+    /// `appearance.titleAreaTone` (Leo, 2026-11-12: "toggle that back and forth really well"): a missing key is
+    /// two tones, the shipped look; a bad value is two tones plus a diagnostic; the setting reaches the design.
+    @Test func theToneParsesAndReachesTheDesignSettings() {
+        #expect(TitleAreaToneSetting.fallback == .twoTone)
+        #expect(TitleAreaToneSetting.effective(in: snapshot([:])) == .twoTone)
+        #expect(TitleAreaToneSetting.effective(in: snapshot(["titleAreaTone": .string("oneColor")])) == .oneColor)
+        let bad = snapshot(["titleAreaTone": .string("mono")])
+        #expect(TitleAreaToneSetting.effective(in: bad) == .twoTone)
+        #expect(bad.diagnostics.contains { $0.path == "appearance.titleAreaTone" && $0.kind == .invalidValue })
+        let saved = DesignSettings.shared.titleAreaTone
+        defer { DesignSettings.shared.titleAreaTone = saved }
+        SettingsApplier.applyPlacement(snapshot(["titleAreaTone": .string("oneColor")]), to: DesignSettings.shared)
+        #expect(DesignSettings.shared.titleAreaTone == .oneColor)
+        SettingsApplier.applyPlacement(snapshot([:]), to: DesignSettings.shared)
+        #expect(DesignSettings.shared.titleAreaTone == .twoTone)
+    }
+
+    /// One Color moves every piece the contrast moves, together: no shade, the divider at full strength, and the
+    /// selected tab back on its pill. Toggling back restores the contrast the slider holds, untouched.
+    @Test(arguments: [true, false]) func oneColorMovesTheShadeDividerAndTabTogether(isDark: Bool) {
+        let saved = DesignSettings.shared.titleAreaTone
+        defer { DesignSettings.shared.titleAreaTone = saved }
+        withContrast(0.5) {
+            DesignSettings.shared.titleAreaTone = .oneColor
+            #expect(Metrics.mainPaneChromeShade(isDark: isDark) == 0)
+            #expect(Metrics.tabRowDividerStrength == 1)
+            #expect(Palette.folderTabFill == nil)
+            #expect(DesignSettings.shared.titleAreaContrast == 0.5)
+            DesignSettings.shared.titleAreaTone = .twoTone
+            let base = Metrics.mainPaneChromeShadeBase(isDark: isDark)
+            #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base * 0.5) < 1e-9)
+            #expect(abs(Metrics.tabRowDividerStrength - 0.5) < 1e-9)
+        }
+    }
+
+    /// #40282 made the flush corner the default, which made `Metrics.mainPaneCurved` true under the stock chrome,
+    /// and three sidebar paths read that as "the card's edge is the seam": the sidebar's edge line shrank to the
+    /// titlebar band and its hover and drag glow went dark. Leo, 2026-11-12: "slightly regressed the border thing,
+    /// the border divider. And then there's, like, no more drag divider highlight". The default flush corner (not
+    /// picked in Debug Settings) on a style that draws no curved card keeps the full-height line and the glow.
+    @Test func theDefaultFlushCornerKeepsTheSidebarEdgeLineAndItsGlow() {
+        let design = DesignSettings.shared
+        guard ChromeTunables.mainPaneCurved.override == nil, !CornerFlush.isChosen,
+              design.chromeStyle.curvedMainPane != true else { return }
+        #expect(!Metrics.cardEdgeIsSidebarSeam)
+        if CornerFlush.current.isOn { #expect(Metrics.mainPaneCurved, "the flush corner still draws the card") }
+    }
 }

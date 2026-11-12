@@ -192,6 +192,56 @@
     "appearance.titleAreaContrast"
    ],
    "wait": 3
+  },
+  {
+   "title": "Toggle to One Color, live",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "oneColor"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Toggle back to Two Tones, live (the contrast stays 1)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "One Color again over art",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.background",
+    "hokusai-great-wave"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Over art, One Color",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "oneColor"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Over art, back to Two Tones",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2
   }
  ]
 }

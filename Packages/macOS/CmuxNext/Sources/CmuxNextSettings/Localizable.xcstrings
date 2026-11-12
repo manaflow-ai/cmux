@@ -20170,6 +20170,666 @@
         }
       }
     },
+    "settings.appearance.titleAreaTone": {
+      "comment": "Title of the Appearance choice between a title/tab bar shaded apart from the content (two tones) and one in the content's color.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Title Area"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "منطقة العنوان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Područje naslova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titelområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titelbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Área de título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zone de titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Area del titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル領域"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តំបន់ចំណងជើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 영역"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tittelområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszar tytułu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Área de título"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Область заголовка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ชื่อเรื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Область заголовка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vùng tiêu đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题区域"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題區域"
+          }
+        }
+      }
+    },
+    "settings.appearance.titleAreaTone.help": {
+      "comment": "Help under the Title Area setting; 'Two Tones' and 'One Color' are its two choices.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two Tones shades the title bar, the tab bar and the sidebar apart from the content, and the selected tab opens into the content. One Color draws them in the content's color, with a divider under the tabs and a highlighted selected tab."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يميّز خيار «لونان» شريط العنوان وشريط علامات التبويب والشريط الجانبي عن المحتوى بظل، وتنفتح علامة التبويب المحددة على المحتوى. ويرسمها خيار «لون واحد» بلون المحتوى، مع فاصل تحت علامات التبويب وتمييز لعلامة التبويب المحددة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dva tona zatamnjuju traku naslova, traku kartica i bočnu traku u odnosu na sadržaj, a odabrana kartica se otvara u sadržaj. Jedna boja ih crta u boji sadržaja, s razdjelnikom ispod kartica i istaknutom odabranom karticom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To toner skygger titellinjen, fanelinjen og sidepanelet adskilt fra indholdet, og den valgte fane åbner ind i indholdet. Én farve tegner dem i indholdets farve med en skillelinje under fanerne og en fremhævet valgt fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwei Töne setzt Titelleiste, Tableiste und Seitenleiste mit einer Schattierung vom Inhalt ab, und der ausgewählte Tab öffnet sich in den Inhalt. Eine Farbe zeichnet sie in der Farbe des Inhalts, mit einer Trennlinie unter den Tabs und einem hervorgehobenen ausgewählten Tab."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dos tonos sombrea la barra de título, la barra de pestañas y la barra lateral para separarlas del contenido, y la pestaña seleccionada se abre al contenido. Un color las dibuja con el color del contenido, con un divisor bajo las pestañas y la pestaña seleccionada resaltada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deux tons ombre la barre de titre, la barre d'onglets et la barre latérale pour les distinguer du contenu, et l'onglet sélectionné s'ouvre sur le contenu. Une couleur les dessine dans la couleur du contenu, avec un séparateur sous les onglets et l'onglet sélectionné mis en évidence."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Due toni ombreggia la barra del titolo, la barra delle schede e la barra laterale per distinguerle dal contenuto, e la scheda selezionata si apre nel contenuto. Un colore le disegna nel colore del contenuto, con un divisore sotto le schede e la scheda selezionata evidenziata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「2トーン」はタイトルバー、タブバー、サイドバーをコンテンツと区別して陰影を付け、選択中のタブはコンテンツにつながります。「単色」はそれらをコンテンツと同じ色で描き、タブの下に区切り線を引き、選択中のタブを強調表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ពីរ ធ្វើឲ្យរបារចំណងជើង របារផ្ទាំង និងរបារចំហៀងមានស្រមោលខុសពីមាតិកា ហើយផ្ទាំងដែលបានជ្រើសបើកចូលទៅក្នុងមាតិកា។ ពណ៌មួយ គូរពួកវាជាពណ៌នៃមាតិកា ដោយមានបន្ទាត់ខណ្ឌនៅក្រោមផ្ទាំង និងផ្ទាំងដែលបានជ្រើសត្រូវបានរំលេច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 가지 톤은 제목 표시줄, 탭 막대, 사이드바를 콘텐츠와 구분되도록 음영을 주고, 선택한 탭이 콘텐츠로 이어집니다. 단색은 이들을 콘텐츠와 같은 색으로 그리고, 탭 아래에 구분선을 두며 선택한 탭을 강조합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To toner skyggelegger tittellinjen, fanelinjen og sidepanelet adskilt fra innholdet, og den valgte fanen åpner seg inn i innholdet. Én farge tegner dem i innholdets farge, med en skillelinje under fanene og en uthevet valgt fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dwa odcienie przyciemnia pasek tytułu, pasek kart i pasek boczny względem zawartości, a wybrana karta otwiera się w zawartość. Jeden kolor rysuje je w kolorze zawartości, z separatorem pod kartami i wyróżnioną wybraną kartą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dois tons sombreia a barra de título, a barra de abas e a barra lateral para separá-las do conteúdo, e a aba selecionada se abre no conteúdo. Uma cor as desenha na cor do conteúdo, com um divisor sob as abas e a aba selecionada destacada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Два тона» затемняет строку заголовка, панель вкладок и боковую панель относительно содержимого, а выбранная вкладка переходит в содержимое. «Один цвет» рисует их цветом содержимого, с разделителем под вкладками и выделенной выбранной вкладкой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สองโทน จะแรเงาแถบชื่อเรื่อง แถบแท็บ และแถบข้างให้แยกจากเนื้อหา และแท็บที่เลือกจะเปิดต่อเข้าไปในเนื้อหา สีเดียว จะวาดสิ่งเหล่านี้ด้วยสีของเนื้อหา พร้อมเส้นแบ่งใต้แท็บและไฮไลต์แท็บที่เลือก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İki Ton, başlık çubuğunu, sekme çubuğunu ve kenar çubuğunu içerikten ayıracak şekilde gölgelendirir ve seçili sekme içeriğe açılır. Tek Renk bunları içeriğin renginde çizer; sekmelerin altında bir ayırıcı olur ve seçili sekme vurgulanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Два тони» затіняє рядок заголовка, панель вкладок і бічну панель відносно вмісту, а вибрана вкладка переходить у вміст. «Один колір» малює їх кольором вмісту, з роздільником під вкладками та виділеною вибраною вкладкою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hai tông tô bóng thanh tiêu đề, thanh tab và thanh bên tách khỏi nội dung, và tab đã chọn mở vào nội dung. Một màu vẽ chúng bằng màu của nội dung, với đường phân cách dưới các tab và tab đã chọn được làm nổi bật."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“双色”会为标题栏、标签栏和侧边栏加上阴影，使其与内容区分开，所选标签页与内容相连。“单色”使用内容的颜色绘制它们，在标签页下方显示分隔线，并突出显示所选标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「雙色」會為標題列、標籤列和側邊欄加上陰影，使其與內容區分開來，所選標籤頁與內容相連。「單色」使用內容的顏色繪製它們，在標籤頁下方顯示分隔線，並醒目顯示所選標籤頁。"
+          }
+        }
+      }
+    },
+    "settings.appearance.titleAreaTone.summary": {
+      "comment": "One-line summary of the Title Area setting in search results.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two tones or one color for the title and tab bar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لونان أو لون واحد لشريط العنوان وشريط علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dva tona ili jedna boja za traku naslova i kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To toner eller én farve til titel- og fanelinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwei Töne oder eine Farbe für Titel- und Tableiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dos tonos o un color para la barra de título y de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deux tons ou une couleur pour la barre de titre et d'onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Due toni o un colore per la barra del titolo e delle schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバーとタブバーを2トーンまたは単色に"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ពីរ ឬពណ៌មួយសម្រាប់របារចំណងជើង និងរបារផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 및 탭 막대를 두 가지 톤 또는 단색으로"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To toner eller én farge for tittel- og fanelinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dwa odcienie lub jeden kolor paska tytułu i kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dois tons ou uma cor para a barra de título e de abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Два тона или один цвет для заголовка и панели вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สองโทนหรือสีเดียวสำหรับแถบชื่อเรื่องและแถบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık ve sekme çubuğu için iki ton veya tek renk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Два тони або один колір для заголовка й панелі вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hai tông hoặc một màu cho thanh tiêu đề và thanh tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题栏和标签栏使用双色或单色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標題列和標籤列使用雙色或單色"
+          }
+        }
+      }
+    },
+    "settings.choice.titleAreaTone.twoTone": {
+      "comment": "Title Area choice: the title and tab bar shaded apart from the content.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Two Tones"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لونان"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dva tona"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To toner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwei Töne"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dos tonos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deux tons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Due toni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2トーン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌ពីរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 가지 톤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To toner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dwa odcienie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dois tons"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Два тона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สองโทน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İki Ton"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Два тони"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hai tông"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雙色"
+          }
+        }
+      }
+    },
+    "settings.choice.titleAreaTone.oneColor": {
+      "comment": "Title Area choice: the title and tab bar in the content's color.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "One Color"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون واحد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jedna boja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én farve"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Farbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un color"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une couleur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un colore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単色"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពណ៌មួយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Én farge"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeden kolor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma cor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один цвет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สีเดียว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek Renk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Один колір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một màu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "单色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "單色"
+          }
+        }
+      }
+    },
     "settings.appearance.titleAreaContrast": {
       "comment": "Title of the Appearance setting that scales how much darker the window chrome (title bar, tab bar, sidebar) is than the content.",
       "extractionState": "manual",

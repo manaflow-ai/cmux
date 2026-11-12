@@ -59,7 +59,7 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
     /// on hover or while dragging, and never as hover feedback beside the
     /// curved main pane: the card's edge is the seam there. The hit area and
     /// the resize cursor stay.
-    var isLineVisible: Bool { restingLineWidth > 0 || ((isHovered || isDragging) && !Metrics.mainPaneCurved) }
+    var isLineVisible: Bool { restingLineWidth > 0 || ((isHovered || isDragging) && !Metrics.cardEdgeIsSidebarSeam) }
 
     /// The drawn width: the border's, else the divider hairline.
     var lineWidth: CGFloat { restingLineWidth > 0 ? restingLineWidth : Metrics.lineWidth(Metrics.dividerThickness) }
@@ -203,7 +203,7 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
     private func updateLine() {
         // Hover lights it only where the hairline would show on hover: beside the curved main pane
         // the card's edge is the seam. A drag lights it everywhere.
-        glow.set(isDragging ? .dragging : isHovered && !Metrics.mainPaneCurved ? .hovered : .rest)
+        glow.set(isDragging ? .dragging : isHovered && !Metrics.cardEdgeIsSidebarSeam ? .hovered : .rest)
         let target: Float = isLineVisible ? 1 : 0
         guard line.opacity != target else { return }
         Motion.sidebar.set(line, "opacity", to: target, fade: .hover)
