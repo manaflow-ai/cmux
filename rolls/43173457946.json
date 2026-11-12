@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43173457946",
+  "recorded_at": "2026-11-12T07:19:37Z",
+  "reason": "cmux-tui 7a9e55a1894b changes the image's cmux-tui (pinned 53139ac8c0cc)",
+  "dry_run": false,
+  "cmux_tui": "7a9e55a1894bc63717d4f10dfb94fbd467aa036d",
+  "fixes": [
+    {
+      "sha": "e69df6e9cc954874d31d4b5fac3fbe3f81f1b75f",
+      "mergedAt": "2026-11-11T22:59:01-08:00",
+      "subject": "cmux-tui: link relay and hop count without unchecked arithmetic (#40108's 16 tracked hits) (#41684)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T07:19:37Z",
+    "snapshot_id": "sh-5b73d95bf3214059a3a011a8459342a4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43173457946): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "238bfd14032bfeb56a060ccce244fc7aa79d6e36",
+    "image": "cloud-native-auto-7a9e55a1-43173457946-1",
+    "revision": "ci-43173457946-1",
+    "at": "2026-11-12T07:19:37Z"
+  },
+  "rolled_back": false
+}
