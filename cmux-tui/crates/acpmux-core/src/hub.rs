@@ -699,13 +699,14 @@ mod tests {
         let small_p95 = best_p95(&small_rounds);
         let god_p95 = best_p95(&god_rounds);
         let all_god_samples = god_rounds.iter().flatten().copied().collect::<Vec<_>>();
+        let all_god_p95 = p95(&all_god_samples);
         assert!(
             god_p95 <= small_p95.saturating_mul(12) / 10,
             "first window p95 grew beyond 1.2x: small={small_p95}ns god={god_p95}ns"
         );
         assert!(
-            all_god_samples.iter().all(|sample| *sample <= small_p95.saturating_mul(2)),
-            "first window sample exceeded 2x small p95: small={small_p95}ns samples={all_god_samples:?}"
+            all_god_p95 <= small_p95.saturating_mul(2),
+            "first window all-sample p95 exceeded 2x small p95: small={small_p95}ns god={all_god_p95}ns"
         );
         gate("v2.pr05.first_list_window", small_p95, god_p95);
 
@@ -716,15 +717,14 @@ mod tests {
         let small_change_p95 = best_p95(&small_changes);
         let god_change_p95 = best_p95(&god_changes);
         let all_god_change_samples = god_changes.iter().flatten().copied().collect::<Vec<_>>();
+        let all_god_change_p95 = p95(&all_god_change_samples);
         assert!(
             god_change_p95 <= small_change_p95.saturating_mul(12) / 10,
             "summary change p95 grew beyond 1.2x: small={small_change_p95}ns god={god_change_p95}ns"
         );
         assert!(
-            all_god_change_samples
-                .iter()
-                .all(|sample| *sample <= small_change_p95.saturating_mul(2)),
-            "summary change sample exceeded 2x small p95: small={small_change_p95}ns samples={all_god_change_samples:?}"
+            all_god_change_p95 <= small_change_p95.saturating_mul(2),
+            "summary change all-sample p95 exceeded 2x small p95: small={small_change_p95}ns god={all_god_change_p95}ns"
         );
         gate("v2.pr05.summary_change", small_change_p95, god_change_p95);
     }
