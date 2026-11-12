@@ -21697,7 +21697,7 @@ struct CMUXCLI {
             agent. Antigravity, Claude Code, Grok, Muse, and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, muse
+              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, qwen, muse
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH

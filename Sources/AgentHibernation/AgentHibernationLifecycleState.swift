@@ -132,6 +132,7 @@ enum AgentHibernationLifecycleStatusKeys {
         "opencode",
         "pi",
         "qoder",
+        "qwen",
         "rovodev",
     ]
 
