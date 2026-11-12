@@ -197,3 +197,7 @@ pub(super) fn serve_line_connection(
     let _ = writer_thread.join();
     drop(connection_permit);
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "line_connection_close_tests.rs"]
+mod close_tests;
