@@ -23,15 +23,12 @@ public nonisolated struct HistoryRead: Sendable {
         public let symbol: String
         /// The read did not answer: choosing the row reads again.
         public let canRetry: Bool
-        /// The list is not complete yet: a list that filters its rows by a typed text keeps this row, so
-        /// a text that finds nothing never reads as "No Results" for a list that may still get the row.
-        public var staysWhenFiltered = false
     }
 
     /// Unanswered (with or without the rows other owners gave): Try Again. Not complete yet (``pending``, with
     /// or without rows, also for a read with a text): still loading, and the reader reads again by itself. An unfiltered
     /// Recently Closed with no rows: nothing was closed. Else nil (the rows, or the list's own "No Results" for a search).
-    /// The palette filters its rows by the typed text itself: the still-loading row stays there (``Status/staysWhenFiltered``).
+    /// The palette filters its rows by the typed text itself, so there this row shows only before the person types.
     public func status(_ query: HistoryQuery) -> Status? {
         if unavailable {
             return Status(id: "history.status.unavailable", title: HistoryStrings.readFailed, detail: HistoryStrings.readFailedHint,
@@ -39,7 +36,7 @@ public nonisolated struct HistoryRead: Sendable {
         }
         if !pending.isEmpty {
             return Status(id: "history.status.pending", title: HistoryStrings.stillLoading, detail: HistoryStrings.stillLoadingHint,
-                          symbol: "hourglass", canRetry: false, staysWhenFiltered: true)
+                          symbol: "hourglass", canRetry: false)
         }
         guard entries.isEmpty, query.kinds == [.closed], query.text.isEmpty, query.range == .all else { return nil }
         return Status(id: "history.status.empty", title: HistoryStrings.menuNothingClosed, detail: nil, symbol: "clock.arrow.circlepath",
@@ -59,7 +56,8 @@ extension TitlebarHistoryClosedSection {
         }
         let rows = entries.compactMap { entry -> TitlebarHistoryClosedRow? in
             guard case .closed(let item) = entry.payload else { return nil }
-            return TitlebarHistoryClosedRow(id: item.id, kind: item.kind, title: entry.title, detail: entry.detailLine)
+            let detail = [entry.detail, entry.machineName].compactMap { $0 }.joined(separator: " · ")
+            return TitlebarHistoryClosedRow(id: item.id, kind: item.kind, title: entry.title, detail: detail.isEmpty ? nil : detail)
         }
         self = rows.isEmpty ? .empty : .rows(rows)
     }

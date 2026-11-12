@@ -12,12 +12,6 @@ nonisolated extension HistoryEntry {
             return nil
         }
     }
-
-    /// A row's second line: the entry's detail and its machine's name, or nil with neither.
-    public var detailLine: String? {
-        let line = [detail, machineName].compactMap { $0 }.joined(separator: " · ")
-        return line.isEmpty ? nil : line
-    }
 }
 
 nonisolated extension HistoryEntry.Kind {

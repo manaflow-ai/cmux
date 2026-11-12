@@ -284,34 +284,6 @@ extension PaletteModel {
         return [PaletteResultSection(section: items[0].section, rows: rows)] + sections
     }
 
-    /// What a filtering page shows for a typed query: `sections` and each of the page's `notices`
-    /// (`PaletteItem.showsForEveryQuery`; the ranker never finds one for a typed query), each as a block of its
-    /// own: right under the rows of its section with no header, or last with its section's header when the
-    /// query found no row of that section. The notices are on screen only: they are not among the ranked rows,
-    /// so the hold for an awaited answer, the selection and Return see the query's results alone.
-    ///
-    /// No row of `sections` is read or copied: a page with no notice (nearly every page) costs one check, a
-    /// notice costs one lookup among the sections and one insert of a one-row block.
-    static func withNotices(_ sections: [PaletteResultSection], of state: PageState) -> [PaletteResultSection] {
-        guard !state.notices.isEmpty, case .list(let page) = state.kind, page.filtersByQuery,
-              !state.query.allSatisfy(\.isWhitespace) else { return sections }
-        var sections = sections
-        for notice in state.notices {
-            let rows = [PaletteRow(item: notice, highlights: [], score: 0)]
-            guard let index = sections.firstIndex(where: { $0.section.id == notice.section.id }) else {
-                sections.append(PaletteResultSection(section: notice.section, rows: rows))
-                continue
-            }
-            // After the notices this section already has, so they keep the page's order.
-            let prefix = "\(notice.section.id)#notice:"
-            var place = index + 1
-            while place < sections.count, sections[place].section.id.hasPrefix(prefix) { place += 1 }
-            let under = PaletteSection(id: prefix + notice.id, title: "", order: notice.section.order)
-            sections.insert(PaletteResultSection(section: under, rows: rows), at: place)
-        }
-        return sections
-    }
-
     /// `sections`, or the page's no-match rows first when the typed query found no row and no provider
     /// is still loading (a loading provider may yet match); with `trails`, after the rows it found.
     static func orNoMatch(_ sections: [PaletteResultSection], _ noMatch: (@MainActor (String) -> [PaletteItem])?, trails: Bool,
@@ -342,7 +314,7 @@ extension PaletteModel {
         let joined = Self.joined(sections, state: state)
         state.deliveredAnswerFingerprint = Self.answerFingerprint(state)
         let held = joined.held
-        let sections = Self.withNotices(joined.shown, of: state)
+        let sections = joined.shown
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
