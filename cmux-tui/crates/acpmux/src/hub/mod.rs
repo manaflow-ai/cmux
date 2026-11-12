@@ -1232,6 +1232,10 @@ impl Hub {
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        // A removed peer's kept remote tokens go with it (`peer_kept_tokens.rs`).
+        peer_paths
+            .tokens
+            .retain(peers_cfg.iter().map(|(name, pc)| (name.as_str(), pc.url.as_str())));
         let suggestion_gate = StdMutex::new(crate::suggestion_gate::Gate::open(home.as_deref()));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
