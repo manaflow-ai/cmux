@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import runner_routing_table as table  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 CLASSES = {
     "apple-app-build": {"needs": "macos", "description": "Builds the app with Xcode."},
@@ -102,7 +104,7 @@ class RoutingTableTests(unittest.TestCase):
                                       ({"runs-on": route.replace(" || fromJSON(vars.RUNNER_POOLS).linux_2", "")}, False)):
                 with self.subTest(changed=changed):
                     (workflows / "controls.yml").write_text(table.yaml.safe_dump({
-                        "jobs": {"portable-placement": {**job, **changed}}}, width=10000))
+                        "jobs": {"portable-placement": workflow_jobs.copy_job(job, changed)}}, width=10000))
                     problems, allowed = table.hosted_light_policy(policy, workflows)
                     self.assertEqual(not problems, accepted, problems)
                     self.assertEqual(bool(allowed), accepted)
@@ -308,7 +310,7 @@ class RoutingTableTests(unittest.TestCase):
                 for inherited in (False, True):
                     with self.subTest(value=value, inherited=inherited):
                         job = {"runs-on": route, "environment": "ci-routing-agent"}
-                        document = {"jobs": {"picker": dict(job), "report": dict(job)}}
+                        document = {"jobs": {"picker": workflow_jobs.copy_job(job), "report": workflow_jobs.copy_job(job)}}
                         if inherited:
                             document["env"] = {"TOKEN": value}
                         else:

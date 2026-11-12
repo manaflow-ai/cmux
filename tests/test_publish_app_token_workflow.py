@@ -13,6 +13,9 @@ import re
 import unittest
 from pathlib import Path
 
+import workflow_jobs
+from job_lists_routing import release_environment_jobs, unresolved_environment_jobs
+
 ROOT = Path(__file__).resolve().parents[1]
 NIGHTLY = ROOT / ".github" / "workflows" / "nightly.yml"
 
@@ -24,6 +27,38 @@ APP_JOBS = {
     "republish-nightly-deltas": "write", "publish-release-notes": "read",
     "publish-nightly-next-github": "write",
 }
+# The permission each job mints is a choice, so APP_JOBS stays hand-kept, but every nightly.yml
+# job that can run under a release environment or reads the release App's credentials must be
+# classified: in APP_JOBS, or here with why it does not mint through the wrapper.
+# test_every_release_app_job_is_classified fails on a new one.
+APP_TOKEN_EXEMPT = {
+    "build-sign-notarize-nightly": (
+        "signs and notarizes; its only github.token use is nightly_sign_yield.py reading newer runs, "
+        "which writes nothing to a release"
+    ),
+    "promote-nightly-next": (
+        "mints its own release App token (step app-token) in nightly-next-promote and hands it to "
+        "promote-nightly-next.mjs as APP_TOKEN; it sends no github.token for the wrapper to replace"
+    ),
+    "promote-nightly-next-acked": (
+        "the acked twin of promote-nightly-next: same own App token, same APP_TOKEN hand-off"
+    ),
+}
+RELEASE_APP_SECRETS = ("CMUX_RELEASE_APP_ID", "CMUX_RELEASE_APP_KEY")
+
+
+def release_app_jobs(jobs: dict) -> set[str]:
+    """Jobs that can hold the release App's credentials: a release environment (or one that cannot
+    be resolved), or a read of the credentials in any form (secrets.X, secrets['X'], any case,
+    toJSON(secrets), secrets: inherit)."""
+    return (release_environment_jobs(jobs) | unresolved_environment_jobs(jobs)
+            | {name for name, job in jobs.items() if workflow_jobs.reads_secret(job, *RELEASE_APP_SECRETS)})
+
+
+def unclassified_app_jobs(jobs: dict) -> set[str]:
+    return release_app_jobs(jobs) - set(APP_JOBS) - set(APP_TOKEN_EXEMPT)
+
+
 APP_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_app_token\.sh --install")
 BUDGET_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 
@@ -31,15 +66,61 @@ BUDGET_INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wai
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        import yaml
-        cls.jobs = yaml.safe_load(NIGHTLY.read_text(encoding="utf-8"))["jobs"]
+        cls.jobs = workflow_jobs.jobs(NIGHTLY)
+
+    def test_every_release_app_job_is_classified(self) -> None:
+        self.assertLessEqual({"publish-nightly", "promote-nightly-next"}, release_app_jobs(self.jobs))
+        self.assertEqual(set(APP_JOBS) & set(APP_TOKEN_EXEMPT), set())
+        self.assertEqual(unclassified_app_jobs(self.jobs), set())
+        # A classified name that no longer holds the credentials is stale.
+        self.assertEqual((set(APP_JOBS) | set(APP_TOKEN_EXEMPT)) - release_app_jobs(self.jobs), set())
+
+    def test_a_new_release_app_job_must_be_classified(self) -> None:
+        tail = "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}"
+        for name, job in (
+            ("publish-env-fixture", {"environment": tail, "steps": [{"run": "gh release upload"}]}),
+            ("publish-secret-fixture", {"environment": "pr-media",
+                                        "steps": [{"with": {"app-id": "${{ secrets.CMUX_RELEASE_APP_ID }}"}}]}),
+            ("publish-bracket-fixture", {"environment": "pr-media",
+                                         "steps": [{"with": {"private-key": "${{ secrets['CMUX_RELEASE_APP_KEY'] }}"}}]}),
+            ("publish-double-bracket-fixture", {"steps": [{"with": {"app-id": '${{ secrets["CMUX_RELEASE_APP_ID"] }}'}}]}),
+            ("publish-lowercase-fixture", {"steps": [{"with": {"private-key": "${{ secrets.cmux_release_app_key }}"}}]}),
+            ("publish-tojson-fixture", {"steps": [{"env": {"ALL": "${{ toJSON(secrets) }}"}}]}),
+            ("publish-inherit-fixture", {"uses": "./.github/workflows/publish.yml", "secrets": "inherit"}),
+            ("publish-matrix-fixture", {"environment": "${{ matrix.environment }}",
+                                        "strategy": {"matrix": {"environment": ["release"]}}}),
+            ("publish-unknown-env-fixture", {"environment": "${{ inputs.environment }}"}),
+        ):
+            with self.subTest(job=name):
+                self.assertEqual(unclassified_app_jobs({**self.jobs, name: job}), {name})
+
+    def test_a_release_app_job_whose_environment_differs_in_case_must_be_classified(self) -> None:
+        """Codex: GitHub matches environment names without case, so `environment: Release` is the release
+        environment; workflow_jobs casefolds every resolved name."""
+        for name, environment in (("publish-case-fixture", "Release"), ("publish-upper-fixture", {"name": "RELEASE-NEXT"}),
+                                  ("publish-branch-case-fixture", "${{ inputs.x && 'Release' || 'pr-media' }}")):
+            with self.subTest(job=name):
+                job = {"environment": environment, "steps": [{"run": "gh release upload"}]}
+                self.assertEqual(unclassified_app_jobs({**self.jobs, name: job}), {name})
+
+    def test_a_listed_release_app_job_in_another_case_stays_green(self) -> None:
+        listed = workflow_jobs.copy_job(self.jobs["publish-release-notes"], {"environment": "Release"})
+        self.assertEqual(unclassified_app_jobs({**self.jobs, "publish-release-notes": listed}), set())
+
+    def test_a_listed_release_app_job_reading_the_key_by_bracket_stays_green(self) -> None:
+        listed = workflow_jobs.copy_job(self.jobs["publish-release-notes"])
+        listed["steps"] = [*listed["steps"], {"with": {"private-key": "${{ secrets['cmux_release_app_key'] }}"}}]
+        fixture = {**self.jobs, "publish-release-notes": listed}
+        self.assertEqual(unclassified_app_jobs(fixture), set())
 
     def test_publish_jobs_mint_the_app_token_and_install_before_the_budget_wait(self) -> None:
         for name, contents in APP_JOBS.items():
             job, steps = self.jobs[name], self.jobs[name]["steps"]
-            self.assertIn(job.get("environment"), ("release-next", "${{ needs.decide.outputs.environment }}",
-                                                   # Tail jobs: decide is in another run on nightly-next.
-                                                   "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}"), name)
+            # workflow_jobs.environment_spec's one shape: a string environment is {"name": it}.
+            self.assertIn(workflow_jobs.resolve(job).environment, tuple({"name": environment} for environment in (
+                "release-next", "${{ needs.decide.outputs.environment }}",
+                # Tail jobs: decide is in another run on nightly-next.
+                "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}")), name)
             mint = [i for i, s in enumerate(steps) if s.get("id") == "gh-app-token"]
             app = [i for i, s in enumerate(steps) if APP_INSTALL.search(str(s.get("run", "")))]
             budget = [i for i, s in enumerate(steps) if BUDGET_INSTALL.search(str(s.get("run", "")))]

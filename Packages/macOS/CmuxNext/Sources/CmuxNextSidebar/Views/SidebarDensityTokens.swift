@@ -72,8 +72,8 @@ enum SidebarDensityTokens {
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
     /// so their fills line up at each density. It is the tab pill's radius (`Metrics.tabCornerRadius`), one token for
     /// both at every density and setting (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs
-    /// roundness"; Lucas 2026-11-12: "exactly the same"). At Default the tab takes Codex's row corner (10 on 30,
-    /// `Metrics.tabRowCornerRadius`), so the rows keep it.
+    /// roundness"; Lucas 2026-11-12: "exactly the same"): Chrome's tab corner, 8 on Default's 30 pt row (Lawrence
+    /// 2026-11-11: "same roundness as chrome").
     static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
     static var sectionSpacing: CGFloat { isComfortable ? Metrics.space5 : Metrics.space4 }
     static var topPadding: CGFloat { isComfortable ? Metrics.space3 : Metrics.space2 }
