@@ -104,7 +104,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "refused-draft-restored", args: Self.list + ["-cmux-mobile-refuse-next-create"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(3); return nil },
-                         { app.navigationBars.buttons.firstMatch.tap(); C.pause(1); return Self.openComposer(app) }])
+                         { C.tap(app.buttons["Back"].firstMatch, "Back") }, { C.pause(1); return Self.openComposer(app) }])
             },
             Scene(group: g, id: "draft-kept-after-cancel", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Half-written idea") },
@@ -119,14 +119,16 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     func testStartOneOpensTheWorkspaceAndClearsThePrompt() {
         let app = launch(Self.list + ["-cmux-mobile-mock-create-delay", "4"])
         XCTAssertNil(Self.openComposer(app))
-        XCTAssertFalse(C.any(app, "taskComposer.start").isEnabled, "Start is off with no prompt")
+        let start = app.buttons["taskComposer.start"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 5))
+        XCTAssertFalse(start.isEnabled, "Start is off with no prompt")
         XCTAssertNil(Self.type(app, "Fix the flaky upload test"))
-        XCTAssertTrue(C.any(app, "taskComposer.start").isEnabled)
-        C.any(app, "taskComposer.start").tap()
+        XCTAssertTrue(start.isEnabled, "Start is on with a prompt")
+        start.tap()
         XCTAssertTrue(C.any(app, "taskComposer.prompt").waitForNonExistence(timeout: 5), "the sheet closes at once")
-        XCTAssertTrue(app.staticTexts["Fix the flaky upload test"].firstMatch.waitForExistence(timeout: 5),
+        XCTAssertTrue(C.label(app, contains: "Fix the flaky upload test").waitForExistence(timeout: 5),
                       "the opened workspace is titled for the task")
-        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertNil(C.tap(app.buttons["Back"].firstMatch, "Back"))
         XCTAssertNil(Self.openComposer(app))
         let left = C.any(app, "taskComposer.prompt").value as? String ?? ""
         XCTAssertTrue(left.isEmpty || left == "Describe the task…", "the prompt is cleared, got \(left)")
@@ -137,11 +139,13 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     func testStartTwoMakesOneWorkspacePerAgent() {
         let app = launch(Self.list + ["-cmux-mobile-mock-create-delay", "30"])
         XCTAssertNil(Self.composeTwoAgents(app))
-        let start = C.any(app, "taskComposer.start")
+        let start = app.buttons["taskComposer.start"].firstMatch
         XCTAssertEqual(start.label, "Start 2")
         start.tap()
-        XCTAssertTrue(app.staticTexts["Fix the flaky upload test and open a PR · Claude Code"].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Fix the flaky upload test and open a PR · Claude Code Router"].firstMatch.exists)
+        XCTAssertTrue(C.label(app, contains: "open a PR · Claude Code Router").waitForExistence(timeout: 5))
+        let plain = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND NOT (label CONTAINS %@)",
+                                                                         "open a PR · Claude Code", "Router"))
+        XCTAssertTrue(plain.firstMatch.exists, "a row for Claude Code")
         XCTAssertTrue(C.any(app, "workspaces.new").exists, "the list stays on screen")
     }
 
