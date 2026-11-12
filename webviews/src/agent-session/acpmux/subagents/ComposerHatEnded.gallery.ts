@@ -73,7 +73,7 @@ const crowded = chat(
       [
         command("cmux-ci test --setup webviews -- bun test test/x.test.ts", "Run the tray tests", 30),
         ...Array.from({ length: 7 }, (_, index) =>
-          command(`glaeda-gh wait pr manaflow-ai/app#${41700 + index} --until done`, `Wait for #${41700 + index}`, 60),
+          command(`gh pr checks ${41700 + index} --watch`, `Wait for #${41700 + index}`, 60),
         ),
         ...Array.from({ length: 11 }, (_, index) =>
           command(`rg -n "TODO(${index})" src`, `Find the TODOs of pass ${index + 1}`, 50),

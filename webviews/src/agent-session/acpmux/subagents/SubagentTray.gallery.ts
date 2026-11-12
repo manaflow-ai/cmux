@@ -350,6 +350,7 @@ const scrollPanel = async (ctx: PlayContext) => {
     await ctx.click({ selector: ".acpmux-running-tray__head" });
     await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
   }
+  await openEnded(ctx);
   if (ctx.document.querySelector(".acpmux-running-tray__finished")) throw new Error("the tray has no View all");
   await ctx.scroll({ selector: ".acpmux-running-tray__list" }, "bottom");
   headInView(ctx);
@@ -375,6 +376,7 @@ const openTray = async (ctx: PlayContext) => {
   if (!head || head.getAttribute("aria-expanded") === "true") return;
   await ctx.click({ selector: ".acpmux-running-tray__head" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
+  await openEnded(ctx);
 };
 
 /** Opens the "N finished" line (SubagentTray.tsx `EndedFold`) so the ended lines under it draw. */

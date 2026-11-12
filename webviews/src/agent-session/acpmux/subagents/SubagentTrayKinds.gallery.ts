@@ -134,8 +134,13 @@ function columns(ctx: PlayContext): void {
   const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
   const lines = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
   const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
-  // Under 400px (the tray's container query) each line takes two rows, so five of them scroll.
-  if (lines.length <= 5 && tray.getBoundingClientRect().width > 400 && list.scrollHeight > list.clientHeight + 0.5)
+  // Under 400px (the tray's container query) each line takes two rows, so five of them scroll. The
+  // "N finished" line is a row of the list too (SubagentTray.tsx `EndedFold`).
+  if (
+    list.children.length <= 5 &&
+    tray.getBoundingClientRect().width > 400 &&
+    list.scrollHeight > list.clientHeight + 0.5
+  )
     throw new Error(`five lines overflow the list by ${list.scrollHeight - list.clientHeight}px`);
   const near = (a: number, b: number, what: string) => {
     if (Math.abs(a - b) > 0.5) throw new Error(`${what}: ${a} vs ${b}`);

@@ -42,6 +42,10 @@ await requireBrowserLane("subagent-tray-composer-geometry.test.ts", async () => 
         await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
         const head = page.locator(".acpmux-running-tray__head");
         if ((await head.getAttribute("aria-expanded")) !== "true") await head.click();
+        // What ended is one "N finished" line under what runs (SubagentTray.tsx `EndedFold`): open it,
+        // so every row is measured.
+        const ended = page.locator('.acpmux-running-tray [data-ended-fold] > button[aria-expanded="false"]');
+        if ((await ended.count()) > 0) await ended.click();
         await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
         const geometry = await page.evaluate(() => {
           const rect = (node: Element | null) => {

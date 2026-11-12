@@ -518,7 +518,7 @@ export const SubagentTray = memo(function SubagentTray({
   if (since !== runStart) setRunStart(since);
   // What ended folds into one line once there is more than the one item a lone header names: the list
   // shows what runs, then "3 finished · 1 failed", and the ended lines only once that line is opened.
-  const foldsEnded = finished.length > 0 && items.length + finished.length > 1;
+  const foldsEnded = finished.length > 0 && items.length > 0;
   const ordered = useMemo(
     () =>
       foldsEnded
@@ -640,13 +640,11 @@ export const SubagentTray = memo(function SubagentTray({
       ]
     : rows.map((row) => row.node);
   // The counts as whole parts (trayHeadKinds.ts `parts`): the row drops the last ones that do not fit,
-  // never a word cut in half. A lone item opened heads with the counts but not its own failure.
-  const countParts = !loneHead && !named && items.length + finished.length > 0;
+  // never a word cut in half. A lone item keeps its one sliding title, open or folded, so its expand
+  // stays one transition (Leo, 2026-11-08: "things don't balance out").
+  const countParts = !lone && !named && items.length + finished.length > 0;
   const headParts: readonly TrayHeadPart[] = countParts
-    ? [
-        ...(planText ? [{ key: "plan", text: planText }] : []),
-        ...counts.parts.filter((part) => !(loneEnd && part.failed) && (part.text || part.failed)),
-      ]
+    ? [...(planText ? [{ key: "plan", text: planText }] : []), ...counts.parts]
     : NO_PARTS;
   // The header's click: it opens the panel (the `header` arm) or expands and folds the hat in place.
   const toggle = () => {
