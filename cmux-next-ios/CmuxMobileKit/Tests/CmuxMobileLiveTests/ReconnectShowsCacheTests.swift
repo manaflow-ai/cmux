@@ -13,7 +13,7 @@ import UIKit
 ///
 /// His phone showed a terminal tab wiped to black with the raw words
 /// "[daemon channel closed]" at the top, a skeleton and a centered
-/// "Connecting to cosmic-gray… · Retry" pill. The tab had a fresh session (a
+/// "Connecting to Mac Studio… · Retry" pill. The tab had a fresh session (a
 /// tab back from the warm set, or a relaunch) holding its cached frame; its
 /// first attach failed on the dropped link and wrote the transport error into
 /// the terminal stream. Those bytes read as live output: the model turned
@@ -88,7 +88,7 @@ import UIKit
         let inner = DaemonTerminalSession(surface: 7) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
-        inner.macName = "cosmic-gray"
+        inner.macName = "Mac Studio"
         // The link is gone: no retry lands before it is back.
         inner.reattachBackoff = []
         let session = Recording(inner)
@@ -198,7 +198,7 @@ import UIKit
         let inner = DaemonTerminalSession(surface: 7) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
-        inner.macName = "cosmic-gray"
+        inner.macName = "Mac Studio"
         inner.reattachBackoff = []
         let model = TerminalModel(session: inner, artifactSource: UnavailableArtifactSource(), title: "interim-coord")
         let bounds = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -266,7 +266,7 @@ import UIKit
         }
         defer { session.stop() }
         session.reattachBackoff = []
-        session.macName = "cosmic-gray"
+        session.macName = "Mac Studio"
         var events: [TerminalSessionEvent] = []
         if !wasAttached { daemon.failNextAttaches = 1 }
         session.start { events.append($0) }
@@ -283,7 +283,7 @@ import UIKit
         #expect(Self.output(Array(events[before...])).isEmpty, "bytes written on a failed attach: \(Self.output(Array(events[before...])).debugDescription)")
         // Plain words for the composer, never the transport's error.
         guard case .failed(let message) = session.connectionState else { return }
-        #expect(message.contains("cosmic-gray"))
+        #expect(message.contains("Mac Studio"))
         #expect(!message.contains("unknown surface") && !message.contains("channel"))
     }
 

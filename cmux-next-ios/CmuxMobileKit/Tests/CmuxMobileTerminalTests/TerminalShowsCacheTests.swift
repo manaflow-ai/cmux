@@ -13,7 +13,7 @@ import UIKit
     final class Silent: TerminalSession {
         let programName = "zsh"
         let isAlternateScreen = false
-        var connectionState: TerminalConnectionState = .connecting(mac: "cosmic-gray")
+        var connectionState: TerminalConnectionState = .connecting(mac: "Mac Studio")
         func start(_ handler: @escaping @MainActor (TerminalSessionEvent) -> Void) {}
         func send(_ bytes: Data) {}
         func resize(columns: Int, rows: Int) {}
@@ -43,8 +43,8 @@ import UIKit
         let model = makeModel()
         let frame = Self.frame()
         model.restoreLastFrame(frame)
-        for state in [TerminalConnectionState.connecting(mac: "cosmic-gray"), .failed(message: "x"), .reattaching(mac: "cosmic-gray"),
-                      .offline(mac: "cosmic-gray"), .connecting(mac: "cosmic-gray")] {
+        for state in [TerminalConnectionState.connecting(mac: "Mac Studio"), .failed(message: "x"), .reattaching(mac: "Mac Studio"),
+                      .offline(mac: "Mac Studio"), .connecting(mac: "Mac Studio")] {
             model.ingest(.connection(state))
             #expect(model.coldFrame === frame, "\(state) dropped the cached frame")
         }
@@ -52,15 +52,15 @@ import UIKit
 
     @Test func theQuietLineWaitsForTheThreshold() async throws {
         let quiet = makeModel()
-        quiet.ingest(.connection(.reattaching(mac: "cosmic-gray")))
+        quiet.ingest(.connection(.reattaching(mac: "Mac Studio")))
         #expect(quiet.connectionLine == nil, "nothing for the first 10 s")
 
         let model = makeModel(delay: .milliseconds(60))
         model.ingest(.connection(.attached))
-        model.ingest(.connection(.reattaching(mac: "cosmic-gray")))
+        model.ingest(.connection(.reattaching(mac: "Mac Studio")))
         #expect(model.connectionLine == nil)
         for _ in 0..<200 where model.connectionLine == nil { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(model.connectionLine == "Reconnecting to cosmic-gray…")
+        #expect(model.connectionLine == "Reconnecting to Mac Studio…")
         // Retries keep the first instant; a failure after them reads plainly.
         model.ingest(.connection(.failed(message: "daemon channel closed")))
         #expect(model.connectionLine == "Can't reach this terminal")
@@ -69,7 +69,7 @@ import UIKit
     }
 
     @Test func quietLinesNeverCarryTransportWords() {
-        for state in [TerminalConnectionState.connecting(mac: nil), .reattaching(mac: "cosmic-gray"), .offline(mac: nil),
+        for state in [TerminalConnectionState.connecting(mac: nil), .reattaching(mac: "Mac Studio"), .offline(mac: nil),
                       .failed(message: "daemon channel closed")] {
             let line = state.quietLine ?? ""
             #expect(!line.isEmpty)
