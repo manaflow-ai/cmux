@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -460,6 +461,33 @@ class PaginationTests(unittest.TestCase):
         source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
         self.assertNotIn('"--paginate"', source)
 
+
+class GraphqlRepositoryVariablesTests(unittest.TestCase):
+    """The lane-gh broker refuses a graphql call unless the repository is named through variables called
+    owner and name, so `merge_freeze.py check` exited 2 on every lane VM while it used $o and $n."""
+
+    REPOSITORY_ARGS = re.compile(r"repository\(\s*owner:\s*\$(\w+)\s*,\s*name:\s*\$(\w+)\s*\)")
+
+    def test_every_graphql_query_in_scripts_names_the_repository_with_owner_and_name(self):
+        wrong, seen = [], 0
+        for path in sorted((ROOT / "scripts").rglob("*")):
+            if not path.is_file() or path.suffix in {".png", ".jpg", ".gz", ".zip", ".pyc"}:
+                continue
+            try:
+                text = path.read_text()
+            except UnicodeDecodeError:
+                continue
+            for match in self.REPOSITORY_ARGS.finditer(text):
+                seen += 1
+                if match.groups() != ("owner", "name"):
+                    wrong.append(f"{path.relative_to(ROOT)}: $" + ", $".join(match.groups()))
+        self.assertGreater(seen, 0, "the detector found no graphql repository queries; its pattern is stale")
+        self.assertEqual([], wrong, "name the repository with $owner and $name (the lane-gh broker requires it)")
+
+    def test_merge_freeze_passes_the_repository_as_owner_and_name_variables(self):
+        source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
+        self.assertEqual(2, source.count('f"owner={owner}", "-f", f"name={name}"'))
+        self.assertNotRegex(source, r'"-f", f"[on]=')
 
 
 if __name__ == "__main__":
