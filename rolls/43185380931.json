@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43185380931",
+  "recorded_at": "2026-11-12T08:51:06Z",
+  "reason": "cmux-tui d27dc2329739 changes the image's cmux-tui (pinned 66c56ea94fa4)",
+  "dry_run": false,
+  "cmux_tui": "d27dc2329739c88af00e8daa03de0bd285c959dd",
+  "fixes": [
+    {
+      "sha": "d27dc2329739c88af00e8daa03de0bd285c959dd",
+      "mergedAt": "2026-11-12T00:30:48-08:00",
+      "subject": "test(acpmux): the list page detector reads a few pages of each list, not 66 (#41727)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T08:51:06Z",
+    "snapshot_id": "sh-352020a8240d4dbc8e7b861d9494afbe",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43185380931): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f752afb891adcf2fec9b9367931be4305bf7231d",
+    "image": "cloud-native-auto-d27dc232-43185380931-1",
+    "revision": "ci-43185380931-1",
+    "at": "2026-11-12T08:51:06Z"
+  },
+  "rolled_back": false
+}
