@@ -383,9 +383,11 @@ jobs:
         timeout-minutes: 3
         run: |
           home="$RUNNER_TEMP/acpmux-home"
-          [[ -d "$home" ]] || exit 0
-          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
-          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          # The delete runs on every path: the job-home guard credits only a delete bash surely runs.
+          if [[ -d "$home" ]]; then
+            acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+            [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          fi
           rm -rf "$home"
 
       # A generator can report its exact missing input and continue-on-error can otherwise

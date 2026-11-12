@@ -13,7 +13,13 @@ those calls use is github.token. Each language is read by its own rules:
 
 - shell (a `run:` step): quotes, comments and heredoc bodies are not code;
   `for`/`while`/`until` end at their matching `done`, functions at their
-  matching `}`; a helper counts only when it is called in command position.
+  matching `}`. Each loop's and function's commands are read by the shared
+  reader, tests/shell_invocations.py (may_run_nested): through wrappers
+  (`env`, `timeout`, `command`, `nice` ...), a path (`/usr/bin/gh`), a shell's
+  -c text, eval and substitutions. Content it cannot read (a script at a path
+  held in a variable, a sourced file, eval of a variable) may call the API and
+  may sleep: what it cannot classify is refused, never allowed. A helper counts
+  only when it is run as a command.
   A heredoc fed to python or node is read as that language.
 - Python (`shell: python`, or a heredoc fed to python): parsed with `ast`.
 - JavaScript (actions/github-script, or a heredoc fed to node or bun): strings
@@ -38,7 +44,8 @@ runs anywhere is also read for its own polling loops, judged by the step's
 token. A script run through a variable (`$SCRIPT`) is not followed.
 
 Not caught: Python `requests` or `http.client`, an argv built as `["gh"] + args`, JavaScript
-class methods, `eval`, and script paths held in variables. No workflow polls through these
+class methods, a loop inside a shell's -c text or an eval (its commands are read, its loop is not),
+and script paths held in variables. No workflow polls through these
 today; a reviewer catches a new one.
 """
 
@@ -49,7 +56,13 @@ import re
 from pathlib import Path
 from typing import Iterable, Iterator
 
+import sys
+
 import yaml
+
+# The one shell reader the CI guards share (quoting, wrappers, shells' -c text, eval, substitutions).
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
+from shell_invocations import may_run_nested  # noqa: E402
 
 OWN_TOKEN = re.compile(r"\$\{\{[^}]*\b(github\.token|secrets\.GITHUB_TOKEN)\b[^}]*\}\}")
 SHELL_API = re.compile(r"^(gh)$")
@@ -209,24 +222,33 @@ def command_positions(words: list[tuple[str, int]]) -> list[bool]:
     return out
 
 
-def shell_blocks(words: list[tuple[str, int]]) -> tuple[list[list[str]], dict[str, list[str]]]:
-    """(each loop's words, each function's words) from a shell word list."""
+def shell_blocks(words: list[tuple[str, int]], text: str = "") -> tuple[list[tuple[list[str], str]],
+                                                                       dict[str, tuple[list[str], str]]]:
+    """(each loop's words and source text, each function's words and source text) from a shell word list. The
+    words feed heredoc_effects; the text is what tests/shell_invocations.py reads for the commands."""
     starts = command_positions(words)
     plain = [w.lstrip("\0") if not w.startswith("\0") else w for w, _ in words]
-    loops: list[list[str]] = []
-    functions: dict[str, list[str]] = {}
+    offsets = [offset for _, offset in words]
+
+    def span(begin: int, end: int) -> str:
+        last = end - 1
+        stop = offsets[last] + len(plain[last]) if 0 <= last < len(plain) and end <= len(plain) else len(text)
+        return text[offsets[begin]:stop] if text else ""
+
+    loops: list[tuple[list[str], str]] = []
+    functions: dict[str, tuple[list[str], str]] = {}
     for index, word in enumerate(plain):
         if starts[index] and word in ("for", "while", "until"):
-            depth, end = 0, len(plain)
+            depth, end, closed = 0, len(plain), False
             for j in range(index + 1, len(plain)):
                 if starts[j] and plain[j] == "do":
                     depth += 1
                 elif starts[j] and plain[j] == "done":
                     depth -= 1
                     if depth <= 0:
-                        end = j + 1
+                        end, closed = j + 1, True
                         break
-            loops.append(plain[index:end])
+            loops.append((plain[index:end], span(index, end) if closed else text[offsets[index]:]))
         name = None
         if starts[index] and word == "function" and index + 1 < len(plain):
             name = plain[index + 1].removesuffix("()")
@@ -238,28 +260,40 @@ def shell_blocks(words: list[tuple[str, int]]) -> tuple[list[list[str]], dict[st
             j = index + 1
             while j < len(plain) and plain[j] != "{":
                 j += 1
-            depth, end = 0, len(plain)
+            depth, end, closed = 0, len(plain), False
             for k in range(j, len(plain)):
                 if plain[k] == "{":
                     depth += 1
                 elif plain[k] == "}":
                     depth -= 1
                     if depth == 0:
-                        end = k + 1
+                        end, closed = k + 1, True
                         break
-            functions[name] = plain[j:end]
+            body = (span(j, end) if closed else text[offsets[j]:]) if j < len(plain) else ""
+            functions[name] = (plain[j:end], body)
     return loops, functions
 
 
-def shell_calls(block: list[str], names: Iterable[str]) -> set[str]:
-    starts = command_positions([(w, 0) for w in block])
+def _runs(text: str) -> list[list[str]]:
+    """Every command the shell TEXT may run, program first (tests/shell_invocations.py may_run_nested): through
+    wrappers (`env`, `timeout`, `command`, `nice`, `sudo` ...), a path (`/usr/bin/gh`), a shell's -c text, eval and
+    substitutions. [] stands for content the reader cannot read, which may run anything."""
+    return may_run_nested(text)
+
+
+def _program(word: str) -> str:
+    return word.rsplit("/", 1)[-1]
+
+
+def shell_calls(text: str, names: Iterable[str]) -> set[str]:
+    """The NAMES (the script's own functions) the text runs as a command."""
     wanted = set(names)
-    return {w for w, start in zip(block, starts) if start and w in wanted}
+    return {words[0] for words in _runs(text) if words and words[0] in wanted}
 
 
-def shell_sleeps(block: list[str]) -> bool:
-    starts = command_positions([(w, 0) for w in block])
-    return any(start and w == "sleep" for w, start in zip(block, starts))
+def shell_sleeps(text: str) -> bool:
+    """Whether the shell TEXT may sleep: a `sleep` command, or content the reader cannot read (fail closed)."""
+    return any(not words or _program(words[0]) == "sleep" for words in _runs(text))
 
 
 def api_url_pattern(names: Iterable[str]) -> re.Pattern[str]:
@@ -286,13 +320,16 @@ def api_url_names(script: str, scopes: Iterable[dict] = ()) -> set[str]:
     return names
 
 
-def shell_api(block: list[str], api_url: re.Pattern[str] = API_TEXT) -> bool:
-    starts = command_positions([(w, 0) for w in block])
-    for index, (word, start) in enumerate(zip(block, starts)):
-        if start and word == "gh" and index + 1 < len(block) and block[index + 1] in GH_VERBS:
+def shell_api(text: str, api_url: re.Pattern[str] = API_TEXT) -> bool:
+    """Whether the shell TEXT may call the API: `gh <verb>` (an option before the verb, or a verb only known at
+    run time, counts), curl with an argument naming the API URL, or content the reader cannot read."""
+    for words in _runs(text):
+        if not words:
             return True
-        if start and word == "curl" and any(api_url.search(w) for w in block[index + 1:index + 30]
-                                            if not w.startswith("<<")):
+        name = _program(words[0])
+        if name == "gh" and len(words) > 1 and (words[1] in GH_VERBS or words[1].startswith("-") or "$" in words[1]):
+            return True
+        if name == "curl" and any(api_url.search(word) for word in words[1:]):
             return True
     return False
 
@@ -320,19 +357,18 @@ def heredoc_effects(block: list[str]) -> tuple[bool, bool]:
     return calls, sleeps
 
 
-def script_paths(block: list[str]) -> list[str]:
-    """Repository script files the block runs: in command position, or after an interpreter."""
-    starts = command_positions([(w, 0) for w in block])
+def script_paths(text: str) -> list[str]:
+    """Repository script files the shell TEXT may run: as the program, or as an interpreter's first operand."""
     found = []
-    for index, (word, start) in enumerate(zip(block, starts)):
-        if not start:
+    for words in _runs(text):
+        if not words:
             continue
-        candidates = [word]
-        if word in INTERPRETERS:
-            candidates = [w for w in block[index + 1:index + 4] if not w.startswith("-")][:1]
+        candidates = [words[0]]
+        if _program(words[0]) in INTERPRETERS:
+            candidates = [w for w in words[1:4] if not w.startswith("-")][:1]
         for candidate in candidates:
-            match = SCRIPT_PATH.match(candidate.lstrip("\0"))
-            if match:
+            match = SCRIPT_PATH.match(candidate)
+            if match and match.group(1) not in found:
                 found.append(match.group(1))
     return found
 
@@ -365,8 +401,8 @@ class Scripts:
             words = [w.lstrip("\0") if not w.startswith("\0") else w for w, _ in shell_words(text)]
             url = api_url_pattern(api_url_names(text) | set(names))
             here_calls, here_sleeps = heredoc_effects(words)
-            calls = shell_api(words, url) or here_calls
-            sleeps, runs = shell_sleeps(words) or here_sleeps, script_paths(words)
+            calls = shell_api(text, url) or here_calls
+            sleeps, runs = shell_sleeps(text) or here_sleeps, script_paths(text)
         self.cache[key] = (calls, sleeps, runs, text)
         return self.cache[key]
 
@@ -434,7 +470,7 @@ def heredoc_programs(text: str) -> Iterator[tuple[str, str]]:
 
 def shell_polls(text: str, env_scopes: Iterable[dict] = (), scripts: Scripts | None = None) -> str | None:
     words = shell_words(text)
-    loops, functions = shell_blocks(words)
+    loops, functions = shell_blocks(words, text)
     env_scopes = list(env_scopes)
     names = api_url_names(text, env_scopes)
     url = api_url_pattern(names)
@@ -443,18 +479,18 @@ def shell_polls(text: str, env_scopes: Iterable[dict] = (), scripts: Scripts | N
     for loop in loops:
         seen, todo, calls_api, sleeps = set(), [loop], False, False
         while todo:
-            block = todo.pop()
-            calls_api = calls_api or shell_api(block, url)
-            sleeps = sleeps or shell_sleeps(block)
-            script_calls, script_sleeps = scripts.effects(script_paths(block), env_names)
+            block, body = todo.pop()
+            calls_api = calls_api or shell_api(body, url)
+            sleeps = sleeps or shell_sleeps(body)
+            script_calls, script_sleeps = scripts.effects(script_paths(body), env_names)
             here_calls, here_sleeps = heredoc_effects(block)
             calls_api = calls_api or script_calls or here_calls
             sleeps = sleeps or script_sleeps or here_sleeps
-            for name in shell_calls(block, functions) - seen:
+            for name in shell_calls(body, functions) - seen:
                 seen.add(name)
                 todo.append(functions[name])
         if calls_api and sleeps:
-            return " ".join(loop[:6])
+            return " ".join(loop[0][:6])
     for language, body in heredoc_programs(text):
         found = python_polls(body) if language == "python" else js_polls(body)
         if found:
@@ -704,8 +740,7 @@ def step_polls(step: dict, job: dict, workflow: dict, scripts: Scripts | None = 
     if not script:
         return None
     shell = str(step.get("shell") or (job.get("defaults") or {}).get("run", {}).get("shell") or "")
-    runs = [] if shell.startswith("python") else scripts.closure(
-        script_paths([w.lstrip("\0") if not w.startswith("\0") else w for w, _ in shell_words(script)]))
+    runs = [] if shell.startswith("python") else scripts.closure(script_paths(script))
     every_text = script + "".join(scripts.read(path)[3] for path in runs)
     if not calls_with_own_token(step, job, workflow, every_text):
         return None

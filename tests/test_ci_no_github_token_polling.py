@@ -121,6 +121,43 @@ ALLOWED: dict[str, str] = {
         "a train run: waits for its candidate builds, one run read per pending build every 60 s, within the train's cap (NIGHTLY_NEXT_TRAIN_CAP_MINUTES, default 120)",
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     "tui-publish-pypi.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
+    # Found when the scan moved onto tests/shell_invocations.py (sweep of cmux#40784 F1). The old word scan missed
+    # each: a call inside a function called from a substitution, a script run through a path held in a variable
+    # (now unreadable, so it counts as an API call: fail closed), `gh "${args[@]}"`, or a `--script PATH` operand.
+    'cmux-next-tip-test-compile.yml: Compile the planned test targets on a fleet Mac':
+        "while the fleet step is queued: one workflow-runs read (gh_api, curl to api.github.com) every TIP_POLL_SECONDS "
+        "(30 s) to see whether a newer push supersedes this one; a candidate for a concurrency group",
+    "cmux-next.yml: Wait for this commit's cmux-tui tree":
+        "the DEV compile's wait for its cmux-tui tree: one pin-cmux-tui.sh probe every 60 s, up to 55 min; the probe "
+        "runs through a path in a variable ($probe), which the reader cannot follow",
+    "gateway-e2e.yml: Install this commit's published cmux-tui client":
+        "pin-cmux-tui.sh resolve-exact waits up to 30 min for this commit's tree; its GitHub reads retry only after a "
+        "rate-limit answer (rate_limit_wait)",
+    'nightly.yml: Bundle the cmux-tui client':
+        "await-tree-client.sh: files.cmux.com every 20 s for up to 45 min, and a GitHub run check (pin-cmux-tui.sh "
+        "runs-state, through a path in a variable) every 300 s",
+    'nightly-next-canary.yml: Write the verdict to R2':
+        "retry only: one workflow dispatch, retried only after a 403/429 or rate-limit answer, at most 3 tries, 15 and "
+        "30 s apart",
+    'cmux-next-perf-bench.yml: xbench on a fleet mini':
+        "xbench.py runs on a fleet mini (cmux-ci run --script); its sleeping loops wait on the app's local DevTools "
+        "port and control socket, which the scan counts as API calls (urlopen)",
+    'ci-macos.yml: Select package tests':
+        "the scan reads every loop of a script the step runs; `select` runs no test loop, and the loops it reads run "
+        "pin-cmux-tui.sh through a path in a variable and source helpers, which the reader cannot follow",
+    # Found once a command the reader cannot read counts as a possible sleep, as well as a possible API call.
+    'cmux-next.yml: Request nightly-next promotion after this gate':
+        "a walk, not a wait: request-nightly-next.sh reads at most CMUX_NIGHTLY_NEXT_RUN_WINDOW (99) first-parent commits once each, with no sleep; a command it runs the reader cannot read counts as a possible sleep (fail closed)",
+    'cmux-next.yml: Request nightly-next promotion on main':
+        "a walk, not a wait: request-nightly-next.sh reads at most CMUX_NIGHTLY_NEXT_RUN_WINDOW (99) first-parent commits once each, with no sleep; a command it runs the reader cannot read counts as a possible sleep (fail closed)",
+    'cmux-tui-artifacts.yml: Request nightly-next promotion on main':
+        "a walk, not a wait: request-nightly-next.sh reads at most CMUX_NIGHTLY_NEXT_RUN_WINDOW (99) first-parent commits once each, with no sleep; a command it runs the reader cannot read counts as a possible sleep (fail closed)",
+    'nightly-next-tick.yml: Request nightly-next promotion on main':
+        "a walk, not a wait: at most 120 first-parent commits, request-nightly-next.sh once each, no sleep; it stops "
+        "at the first requested or already-promoted build",
+    'auto-resume-nightly-notarization.yml: Generate one from-version delta and revised appcast':
+        "drop-previous-nightlies-with-other-sparkle-key.sh: one pass over the downloaded DMGs (hdiutil attach), no "
+        "GitHub call and no sleep; a command in it the reader cannot read counts as both (fail closed)",
 }
 
 
@@ -172,6 +209,35 @@ class ShellTests(unittest.TestCase):
                                       "  sleep 5\ndone\n"))
         # A one-line helper ends at its closing brace.
         self.assertIsNone(shell_polls("nap() { sleep 5; }\n  gh api x\nfor i in 1 2; do nap; done\n"))
+
+    def test_a_call_or_sleep_through_a_wrapper_path_or_shell_is_read(self) -> None:
+        # Sweep of cmux#40784 F1: the loop's commands were matched by a hand-rolled word scan, so a wrapper, a path
+        # or a shell's -c text hid the call or the sleep. They are read by tests/shell_invocations.py now.
+        for form, body in (
+                ("env", "env GH_PAGER= gh api x; sleep 5"),
+                ("a path", "/usr/bin/gh run list; sleep 5"),
+                ("timeout", "timeout 30 gh api x; sleep 5"),
+                ("command in a substitution", 's="$(command gh run view 1)"; sleep 5'),
+                ("bash -c", "bash -c 'gh api x'; sleep 5"),
+                ("eval", "eval 'gh api x'; sleep 5"),
+                ("a sleep through nice", "gh api x; nice -n 5 sleep 5"),
+                ("a sleep at a path", "gh api x; /bin/sleep 5"),
+                ("curl through env", "env -u X curl -s https://api.github.com/repos/o/r; sleep 5"),
+                ("an option before the verb", "gh -R o/r run list; sleep 5"),
+                ("a helper through command", "command state; sleep 5")):
+            with self.subTest(form):
+                script = f"state() {{ gh api x; }}\nwhile true; do\n  {body}\ndone\n"
+                self.assertTrue(shell_polls(script), script)
+        # Content the reader cannot read may call the API and may sleep (fail closed).
+        for form, body in (("a script at a variable path", 'bash "$probe" look; sleep 5'),
+                           ("a sourced file", 'source "$lib"; sleep 5'),
+                           ("eval of a variable, with a call", 'gh api x; eval "$wait"')):
+            with self.subTest(form):
+                self.assertTrue(shell_polls(f"while true; do\n  {body}\ndone\n"))
+        for form, body in (("gh echoed", "echo gh api x; sleep 5"), ("sleep echoed", "gh api x; echo sleep 5"),
+                           ("gh in a string", "printf '%s' 'gh api x'; sleep 5")):
+            with self.subTest(form):
+                self.assertIsNone(shell_polls(f"while true; do\n  {body}\ndone\n"))
 
     def test_a_python_heredoc_is_read_as_python(self) -> None:
         script = ("python3 - <<'PY'\nimport time, subprocess\nfor _ in range(5):\n"
