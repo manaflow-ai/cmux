@@ -873,6 +873,17 @@ const QUIT_CASES: &[QuitCase] = &[
         ],
         resize_before_last: true,
     },
+    // The primary screen with the states a replay restores: a title, bracketed
+    // paste and mouse modes on, a saved cursor and a scroll region.
+    QuitCase {
+        name: "modes",
+        steps: &[(
+            "printf '\\033]0;quit-title\\007\\033[?2004h\\033[?1000h\\0337\\033[5;20r'; \
+             seq -f 'modes-line-%g' 1 40; printf '\\0338modes-%s' done",
+            "modes-done",
+        )],
+        resize_before_last: false,
+    },
     // About 18 MB: past the tail's cap (1 MiB), its flood cap (16 MiB) and
     // what one terminal keeps unwritten (8 MiB).
     QuitCase {
