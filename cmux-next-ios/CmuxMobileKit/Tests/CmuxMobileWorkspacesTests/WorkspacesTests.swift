@@ -816,7 +816,8 @@ import SwiftUI
 
     @Test func gridOpeningPreparesTheActiveTerminalCard() {
         let content = RecordingTerminalContent()
-        let store = AppStore.mock(tabMemory: .inMemory(["ws-cmux": "t-zsh"]))
+        let store = AppStore.mock(tabMemory: .inMemory())
+        store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", terminal: content)
         source.overviewWillAppear()
         source.activate("t-claude")
