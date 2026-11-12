@@ -30,6 +30,7 @@ cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/tree-commi
 [[ -f "$ROOT/scripts/cmux-next/request-nightly-next.sh" ]] \
   && cp "$ROOT/scripts/cmux-next/request-nightly-next.sh" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
+cp "$ROOT/scripts/ci/direct_push_quarantine.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 "$ROOT/scripts/cmux-next/tests/lib/tree-inputs-fixture.sh" "$src"
@@ -122,6 +123,11 @@ if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/
   esac
   exit 0
 fi
+# The direct-push quarantine's history read: $TMP/gh-graphql's answer, else no status anywhere.
+if [[ "\$1 \$2" == "api graphql" ]]; then
+  if [[ -f "$TMP/gh-graphql" ]]; then cat "$TMP/gh-graphql"; else echo '{"data":{"repository":{"object":{"history":{"nodes":[]}}}}}'; fi
+  exit 0
+fi
 [[ "\$1" == api ]] || exit 0
 echo "gh stub: unexpected api call \$*" >&2; exit 1
 STUB
@@ -162,6 +168,22 @@ PROMOTE=0 request --sha "$head" --release-compile-green
 request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "a green commit with a published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 [[ "$(grep -c "workflow run nightly.yml" "$TMP/gh.log")" == 1 ]] || fail "the tick requests one promotion:" "$(cat "$TMP/gh.log")"
+
+# A direct push that failed the direct-push gates quarantines its commit (cmux-next-direct-push-gates.yml's status,
+# read by scripts/ci/direct_push_quarantine.py): it is not promoted until a later push's gates pass. The shape is
+# 11-12's e0d3bb0ec2f0 by lawrencecchen.
+quarantine() { # <state> <commit>
+  printf '{"data":{"repository":{"object":{"history":{"nodes":[{"oid":"%s","author":{"user":{"login":"lawrencecchen"},"name":"Lawrence Chen"},"status":{"context":{"state":"%s","description":"red: base %s since e0d3bb0ec2f0 by lawrencecchen"}}}]}}}}}\n' "$2" "$1" "$(printf '4%.0s' {1..40})" > "$TMP/gh-graphql"
+}
+quarantine FAILURE "$head"
+request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] || fail "a quarantined commit is not an error (exit $status):" "$out"
+! dispatched "$head" || fail "a quarantined commit must not be promoted:" "$(cat "$TMP/gh.log")"
+grep -q "quarantined since direct push e0d3bb0ec2f0 by lawrencecchen" <<<"$out" || fail "the skip must name the push:" "$out"
+quarantine SUCCESS "$head"
+request --sha "$head" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$head" || fail "once a push's gates pass the commit is promoted:" "$out"
+rm -f "$TMP/gh-graphql"
 
 # A later app-only commit shares the published tree (the key is content-addressed).
 echo app > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app only"
