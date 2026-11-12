@@ -173,8 +173,12 @@ final class TerminalPredictionOverlayView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard let layout, let context = UIGraphicsGetCurrentContext() else { return }
-        context.setFillColor(CmuxMobileGhosttyApp.background.cgColor)
-        context.fill(bounds)
+        // Over a translucent page the cells under it are blank and see-through: no fill
+        // (an opaque one would read as a block over the picture).
+        if !CmuxMobileGhosttyApp.pageIsTranslucent {
+            context.setFillColor(CmuxMobileGhosttyApp.background.cgColor)
+            context.fill(bounds)
+        }
         let font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         let baselineInset = (bounds.height - font.lineHeight) / 2
         for glyph in layout.glyphs {

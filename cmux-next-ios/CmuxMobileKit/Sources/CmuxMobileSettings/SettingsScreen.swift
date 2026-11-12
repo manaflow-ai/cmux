@@ -217,11 +217,12 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)
             .scrollContentBackground(.hidden)
             .background(theme.colors.bgGrouped.color.ignoresSafeArea())
+            .cmuxMobilePage()
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { leading() }
             .navigationDestination(for: SettingsRoute.self) { route in
-                destination(route)
+                destination(route).cmuxMobilePage()
             }
             .sheet(item: $editingTeam) { team in
                 TeamAppearanceEditor(team: team) { saveAppearance($0, team) }

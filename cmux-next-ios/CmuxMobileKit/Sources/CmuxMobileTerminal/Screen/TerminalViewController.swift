@@ -92,6 +92,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var composerHost: UIHostingController<TerminalComposer>!
     /// The Jump to bottom row, the stack's top row (CMUX-10).
     private var jumpRowHost: UIHostingController<TerminalJumpToBottomRow>!
+    /// The joystick thumb's host (its scheme follows the page's, as the key bar's).
+    private var thumbHost: UIViewController?
     private var tuiHeight: NSLayoutConstraint!
 
     /// Rows of the local grid: the screen plus the largest keyboard, so the
@@ -339,7 +341,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func terminalThemeChanged() {
         let style: UIUserInterfaceStyle = CmuxMobileAppearance.shared.isThemed ? .unspecified : .dark
         if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
-        let base = CmuxMobileGhosttyApp.background.resolvedColor(with: traitCollection)
+        // The composer, key bar and jump row follow the page: dark glass on the built-in
+        // black terminal, the theme's glass and scheme with a theme.
+        let hosts: [UIViewController?] = [keyBarHost, composerHost, jumpRowHost, thumbHost]
+        for host in hosts.compactMap({ $0 }) where host.overrideUserInterfaceStyle != style {
+            host.overrideUserInterfaceStyle = style
+        }
+        let base = CmuxMobileGhosttyApp.page.resolvedColor(with: traitCollection)
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
         if statusScrim.gradient.colors != nil {
             statusScrim.gradient.colors = [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
@@ -348,7 +356,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = CmuxMobileGhosttyApp.background
+        view.backgroundColor = CmuxMobileGhosttyApp.page
         // The built-in terminal theme is dark: chrome, glass and the keyboard
         // follow it. A Mac's theme has a light and a dark terminal: the page
         // follows the phone's scheme then, as the Mac's terminal follows its own.
@@ -392,9 +400,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The terminal is dark in both appearances; so are its key bar and
         // composer (in light mode inside a workspace they drew light glass
         // over the black grid).
-        keyBar.overrideUserInterfaceStyle = .dark
-        composer.overrideUserInterfaceStyle = .dark
-        jumpRow.overrideUserInterfaceStyle = .dark
+        let chromeStyle: UIUserInterfaceStyle = CmuxMobileAppearance.shared.isThemed ? .unspecified : .dark
+        keyBar.overrideUserInterfaceStyle = chromeStyle
+        composer.overrideUserInterfaceStyle = chromeStyle
+        jumpRow.overrideUserInterfaceStyle = chromeStyle
         composer.sizingOptions = [.intrinsicContentSize]
         jumpRow.sizingOptions = [.intrinsicContentSize]
         bottomStack.addSubview(keyBarClip)
@@ -421,11 +430,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // composer card's top to the page's bottom: rows scrolled under it are
         // not legible between and below the toolbar pills or at the
         // composer's corners (R1-2). Above the card the soft edge fades.
-        bottomBacking.backgroundColor = CmuxMobileGhosttyApp.background
+        bottomBacking.backgroundColor = CmuxMobileGhosttyApp.page
         bottomBacking.isUserInteractionEnabled = false
         bottomBacking.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomBacking)
-        let base = CmuxMobileGhosttyApp.background.resolvedColor(with: traitCollection)
+        let base = CmuxMobileGhosttyApp.page.resolvedColor(with: traitCollection)
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
         bottomFade.isUserInteractionEnabled = false
         bottomFade.alpha = 0
@@ -444,7 +453,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         thumb.view.backgroundColor = .clear
         thumb.view.isUserInteractionEnabled = false
         thumb.view.translatesAutoresizingMaskIntoConstraints = false
-        thumb.overrideUserInterfaceStyle = .dark
+        thumb.overrideUserInterfaceStyle = chromeStyle
+        thumbHost = thumb
         addChild(thumb)
         view.addSubview(thumb.view)
         thumb.didMove(toParent: self)
@@ -500,7 +510,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if #unavailable(iOS 27) {
                 statusScrim.isUserInteractionEnabled = false
                 statusScrim.translatesAutoresizingMaskIntoConstraints = false
-                let base = CmuxMobileGhosttyApp.background.resolvedColor(with: traitCollection)
+                let base = CmuxMobileGhosttyApp.page.resolvedColor(with: traitCollection)
                 // A top bar under the status bar: solid terminal background
                 // to the status bar's bottom, then a short fade. (A 92 %
                 // gradient left scrollback legible under the clock; on iOS 26

@@ -412,9 +412,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             let chief = sources.session(for: route.place)
             ChiefConversationScreen(session: chief, compose: ChiefComposer(store: store, session: chief, open: open),
                                     focusesComposer: route.focusesComposer)
+                .cmuxMobilePage()
         }
         .navigationDestination(for: MacConversationRoute.self) { route in
             MacConversationScreen(route: route, feed: feed, macID: homeMacID, reconnect: reconnect)
+                .cmuxMobilePage()
         }
         // The Home Mac's list as this phone last read it, until the Mac answers (a launch, or
         // the Mac Chief's Mac known before Home's channel opens).

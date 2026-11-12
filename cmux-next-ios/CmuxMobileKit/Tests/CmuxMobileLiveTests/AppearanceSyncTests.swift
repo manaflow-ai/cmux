@@ -133,6 +133,20 @@ import UIKit
         #expect(look.palette[.sidebarShade].dark.alpha > 0)
         #expect(look.colorScheme == nil)
         #expect(look.backdrop == nil)
+        // No picture: the page and the terminal stay opaque; the glass takes the theme's cast.
+        #expect(look.palette[.bg].dark.alpha == 1)
+        #expect(look.palette[.terminalPage].dark.alpha == 1)
+        #expect(look.palette[.glassTint] != CmuxMobilePaletteValues.neutral[.glassTint])
+
+        // A translucent terminal over a picture: the terminal page takes the theme's
+        // background-opacity; the terminal's own color stays opaque.
+        var translucent = try #require(CmuxMobileAppearanceSnapshot.parse(reply: Self.reply(revision: 2, background: Self.backgroundJSON)))
+        translucent.theme?.dark?.input.backgroundOpacity = 0.8
+        let over = try #require(CmuxMobileAppearanceResolver.resolve(translucent, backgroundURL: URL(fileURLWithPath: "/tmp/picture.jpg")))
+        #expect(over.backdrop != nil)
+        #expect(over.palette[.bg].dark.alpha == 0)
+        #expect(abs(over.palette[.terminalPage].dark.alpha - 0.8) < 0.001)
+        #expect(over.palette[.terminalBackground].dark.alpha == 1)
     }
 
     // MARK: - Storage
@@ -204,8 +218,12 @@ import UIKit
         #expect(disk.assetURL(sha256: Self.pictureHash) != nil)
         #expect(appearance.backdrop?.sha256 == Self.pictureHash)
         #expect(appearance.backdrop?.opacity == 0.8)
-        // The page stays opaque under a picture (the system containers paint under it).
-        #expect(appearance.token(.bg).dark.alpha == 1)
+        // Over a picture the page is clear (the one backdrop shows through every screen)
+        // and the terminal page lets it through at the theme's background-opacity.
+        #expect(appearance.token(.bg).dark.alpha == 0)
+        #expect(appearance.token(.bgGrouped).light.alpha == 0)
+        // Nord's terminal is opaque (background-opacity 1): it hides the picture, as on the Mac.
+        #expect(appearance.token(.terminalPage).dark.alpha == 1)
         // Another change with the same image: never fetched again.
         sync.changed(conn)
         await sync.settle("mac-a")

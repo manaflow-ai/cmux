@@ -218,7 +218,7 @@ struct TerminalComposer: View {
             // Empty (disabled): plain glass that does not react to a touch.
             .glassEffect(failed ? .regular.tint(.red).interactive()
                          : canSend || model.isUploading ? .regular.tint(Color.cmuxMobileAccent).interactive()
-                         : .regular, in: .circle)
+                         : Glass.cmuxMobile, in: .circle)
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.plain)
@@ -360,7 +360,7 @@ extension View {
     /// round buttons). No opaque backing: the screen's own backing under the
     /// dock keeps scrolled rows from showing through (SPEC M3).
     func glassSurface(in shape: some Shape) -> some View {
-        glassEffect(.regular.interactive(), in: shape)
+        glassEffect(Glass.cmuxMobile.interactive(), in: shape)
     }
 }
 

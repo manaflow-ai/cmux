@@ -24,7 +24,9 @@ public struct TerminalScreen: View {
     public var body: some View {
         TerminalControllerView(model: model)
             .ignoresSafeArea()
-            .background(Color.black)
+            // Under the page (which paints the terminal color): black, or clear when the
+            // page lets a backdrop picture through.
+            .background(CmuxMobileGhosttyApp.pageIsTranslucent ? Color.clear : Color.black)
             .overlay {
                 if !model.connectionState.isAttached {
                     TerminalConnectingView(lastFrame: model.coldFrame, showsPlaceholder: !model.connectionState.keepsWarmFrame)

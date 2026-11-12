@@ -70,8 +70,7 @@ final class TerminalSurfaceView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = CmuxMobileGhosttyApp.background
-        isOpaque = true
+        refreshBackground()
         isAccessibilityElement = true
         accessibilityLabel = "Terminal"
         accessibilityTraits = .allowsDirectInteraction
@@ -80,6 +79,17 @@ final class TerminalSurfaceView: UIView {
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
             self.app?.setDark(self.traitCollection.userInterfaceStyle != .light)
         }
+        registerForTraitChanges([CmuxMobileAppearanceRevisionTrait.self]) { (self: Self, _) in
+            self.refreshBackground()
+        }
+    }
+
+    /// Opaque in the terminal's color, or clear over a translucent page (the
+    /// page paints the color once, at the theme's opacity).
+    private func refreshBackground() {
+        let translucent = CmuxMobileGhosttyApp.pageIsTranslucent
+        backgroundColor = translucent ? .clear : CmuxMobileGhosttyApp.background
+        isOpaque = !translucent
     }
 
     @available(*, unavailable)

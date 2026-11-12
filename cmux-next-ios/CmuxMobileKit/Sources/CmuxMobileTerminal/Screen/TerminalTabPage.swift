@@ -71,7 +71,9 @@ public struct TerminalTabPage: View {
             .onChange(of: isInteractive) { _, interactive in host.model.setPageShown(interactive) }
             .onDisappear { host.model.setPageShown(false) }
             .ignoresSafeArea()
-            .background(Color.black)
+            // Under the page (which paints the terminal color): black, or clear when the
+            // page lets a backdrop picture through.
+            .background(CmuxMobileGhosttyApp.pageIsTranslucent ? Color.clear : Color.black)
             // Not attached: the page as last seen on this phone, as it was (a
             // warm surface keeps its own rows, live and scrollable, under
             // nothing). A skeleton only for a terminal never opened here. No

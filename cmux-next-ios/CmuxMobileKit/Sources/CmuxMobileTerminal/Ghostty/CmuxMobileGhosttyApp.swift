@@ -28,6 +28,18 @@ final class CmuxMobileGhosttyApp {
     /// (true black in the neutral look), resolved per scheme and per theme.
     static var background: UIColor { CmuxMobileColorRole.terminalBackground.uiColor }
 
+    /// The terminal page: ``background`` at the theme's background-opacity
+    /// over a backdrop picture (the picture shows through, as under the Mac's
+    /// terminal), else opaque. The page paints it once; the surface above
+    /// draws no background of its own then (``pageIsTranslucent``).
+    static var page: UIColor { CmuxMobileColorRole.terminalPage.uiColor }
+
+    /// Whether the page lets a backdrop picture through.
+    static var pageIsTranslucent: Bool {
+        let page = CmuxMobileAppearance.shared.token(.terminalPage)
+        return page.dark.alpha < 1 || page.light.alpha < 1
+    }
+
     static func shared() throws -> CmuxMobileGhosttyApp {
         if let current { return current }
         let made = try CmuxMobileGhosttyApp()
@@ -97,7 +109,7 @@ final class CmuxMobileGhosttyApp {
     private init() throws {
         let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
-        let text = Self.productConfig(theme: CmuxMobileAppearance.shared.terminal, dark: true)
+        let text = Self.productConfig(theme: CmuxMobileAppearance.shared.terminal, dark: true, translucent: Self.pageIsTranslucent)
         guard let config = Self.makeConfig(text) else { throw Failure.appCreationFailed }
         // Built outside the main actor: Ghostty calls these from its own
         // threads, and a closure formed in this @MainActor init would carry
@@ -124,7 +136,7 @@ final class CmuxMobileGhosttyApp {
     /// updates each live surface): colors, palette, cursor, selection and the
     /// font family. The font size stays the phone's setting.
     func applyTheme() {
-        let text = Self.productConfig(theme: CmuxMobileAppearance.shared.terminal, dark: isDark)
+        let text = Self.productConfig(theme: CmuxMobileAppearance.shared.terminal, dark: isDark, translucent: Self.pageIsTranslucent)
         guard text != configText, let next = Self.makeConfig(text) else { return }
         ghostty_app_update_config(app, next)
         ghostty_config_free(config)
@@ -148,7 +160,11 @@ final class CmuxMobileGhosttyApp {
     /// terminal colors and font family when the phone matches a Mac
     /// (`theme`), else the app's black. A family the phone does not have is
     /// left out, so the terminal keeps its own font.
-    static func productConfig(theme: CmuxMobileTerminalTheme, dark: Bool) -> String {
+    /// `translucent`: the page under the surface paints the background at the
+    /// theme's opacity (``page``), so the surface's own default background is
+    /// clear (`background-opacity = 0`; cells with their own background stay
+    /// opaque, as the Mac's `background-opacity-cells = false`).
+    static func productConfig(theme: CmuxMobileTerminalTheme, dark: Bool, translucent: Bool = false) -> String {
         let colors = theme.colors(dark: dark)
         var lines = [
             "scrollback-limit-bytes = \(8 * 1024 * 1024)",
@@ -161,6 +177,7 @@ final class CmuxMobileGhosttyApp {
             "cursor-style-blink = false",
             "scroll-to-bottom = no-keystroke,no-output",
         ]
+        if translucent { lines.append("background-opacity = 0") }
         for (index, color) in colors.palette.prefix(16).enumerated() { lines.append("palette = \(index)=\(color.hex)") }
         if let cursor = colors.cursor { lines.append("cursor-color = \(cursor.hex)") }
         if let selection = colors.selectionBackground { lines.append("selection-background = \(selection.hex)") }

@@ -511,10 +511,12 @@ public struct AgentChatTranscript: View {
                 }
             }
             .environment(\.openSessionFile, openFile)
+            .cmuxMobilePage()
         }
         .filePreview($filePreview)
         .navigationDestination(item: $surface.parityRoute) { route in
             AgentParityDestination(route: route, store: store, surface: surface)
+                .cmuxMobilePage()
         }
         .sheet(isPresented: $surface.showArtifacts) {
             SessionArtifactsSheet(store: store, surface: surface)

@@ -53,6 +53,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
             .overlay(alignment: .top) { newPill }
             .background(Color.cmuxMobileBackground)
+            .cmuxMobilePage()
             .navigationTitle("Feed")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

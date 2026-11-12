@@ -1,17 +1,28 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
+
+extension Glass {
+    /// Regular Liquid Glass with the theme's cast (the Mac's `glass_tint`),
+    /// so the composer, key bar and floating controls take the theme as the
+    /// Mac's glass does. Untinted in the neutral look. Read in a view's body,
+    /// the glass follows a theme change.
+    @MainActor public static var cmuxMobile: Glass {
+        .regular.tint(CmuxMobileAppearance.shared.isThemed ? Color(uiColor: CmuxMobileColorRole.glassTint.uiColor) : nil)
+    }
+}
 
 extension View {
     /// Glass circle for floating controls outside toolbars (SPEC 2.4).
     public func cmuxMobileGlassCircle(interactive: Bool = true) -> some View {
-        glassEffect(interactive ? .regular.interactive() : .regular, in: .circle)
+        glassEffect(interactive ? Glass.cmuxMobile.interactive() : Glass.cmuxMobile, in: .circle)
     }
 
     /// Glass capsule for banners, toasts and secondary CTAs.
     public func cmuxMobileGlassCapsule(interactive: Bool = false) -> some View {
-        glassEffect(interactive ? .regular.interactive() : .regular, in: .capsule)
+        glassEffect(interactive ? Glass.cmuxMobile.interactive() : Glass.cmuxMobile, in: .capsule)
     }
 
     /// The composer card: glass, radius 24, with a 1 pt `separator` stroke under
@@ -36,7 +47,7 @@ private struct ComposerGlass: ViewModifier {
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: theme.metrics.composerRadius, style: .continuous)
         content
-            .glassEffect(.regular, in: shape)
+            .glassEffect(Glass.cmuxMobile, in: shape)
             .overlay {
                 if contrast == .increased {
                     shape.strokeBorder(theme.colors.separator, lineWidth: 1)

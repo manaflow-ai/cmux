@@ -267,7 +267,7 @@ enum KeyRowGlass {
 extension View {
     func keyGlass(armed: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous)
-        return glassEffect(armed ? .regular.tint(Color.cmuxMobileAccent).interactive() : .regular.interactive(), in: shape)
+        return glassEffect(armed ? .regular.tint(Color.cmuxMobileAccent).interactive() : Glass.cmuxMobile.interactive(), in: shape)
     }
 }
 

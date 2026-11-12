@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxSpinner
 import SwiftUI
@@ -165,7 +166,7 @@ public struct AgentChatDestinationView: View {
 extension View {
     /// Registers `AgentChatDestination` on the enclosing NavigationStack.
     public func agentChatDestinations() -> some View {
-        navigationDestination(for: AgentChatDestination.self) { AgentChatDestinationView(destination: $0) }
+        navigationDestination(for: AgentChatDestination.self) { AgentChatDestinationView(destination: $0).cmuxMobilePage() }
     }
 }
 #endif

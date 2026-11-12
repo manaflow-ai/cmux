@@ -136,8 +136,15 @@ public enum CmuxMobileColorRole: Int, CaseIterable, Sendable, Hashable {
     case scrim, cardStroke, shimmerBand
     /// The sidebar's own shade (two-tone and `sidebarSurface: separate`); clear otherwise.
     case sidebarShade
-    /// Behind terminal content (the terminal theme's background).
+    /// Behind terminal content (the terminal theme's background), opaque.
     case terminalBackground
+    /// The terminal page: the terminal background at the theme's
+    /// `background-opacity` over a backdrop picture (the Mac's terminal over
+    /// its window background), opaque otherwise.
+    case terminalPage
+    /// The cast laid over Liquid Glass (the Mac's `glass_tint`); clear in the
+    /// neutral look, whose glass is untinted.
+    case glassTint
 }
 
 /// One value per ``CmuxMobileColorRole``.
@@ -222,6 +229,8 @@ public struct CmuxMobilePaletteValues: Sendable, Equatable {
         case .sidebarShade: token("#000000", "#000000", darkAlpha: 0, lightAlpha: 0)
         /// Terminal theme: true black like the app chrome (the terminal's own light look is black too).
         case .terminalBackground: token("#000000", "#000000")
+        case .terminalPage: token("#000000", "#000000")
+        case .glassTint: token("#000000", "#000000", darkAlpha: 0, lightAlpha: 0)
         }
     }
 }
@@ -281,6 +290,10 @@ public struct CmuxMobileColors: Sendable {
     /// The sidebar's own shade over the window (two-tone); clear when it shares the window's surface.
     public var sidebarShade: CmuxMobileColorToken { live(.sidebarShade) }
     public var terminalBackground: CmuxMobileColorToken { live(.terminalBackground) }
+    /// The terminal page (translucent over a backdrop picture).
+    public var terminalPage: CmuxMobileColorToken { live(.terminalPage) }
+    /// The theme's cast over glass (clear in the neutral look).
+    public var glassTint: CmuxMobileColorToken { live(.glassTint) }
 
     public init() {}
 

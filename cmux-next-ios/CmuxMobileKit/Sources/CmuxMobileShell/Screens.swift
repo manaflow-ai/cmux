@@ -57,6 +57,7 @@ struct HomeScreen: View {
                     }
                 }
             }
+            .cmuxMobilePage()
             .agentChatDestinations()
         }
     }
@@ -91,10 +92,12 @@ struct WorkspacesScreen: View {
                 filter: shell.macFilter
             ) { shell.workspacesPath.append($0) }
                 .background(theme.colors.bg.color.ignoresSafeArea())
+                .cmuxMobilePage()
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: Workspace.self) { ws in
                     WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs, creator: shell.creator,
                                     openWorkspace: { shell.show(workspace: $0) }, screenSharing: shell.screenSharing)
+                        .cmuxMobilePage()
                 }
                 .toolbar {
                     // WorkspacesList owns the title and the Mac chip row.
