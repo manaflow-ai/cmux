@@ -14,12 +14,15 @@
 //! A kill of the daemon and its hosts needs no fsync: write(2) puts the
 //! bytes in the page cache, which outlives the process. So every pass still
 //! appends every byte, and only an OS crash or a power loss can lose the
-//! output written since the last sync. The quit pass syncs at once.
+//! output written since the last sync. The quit pass syncs at once. Any
+//! other pass only writes, and the store syncs the tails written since
+//! together, every [`super::super::TAIL_SYNC_INTERVAL`]
+//! (`super::sync_due_tails`).
 
 use std::sync::{Arc, Mutex};
 
 use super::super::{LogState, OutputStore, TAIL_FLUSH_INTERVAL, TerminalLog};
-use super::{Seen, flush_tail};
+use super::{Seen, flush_tail, sync_due_tails};
 use crate::resource::TerminalPublicId;
 
 /// Terminals that print in every pass.
@@ -68,7 +71,8 @@ fn print(log: &TerminalLog, bytes: &[u8]) {
 }
 
 /// The tail part of one write pass: each terminal's capture saw a new
-/// screen (`digest`) with no chunk in flight, at the end of its stream.
+/// screen (`digest`) with no chunk in flight, at the end of its stream;
+/// then the pass's end, as in `write_pass_at`.
 fn pass(
     store: &OutputStore,
     directory: &std::path::Path,
@@ -82,6 +86,7 @@ fn pass(
         let seen = Seen { digest, settled: true, end, size: Some((80, 24)), upload: false };
         flush_tail(store, directory, log, seen, quitting);
     }
+    sync_due_tails(store, directory);
 }
 
 /// The bytes each terminal's tail file holds now, as a restore reads them.
