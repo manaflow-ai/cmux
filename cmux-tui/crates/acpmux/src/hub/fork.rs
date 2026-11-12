@@ -60,6 +60,9 @@ struct Target {
     family: String,
     spawn_model: bool,
     model: Option<String>,
+    /// The switch named its model (`Retarget::model`): a harness that cannot run it fails the
+    /// switch, as an explicit model fails `session/new`, rather than running its own default.
+    explicit_model: bool,
 }
 
 impl Hub {
@@ -186,7 +189,11 @@ impl Hub {
             return Err(super::new_request::terminal_harness_refusal(&r.agent));
         }
         let family = crate::config::derive_family(&r.agent, &r.profile);
-        let spawn_model = super::new_request::profile_takes_model_at_spawn(&r.profile);
+        // `${model}` in the profile or in its defaults' env, as `session/new` decides it
+        // (`lifecycle.rs`): the model is a spawn parameter there, not a set_model call.
+        let spawn_model = super::new_request::profile_takes_model_at_spawn(&r.profile)
+            || r.defaults.env.values().any(|v| v.contains("${model}"));
+        let explicit_model = retarget.model.is_some();
         Ok(Some(Target {
             remote,
             agent: r.agent.clone(),
@@ -194,6 +201,7 @@ impl Hub {
             family,
             spawn_model,
             model: retarget.model.or_else(|| r.profile.model.clone()),
+            explicit_model,
         }))
     }
 
@@ -974,7 +982,9 @@ impl Hub {
         } else if let Some(t) = &target {
             // Onto another harness: up, on the picked model and in the mode a new chat of it
             // starts in, before the reply, so the first prompt runs there (as `new_session`).
-            self.start_retargeted(&new, t).await;
+            if let Err(e) = self.start_retargeted(&new, t).await {
+                return Err(self.close_refused(&new, e).await);
+            }
         } else if start_later {
             let hub = self.clone();
             let fork = new.clone();
@@ -998,17 +1008,35 @@ impl Hub {
     /// Starts a fork onto another harness ([`Retarget`]): its agent, its model when the
     /// harness takes it after spawn, and the mode a new chat of that harness starts in
     /// (`start_mode.rs`). Soft, as a new chat's start defaults: a step that fails is recorded
-    /// on the fork, and its first prompt starts the agent again.
-    async fn start_retargeted(self: &Arc<Self>, fork: &Arc<Session>, target: &Target) {
+    /// on the fork, and its first prompt starts the agent again. Except a model the switch named
+    /// that the harness takes over ACP: its agent must be up and take it, or the switch fails
+    /// (the caller closes the fork), since the next prompt's start would run the harness's own
+    /// default, another model than the one picked (review of cmux#41030, F2). A model taken at
+    /// spawn is in the fork's `model_request`, which every start of its agent uses.
+    async fn start_retargeted(
+        self: &Arc<Self>,
+        fork: &Arc<Session>,
+        target: &Target,
+    ) -> Result<(), RpcError> {
+        let must_set = target.explicit_model && !target.spawn_model;
         if let Err(e) = self.child_for(fork).await {
             tracing::warn!(session = %fork.id, "fork child start failed: {e}");
+            if must_set {
+                return Err(e);
+            }
             self.append(fork, "mux", "fork_start_failed", json!({"error": e.message}));
-            return;
+            return Ok(());
         }
         if !target.spawn_model
             && let Some(model) = &target.model
             && let Err(e) = Box::pin(self.set_model(fork, model)).await
         {
+            if must_set {
+                return Err(RpcError::invalid_params(format!(
+                    "model {model:?} for {}: {}",
+                    target.agent, e.message
+                )));
+            }
             tracing::warn!(session = %fork.id, model = %model, "fork model skipped: {}", e.message);
             self.append(
                 fork,
@@ -1033,6 +1061,7 @@ impl Hub {
                 json!({"modeId": mode, "error": e.message}),
             );
         }
+        Ok(())
     }
 }
 

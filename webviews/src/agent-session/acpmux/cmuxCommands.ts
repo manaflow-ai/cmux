@@ -224,6 +224,18 @@ export function continueTargets<T extends HarnessTarget>(
   );
 }
 
+/// The harnesses a started chat's model menu can switch to (forkHold.ts, App.tsx `chat.switchModel`):
+/// every one but the chat's own that can run here, another account or launch profile of its own
+/// family too, since a switch forks the chat in place rather than handing it off (Leo 2026-11-11:
+/// "across any and all conditions of workspaces/folders/models/provides/harnesses").
+export function switchTargets<T extends HarnessTarget>(
+  catalog: readonly (T & { pickable?: boolean; unavailable?: string })[],
+  currentHarness: string | undefined,
+): T[] {
+  if (!currentHarness) return [];
+  return catalog.filter((target) => target.id !== currentHarness && target.pickable !== false && !target.unavailable);
+}
+
 /** Resolves the target typed after `/continue` by id or its visible catalog name. */
 export function resolveHarnessTarget(
   value: string | undefined,
