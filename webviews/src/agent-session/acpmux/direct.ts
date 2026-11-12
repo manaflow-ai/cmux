@@ -136,8 +136,10 @@ import {
   cliHost,
   incomingPrompt,
   recordedAgentText,
+  relayedBetweenAgents,
   type IncomingContext,
   type IncomingMessage,
+  type IncomingPrompt,
 } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
@@ -917,6 +919,12 @@ export function chatNamedBy(id: string, sessions: readonly Session[]): { session
   );
   if (named.length === 1) return { session: named[0]!.sessionId, ambiguous: false };
   return { ambiguous: named.length > 1 };
+}
+
+/// A transcript prompt's reading, with a message relayed between agents drawn as nothing
+/// (incomingMessage.ts `relayedBetweenAgents`): it stays a turn's start, as bookkeeping does.
+function hiddenWhenRelayed(incoming: IncomingPrompt | undefined): IncomingPrompt | undefined {
+  return relayedBetweenAgents(incoming) ? { kind: "hidden" } : incoming;
 }
 
 /// A `queued` record that is another agent's message, as its received line reads it once it runs
@@ -8357,7 +8365,7 @@ export class AcpmuxDirectClient {
           ? undefined
           : blank
             ? ({ kind: "hidden" } as const)
-            : incomingPrompt(raw, msg, this.incomingContext());
+            : hiddenWhenRelayed(incomingPrompt(raw, msg, this.incomingContext()));
         const shown =
           incoming?.kind === "message"
             ? {

@@ -18,6 +18,7 @@
 import type { ComposerAttachment } from "../attachments";
 import { isGuest } from "../multiplayer/participants";
 import { inboxText } from "./inboxNotice";
+import { relayedBetweenAgents } from "./incomingMessage";
 import { QUEUED_MESSAGE, type AcpmuxRow, type AcpmuxSnapshot, type QueuedPromptImage } from "../model";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -59,6 +60,9 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
     // One that names no thread (direct.ts `mergeQueue`) has nothing to draw.
     const notice = !message && !isHeldEntry(entry) && entry.inbox?.threads.length ? entry.inbox : undefined;
     if (!message && !notice) continue;
+    // A message relayed between agents draws nothing while it waits either (incomingMessage.ts
+    // `relayedBetweenAgents`).
+    if (relayedBetweenAgents(message ? { kind: "message", message } : { kind: "inbox", notice: notice! })) continue;
     // The first message may explain a Stop hold, once for the run.
     const lead = rows.length === 0;
     let row = rowsByEntry.get(entry);

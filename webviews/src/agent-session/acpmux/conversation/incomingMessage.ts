@@ -177,6 +177,15 @@ export type IncomingPrompt =
   /// The person's prompt, without the bookkeeping before it.
   | { kind: "prompt"; text: string };
 
+/// Whether an incoming prompt is a message relayed between agents: another agent's message, or
+/// acpmux's inbox notice of such messages. The chat draws none of them (Leo, 2026-11-12: "STOP
+/// FUCKING SHOWING THESE FUCKING MESSAGES", then on "messages relayed between agents are showing
+/// up in it": "STOP"). A tool's notice and a person's own words still draw.
+export function relayedBetweenAgents(incoming: IncomingPrompt | undefined): boolean {
+  if (incoming?.kind === "inbox") return true;
+  return incoming?.kind === "message" && !incoming.message.fromPerson && !incoming.message.notice;
+}
+
 /// Whom a reply to a turn of agent messages answers: the newest of them when every one is a
 /// `cmux agent message` from the same chat here (acpmux finds it in the turn, withdraw.rs
 /// `app_reply_fits`). Several senders take no Reply: which one it answers would be a guess.
