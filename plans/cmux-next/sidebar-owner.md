@@ -2139,3 +2139,9 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   come back under the default flush corner (`Metrics.cardEdgeIsSidebarSeam`), and the line is `Palette.chromeDivider`.
   Leo, verbatim: "you've slightly regressed the border thing, the border divider. And then there's no more drag
   divider highlight". Sidebar-Look: the sidebar's edge line and its drag highlight are back.
+- 2026-11-12 (lane two-tone-polish-native, on #41640): under a style whose card edge is the sidebar's seam (the explicit
+  Two-Tone and card styles, a flush corner picked in Debug Settings) the resize handle's hover now lights its glow,
+  along the whole edge, and `sidebar.border` on draws the full-height line instead of clipping it to the titlebar
+  band (`SidebarResizeHandle`). Leo, verbatim: "you've slightly regressed the border thing, the border divider. And
+  then there's no more drag divider highlight". Sidebar-Look: the glow shows on hover in every style; a sidebar
+  border runs the whole edge.
