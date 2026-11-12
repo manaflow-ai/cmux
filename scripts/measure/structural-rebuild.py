@@ -22,6 +22,8 @@ import argparse, json, os, re, signal, statistics, subprocess, sys, time
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
 from bench_launch import BenchApp, LaunchError  # noqa: E402
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 TAG = "srebuild"
 EDIT_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeHostView.swift"
@@ -83,8 +85,9 @@ def end_group(proc):
 
 
 def end_group_now(proc):
-    # ESRCH: the group is empty. macOS answers EPERM once every member left is a zombie (scripts/ci/
-    # run-with-helper-prebuild.py, ci_process_tree.py), so EPERM on the group we created is "gone" too.
+    # ESRCH: the group is empty. macOS answers EPERM once every member left is a zombie or is exiting: the probe
+    # below reads that as gone, and kill_group signals the leader and the members ps lists directly instead of
+    # dropping the kill (cmux#41880 review F1).
     def group_alive():
         proc.poll()                    # reaps reload.sh, whose zombie would keep the group alive
         try:
@@ -93,9 +96,7 @@ def end_group_now(proc):
         except (ProcessLookupError, PermissionError):
             return False
     for sig, grace in ((signal.SIGTERM, GROUP_GRACE_S), (signal.SIGKILL, 10)):
-        try:
-            os.killpg(proc.pid, sig)
-        except (ProcessLookupError, PermissionError):
+        if not kill_group(proc, sig):
             return
         deadline = time.monotonic() + grace
         # No exit event exists for a process group's last member: its members are checked every 0.2 s, at most grace s.

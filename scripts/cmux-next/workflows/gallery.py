@@ -11,6 +11,9 @@ from pathlib import Path
 import re
 import signal
 import subprocess
+import sys
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 
 def unavailable(reason: str, output: Path | None = None) -> dict:
@@ -141,11 +144,11 @@ def run_step(step: dict, context: dict, out: Path) -> dict:
                     run.wait(timeout=150)
                 except subprocess.TimeoutExpired:
                     # The group belongs to this invocation, including its Playwright children.
-                    os.killpg(run.pid, signal.SIGTERM)
+                    kill_group(run, signal.SIGTERM)
                     try:
                         run.wait(timeout=5)
                     except subprocess.TimeoutExpired:
-                        os.killpg(run.pid, signal.SIGKILL)
+                        kill_group(run, signal.SIGKILL)
                         run.wait()
                     raise
         results = json.loads((output / "results.json").read_text())

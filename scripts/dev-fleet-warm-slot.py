@@ -26,6 +26,8 @@ import threading
 import time
 import uuid
 from typing import Any, Iterator, Sequence
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 SCHEMA = 1
 TERM_GRACE_SECONDS = 10.0
@@ -708,8 +710,7 @@ def _wait_cleanup_process(
                 waiter.join(CLEANUP_TERM_GRACE_SECONDS)
                 # The group, whether or not its leader exited in the grace: a child that ignores SIGTERM outlives
                 # it (cmux#41767 review F1). The group keeps the leader's pid as its id while any member lives.
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(proc.pid, signal.SIGKILL)
+                kill_group(proc, signal.SIGKILL)
                 waiter.join()
                 if waiter_error:
                     raise waiter_error[0]

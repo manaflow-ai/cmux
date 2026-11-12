@@ -51,6 +51,17 @@ def _is_killpg(node: ast.AST) -> bool:
     return (isinstance(func, ast.Attribute) and func.attr == "killpg") or (isinstance(func, ast.Name) and func.id == "killpg")
 
 
+def _is_group_kill(node: ast.AST) -> bool:
+    """os.killpg(...) or ci_process_tree's kill_group(...): either signals the whole group."""
+    if _is_killpg(node):
+        return True
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    return (isinstance(func, ast.Attribute) and func.attr == "kill_group") or \
+        (isinstance(func, ast.Name) and func.id == "kill_group")
+
+
 def _liveness_reads(test: ast.AST) -> list[tuple[str, bool]]:
     """(object, alive) for each liveness read in TEST: alive is True for `p.poll() is None`, `p.returncode is None`
     and `t.is_alive()`, False for `p.poll() is not None`, `p.returncode is not None` and `not t.is_alive()`."""
@@ -74,9 +85,11 @@ def _liveness_reads(test: ast.AST) -> list[tuple[str, bool]]:
 
 
 def _killpg_subject(call: ast.Call) -> str | None:
-    """p for os.killpg(p.pid, ...)."""
+    """p for os.killpg(p.pid, ...) and for kill_group(p, ...)."""
     if call.args and isinstance(call.args[0], ast.Attribute) and call.args[0].attr == "pid":
         return ast.unparse(call.args[0].value)
+    if call.args and not _is_killpg(call) and isinstance(call.args[0], (ast.Name, ast.Attribute)):
+        return ast.unparse(call.args[0])
     return None
 
 
@@ -112,7 +125,7 @@ def scan(source: str, name: str = "<source>") -> list[str]:
         if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for call in ast.walk(func):
-            if not _is_killpg(call):
+            if not _is_group_kill(call):
                 continue
             gate = None
             node = call
@@ -135,7 +148,7 @@ def scan(source: str, name: str = "<source>") -> list[str]:
                 for stmt in ast.walk(func):
                     if (isinstance(stmt, ast.If) and stmt.lineno < call.lineno and (subject, False) in _liveness_reads(stmt.test)
                             and stmt.body and isinstance(stmt.body[-1], ast.Return)
-                            and not any(_is_killpg(n) for n in ast.walk(stmt))
+                            and not any(_is_group_kill(n) for n in ast.walk(stmt))
                             and not any(stmt in set(ast.walk(ast.Module(body=t.body, type_ignores=[]))) for t in finals)):
                         gate = stmt
                         break
@@ -161,7 +174,7 @@ def scan(source: str, name: str = "<source>") -> list[str]:
                 if isinstance(target, ast.Name) and isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     scope = node
                     break
-            if any(_is_killpg(n) for n in ast.walk(scope)):
+            if any(_is_group_kill(n) for n in ast.walk(scope)):
                 continue
             for call in ast.walk(scope):
                 if (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)

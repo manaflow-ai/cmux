@@ -91,6 +91,8 @@ import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import apfs_clone  # noqa: E402
 import e2e_warm_derived_data as warm  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 MANIFEST = "cmux-seed-input-mtimes.json"
 # Written by every build and read by none: the build log directory and the
@@ -546,9 +548,7 @@ def job_identity() -> str:
 
 
 def stop(pid: int) -> None:
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
+    if not kill_group(pid, signal.SIGKILL):
         return
     deadline = time.monotonic() + 10
     while running(pid) and time.monotonic() < deadline:

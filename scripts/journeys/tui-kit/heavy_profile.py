@@ -44,6 +44,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import tuikit  # noqa: E402
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 HIDDEN_PROGRAMS = (
     ("top", ["--fps", "2"]),
@@ -545,11 +547,8 @@ def stop_page_server(pid, out):
     args = subprocess.run(["ps", "-ww", "-o", "args=", "-p", str(pid)], capture_output=True, text=True).stdout
     if "tuikit.py serve" not in args or ("--dir %s " % out) not in args + " ":
         return "not running (pid %d now runs %r)" % (pid, args.strip()[:120])
-    try:
-        os.killpg(pid, signal.SIGTERM)
-        return "stopped"
-    except OSError as error:
-        return str(error)
+    # A refused killpg (macOS EPERM) signals the server and its group's members directly (cmux#41880 review F1).
+    return "stopped" if kill_group(pid, signal.SIGTERM) else "already gone"
 
 
 def cmd_teardown(a):

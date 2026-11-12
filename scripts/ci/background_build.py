@@ -37,6 +37,8 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             print(*args, **kwargs)
         except (BrokenPipeError, OSError, ValueError):
             pass
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 
 def paths(state: Path, name: str) -> dict[str, Path]:
@@ -134,9 +136,7 @@ def stop(state: Path) -> int:
             continue
         group = int(pid_file.read_text().strip())
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(group, sig)
-            except (ProcessLookupError, PermissionError):
+            if not kill_group(group, sig):
                 break
             safe_print(f"sent {signal.Signals(sig).name} to {name} (process group {group})")
             if sig == signal.SIGTERM:
