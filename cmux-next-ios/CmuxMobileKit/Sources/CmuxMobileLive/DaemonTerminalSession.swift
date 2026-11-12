@@ -764,15 +764,15 @@ public final class DaemonTerminalSession: TerminalSession {
             eventTask = nil
             inbox?.close()
             inbox = nil
-            if everAttached {
-                // Retries ran out: say what happened and how to go on.
-                gaveUp = true
-                emitText("\r\n\u{1B}[2m[Can't reattach: \(lastError ?? "no answer from the Mac"). Type to try again.]\u{1B}[0m\r\n")
-            } else {
-                gaveUp = true
-                emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
-            }
-            // Diagnostic bytes preserve the last frame, but do not mean attach succeeded.
+            // Retries ran out (or the first attach failed): the page keeps
+            // showing its cached screen and the label says what happened, with
+            // Retry; typing tries again too. Nothing is written into the
+            // mirror: it holds only the Mac's bytes, and a diagnostic line was
+            // output, which read as attached for a moment and dropped the
+            // page's cached frame for a skeleton under "[daemon channel
+            // closed]" (Leo 2026-11-12: "wack reconnection state ... just show
+            // the cache").
+            gaveUp = true
             handler?(.connection(connectionState))
         }
     }

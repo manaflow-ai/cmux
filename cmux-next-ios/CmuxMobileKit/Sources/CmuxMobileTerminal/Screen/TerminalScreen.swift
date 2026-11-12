@@ -27,7 +27,13 @@ public struct TerminalScreen: View {
             .background(Color.black)
             .overlay {
                 if !model.connectionState.isAttached {
-                    TerminalConnectingView(state: model.connectionState, retry: model.reconnect).transition(.opacity)
+                    // The cache, never a skeleton over a surface that drew the terminal.
+                    let cache = TerminalPageCache.choose(hasFrame: model.coldFrame != nil, surfaceHasOutput: model.surfaceHasOutput,
+                                                         screenText: model.cardScreenText)
+                    TerminalConnectingView(state: model.connectionState, lastFrame: model.coldFrame,
+                                           screenText: cache == .screenText ? model.cardScreenText : nil,
+                                           showsPlaceholder: cache == .skeleton, retry: model.reconnect)
+                        .transition(.opacity)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)

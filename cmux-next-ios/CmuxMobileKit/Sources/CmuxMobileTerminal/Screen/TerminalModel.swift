@@ -134,6 +134,21 @@ public final class TerminalModel {
     /// attach, so a later dropped link never covers the live surface with it.
     public private(set) var coldFrame: UIImage?
 
+    /// The page's own surface has drawn the Mac's terminal in this launch:
+    /// it is the freshest cache, so a dropped link shows it as it is, never a
+    /// skeleton over it (``TerminalPageCache``).
+    public private(set) var surfaceHasOutput = false
+
+    /// The page as it is now, copied on the main thread (cheap) and rendered
+    /// off it, for a host that replaces this one (a new session after the
+    /// link came back): its new, empty surface shows this until the Mac's
+    /// terminal is attached. Nil when the surface drew nothing yet or is not
+    /// in a window.
+    public func renderCurrentFrame() -> Task<UIImage?, Never>? {
+        guard surfaceHasOutput, let capture = controller?.captureForSaving() else { return nil }
+        return Task.detached(priority: .userInitiated) { capture.render() }
+    }
+
     public func restoreLastFrame(_ image: UIImage?) {
         guard let image else { return }
         coldFrame = image
@@ -185,6 +200,7 @@ public final class TerminalModel {
     /// frame over the live one, R2-5). Throttled, the new frame is saved for
     /// the next cold launch.
     func liveOutputDrawn() {
+        if !surfaceHasOutput { surfaceHasOutput = true }
         if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
         lastDrawnOutput = CACurrentMediaTime()
         saveFrameSoon()

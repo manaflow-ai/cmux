@@ -73,15 +73,20 @@ public struct TerminalTabPage: View {
             .background(Color.black)
             // Not attached yet: the honest placeholder over the empty surface.
             .overlay {
+                // Not attached: the cache (Leo 2026-11-12: "just show the
+                // cache"), with the skeleton only when nothing is cached.
+                let cache = TerminalPageCache.choose(hasFrame: model.coldFrame != nil, surfaceHasOutput: model.surfaceHasOutput,
+                                                     screenText: model.cardScreenText)
+                let screenText = cache == .screenText ? model.cardScreenText : nil
                 Group {
                     if model.connectionState.keepsWarmFrame {
                         // Reattaching: a warm surface keeps its last frame live
                         // under no overlay; a cold tab shows its frame dimmed. The
                         // title pill says "Reattaching…" after 400 ms (SPEC P5).
                         TerminalConnectingView(state: model.connectionState, topInset: insets.top,
-                                               lastFrame: model.coldFrame,
+                                               lastFrame: model.coldFrame, screenText: screenText,
                                                showsLabel: !model.connectionState.showsProgress,
-                                               showsPlaceholder: false, retry: model.reconnect)
+                                               showsPlaceholder: cache == .skeleton, retry: model.reconnect)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                     } else if !model.connectionState.isAttached || model.coldFrame != nil {
@@ -92,7 +97,8 @@ public struct TerminalTabPage: View {
                         // never a fade over live rows at other positions (R3-4).
                         // (Two views crossfading here flashed the title pill grey.)
                         TerminalConnectingView(state: model.connectionState, topInset: insets.top, lastFrame: model.coldFrame,
-                                               showsLabel: !model.connectionState.isAttached, retry: model.reconnect)
+                                               screenText: screenText, showsLabel: !model.connectionState.isAttached,
+                                               showsPlaceholder: cache == .skeleton, retry: model.reconnect)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)

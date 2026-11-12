@@ -222,6 +222,15 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
+        // A new session for a tab whose page drew the Mac's terminal (the link
+        // came back): the new surface is empty until it attaches, so it shows
+        // the old page as it was, not a skeleton (Leo 2026-11-12: "just show the cache").
+        if let render = previous?.model.renderCurrentFrame() {
+            Task { @MainActor [weak model] in
+                guard let image = await render.value, let model, !model.connectionState.isAttached, !model.surfaceHasOutput else { return }
+                model.restoreLastFrame(image)
+            }
+        }
         if live != nil, let frameStore, let key {
             // The next cold launch shows what was on screen last (R2-5), not
             // the frame from the last time the app went to the background.

@@ -6,8 +6,10 @@ import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
-/// What a terminal tab shows until the Mac's terminal is attached: a
-/// skeleton of terminal lines with the shimmer (SPEC 7.1) and a glass
+/// What a terminal tab shows until the Mac's terminal is attached: its
+/// cache (the last frame, or the Mac's screen as text), or a skeleton of
+/// terminal lines with the shimmer (SPEC 7.1) only when nothing is cached,
+/// and a glass
 /// capsule with a spinner and the state ("Connecting to Aziz's Mac Studio…",
 /// "Reattaching…"), styled like the connection banner (SPEC 7.4). Never
 /// made-up output.
@@ -19,17 +21,20 @@ public struct TerminalConnectingView: View {
     /// dropped link): shown dimmed instead of the skeleton, under the same
     /// label, so the user sees their terminal at once and that it is not live.
     let lastFrame: UIImage?
+    /// The Mac's screen as text, read earlier: shown when there is no frame.
+    let screenText: String?
     /// Whether the glass label shows. A workspace tab says "Reattaching…"
     /// in its title pill instead (SPEC P5), so its page draws no caption.
     let showsLabel: Bool
     let showsPlaceholder: Bool
     let retry: (@MainActor () async -> Void)?
 
-    public init(state: TerminalConnectionState, topInset: CGFloat = 0, lastFrame: UIImage? = nil, showsLabel: Bool = true,
-                showsPlaceholder: Bool = true, retry: (@MainActor () async -> Void)? = nil) {
+    public init(state: TerminalConnectionState, topInset: CGFloat = 0, lastFrame: UIImage? = nil, screenText: String? = nil,
+                showsLabel: Bool = true, showsPlaceholder: Bool = true, retry: (@MainActor () async -> Void)? = nil) {
         self.state = state
         self.topInset = topInset
         self.lastFrame = lastFrame
+        self.screenText = screenText
         self.showsLabel = showsLabel
         self.showsPlaceholder = showsPlaceholder
         self.retry = retry
@@ -66,6 +71,13 @@ public struct TerminalConnectingView: View {
                                height: proxy.size.width * lastFrame.size.height / max(1, lastFrame.size.width))
                         .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
                         .clipped()
+                        .opacity(0.55)
+                }
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+            } else if let screenText, screenText.contains(where: { !$0.isWhitespace }) {
+                GeometryReader { proxy in
+                    TerminalCardScreenText(text: screenText, topInset: topInset + 8, width: proxy.size.width)
                         .opacity(0.55)
                 }
                 .accessibilityHidden(true)

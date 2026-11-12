@@ -42,6 +42,29 @@ public enum TerminalCardContent: Equatable, Sendable {
     }
 }
 
+/// What a terminal page shows while the Mac's terminal is not attached
+/// (connecting, reattaching, offline, failed): the cache, never a skeleton
+/// when anything is cached (Leo 2026-11-12: "wack reconnection state ...
+/// just show the cache").
+public enum TerminalPageCache: Equatable, Sendable {
+    /// The page as last seen (a cold restore, a cooled tab, a replaced
+    /// session), drawn over the empty surface.
+    case frame
+    /// The surface itself drew the terminal in this launch: nothing covers it.
+    case surface
+    /// The Mac's screen as text, read earlier (`read-screen`).
+    case screenText
+    /// Nothing cached at all: the skeleton.
+    case skeleton
+
+    public static func choose(hasFrame: Bool, surfaceHasOutput: Bool, screenText: String?) -> Self {
+        if hasFrame { return .frame }
+        if surfaceHasOutput { return .surface }
+        if let screenText, screenText.contains(where: { !$0.isWhitespace }) { return .screenText }
+        return .skeleton
+    }
+}
+
 /// When a grid card of a tab not opened in this launch asks the Mac for its
 /// screen (`read-screen`): at most every `interval` per tab while cards are
 /// rebuilt, always when the grid opens (T-TABS-01: the first grid open after
