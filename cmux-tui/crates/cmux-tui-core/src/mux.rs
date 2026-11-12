@@ -25923,20 +25923,10 @@ mod tests {
                 ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
             }
         });
-        // What the hook saw, and when: the hook stamps `observed_at_ms` at
-        // its start, and one agent's hooks run one after another.
-        let ingress = |event: &str, observed_at_ms: u64| {
-            let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
-                "claude",
-                event,
-                Some(&terminal_id.to_string()),
-                serde_json::json!({"session_id": "order-1"}),
-            )
-            .unwrap();
-            ingress.payload["normalized"]["observed_at_ms"] =
-                serde_json::json!(observed_at_ms.to_string());
-            ingress
-        };
+        // What the hook saw, and when: the hook stamps its machine's
+        // monotonic clock at its start, and one agent's hooks run one after
+        // another.
+        let ingress = |event: &str, ms: u64| clocked_hook(&terminal_id, event, "boot-a", ms, ms);
         // The hooks sent SessionStart, UserPromptSubmit, then Stop, each on
         // its own connection. Each connection has its own daemon thread, so
         // the journal took the prompt after the Stop.
@@ -25975,18 +25965,15 @@ mod tests {
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         // The journal takes the prompt after the Stop (two daemon threads).
-        for (key, event, observed_at_ms) in [
-            ("order-start", "SessionStart", 1_000),
-            ("order-stop", "Stop", 3_000),
-            ("order-prompt", "UserPromptSubmit", 2_000),
-        ] {
-            mux.append_journal_ingress(
-                &ordered_hook(&terminal_id, event, observed_at_ms),
-                "t",
-                key,
-            )
-            .unwrap();
-        }
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[
+                ("SessionStart", 1_000, 1_000),
+                ("Stop", 3_000, 3_000),
+                ("UserPromptSubmit", 2_000, 2_000),
+            ],
+        );
         assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Idle);
         // What the sidebar, tab badges and attention jump read.
         let listed = mux.list_agents(None, None);
@@ -25998,32 +25985,18 @@ mod tests {
     }
 
     #[test]
-    fn hook_order_an_event_older_than_the_reorder_window_applies() {
-        let mux = test_mux();
-        let surface = mux.new_workspace(None, None).unwrap();
-        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "SessionStart", 1_000), 1).unwrap();
-        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "Stop", 20_000), 2).unwrap();
-        // Started far earlier than the window allows a reorder: the clock
-        // stepped back, so the event is the newer one.
-        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "UserPromptSubmit", 2_000), 3)
-            .unwrap();
-        assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Working);
-    }
-
-    #[test]
     fn hook_order_a_blocking_or_lifecycle_event_is_never_skipped() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "SessionStart", 1_000), 1).unwrap();
-        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "Stop", 3_000), 2).unwrap();
+        let hook = |event: &str, ms: u64| clocked_hook(&terminal_id, event, "boot-a", ms, ms);
+        mux.apply_agent_hook_record(&hook("SessionStart", 1_000), 1).unwrap();
+        mux.apply_agent_hook_record(&hook("Stop", 3_000), 2).unwrap();
         // A dialog (parallel subagents of one session) must show.
-        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "PermissionRequest", 2_000), 3)
-            .unwrap();
+        mux.apply_agent_hook_record(&hook("PermissionRequest", 2_000), 3).unwrap();
         assert_eq!(hook_projected_agent(&mux, &terminal_id).unwrap().state, AgentState::Blocked);
         // The session's end always applies.
-        mux.apply_agent_hook_record(&ordered_hook(&terminal_id, "SessionEnd", 2_500), 4).unwrap();
+        mux.apply_agent_hook_record(&hook("SessionEnd", 2_500), 4).unwrap();
         assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
     }
 
