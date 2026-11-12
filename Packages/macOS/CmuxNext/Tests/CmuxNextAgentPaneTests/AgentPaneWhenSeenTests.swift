@@ -63,7 +63,7 @@ struct AgentPaneWhenSeenTests {
         for view in views { view.shownPushes.isHidden = { _ in false } }
         var ran = 0
 
-        views.whenSeen(session: "chat-a", "diffWarm") { ran += 1 }
+        AgentPaneOwedWork().owe(session: "chat-a", "diffWarm", in: views) { ran += 1 }
         await Self.turns()
 
         #expect(ran == 1)

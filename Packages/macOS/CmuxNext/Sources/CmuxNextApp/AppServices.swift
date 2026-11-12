@@ -522,6 +522,7 @@ final class AppServices {
     private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
+    let paneOwedWork = AgentPaneOwedWork()  // work a chat owes until someone sees a pane of it (the diff warm of a turn's end)
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     let pages = InternalPageTabStore()  // internal page tabs (Settings, Debug Settings, the App Store)
