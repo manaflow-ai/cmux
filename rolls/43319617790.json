@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43319617790",
+  "recorded_at": "2026-11-12T22:33:19Z",
+  "reason": "cmux-tui 89b9a954f600 changes the image's cmux-tui (pinned 288be5d3594e)",
+  "dry_run": false,
+  "cmux_tui": "89b9a954f6003c0ef4fbb0fa8c1017c037e10bff",
+  "fixes": [
+    {
+      "sha": "89b9a954f6003c0ef4fbb0fa8c1017c037e10bff",
+      "mergedAt": "2026-11-12T15:17:31-06:00",
+      "subject": "acpmux chats: a Claude Code projects root is watched by an FSEvents stream that coalesces"
+    },
+    {
+      "sha": "eb7a8c9e3b2c621f9f16d8f7ba92c86fc72da7fc",
+      "mergedAt": "2026-11-12T15:17:31-06:00",
+      "subject": "acpmux chats: red test, a Claude Code projects root wakes the daemon once per written file"
+    },
+    {
+      "sha": "252d378d926dfe6eb95850fa2217eedb8b297118",
+      "mergedAt": "2026-11-12T15:03:16-06:00",
+      "subject": "fix(cmux-tui): the puts fixture's seal accepts a range the maintenance worker sealed first"
+    },
+    {
+      "sha": "859a40a5be4930e5c2c58a0880b489c1c14b0d93",
+      "mergedAt": "2026-11-12T15:03:16-06:00",
+      "subject": "test(cmux-tui): the puts fixture's seal finishes when maintenance sealed its range first"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T22:33:19Z",
+    "snapshot_id": "sh-e5083930098c4319a3b7afc1b95a78cd",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43319617790): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ca1c9a1b088abc0071abaa5c7472833531af1b97",
+    "image": "cloud-native-auto-89b9a954-43319617790-1",
+    "revision": "ci-43319617790-1",
+    "at": "2026-11-12T22:33:19Z"
+  },
+  "rolled_back": false
+}
