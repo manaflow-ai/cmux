@@ -5,9 +5,9 @@
 //
 // A picker opens at its value (Leo 2026-11-11: "my selected theme vs when i open up the thing.
 // shouldn't the opened thing be jumped already to the proper place?"): the row `isItemCurrent`
-// names is centred in the list before the first paint (no scroll animation) and highlighted, so the
-// arrows move from it and Return keeps it. Typing keeps it marked (aria-current, data-current) and,
-// while it still matches and nothing was moved to by hand, highlighted.
+// names is centred in the list once per open and highlighted, so the arrows move from it and Return
+// keeps it. Typing first cancels that (it moves the list); the row stays marked (aria-current,
+// data-current).
 import {
   useCallback,
   useEffect,
@@ -285,7 +285,10 @@ export function Combobox({
   const deliberatelyHighlighted = useRef(false);
   const virtualized = hasPinned && virtualRows !== undefined;
   const virtualizer = useRef<Virtualizer<HTMLElement, Element> | null>(null);
+  // Whether the list has opened on its current row (or the person typed first, which moves the list).
+  const revealedCurrent = useRef(false);
   const changeQuery = (next: string) => {
+    revealedCurrent.current = true;
     if (native) setNativeSessionOpen(true);
     // Base UI resets a plain list's scroller on typing; a virtualized one is ours to reset.
     if (virtualized) virtualizer.current?.scrollToOffset(0);
@@ -310,10 +313,9 @@ export function Combobox({
     : 0;
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
   const currentItem = isItemCurrent ? enabledSuggestions.find((item) => isItemCurrent(item)) : undefined;
-  // The query the current row was last brought into view for; a new query may bring it again.
-  const seededFor = useRef<string | undefined>(undefined);
   // True while the highlight below is being set, so it reports as programmatic ("none").
   const seeding = useRef(false);
+  const seedFrame = useRef(0);
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -373,33 +375,32 @@ export function Combobox({
       update(completed);
     }
   };
-  // Open at the value: centre the current row before the first paint, then highlight it. Runs once
-  // per query; a highlight the person moved (arrows, pointer) is left alone, and so is the first-match
-  // highlight of `autoHighlight` while typing.
+  // Open at the value: centre the current row, then highlight it. Once per open, when the current
+  // row first renders (suggestions may arrive late); typing first cancels it (`changeQuery`), and a
+  // highlight the person moved (arrows, pointer) is left alone.
   const nativeOnlyNow = nativePopup.available && native !== undefined;
   useLayoutEffect(() => {
-    if (nativeOnlyNow || currentItem === undefined) return;
-    const key = `${value}\0${currentItem}`;
-    if (seededFor.current === key) return;
-    seededFor.current = key;
-    if (deliberatelyHighlighted.current) return;
-    if (value.trim() && autoHighlight) return;
+    if (nativeOnlyNow || revealedCurrent.current || currentItem === undefined) return;
+    if (deliberatelyHighlighted.current || (value.trim() && autoHighlight)) return;
     const index = enabledSuggestions.indexOf(currentItem);
     const row = () => listRef.current?.querySelector<HTMLElement>(".ui-combobox-item[data-current]") ?? null;
-    if (virtualized && index >= 0 && index < scrollingCount)
+    if (virtualized && index >= 0 && index < scrollingCount) {
       virtualizer.current?.scrollToIndex(index, { align: "center" });
+    } else if (!row()) {
+      return;
+    }
+    revealedCurrent.current = true;
     centreInScroller(row(), listRef.current);
-    let frame = 0;
-    // Base UI registers the rows and settles its own highlight for the new query in this commit;
-    // the next frame sets ours after it.
-    frame = requestAnimationFrame(() => {
+    // Base UI registers the rows and settles its own highlight in this commit; the next frame sets
+    // ours after it. A re-render meanwhile must not cancel it (this runs once), only an unmount.
+    seedFrame.current = requestAnimationFrame(() => {
       const element = row();
       if (!element || deliberatelyHighlighted.current) return;
       centreInScroller(element, listRef.current);
       highlightRow(element, seeding);
     });
-    return () => cancelAnimationFrame(frame);
   });
+  useEffect(() => () => cancelAnimationFrame(seedFrame.current), []);
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const renderOption = (
     item: string,

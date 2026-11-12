@@ -119,21 +119,27 @@ public final class TabCloseSelection {
     }
 
     /// The tab a pane selects after `closed` left it: a tab it opened, a tab its opener opened, its
-    /// opener, else the next shown tab, and the previous one only when it was the last. `old` is the
-    /// pane's order before, `tabs` its tabs now, `hidden` the members of a collapsed group. Call it
+    /// opener, its group's next tab (else the one before it in the group), else the next shown tab, and the
+    /// previous one only when it was the last. `old` is the pane's order before, `tabs` its tabs now,
+    /// `hidden` the members of a collapsed group, `groups` each grouped tab's group (the closed tab's too). Call it
     /// before ``settle(_:lists:before:closing:)`` for the tabs that left in this change.
-    public func successor(of closed: String, old: [String], tabs: [String], hidden: Set<String> = []) -> String? {
+    public func successor(of closed: String, old: [String], tabs: [String], hidden: Set<String> = [],
+                          groups: [String: String] = [:]) -> String? {
         let shown = hidden.isEmpty ? Set(tabs) : Set(tabs).subtracting(hidden)
-        guard !known.isEmpty else { return openers.successor(ofTab: closed, old: old, surviving: tabs, shown: shown) }
-        let pick = openers.successor(ofTab: id(closed), old: old.map { id($0) }, surviving: tabs.map { id($0) }, shown: Set(shown.map { id($0) }))
+        guard !known.isEmpty else { return openers.successor(ofTab: closed, old: old, surviving: tabs, shown: shown, groups: groups) }
+        let mapped = Dictionary(groups.map { (id($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
+        let pick = openers.successor(ofTab: id(closed), old: old.map { id($0) }, surviving: tabs.map { id($0) }, shown: Set(shown.map { id($0) }),
+                                     groups: mapped)
         return pick.map { shownAs[$0] ?? $0 }
     }
 
     /// Same, for a strip's own ids (`TabStripModel.closeSuccessor`).
-    public func successor(of closed: StripTabID, old: [StripTabID], surviving: [StripTabID], shown: Set<StripTabID>) -> StripTabID? {
+    public func successor(of closed: StripTabID, old: [StripTabID], surviving: [StripTabID], shown: Set<StripTabID>,
+                          groups: [StripTabID: String] = [:]) -> StripTabID? {
         let tabs = surviving.map(\.rawValue)
         let hidden = Set(tabs).subtracting(shown.map(\.rawValue))
-        return successor(of: closed.rawValue, old: old.map(\.rawValue), tabs: tabs, hidden: hidden).map { StripTabID($0) }
+        let groups = Dictionary(groups.map { ($0.key.rawValue, $0.value) }, uniquingKeysWith: { first, _ in first })
+        return successor(of: closed.rawValue, old: old.map(\.rawValue), tabs: tabs, hidden: hidden, groups: groups).map { StripTabID($0) }
     }
 
     /// Tabs that took another tab's place in a pane (new to old, `TabStripModel.successors`): each keeps
