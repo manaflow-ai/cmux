@@ -78,7 +78,7 @@ NO_HOME = {"verdict": "fail", "pid": 4242, "exit": None,
 # The app stayed up with Home shown and said two times that its daemon is not connected (the harness's word).
 DAEMON_DOWN = {"verdict": "fail", "pid": 4242, "exit": None, "crash_reports": [], "run_exceptions": [],
                "daemon_down": "the app's daemon (cmux-tui) was not connected when the watch ended (disconnected) "
-                              "and 5s later (disconnected)"}
+                              "and at the next read (disconnected)"}
 DAEMON_DOWN["failures"] = [DAEMON_DOWN["daemon_down"]]
 
 
@@ -112,24 +112,58 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(smoke.attempt_result(1, report), smoke.CRASH)
 
     def test_a_daemon_that_was_down_at_the_end_of_the_watch_holds_as_a_crash_holds(self) -> None:
-        # A build that shows Home with a dead daemon cannot be used. It is evidence of the app as its end is,
-        # with the same rule: one attempt holds nothing, both attempts hold the build.
-        self.assertEqual(smoke.attempt_result(1, DAEMON_DOWN), smoke.CRASH)
-        self.assertEqual(smoke.attempt_result(124, DAEMON_DOWN), smoke.CRASH)
-        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN)]), smoke.CANNOT_RUN)
-        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, DAEMON_DOWN)]), smoke.CRASH)
-        self.assertEqual(smoke.verdict([(1, RAN), (124, DAEMON_DOWN)]), smoke.CRASH)
-        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (0, PASSED)]), smoke.PASS)
-        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, NO_HOME)]), smoke.CANNOT_RUN)
-        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (3, NO_LAUNCH)]), smoke.CANNOT_RUN)
+        # A build that shows Home with a dead daemon cannot be used. For the publish gate (daemon=True, its
+        # --daemon) it is evidence of the app as its end is, with the same rule: one attempt holds nothing, both
+        # attempts hold the build.
+        self.assertEqual(smoke.attempt_result(1, DAEMON_DOWN, True), smoke.CRASH)
+        self.assertEqual(smoke.attempt_result(124, DAEMON_DOWN, True), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN)], daemon=True), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, DAEMON_DOWN)], daemon=True), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, RAN), (124, DAEMON_DOWN)], daemon=True), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (0, PASSED)], daemon=True), smoke.PASS)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, NO_HOME)], daemon=True), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (3, NO_LAUNCH)], daemon=True), smoke.CANNOT_RUN)
         # Only with the harness's verdict and its launch: the word alone is no evidence.
         for report in ({**DAEMON_DOWN, "verdict": "pass"}, {**DAEMON_DOWN, "pid": None},
                        {k: v for k, v in DAEMON_DOWN.items() if k != "verdict"}, {**DAEMON_DOWN, "daemon_down": None},
                        {**DAEMON_DOWN, "daemon_down": ""}):
-            self.assertEqual(smoke.attempt_result(1, report), smoke.CANNOT_RUN, report)
-            self.assertEqual(smoke.attempt_result(124, report), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.attempt_result(1, report, True), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.attempt_result(124, report, True), smoke.CANNOT_RUN, report)
         for status in (0, 2, 3, 143, 137, -1):
-            self.assertEqual(smoke.attempt_result(status, DAEMON_DOWN), smoke.CANNOT_RUN, status)
+            self.assertEqual(smoke.attempt_result(status, DAEMON_DOWN, True), smoke.CANNOT_RUN, status)
+
+    def test_the_post_publish_smoke_never_rolls_a_build_back_for_its_daemon(self) -> None:
+        # The daemon check is the publish gate's alone (FABLE LEAD, 2026-11-12: a feed rollback and an issue
+        # "crashed at launch" are acts on a published nightly, and a daemon that is down after the gate passed the
+        # same build is more probably the host's). The post-publish smoke asks for its verdict with no --daemon:
+        # a report that says `daemon_down` is for it what it was before the check, never a crash.
+        self.assertEqual(smoke.attempt_result(1, DAEMON_DOWN), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.attempt_result(124, DAEMON_DOWN), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, DAEMON_DOWN)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, RAN), (1, DAEMON_DOWN)]), smoke.CANNOT_RUN)
+        with tempfile.TemporaryDirectory() as tmp:
+            for n in (1, 2):
+                (Path(tmp) / f"attempt-{n}").mkdir()
+                (Path(tmp) / f"attempt-{n}" / "report.json").write_text(json.dumps(DAEMON_DOWN))
+                (Path(tmp) / f"status-{n}").write_text("1\n")
+
+            def said(*extra: str) -> str:
+                return subprocess.run([sys.executable, smoke.__file__, *extra], capture_output=True, text=True,
+                                      check=True).stdout.strip()
+
+            self.assertEqual(said("verdict", "--dir", tmp), smoke.CANNOT_RUN)
+            self.assertEqual(said("attempt", "--dir", tmp, "--number", "2"), smoke.CANNOT_RUN)
+            self.assertEqual(said("verdict", "--dir", tmp, "--daemon"), smoke.CRASH)
+            self.assertEqual(said("attempt", "--dir", tmp, "--number", "2", "--daemon"), smoke.CRASH)
+        # Who asks: the gate script, in its harness call and its 2 reads; no other caller of the 2 scripts.
+        ci = ROOT / "scripts" / "ci"
+        gate = GATE.read_text()
+        self.assertIn('attempt --dir "$dir" --number "$attempt" --daemon 2>/dev/null', gate)
+        self.assertIn('verdict --dir "$dir" --daemon)"', gate)
+        for other in (ROOT / ".github" / "workflows" / "nightly-next-launch-smoke.yml",
+                      ROOT / ".github" / "workflows" / "stable-next.yml", ci / "stable-next-smoke.sh",
+                      ci / "stable_next_ui_journey.py"):
+            self.assertNotIn("--daemon", other.read_text(), other.name)
 
     def test_a_clean_exit_or_missing_app_evidence_is_not_a_launch_crash(self) -> None:
         report = {"verdict": "fail", "pid": 4242, "exit": 0, "failures": ["Home did not render"]}
@@ -598,6 +632,8 @@ class GateScriptTests(unittest.TestCase):
                 "        open(os.path.join(out, 'report.json'), 'w').write(json.dumps(said))\n"
                 "        sys.exit(143)\n"
                 "    signal.signal(signal.SIGTERM, cut)\n    time.sleep(30)\n"
+                # As the real harness: the daemon is read only for a caller that asks (--daemon), else a pass.
+                "if 'daemon-down' in kind and '--daemon' not in sys.argv:\n    kind = 'pass'\n"
                 "empty = {'verdict': 'pass', 'exit': None}\n"
                 "report = {'pass': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
@@ -704,7 +740,7 @@ class GateScriptTests(unittest.TestCase):
     def test_the_gate_asks_the_harness_for_both_homes_in_its_one_call(self) -> None:
         text = GATE.read_text()
         self.assertEqual(text.count("fresh_home_launch_smoke.py\" \\\n"), 1)  # one call: no second launch step
-        self.assertIn('--dmg "$dmg" --out "$out" --arms empty,seeded &', text)
+        self.assertIn('--dmg "$dmg" --out "$out" --arms empty,seeded --daemon &', text)
 
     def test_what_could_not_run_never_holds_the_build(self) -> None:
         status, output, _ = self.run_gate(["cannot-run"])

@@ -4,10 +4,13 @@
 The feed publishes without waiting on anything here. After a build is on the feed, the workflow
 launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this script decides:
 
-  verdict --dir DIR
+  verdict --dir DIR [--daemon]
       The verdict of up to two harness runs (DIR/status-N and DIR/attempt-N/report.json). An attempt
       crashed only on the harness's own evidence: exit 1, report verdict fail, and the launched app's
-      pid, plus a nonzero app exit, a crash report, or an uncaught exception in that report. A live
+      pid, plus a nonzero app exit, a crash report, or an uncaught exception in that report. With
+      --daemon (the publish gate only, never this post-publish smoke: a rollback of a published build
+      is not decided by it) also the harness's word that the app showed Home and its daemon was not
+      connected when the watch ended (`daemon_down`: the app is up and cannot be used). A live
       app that never rendered Home is a failed smoke, but is not a launch crash and cannot trigger a
       rollback. Anything else could not run (no GUI session, no app, a hop or harness error before
       launch). A crash counts only when both attempts crashed: a check cut short after one crash (a
@@ -15,7 +18,7 @@ launches it from a fresh home (scripts/ci/fresh_home_launch_smoke.py) and this s
       watchdog stopped (status 124) is read by its report in the same way: a crash when the harness had
       already seen the app end, else cannot-run. Prints pass, crash or cannot-run.
 
-  attempt --dir DIR --number N
+  attempt --dir DIR --number N [--daemon]
       The result of harness run N alone (pass, crash or cannot-run). The publish gate asks it after an
       attempt that its watchdog stopped: only a crash gets the second attempt.
 
@@ -70,11 +73,14 @@ NIGHTLY_CHANNELS = (None, "cmux-next-stable", "cmux-next")
 LOG_TAIL = 40
 
 
-def attempt_result(status: int, report: dict) -> str:
+def attempt_result(status: int, report: dict, daemon: bool = False) -> str:
     """One harness run's result.
 
     A crash needs both the harness's evidence that the app ran (exit 1, a failed report and its pid)
     and evidence from the app itself: a nonzero process exit, a crash report or an uncaught exception.
+    With DAEMON (the publish gate's --daemon) also its own word, two times, that its daemon is not
+    connected after Home rendered (the harness's `daemon_down`: the app is up and takes no key). That
+    counts as a crash counts, with the same rule. Without DAEMON such a report is cannot-run, as before.
     A failed report from a live app that never rendered Home is not a launch crash, so it cannot roll a
     build back. Exit 1 without the harness or app evidence (a console-session hop or setup error) could
     not run.
@@ -91,15 +97,16 @@ def attempt_result(status: int, report: dict) -> str:
     exit_status = report.get("exit")
     app_crashed = (
         isinstance(exit_status, int) and not isinstance(exit_status, bool) and exit_status != 0
-    ) or bool(report.get("crash_reports")) or bool(report.get("run_exceptions"))
+    ) or bool(report.get("crash_reports")) or bool(report.get("run_exceptions")) or (
+        daemon and bool(report.get("daemon_down")))
     if status in (1, CUT) and report.get("verdict") == "fail" and report.get("pid") and app_crashed:
         return CRASH
     return CANNOT_RUN
 
 
-def verdict(attempts: list[tuple[int, dict]], required: int = 2) -> str:
+def verdict(attempts: list[tuple[int, dict]], required: int = 2, daemon: bool = False) -> str:
     for status, report in attempts:
-        result = attempt_result(status, report)
+        result = attempt_result(status, report, daemon)
         if result != CRASH:
             return result
     # Every attempt crashed; fewer than REQUIRED means the check was cut short (a timeout).
@@ -288,9 +295,11 @@ def main(argv: list[str] | None = None) -> int:
     k.add_argument("--build", default="")
     v = sub.add_parser("verdict")
     v.add_argument("--dir", type=Path, required=True)
+    v.add_argument("--daemon", action="store_true", help="a daemon_down report counts as a crash counts")
     a = sub.add_parser("attempt")  # one attempt's result (pass, crash or cannot-run), for the gate's loop
     a.add_argument("--dir", type=Path, required=True)
     a.add_argument("--number", type=int, required=True)
+    a.add_argument("--daemon", action="store_true", help="a daemon_down report counts as a crash counts")
     d = sub.add_parser("decide")
     d.add_argument("--feed", type=Path, required=True)
     d.add_argument("--build", type=int, required=True)
@@ -332,10 +341,11 @@ def main(argv: list[str] | None = None) -> int:
                   "queued or running; this tick does not start another", file=sys.stderr)
         print(f"in_flight={run or ''}")
     elif args.command == "verdict":
-        print(verdict(read_attempts(args.dir)))
+        print(verdict(read_attempts(args.dir), daemon=args.daemon))
     elif args.command == "attempt":
         attempts = read_attempts(args.dir)
-        print(attempt_result(*attempts[args.number - 1]) if 0 < args.number <= len(attempts) else CANNOT_RUN)
+        print(attempt_result(*attempts[args.number - 1], args.daemon) if 0 < args.number <= len(attempts)
+              else CANNOT_RUN)
     elif args.command == "decide":
         print(json.dumps(decide(args.feed.read_text(encoding="utf-8"), args.build, args.verdict)))
     else:

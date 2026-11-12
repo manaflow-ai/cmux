@@ -49,9 +49,13 @@ not its crash. A report that names no process is no crash alone, in either
 arm: it counts only beside the end of the launch's app (CRASH_FILTER). Without
 --arms only the empty home is launched, as before.
 
+--daemon (the publish gate only): a build with a dead daemon (cmux-tui) shows Home and takes no key. So each
+arm asks the app when its watch ends: a daemon failure, or a daemon that is not connected then and
+DAEMON_REREAD_SECONDS later, fails the launch (report.json's `daemon_down`).
+
 Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
            [--startup-timeout S] [--out DIR] [--arms empty[,seeded]]
-           [--seeded-seconds S]
+           [--seeded-seconds S] [--daemon]
 
 --dmg copies the app out of the DMG (mounted read-only, detached at once);
 --app copies it too. Every process the run starts runs from its private root
@@ -123,6 +127,7 @@ NOT_COUNTED = "not-counted"
 # The seeded arm's bounds, so both arms fit in one attempt of the publish gate (launch-smoke-gate.sh, 240 s):
 # how long Home may take to render in it, and how long after launch the sync may take to read the store.
 SEEDED_STARTUP_LIMIT = 45.0
+DAEMON_REREAD_SECONDS = 5.0
 SEEDED_SCAN_WAIT = 30.0
 # The seeded source (ImportSourceRecord.sourceKey is BROWSER/PROFILE). The browser is made up, in no row of the
 # app's browser table (browser-sources.json): the app has a Keychain item name ("Chrome Safe Storage") only for a
@@ -417,7 +422,7 @@ class DefaultsAside:
         return False
 
 
-def snapshot(socket_path: Path, timeout: float = 5.0) -> dict | None:
+def snapshot(socket_path: Path, timeout: float = 5.0, request: int = 1) -> dict | None:
     """snapshot.get over the release control socket (newline-delimited JSON), None while it does not answer."""
     if not socket_path.exists():
         return None
@@ -425,7 +430,7 @@ def snapshot(socket_path: Path, timeout: float = 5.0) -> dict | None:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
             sock.settimeout(timeout)
             sock.connect(str(socket_path))
-            sock.sendall(b'{"id": 1, "method": "snapshot.get", "params": {}}\n')
+            sock.sendall(b'{"id": %d, "method": "snapshot.get", "params": {}}\n' % request)
             buffer = b""
             while b"\n" not in buffer:
                 chunk = sock.recv(1 << 20)
@@ -437,6 +442,34 @@ def snapshot(socket_path: Path, timeout: float = 5.0) -> dict | None:
         return None
     result = reply.get("result")
     return result if isinstance(result, dict) else None
+
+
+def daemon_at_end(socket_path: Path) -> list[dict]:
+    """The app's daemon_state and daemon_failure (snapshot.get topology): one read, and when it is not clean one
+    more DAEMON_REREAD_SECONDS later (a reconnect in work). No answer or no such field (None) is not judged."""
+    reads: list[dict] = []
+    for request in (2, 3):
+        snap = snapshot(socket_path, request=request)
+        topology = (snap or {}).get("topology") or {}
+        state = topology.get("daemon_state")
+        reads.append({"state": state if isinstance(state, str) else None,
+                      "failure": str(topology.get("daemon_failure") or "")[:300] or None})
+        # Said each time: a silence is not read as a pass.
+        log(f"daemon: {reads[-1]['state'] or 'not judged (' + ('no field' if snap else 'no answer') + ')'}")
+        if request == 3 or (reads[0]["state"] in (None, "connected") and not reads[0]["failure"]):
+            break
+        time.sleep(float(os.environ.get("CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS", DAEMON_REREAD_SECONDS)))
+    return reads
+
+
+def daemon_down(reads: list[dict] | None) -> str | None:
+    """Why READS (daemon_at_end) fail the launch: the last tells a daemon failure, or both are not connected."""
+    if reads and reads[-1]["failure"]:
+        return f"the app's daemon (cmux-tui) failed: {reads[-1]['failure']}"
+    if reads and len(reads) == 2 and all(read["state"] not in (None, "connected") for read in reads):
+        return (f"the app's daemon (cmux-tui) was not connected when the watch ended ({reads[0]['state']}) "
+                f"and at the next read ({reads[1]['state']})")
+    return None
 
 
 def visible_windows(snap: dict | None) -> int:
@@ -792,11 +825,14 @@ def screenshot(out: Path) -> str | None:
 
 
 def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_path: Path,
-          seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0) -> dict:
+          seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0,
+          daemon: bool = False) -> dict:
     """Until SECONDS have passed with Home rendered (or STARTUP_TIMEOUT without it), or the app exits.
 
     SEED (the seeded arm): the callers' READY does not apply, and once Home rendered the watch also goes on until
-    the app's cookie sync saved its baseline of the seeded store, at most SCAN_WAIT seconds after launch."""
+    the app's cookie sync saved its baseline of the seeded store, at most SCAN_WAIT seconds after launch.
+
+    DAEMON: with Home rendered and the app up, daemon_at_end; not with a caller's READY, which is not Home."""
     os.set_blocking(marks_fd, False)
     started = time.monotonic()
     snap, rendered_at, status, scan, scanned_at = None, None, None, None, None
@@ -831,8 +867,12 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 if seed is None or scan is not None or rendered_at is None or elapsed >= scan_wait:
                     break
             time.sleep(0.25)
-    seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status,
-            "seconds_up": round(time.monotonic() - started, 1)}
+    reads = None
+    if daemon and status is None and rendered_at is not None and ready is None:
+        reads = daemon_at_end(socket_path)
+        status = process.poll()
+    seen = {"snapshot": snap, "rendered_at": rendered_at, "exit": status, "daemon": reads,
+            "daemon_down": daemon_down(reads), "seconds_up": round(time.monotonic() - started, 1)}
     if seed is not None:
         seen["cookie_sync"] = {**seed, "scanned_at": scanned_at, "scanned_hosts": (scan or {}).get("hosts")}
     return seen
@@ -977,7 +1017,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
                 startup = min(max(args.seeded_seconds, args.startup_timeout), SEEDED_STARTUP_LIMIT)
                 scan_wait = float(os.environ.get("CMUX_FRESH_SMOKE_SEEDED_SCAN_WAIT_SECONDS", SEEDED_SCAN_WAIT))
                 seen.update(watch(process, marks_read, marks_path, socket_path, args.seeded_seconds, startup,
-                                  seed=seed, scan_wait=max(args.seeded_seconds, scan_wait)))
+                                  seed=seed, scan_wait=max(args.seeded_seconds, scan_wait), daemon=args.daemon))
             finally:
                 stop_child(process)
                 stop(own_pids(root))
@@ -1012,8 +1052,10 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
     if seen["rendered_at"] is None and status is None:
         failures.append(f"Home did not render within {elapsed:.0f}s (visible windows {visible_windows(seen['snapshot'])}, "
                         f"{RENDER_MARK} {'seen' if RENDER_MARK in seen['marks'] else 'missing'})")
+    if seen["daemon_down"]:
+        failures.append(seen["daemon_down"])
     arm.update({key: seen[key] for key in ("exit", "seconds_up", "rendered_at", "crash_reports", "run_exceptions",
-                                           "cookie_sync")})
+                                           "cookie_sync", "daemon", "daemon_down")})
     arm["crash_reports_late"] = seen["crash_reports_late"] = []
     if failures:
         seen["failures"] = [f"seeded home: {failure}" for failure in failures]
@@ -1068,7 +1110,8 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
     def failed() -> None:
         """The report describes the seeded launch: at its verdict, so that a run cut in the evidence has it."""
         for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
-                    "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync"):
+                    "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync",
+                    "daemon", "daemon_down"):
             report.pop(key, None)
             if key in seen:
                 report[key] = seen[key]
@@ -1130,7 +1173,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         os.close(marks_write)
         try:
             seen = watch(process, marks_read, marks_path, socket_path, args.seconds,
-                         max(args.seconds, args.startup_timeout))
+                         max(args.seconds, args.startup_timeout), daemon=args.daemon)
         finally:
             os.close(marks_read)
         report.update(seen)
@@ -1177,6 +1220,8 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
                         f"Home tab {'selected' if report['home_tab'] else 'not selected'}, "
                         f"{RENDER_MARK} {'seen' if RENDER_MARK in report['marks'] else 'missing'}, "
                         f"{FIRST_RUN_MARK} {'seen' if FIRST_RUN_MARK in report['marks'] else 'missing'})")
+    if seen["daemon_down"]:
+        failures.append(seen["daemon_down"])
     if not failures:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
@@ -1215,6 +1260,8 @@ def main(argv: list[str] | None = None) -> int:
                              "imported cookies are kept in sync")
     parser.add_argument("--seeded-seconds", type=float, default=10.0,
                         help="how long the app must stay up in the seeded arm")
+    parser.add_argument("--daemon", action="store_true",
+                        help="also fail a launch whose daemon is not connected when the watch ends")
     args = parser.parse_args(argv)
     # Evidence stays readable by the runner account when this runs as the console user (a sudo hop).
     os.umask(0o022)

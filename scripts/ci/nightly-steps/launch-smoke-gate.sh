@@ -22,9 +22,13 @@
 #   pass        exit 0.
 #   crash       exit 1: the app launched and then exited, wrote a crash report or recorded an
 #               uncaught exception, on both of two attempts (nightly_next_launch_smoke.py verdict),
-#               from either home. A live app that never renders Home is a failed smoke but does not
-#               trigger rollback. An attempt that the watchdog cut counts when its report already
-#               says so: the harness writes its verdict before it keeps the evidence, and a build
+#               from either home. The same holds for an app that shows Home and says, when the
+#               harness's watch ends and again 5 s later, that its daemon is not connected (the
+#               report's `daemon_down`; --daemon, asked here only: the post-publish smoke does not
+#               ask, so a daemon never rolls a published build back). A live app that never renders
+#               Home is a failed smoke but does not trigger rollback. An attempt that the watchdog
+#               cut counts when its report already says so: the harness writes its verdict before
+#               it keeps the evidence, and a build
 #               that crashed in both attempts is not published because the evidence was slow.
 #   cannot-run  exit 0 with a warning: no GUI session, a harness or infrastructure error before the
 #               app launched, or a check cut short of a verdict. The smoke never holds a build the harness could
@@ -72,7 +76,7 @@ for attempt in 1 2; do
   rm -f "${out:?}/report.json" || cannot_run "an old report in $out cannot be removed"
   status=0
   "$ci/frame-pacing/console-session.sh" python3 -I "$ci/fresh_home_launch_smoke.py" \
-    --dmg "$dmg" --out "$out" --arms empty,seeded &
+    --dmg "$dmg" --out "$out" --arms empty,seeded --daemon &
   pid=$!
   # The watchdog bounds an attempt, so a hung harness never holds the job until its step timeout
   # (which would fail it like a crash). It sends SIGTERM, which the harness handles by stopping the
@@ -94,10 +98,10 @@ for attempt in 1 2; do
   echo "launch smoke attempt $attempt: exit $status"
   [ "$status" = 1 ] && continue
   # A cut attempt gets its second attempt only when it is a crash; any other cut ends the check.
-  [ "$status" = 124 ] && [ "$(python3 -I "$ci/nightly_next_launch_smoke.py" attempt --dir "$dir" --number "$attempt" 2>/dev/null)" = crash ] || break
+  [ "$status" = 124 ] && [ "$(python3 -I "$ci/nightly_next_launch_smoke.py" attempt --dir "$dir" --number "$attempt" --daemon 2>/dev/null)" = crash ] || break
 done
 
-verdict="$(python3 -I "$ci/nightly_next_launch_smoke.py" verdict --dir "$dir")" || cannot_run "the verdict could not be read"
+verdict="$(python3 -I "$ci/nightly_next_launch_smoke.py" verdict --dir "$dir" --daemon)" || cannot_run "the verdict could not be read"
 last=""
 for d in "$dir"/attempt-1 "$dir"/attempt-2; do [ -d "$d" ] && last="$d"; done
 crashes=()
@@ -126,11 +130,15 @@ if verdict != "pass":
       printf '\nSeeded home: %s. The empty home passed; the build is not held.\n' "$unchecked" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
     fi ;;
   crash)
-    # Which home the last crash was in: report.json's `arm` (empty, or seeded when the empty home passed).
-    home="$(python3 -I -c 'import json, sys
-arm = json.load(open(sys.argv[1])).get("arm")
-print("a seeded home (imported-cookie sync on)" if arm == "seeded" else "a fresh home")' "$last/report.json" 2>/dev/null)"
-    echo "::error title=nightly-next launch smoke::the app crashed at launch from ${home:-a fresh home} on both attempts; this build is not published"
+    # Which home the last failure was in: report.json's `arm` (empty, or seeded when the empty home passed). And
+    # what it was: the app's end, or (`daemon_down` alone) a live app whose daemon was not connected.
+    what="$(python3 -I -c 'import json, sys
+report = json.load(open(sys.argv[1]))
+home = "a seeded home (imported-cookie sync on)" if report.get("arm") == "seeded" else "a fresh home"
+ended = report.get("exit") or report.get("crash_reports") or report.get("run_exceptions")
+daemon = report.get("daemon_down") and not ended
+print(("the app'"'"'s daemon was not connected after launch" if daemon else "the app crashed at launch") + " from " + home)' "$last/report.json" 2>/dev/null)"
+    echo "::error title=nightly-next launch smoke::${what:-the app crashed at launch from a fresh home} on both attempts; this build is not published"
     exit 1 ;;
   *) cannot_run "the smoke could not run here (verdict $verdict)" ;;
 esac

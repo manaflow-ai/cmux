@@ -1219,60 +1219,67 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                     self.assertFalse(pid and smoke.alive(pid), "an app outlived the stopped run")
                 self.assert_cleaned_up(report)
 
-    # The daemon check. A NEXT build whose daemon (cmux-tui) is dead shows Home and takes no key: the app stays up,
-    # so the watch of the app's process alone said PASS for it.
+    # The daemon check (--daemon: the publish gate asks for it, the post-publish smoke does not). A NEXT build whose
+    # daemon (cmux-tui) is dead shows Home and takes no key: the app stays up, so the watch of the app's process
+    # alone said PASS for it.
     CONNECTED = {"state": "connected", "failure": None}
     DISCONNECTED = {"state": "disconnected", "failure": None}
 
     def test_a_daemon_that_is_not_connected_when_the_watch_ends_fails_the_launch(self):
         verdicts = gate_verdicts()
-        status, output, report = self.run_smoke("healthy@down", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("healthy@down", "--seconds", "2", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual(report["verdict"], "fail")
         self.assertIsNone(report["exit"])  # the app is up: only its word on the daemon fails the launch
         self.assertIsNotNone(report["rendered_at"])
         self.assertEqual(report["daemon"], [self.DISCONNECTED, self.DISCONNECTED])
-        self.assertRegex(report["failures"][0], r"daemon .* not connected .*\(disconnected\) and 0\.2s later \(disconnected\)")
+        self.assertRegex(report["failures"][0],
+                         r"daemon .* not connected .*\(disconnected\) and at the next read \(disconnected\)")
         self.assertEqual(report["daemon_down"], report["failures"][0])
         self.assertIn("FAIL: the app's daemon", output)
+        self.assertEqual(output.count("daemon: disconnected\n"), 2, output)
         self.assert_cleaned_up(report)
         # For the publish gate it is evidence as the app's end is: one attempt holds nothing, both hold the build.
-        self.assertEqual(verdicts.attempt_result(1, report), verdicts.CRASH)
-        self.assertEqual(verdicts.attempt_result(124, report), verdicts.CRASH)
-        self.assertEqual(verdicts.verdict([(1, report)]), verdicts.CANNOT_RUN)
-        self.assertEqual(verdicts.verdict([(1, report), (1, report)]), verdicts.CRASH)
+        self.assertEqual(verdicts.attempt_result(1, report, True), verdicts.CRASH)
+        self.assertEqual(verdicts.attempt_result(124, report, True), verdicts.CRASH)
+        self.assertEqual(verdicts.verdict([(1, report)], daemon=True), verdicts.CANNOT_RUN)
+        self.assertEqual(verdicts.verdict([(1, report), (1, report)], daemon=True), verdicts.CRASH)
+        # And for a caller that does not ask (the post-publish smoke's verdict) it is no crash.
+        self.assertEqual(verdicts.verdict([(1, report), (1, report)]), verdicts.CANNOT_RUN)
 
     def test_a_daemon_that_is_connected_again_at_the_second_read_is_no_failure(self):
         # A reconnect in work when the watch ends: the app says "not connected" one time and "connected" the next.
-        status, output, report = self.run_smoke("healthy@reconnects", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("healthy@reconnects", "--seconds", "2", "--startup-timeout", "10",
+                                                "--daemon")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report.get("daemon"), [self.DISCONNECTED, self.CONNECTED], output)
         self.assertIsNone(report["daemon_down"])
-        self.assertIn("note: the app's daemon is disconnected at the end of the watch", output)
+        self.assertIn("\ndaemon: disconnected\ndaemon: connected\n", output)
         self.assert_cleaned_up(report)
 
     def test_a_connected_daemon_is_read_one_time_and_adds_no_wait(self):
         env = {**self.env, "CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS": "600"}  # a second read would end the run's bound
         status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10", "--arms",
-                                                "empty,seeded", "--seeded-seconds", "2", env=env)
+                                                "empty,seeded", "--seeded-seconds", "2", "--daemon", env=env)
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report.get("daemon"), [self.CONNECTED], output)
         self.assertEqual(report["arms"]["seeded"]["daemon"], [self.CONNECTED])
         self.assertNotIn("the app's daemon", output)
+        self.assertEqual(output.count("daemon: connected\n"), 2, output)  # each arm says what it read
         self.assert_cleaned_up(report)
 
     def test_a_daemon_failure_that_the_app_tells_fails_the_launch(self):
-        status, output, report = self.run_smoke("healthy@failed", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("healthy@failed", "--seconds", "2", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual(report["daemon"][-1], {"state": "failed", "failure": "cmux-tui did not start"})
         self.assertIn("cmux-tui did not start", report["daemon_down"])
-        self.assertEqual(gate_verdicts().attempt_result(1, report), gate_verdicts().CRASH)
+        self.assertEqual(gate_verdicts().attempt_result(1, report, True), gate_verdicts().CRASH)
         self.assert_cleaned_up(report)
 
     def test_a_daemon_that_is_down_in_the_seeded_home_fails_the_run_as_that_arms_failure(self):
         verdicts = gate_verdicts()
         status, output, report = self.run_smoke("healthy@seeded-down", "--seconds", "2", "--startup-timeout", "10",
-                                                "--arms", "empty,seeded", "--seeded-seconds", "2")
+                                                "--arms", "empty,seeded", "--seeded-seconds", "2", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertEqual(report["arm"], smoke.SEEDED)
         self.assertEqual(report["arms"]["empty"]["verdict"], "pass")
@@ -1284,30 +1291,50 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(report["failures"], [f"seeded home: {report['daemon_down']}"])
         self.assertEqual(report["arms"]["seeded"]["daemon_down"], report["daemon_down"])
         self.assertIn("FAIL: seeded home: the app's daemon", output)
-        self.assertEqual(verdicts.attempt_result(1, report), verdicts.CRASH)
-        self.assertEqual(verdicts.verdict([(1, report), (124, report)]), verdicts.CRASH)
+        self.assertEqual(verdicts.attempt_result(1, report, True), verdicts.CRASH)
+        self.assertEqual(verdicts.verdict([(1, report), (124, report)], daemon=True), verdicts.CRASH)
         self.assert_cleaned_up(report)
 
     def test_what_the_daemon_check_does_not_judge(self):
         verdicts = gate_verdicts()
         # A build whose snapshot has no word on the daemon (one from before the field): not judged.
-        status, output, report = self.run_smoke("healthy@none", "--seconds", "2", "--startup-timeout", "10")
+        status, output, report = self.run_smoke("healthy@none", "--seconds", "2", "--startup-timeout", "10", "--daemon")
         self.assertEqual(status, smoke.PASS, output)
         self.assertEqual(report.get("daemon"), [{"state": None, "failure": None}], output)
+        self.assertIn("\ndaemon: not judged (no field)\n", output)  # said: a silence is not read as a pass
         # A launch that never showed Home fails as before and is no crash for the gate: the daemon is not read
         # (Home's render is the proof that it was connected one time).
-        status, output, report = self.run_smoke("no-home@down", "--seconds", "2", "--startup-timeout", "3")
+        status, output, report = self.run_smoke("no-home@down", "--seconds", "2", "--startup-timeout", "3", "--daemon")
         self.assertEqual(status, smoke.FAIL, output)
         self.assertIn("Home did not render", report["failures"][0])
         self.assertEqual(len(report["failures"]), 1)
         self.assertFalse(report.get("daemon") or report.get("daemon_down"), report)
-        self.assertEqual(verdicts.attempt_result(1, report), verdicts.CANNOT_RUN)
+        self.assertEqual(verdicts.attempt_result(1, report, True), verdicts.CANNOT_RUN)
         # A caller with its own ready state (scripts/cmux-next/idle_cpu.py: any visible window) has no such proof.
         visible = "lambda snap: smoke.visible_windows(snap) > 0"
-        status, output, report = self.run_smoke("new-tab@down", "--seconds", "2", "--startup-timeout", "10", ready=visible)
+        status, output, report = self.run_smoke("new-tab@down", "--seconds", "2", "--startup-timeout", "10", "--daemon",
+                                                ready=visible)
         self.assertEqual(status, smoke.PASS, output)
         self.assertFalse(report.get("daemon") or report.get("daemon_down"), report)
         self.assert_cleaned_up(report)
+
+    def test_without_daemon_the_app_is_not_asked_so_the_post_publish_smoke_says_what_it_said_before(self):
+        # The post-publish smoke (nightly-next-launch-smoke.yml) and each other caller run the harness with no
+        # --daemon. A rollback of a published build is not this check's to start: for them a build with a dead
+        # daemon is what it was before the check, a pass, and the app gets no read more.
+        verdicts = gate_verdicts()
+        env = {**self.env, "CMUX_FRESH_SMOKE_DAEMON_REREAD_SECONDS": "600"}  # a second read would end the run's bound
+        for mode in ("healthy@down", "healthy@failed"):
+            with self.subTest(mode=mode):
+                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10", "--arms",
+                                                        "empty,seeded", "--seeded-seconds", "2", env=env)
+                self.assertEqual(status, smoke.PASS, output)
+                self.assertEqual(report["verdict"], "pass")
+                self.assertFalse(report.get("daemon") or report.get("daemon_down"), report)
+                self.assertFalse(report["arms"]["seeded"].get("daemon") or report["arms"]["seeded"].get("daemon_down"))
+                self.assertNotIn("daemon", output)
+                self.assertEqual(verdicts.verdict([(status, report)]), verdicts.PASS)
+                self.assert_cleaned_up(report)
 
     def test_a_launch_that_the_gate_cuts_while_the_daemon_is_read_again_is_never_a_crash_for_the_gate(self):
         # The app said "not connected" one time and the second read is still to come: that is no verdict. A cut
@@ -1319,13 +1346,13 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                 app, out = make_app(self.dir / f"cut-daemon-{name}", mode), self.dir / f"out-cut-daemon-{name}"
                 harness = subprocess.Popen([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out),
                                             "--startup-timeout", "10", "--arms", "empty,seeded", "--seconds", "2",
-                                            "--seeded-seconds", "2"],
+                                            "--seeded-seconds", "2", "--daemon"],
                                            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
                 lines = []
                 try:
                     for line in harness.stdout:
                         lines.append(line)
-                        if line.startswith("note: the app's daemon is disconnected at the end of the watch"):
+                        if line.startswith("daemon: disconnected"):
                             harness.terminate()
                     status = harness.wait(timeout=60)
                 finally:
@@ -1338,8 +1365,8 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                 self.assertNotEqual(report.get("verdict"), "fail", output)
                 self.assertFalse(report.get("daemon_down"), report)
                 self.assertFalse(((report.get("arms") or {}).get("seeded") or {}).get("daemon_down"), report)
-                self.assertEqual(verdicts.attempt_result(124, report), verdicts.CANNOT_RUN, report)
-                self.assertEqual(verdicts.verdict([(124, report), (124, report)]), verdicts.CANNOT_RUN, report)
+                self.assertEqual(verdicts.attempt_result(124, report, True), verdicts.CANNOT_RUN, report)
+                self.assertEqual(verdicts.verdict([(124, report), (124, report)], daemon=True), verdicts.CANNOT_RUN, report)
                 for pid in (report.get("pid"), ((report.get("arms") or {}).get("seeded") or {}).get("pid")):
                     self.assertFalse(pid and smoke.alive(pid), "an app outlived the stopped run")
                 self.assert_cleaned_up(report)
