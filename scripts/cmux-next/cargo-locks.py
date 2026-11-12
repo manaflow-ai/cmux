@@ -139,6 +139,15 @@ def cargo(args: list[str], cwd: Path, env: dict[str, str], timeout: float = TIME
             err = (err or "") + (rest or "")
         except (subprocess.TimeoutExpired, ValueError):
             pass
+        # SIGKILL lands asynchronously: return once the group is empty (bounded), so nothing of it is still
+        # running when the caller retries or the deadline is reported.
+        until = time.monotonic() + 5
+        while time.monotonic() < until:
+            try:
+                os.killpg(process.pid, 0)
+            except (ProcessLookupError, PermissionError):
+                break
+            time.sleep(0.02)
         waited = ", waiting on cargo's package cache lock" if LOCK_WAIT in (err or "") else ""
         return 124, f"timed out after {timeout:g}s{waited}"
     return process.returncode, err

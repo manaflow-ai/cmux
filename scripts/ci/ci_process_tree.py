@@ -55,6 +55,21 @@ def process_tree(root: int) -> list[tuple[int, str]]:
     return tree
 
 
+def wait_group_gone(pgid: int, seconds: float = KILL_REAP_SECONDS) -> None:
+    """Return once no process is left in group PGID, or after SECONDS. SIGKILL is delivered asynchronously: a
+    member that was sent it may still be running for a moment, and a caller that returns then (and its retry, or
+    the test that checks) would see it alive (cmux#41767 review F1)."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            os.killpg(pgid, 0)
+        except (ProcessLookupError, PermissionError):
+            return
+        if time.monotonic() >= deadline:
+            return
+        time.sleep(0.02)
+
+
 def signal_pid(pid: int, signum: int) -> None:
     try:
         os.kill(pid, signum)
@@ -100,6 +115,8 @@ def terminate(
         process.wait(timeout=KILL_REAP_SECONDS)
     except subprocess.TimeoutExpired:
         pass
+    # The group's other members got SIGKILL whether or not the leader had exited; return once they are gone.
+    wait_group_gone(process.pid)
 
 
 def terminate_pid(
@@ -155,6 +172,7 @@ def terminate_pid(
             if finished:
                 break
             time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+    wait_group_gone(pid)
 
 
 def run_bounded(
