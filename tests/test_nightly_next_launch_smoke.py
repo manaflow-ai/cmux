@@ -50,8 +50,12 @@ GATE = ROOT / "scripts" / "ci" / "nightly-steps" / "launch-smoke-gate.sh"
 
 
 def load(name: str, path: Path):
+    # One module object per file (tests/test_script_module_loads.py): reuse what another test registered.
+    if name in sys.modules:
+        return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 

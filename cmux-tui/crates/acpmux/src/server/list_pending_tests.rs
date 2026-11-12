@@ -40,7 +40,7 @@ async fn hub() -> Arc<crate::hub::Hub> {
         })
         .collect();
     let mut settled = peer.settled();
-    for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+    for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
     }
     tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))
@@ -134,7 +134,7 @@ async fn a_pending_only_list_past_one_page_goes_in_pages() {
         })
         .collect();
     let mut settled = peer.settled();
-    for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+    for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
         hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
     }
     tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))

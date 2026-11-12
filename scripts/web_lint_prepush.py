@@ -1934,6 +1934,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{mode}: refused; nothing was linted. Fix the clone as said above and push again.", file=sys.stderr)
             return 1
         for own in ranges:
+            # The range's note says how its base was chosen, and that a base the refresh could not fetch is this
+            # clone's stale copy (push_range.refresh_base): files a newer base brought in then count as the push's.
+            print(f"{mode}: linting {own.describe()}", file=sys.stderr)
             head = own.head if args.pre_push else args.head
             heads.setdefault(None if args.fix else head, []).extend(own_files(repo, own, head))
 

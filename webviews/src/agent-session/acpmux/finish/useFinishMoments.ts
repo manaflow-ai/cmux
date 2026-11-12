@@ -77,7 +77,8 @@ export function useFinishMoments({
     const pending = pendingSound.current;
     if (!pending || pending.session !== session || !summary || summary.id === pending.seen) return;
     pendingSound.current = undefined;
-    if (!UNFINISHED.has(summary.status ?? "")) playFinishSound("turn");
+    // A page hidden since the turn ended leaves the sound to the Agent Finished notification.
+    if (!UNFINISHED.has(summary.status ?? "") && shown()) playFinishSound("turn");
   };
   // The person pressed Stop on the running turn (the snapshot's `stopping`, at the last render): its
   // end is no success. A refused Stop clears it while the turn goes on, and that turn's end counts.

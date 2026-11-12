@@ -27,6 +27,8 @@ import seed_derived_data as seed  # noqa: E402
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
 from workflow_jobs import holds_secret  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 BUILD_TIME_NS = 1_700_000_000_000_000_000
 FAKE_R2 = """#!/usr/bin/env bash
@@ -1232,7 +1234,7 @@ class Wiring(unittest.TestCase):
             context["matrix"] = {"pool": pool, "root": root}
             context["needs"] = {"decide": {"outputs": {"far": far}}}
             # A string with several ${{ }} parts, each rendered as Actions does.
-            return re.sub(r"\$\{\{(.*?)\}\}", lambda part: str(evaluate(part.group(1), context) or ""),
+            return gh_expressions.EXPRESSION.sub(lambda part: str(evaluate(part.group(1), context) or ""),
                           job["concurrency"]["group"])
 
         self.assertEqual(group("blacksmith-12vcpu-macos-26", "", "[]"), "seed-derived-data-blacksmith-12vcpu-macos-26")

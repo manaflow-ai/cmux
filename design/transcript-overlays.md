@@ -91,6 +91,9 @@ thread."
   - `labeled`: the same glass as a rounded rectangle with the arrow and its words, the Needs you pill's
     shape and type.
   - `stacked`: frosted rounded squares in the Needs you pill's radius, a hairline (`--ds-space-1`) apart.
+  - `single`: the frosted disc alone, no Jump up. Leo, 2026-11-12, of Jump up showing after a jump to the
+    bottom and again on the way up: "which is cute, but... maybe a bit extra?" When Jump up shows is `jumpUp.ts`'s idle
+    gating (#41831); this arm only drops the button.
   - `lens`: the fisheye disc before (Leo, 2026-10-21: "I want more fisheye!"); gallery
     `agent-pane.jump-latest-lens` keeps its strengths and glass levels.
   Every arm keeps the glass (never opaque; Lens and Spectrum glass keep their own tint), the 32 px height
