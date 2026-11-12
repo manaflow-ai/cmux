@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43230048544",
+  "recorded_at": "2026-11-12T13:52:21Z",
+  "reason": "cmux-tui b41886855ab4 changes the image's cmux-tui (pinned 200e3cd97c29)",
+  "dry_run": false,
+  "cmux_tui": "b41886855ab46b5cc1fa1bacc842ad3f13d3fc86",
+  "fixes": [
+    {
+      "sha": "b41886855ab46b5cc1fa1bacc842ad3f13d3fc86",
+      "mergedAt": "2026-11-12T05:28:09-08:00",
+      "subject": "acpmux: RootEntries exists only on macOS, where the folder watch sends it (fixes feat clippy) (#41938)"
+    },
+    {
+      "sha": "ef03605fbd499bf0d75da42fecd3e22c9107a521",
+      "mergedAt": "2026-11-12T05:26:18-08:00",
+      "subject": "acpmux: reply segments survive usage ticks and hidden todo calls (#41540 review F1, F2) (#41937)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T13:52:21Z",
+    "snapshot_id": "sh-62c88a389e2e472c97a53b34afce00cc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43230048544): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "96e5155fd310ddddb1e396aa5faaa8d8b54eb356",
+    "image": "cloud-native-auto-b4188685-43230048544-1",
+    "revision": "ci-43230048544-1",
+    "at": "2026-11-12T13:52:21Z"
+  },
+  "rolled_back": false
+}
