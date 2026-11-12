@@ -26,8 +26,9 @@
 //! route nothing and leave the generations alone: every durable mutation clones the state, and moving them there would
 //! send every key back to the session lock (the F4 delay).
 //!
-//! The generations are process-wide: a daemon runs one `Mux`, and the test runner (nextest) runs each test in its own
-//! process, so no other mux moves them under a test.
+//! The generations belong to one session state ([`RouteGenerations`]): its four tables share them, and the clones and
+//! replacements of that state keep them. Another mux in the same process (`cargo test` runs every test of a crate in
+//! one process, each with its own mux and surface ids from 1) never moves them.
 //!
 //! R-DAEMON-STATE stage S1 (`CMUX_TUI_RDS_INPUT`, handoff/rewrites/R-DAEMON-STATE/DESIGN.md section 2.6) replaces the
 //! kept terminal and its generations with a published snapshot of the three tables ([`RouteSnapshot`]): each table
@@ -47,23 +48,33 @@ use crate::{Surface, SurfaceId};
 
 const ROUTE_SLOTS: usize = 1024;
 
-static ROUTE_GENERATIONS: [AtomicU64; ROUTE_SLOTS] = [const { AtomicU64::new(0) }; ROUTE_SLOTS];
+/// The route generations of one session state: a write to any of its routing tables moves the generations of the
+/// ids it routes, and a kept terminal is checked against them. Clones share them.
+#[derive(Clone, Debug)]
+pub struct RouteGenerations(Arc<[AtomicU64; ROUTE_SLOTS]>);
 
-fn slot(id: SurfaceId) -> &'static AtomicU64 {
-    let index = usize::try_from(id % ROUTE_SLOTS as u64).unwrap_or_default();
-    // The remainder is below ROUTE_SLOTS, so `get` always finds a slot; a shared fallback slot keeps it panic-free.
-    ROUTE_GENERATIONS.get(index).unwrap_or(&ROUTE_GENERATIONS_FALLBACK)
+impl Default for RouteGenerations {
+    fn default() -> Self {
+        Self(Arc::new([const { AtomicU64::new(0) }; ROUTE_SLOTS]))
+    }
 }
 
-static ROUTE_GENERATIONS_FALLBACK: AtomicU64 = AtomicU64::new(0);
+impl RouteGenerations {
+    /// `id`'s slot: the remainder is below ROUTE_SLOTS, so `get` always finds one.
+    fn slot(&self, id: SurfaceId) -> Option<&AtomicU64> {
+        self.0.get(usize::try_from(id % ROUTE_SLOTS as u64).unwrap_or_default())
+    }
 
-/// The route generation of `id`: it moves on every write that changes which surface `id` routes to.
-pub fn route_generation(id: SurfaceId) -> u64 {
-    slot(id).load(Ordering::Acquire)
-}
+    /// The route generation of `id`: it moves on every write that changes which surface `id` routes to.
+    pub fn of(&self, id: SurfaceId) -> u64 {
+        self.slot(id).map_or(0, |slot| slot.load(Ordering::Acquire))
+    }
 
-fn route_changed(id: SurfaceId) {
-    slot(id).fetch_add(1, Ordering::AcqRel);
+    fn changed(&self, id: SurfaceId) {
+        if let Some(slot) = self.slot(id) {
+            slot.fetch_add(1, Ordering::AcqRel);
+        }
+    }
 }
 
 /// The surface ids whose route a write of `(self, value)` changes.
@@ -99,15 +110,27 @@ impl RouteKey<Arc<Surface>> for TerminalPublicId {
     }
 }
 
-/// A routing map whose writes move the [`route_generation`] of the ids they route. The map is copy-on-write behind an
+/// A routing map whose writes move the [`RouteGenerations`] of the ids they route. The map is copy-on-write behind an
 /// `Arc`, so the session state's guard can publish it with no copy ([`RouteSnapshot`]); the first write after a
 /// publication copies the map once.
 #[derive(Clone, Debug)]
-pub struct RouteTable<K, V>(Arc<HashMap<K, V>>);
+pub struct RouteTable<K, V>(Arc<HashMap<K, V>>, RouteGenerations);
 
 impl<K, V> Default for RouteTable<K, V> {
     fn default() -> Self {
-        Self(Arc::new(HashMap::new()))
+        Self::with_generations(RouteGenerations::default())
+    }
+}
+
+impl<K, V> RouteTable<K, V> {
+    /// An empty table whose writes move `generations` (the session state's, shared by its four tables).
+    pub fn with_generations(generations: RouteGenerations) -> Self {
+        Self(Arc::new(HashMap::new()), generations)
+    }
+
+    /// The generations this table's writes move.
+    pub fn generations(&self) -> &RouteGenerations {
+        &self.1
     }
 }
 
@@ -121,10 +144,10 @@ impl<K: Eq + Hash + Clone + RouteKey<V>, V: Clone> RouteTable<K, V> {
         let unrouted = self.0.get(&key).and_then(|old| key.routed_id(old));
         let routed = key.routed_id(&value);
         if let Some(id) = routed {
-            route_changed(id);
+            self.1.changed(id);
         }
         if let Some(id) = unrouted.filter(|id| Some(*id) != routed) {
-            route_changed(id);
+            self.1.changed(id);
         }
         Arc::make_mut(&mut self.0).insert(key, value)
     }
@@ -135,7 +158,7 @@ impl<K: Eq + Hash + Clone + RouteKey<V>, V: Clone> RouteTable<K, V> {
         }
         let removed = Arc::make_mut(&mut self.0).remove(key)?;
         if let Some(id) = key.routed_id(&removed) {
-            route_changed(id);
+            self.1.changed(id);
         }
         Some(removed)
     }

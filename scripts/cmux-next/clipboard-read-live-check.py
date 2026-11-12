@@ -315,7 +315,7 @@ try:
             check("allow: reply is the marker", report["allow"] == "VERIFIED", json.dumps(reply)[:300])
         else:
             report["allow"] = f"UNVERIFIED: {reason}"
-            print(f"UNVERIFIED allow: {reason}", flush=True)
+            safe_print(f"UNVERIFIED allow: {reason}", flush=True)
             rpc("debug.dialog", {"id": dialog["id"], "dismiss": True})
             report["allow_reply_after_dismiss"] = read_reply(reply_path, 20)
     report["allow_screen"] = cli("terminal", surface, "screen", "read").stdout[-1500:]

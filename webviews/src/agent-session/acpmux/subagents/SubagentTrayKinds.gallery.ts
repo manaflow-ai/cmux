@@ -63,7 +63,7 @@ const leoTray = chat(
 );
 
 /** Every kind at once: a Claude subagent and a Codex one running, a session the agent started, two
- *  commands, and what ended: a subagent done and one that failed. */
+ *  commands, and what ended: a subagent done and one stopped (a failed one leaves the hat). */
 const mixed: AcpmuxSnapshot = (() => {
   const base = chat(
     [
@@ -73,7 +73,7 @@ const mixed: AcpmuxSnapshot = (() => {
           agent("Review the tray columns", 9, "running", { action: "Read subagents.css" }),
           agent("Review the header counts", 8, "running", { harness: "codex", action: "Read trayHeadKinds.ts" }),
           agent("Find the screenshot", 11, "completed"),
-          agent("Bisect the flaky fold test", 10, "failed"),
+          agent("Bisect the flaky fold test", 10, "cancelled"),
         ],
       }),
       activity(
@@ -192,14 +192,15 @@ export default agentPaneEntry({
       snapshot: leoTray,
     },
     mixed: {
-      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one failed, in red. The columns hold on every line.",
+      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one stopped. The columns hold on every line.",
       play: async (ctx) => {
         await open(ctx, 7);
         columns(ctx);
-        if (title(ctx) !== "2 subagents running · 1 session · 1 test run · 1 server · 1 subagent done")
+        if (title(ctx) !== "2 subagents running · 1 session · 1 test run · 1 server · 1 subagent done · 1 stopped")
           throw new Error(`unexpected header: ${title(ctx)}`);
-        if (ctx.find({ selector: ".acpmux-running-tray__failed" }).textContent?.trim() !== "· 1 failed")
-          throw new Error("the failure count reads after the counts");
+        // A failed line leaves the hat (runningTray.ts `endedInFailure`): no failure count is left to read.
+        if (ctx.document.querySelector(".acpmux-running-tray__failed"))
+          throw new Error("no failure count once failed lines leave");
         // The Codex mark is one of the header's stacked marks, or after the counts.
         if (!ctx.document.querySelector('.acpmux-running-tray__head svg[data-agent="openai"]'))
           throw new Error("the Codex subagent's mark");
