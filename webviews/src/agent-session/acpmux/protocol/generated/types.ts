@@ -221,6 +221,11 @@ export type AttachResult = {
   pageThrough: number;
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
+  /**
+   * The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they
+   * saw while attending; null before they saw any. An older acpmux leaves it out.
+   */
+  readThrough: (number | null);
   session: SessionDetail;
   /**
    * The prompt that opened the turn the page starts inside, when the page starts inside one
@@ -709,6 +714,16 @@ export interface MailWaitParams {
   limit?: (number | null);
   recipient: string;
   timeoutMs?: (number | null);
+}
+
+/**
+ * `_acpmux/markUnread`: the person marks the chat unread; with `readThrough`, their seen cursor
+ * moves back to it (never forward).
+ */
+export interface MarkUnreadParams {
+  _meta?: (AuthorMeta | null);
+  readThrough?: (number | null);
+  sessionId: string;
 }
 
 export interface McpReconnectParams {
@@ -1289,6 +1304,23 @@ export interface SecretSubmitParams {
   secretId?: unknown;
   sessionId?: unknown;
   value?: unknown;
+}
+
+/** `_acpmux/seen`'s answer: the person's cursor after the request. */
+export type SeenDone = {
+  readThrough: number;
+} & Record<string, unknown>;
+
+/**
+ * `_acpmux/seen`: the person had the chat's rows through `seq` on screen while attending it
+ * (`hub/seen.rs`). Moves their seen cursor forward only.
+ */
+export interface SeenParams {
+  /** Whose cursor: an author's, the owner's when absent. */
+  _meta?: (AuthorMeta | null);
+  /** The newest log seq of a row that was on screen. */
+  seq: number;
+  sessionId: string;
 }
 
 /**

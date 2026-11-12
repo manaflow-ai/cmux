@@ -6730,11 +6730,7 @@ export class AcpmuxDirectClient {
     this.sawPrompts(page);
     this.rebuild();
     // The reader's seen cursor (acpmux hub/seen.rs): attaching never moves it.
-    this.takeReadThrough(
-      sessionId,
-      (result as { readThrough?: unknown } | undefined)?.readThrough,
-      hostLast ?? this.lastSeq,
-    );
+    this.takeReadThrough(sessionId, result?.readThrough, hostLast ?? this.lastSeq);
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
     const latest = watch.latestSummary;
     const latestIsNew =
