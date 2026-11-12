@@ -453,7 +453,7 @@ const showCutLine = (open: boolean) => async (ctx: PlayContext) => {
 
 /// A long command output at the transcript's end scrolls inside its own box (outputScrollBox.css):
 /// reading it to its end moves the box, never the transcript, and nothing under it is a Show all
-/// row (Leo, 2026-11-12: "i think chatgpt just lets you scroll, straight up?").
+/// row (Leo, 2026-11-12: "i think [another chat app] just lets you scroll, straight up?").
 const LONG_RUN_LOG = Array.from(
   { length: 160 },
   (_, index) => `(pass) retry backoff case ${index + 1} [0.${index % 10}ms]`,

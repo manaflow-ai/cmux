@@ -46,6 +46,15 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
@@ -626,7 +635,7 @@ def main(argv: list[str]) -> int:
     stale = (DEPENDENCY_STEPS | WORKSPACE_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
     # An older checkout (--root, a bisect) may predate a special-cased step; the names only have to be current here.
     if stale and not args.root:
-        print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
+        safe_print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
         return 2
 
     head_sha = git("rev-parse", "HEAD")
@@ -634,12 +643,12 @@ def main(argv: list[str]) -> int:
     try:
         units = plan(workflow, base_sha, head_sha)
     except PlanError as error:
-        print(f"run_ci_guards.py: {error}", file=sys.stderr)
+        safe_print(f"run_ci_guards.py: {error}", file=sys.stderr)
         return 2
     wanted = set(args.group) if args.group else (None if args.all else set(FAST_GROUPS))
     if args.feat_routes:
         routed = feat_routed_groups(args.feat_routes)
-        print(f"feat-cmux-next routed guard groups: {', '.join(routed) or 'none'}", flush=True)
+        safe_print(f"feat-cmux-next routed guard groups: {', '.join(routed) or 'none'}", flush=True)
         wanted = (wanted or set(FAST_GROUPS)) | set(routed)
     if wanted is not None:
         units = [u for u in units if u.group in wanted or u.job in wanted]
@@ -647,7 +656,7 @@ def main(argv: list[str]) -> int:
         units = [u for u in units if u.group not in args.skip_group and u.job not in args.skip_group]
     if wanted is not None or args.skip_group:
         if not units:
-            print(f"no guard group matches {sorted(wanted or ())} without {sorted(args.skip_group)}", file=sys.stderr)
+            safe_print(f"no guard group matches {sorted(wanted or ())} without {sorted(args.skip_group)}", file=sys.stderr)
             if args.json_path:
                 # An empty plan is an answer for a caller comparing checkouts:
                 # this one has none of those groups.
@@ -657,7 +666,7 @@ def main(argv: list[str]) -> int:
         units = select_steps(units, set(args.step))
         if not units:
             # Exit 3: the checkout has no such step (it predates the test).
-            print(f"no guard step named {sorted(args.step)}", file=sys.stderr)
+            safe_print(f"no guard step named {sorted(args.step)}", file=sys.stderr)
             if args.json_path:
                 # An empty plan tells a caller comparing checkouts that this
                 # one has none of those steps.
@@ -667,10 +676,10 @@ def main(argv: list[str]) -> int:
     if args.list:
         for unit in units:
             mode = "in order" if is_stateful(unit) else "in parallel"
-            print(f"{unit.label}: {len(unit.steps)} steps, {mode}")
+            safe_print(f"{unit.label}: {len(unit.steps)} steps, {mode}")
             for step in unit.steps:
                 note = "  (Linux only; skipped here)" if skipped_here(step) else ""
-                print(f"  - {step.name}{note}")
+                safe_print(f"  - {step.name}{note}")
         return 0
 
     clean_at_start = tree_is_clean()
@@ -682,7 +691,7 @@ def main(argv: list[str]) -> int:
         # serially elsewhere (about two minutes on a Mac) unless asked.
         env.setdefault("CMUX_TEST_WORKERS", str(max(2, (os.cpu_count() or 4) // 2)))
     started = time.monotonic()
-    print(
+    safe_print(
         f"cmux guards: {len(units)} groups, {sum(len(u.steps) for u in units)} steps, "
         f"head {head_sha[:12]}, base {base_sha[:12] or 'none'}, {args.jobs} workers",
         flush=True,
@@ -708,18 +717,18 @@ def main(argv: list[str]) -> int:
                 for result in future.result():
                     results.append(result)
                     if result.ok is False:
-                        print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
-                        print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+                        safe_print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                        safe_print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
                     elif result.ok:
                         if args.verbose:
-                            print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                            safe_print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
                         # A warn-only step passes and its output is dropped; its annotations still reach the run.
                         for line in passed_step_annotations(result.output):
-                            print(line, flush=True)
+                            safe_print(line, flush=True)
     except KeyboardInterrupt:
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
-        print("cmux guards: interrupted", file=sys.stderr)
+        safe_print("cmux guards: interrupted", file=sys.stderr)
         return 130
     pool.shutdown()
     seconds = time.monotonic() - started
@@ -735,19 +744,19 @@ def main(argv: list[str]) -> int:
                     key = f"{result.step.name}{CHECK_SEPARATOR}{check}"
                     outcome[key] = outcome.get(key, True) and ok
         Path(args.results).write_text(json.dumps(outcome, indent=2, sort_keys=True) + "\n")
-    print(f"cmux guards: {passed} steps passed, {len(failed)} failed, {len(skipped)} skipped (Linux only) in {seconds:.1f}s")
+    safe_print(f"cmux guards: {passed} steps passed, {len(failed)} failed, {len(skipped)} skipped (Linux only) in {seconds:.1f}s")
     if args.json_path:
         write_results(args.json_path, head_sha, base_sha, units, results, seconds)
     if failed:
-        print("failed: " + "; ".join(f"{r.unit.label}: {r.step.name}" for r in failed), file=sys.stderr)
+        safe_print("failed: " + "; ".join(f"{r.unit.label}: {r.step.name}" for r in failed), file=sys.stderr)
         return 1
     if args.no_stamp or args.group or args.step or args.root or args.feat_routes:
         return 0
     if not (clean_at_start and tree_is_clean()) or git("rev-parse", "HEAD") != head_sha:
-        print("tree has uncommitted or untracked files (or HEAD moved); no pass stamp written. Commit, then rerun to stamp.")
+        safe_print("tree has uncommitted or untracked files (or HEAD moved); no pass stamp written. Commit, then rerun to stamp.")
         return 0
     groups = sorted({u.group or u.job for u in units})
-    print(f"pass stamp: {write_stamp(head_sha, groups, skipped, seconds)}")
+    safe_print(f"pass stamp: {write_stamp(head_sha, groups, skipped, seconds)}")
     return 0
 
 

@@ -43,6 +43,8 @@ export function useOutput(output: string | undefined, reveal = 0) {
   }, [output]);
   return {
     text,
+    /// Find in Chat opened it whole: every line is drawn, none windowed (BlockParts.tsx `Lines`).
+    all,
     shown: all || tail === undefined ? text : tail,
     cut: !all && tail !== undefined,
   };

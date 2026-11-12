@@ -1,6 +1,6 @@
 // l10n-allow-file: the gallery fixture supplies the transcript's messages.
 // A long output at the transcript's end scrolls inside its own box, read to its end without moving
-// the transcript, with no Show all row (Leo, 2026-11-12: "i think chatgpt just lets you scroll,
+// the transcript, with no Show all row (Leo, 2026-11-12: "i think [another chat app] just lets you scroll,
 // straight up?"). An opened call's line reads whole (Leo, ask-486cb2cec3: "why the fuck did you guys ffucking
 // ellipsis EVERYTHING WITH NO WAY TO EXPAND WHAT WAS SAID TO SEE"). Both are the transcript gallery's
 // own plays, each failing its own check.

@@ -3,8 +3,8 @@ import { watchSideways } from "./sideways";
 import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 
 /// Lines an output or code card draws whole. Past them the card's body keeps this height and scrolls
-/// inside, as ChatGPT's output does, never behind a Show all button (Leo, 2026-11-12: "this is a
-/// really useless show all 9 lines. i think chatgpt just lets you scroll, straight up?"). The CSS
+/// inside, never behind a Show all button (Leo, 2026-11-12: "this is a
+/// really useless show all 9 lines. i think [another chat app] just lets you scroll, straight up?"). The CSS
 /// token `--cv-output-box-lines` (outputScrollBox.css) is the same number; a test holds them equal.
 export const OUTPUT_BOX_LINES = 24;
 

@@ -501,7 +501,7 @@ def main():
             app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
         except LaunchError:
             sys.exit(1)
-    print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
+    safe_print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
     time.sleep(5)  # test harness: launch work settles
     setup()
     wanted = set(filter(None, opts.anims.split(",")))
@@ -534,8 +534,8 @@ def main():
     def worst(runs, key):
         values = [v for v in (r.get(key) for r in runs) if v is not None]
         return max(values) if values else None
-    print("\n== summary (median over rounds; max is the worst round)")
-    print(f"  {'anim':<17} {'p50':>6} {'p95':>6} {'max':>6} {'drop':>5} {'>8.3':>5} {'mainp95':>7} {'mainmx':>7} {'maintot':>7} {'err'}")
+    safe_print("\n== summary (median over rounds; max is the worst round)")
+    safe_print(f"  {'anim':<17} {'p50':>6} {'p95':>6} {'max':>6} {'drop':>5} {'>8.3':>5} {'mainp95':>7} {'mainmx':>7} {'maintot':>7} {'err'}")
     for name, _, _ in plan:
         runs = [r for r in report["runs"] if r["anim"] == name]
         summary = {"anim": name, **{k: med(runs, k) for k in ("p50_ms", "p95_ms", "dropped", "over_8_33", "main_ms_p95",
@@ -543,9 +543,9 @@ def main():
                    "max_ms": worst(runs, "max_ms"), "main_ms_max": worst(runs, "main_ms_max"),
                    "errors": sorted({r["error"] for r in runs if r["error"]})}
         report.setdefault("summary", []).append(summary)
-        print(f"  {name:<17} {fmt(summary['p50_ms']):>6} {fmt(summary['p95_ms']):>6} {fmt(summary['max_ms']):>6} "
-              f"{fmt(summary['dropped']):>5} {fmt(summary['over_8_33']):>5} {fmt(summary['main_ms_p95']):>7} "
-              f"{fmt(summary['main_ms_max']):>7} {fmt(summary['main_ms_total']):>7} {'; '.join(summary['errors'])[:60]}", flush=True)
+        safe_print(f"  {name:<17} {fmt(summary['p50_ms']):>6} {fmt(summary['p95_ms']):>6} {fmt(summary['max_ms']):>6} "
+                   f"{fmt(summary['dropped']):>5} {fmt(summary['over_8_33']):>5} {fmt(summary['main_ms_p95']):>7} "
+                   f"{fmt(summary['main_ms_max']):>7} {fmt(summary['main_ms_total']):>7} {'; '.join(summary['errors'])[:60]}", flush=True)
         row(f"{name}: ran", "no error", "; ".join(summary["errors"]) or "None", not summary["errors"] or False)
     for budget in budgets():
         anim, key, limit = budget.get("anim"), budget.get("metric"), budget.get("limit")

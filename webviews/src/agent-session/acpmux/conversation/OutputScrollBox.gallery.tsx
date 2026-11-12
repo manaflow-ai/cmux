@@ -1,9 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample commands and output, and the old row's words drawn for
 // the before look), not shipped UI.
 // Output and code cards in the agent chat draw whole up to OUTPUT_BOX_LINES lines and scroll inside
-// a box that tall past them, as ChatGPT's output does, never behind a Show all button. Leo,
+// a box that tall past them, never behind a Show all button. Leo,
 // 2026-11-12, on a Shell card that showed seven lines and "Show all 9 lines": "this is a really
-// useless show all 9 lines. i think chatgpt just lets you scroll, straight up?"
+// useless show all 9 lines. i think [another chat app] just lets you scroll, straight up?"
 // Each size (9 lines, his case; 24, the box's own height; 120, a long run) has a before look (the
 // old seven-line cut with its row, drawn here only) and the shipped one, on a Shell block, a call's
 // output and a file read.
@@ -146,6 +146,6 @@ export default componentEntry<Props>({
       import("./outputScrollBox.css"),
       import("./OutputScrollBox.gallery.css"),
     ]),
-  keywords: ["scroll", "output", "shell", "show all", "lines", "overflow", "chatgpt"],
+  keywords: ["scroll", "output", "shell", "show all", "lines", "overflow"],
   variants,
 });

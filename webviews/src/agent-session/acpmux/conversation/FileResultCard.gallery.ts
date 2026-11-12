@@ -104,7 +104,7 @@ export default agentPaneEntry({
       snapshot: turn([read(), grep(), glob()]),
     },
     cards: {
-      note: "Selected: opened. The Read is the edit card's frame (file name, Lines 1–17, copy) over its highlighted lines numbered from where it read, cut to eight under a fade with Show all. The Grep counts its matches and files, then each file and its lines, number first; the Glob lists its files. A name or a line opens the file in cmux.",
+      note: "Selected: opened. The Read is the edit card's frame (file name, Lines 1–17, copy) over its highlighted lines numbered from where it read, whole up to 24 lines and scrolling in a 24-line box past them, its bottom fading. The Grep counts its matches and files, then each file and its lines, number first; the Glob lists its files. A name or a line opens the file in cmux.",
       snapshot: turn([read(), grep(), glob()]),
       play: openAll,
     },

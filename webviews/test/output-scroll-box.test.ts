@@ -1,5 +1,5 @@
 // Detector for the "Show all N lines" class (Leo, 2026-11-12: "this is a really useless show all 9
-// lines. i think chatgpt just lets you scroll, straight up?"). Every output and code card in the
+// lines. i think [another chat app] just lets you scroll, straight up?"). Every output and code card in the
 // agent chat draws whole up to OUTPUT_BOX_LINES lines and scrolls inside a box that tall past them
 // (conversation/outputScrollBox.css); none hides lines behind an expand button. This fails when a
 // new "Show all N lines"-style string enters the pane's table, or a card brings back the old

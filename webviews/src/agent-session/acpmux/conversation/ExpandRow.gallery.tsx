@@ -3,7 +3,7 @@
 // with the pointer on its row. Leo, 2026-11-07: "what if the whole bottom row area were clickable
 // in this, like, show more show less area?" Output and code cards have no such row any more: they
 // scroll inside their own box (outputScrollBox.css; Leo, 2026-11-12: "this is a really useless show
-// all 9 lines. i think chatgpt just lets you scroll, straight up?"), compared in
+// all 9 lines. i think [another chat app] just lets you scroll, straight up?"), compared in
 // `agent-pane.output-scroll-box`. The experiment's arms (expandRow.experiment.ts) compare the row
 // continuing the block's surface (shipped), its label in the fade over the last lines, a tinted row
 // under a hairline, and a centred label. The `*-hover-*` variants compare what the pointer lights

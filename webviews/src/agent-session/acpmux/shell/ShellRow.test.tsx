@@ -34,7 +34,7 @@ const markup = (shell: ShellRun, expanded = false, given: ShellActions | null = 
     </ShellActionsContext.Provider>,
   );
 
-// Leo, 2026-11-12: "this is a really useless show all 9 lines. i think chatgpt just lets you scroll,
+// Leo, 2026-11-12: "this is a really useless show all 9 lines. i think [another chat app] just lets you scroll,
 // straight up?" Every line is drawn, in the shared scroll box, with nothing to expand.
 test("a long output draws every line in its scroll box, with no Show all", () => {
   const output = Array.from({ length: 60 }, (_, index) => `line ${index + 1}`).join("\n");

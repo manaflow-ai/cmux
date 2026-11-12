@@ -2409,3 +2409,28 @@ button.cv-subagent > :last-child {
 .cv-subagent-done__more-row {
   align-self: stretch;
 }
+
+/* The hat's top rim drags (trayResize.ts; Leo, 2026-11-12: "you have this glass rim, but you can't
+   drag up the composer hat area"): a band along the top edge, inside the hat's clip, with the
+   resize cursor. The tuck chevron comes later in the hat and keeps the middle of the band. */
+.acpmux-running-tray:has(> .acpmux-running-tray__rim) {
+  position: relative;
+}
+.acpmux-running-tray__rim {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  /* The tuck's own click band's height (its top 8px), so the two read as one edge. */
+  height: var(--ds-space-2);
+  cursor: ns-resize;
+  touch-action: none;
+}
+/* The height the person dragged to caps the list, never pads it (it is the list's `max-height`, as
+   the default five lines are), with or without the latest-step second lines. Last in the file, so
+   it wins over the default caps above of the same weight. It keeps their 2px allowance for the
+   list's scroll padding, so a one-line cap shows its whole line, and holds trayResize.ts's 70% of the
+   window in this window too: a height kept from a taller one never runs past it. */
+.acpmux-running-tray[data-sized] .acpmux-running-tray__list:is(*, :has(.acpmux-agent-line__latest)) {
+  max-height: min(calc(var(--acpmux-tray-list-height) + 2px), 70vh);
+}

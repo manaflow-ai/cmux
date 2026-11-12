@@ -282,13 +282,24 @@ test("ShellBlock keeps chunk identity when the live output tail slides", async (
   expect(line("line 200\n", "line 200")).toBe(middle);
 });
 
+test("a live output Find in Chat opened mounts every line, not the 400-line window", async () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
+  const n = OUTPUT_LINE_WINDOW + 80;
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(n)} live />));
+  expect(container.querySelectorAll(".cv-shell__output .cv-line")).toHaveLength(OUTPUT_LINE_WINDOW);
+  await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(n)} live reveal={1} />));
+  const rendered = [...container.querySelectorAll(".cv-shell__output .cv-line")];
+  expect(rendered).toHaveLength(n);
+  expect(rendered[0]!.textContent).toBe("line 1\n");
+});
+
 test("a live suffix keeps its final line free of an extra newline", async () => {
   const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
   await act(async () => root!.render(<ShellBlock command="sleep 5" output={lines(500)} live />));
   expect(container.querySelector(".cv-shell__output")?.textContent?.endsWith("line 500")).toBe(true);
 });
 
-// Leo, 2026-11-12: "this is a really useless show all 9 lines. i think chatgpt just lets you scroll,
+// Leo, 2026-11-12: "this is a really useless show all 9 lines. i think [another chat app] just lets you scroll,
 // straight up?"
 test("the output draws every line in the shared scroll box, with no Show all", async () => {
   for (const n of [9, 30]) {

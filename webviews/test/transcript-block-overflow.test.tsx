@@ -7,7 +7,7 @@
 // with a fade at the right edge while more of it lies past it. Each block's header has Wrap lines
 // beside Copy, remembered per kind of block (prose, code, output). Every line is drawn, in a box that
 // scrolls inside past 24 lines (outputScrollBox.css), never behind a Show all button (Leo,
-// 2026-11-12: "i think chatgpt just lets you scroll, straight up?"). The same holds for a command's
+// 2026-11-12: "i think [another chat app] just lets you scroll, straight up?"). The same holds for a command's
 // Shell block and a call's output.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { readFileSync } from "node:fs";

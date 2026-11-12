@@ -118,7 +118,7 @@ export function ShellBlock({
         )}
         {shown.shown ? (
           <span className="cv-shell__output">
-            <Lines text={shown.shown} windowed={live} startLine={shownStartLine} />
+            <Lines text={shown.shown} windowed={live && !shown.all} startLine={shownStartLine} />
           </span>
         ) : null}
       </pre>
