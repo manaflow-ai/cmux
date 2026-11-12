@@ -354,8 +354,7 @@ extension WindowManager {
         let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
         if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
         guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
-        if select { bringToFront(moved) }
-        if !whole { giveOwnSpaceIfShared(moved.state.id) } // a new window is a space you reach from the switcher
+        if select { bringToFront(moved) }; if !whole { WindowOwnSpace.give(moved.state.id, in: self) } // its own space, reached from the switcher
     }
 
     /// The user closed window `id`: it stays registered, closed, with its

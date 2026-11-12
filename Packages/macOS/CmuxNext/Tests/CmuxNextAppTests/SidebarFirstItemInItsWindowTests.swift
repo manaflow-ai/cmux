@@ -52,7 +52,7 @@ struct SidebarFirstItemInItsWindowTests {
         /// New Window as the person runs it (Cmd-Shift-N, `newWindow`): on a new space.
         case newSpace
         /// Move Workspace to New Window (`moveWorkspaceToNewWindow`, the journey's set-up): a workspace of window A
-        /// moves into a new window, which takes a space of its own (`giveOwnSpaceIfShared`).
+        /// moves into a new window, which takes a space of its own (`WindowOwnSpace.give`).
         case movedWorkspace
 
         var testDescription: String { rawValue }
