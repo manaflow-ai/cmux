@@ -105,7 +105,7 @@ test("an opened thought inside a group stays open as calls join", async () => {
   expect(host.querySelector(".cv-tool-group__more")).toBeNull();
 });
 
-test("a thought that led into a run opens its group in full, and keeps the reader's choice", async () => {
+test("a thought that led into a run starts closed, as every thought in a run does, and keeps the reader's choice", async () => {
   const { resetTranscriptDisclosure } =
     await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
@@ -115,12 +115,14 @@ test("a thought that led into a run opens its group in full, and keeps the reade
   await draw([thought(0), read(0), read(1)], "leads");
   const lead = host.querySelector(".cv-steps > .cv-step.is-lead");
   expect(lead).not.toBeNull();
-  expect(opened()).toEqual([expect.stringContaining("Thought number 0:")]);
-  // Closed by the reader, it stays closed as another read joins.
+  // Nothing opens a thought but the reader (Lucas, 2026-11-11: "make sure that thoughts are not
+  // auto opened").
+  expect(opened()).toHaveLength(0);
+  // Opened by the reader, it stays open as another read joins.
   await click(toggles()[0]!);
-  expect(opened()).toHaveLength(0);
+  expect(opened()).toEqual([expect.stringContaining("Thought number 0:")]);
   await draw([thought(0), read(0), read(1), read(2)], "leads");
-  expect(opened()).toHaveLength(0);
+  expect(opened()).toHaveLength(1);
   expect(host.querySelectorAll(".cv-steps > .cv-step")).toHaveLength(4);
 });
 

@@ -486,15 +486,10 @@
     );
   }
 }
-/* The suggestions' popover frosts what is under it (the Chats header and cards read through its lower
-   half at the plain popup tint, as the pills did through the + menu, Leo 2026-10-31: "they show
-   through"): the + menu's denser tint (86%, cmux #28798; still glass, under the 0.9 that
-   glass-never-opaque holds) and the menus' blur (desktop.css --ds-glass-menu-blur). Reduce
-   Transparency keeps the solid popup surface (glass.css). */
-.nt-popover.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) 86%, transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur);
-}
+/* The suggestions' popover frosts what is under it (the Chats header and cards, Leo 2026-10-31: "they
+   show through") with every popup's glass, the menu level (ui/glass/glass.css GLASS LEVELS): its own
+   86% tint made it a different material from the menus opened from the same box (Leo, 2026-11-11:
+   "the styles mix and they don't look good"). */
 /* The suggestions' rows: each row's 16 px glyph centered under the + glyph (inset + 14), past the
    popover's padding (Leo 2026-10-31: the suggestion rows start at a different x than + and the text). */
 .nt-popover .nt-rows > .nt-row {

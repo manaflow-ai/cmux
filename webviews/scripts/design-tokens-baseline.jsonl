@@ -214,7 +214,7 @@
 {"file":"agent-session/acpmux/ModelMenuDensity.gallery.tsx","kind":"spacing","property":"padding-top","values":{"440px":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"height","property":"height","values":{"44px":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"height","property":"min-height","values":{"22px":1}}
-{"file":"agent-session/acpmux/modelPicker.css","kind":"radius","property":"border-radius","values":{"10px":1,"5px":3,"1px":1,"var(--ui-row-radius, 5px)":1}}
+{"file":"agent-session/acpmux/modelPicker.css","kind":"radius","property":"border-radius","values":{"5px":3,"1px":1,"var(--ui-row-radius, 5px)":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"spacing","property":"inset-block-end","values":{"-3px":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"spacing","property":"inset-block-start","values":{"2px":1}}
 {"file":"agent-session/acpmux/modelPicker.css","kind":"spacing","property":"inset-inline-end","values":{"2px":1}}

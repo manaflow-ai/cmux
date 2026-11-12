@@ -494,6 +494,10 @@ path = "tests/test_poll_notary_submission.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_portable_jobs_bring_their_python.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_post_edit_checks.py"
 lane = "linux-guard"
 
@@ -731,6 +735,11 @@ reason = "Run by hand with python3 when stable_next_slack.py or stable-next.yml'
 [[test]]
 path = "tests/test_stale_agent_prs.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_stale_base_readers.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Pins that each tool measuring a branch's own change from where HEAD meets origin/feat-cmux-next (affected tests, the Rust panic ratchet, build_class, gate-plan, the test-determinism scan, codebase-health, a manual arch-ratchet run) fetches that base first; run python3 -I tests/test_stale_base_readers.py yourself after changing one (a few seconds, no build)."
 
 [[test]]
 path = "tests/test_stress_cli_socket_api.py"

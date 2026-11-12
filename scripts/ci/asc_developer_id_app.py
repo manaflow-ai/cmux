@@ -18,6 +18,7 @@ entitlement, are requested in the developer portal, not here.
 
 usage: asc_developer_id_app.py MODE --bundle-id ID --name NAME --profile-name NAME
 Auth: ASC_API_KEY_ID, ASC_API_ISSUER_ID and ASC_API_KEY_P8_BASE64 (or ASC_API_KEY_PATH).
+Clock: certificate expiry is judged against CMUX_NOW_EPOCH (seconds) when it is set, else the real clock.
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ import argparse
 import datetime as dt
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import urllib.error
@@ -70,7 +72,17 @@ def _parse_date(value: str) -> dt.datetime:
     return dt.datetime.strptime(value.replace("Z", "+0000"), "%Y-%m-%dT%H:%M:%S.%f%z")
 
 
-def lookup(asc, bundle_id: str, profile_name: str):
+def utc_now() -> dt.datetime:
+    """The clock certificate expiry is judged against: CMUX_NOW_EPOCH when set, else the real one.
+
+    Tests pass their own `now`; the tooling-tests time-bomb row sets CMUX_NOW_EPOCH far in the
+    future, so a test that leans on the real clock instead goes red there, not on the day a
+    fixture date passes."""
+    epoch = os.environ.get("CMUX_NOW_EPOCH")
+    return dt.datetime.fromtimestamp(int(epoch), dt.timezone.utc) if epoch else dt.datetime.now(dt.timezone.utc)
+
+
+def lookup(asc, bundle_id: str, profile_name: str, now: dt.datetime):
     """(bundle, certificates, profiles) or an error string."""
     status, body = asc("GET", "/v1/bundleIds?" + urllib.parse.urlencode(
         {"filter[identifier]": bundle_id, "filter[platform]": "MAC_OS", "limit": 200}))
@@ -82,7 +94,6 @@ def lookup(asc, bundle_id: str, profile_name: str):
         {"filter[certificateType]": ",".join(CERT_TYPES), "limit": 200}))
     if status != 200:
         return f"{_error(status, body)}: this key cannot read certificates"
-    now = dt.datetime.now(dt.timezone.utc)
     certificates = [c for c in body.get("data", []) if _parse_date(c["attributes"]["expirationDate"]) > now]
     status, body = asc("GET", "/v1/profiles?" + urllib.parse.urlencode(
         {"filter[name]": profile_name, "filter[profileType]": "MAC_APP_DIRECT", "limit": 200}))
@@ -92,8 +103,8 @@ def lookup(asc, bundle_id: str, profile_name: str):
     return bundle, certificates, profiles
 
 
-def run(asc, mode: str, bundle_id: str, name: str, profile_name: str) -> int:
-    found = lookup(asc, bundle_id, profile_name)
+def run(asc, mode: str, bundle_id: str, name: str, profile_name: str, now: dt.datetime | None = None) -> int:
+    found = lookup(asc, bundle_id, profile_name, now or utc_now())
     if isinstance(found, str):
         print(f"App Store Connect: {found}")
         return 0 if mode == "check" else 1
