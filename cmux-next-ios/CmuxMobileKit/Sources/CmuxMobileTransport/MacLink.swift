@@ -16,9 +16,6 @@ public enum TransportKind: String, CaseIterable, Codable, Sendable {
         case .cloudCarrier: "Cloud"
         }
     }
-
-    /// The transports a person picks for a Mac link (Settings → Connection).
-    public static let macChoices: [TransportKind] = [.webRTC, .wireGuard]
 }
 
 /// How the bytes currently travel.

@@ -206,7 +206,8 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(store.cloudMachines.first?.cloud?.status == .paused)
     }
 
-    /// The carrier's Noise key: made once per account and kept; sign-out removes it.
+    /// The carrier's Noise key: made once per account and kept; the app's sign-out
+    /// (`AccountSignOut.signedOut`) removes it, so the next sign-in makes a new one.
     @Test func theNoiseKeyIsStableAndForgottenOnSignOut() throws {
         let secrets = MemorySecretStore()
         var made = 0
@@ -214,12 +215,82 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
             made += 1
             return Data(repeating: UInt8(made), count: 32)
         }
-        let first = try CloudCarrierKey.load(userID: "u", store: secrets, newKey: make)
-        let again = try CloudCarrierKey.load(userID: "u", store: secrets, newKey: make)
+        let user = "user-\(UUID().uuidString)"
+        let first = try CloudCarrierKey.load(userID: user, store: secrets, newKey: make)
+        let again = try CloudCarrierKey.load(userID: user, store: secrets, newKey: make)
         #expect(first == again && made == 1)
-        CloudCarrierKey.forget(userID: "u", store: secrets)
-        let next = try CloudCarrierKey.load(userID: "u", store: secrets, newKey: make)
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-cloud-signout-\(UUID().uuidString)")
+        let defaults = UserDefaults(suiteName: "cmux-mobile-cloud-signout-\(UUID().uuidString)") ?? .standard
+        var signOut = AccountSignOut(snapshots: LiveSnapshotStore(directory: directory.appending(path: "snapshots")), feedStore: FeedStore(items: []),
+                                     feedArchive: { FeedArchive(url: directory.appending(path: "feed-\($0).json")) },
+                                     readMarks: { FeedReadMarks(url: directory.appending(path: "read-\($0).json")) },
+                                     preferences: AccountPreferences(defaults: defaults), discardChiefOutbox: {}, discardKeptChats: {})
+        signOut.secrets = secrets
+        signOut.signedOut(userID: user, session: nil)
+        #expect(try secrets.read(service: DeviceIdentity.defaultService, account: CloudCarrierKey.account(user)) == nil)
+        let next = try CloudCarrierKey.load(userID: user, store: secrets, newKey: make)
         #expect(next != first && made == 2)
+    }
+
+    /// The service refused even a fresh token for a Cloud machine's dial: its line says to sign
+    /// in (not a dead "Signed out"), and Retry dials it on a new session.
+    @Test func aSignedOutCloudSessionSaysSoAndRetryDialsAgain() async {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        cloud.refuse(vm, LinkError(code: LinkError.unauthorized, message: "401"))
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { live.isCloudRefused(vm) }
+        #expect(store.cloudMachines.first?.cloud?.status == .failed)
+        #expect(store.cloudMachines.first?.cloud?.note == "Sign in again to open Build box.")
+        cloud.refuse(vm, nil)
+        live.retryCloud(vm)
+        await settle { store.macDataPhase(vm) == .live }
+        #expect(!live.isCloudRefused(vm))
+    }
+
+    /// No daemon key yet: no more dials until the machine's listing changes.
+    @Test func noDaemonKeyWaitsForTheListToChange() async {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        cloud.refuse(vm, LinkError(code: CloudCarrierDialer.noDaemonKey, message: "none yet"))
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { live.isCloudRefused(vm) }
+        // The same listing read again: still held.
+        live.applyCloudMachines([machine(.running)])
+        #expect(live.isCloudRefused(vm))
+        // The listing changed (it reported in): dialed again.
+        cloud.refuse(vm, nil)
+        live.applyCloudMachines([MacDevice(cloudMachine: vm, name: "Build box", state: CloudMachineState(status: .running),
+                                           lastActiveAt: Date(timeIntervalSince1970: 5_000))])
+        await settle { store.macDataPhase(vm) == .live }
+        #expect(!live.isCloudRefused(vm))
+    }
+
+    /// Cloud machines have their own link cap: they never take a Mac's link, and the one the
+    /// person opens last is linked (no dead Connect).
+    @Test func cloudMachinesHaveTheirOwnLinkCap() async {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        let ids = (1...5).map { "vm_cap\(String(repeating: "0", count: 16))\($0)" }
+        live.applyCloudMachines(ids.map { MacDevice(cloudMachine: $0, name: $0, state: CloudMachineState(status: .running)) })
+        await settle { ids.filter { store.macConnection[$0] == .connected }.count == LiveCoordinator.cloudLinkCap }
+        #expect(store.macConnection["m1"] == .connected, "the Mac keeps its link")
+        let unlinked = ids.first { !live.isLinked(macID: $0) }!
+        live.touch(unlinked)
+        await settle { store.macConnection[unlinked] == .connected }
+        #expect(ids.filter { live.isLinked(macID: $0) }.count == LiveCoordinator.cloudLinkCap)
     }
 }
 
@@ -324,6 +395,112 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         cloud.start(machineID: "vm_p")
         await settle { store.cloudMachines.first?.cloud?.status == .starting }
         #expect(ops.all.contains("cloud.machine.start"))
+    }
+
+    /// A list read that fails (offline, a token being refreshed) leaves the machines, their
+    /// links and rows as they were.
+    @Test func aFailedReadKeepsTheLastList() async {
+        let failing = OpsLog()
+        ServiceStub.install(host: host) { request in
+            guard Self.op(request) == "cloud.machine.list" else { return .init() }
+            if failing.all.contains("fail") { return .init(status: 503, body: #"{"error":{"code":"unavailable","message":"x"}}"#) }
+            return .init(body: Self.list([("vm_run", "running")]))
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: OpsLog())
+        defer { live.stop() }
+        await cloud.refresh()
+        #expect(store.cloudMachines.map(\.id) == ["vm_run"])
+        failing.add("fail")
+        await cloud.refresh()
+        #expect(store.cloudMachines.map(\.id) == ["vm_run"])
+        // Only sign-out clears it.
+        cloud.stop()
+        #expect(store.cloudMachines.isEmpty)
+    }
+
+    /// The machine was made; a list read failing meanwhile never reads as a refusal of it: its
+    /// pending line stays, nothing is said, and a second machine is not offered.
+    @Test func aConcurrentReadFailureKeepsThePendingLine() async {
+        let ops = OpsLog()
+        ServiceStub.install(host: host) { request in
+            let op = Self.op(request)
+            if let op { ops.add(op) }
+            switch op {
+            case "cloud.machine.create":
+                return .init(body: #"{"value":{"machine":{"id":"vm_new","name":"Cloud Machine","status":"provisioning","size":{},"idle_policy":{}}}}"#)
+            case "cloud.machine.list":
+                return ops.all.contains("cloud.machine.create")
+                    ? .init(status: 503, body: #"{"error":{"code":"unavailable","message":"x"}}"#) : .init(body: Self.list([]))
+            default: return .init()
+            }
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: ops)
+        defer { live.stop() }
+        var refusals: [String] = []
+        cloud.onRefusal = { refusals.append($0) }
+        await cloud.refresh()
+        cloud.newCloudWorkspace { _ in }
+        await settle { cloud.creations.first?.machineID == "vm_new" }
+        #expect(refusals.isEmpty)
+        #expect(store.cloudMachines.map(\.id) == ["vm_new"])
+        #expect(store.cloudMachines.first?.cloud?.pendingWorkspace == true)
+        #expect(!cloud.canCreateMachine)
+        cloud.stop()
+    }
+
+    /// New Cloud Workspace all the way: the machine is made, runs, its carrier and daemon come
+    /// up, and the new workspace on it opens.
+    @Test func aNewCloudWorkspaceOpensOnceItsDaemonAnswers() async {
+        let ops = OpsLog()
+        let made = "vm_new0000000000000001"
+        ServiceStub.install(host: host) { request in
+            let op = Self.op(request)
+            if let op { ops.add(op) }
+            switch op {
+            case "cloud.machine.create":
+                return .init(body: #"{"value":{"machine":{"id":"\#(made)","name":"Cloud Machine","status":"provisioning","size":{},"idle_policy":{}}}}"#)
+            case "cloud.machine.list":
+                // Running from the second read after the create on.
+                let reads = ops.all.split(separator: "cloud.machine.create").last?.filter { $0 == "cloud.machine.list" }.count ?? 0
+                guard ops.all.contains("cloud.machine.create") else { return .init(body: Self.list([])) }
+                return .init(body: Self.list([(made, reads >= 2 ? "running" : "provisioning")]))
+            default: return .init()
+            }
+        }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-cloud-\(UUID().uuidString)")
+        let snapshots = LiveSnapshotStore(directory: directory)
+        snapshots.save(LiveSnapshot(teamID: "t-cloud", teamName: "One", macs: [MacDevice(id: "m1", name: "Studio", isOnline: true)],
+                                    linkedMacID: "m1", workspaces: [:]), accountID: userID)
+        snapshots.flush()
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let live = LiveCoordinator(
+            store: store,
+            api: LiveAPI(baseURL: URL(string: "https://\(host)")!, session: ServiceStub.session()) { _ in "token" },
+            identity: DeviceIdentity(link: UUID().uuidString, presence: UUID().uuidString),
+            userID: userID, deviceName: "iPhone", transport: .wireGuard, dialer: PerMacDialer(), cloudDialer: RecordingCloudDialer(),
+            feedStore: FeedStore(items: []), snapshots: snapshots)
+        defer { live.stop() }
+        let model = CloudMachinesModel.scripted(base: URL(string: "https://\(host)")!, session: ServiceStub.session())
+        let cloud = LiveCloudWorkspaces(model: model, coordinator: live)
+        cloud.busyPoll = .milliseconds(20)
+        let creator = WorkspaceCreator(store: store, backend: MultiMacWorkspaceBackend(coordinator: live),
+                                       defaults: UserDefaults(suiteName: "cloud-create-\(UUID().uuidString)") ?? .standard)
+        cloud.createWorkspace = { creator.create(start: .terminal, macID: $0) }
+        var refusals: [String] = []
+        cloud.onRefusal = { refusals.append($0) }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        await cloud.refresh()
+        var opened: [Workspace] = []
+        cloud.newCloudWorkspace { opened.append($0) }
+        await settle { !opened.isEmpty || !refusals.isEmpty }
+        #expect(refusals.isEmpty, "\(refusals)")
+        #expect(opened.first?.macID == made)
+        #expect(store.macDataPhase(made) == .live)
+        #expect(cloud.creations.isEmpty)
+        cloud.stop()
     }
 
     /// New Cloud Workspace shows its pending line at once; a refusal takes it away and says why.

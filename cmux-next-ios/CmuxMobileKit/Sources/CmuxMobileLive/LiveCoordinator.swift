@@ -84,6 +84,10 @@ public final class LiveCoordinator {
     /// A Cloud machine's carrier refused this phone (machine id, refusal code): the Cloud
     /// list reads again (a paused or deleted machine shows as it is).
     @ObservationIgnored public var onCloudRefusal: ((String, String) -> Void)?
+    /// The Cloud machine the person opened last: linked first within the Cloud cap.
+    @ObservationIgnored var touchedCloud: String?
+    /// Which Cloud machines keep a carrier, beside (never instead of) the Macs' links.
+    @ObservationIgnored var cloudLinkPolicy = MacLinkPolicy(maxLinks: LiveCoordinator.cloudLinkCap)
     @ObservationIgnored let feedStore: FeedStore
 
     /// The focused Mac's session, else the idle stand-in.
@@ -676,8 +680,13 @@ public final class LiveCoordinator {
             live.isOnline = true
             return live
         }
-        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now,
-                                         pinned: pairing?.invites.pending()?.mac)
+        let macDecision = linkPolicy.decide(macs: ranked.filter { !$0.isCloud }, focused: focusedMacID, showing: showing,
+                                            lastShown: lastShown, now: now, pinned: pairing?.invites.pending()?.mac)
+        // Cloud machines have their own cap: the one opened last comes first (`touchedCloud`).
+        let cloudDecision = cloudLinkPolicy.decide(macs: ranked.filter(\.isCloud), focused: nil, showing: showing,
+                                                   lastShown: lastShown, now: now, pinned: touchedCloud)
+        let decision = MacLinkPolicy.Decision(linked: macDecision.linked + cloudDecision.linked,
+                                              nextExpiry: [macDecision.nextExpiry, cloudDecision.nextExpiry].compactMap(\.self).min())
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
             session.name = mac.name
@@ -685,7 +694,7 @@ public final class LiveCoordinator {
         }
         for (id, session) in sessions where !decision.linked.contains(id) && session.link.target != nil {
             log.info("link to \(session.name, privacy: .private) idle: closing it")
-            session.link.send(.target(nil))
+            closeLink(session)
         }
         expiryTask?.cancel()
         expiryTask = nil
@@ -735,7 +744,7 @@ public final class LiveCoordinator {
         session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
         session.cloudChats.removeAll()
-        session.link.send(.target(nil))
+        closeLink(session)
         // Its data on screen is last-known now, and nothing says it is connected.
         if session.fedData { store.handleMacData(.disconnected(at: Date()), macID: id) }
         store.macConnection[id] = nil

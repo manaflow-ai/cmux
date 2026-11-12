@@ -28,6 +28,8 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var creationTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var newID: () -> String = { UUID().uuidString.prefix(8).lowercased() }
+    /// How often New Cloud Workspace reads the list while its machine starts (tests shorten it).
+    @ObservationIgnored var busyPoll: Duration = LiveCloudWorkspaces.busyPoll
 
     /// How often the list is read while nothing changes, and while a machine is changing.
     static let idlePoll: Duration = .seconds(60)
@@ -77,6 +79,7 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         for task in creationTasks.values { task.cancel() }
         creationTasks = [:]
         creations = []
+        lastListed = nil
         coordinator?.applyCloudMachines([])
     }
 
@@ -98,23 +101,25 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         return busy ? Self.busyPoll : Self.idlePoll
     }
 
-    /// Reads `cloud.machine.list` and shows it. A failed read (offline, Cloud turned off,
-    /// signed out) lists nothing new: a list never read lists no machine at all.
+    /// Reads `cloud.machine.list` and shows it. A failed read (offline, a token being
+    /// refreshed, the service briefly away) changes nothing on screen: the last list stays, so
+    /// no link or row goes for a transient failure. Only `stop` (sign-out) clears it.
     public func refresh() async {
         await model.load()
         publish()
     }
 
+    /// The machines of the last list that read (nil: none read yet).
+    @ObservationIgnored private var lastListed: [CloudMachine]?
+
     /// The list as machines on the Workspaces list, with this phone's pending creations.
     func publish() {
         guard let coordinator else { return }
         var machines: [MacDevice] = []
-        let loaded: Bool = if case .failed = model.phase { false } else { true }
-        if loaded {
-            for machine in model.machines {
-                let pending = creations.contains { $0.machineID == machine.id }
-                machines.append(Self.device(machine, pending: pending))
-            }
+        if case .failed = model.phase {} else { lastListed = model.machines }
+        for machine in lastListed ?? [] {
+            let pending = creations.contains { $0.machineID == machine.id }
+            machines.append(Self.device(machine, pending: pending))
         }
         for creation in creations where creation.machineID == nil || !machines.contains(where: { $0.id == creation.machineID }) {
             machines.append(MacDevice(cloudMachine: creation.machineID ?? creation.id, name: creation.name,
@@ -151,9 +156,9 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         guard let machine = model.machine(machineID), machine.status == .paused || machine.status == .failed else { return }
         Task { [weak self] in
             guard let self else { return }
-            await self.model.start(machine)
+            let outcome = await self.model.start(machine)
             self.publish()
-            self.takeRefusal()
+            self.report(outcome)
             self.refreshSoon()
         }
     }
@@ -174,12 +179,20 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     /// The machine, then its running state, then its daemon, then the workspace. Any refusal
     /// takes the pending line away and says why.
     private func run(_ creation: Creation, open: @escaping @MainActor (Workspace) -> Void) async {
-        let before = Set(model.machines.map(\.id))
-        await model.create(name: creation.name, memoryMB: nil)
-        if let refusal = takeRefusal(report: false) { return fail(creation, refusal) }
-        guard let made = model.machines.first(where: { !before.contains($0.id) && $0.title == creation.name })
-            ?? model.machines.first(where: { !before.contains($0.id) }) else {
-            return fail(creation, String(localized: "The new Cloud machine didn't appear. Try again."))
+        // This create's own outcome: a list read failing meanwhile (which writes the page's
+        // shared `failure`) never reads as a refusal of a machine that was made.
+        let made: CloudMachine
+        switch await model.create(name: creation.name, memoryMB: nil) {
+        case .done(let answered):
+            guard let machine = answered.first else {
+                return fail(creation, String(localized: "The new Cloud machine didn't appear. Try again."))
+            }
+            made = machine
+        case .refused(let message), .awaitingApproval(let message):
+            clearShared(message)
+            return fail(creation, message)
+        case .skipped:
+            return fail(creation, String(localized: "Couldn't ask for a new Cloud machine now. Try again."))
         }
         update(creation.id) { $0.machineID = made.id }
         publish()
@@ -193,15 +206,20 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
             guard ContinuousClock.now < deadline else {
                 return fail(creation, String(localized: "\(creation.name) is taking long to start. It shows in the list once it runs."))
             }
-            do { try await clock.sleep(for: Self.busyPoll) } catch { return }
+            do { try await clock.sleep(for: busyPoll) } catch { return }
             await model.load()
             publish()
         }
         publish()
-        // Its carrier and daemon: the coordinator dials it as shown; Observation wakes this.
+        // Its carrier and daemon: the coordinator dials it as shown. The wait reads the store's
+        // observed data phase (the daemon's list arrived), so Observation wakes it.
         coordinator?.touch(made.id)
-        let ready = await ObservationWait({ [weak self] in self?.coordinator?.cloudDaemonReady(made.id) ?? false },
-                                          clock: clock, budget: Self.daemonBudget).value
+        let id = made.id
+        let ready = await ObservationWait({ [weak self] in
+            guard let store = self?.coordinator?.store else { return false }
+            let phase = store.macDataPhase(id)
+            return phase == .live || phase == .empty
+        }, clock: clock, budget: Self.daemonBudget).value && coordinator?.cloudDaemonReady(id) == true
         guard ready, let workspace = createWorkspace?(made.id) else {
             return fail(creation, String(localized: "\(creation.name) is running, but this iPhone couldn't reach it yet. Open it from the list."))
         }
@@ -222,15 +240,21 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         onRefusal?(message)
     }
 
-    /// The model's last refusal or approval note, taken so the Cloud Machines page doesn't show
-    /// it again; reported to `onRefusal` unless the caller reports it itself.
-    @discardableResult
-    private func takeRefusal(report: Bool = true) -> String? {
-        let message = model.failure ?? model.notice
-        model.failure = nil
-        model.notice = nil
-        if report, let message { onRefusal?(message) }
-        return message
+    /// An action's own refusal or approval note, said once (the page's alert does not show it too).
+    private func report(_ outcome: CloudMachinesModel.Outcome) {
+        switch outcome {
+        case .refused(let message), .awaitingApproval(let message):
+            clearShared(message)
+            onRefusal?(message)
+        case .done, .skipped:
+            break
+        }
+    }
+
+    /// The page's shared alert text, when it is this action's.
+    private func clearShared(_ message: String) {
+        if model.failure == message { model.failure = nil }
+        if model.notice == message { model.notice = nil }
     }
 }
 #endif

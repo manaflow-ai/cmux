@@ -615,6 +615,7 @@ extension LiveCoordinator {
     /// The Mac was used now: its link opens if it was closed, and stays while recent.
     public func touch(_ macID: String) {
         lastShown[macID] = ContinuousClock.now
+        if isCloud(macID: macID) { touchedCloud = macID }
         applyLinks()
     }
 
@@ -996,6 +997,7 @@ extension LiveCoordinator {
     }
 
     func phaseChanged(_ session: MacSession) {
+        cloudSignedOut(session)
         updateDiagnostics(session)
         updateMacState(session)
         updateTerminalsOffline(session)

@@ -369,6 +369,20 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    /// The link under this terminal is about to close on purpose (a Cloud machine's carrier:
+    /// sign-out, another team, its link cap, the machine leaving the list): its claimed size is
+    /// released first and answered, as `stop` does, so the machine does not hold this phone's grid
+    /// for the dropped-link grace. Bounded by 2 s; the attach itself is left to the link's close.
+    public func releaseBeforeLinkCloses() async {
+        guard let client, attached, sizeClaimed else { return }
+        let surface = surface
+        stopLeaseRefresh()
+        sizeClaimed = false
+        _ = try? await Self.within(.seconds(2)) {
+            try await client.request("release-surface-size", params: ["surface": surface])
+        }
+    }
+
     public func stop() {
         eventTask?.cancel()
         eventTask = nil

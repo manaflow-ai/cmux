@@ -31,9 +31,31 @@ final class FakeCarrierSession: CloudCarrierSession, @unchecked Sendable {
 
     func setAccessToken(_ accessToken: String) { lock.withLock { tokens.append(accessToken) } }
     func isConnected() async -> Bool { lock.withLock { live } }
-    func close() async { lock.withLock { live = false } }
-    /// The relay dropped the session.
-    func drop() { lock.withLock { live = false } }
+
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitClosed() async {
+        await withCheckedContinuation { continuation in
+            let now = lock.withLock { () -> Bool in
+                if !live { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    func close() async { drop() }
+
+    /// The relay dropped the session (the carrier's `waitClosed` resolves).
+    func drop() {
+        let waiting = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            live = false
+            defer { waiters = [] }
+            return waiters
+        }
+        for waiter in waiting { waiter.resume() }
+    }
 }
 
 /// Answers each `{"id"}` line with `{"id","ok":true}`, split across two chunks.
@@ -68,7 +90,7 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
     let machine = "vm_aaaaaaaaaaaaaaaaaaaa"
 
     func link(_ session: FakeCarrierSession) -> CloudCarrierLink {
-        CloudCarrierLink(machineID: machine, session: session) { forced in forced ? "fresh" : "cached" }
+        CloudCarrierLink(machineID: machine, session: session)
     }
 
     /// Deny by default: a Cloud machine's carrier serves the daemon only. Every other service a
@@ -106,23 +128,33 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
 
     /// A session that ended is dialed again on the next channel, with a fresh token; a refused
     /// token is refreshed once.
-    @Test func aDroppedSessionReconnectsWithAFreshToken() async throws {
+    /// A session that ended drops its link at once (the controller dials a new one and the
+    /// coordinator binds the list and terminals again): it never reconnects under the same link,
+    /// where they would stay on the dead session's channels.
+    @Test func aDroppedSessionDropsTheLinkAndNeverRedialsInside() async throws {
         let session = FakeCarrierSession()
         try await session.connect(deadlineMs: 1)
         let link = link(session)
+        var states = link.states.makeAsyncIterator()
+        #expect(await states.next() == .connected(.cloudCarrier, .carrier, rttMillis: nil))
         session.drop()
+        // The carrier's own end, before any heartbeat.
+        #expect(await states.next() == .disconnected(reason: "the Cloud link dropped"))
         await #expect(throws: LinkError.self) { _ = try await link.ping() }
-        session.connectErrors = [LinkError(code: LinkError.unauthorized, message: "401")]
-        _ = try await link.openChannel(service: "daemon", args: [:])
-        #expect(session.connects == 3)
-        #expect(session.tokens == ["cached", "fresh"])
-        #expect(try await link.ping() == 0)
+        do {
+            _ = try await link.openChannel(service: "daemon", args: [:])
+            Issue.record("a stream opened on a dead session")
+        } catch let error as LinkError {
+            #expect(error.code == "closed")
+        }
+        #expect(session.connects == 1, "no dial inside the link")
+        #expect(session.tokens.isEmpty)
     }
 
     /// The dialer: `vm_…` ids only; the first dial's refusals come back as the carrier said.
     @Test func dialerMapsRefusals() async throws {
         let session = FakeCarrierSession()
-        let dialer = CloudCarrierDialer(makeSession: { _, _ in session }, accessToken: { _ in "t" })
+        let dialer = CloudCarrierDialer(makeSession: { _, _ in session })
         let endpoint = { (id: String) in LinkEndpoint(baseURL: URL(string: "https://x.test")!, teamID: "t", deviceID: "d", macDeviceID: id) }
         await #expect(throws: LinkError.self) { _ = try await dialer.dial(endpoint("mac-1"), transport: .cloudCarrier, accessToken: "t") }
         for code in [LinkError.unauthorized, "carrier.handshake", "cloud.machine.paused", "transport"] {
@@ -150,11 +182,6 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
         #expect(!CloudCarrierDialer.isPermanent(LinkError(code: "timeout", message: "")))
         #expect(CloudCarrierDialer.isRetryable(LinkError(code: "transport", message: "")))
         #expect(!CloudCarrierDialer.isRetryable(LinkError(code: "carrier.handshake", message: "")))
-    }
-
-    /// Settings → Connection offers WebRTC and WireGuard only.
-    @Test func theCarrierIsNotAConnectionChoice() {
-        #expect(TransportKind.macChoices == [.webRTC, .wireGuard])
-        #expect(!TransportKind.macChoices.contains(.cloudCarrier))
+        #expect(CloudCarrierDialer.isPermanent(LinkError(code: CloudCarrierDialer.noDaemonKey, message: "")))
     }
 }

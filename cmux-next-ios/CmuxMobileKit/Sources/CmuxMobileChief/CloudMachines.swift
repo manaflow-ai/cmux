@@ -286,18 +286,33 @@ public final class CloudMachinesModel {
 
     // MARK: Actions
 
+    /// What one action came to, for a caller that acts on its own outcome (New Cloud Workspace)
+    /// rather than the page's shared `failure` and `notice`, which a list read also writes.
+    public enum Outcome: Equatable, Sendable {
+        /// Done: the machines the op answered with (a create's new machine).
+        case done([CloudMachine])
+        /// Refused, in words for the person.
+        case refused(String)
+        /// The service holds it for an approval in the Feed.
+        case awaitingApproval(String)
+        /// Not run: another action was running, signed out, or cancelled.
+        case skipped
+    }
+
     /// New Cloud Machine: `cloud.machine.create {name, size}` (or from a snapshot).
-    public func create(name: String, memoryMB: Int?, fromSnapshot: String? = nil) async {
+    @discardableResult
+    public func create(name: String, memoryMB: Int?, fromSnapshot: String? = nil) async -> Outcome {
         var size = CloudMachine.Size.newMachine
         if let memoryMB { size.memoryMB = memoryMB }
         var params: [String: any Sendable] = ["size": size.json]
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { params["name"] = String(trimmed.prefix(80)) }
         if let fromSnapshot { params["from_snapshot"] = fromSnapshot }
-        await act("new") { try await $0.mutate("cloud.machine.create", params: params, key: "create-\(self.newKey())") }
+        return await act("new") { try await $0.mutate("cloud.machine.create", params: params, key: "create-\(self.newKey())") }
     }
 
-    public func start(_ machine: CloudMachine) async {
+    @discardableResult
+    public func start(_ machine: CloudMachine) async -> Outcome {
         await act(machine.id, optimistic: { $0.status = .starting }) {
             try await $0.mutate("cloud.machine.start", params: ["machine": machine.id], key: "start-\(machine.id)-\(self.newKey())")
         }
@@ -377,11 +392,12 @@ public final class CloudMachinesModel {
 
     /// Runs one op: the change shows at once (`optimistic`), the list is read again after, and a
     /// refusal puts the row back and says why. An approval the service holds is a note, not a failure.
+    @discardableResult
     private func act(_ id: String, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
-                     _ work: @MainActor (AccountCloud) async throws -> Data) async {
+                     _ work: @MainActor (AccountCloud) async throws -> Data) async -> Outcome {
         guard busyID == nil, let account = account() else {
             rollback?()
-            return
+            return .skipped
         }
         let old = machines
         if let optimistic, let index = machines.firstIndex(where: { $0.id == id }) { optimistic(&machines[index]) }
@@ -395,19 +411,26 @@ public final class CloudMachinesModel {
         do {
             let value = try await work(account)
             // The op's own answer first ({machine} or {snapshot}), so the row is right before the list.
-            for answered in CloudMachine.list(value) {
-                if let index = machines.firstIndex(where: { $0.id == answered.id }) { machines[index] = answered } else { machines.append(answered) }
+            let answered = CloudMachine.list(value)
+            for machine in answered {
+                if let index = machines.firstIndex(where: { $0.id == machine.id }) { machines[index] = machine } else { machines.append(machine) }
             }
             busyID = nil
             await load()
+            return .done(answered)
         } catch is CancellationError {
             restore()
+            return .skipped
         } catch let failure as AccountCloud.Failure where failure.code == "approval.pending" {
             restore()
-            notice = String(localized: "Approve it in your Feed to finish.")
+            let note = String(localized: "Approve it in your Feed to finish.")
+            notice = note
+            return .awaitingApproval(note)
         } catch {
             restore()
-            failure = Self.message(error)
+            let message = Self.message(error)
+            failure = message
+            return .refused(message)
         }
     }
 

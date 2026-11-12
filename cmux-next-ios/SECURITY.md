@@ -178,8 +178,9 @@ same carrier a Mac's `cmux carrier dial` opens (`cmux-mobile-carrier`, linked
 through `CmuxMobileLinkFFI` as `CloudCarrier`).
 
 - **Who may dial.** The phone asks cmux-platform for a carrier
-  (`POST /v1/cloud/machines/{vm}/carrier`) with the person's own access token
-  and active team. The platform admits a person's session or an `ios` install
+  (`POST /v1/cloud/machines/{vm}/carrier`) with the person's own access token,
+  in the account's default team scope (no `x-cmux-team`, the same scope as the
+  machine list it dials from). The platform admits a person's session or an `ios` install
   with `execute` or `cloud-link` (`CarrierRoute.ts` `carrierClient`), decides
   the machine side (`CloudDO.relayScope`), and signs a single-use carrier grant
   naming this phone's Noise static key. Nothing on the phone widens that.
