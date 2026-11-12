@@ -2821,6 +2821,8 @@ Params:
 | `expected_generation` | `string` | optional | Compare-and-swap guard for the daemon boot UUID |
 | `expected_revision` | `uint64` | optional | Compare-and-swap guard for the resource projection revision |
 | `detached` | `boolean` | default false | `detached-terminals-v1`; create a kept terminal with no workspace, pane, screen, or tab |
+| `create_workspace` | `boolean` | default false | `create-terminal-workspace-v1`; make the workspace first when no workspace has `key` (a workspace and its first terminal in one request). Needs `key` and `mutation_id`; forbids `workspace` and `detached`. The workspace is made once under `mutation_id` with `:workspace` appended. A terminal that fails to start leaves the workspace: send the same request again |
+| `workspace_name` | `string` | default null | The name of the workspace `create_workspace` makes |
 
 Result:
 

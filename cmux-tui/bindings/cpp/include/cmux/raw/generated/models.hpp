@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "656204432e98feb61aa4f842e50cd794703669e8549da5fdfd02ef17f8456d47";
+inline constexpr std::string_view kProtocolIrSha256 = "8f3969913e08f981c465e8b845faf315ef3574a34090bba398a7a04e348e46e9";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2776,6 +2776,7 @@ struct CreateTerminalRequest {
     Field<std::vector<std::string>> argv{};
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
+    std::optional<bool> create_workspace{};
     Field<std::string> cwd{};
     std::optional<bool> detached{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
@@ -2790,6 +2791,7 @@ struct CreateTerminalRequest {
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     Field<Id> workspace{};
+    Field<std::string> workspace_name{};
     friend bool operator==(const CreateTerminalRequest&, const CreateTerminalRequest&) = default;
 };
 

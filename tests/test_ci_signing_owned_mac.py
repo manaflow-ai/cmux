@@ -20,20 +20,18 @@ Blacksmith macOS last. On an owned Mac a signing job must:
    CLAIM_GATE, inline and unconditional, before the checkout (which holds the
    job token) and every other step. glaeda's hook gives the job's (workflow,
    job) the exclusive class (glaeda SIGNING_JOBS, the same list as
-   SIGNING_JOBS here) and writes GLAEDA_JOB_CLAIM=exclusive and
-   GLAEDA_HOOK_SHA256 (its own sha256); the gate fails on an owned Mac without
-   the claim or with a hook scripts/ci/glaeda-signing-hooks.txt does not list
-   (every listed sha is one glaeda-disk pins, and glaeda's newest pin is
-   listed), read at the run's own commit since no checkout has run yet, and
-   no workflow names a hook sha itself (NoLiteralHookTests); it sets the job's `claim`
+   SIGNING_JOBS here) and writes GLAEDA_JOB_CLAIM=exclusive; the gate fails on
+   an owned Mac without the claim, whichever glaeda hook version wrote it (a
+   hook sha allowlist failed every nightly signing job after each glaeda
+   release; Leo, 2026-11-12: "this kind of [nonsense] should never have been
+   ... put in the first place"); it sets the job's `claim`
    output to owned when it passes there. A step that runs
    scripts/ci/signing-runner-claim.sh (the same check, and it removes a
    signing keychain a killed job left) comes before every step that names a
    secret, and neither the job's nor the workflow's env names a secret;
 3. have a Blacksmith twin, <job>-blacksmith, with the same steps, env,
    outputs and permissions, that signs in the same run when the owned attempt
-   never passed its claim gate (glaeda refused the job, or an unlisted hook
-   admitted it) or, for a job in FALLBACK_ON_FAILURE, failed after it, and
+   never passed its claim gate (glaeda refused the job) or, for a job in FALLBACK_ON_FAILURE, failed after it, and
    that every job reading the signing job's result or
    outputs also needs and reads, so no run fails or goes stale on a refused
    owned Mac;
@@ -62,9 +60,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import urllib.request
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 import yaml
 
@@ -107,14 +104,6 @@ BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
 CLAIM = "scripts/ci/signing-runner-claim.sh"
 CLAIM_GATE_NAME = "Hold the whole Mac before any credential"
 CLAIM_GATE_ID = "claim-gate"
-# The glaeda hooks whose claim the signing jobs accept: one sha256 per line, then a note.
-SIGNING_HOOKS_FILE = ROOT / "scripts/ci/glaeda-signing-hooks.txt"
-SIGNING_HOOKS = [line.split()[0] for line in SIGNING_HOOKS_FILE.read_text().splitlines()
-                 if line.strip() and not line.startswith("#")]
-# glaeda's drain allowlist, every hook sha it ever pinned, oldest first; FIRST_SIGNING_HOOK is the first hook that waits
-# out an earlier job's leftover processes (glaeda #1738), so nothing older may be listed.
-GLAEDA_DISK_URL = "https://raw.githubusercontent.com/teamleaderleo/glaeda/main/scripts/glaeda-disk"
-FIRST_SIGNING_HOOK = "2695209c13db5fe7514daf76d3e8e547b9569ad9a545225e52f7e07dd83d69e4"
 # The first step of an owned-routed signing job, word for word: it needs no checkout.
 CLAIM_GATE = f"""owned=""
 case "${{RUNNER_NAME:-}}" in *-glaeda|*-glaeda-*) owned=1 ;; esac
@@ -124,27 +113,14 @@ if [ -n "$owned" ]; then
     echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
     exit 1
   fi
-  hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \\
-    "https://raw.githubusercontent.com/${{GITHUB_REPOSITORY}}/${{GITHUB_SHA}}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-  hook="${{GLAEDA_HOOK_SHA256:-}}"
-  listed=""
-  if [[ "$hook" =~ ^[0-9a-f]{{64}}$ ]]; then
-    while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-  fi
-  if [ -z "$listed" ]; then
-    echo "::error title=Signing runner::glaeda hook ${{hook:-unnamed}} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-    exit 1
-  fi
   echo "claim=owned" >> "$GITHUB_OUTPUT"
 fi
 """
 # A nightly signing job has no Blacksmith twin (NIGHTLY_WORKFLOW, test_ci_nightly_off_blacksmith): its gate says a
-# refusal fails the job instead. Only the two refusal messages differ from CLAIM_GATE.
+# refusal fails the job instead. Only the refusal message differs from CLAIM_GATE.
 NIGHTLY_CLAIM_GATE = (CLAIM_GATE
                       .replace("whole mini; this run's Blacksmith job signs instead.",
-                               "whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith.")
-                      .replace("lists; this run's Blacksmith job signs instead.",
-                               "lists, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."))
+                               "whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."))
 TWIN_SUFFIX = "-blacksmith"
 # A picker output that is its own attempt number, which a signing job compares with github.run_attempt.
 ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
@@ -163,8 +139,6 @@ NIGHTLY_WORKFLOW = re.compile(r"nightly|notarization")
 def claim_gate_for(workflow: str) -> str:
     """The claim gate a signing job of `workflow` starts with, word for word."""
     return NIGHTLY_CLAIM_GATE if NIGHTLY_WORKFLOW.search(workflow) else CLAIM_GATE
-# The hook from before the leftover-process check (glaeda before #1738): the gate refuses it.
-OLD_HOOK = "fb0442d31e23f01326118b7d6be2effd0ba91bff9a0b59c62016c39bc23116da"
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
 STEP_OUTPUT = re.compile(r"steps\.([\w-]+)\.outputs\.")
 KEYCHAIN_DELETE = re.compile(r"signing-keychain\.sh\s+delete\b")
@@ -1509,21 +1483,14 @@ class ClaimScriptTests(unittest.TestCase):
                     refused = self.run_claim(tmp, **env)
                     self.assertEqual(refused.returncode, 1, refused.stdout)
                     self.assertIn("did not give the job the whole mini", refused.stdout)
-            for sha in ("", OLD_HOOK, SIGNING_HOOKS[0][:12], "x" * 64, ".*", ".*.*", "[0-9a-f]*",
-                        SIGNING_HOOKS[0] + " ", "#", SIGNING_HOOKS[0][:63] + "."):
+            # Any hook version's exclusive claim passes: the hook sha is not checked.
+            for sha in (None, "", "x" * 64, "b" * 64):
                 with self.subTest(sha=sha):
-                    refused = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
-                                             GLAEDA_HOOK_SHA256=sha)
-                    self.assertEqual(refused.returncode, 1, refused.stdout)
-                    self.assertIn("is not one", refused.stdout)
-            for sha in SIGNING_HOOKS:
-                with self.subTest(listed=sha):
                     passed = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
-                                            GLAEDA_HOOK_SHA256=sha)
+                                            **({} if sha is None else {"GLAEDA_HOOK_SHA256": sha}))
                     self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
             (tmp / "keychains" / "build.keychain-db").write_text("left by a killed job")
-            claimed = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive",
-                                     GLAEDA_HOOK_SHA256=FIRST_SIGNING_HOOK)
+            claimed = self.run_claim(tmp, RUNNER_NAME="cmux12-glaeda-3", GLAEDA_JOB_CLAIM="exclusive")
             self.assertEqual(claimed.returncode, 0, claimed.stdout + claimed.stderr)
             self.assertIn("holds the whole mini", claimed.stdout)
             self.assertIn("removed the signing keychain build.keychain", claimed.stdout)
@@ -1636,273 +1603,38 @@ class ClaimGateTests(unittest.TestCase):
     def test_gate(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             output = Path(raw) / "output"
-            # curl stands in for raw.githubusercontent.com: it serves this tree's glaeda-signing-hooks.txt for
-            # the run's own commit only, records the URL it was asked for, and fails as a 404 for anything else.
+            # curl fails if the gate calls it: the gate reads nothing over the network.
             bin_dir = Path(raw) / "bin"
             bin_dir.mkdir()
-            served = Path(raw) / "served"
-            asked = Path(raw) / "asked"
             curl = bin_dir / "curl"
-            curl.write_text('#!/bin/sh\nfor a; do url="$a"; done\necho "$url" >> "$ASKED"\n'
-                            '[ "$url" = "$WANT" ] && [ -f "$SERVED" ] && exec cat "$SERVED"\nexit 22\n')
+            curl.write_text("#!/bin/sh\nexit 22\n")
             curl.chmod(0o755)
-            run_env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_SHA": "a" * 40}
-            want = (f"https://raw.githubusercontent.com/{run_env['GITHUB_REPOSITORY']}/{run_env['GITHUB_SHA']}/"
-                    "scripts/ci/glaeda-signing-hooks.txt")
 
             def gate(**env: str) -> subprocess.CompletedProcess:
                 output.write_text("")
                 return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", CLAIM_GATE],
                                       env={"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_OUTPUT": os.fspath(output),
-                                           "ASKED": os.fspath(asked), "SERVED": os.fspath(served), "WANT": want,
-                                           **run_env, **env},
+                                           "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_SHA": "a" * 40, **env},
                                       capture_output=True, text=True, timeout=30, check=False)
-
-            served.write_text(SIGNING_HOOKS_FILE.read_text())
 
             fleet = Path("/Users/Shared/cmux-build-fleet").is_dir()
             if not fleet:
                 self.assertEqual(gate(RUNNER_NAME="blacksmith-6vcpu-macos-26-abc").returncode, 0)
                 self.assertEqual(output.read_text(), "", "an ephemeral runner claims nothing: its twin never runs")
             for env in ({"RUNNER_NAME": "cmux12-glaeda-3"},
-                        {"RUNNER_NAME": "cmux12-glaeda", "GLAEDA_JOB_CLAIM": "light", "GLAEDA_HOOK_SHA256": FIRST_SIGNING_HOOK}):
+                        {"RUNNER_NAME": "cmux12-glaeda", "GLAEDA_JOB_CLAIM": "light"}):
                 with self.subTest(env):
                     refused = gate(**env)
                     self.assertEqual(refused.returncode, 1, refused.stdout)
                     self.assertIn("did not give the job the whole mini", refused.stdout)
-                    self.assertEqual(output.read_text(), "")
-            owned = {"RUNNER_NAME": "cmux12-glaeda-3", "GLAEDA_JOB_CLAIM": "exclusive"}
-            for sha in (None, "", OLD_HOOK, FIRST_SIGNING_HOOK[:12], FIRST_SIGNING_HOOK + "0", "x" * 64):
-                with self.subTest(sha=sha):
-                    refused = gate(**owned, **({} if sha is None else {"GLAEDA_HOOK_SHA256": sha}))
-                    self.assertEqual(refused.returncode, 1, refused.stdout)
-                    self.assertIn("is not one scripts/ci/glaeda-signing-hooks.txt lists", refused.stdout)
                     self.assertEqual(output.read_text(), "", "a refused owned attempt leaves claim empty: the twin signs")
-            for sha in SIGNING_HOOKS:
+            # A new glaeda hook release never fails a signing job: whichever hook wrote the exclusive claim, it passes.
+            owned = {"RUNNER_NAME": "cmux12-glaeda-3", "GLAEDA_JOB_CLAIM": "exclusive"}
+            for sha in (None, "", "x" * 64, "b" * 64):
                 with self.subTest(sha=sha):
-                    passed = gate(**owned, GLAEDA_HOOK_SHA256=sha)
+                    passed = gate(**owned, **({} if sha is None else {"GLAEDA_HOOK_SHA256": sha}))
                     self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
                     self.assertEqual(output.read_text(), "claim=owned\n")
-            self.assertEqual(set(asked.read_text().split()), {want}, "the list is read at the run's own commit only")
-            self.assertIn(FIRST_SIGNING_HOOK, SIGNING_HOOKS, "the hook with the leftover-process check passes")
-            self.assertNotIn(OLD_HOOK, SIGNING_HOOKS, "the hook from before it is refused")
-            # The list read at the run's commit is the one that counts: a hook it adds passes with no workflow edit,
-            # a hook it lacks (or a list that cannot be read) is refused.
-            new_hook = "b" * 64
-            served.write_text(SIGNING_HOOKS_FILE.read_text() + f"{new_hook} a hook glaeda pinned later\n")
-            self.assertEqual(gate(**owned, GLAEDA_HOOK_SHA256=new_hook).returncode, 0)
-            self.assertEqual(output.read_text(), "claim=owned\n")
-            served.write_text(f"# only a note\n{new_hook}\n")
-            refused = gate(**owned, GLAEDA_HOOK_SHA256=FIRST_SIGNING_HOOK)
-            self.assertEqual(refused.returncode, 1, "a hook the run's commit does not list is refused")
-            self.assertEqual(output.read_text(), "")
-            served.unlink()
-            refused = gate(**owned, GLAEDA_HOOK_SHA256=FIRST_SIGNING_HOOK)
-            self.assertEqual(refused.returncode, 1, "an unreadable list refuses: the Blacksmith twin signs")
-            self.assertIn("is not one scripts/ci/glaeda-signing-hooks.txt lists", refused.stdout)
-            self.assertEqual(output.read_text(), "")
-            for sha in ("#", ""):
-                with self.subTest(note_line=sha):
-                    served.write_text("# a note\n\n")
-                    self.assertEqual(gate(**owned, GLAEDA_HOOK_SHA256=sha).returncode, 1)
-            self.assertEqual(gate(**owned, GLAEDA_HOOK_SHA256=new_hook,
-                                  GITHUB_SHA="c" * 40).returncode, 1, "another commit's list is never read")
-
-
-# How long glaeda's newest pin may go unlisted before the guard fails. HQ's glaeda-signing-hooks sync opens the PR that
-# lists it within 15 min of the pin, and next-review and next-autoland land it with its review, so a glaeda release no
-# longer reddens the base (it did three times on 2026-11-04, each until a person landed the sync PR). Meanwhile the claim
-# gate refuses the unlisted hook and minis on it sign on Blacksmith, as before. Past the window the sync is stuck, and
-# the guard fails as it always did.
-NEWEST_HOOK_GRACE = dt.timedelta(hours=2)
-GLAEDA_GIT_URL = "https://github.com/teamleaderleo/glaeda.git"
-# glaeda-disk commits read, newest first, to find when a pin first appeared: a pin older than all of them is past any
-# window.
-PIN_WALK = 20
-
-
-def parse_pins(text: str) -> list[str]:
-    """glaeda-disk's CMUX_NEXT_DRAIN_HOOK_SHA256, in its order (oldest first); [] when it declares none."""
-    block = re.search(r"CMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset\(\{(.*?)\}\)", text, re.S)
-    return re.findall(r'"([0-9a-f]{64})"', block.group(1)) if block else []
-
-
-def glaeda_disk_history() -> Iterator[tuple[dt.datetime, list[str]]]:
-    """(committer date, pins) of each of glaeda main's last PIN_WALK glaeda-disk commits, newest first, read over git
-    (a blobless clone, each blob fetched as it is reached), so it spends no GitHub API quota."""
-    with tempfile.TemporaryDirectory() as tmp:
-        def git(*args: str) -> str:
-            return subprocess.run(["git", "-C", tmp, *args], capture_output=True, text=True, check=True,
-                                  timeout=60).stdout
-        git_fixture_env.clone_repo(GLAEDA_GIT_URL, tmp, "--bare", "--filter=blob:none", "--single-branch", "--branch", "main",
-                                   timeout=120)
-        for line in git("log", f"-n{PIN_WALK}", "--format=%H %cI", "--", "scripts/glaeda-disk").splitlines():
-            commit, when = line.split()
-            yield dt.datetime.fromisoformat(when), parse_pins(git("show", f"{commit}:scripts/glaeda-disk"))
-
-
-def pinned_since(sha: str, history: Iterable[tuple[dt.datetime, list[str]]]) -> dt.datetime | None:
-    """When glaeda-disk first pinned `sha`: the date of the oldest commit in the newest unbroken run of commits that pin
-    it (`history` newest first). None when the newest commit lacks it, or the run reaches the end of `history` (pinned
-    before the walk's oldest commit, so older than any window)."""
-    since = None
-    for when, pinned in history:
-        if sha not in pinned:
-            return since
-        since = when
-    return None
-
-
-def unlisted_newest_hook_waits(sha: str, history: Iterable[tuple[dt.datetime, list[str]]], now: dt.datetime) -> str:
-    """Why glaeda's newest pin `sha`, which the list lacks, does not fail the guard yet, or "" when it does: glaeda pinned
-    it less than NEWEST_HOOK_GRACE ago. A history that can't be read, a pin older than the walk, or a pin date more
-    than a few minutes in the future fails it."""
-    try:
-        since = pinned_since(sha, history)
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return ""
-    if since is None or not -dt.timedelta(minutes=5) <= now - since < NEWEST_HOOK_GRACE:
-        return ""
-    left = int((NEWEST_HOOK_GRACE - (now - since)).total_seconds() // 60)
-    return (f"glaeda pinned its newest hook {sha} at {since.isoformat()}, and {SIGNING_HOOKS_FILE.name} does not list "
-            f"it yet; minis on it sign on Blacksmith until the glaeda-signing-hooks sync PR lands. This guard fails if "
-            f"it is still unlisted in {left} min")
-
-
-class SigningHooksInStepWithGlaedaTests(unittest.TestCase):
-    """scripts/ci/glaeda-signing-hooks.txt names only hooks glaeda released with the leftover-process check: each sha
-    is one glaeda-disk pins in CMUX_NEXT_DRAIN_HOOK_SHA256, at or after FIRST_SIGNING_HOOK in its order."""
-
-    def glaeda_pins(self) -> list[str]:
-        last: Exception | None = None
-        for _ in range(3):
-            try:
-                with urllib.request.urlopen(GLAEDA_DISK_URL, timeout=20) as response:
-                    text = response.read().decode()
-                break
-            except OSError as error:
-                last = error
-        else:
-            self.fail(f"could not read glaeda's pins from {GLAEDA_DISK_URL}: {last}")
-        self.assertIn("CMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset", text,
-                      "glaeda-disk no longer declares CMUX_NEXT_DRAIN_HOOK_SHA256")
-        return parse_pins(text)
-
-    def test_every_listed_hook_is_one_glaeda_released_with_the_check(self) -> None:
-        self.assertEqual(len(SIGNING_HOOKS), len(set(SIGNING_HOOKS)), "a sha is listed twice")
-        for sha in SIGNING_HOOKS:
-            self.assertRegex(sha, r"^[0-9a-f]{64}$")
-        pins = self.glaeda_pins()
-        self.assertIn(FIRST_SIGNING_HOOK, pins)
-        released = pins[pins.index(FIRST_SIGNING_HOOK):]
-        for sha in SIGNING_HOOKS:
-            self.assertIn(sha, released, f"{sha} is not a hook glaeda pinned at or after {FIRST_SIGNING_HOOK[:8]}")
-        # glaeda #1740's hook was released and never listed, so every owned signing attempt was refused for hours: the
-        # hook glaeda pins now (its newest, which minis are moving to) must be listed. HQ's glaeda-signing-hooks-sync
-        # workflow opens the PR that adds it, which has NEWEST_HOOK_GRACE to land.
-        if pins[-1] not in SIGNING_HOOKS:
-            waits = unlisted_newest_hook_waits(pins[-1], glaeda_disk_history(), dt.datetime.now(dt.timezone.utc))
-            if waits:
-                print(f"::warning title=glaeda signing hooks::{waits}")
-                return
-        self.assertIn(pins[-1], SIGNING_HOOKS,
-                      f"glaeda's newest hook {pins[-1]} is not in {SIGNING_HOOKS_FILE.name}; minis on it sign on "
-                      "Blacksmith until it is added (add its line, or land the glaeda-signing-hooks sync PR)")
-
-
-class NewestHookGraceTests(unittest.TestCase):
-    """An unlisted newest glaeda pin fails the guard only once it is NEWEST_HOOK_GRACE old (cmuxterm-hq, 2026-11-04)."""
-
-    NOW = dt.datetime(2026, 11, 4, 19, 0, tzinfo=dt.timezone.utc)
-    NEW, OLD = "a" * 64, "b" * 64
-
-    def history(self, *minutes_ago_and_pins: tuple[int, list[str]]) -> list[tuple[dt.datetime, list[str]]]:
-        return [(self.NOW - dt.timedelta(minutes=m), pins) for m, pins in minutes_ago_and_pins]
-
-    def test_a_fresh_pin_waits_and_an_old_one_fails(self) -> None:
-        both = [self.OLD, self.NEW]
-        fresh = self.history((10, both), (30, both), (200, [self.OLD]))
-        self.assertEqual(pinned_since(self.NEW, fresh), self.NOW - dt.timedelta(minutes=30), "its first commit counts")
-        self.assertIn("fails if it is still unlisted in 90 min", unlisted_newest_hook_waits(self.NEW, fresh, self.NOW))
-        stale = self.history((10, both), (125, both), (200, [self.OLD]))
-        self.assertEqual(unlisted_newest_hook_waits(self.NEW, stale, self.NOW), "",
-                         "a later glaeda-disk commit never restarts the window")
-
-    def test_whatever_cant_be_dated_fails(self) -> None:
-        both = [self.OLD, self.NEW]
-        cases = {
-            "pinned before the walk's oldest commit": self.history((10, both), (20, both)),
-            "the newest commit lacks it": self.history((10, [self.OLD]), (20, both), (30, [self.OLD])),
-            "no history": [],
-            "a date in the future": self.history((-30, both), (200, [self.OLD])),
-        }
-        for why, history in cases.items():
-            with self.subTest(why):
-                self.assertEqual(unlisted_newest_hook_waits(self.NEW, history, self.NOW), "")
-
-        def unreadable() -> Iterator[tuple[dt.datetime, list[str]]]:
-            raise subprocess.CalledProcessError(128, ["git", "clone"])
-            yield  # a generator, as glaeda_disk_history is
-        self.assertEqual(unlisted_newest_hook_waits(self.NEW, unreadable(), self.NOW), "")
-
-    def test_the_guard_reads_the_window_only_for_an_unlisted_newest_pin(self) -> None:
-        source = Path(__file__).read_text()
-        guard = source[source.index("    def test_every_listed_hook_is_one_glaeda_released_with_the_check"):]
-        guard = guard[:guard.index("\n\n\n")]
-        self.assertLess(guard.index("if pins[-1] not in SIGNING_HOOKS:"), guard.index("glaeda_disk_history()"))
-        self.assertLess(guard.index("for sha in SIGNING_HOOKS:\n            self.assertIn(sha, released"),
-                        guard.index("glaeda_disk_history()"), "every listed hook is still checked first, strictly")
-
-    def test_the_glaeda_history_reader_parses_pins(self) -> None:
-        text = 'X = 1\nCMUX_NEXT_DRAIN_HOOK_SHA256 = frozenset({\n    "%s",  # old\n    "%s",\n})\n' % (self.OLD, self.NEW)
-        self.assertEqual(parse_pins(text), [self.OLD, self.NEW])
-        self.assertEqual(parse_pins("nothing here"), [])
-
-
-# A 64-hex sha256 in a workflow: a hook named outside the one list.
-HEX64 = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{64}(?![0-9a-fA-F])")
-
-
-def literal_hook_failures(texts: dict[str, str], hooks: list[str]) -> list[str]:
-    """Where a workflow names a glaeda hook itself: any listed (or refused) hook sha anywhere in it, and any 64-hex
-    literal in a step that reads GLAEDA_HOOK_SHA256. The claim gates read glaeda-signing-hooks.txt instead."""
-    failures = []
-    known = set(hooks) | {OLD_HOOK}
-    for name, text in sorted(texts.items()):
-        for sha in sorted(known):
-            if sha in text:
-                failures.append(f"{name} names hook {sha[:12]} itself; only {SIGNING_HOOKS_FILE.name} lists hooks")
-        document = yaml.safe_load(text)
-        jobs = ((document or {}).get("jobs") or {}) if isinstance(document, dict) else {}
-        for job_name, job in jobs.items():
-            steps = (job.get("steps") or []) if isinstance(job, dict) else []
-            for step in steps:
-                run = str(step.get("run", "")) if isinstance(step, dict) else ""
-                if "GLAEDA_HOOK_SHA256" in run:
-                    for sha in sorted(set(HEX64.findall(run)) - known):
-                        failures.append(f"{name} {job_name}: a step that reads GLAEDA_HOOK_SHA256 names {sha[:12]} "
-                                        f"itself; only {SIGNING_HOOKS_FILE.name} lists hooks")
-    return failures
-
-
-class NoLiteralHookTests(unittest.TestCase):
-    """The claim gates carry no hook sha of their own: glaeda-signing-hooks.txt is the one list, read at the run's
-    commit, so a new hook is one line there and never four workflow edits (cmux#27408 was the last of those)."""
-
-    def test_no_workflow_names_a_hook(self) -> None:
-        texts = {path.name: path.read_text(encoding="utf-8") for path in sorted(WORKFLOWS.glob("*.y*ml"))}
-        self.assertEqual(literal_hook_failures(texts, SIGNING_HOOKS), [])
-
-    def test_the_guard_catches_a_literal(self) -> None:
-        gate = "jobs:\n  sign:\n    steps:\n      - run: |\n          case \"$GLAEDA_HOOK_SHA256\" in %s) ;; esac\n"
-        self.assertTrue(literal_hook_failures({"a.yml": gate % FIRST_SIGNING_HOOK}, [FIRST_SIGNING_HOOK]))
-        self.assertTrue(literal_hook_failures({"a.yml": gate % ("d" * 64)}, [FIRST_SIGNING_HOOK]),
-                        "an unlisted literal in a gate fails too")
-        self.assertTrue(literal_hook_failures({"a.yml": f"env:\n  HOOKS: {FIRST_SIGNING_HOOK}\n"},
-                                              [FIRST_SIGNING_HOOK]))
-        other = "jobs:\n  x:\n    steps:\n      - run: echo %s\n" % ("e" * 64)
-        self.assertEqual(literal_hook_failures({"a.yml": other}, [FIRST_SIGNING_HOOK]), [],
-                         "other sha256 literals are not hooks")
 
 
 if __name__ == "__main__":

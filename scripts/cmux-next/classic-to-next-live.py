@@ -24,6 +24,8 @@ run it on a fleet mini, never on a person's Mac. GUI host only. Quits both apps 
 it started and stops the tag's daemons at the end.
 """
 import argparse, json, os, plistlib, re, socket, sqlite3, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -209,7 +211,7 @@ next_app = subprocess.Popen([os.path.join(APP, "Contents/MacOS", plist(APP)["CFB
                                  "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG},
                             stdout=open(os.path.join(opts.out, "next.log"), "w"), stderr=subprocess.STDOUT)
 classic_app = None
-print(f"next pid {next_app.pid} socket {NEXT_SOCKET}, scratch {SCRATCH}, out {opts.out}", flush=True)
+safe_print(f"next pid {next_app.pid} socket {NEXT_SOCKET}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: "result" in call(NEXT_SOCKET, "snapshot.get", timeout=5), "cmux-next socket", 120)
     before = {tab.get("surface") for _, tab in tabs(NEXT_SOCKET)}

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "656204432e98feb61aa4f842e50cd794703669e8549da5fdfd02ef17f8456d47";
+pub const ir_sha256 = "8f3969913e08f981c465e8b845faf315ef3574a34090bba398a7a04e348e46e9";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6101,6 +6101,8 @@ pub const CreateTerminalRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     command: wire.Field([]const u8) = .absent,
+    /// Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.
+    create_workspace: ?bool = null,
     cwd: wire.Field([]const u8) = .absent,
     detached: ?bool = null,
     env: wire.Field(wire.Map([]const u8)) = .absent,
@@ -6115,8 +6117,11 @@ pub const CreateTerminalRequest = struct {
     shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
+    /// The name of the workspace create_workspace makes.
+    workspace_name: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "create_workspace",
         "detached",
         "keep",
     };
@@ -6133,11 +6138,13 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .since = 7,
             .capability = "workspace-registry-v1",
             .fields = &.{
+                .{ .name = "create_workspace", .since = 12, .capability = "create-terminal-workspace-v1" },
                 .{ .name = "detached", .since = 12, .capability = "detached-terminals-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
+                .{ .name = "workspace_name", .since = 12, .capability = "create-terminal-workspace-v1" },
             },
         },
         request,
