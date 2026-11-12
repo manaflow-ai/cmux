@@ -172,7 +172,7 @@ The final tree is an ordinary Bonsplit split tree. Existing session snapshot and
 - Preserve the same pane state, all tab IDs/order, and selected tab.
 - Preserve the remainder tree and its divider positions.
 - Reorder a direct root child to the opposite edge.
-- No-op when already at the requested outer edge.
+- No-op only when the pane is already the root split's child on the requested edge; a nested pane touching that edge still moves.
 - No-op for a single pane or disabled splits.
 - Clear zoom on success and preserve it on failure.
 

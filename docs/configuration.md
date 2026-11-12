@@ -276,7 +276,7 @@ Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected wo
 
 The **Move Pane to New Outer Split** commands promote the focused pane—together with all of its surfaces—to the left, right, top, or bottom edge of the workspace. The moved pane and the remaining layout each receive half of the root split; divider positions inside the remaining layout stay intact. These commands are available from the View menu and Command Palette and are unbound by default. Assign keys with `shortcuts.bindings.movePaneToOuterLeft`, `movePaneToOuterRight`, `movePaneToOuterTop`, and `movePaneToOuterBottom`.
 
-The commands apply only to ordinary split workspaces. They do not modify Canvas layouts, remote tmux mirrors, or Dock layouts. Moving a pane that already occupies the requested root edge is a no-op.
+The commands apply only to ordinary split workspaces. They do not modify Canvas layouts, remote tmux mirrors, or Dock layouts. A command does nothing only when the focused pane is already the workspace root split's child on the requested edge, which means it spans the workspace's full height for left and right, or its full width for top and bottom. A pane that touches that edge from inside a nested split still moves.
 
 ## New Cloud Workspace shortcut and the plus-button menu
 
