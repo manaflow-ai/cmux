@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43323321044",
+  "recorded_at": "2026-11-12T22:57:27Z",
+  "reason": "cmux-tui cb0e49cfd4ff changes the image's cmux-tui (pinned 3c42d7a92139)",
+  "dry_run": false,
+  "cmux_tui": "cb0e49cfd4ff4fba475cfdc7ee7f00fae3b47d84",
+  "fixes": [
+    {
+      "sha": "ab3b95f74782daff030a736550c149bac1dedf24",
+      "mergedAt": "2026-11-12T21:24:59Z",
+      "subject": "acpmux: a first-run matrix cell puts the daemon in any set of agent CLIs and sign-ins (#41918)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T22:57:27Z",
+    "snapshot_id": "sh-6a0fc00d1c574dc9bb6ecff396bfba81",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43323321044): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ca525583210d8f193b0dae74e1ebc71913b1616b",
+    "image": "cloud-native-auto-cb0e49cf-43323321044-1",
+    "revision": "ci-43323321044-1",
+    "at": "2026-11-12T22:57:27Z"
+  },
+  "rolled_back": false
+}
