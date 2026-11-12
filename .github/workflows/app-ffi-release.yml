@@ -642,7 +642,12 @@ jobs:
     name: open the re-pin pull request
     needs: [build, publish]
     # always(): a run that ends with no release (its build failed or was cancelled) still re-pins the newest published
-    # release, since a newer run's pending build holds the re-pin of an older one (publish-app-ffi-repin.sh).
+    # release, since a newer run's pending build holds the re-pin of an older one (publish-app-ffi-repin.sh). A normal
+    # cancel of the whole run by hand also re-pins (the newest published release; if the cancel came after the
+    # publish, that can be this run's own release): one normal cancel cannot stop a re-pin, as app-ffi-repin.yml says.
+    # Known gap (accepted, ffi-pin-rev-5 N2 on #40150): a force-cancel skips always() and the failure step, so a run
+    # force-cancelled before its re-pin job completes re-pins nothing, and an older run that held for it does not
+    # re-pin either, until the next FFI push or pin merge; dispatch app-ffi-repin.yml by hand after any force-cancel.
     if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
