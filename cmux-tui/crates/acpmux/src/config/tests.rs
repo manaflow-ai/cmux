@@ -522,5 +522,19 @@ fn a_refused_agent_under_another_family_stays_refused() {
     let mut mine = prof(HarnessKind::Acp, &["node", "/opt/codex-acp/dist/index.js"]);
     mine.family = Some("mine".into());
     cfg.harnesses.insert("mine".into(), mine);
-    assert!(crate::web_modes::refused_families(&cfg).contains("mine"));
+    // An npx cache path of the Zed adapter, and OpenCode's npm package, run by an interpreter.
+    let npx = "/Users/me/.npm/_npx/1a2b/node_modules/@zed-industries/codex-acp/dist/index.js";
+    let mut cached = prof(HarnessKind::Acp, &["node", npx]);
+    cached.family = Some("cached".into());
+    cfg.harnesses.insert("cached".into(), cached);
+    let mut oc = prof(
+        HarnessKind::Acp,
+        &["bun", "/usr/local/lib/node_modules/opencode-ai/bin/run.js", "acp"],
+    );
+    oc.family = Some("oc".into());
+    cfg.harnesses.insert("oc".into(), oc);
+    let refused = crate::web_modes::refused_families(&cfg);
+    for family in ["mine", "cached", "oc"] {
+        assert!(refused.contains(family), "{family}: {refused:?}");
+    }
 }

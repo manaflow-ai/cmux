@@ -67,6 +67,20 @@ mod agent_reported_trust {
                     "family": "muse",
                     "env": {"FAKE_ASK_CLAIM": "0", "FAKE_MODES": "default,readOnly"},
                 },
+                // The codex-acp adapter's modes (codex-acp 1.10.0): its `read-only` edits in the
+                // workspace without asking; only the Codex bridge's `read-only` is read-only.
+                "codex-adapter": {
+                    "argv": ["python3", FAKE_AGENT],
+                    "family": "codex",
+                    "env": {"FAKE_ASK_CLAIM": "0",
+                            "FAKE_MODES": "read-only,agent,agent-full-access"},
+                },
+                // Family `lane`, starting in a mode named `read-only`, with `ask`.
+                "lane-ro": {
+                    "argv": ["python3", FAKE_AGENT],
+                    "family": "lane",
+                    "env": {"FAKE_ASK_CLAIM": "0", "FAKE_MODES": "read-only,ask"},
+                },
             },
             "defaultHarness": "claude-sr2",
             "permissionPolicy": "approve-all",
@@ -288,6 +302,22 @@ mod agent_reported_trust {
         // Guard: Muse Code's own read-only mode keeps deny-all.
         let id = person.chat(&d, "muse", Some("deny-all")).await;
         assert_eq!(person.state(&id).await, ("readOnly".to_owned(), json!("deny-all")));
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A mode named `read-only` keeps a policy only on the Codex bridge (`codex app-server`),
+    /// whose sandbox refuses every write: the codex-acp adapter's `read-only` edits without
+    /// asking, so a deny-all chat on it does not start; and an agent of another family is not
+    /// held in its `read-only` under `ask`, but moved to its `ask` (family-rev B1).
+    #[tokio::test]
+    async fn read_only_holds_a_policy_only_on_the_codex_bridge() {
+        let (hub, d) = hub("bridge-ro");
+        let mut person = Client::person(&hub).await;
+        let r = person.new_chat(&d, "codex-adapter", Some("deny-all")).await;
+        assert_eq!(r["error"]["data"]["reason"], json!("policy_unenforceable"), "{r}");
+        let id = person.chat(&d, "lane-ro", Some("ask")).await;
+        assert_eq!(person.state(&id).await, ("ask".to_owned(), json!("ask")));
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&d);
     }

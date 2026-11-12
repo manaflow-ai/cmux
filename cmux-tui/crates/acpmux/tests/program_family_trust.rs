@@ -196,6 +196,14 @@ mod program_family_trust {
             let r = cli.new_chat(&d, harness).await;
             assert!(r["result"]["sessionId"].is_string(), "{harness}: {r}");
         }
+        // The npm layouts are judged by the file their link runs: the family recorded at the
+        // start is the package's, never empty (family-rev N7: `ask` alone would also start).
+        for (harness, family) in [("npm-codex", "codex"), ("npm-claude", "claude")] {
+            let r = cli.new_chat(&d, harness).await;
+            let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{harness}: {r}"));
+            let meta = hub.resolve(id).unwrap().meta();
+            assert_eq!(meta.program_family.as_deref(), Some(family), "{harness}");
+        }
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&d);
     }

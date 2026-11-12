@@ -1172,4 +1172,33 @@ mod tests {
         meta.started_kind = Some(crate::config::HarnessKind::ClaudeStdio);
         assert!(require_enforced(&meta, &cfg).is_ok());
     }
+
+    /// An ACP chat an older build started recorded neither the kind nor the family of the program
+    /// its agent runs: until the agent starts again its family is unknown. Its refusal says to
+    /// restart the agent, not to add a family, which a restart may give (family-rev N2). Started
+    /// by this build with no family found, it says to add one.
+    #[test]
+    fn an_acp_chat_started_before_the_update_is_told_to_restart_its_agent() {
+        let cfg: Config =
+            serde_json::from_value(json!({"harnesses": {"gem": {"argv": ["gemini", "--acp"]}}}))
+                .unwrap();
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "gem",
+            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
+            "launchDigest": cfg.harnesses["gem"].launch_digest(), "permissionPolicy": "ask",
+            "modes": {"currentModeId": "default", "availableModes": [{"id": "default"}]},
+        }))
+        .unwrap();
+        let e = require_enforced(&meta, &cfg).expect_err("an old start keeps no policy");
+        let data = e.data.clone().unwrap_or_default();
+        assert_eq!(data["startedBeforeUpdate"], json!(true), "{data}");
+        let why = data["why"].as_str().unwrap_or_default();
+        assert!(why.starts_with("This chat started before an update."), "{why}");
+        assert!(!e.message.contains("\"family\""), "{}", e.message);
+        meta.started_kind = Some(crate::config::HarnessKind::Acp);
+        let e = require_enforced(&meta, &cfg).expect_err("no family keeps no policy");
+        let data = e.data.clone().unwrap_or_default();
+        assert!(data.get("startedBeforeUpdate").is_none(), "{data}");
+        assert!(e.message.contains("\"family\""), "{}", e.message);
+    }
 }
