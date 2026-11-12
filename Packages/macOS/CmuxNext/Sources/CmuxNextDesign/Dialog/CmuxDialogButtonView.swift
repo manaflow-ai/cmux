@@ -20,15 +20,28 @@ public final class CmuxDialogButtonView: ClickableButton {
     /// On a solid fill, a line of the card's color just inside the button's edge, between the fill and
     /// the ring, so the ring reads apart from a fill of its own color (the accent default button).
     private let focusGap = CALayer()
+    /// The key drawn on a plate at the trailing end (a cmux dialog's card), instead of as text after the title.
+    private let keycapView: CmuxDialogKeycapView?
+    /// The button's corner: rounder with a keycap, so the plate inside keeps one inset all round.
+    private var cornerRadius: CGFloat {
+        keycapView == nil ? CmuxDialogMetrics.buttonCornerRadius : CmuxDialogMetrics.keycapButtonCornerRadius
+    }
 
     /// A button drawing `hint` after its title. The hint only labels the key: the host
     /// answers it (the overlay page's dialog through ``CmuxDialogKeys``), so pass the hint that
-    /// ``CmuxDialogKeys/hint(for:in:)`` gives for the host's spec.
-    public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, target: AnyObject?, action: Selector) {
+    /// ``CmuxDialogKeys/hint(for:in:)`` gives for the host's spec. `keycap` draws the hint on a plate at the
+    /// button's trailing end (the cmux dialog card, ``CmuxDialogView``), on a taller, rounder button.
+    public init(_ button: CmuxDialogButton, hint: CmuxDialogKeyHint?, quiet: Bool = false, keycap: Bool = false,
+                target: AnyObject?, action: Selector) {
         self.button = button
         keyHint = hint
         isQuiet = quiet
+        keycapView = keycap ? hint.map { CmuxDialogKeycapView($0.glyph) } : nil
         super.init(frame: .zero)
+        if let keycapView {
+            keycapView.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.keycap.\(button.id)")
+            addSubview(keycapView)
+        }
         translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         bezelStyle = .regularSquare
@@ -40,7 +53,7 @@ public final class CmuxDialogButtonView: ClickableButton {
         setAccessibilityLabel(button.title)
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).
         setAccessibilityHelp(hint?.spokenName)
-        heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.buttonHeight).isActive = true
+        heightAnchor.constraint(equalToConstant: keycapView == nil ? CmuxDialogMetrics.buttonHeight : CmuxDialogMetrics.keycapButtonHeight).isActive = true
         focusRing.borderWidth = Self.focusRingWidth
         focusRing.isHidden = true
         focusGap.borderWidth = Self.focusGapWidth
@@ -100,6 +113,11 @@ public final class CmuxDialogButtonView: ClickableButton {
 
     public override var intrinsicContentSize: NSSize {
         let size = attributedTitle.size()
+        if keycapView != nil {
+            // The title carries the keycap's room as trailing kern (``keycapRoom``): centered, it sits at the leading inset.
+            return NSSize(width: max(ceil(size.width) + CmuxDialogMetrics.keycapLeading * 2, CmuxDialogMetrics.buttonMinWidth),
+                          height: CmuxDialogMetrics.keycapButtonHeight)
+        }
         return NSSize(width: max(ceil(size.width) + Metrics.space4 * 2, CmuxDialogMetrics.buttonMinWidth),
                       height: CmuxDialogMetrics.buttonHeight)
     }
@@ -127,13 +145,19 @@ public final class CmuxDialogButtonView: ClickableButton {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         focusRing.frame = bounds.insetBy(dx: -outset, dy: -outset)
-        focusRing.cornerRadius = CmuxDialogMetrics.buttonCornerRadius + outset
+        focusRing.cornerRadius = cornerRadius + outset
         // Just outside the fill, so a focused button keeps its full size and its edges line up with
         // its neighbors' (drawn inside, the band shrank the fill 3 px on every side).
         let gap = Self.focusGapWidth
         focusGap.frame = bounds.insetBy(dx: -gap, dy: -gap)
-        focusGap.cornerRadius = CmuxDialogMetrics.buttonCornerRadius + gap
+        focusGap.cornerRadius = cornerRadius + gap
         CATransaction.commit()
+        if let keycapView {
+            let inset = CmuxDialogMetrics.keycapInset
+            let height = max(0, bounds.height - inset * 2)
+            let width = keycapView.width(forHeight: height)
+            keycapView.frame = NSRect(x: bounds.maxX - inset - width, y: inset, width: width, height: height)
+        }
     }
 
     /// The overlay surface (the dialog's card) this button draws on, if any.
@@ -180,7 +204,7 @@ public final class CmuxDialogButtonView: ClickableButton {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             layer?.backgroundColor = look.fill.nsColor.cgColor
-            layer?.cornerRadius = CmuxDialogMetrics.buttonCornerRadius
+            layer?.cornerRadius = cornerRadius
             focusRing.isHidden = !hasFocus
             focusRing.borderColor = look.focusRing.nsColor.cgColor
             // Only a solid fill needs the gap: a translucent one already reads apart from the ring.
@@ -191,10 +215,31 @@ public final class CmuxDialogButtonView: ClickableButton {
             CATransaction.commit()
             alphaValue = isEnabled ? 1 : 0.45
             let font = button.role == .default ? Typography.bodyEmphasized : Typography.body
+            if let keycapView {
+                keycapView.paint(ink: look.title.nsColor, glyph: look.keyHint.nsColor)
+                let title = NSMutableAttributedString(string: button.title, attributes: [.foregroundColor: look.title.nsColor, .font: font])
+                if title.length > 0 {
+                    title.addAttribute(.kern, value: keycapRoom(keycapView), range: NSRange(location: title.length - 1, length: 1))
+                }
+                attributedTitle = title
+                invalidateIntrinsicContentSize()
+                needsLayout = true
+                return
+            }
             attributedTitle = keyHint?.attributedTitle(button.title, font: font, color: look.title.nsColor, hintColor: look.keyHint.nsColor)
                 ?? NSAttributedString(string: button.title, attributes: [.foregroundColor: look.title.nsColor, .font: font])
         }
         invalidateIntrinsicContentSize()
+    }
+}
+
+extension CmuxDialogButtonView {
+    /// The room after the title for the gap and the keycap, less the leading inset: the title and this room,
+    /// centered in the button, leave the leading inset before the title and the keycap's inset after the plate.
+    fileprivate func keycapRoom(_ keycap: CmuxDialogKeycapView) -> CGFloat {
+        let height = CmuxDialogMetrics.keycapButtonHeight - CmuxDialogMetrics.keycapInset * 2
+        return max(0, CmuxDialogMetrics.keycapGap + keycap.width(forHeight: height) + CmuxDialogMetrics.keycapInset
+            - CmuxDialogMetrics.keycapLeading)
     }
 }
 
@@ -205,4 +250,25 @@ enum CmuxDialogMetrics {
     static var buttonMinWidth: CGFloat { 72 * Typography.userScale }
     static var buttonCornerRadius: CGFloat { 7 }
     static var padding: CGFloat { Metrics.space5 }
+    /// The dialog card (``CmuxDialogView``): its width, wider with an icon so the text column keeps its width.
+    static var width: CGFloat { 380 * Typography.userScale }
+    static var widthWithIcon: CGFloat { 432 * Typography.userScale }
+    static var cardPadding: CGFloat { 16 * Typography.userScale }
+    static var spacing: CGFloat { 8 * Typography.userScale }
+    static var subtitleGap: CGFloat { 4 * Typography.userScale }
+    static var buttonsGap: CGFloat { 12 * Typography.userScale }
+    static var fieldHeight: CGFloat { 24 * Typography.userScale }
+    static var iconSize: CGFloat { 40 * Typography.userScale }
+    static var iconGap: CGFloat { 12 * Typography.userScale }
+    /// A message past these many lines or characters scrolls in a box this tall, so the buttons stay on screen.
+    static var linesMaxHeight: CGFloat { 240 * Typography.userScale }
+    static let scrollingLineCount = 8
+    static let scrollingCharacterCount = 600
+    /// A keyed card button: taller and rounder, with the keycap plate one inset from its top, bottom and end.
+    static var keycapButtonHeight: CGFloat { 28 * Typography.userScale }
+    static var keycapButtonCornerRadius: CGFloat { 9 * Typography.userScale }
+    static var keycapInset: CGFloat { 5 * Typography.userScale }
+    static var keycapPadding: CGFloat { 4 * Typography.userScale }
+    static var keycapLeading: CGFloat { 12 * Typography.userScale }
+    static var keycapGap: CGFloat { 8 * Typography.userScale }
 }

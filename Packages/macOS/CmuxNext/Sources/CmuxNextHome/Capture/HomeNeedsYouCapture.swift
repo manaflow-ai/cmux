@@ -8,10 +8,15 @@ package import Foundation
 /// bridge (`AcpmuxPermissionFeedBridge`) found, then withdrawing it once it is answered elsewhere.
 ///
 /// - An acpmux on a unix socket in this app's process, so the bridge's server-peer check accepts
-///   it (the peer is this app). It serves one peer session (`acp_peer_capture` of `peer-a`,
-///   listed by its qualified id `peer-a/acp_peer_capture`) holding one prompt: `initialize`, the
-///   watch and `_acpmux/sessions` list it; `_acpmux/info` returns the prompt until ``resolve()``
-///   and nothing after. Any other request gets an empty result. Only the first connection is served.
+///   it (the peer is this app). It serves one peer session (`acp_peer_capture` of `peer-a`) holding
+///   one prompt. `initialize`, the watch and `_acpmux/sessions` list it as acpmux lists a peer's
+///   session (``peerRow``: its raw `sessionId`, `peer` and `qualifiedSessionId`
+///   `peer-a/acp_peer_capture`). `_acpmux/info` reads it by that qualified id or by its raw id, as
+///   acpmux's unix socket routes a peer's session (`hub/key_route.rs`: a raw id that names one live
+///   session, here or on a peer, is swapped for its route); any other id is an error, not an empty answer. It returns the prompt until
+///   ``resolve()`` and nothing after. Notices carry the raw `sessionId`, as acpmux sends them, with
+///   `peer` and `qualifiedSessionId`. Any other request gets an empty result. Only the first
+///   connection is served.
 /// - The feed owner the bridge calls (``owner(_:)``), as the local daemon's feed: `feed.post`
 ///   becomes the daemon's `feed.post {item}` (its integration owner), `feed.cancel` its
 ///   `feed.withdraw {dedupe_key}`, both through `send`.
@@ -27,6 +32,12 @@ package nonisolated final class HomeNeedsYouCapture: Sendable {
 
     /// The peer's ids as its notices carry them: the raw id, the peer and the row's qualified id.
     static var peerIds: [String: Any] { ["sessionId": rawSession, "peer": "peer-a", "qualifiedSessionId": qualifiedSession] }
+
+    /// The session's row in the watch reply and `_acpmux/sessions`, as acpmux lists a peer's session (its
+    /// `qualifiedSessionId` is the key `_acpmux/info` reads it by; cmux-tui/crates/acpmux/src/cli/run/ls_tools.rs).
+    static var peerRow: [String: Any] {
+        ["qualifiedSessionId": qualifiedSession, "sessionId": rawSession, "peer": "peer-a", "pendingPermissions": 1]
+    }
 
     /// The prompt the peer session holds.
     static var request: [String: Any] {
@@ -206,18 +217,22 @@ package nonisolated final class HomeNeedsYouCapture: Sendable {
     }
 
     private func answer(id: Any, method: String, params: [String: Any]) {
-        let row = Self.peerIds.merging(["pendingPermissions": 1]) { $1 }
         let result: [String: Any]
         switch method {
         case "initialize":
             // `session-list-pending-v1` is AcpmuxSessionListGate.pendingCapability.
             result = ["_meta": ["acpmux": ["capabilities": ["acpmux-v1", "session-list-pending-v1"]]]]
         case "_acpmux/watch", "_acpmux/sessions":
-            result = ["sessions": [row]]
+            result = ["sessions": [Self.peerRow]]
         case "_acpmux/info":
+            let target = params["sessionId"] as? String ?? ""
             let resolved = state.withLock { state -> Bool in
-                state.infoReads.append(params["sessionId"] as? String ?? "")
+                state.infoReads.append(target)
                 return state.resolved
+            }
+            guard target == Self.qualifiedSession || target == Self.rawSession else {
+                reply(["jsonrpc": "2.0", "id": id, "error": ["code": -32602, "message": "unknown session: \(target)"]])
+                return
             }
             result = ["pending": resolved ? [] : [["permissionId": Self.permission, "request": Self.request]]]
         default:

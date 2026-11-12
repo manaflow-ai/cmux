@@ -546,6 +546,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   message (a JSON value) is one write in each direction. A message above
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
+  A phone that opens it with `{"compression":"deflate"}` (CMUX-563) gets each
+  message of 16 KiB or more from the Mac as one envelope instead of text:
+  `0x00`, the text length (u32 big-endian), the deflate length (u32 big-endian),
+  then the raw deflate (RFC 1951) of the JSON text; smaller messages stay text.
+  JSON never starts with `0x00`, and the lengths say where the envelope ends
+  among the frames and bound its inflate (hostd `link_deflate.rs`, phone
+  `DeflatedMessage.swift`). An older Mac ignores the argument and sends text.
+  The phone watches its chats in pages: `_acpmux/watch {limit: 100}` is the
+  newest page, and the phone is ready with it; the rest comes from
+  `_acpmux/sessions {limit, cursor}` after (`AcpmuxHub+SessionPages.swift`).
 - `cloud-directory` (link protocol 2): no arguments; one JSON data frame
   `{"paid","desktops","machines":[{"machine_id","team_id","name","status","ran","linked"}]}`
   followed by `eof`. `paid` says the account pays for cmux Cloud; `desktops` is the
