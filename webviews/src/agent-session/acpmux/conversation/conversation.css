@@ -5726,11 +5726,11 @@ a.cv-sha:focus-visible {
      the prompt at opacity 0. */
   /* Another agent's message (a user-kind line row, "Received 2 messages") is no send: it keeps its fade.
      A turn with work draws "Working for" between the prompt and its thinking row (turns.ts,
-     liveTurnClock `top`): both are the send's. */
+     liveTurnClock `top`): the thinking row is still the send's. "Working for" comes later, with the
+     turn's first work, and fades as any arrival does. */
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .acpmux-row__message-presentation,
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .cv-user .cv-enter,
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-thinking.acpmux-row--enter,
-  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-working.acpmux-row--enter,
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-working + .acpmux-thinking.acpmux-row--enter {
     animation: none;
   }
@@ -5779,10 +5779,10 @@ a.cv-sha:focus-visible {
 @media (prefers-reduced-motion: no-preference) {
   /* Only a prompt, never another agent's message (a user-kind line row, "Received 2 messages"):
      on the send's 0 clock that popped in whole with the next turn's live line under it. Its
-     thinking row may sit under "Working for" (liveTurnClock `top`); both take the send's clock. */
+     thinking row may sit under "Working for" (liveTurnClock `top`), which comes later with the
+     turn's first work and fades on the ordinary clock. */
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .acpmux-row__message-presentation,
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-thinking.acpmux-row--enter,
-  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-working.acpmux-row--enter,
   .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) + .acpmux-working + .acpmux-thinking.acpmux-row--enter {
     animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 180ms));
     animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));

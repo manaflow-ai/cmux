@@ -33,7 +33,9 @@ await requireBrowserLane("send-motion-reduced.test.ts", async () => {
   // the app's (the theme's 0 send clock and fade, the media query still at no-preference). The sent
   // prompt, its picture and its thinking row draw whole at once; the reply fades, on a nonzero clock,
   // with opacity-only keyframes; the bubble's edge never moves. A turn that already has work draws
-  // "Working for" between the prompt and its thinking row (turns.ts, liveTurnClock `top`): the same.
+  // "Working for" between the prompt and its thinking row (turns.ts, liveTurnClock `top`): the
+  // thinking row is still whole at once. "Working for" comes with the turn's first work, later, and
+  // fades as any arrival (turn-transition-jumps: no row pops in at full ink).
   const FADES = new Set(["cv-enter-fade", "cv-message-enter"]);
   for (const path of [
     { name: "system", media: "reduce" as const, tokens: "--agent-motion-send: 0ms; --agent-motion-send-fade: 0ms" },
@@ -67,15 +69,14 @@ await requireBrowserLane("send-motion-reduced.test.ts", async () => {
               prompt: read(".acpmux-user .acpmux-row__message-presentation"),
               reply: read(".acpmux-assistant .acpmux-row__message-presentation"),
               thinking: read(".acpmux-thinking"),
-              working: document.querySelector(".acpmux-working") ? read(".acpmux-working") : undefined,
               picture: read(".cv-user__image"),
               bubble: read(".cv-user__bubble"),
               text: read(".cv-user__bubble > p"),
             };
           });
-          for (const part of ["prompt", "thinking", "picture", ...(working ? (["working"] as const) : [])] as const)
+          for (const part of ["prompt", "thinking", "picture"] as const)
             expect(
-              clocks[part]!.name === "none" || clocks[part]!.duration === 0,
+              clocks[part].name === "none" || clocks[part].duration === 0,
               `${path.name}: the ${part} is whole at once (${JSON.stringify(clocks[part])})`,
             ).toBe(true);
           expect(FADES.has(clocks.reply.name), `${path.name}: the reply fades (${clocks.reply.name})`).toBe(true);
