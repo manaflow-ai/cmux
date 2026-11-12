@@ -447,10 +447,8 @@ fn snapshot_json(
             "opacity": value("background_opacity"),
             "blur": value("background_blur"),
         });
-        if include_path {
-            if let Value::Object(fields) = &mut object {
-                fields.insert("path".into(), background.path.to_string_lossy().into_owned().into());
-            }
+        if include_path && let Value::Object(fields) = &mut object {
+            fields.insert("path".into(), background.path.to_string_lossy().into_owned().into());
         }
         object
     });
