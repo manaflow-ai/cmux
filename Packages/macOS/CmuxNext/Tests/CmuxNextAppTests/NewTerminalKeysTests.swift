@@ -87,16 +87,27 @@ import Testing
         }
     }
 
-    /// The daemon made the tab and the store never lists it by the hold's end: the keys are counted and go nowhere, with
-    /// a stand-in or with none.
-    @Test func theKeysOfAMadeTerminalWithNoTabGoNowhere() throws {
-        for standIn in ["pending_tab_1", nil] {
+    /// The daemon made the tab, the store does not list it by the hold's end, and there is no stand-in (an older daemon):
+    /// no terminal is the keys' own. They are lost: counted, and no terminal gets them (not the terminal of the press).
+    @Test func theKeysOfAMadeTerminalWithNoTabAndNoStandInAreLostAndGoIntoNoTerminal() throws {
+        let buffer = CreationInputBuffer(began: .now), store = Store()
+        let ticket = buffer.open(generation: 7, machine: "local", newTerminal: true)
+        buffer.capture(try Self.key("l"), focusedTab: "press", forNewestIntent: true)
+        buffer.resolve(ticket, awaitsFocus: true, madeTab: { store.tab })
+        let ends = Self.ends(buffer.take(focused: "press") { _, _ in false })
+        #expect(ends.isEmpty && buffer.untypedTerminalKeys == 1, "\(ends), \(buffer.untypedTerminalKeys) counted")
+    }
+
+    /// The same end with a stand-in: its view is the new terminal's own, so the keys go into it (run as typed when it has
+    /// the keyboard, typed into it when not), as before the fix. None is lost.
+    @Test func theKeysOfAMadeTerminalWithNoTabYetGoIntoItsStandIn() throws {
+        for focused in ["press", "pending_tab_1"] {
             let buffer = CreationInputBuffer(began: .now), store = Store()
-            let ticket = buffer.open(generation: 7, tab: standIn, machine: "local", newTerminal: true)
-            buffer.capture(try Self.key("l"), focusedTab: standIn ?? "press", forNewestIntent: true)
+            let ticket = buffer.open(generation: 7, tab: "pending_tab_1", machine: "local", newTerminal: true)
+            buffer.capture(try Self.key("l"), focusedTab: "pending_tab_1")
             buffer.resolve(ticket, awaitsFocus: true, madeTab: { store.tab })
-            let ends = Self.ends(buffer.take(focused: "press") { _, _ in false })
-            #expect(ends.isEmpty && buffer.untypedTerminalKeys == 1, "stand-in \(standIn ?? "none"): \(ends), \(buffer.untypedTerminalKeys) counted")
+            let ends = Self.ends(buffer.take(focused: focused) { _, _ in false })
+            #expect(ends == (focused == "press" ? ["type 1 into pending_tab_1"] : ["run"]) && buffer.untypedTerminalKeys == 0, "focused \(focused): \(ends), \(buffer.untypedTerminalKeys) counted")
         }
     }
 

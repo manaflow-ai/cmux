@@ -306,7 +306,7 @@ public final class CreationInputBuffer {
         return true
     }
 
-    private func isStranded(_ id: Int?) -> Bool { id.map { strandedWorkspaces.contains($0) || newTerminals.lost($0) } ?? false } // or a made terminal with no tab
+    private func isStranded(_ id: Int?) -> Bool { id.map { strandedWorkspaces.contains($0) || (laneTabs[$0] == nil && newTerminals.lost($0)) } ?? false } // or a made terminal with no tab and no stand-in
 
     public func awaits(_ generation: UInt64) -> Bool { awaited.contains(generation) }
 

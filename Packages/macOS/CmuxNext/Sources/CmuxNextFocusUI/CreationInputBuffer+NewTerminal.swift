@@ -9,7 +9,8 @@
 /// - With no stand-in (a daemon from before `terminal-placement-env-v1`), the focus names the terminal of the press
 ///   until the reply: a key typed while the person did nothing since the press is the creation's (``ticket(newest:over:)``).
 /// - Made: the keys are the daemon tab's of the new terminal (``tab(_:)``). The stand-in's id names no tab after the swap.
-///   The hold waits for the store to list that tab, at most its limit; with no tab then, the keys go nowhere (``lost(_:)``).
+///   The hold waits for the store to list that tab, at most its limit. With no tab then, the keys go into the stand-in's
+///   view, which is that terminal's own; with no stand-in they are lost, and no terminal gets them (``lost(_:)``).
 /// - Refused: the keys go with the creation, into no terminal (``resolve(_:landed:madeTab:)``).
 /// - Past the reply bound the keys run as typed, as every creation's do (cmux-ad m12): the creation is off this list.
 @MainActor
@@ -40,7 +41,8 @@ struct NewTerminalKeys {
     var awaitsTab: Bool { made.values.contains { $0() == nil } }
 
     /// The creation behind `ticket` made a terminal that the store lists no tab of. At the hold's end (its limit, or the
-    /// focus left the content) its keys have no terminal: they are counted and never typed, as a stranded workspace's.
+    /// focus left the content) its keys go to its stand-in's lane; with none they have no terminal: they are counted and
+    /// never typed, as a stranded workspace's (the terminal of the press is not theirs).
     func lost(_ ticket: Int) -> Bool { made[ticket].map { $0() == nil } ?? false }
 }
 
