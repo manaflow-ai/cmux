@@ -610791,6 +610791,18 @@
             "value": "تفاصيل استخدام الوكيل"
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalji korištenja agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaljer om agentforbrug"
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -610815,16 +610827,70 @@
             "value": "Détails de l’utilisation des agents"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dettagli sull’utilizzo dell’agente"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "エージェントの使用状況の詳細"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព័ត៌មានលម្អិតអំពីការប្រើប្រាស់ភ្នាក់ងារ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "에이전트 사용량 세부 정보"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detaljer om agentforbruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szczegóły użycia agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalhes do uso do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подробности использования агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รายละเอียดการใช้งานเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan kullanım ayrıntıları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Деталі використання агента"
           }
         },
         "zh-Hans": {
@@ -610848,6 +610914,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "النموذج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
           }
         },
         "de": {
@@ -610874,16 +610952,70 @@
             "value": "Modèle"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modello"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "モデル"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ូដែល"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "모델"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โมเดล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Модель"
           }
         },
         "zh-Hans": {
@@ -610907,6 +611039,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "السياق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst"
           }
         },
         "de": {
@@ -610933,16 +611077,70 @@
             "value": "Contexte"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contesto"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "コンテキスト"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បរិបទ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "컨텍스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контекст"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริบท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контекст"
           }
         },
         "zh-Hans": {
@@ -610966,6 +611164,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "التكلفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trošak"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omkostning"
           }
         },
         "de": {
@@ -610992,16 +611202,70 @@
             "value": "Coût"
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Costo"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "コスト"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថ្លៃចំណាយ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "비용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kostnad"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koszt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стоимость"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค่าใช้จ่าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maliyet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вартість"
           }
         },
         "zh-Hans": {
