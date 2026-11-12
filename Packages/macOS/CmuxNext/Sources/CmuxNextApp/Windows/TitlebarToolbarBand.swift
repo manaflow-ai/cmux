@@ -56,6 +56,7 @@ final class TitlebarToolbarBand: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         sidebarToggle.customImage = SidebarToggleIcon.image(named:pointSize:) // its candidate glyphs
+        TitlebarBandButton.styleTopRow(toggle: sidebarToggle, back: backButton, forward: forwardButton) // one glyph height
         sidebarToggle.target = self
         sidebarToggle.action = #selector(toggle)
         backButton.target = self
@@ -148,8 +149,7 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.symbol = SidebarToggleIcon.slideSymbol(progress: glyphProgress)
     }
 
-    /// The band's full width: the toggle, a group gap, then Back and Forward
-    /// touching, each the +'s size (`TopRowSpacing`, one rhythm at every density).
+    /// The band's full width: the toggle, Back and Forward one gap apart, each the +'s size (`TopRowSpacing`).
     static var width: CGFloat { TopRowSpacing.bandWidth }
 
     /// Each item is `presence` of its width, and the gaps close with it, so
@@ -159,7 +159,7 @@ final class TitlebarToolbarBand: NSView {
         let side = TopRowSpacing.buttonSide
         let width = side * presence
         var x: CGFloat = 0
-        for (button, gap) in [(sidebarToggle, TopRowSpacing.groupGap), (backButton, 0), (forwardButton, 0)] {
+        for (button, gap) in [(sidebarToggle, TopRowSpacing.toggleGap), (backButton, TopRowSpacing.groupGap), (forwardButton, 0)] {
             button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
             x += (side + gap) * presence
         }

@@ -157,3 +157,21 @@ slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 [[profile.ci.overrides]]
 filter = 'binary_id(acpmux::tools_mcp)'
 success-output = "final"
+
+# The bound test of the journal compaction stages, packs and reads back 1.6
+# million journal rows (workspace_registry/output_cleanup/journal_compact_tests.rs):
+# 45 s alone on an M-series Mac (2026-11-10), over the 60 s period beside a
+# full run. 300 s is the margin under load; a hang still fails.
+[[profile.default.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(=workspace_registry::output_cleanup::journal_compact_tests::a_registry_of_1_6_million_records_is_compacted)'
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(=workspace_registry::output_cleanup::journal_compact_tests::a_registry_of_1_6_million_records_is_compacted)'
+slow-timeout = { period = "60s", terminate-after = 5, grace-period = "5s" }
+
+# The compaction test prints the sizes before and after (its journal_compact
+# line); a fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core) & test(=workspace_registry::output_cleanup::journal_compact_tests::restating_records_shrink_and_replay_to_the_same_state_at_every_revision)'
+success-output = "final"

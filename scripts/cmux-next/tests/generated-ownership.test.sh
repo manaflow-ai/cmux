@@ -90,4 +90,115 @@ printf '%s\n' docs/README.md > "$tmp/changed"
 bash "$APPLY" "$tmp/repair.patch" "$repo" --changed "$tmp/changed" > "$tmp/out" 2>&1 || fail "an all-dropped patch is not a failure"
 [[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "an all-dropped patch changes nothing"
 
+
+# Every file base-autofix.sh writes is wired into each autofix gate. Review of #41785: "the display_suites
+# list's inputs and outputs aren't wired into every autofix gate": its area missed the manifests, and a held
+# list on a moved tip never counted as remade. The gates, for one sample path per output:
+#   - base-autofix-push.sh output_areas names the areas it is built from (never "unknown", which never lands
+#     on a moved tip), and autofix-areas.sh has each of those areas;
+#   - base-autofix-land.sh remade() makes it again on a moved tip (with the exports current there), or not,
+#     as the table says;
+#   - pr-autofix-apply.sh accepts it, or refuses it, as the table says (a refused path refuses the whole
+#     pull request repair, so a file the PR autofix writes must be accepted);
+#   - generated_outputs.py has a row for it, or none, as the table says. A new row is a new committed export,
+#     which generated_files_guard.py refuses: the display suite list, the docs reference pages and the app
+#     platform copies have none, so pr-autofix-apply.sh --changed drops them and the base autofix lands them.
+# Each numbered step of base-autofix.sh has a row here: a new generator fails this test until it has one.
+# Fails once at the end, naming every gap. No network.
+scripts="$ROOT_DIR/scripts/cmux-next"
+failed=0
+gap() { echo "FAIL: $*" >&2; failed=1; }
+
+# step|sample output|remade on a moved tip (1/0)|pr-autofix-apply.sh (1 accepts, 0 refuses, - not judged here)|generated_outputs.py row (out/none)
+rows=(
+  "1|plans/cmux-next/action-surfaces.json|0|1|out"                # the Mac action export
+  "1|schemas/settings/settings-schema.json|0|1|out"               # the Mac settings export
+  "1b|Packages/macOS/CmuxNext/ci-target-graph.json|1|1|out"
+  "1c|-"                                                          # a no-op: page strings are build output
+  "1d|cmux-tui/bindings/go/raw/generated_ops.go|1|1|out"
+  "1d2|plans/cmux-next/daemon-capabilities.json|1|1|out"
+  "1e|web/data/cmux-shortcuts.generated.json|1|1|out"
+  "1e1|web/data/next-docs/cli-reference.generated.json|1|1|none"
+  "1e1|web/data/next-docs/settings-reference.generated.json|1|1|none"
+  "1e2|cmux-tui/crates/cmux-app-host/generated/scopes.json|1|1|out"
+  "1e2|Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/scopes.json|1|1|none"
+  "1e3|schemas/defaults/cmux-next.json|1|-|out"                   # bot-only: apply drops it
+  "1e4|scripts/ci/display-suites.txt|1|1|none"
+  "1f|scripts/lint-namespace-types-ratchet.txt|1|1|out"
+  "1f'|Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift|1|-|none"  # a source rewrite, not an output
+  "1g|clients/ts/cloud/src/generated.ts|1|1|out"
+  "1g|cmux-tui/crates/cmux-cloud-wire/src/generated/ops.rs|1|1|out"
+  "1h|webviews/src/main.tsx|0|1|none"                             # vp fmt: the webviews job's patch
+  "1h|Native/OptChat/optchat-chief/inspector/index.html|0|-|none" # from the base job's webviews patch only
+  "2|-"                                                           # reported only
+  "3|-"                                                           # reported only
+  "4|cmux-tui/crates/cmux-core/src/lib.rs|1|1|none"               # cargo fmt
+  "4|Native/OptChat/optchat-chief/src/main.rs|1|1|none"
+  "5|cmux-tui/Cargo.lock|1|0|none"                                # a lock: apply refuses lockfiles by design
+)
+
+# Each step of base-autofix.sh has a row, and each row names a step it has.
+steps="$(grep -oE "^# [0-9][a-z0-9']*\." "$scripts/base-autofix.sh" | sed -e 's/^# //' -e 's/\.$//' | sort -u)"
+[[ -n "$steps" ]] || gap "no numbered step found in base-autofix.sh"
+listed="$(printf '%s\n' "${rows[@]}" | cut -d'|' -f1 | sort -u)"
+while IFS= read -r step; do
+  grep -qxF -- "$step" <<<"$listed" || gap "base-autofix.sh step $step has no row in this test: add its outputs above"
+done <<<"$steps"
+while IFS= read -r step; do
+  grep -qxF -- "$step" <<<"$steps" || gap "this test lists step $step, which base-autofix.sh does not have"
+done <<<"$listed"
+
+# The push's output_areas and the land's remade(), read from the scripts themselves.
+output_areas_src="$(sed -n '/^output_areas() {/,/^}/p' "$scripts/base-autofix-push.sh")"
+remade_src="$(sed -n '/^  remade() {/,/^  }$/p' "$scripts/base-autofix-land.sh")"
+[[ -n "$output_areas_src" ]] || gap "cannot read output_areas() from base-autofix-push.sh"
+[[ -n "$remade_src" ]] || gap "cannot read remade() from base-autofix-land.sh"
+snapshot="$(sed -n 's/^snapshot=//p' "$scripts/base-autofix-push.sh")"
+eval "$output_areas_src"
+eval "$remade_src"
+actions_current=1 settings_current=1
+known_areas="$(bash "$scripts/autofix-areas.sh" --all | sed -n 's/=true$//p')"
+
+# One repository for the apply checks: every sample committed, then each changed alone.
+prepo="$tmp/parity-repo"
+git_fixture_init "$prepo" >/dev/null 2>&1 || git init -q "$prepo"
+for row in "${rows[@]}"; do
+  path="$(cut -d'|' -f2 <<<"$row")"
+  [[ "$path" == - ]] && continue
+  mkdir -p "$prepo/$(dirname "$path")" && echo old > "$prepo/$path"
+done
+git -C "$prepo" add -A
+git -C "$prepo" -c user.name=t -c user.email=t@t commit -q -m fixture
+
+for row in "${rows[@]}"; do
+  IFS='|' read -r step path want_remade want_apply want_row <<<"$row"
+  [[ "$path" == - ]] && continue
+  areas="$(printf '%s\n' "$path" | output_areas)"
+  if grep -qx unknown <<<"$areas"; then
+    gap "$path (step $step): base-autofix-push.sh output_areas has no case for it, so it never lands on a moved tip"
+  fi
+  while IFS= read -r area; do
+    [[ -z "$area" || "$area" == unknown ]] && continue
+    grep -qxF -- "$area" <<<"$known_areas" || gap "$path (step $step): area $area is not in autofix-areas.sh"
+  done <<<"$areas"
+  got=0; remade "$path" && got=1
+  [[ "$got" == "$want_remade" ]] \
+    || gap "$path (step $step): base-autofix-land.sh remade() gives $got, want $want_remade"
+  if [[ "$want_apply" != - ]]; then
+    echo new > "$prepo/$path"
+    git -C "$prepo" diff --binary > "$tmp/one.patch"
+    git -C "$prepo" checkout -q -- .
+    got=0; bash "$scripts/pr-autofix-apply.sh" "$tmp/one.patch" "$prepo" > "$tmp/apply.out" 2>&1 && got=1
+    git -C "$prepo" checkout -q -- .
+    [[ "$got" == "$want_apply" ]] \
+      || gap "$path (step $step): pr-autofix-apply.sh gives $got (1 accepts), want $want_apply: $(cat "$tmp/apply.out")"
+  fi
+  got=none
+  python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import generated_outputs as g; sys.exit(g.output_of(sys.argv[2]) is None)' \
+    "$scripts" "$path" && got=out
+  [[ "$got" == "$want_row" ]] || gap "$path (step $step): generated_outputs.py row is $got, want $want_row"
+done
+
+(( failed == 0 )) || exit 1
+
 echo "generated ownership: ok"
