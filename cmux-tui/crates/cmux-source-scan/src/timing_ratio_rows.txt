@@ -76,7 +76,7 @@ timing-alone = { max-threads = 1 }
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
 filter = 'binary_id(demo::timing) and test(/^alone_/)'
-=== clean :: busy < idle * 4 :: - :: hq#9512 F1: glob, ci profile
+=== clean :: busy < idle * 4 :: - :: hq#9512 F1: glob, in the default profile and the ci profile it applies to
 #[test]
 fn alone_case() {
     let (busy, idle) = (helper(), helper());
@@ -86,7 +86,10 @@ fn alone_case() {
 [test-groups]
 timing-alone = { max-threads = 1 }
 
-[[profile.ci.overrides]]
+[profile.ci]
+retries = 0
+
+[[profile.default.overrides]]
 filter = 'test(#alone_*)'
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
