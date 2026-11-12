@@ -44,7 +44,10 @@ pub(super) fn add_canonical_paths(session: &Session, kind: &str, msg: &mut Value
     }
     // A finished read of an image file that returned no image gets the file's image
     // (`tool_read_images.rs`): Codex's View of a PNG drew as its bare path.
-    super::tool_read_images::add_read_image(kind, msg, &cwd, &session.canon_paths);
+    // Resolved afresh, not from the chat's cache: it reads the file's bytes, so a link
+    // retargeted since the chat first named the path reads what it names now. Once per
+    // finished read, not per streamed update.
+    super::tool_read_images::add_read_image(kind, msg, &cwd);
 }
 
 /// `target._meta.acpmux.canonicalPath` = `canonical()`, unless it has one or

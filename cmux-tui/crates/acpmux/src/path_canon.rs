@@ -69,7 +69,8 @@ const CACHE_PATHS: usize = 4096;
 /// generation fills to half, then becomes the older one and the oldest is
 /// dropped, and a hit in the older generation moves to the newer, so each
 /// lookup costs O(1) and the paths in use stay. A resolution runs outside the
-/// lock. A path is resolved as it stood when first named: a file created later
+/// lock. A path is resolved as it stood when first named (so a caller that
+/// reads the file itself, like `tool_read_images`, resolves afresh): a file created later
 /// under a name given in another letter case, or a folder later replaced by a
 /// link, keeps the first answer for the chat's life (or until it ages out).
 #[derive(Default)]
@@ -131,10 +132,10 @@ impl CanonCache {
     }
 }
 
-/// Tests only: the [`canonical_path`] calls this thread made, each a walk of
-/// the filesystem.
 #[cfg(test)]
 thread_local! {
+    /// Tests only: the [`canonical_path`] calls this thread made, each a walk of
+    /// the filesystem.
     pub(crate) static RESOLUTIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 

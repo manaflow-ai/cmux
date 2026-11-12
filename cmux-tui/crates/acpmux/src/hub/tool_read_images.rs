@@ -20,7 +20,7 @@ use base64::Engine;
 use serde_json::{Value, json};
 use std::io::Read;
 
-use crate::path_canon::CanonCache;
+use crate::path_canon::canonical_path;
 
 /// The most bytes of one image file a read gets: its base64 (4/3 of it) stays within the 8 MiB a
 /// Claude tool result's images keep (`claude_stdio::result_images::MAX_RESULT_IMAGE_BYTES`), the
@@ -29,12 +29,7 @@ pub(super) const MAX_READ_IMAGE_BYTES: u64 = 6 << 20;
 
 /// Adds the image a completed `read` call named to its content, as above. `cwd` is the session's
 /// folder, for a relative location.
-pub(super) fn add_read_image(
-    kind: &str,
-    msg: &mut Value,
-    cwd: &std::path::Path,
-    paths: &CanonCache,
-) {
+pub(super) fn add_read_image(kind: &str, msg: &mut Value, cwd: &std::path::Path) {
     // Not a `.replay`: a resumed chat's replayed history is not drawn (`paging.rs`), and reading
     // each of its files again would log every image once more per resume.
     if kind != "tool_call_update" {
@@ -63,7 +58,8 @@ pub(super) fn add_read_image(
         return;
     };
     // From the path the agent named, never a `canonicalPath` its own `_meta` may carry.
-    let path = location.get("path").and_then(Value::as_str).and_then(|p| paths.canonical(p, cwd));
+    let path =
+        location.get("path").and_then(Value::as_str).and_then(|p| canonical_path(p, Some(cwd)));
     let Some((mime, bytes)) = path.as_deref().and_then(image_file) else {
         return;
     };
