@@ -46,6 +46,14 @@ const indexOf = (row: HTMLElement) => Number(row.getAttribute("aria-posinset"));
 /// Whether `row` plays an animation of its own now (its subtree's are not its translate's).
 const animating = (row: HTMLElement) => row.getAnimations?.().some((each) => each.playState === "running") ?? false;
 
+/// PROBE, never to merge: one line for each decision of the ride, read by the test when a click fails.
+export function foldRideProbe(line: string): void {
+  const holder = globalThis as unknown as { __foldRideProbe?: string[] };
+  const log = (holder.__foldRideProbe ??= []);
+  log.push(`${performance.now().toFixed(1)} ${line}`);
+  if (log.length > 600) log.splice(0, 200);
+}
+
 export type FoldRideOptions = {
   /// The height the transcript placed `row` at (its drawn height in the last render), if any.
   placed: (row: HTMLElement) => number | undefined;
@@ -94,15 +102,16 @@ export class FoldRide {
   ride(targets: readonly HTMLElement[]): boolean {
     if (targets.length === 0) return false;
     const scroller = targets[0]!.closest<HTMLElement>(".acpmux-scroll");
-    if (!scroller) return this.release();
+    if (!scroller) return this.gaveWay("no scroller");
     const view = scroller.getBoundingClientRect();
     for (const target of targets) {
-      if (!target.isConnected || !heightFoldInFlight(target)) return this.release();
-      if (this.landed.get(target) === heightFoldUntil(target)) return this.release();
+      if (!target.isConnected || !heightFoldInFlight(target))
+        return this.gaveWay("a target is not connected or its fold is not in flight");
+      if (this.landed.get(target) === heightFoldUntil(target)) return this.gaveWay("an input landed this fold");
       const placed = this.options.placed(target);
       const height = this.options.height(target);
-      if (placed === undefined || height === undefined) return this.release();
-      if (target.getBoundingClientRect().top < view.top - 0.5) return this.release();
+      if (placed === undefined || height === undefined) return this.gaveWay("a target has no placed or drawn height");
+      if (target.getBoundingClientRect().top < view.top - 0.5) return this.gaveWay("a target's top is above the view");
       this.folds.set(target, height - placed);
     }
     for (const fold of this.folds.keys()) if (!fold.isConnected) this.folds.delete(fold);
@@ -110,12 +119,12 @@ export class FoldRide {
     const total = folds.reduce((sum, fold) => sum + fold.delta, 0);
     // A close must leave the view inside the scroll range it ends with, or the offset clamps then.
     if (total < 0 && scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight + total + 0.5)
-      return this.release();
+      return this.gaveWay("a close would end the scroll range above the view");
     const rows = siblingRows(targets[0]!);
     const shiftOf = (index: number) => folds.reduce((sum, fold) => (fold.index < index ? sum + fold.delta : sum), 0);
     const held = this.options.held?.();
     const heldRow = held?.toggle.closest<HTMLElement>(".acpmux-row");
-    if (heldRow && Math.abs(shiftOf(indexOf(heldRow))) >= 0.01) return this.release();
+    if (heldRow && Math.abs(shiftOf(indexOf(heldRow))) >= 0.01) return this.gaveWay("the held line's row would move");
     // The last mounted row must reach past the view's end both where the transcript placed it and
     // where it rides to. Otherwise a close would show rows the virtualizer has not mounted, or the
     // transcript's end is in view, which the transcript places itself: the bottom pinned while a
@@ -124,8 +133,9 @@ export class FoldRide {
     for (const each of rows) if (!last || each.index > last.index) last = each;
     // Rows mounted outside the run (a margin drag's selection holds them) leave unmounted rows
     // between: the last of them says nothing of what a move shows.
-    if (last && last.index - Math.min(...rows.map((each) => each.index)) + 1 !== rows.length) return this.release();
-    if (!last) return this.release();
+    if (last && last.index - Math.min(...rows.map((each) => each.index)) + 1 !== rows.length)
+      return this.gaveWay("mounted rows have a hole");
+    if (!last) return this.gaveWay("no last row");
     // Its box includes the translate it wears now.
     const worn = parseFloat(last.node.style.translate.split(" ")[1] ?? "") || 0;
     const placedBottom = last.node.getBoundingClientRect().bottom - worn;
@@ -134,10 +144,14 @@ export class FoldRide {
     // screen of the view's end. A close that brought it there mid-fold then placed every row on each
     // later frame (a 50-row chat's "Show more": 45 row renders for 21 mounted rows), for an end the
     // reader never saw.
-    if (reach < view.bottom) return this.release();
+    if (reach < view.bottom)
+      return this.gaveWay(
+        `the last row ends over the view's end: reach ${reach.toFixed(1)}, view end ${view.bottom.toFixed(1)}, placed bottom ${placedBottom.toFixed(1)}`,
+      );
     // A row still playing its own animation (a live row's entry) may set its translate itself, over
     // the one the ride would write: the transcript places the rows while it plays.
-    if (rows.some(({ node, index }) => Math.abs(shiftOf(index)) >= 0.01 && animating(node))) return this.release();
+    if (rows.some(({ node, index }) => Math.abs(shiftOf(index)) >= 0.01 && animating(node)))
+      return this.gaveWay("a row that would move plays an animation");
     // A folding row rides the folds above it too (its own change is not in its shift): two folds in
     // flight at once would otherwise overlap while the upper one plays.
     for (const { node, index } of rows) {
@@ -153,8 +167,16 @@ export class FoldRide {
     for (const [node, delta] of this.folds)
       if (node.dataset.rowId !== undefined) this.shown.push({ id: node.dataset.rowId, at: indexOf(node), delta });
     // A fold above the held line in its own row moves it with no shift of its row: measured.
-    if (held && Math.abs(held.toggle.getBoundingClientRect().top - held.top) >= 0.5) return this.release();
+    if (held && Math.abs(held.toggle.getBoundingClientRect().top - held.top) >= 0.5)
+      return this.gaveWay("the held line moved from where it is held");
     this.watch(scroller.ownerDocument.defaultView);
+    foldRideProbe(
+      `ride: RODE folds ${folds.map((fold) => `row ${fold.index} by ${fold.delta.toFixed(1)}`).join(", ")}; rows ${rows
+        .map(({ node, index }) => `${index}:${node.style.translate || "0"}`)
+        .join(
+          " ",
+        )}; reach ${reach.toFixed(1)}, view end ${view.bottom.toFixed(1)}; scroll ${scroller.scrollTop.toFixed(1)} of ${scroller.scrollHeight - scroller.clientHeight}`,
+    );
     return true;
   }
 
@@ -163,6 +185,7 @@ export class FoldRide {
   /// when they may not ride (`mayRide`) or the ride gives way.
   settled(targets: readonly HTMLElement[], mayRide: boolean): void {
     if (!this.riding || (mayRide && this.ride(targets))) return;
+    foldRideProbe(`settled: heights are the placed ones, mayRide ${mayRide}: rows go back with no placement`);
     this.release();
     // No placement follows (the heights are the placed ones): the rows just went back.
     this.handed = undefined;
@@ -198,6 +221,7 @@ export class FoldRide {
   /// run's foot clamped 1250px short). The folds still playing ride again from there.
   land(): void {
     if (!this.riding) return;
+    foldRideProbe("land: an input came while rows rode");
     const folds = [...this.folds.keys()];
     for (const fold of folds) {
       const until = heightFoldUntil(fold);
@@ -207,8 +231,16 @@ export class FoldRide {
     this.options.finish(folds.filter((fold) => fold.isConnected));
   }
 
+  /// PROBE: a give-way of `ride`, by its reason.
+  private gaveWay(reason: string): false {
+    foldRideProbe(`ride: GAVE WAY (${reason}); ${this.moved.size} rows wore a translate`);
+    return this.release();
+  }
+
   /// Lets every row go (no translate) and forgets the folds. Returns false, for `ride`'s callers.
   release(): false {
+    if (this.moved.size || this.folds.size)
+      foldRideProbe(`release: ${this.moved.size} translates off, ${this.folds.size} folds forgotten`);
     if (this.moved.size) {
       this.handed = this.shown;
       this.handedOn = this.options.drawn?.();
@@ -233,6 +265,7 @@ export class FoldRide {
         this.frame = view.requestAnimationFrame(step);
         return;
       }
+      foldRideProbe(`watch: the folds ended, ${folds.filter((fold) => fold.isConnected).length} rows to finish`);
       this.release();
       this.options.finish(folds.filter((fold) => fold.isConnected));
     };

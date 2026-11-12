@@ -104,7 +104,7 @@ import {
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
-import { FoldRide } from "./conversation/foldRide";
+import { FoldRide, foldRideProbe } from "./conversation/foldRide";
 import { deliberateClick } from "./conversation/useAnchoredCollapse";
 import { isRegroupHold } from "./conversation/keepOpenedLineModel";
 import {
@@ -1530,6 +1530,7 @@ function TranscriptView({
     // Followed again: a chase the reader's input held goes on home, whether or not a layout pass
     // comes after (followChase `resume`).
     if (next && !followingRef.current) resumeFollowMotion();
+    if (next !== followingRef.current) foldRideProbe(`follow: ${followingRef.current} to ${next} by "${path}"`);
     followingRef.current = next;
     onFollowingChange?.(next);
     setFollowing(next);
@@ -2349,6 +2350,9 @@ function TranscriptView({
             // A ride that gives way below takes its translates off now: the rows go to their places
             // before this frame paints too, not in a batch after it.
             const rode = foldRide.current!.riding;
+            foldRideProbe(
+              `observer: targets ${targets.map((target) => `${target.dataset.rowId}=${target.getBoundingClientRect().height.toFixed(1)}`).join(",")}; following ${followingRef.current}; bottom stack ${Boolean(bottomStackFold.current)}; riding ${rode}; changes ${changesDrawn(drawnRef.current, pendingDrawn.current)}; scroll ${ref.current?.scrollTop.toFixed(1)} of ${(ref.current?.scrollHeight ?? 0) - (ref.current?.clientHeight ?? 0)}`,
+            );
             if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
               pendingDrawn.current = new Map();
               // Back at their placed heights: a ride keeps no translate for a change undone.

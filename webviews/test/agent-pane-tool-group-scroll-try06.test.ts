@@ -3,7 +3,7 @@
 // The box arm intentionally scrolls long runs inside their own viewport (RunScroll.test.tsx).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -41,6 +41,62 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     await vite?.close();
   });
 
+  // PROBE, never to merge: what the page shows and what the fold ride decided.
+  const probeDump = (page: Page, label: string) =>
+    page
+      .evaluate(() => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        const box = (node: Element) => {
+          const at = node.getBoundingClientRect();
+          return `top ${at.top.toFixed(1)} height ${at.height.toFixed(1)}`;
+        };
+        return {
+          scroll: scroller
+            ? `${scroller.scrollTop.toFixed(1)} of ${scroller.scrollHeight - scroller.clientHeight}, view ${box(scroller)}`
+            : "no scroller",
+          rows: [...document.querySelectorAll<HTMLElement>(".acpmux-row")].map(
+            (row) =>
+              `${row.dataset.rowId} ${row.getAttribute("aria-posinset")}/${row.getAttribute("aria-setsize")} ${box(row)} style top "${row.style.top}" translate "${row.style.translate}" transform "${row.style.transform}"`,
+          ),
+          worked: [...document.querySelectorAll(".cv-worked")].map(
+            (node) => `${node.getAttribute("aria-expanded")} ${box(node)}`,
+          ),
+          runs: [...document.querySelectorAll(".cv-tools > .cv-tool.is-toggle")].map(
+            (node) => `${node.getAttribute("aria-expanded")} ${box(node)}`,
+          ),
+          ride: (globalThis as unknown as { __foldRideProbe?: string[] }).__foldRideProbe ?? [],
+        };
+      })
+      .then(
+        (state) => console.log(`PROBE ${label}: ${JSON.stringify(state, null, 1)}`),
+        (error) => console.log(`PROBE ${label}: no dump (${String(error)})`),
+      );
+  const probeMark = (page: Page, mark: string) =>
+    page.evaluate((text) => {
+      const holder = globalThis as unknown as { __foldRideProbe?: string[] };
+      (holder.__foldRideProbe ??= []).push(`${performance.now().toFixed(1)} TEST: ${text}`);
+    }, mark);
+  /// The two clicks that open the turn and its first run, with a dump when one fails.
+  const openRun = async (page: Page, label: string) => {
+    const worked = page.locator(".cv-worked").first();
+    const run = page.locator(".cv-tools > .cv-tool.is-toggle").first();
+    try {
+      await probeMark(page, "before the click on Worked for");
+      if ((await worked.getAttribute("aria-expanded")) !== "true") await worked.click();
+      await probeMark(page, "after the click on Worked for");
+      await run.waitFor();
+      await probeMark(page, "the run line is there");
+      // 5 s, not Playwright's 30: a line that a row covers does not come back.
+      if ((await run.getAttribute("aria-expanded")) !== "true") await run.click({ timeout: 5_000 });
+      await probeMark(page, "after the click on the run line");
+      await probeDump(page, `${label} opened`);
+    } catch (error) {
+      await probeDump(page, `${label} CLICK FAILED`);
+      throw error;
+    }
+    return run;
+  };
+
   test("inline run: wheel over the collapsed tool rows scrolls the transcript", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 1200, height: 700 } });
@@ -49,11 +105,7 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", { variant: "tool-run-scrolled-fade" })}`,
     );
-    const worked = page.locator(".cv-worked").first();
-    if ((await worked.getAttribute("aria-expanded")) !== "true") await worked.click();
-    const runButton = page.locator(".cv-tools > .cv-tool.is-toggle").first();
-    await runButton.waitFor();
-    if ((await runButton.getAttribute("aria-expanded")) !== "true") await runButton.click();
+    await openRun(page, "inline run");
     const group = page.locator(".cv-tool-run").first();
     await group.waitFor();
     await page.waitForFunction(() => {
@@ -119,11 +171,7 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript", { variant: "tool-run-scrolled-fade" })}`,
     );
-    const worked = page.locator(".cv-worked").first();
-    if ((await worked.getAttribute("aria-expanded")) !== "true") await worked.click();
-    const run = page.locator(".cv-tools > .cv-tool.is-toggle").first();
-    await run.waitFor();
-    if ((await run.getAttribute("aria-expanded")) !== "true") await run.click();
+    await openRun(page, "boxed run");
     const box = page.locator(".cv-run-scroll").first();
     await box.waitFor();
     await box.scrollIntoViewIfNeeded();
@@ -135,8 +183,13 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     const before = await transcript.evaluate((node) => node.scrollTop);
     const bounds = (await box.boundingBox())!;
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await probeMark(page, `before the wheel of 40 px over the box; transcript offset ${before}`);
     await page.mouse.wheel(0, 40);
     await page.waitForFunction(() => (document.querySelector<HTMLElement>(".cv-run-scroll")?.scrollTop ?? 0) > 2);
+    await probeDump(
+      page,
+      `boxed run AFTER THE WHEEL, transcript offset ${before} to ${await transcript.evaluate((node) => node.scrollTop)}`,
+    );
     expect(await box.evaluate((node) => node.scrollTop)).toBeGreaterThan(2);
     expect(await box.getAttribute("data-fade-top")).not.toBeNull();
     expect(Math.abs((await transcript.evaluate((node) => node.scrollTop)) - before)).toBeLessThanOrEqual(1);
