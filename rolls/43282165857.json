@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43282165857",
+  "recorded_at": "2026-11-12T18:51:12Z",
+  "reason": "cmux-tui 2e2bf914dc16 changes the image's cmux-tui (pinned 02779f7afc6a)",
+  "dry_run": false,
+  "cmux_tui": "2e2bf914dc16ff99228be4df33f434c6b4929e25",
+  "fixes": [
+    {
+      "sha": "2b0b87ea1e16dfe80dc1415a052840b92740d5c0",
+      "mergedAt": "2026-11-12T10:06:22-08:00",
+      "subject": "acpmux tests: every wait on a hold's arrival is bounded, with a detector (#41816 follow-up) (#41842)"
+    },
+    {
+      "sha": "8888c50829a1761b2b7ea29962fcb4809ae03f67",
+      "mergedAt": "2026-11-12T10:06:02-08:00",
+      "subject": "acpmux gauges: count list replies, the durable gate and the transport; fix god bench timings (#42038)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T18:51:12Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
