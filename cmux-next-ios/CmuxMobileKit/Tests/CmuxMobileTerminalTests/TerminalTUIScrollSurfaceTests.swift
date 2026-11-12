@@ -7,8 +7,8 @@ import UIKit
 /// T-SCROLL-12 through the real Ghostty surface in mirror mode: the phone's
 /// wheel goes through Ghostty's own encoder, so the app gets what Ghostty
 /// sends on a Mac trackpad: SGR wheel reports when it asked for the mouse
-/// (DECSET 1000 + 1006), cursor keys on the alternate screen with alternate
-/// scroll (DECSET 1007, Ghostty's default), and nothing otherwise.
+/// (DECSET 1000 + 1006), and nothing otherwise: never the cursor keys Ghostty's
+/// alternate scroll (DECSET 1007) would make of it (``TerminalPanRoute``).
 @MainActor
 @Suite(.serialized) struct TerminalTUIScrollSurfaceTests {
     /// A mirror surface in a window, its output fed and its input collected.
@@ -46,6 +46,12 @@ import UIKit
         }
 
         var text: String { String(decoding: sent, as: UTF8.self) }
+
+        /// Lets bytes Ghostty wrote from its own thread reach `onInput` (a check
+        /// that nothing was sent must not pass only because they were late).
+        func settle() async {
+            for _ in 0..<20 { try? await Task.sleep(for: .milliseconds(10)) }
+        }
 
         /// What the app was sent, once at least `expected`'s bytes have come. Ghostty
         /// can write from its own thread; those bytes reach `onInput` on a later turn of
@@ -138,45 +144,42 @@ import UIKit
         #expect(await rig.text(awaiting: accelerated) == accelerated)
     }
 
-    @Test func theAlternateScreenGetsArrowsByDefault() async throws {
+    /// Leo, 2026-11-12: "this terminal projection nigh unusable due to me scroll
+    /// and thumb land on subagent depiction". On the alternate screen without
+    /// mouse reporting Ghostty's alternate scroll (DECSET 1007, its default)
+    /// made the drag cursor keys, which walked Claude Code's prompt history
+    /// and its background-agent list. A drag is never a keystroke now.
+    @Test func theAlternateScreenWithoutMouseReportingGetsNoArrows() async throws {
         let rig = Rig()
         try #require(rig.surface.surface != nil)
         await rig.feed("\u{1b}[?1049h")
         rig.sent = Data()
-        rig.wheel(rows: 2, column: 1, row: 1)
-        #expect(await rig.text(awaiting: "\u{1b}[A\u{1b}[A") == "\u{1b}[A\u{1b}[A")
-        rig.sent = Data()
+        #expect(!rig.surface.scrollWheel(at: CGPoint(x: 20, y: 20), deltaY: 2 * rig.surface.cellSize.height, momentum: .none))
         rig.wheel(rows: -1, column: 1, row: 1)
-        #expect(await rig.text(awaiting: "\u{1b}[B") == "\u{1b}[B")
+        await rig.settle()
+        #expect(rig.sent.isEmpty)
     }
 
-    @Test func applicationCursorKeysSendSS3Arrows() async throws {
+    @Test func applicationCursorKeysGetNoArrowsEither() async throws {
         let rig = Rig()
         try #require(rig.surface.surface != nil)
         await rig.feed("\u{1b}[?1049h\u{1b}[?1h")
         rig.sent = Data()
-        rig.wheel(rows: 1, column: 1, row: 1)
-        #expect(await rig.text(awaiting: "\u{1b}OA") == "\u{1b}OA")
-    }
-
-    @Test func alternateScrollOffSendsNothing() async throws {
-        let rig = Rig()
-        try #require(rig.surface.surface != nil)
-        await rig.feed("\u{1b}[?1049h\u{1b}[?1007l")
-        rig.sent = Data()
-        rig.wheel(rows: 4, column: 1, row: 1)
+        rig.wheel(rows: 3, column: 1, row: 1)
+        await rig.settle()
         #expect(rig.sent.isEmpty)
     }
 
     @Test func lessThanARowWaitsForMore() async throws {
         let rig = Rig()
         try #require(rig.surface.surface != nil)
-        await rig.feed("\u{1b}[?1049h")
+        await rig.feed("\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1006h")
         rig.sent = Data()
         rig.wheel(rows: 0.6, column: 1, row: 1)
         #expect(rig.sent.isEmpty)
         rig.wheel(rows: 0.6, column: 1, row: 1)
-        #expect(await rig.text(awaiting: "\u{1b}[A") == "\u{1b}[A")
+        let one = "\u{1b}[<64;2;2M"
+        #expect(await rig.text(awaiting: one) == one)
     }
 }
 #endif
