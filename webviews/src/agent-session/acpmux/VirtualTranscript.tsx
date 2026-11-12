@@ -607,6 +607,14 @@ function arrivedAtTail(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]
   return false;
 }
 
+/// Whether every row a pass brought is a send's own: the prompt (a user row) and the live line it
+/// came with. Tool rows and the reply that land in the send's window are the turn's and chase.
+function broughtOnlySentRows(before: readonly AcpmuxRow[], after: readonly AcpmuxRow[]): boolean {
+  if (after.length <= before.length) return false;
+  const had = new Set(before.map((row) => row.id));
+  return after.every((row) => had.has(row.id) || (row.kind === "user" && !isLineRow(row)) || row.below === true);
+}
+
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string, t: Translate) =>
   kind === "user" ? t("transcript.you") : kind === "assistant" ? t("transcript.agent") : undefined;
@@ -3784,9 +3792,18 @@ function TranscriptView({
             // lie now (none noted, the first move after an idle resize, a prompt landing, moved at
             // once). A ride, a fold and a jump move the rows on their own frames: nothing noted.
             if (!riding) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
-          } else if (sendLands && (rows.length > oldRows.length || box.dockSpace !== dockSpace)) {
-            // A send on a 0 clock (the product's): its rows and the room the composer gives back are
-            // in place in this pass, and a chase still drawing the thread back ends where it lands.
+          } else if (
+            sendLands &&
+            (broughtOnlySentRows(oldRows, rows) ||
+              (dockSpace < box.dockSpace &&
+                rows.length === oldRows.length &&
+                rows.at(-1)?.id === oldRows.at(-1)?.id &&
+                rows.at(-1)?.version === oldRows.at(-1)?.version))
+          ) {
+            // A send on a 0 clock (the product's): its own rows (the prompt, its live line) and the
+            // room the composer gives back are in place in this pass, and a chase still drawing the
+            // thread back ends where it lands. Anything else in the send's window (the reply
+            // streaming, a tool row, the dock growing) moves on the chase as ever.
             stopFollowMotion();
             chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, true);
           } else if (lineLeft) {
@@ -4477,10 +4494,11 @@ function TranscriptView({
     const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     // The prompt's rows that land in the next commits glide in too (placement pass, `sendRows`).
     sendRiseUntil.current = performance.now() + SEND_RISE_MS;
-    // Sent while scrolled up: the view glides down to the latest message on Jump to latest's ride
-    // (one viewport at most, its curve and duration) instead of cutting there in one frame, and the
-    // prompt's row and reply land on the moving end. Reduce Motion and motion off still cut.
-    if (!fromLatest && !reduce) {
+    // Sent while scrolled up: on a page's own send clock the view glides down to the latest message
+    // on Jump to latest's ride (one viewport at most), and the prompt's row and reply land on the
+    // moving end. On the product's 0 clock (Leo, 2026-11-11: "that slow settle animation is just so
+    // bad. Like, just do it."), Reduce Motion and motion off, it cuts there in this pass.
+    if (!fromLatest && !reduce && sendClockMs(node) > 0) {
       rideToLatest(node, latest, false, false, true);
       followRequest.current = userScrollIntent(node).request();
       follow(true, "send");

@@ -5651,9 +5651,10 @@ a.cv-sha:focus-visible {
      the ordinary fade (Leo 2026-11-11: "that slow settle animation is just so bad. Like, just do
      it."). None at all, not a 0 clock: the clamp above makes a fade 0.01ms, whose first frame drew
      the prompt at opacity 0. */
-  .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
-  .acpmux-user.acpmux-row--message-enter .cv-user .cv-enter,
-  .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
+  /* Another agent's message (a user-kind line row, "Received 2 messages") is no send: it keeps its fade. */
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .cv-user .cv-enter,
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) ~ .acpmux-thinking.acpmux-row--enter {
     animation: none;
   }
 }
@@ -5699,8 +5700,10 @@ a.cv-sha:focus-visible {
   }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
-  .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
+  /* Only a prompt, never another agent's message (a user-kind line row, "Received 2 messages"):
+     on the send's 0 clock that popped in whole with the next turn's live line under it. */
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line) ~ .acpmux-thinking.acpmux-row--enter {
     animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 180ms));
     animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   }

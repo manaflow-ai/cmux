@@ -151,7 +151,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await frames(page, 8);
     await show(page, addReply(rows));
     await frames(page, 14);
-    // The view glides there on Jump to latest's ride (at most 400 ms), not in one frame.
+    // The view is at the latest message at once.
     await page.waitForFunction(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
@@ -209,7 +209,9 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
       [count, read] as const,
     );
 
-  test("a send from the latest row lifts the thread on one glide: the prompt rises into place", async () => {
+  // A sent prompt lands at once (Leo, 2026-11-11: "that slow settle animation is just so bad. Like,
+  // just do it."): in the first frame that draws it, the prompt and the thread are in their place.
+  test("a send from the latest row puts the prompt in its place at once: no rise", async () => {
     const page = await open();
     const rows = history();
     await show(page, rows);
@@ -219,12 +221,9 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     const tops = await sampleFrames(page, 24, "prompt");
     const drawn = tops.filter((top) => Number.isFinite(top));
     const rest = drawn.at(-1)!;
-    // The prompt starts below where it rests (behind the composer it left) and only ever moves up.
-    expect(drawn[0]! - rest).toBeGreaterThan(8);
-    for (let index = 1; index < drawn.length; index += 1)
-      expect(drawn[index]!).toBeLessThanOrEqual(drawn[index - 1]! + 0.5);
-    // In between: some frame shows it part of the way, never one cut from start to rest.
-    expect(drawn.some((top) => top < drawn[0]! - 1 && top > rest + 1)).toBe(true);
+    // Every frame that draws the prompt draws it where it rests: it never starts below and rises.
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.filter((top) => Math.abs(top - rest) > 1)).toEqual([]);
     await frames(page, 4);
     expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
     const state = await page.evaluate(() =>
@@ -275,7 +274,7 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 
-  test("a send while scrolled up glides down to the latest message instead of cutting there", async () => {
+  test("a send while scrolled up cuts to the latest message at once: no glide", async () => {
     const page = await open();
     const rows = history();
     await show(page, rows);
@@ -286,10 +285,10 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     const offsets = await sampleFrames(page, 40, "offset");
     const end = offsets.at(-1)!;
     expect(end).toBeGreaterThan(start);
-    // Never back up, and several frames between where the reader was and the latest message.
-    for (let index = 1; index < offsets.length; index += 1)
-      expect(offsets[index]!).toBeGreaterThanOrEqual(offsets[index - 1]! - 0.5);
-    expect(offsets.filter((top) => top > start + 1 && top < end - 1).length).toBeGreaterThanOrEqual(3);
+    // The first frame after the send is already at the latest message (within a line, as the new
+    // rows settle to their drawn heights): no frame on the way down.
+    expect(offsets.filter((top) => top > start + 1 && top < end - 23)).toEqual([]);
+    expect(offsets[0]!).toBeGreaterThan(start + 1);
     await page.waitForFunction(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       return node.scrollHeight - node.clientHeight - node.scrollTop <= 2;
