@@ -842,23 +842,34 @@ fn a_register_right_after_a_resume_is_noted_does_not_get_the_old_ticket() {
 /// A resume can be noted while a seeded bind is still waiting for the fetch
 /// thread. The bind's ticket is stale as soon as the resume is noted, so the
 /// fetcher must keep the pending resume and prefetch a fresh ticket before the
-/// Register ask is answered. The token mint is held to make the before/after
+/// Register ask is answered. The wanted-request gate makes the before/after
 /// Register wait visible in this same harness.
 #[test]
 fn a_resume_before_a_seeded_bind_is_handled_prefetches_for_register() {
     let dir = tempfile::tempdir().unwrap();
     let ask_wait = Duration::from_secs(5);
     let (server, path, live, resumes) = live_server(&dir, 300, ask_wait);
-    let (release_token, token_gate) = std::sync::mpsc::channel();
-    let (token_started, token_reached) = std::sync::mpsc::channel();
-    *live.token_gate.lock().unwrap() = Some((token_started, token_gate));
+    let (wanted_signal, wanted_started) = std::sync::mpsc::channel();
+    let (_release_wanted, wanted_gate) = std::sync::mpsc::channel::<()>();
+    *server.shared.test_points.before_wanted.lock().unwrap() = Some(Box::new(move || {
+        let _ = wanted_signal.send(());
+        // The old ordering reaches a wanted request here. Keep it slow enough
+        // for the measured before/after Register wait to be visible.
+        let _ = wanted_gate.recv_timeout(Duration::from_secs(1));
+    }));
 
     let (release_fetcher, fetcher_gate) = std::sync::mpsc::channel();
     *server.shared.test_points.hold_fetcher.lock().unwrap() = Some(fetcher_gate);
     server.bound_with_ticket(
         client_with(LiveHttp(Arc::clone(&live))),
         true,
-        Some(bind_ticket("stale-after-resume", 300)),
+        Some(json!({
+            "ok": true,
+            "relay": "relay+do://relay.example",
+            "slot": "slot_0123456789abcdefghijkl",
+            "ticket": "stale-after-resume",
+            "expires_at": wall_now() / 1000 + 300,
+        })),
     );
     wait_for("the fetcher held before the seeded bind", || {
         server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
@@ -873,15 +884,12 @@ fn a_resume_before_a_seeded_bind_is_handled_prefetches_for_register() {
         })
     };
     release_fetcher.send(()).unwrap();
-    token_reached.recv_timeout(Duration::from_secs(10)).expect("the seeded bind did not mint");
-    wait_for("the fresh reconnect prefetch", || live.tickets() == 1);
     let (reply, took) = asking.join().unwrap();
     eprintln!("reconnect Register wait: {took:?}");
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(reply["ticket"], "t-1", "{reply}");
+    assert!(wanted_started.try_recv().is_err(), "Register asked for a ticket after reconnect");
     assert!(took < Duration::from_secs(1), "Register waited {took:?} behind the seeded bind");
-
-    release_token.send(()).unwrap();
     drop(server);
 }
 
@@ -1140,10 +1148,10 @@ mod model {
                 self.overtaken_resumes += 1;
             }
             match job {
-                Job::Bind(bind, generation) => {
+                Job::Bind(bind, generation, seed_valid) => {
                     let (binding, prefetch) = *bind;
                     self.hands.bound(binding, prefetch);
-                    let ticket = prefetch.then_some(("prefetched", false));
+                    let ticket = (prefetch && !seed_valid).then_some(("prefetched", false));
                     self.start(seed, rng, Task { mint: true, ticket }, generation);
                 }
                 Job::Resume(generation) => {

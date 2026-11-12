@@ -326,9 +326,14 @@ impl<H: Http + Send + 'static> Fetcher<H> {
         while let Some(job) = self.next_job() {
             match job {
                 Job::Stop | Job::Wait(_) => {}
-                Job::Bind(next, generation) => {
+                Job::Bind(next, generation, seed_valid) => {
                     let Next { client, prefetch, seeded } = *next;
                     self.hands.bound(client, prefetch);
+                    // A resume can land after the bind job was picked but
+                    // before this arm runs. Its generation invalidates the
+                    // bind answer's seed just as the state transition does.
+                    let seeded =
+                        seeded && seed_valid && self.shared.lock().generation == generation;
                     if seeded {
                         (self.hooks.log)("carrier ticket: kept from the bind");
                     }
