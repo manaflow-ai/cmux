@@ -30,8 +30,13 @@ const MIRRORED: &str = "box-chat";
 /// The most a reply line adds to its result: the frame's id and envelope.
 const FRAME: usize = 256;
 
+/// Unpaced (`Hub::unpace_lists_for_tests`): these tests check what each page holds, and the
+/// detector below reads 16 whole lists, which the pace made 17 to over 35 minutes on a busy
+/// runner. The pace has its own tests (`hub/list_scale_tests.rs`).
 async fn hub() -> Arc<crate::hub::Hub> {
-    hub_of(OWN, TITLE_BYTES, "idle").await
+    let hub = hub_of(OWN, TITLE_BYTES, "idle").await;
+    hub.unpace_lists_for_tests();
+    hub
 }
 
 /// A hub with `chats` of its own, each titled `title` bytes long and `status`, and one chat

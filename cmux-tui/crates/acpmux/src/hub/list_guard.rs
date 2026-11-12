@@ -664,6 +664,15 @@ pub type RequestHold = Arc<
 >;
 
 impl Hub {
+    /// Turns off the list pace for this test's hub: replies wait out no window, and a snapshot
+    /// is rebuilt with no builder wait. For a test of what list replies hold (their bytes, their
+    /// rows), which made dozens of whole reads and spent its minutes asleep in the pace, the
+    /// pace sized by build times a loaded runner makes long (job 130955236972, 2026-11-12).
+    #[cfg(test)]
+    pub(crate) fn unpace_lists_for_tests(&self) {
+        self.list_guard.unpaced.store(true, Ordering::Relaxed);
+    }
+
     /// Integration-test hold on requests (`tests/cancel_list_reply.rs`): a cancel races a request
     /// at a stage the test picks, never by timing. Set once per hub; a daemon never sets it.
     #[doc(hidden)]
@@ -693,6 +702,10 @@ pub(crate) struct ListGuard {
     replies: StdMutex<Pacer>,
     /// Builds begun: a request shares any build begun after it arrived.
     begun: AtomicU64,
+    /// A test's hub whose lists are not paced (`Hub::unpace_lists_for_tests`): a test of what a
+    /// list holds, not of its pace. The pace's own tests leave it off.
+    #[cfg(test)]
+    unpaced: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Default)]
@@ -702,6 +715,16 @@ struct State {
 }
 
 impl ListGuard {
+    /// Whether lists are paced: always in a daemon; a test may turn it off
+    /// (`Hub::unpace_lists_for_tests`).
+    fn paced(&self) -> bool {
+        #[cfg(test)]
+        if self.unpaced.load(Ordering::Relaxed) {
+            return false;
+        }
+        true
+    }
+
     pub(crate) fn window(&self) -> Duration {
         Duration::from_nanos(self.window_nanos.load(Ordering::Relaxed))
     }
@@ -723,6 +746,9 @@ impl ListGuard {
     /// together: how long the request waits first. Over [`MAX_WAIT`], nothing is
     /// reserved and the wait is the error.
     pub(crate) fn reserve(&self, pace: &StdMutex<Pacer>, share: f64) -> Result<Duration, Duration> {
+        if !self.paced() {
+            return Ok(Duration::ZERO);
+        }
         let (window, now) = (self.window(), Instant::now());
         let mut pace = pace.lock().unwrap_or_else(|e| e.into_inner());
         // Sending even a shared list copies it into the reply line.
@@ -767,7 +793,11 @@ impl ListGuard {
         let window = self.window();
         // A fresh snapshot waits at most one current window, even if an earlier
         // reservation used a much more expensive build. Lock/build time is separate.
-        let wait = state.pace.wait(Instant::now(), window * (BURST - 1), window).min(window);
+        let wait = if self.paced() {
+            state.pace.wait(Instant::now(), window * (BURST - 1), window).min(window)
+        } else {
+            Duration::ZERO
+        };
         if !wait.is_zero() {
             tokio::time::sleep(wait).await;
         }
