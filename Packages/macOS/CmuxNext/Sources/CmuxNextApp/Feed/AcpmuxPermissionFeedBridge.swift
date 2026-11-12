@@ -301,7 +301,8 @@ final class AcpmuxPermissionFeedBridge {
     }
 
     private func post(session: String, permission: String, request: [String: Any]) async {
-        guard isSignedIn(), postedPermissions.insert(permission).inserted else { return }
+        guard isSignedIn() else { return }
+        postedPermissions.insert(permission) // MUTATION (failing-before evidence only): posts a duplicate
         do {
             // Without this Mac's install id the phone could not name it in a proof: no post.
             guard let host = await ownInstall() else {
