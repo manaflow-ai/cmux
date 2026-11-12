@@ -4564,7 +4564,7 @@ _TRAP_STATUS_RESTORE = re.compile(r"\(\s*exit\b|^\s*return\s+\S|^\s*\w*(?:return
 _TRAP_RERAISE = re.compile(r"\(\s*exit\b|^\s*(?:exit|return)\b")
 _TRAP_ERREXIT_OFF = re.compile(r"^\s*set\s+\+[a-zA-Z]*e")
 # A step that cleans up: removes files, stops a process, removes a worktree, or runs the caller's/a cleanup action.
-_TRAP_CLEANUP = re.compile(r"\b(?:rm|rmdir|kill|pkill|umount|eval)\b|worktree\s+remove|\w*(?:cleanup|remove|teardown)\w*")
+_TRAP_CLEANUP = re.compile(r"\b(?:rm|rmdir|p?kill|umount|eval)\b|worktree\s+remove|\w*(?:cleanup|remove|teardown)\w*")
 
 
 def _trap_statements(action: str) -> list[str]:
@@ -4761,6 +4761,24 @@ def isolated_import_finding(repo_root: pathlib.Path, rel_posix: str) -> Optional
                    f"python3 -I {rel_posix}: No module named '{missing.group(1)}' (load it by path)")
 
 
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    import importlib.util
+    push_range = pathlib.Path(__file__).resolve().parent / "cmux-next" / "push_range.py"
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(pathlib.Path(root), ref)
+    if note:
+        print(f"check-test-determinism: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
+
 def _changed_python_tests(repo_root: pathlib.Path) -> Optional[list[str]]:
     """Python test files changed against the base branch, or None when history to diff against is missing."""
     import os
@@ -4773,6 +4791,7 @@ def _changed_python_tests(repo_root: pathlib.Path) -> Optional[list[str]]:
     bases = [f"origin/{os.environ['GITHUB_BASE_REF']}"] if os.environ.get("GITHUB_BASE_REF") else []
     bases += ["origin/feat-cmux-next", "origin/main"]
     for base in bases:
+        refresh_base(repo_root, base)
         merge_base = git("merge-base", "HEAD", base)
         if merge_base:
             names = git("diff", "--name-only", "--diff-filter=AMR", merge_base.strip(), "HEAD") or ""

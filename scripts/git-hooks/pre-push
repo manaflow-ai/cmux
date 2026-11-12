@@ -173,6 +173,9 @@ if [[ "$CMUX_PREPUSH_QUEUE_HELD" =~ ^[0-9]+$ ]]; then
     PHASE_TIMES="queue ${CMUX_PREPUSH_QUEUE_HELD}s"  # the wait for a turn, first in the hook-times line
 fi
 unset CMUX_PREPUSH_QUEUE_HELD  # a push a check starts (none does today) queues for itself
+# One id per run of this hook (its refs file is unique while the run lasts): push_range.py's base-fetch stamp holds
+# for this run's checks only, so the same push tried again after the base moved fetches it again (cmux#41310 review).
+export CMUX_PREPUSH_RUN="$$:$REFS_FILE"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
