@@ -212,6 +212,40 @@ def glob_matches(glob: str, path: str) -> bool:
     return re.fullmatch(pattern, path) is not None
 
 
+class Running(unittest.TestCase):
+    """A run cut short by the job's timeout names the test it was waiting on (cmux job 130955236972, 2026-11-12: the
+    acpmux lib's run was cancelled at 40 min while one list test had run 35 min, and the log named nothing)."""
+
+    CUT = "\n".join([
+        "2026-11-12T03:42:42.7815755Z running 5292 tests",
+        "2026-11-12T03:42:42.7825519Z test acp_todo_plan::tests::a ... ok",
+        "2026-11-12T03:44:46.7293584Z test server::list_fit_tests::b has been running for over 60 seconds",
+        "2026-11-12T03:44:50.2501733Z test server::list_web_page_tests::c has been running for over 60 seconds",
+        "2026-11-12T03:45:00.3448379Z \x1b[0mtest server::reply_size_tests::d has been running for over 60 seconds",
+        "2026-11-12T03:46:48.4522430Z test server::reply_size_tests::d ... \x1b[32mok\x1b[0m",
+        "2026-11-12T03:53:06.8139680Z test server::list_fit_tests::b ... ok",
+        "2026-11-12T04:18:43.7625057Z ##[error]The operation was canceled.",
+    ]) + "\n"
+
+    def test_the_test_still_running_at_the_cut_is_named(self):
+        self.assertEqual(verdict.running_names(verdict.test_reds.plain(self.CUT)),
+                         ["server::list_web_page_tests::c"])
+
+    def test_a_finished_binary_names_nothing_and_a_new_binary_starts_over(self):
+        finished = self.CUT.replace("##[error]The operation was canceled.",
+                                    "test server::list_web_page_tests::c ... ok")
+        self.assertEqual(verdict.running_names(finished), [])
+        second = log(binary(("x::slow", "ok")), "running 2 tests\ntest y::hung has been running for over 60 seconds")
+        self.assertEqual(verdict.running_names(second), ["y::hung"])
+
+    def test_the_cli_prints_them(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "head.log"
+            path.write_text(self.CUT)
+            out = subprocess.run([sys.executable, str(SCRIPT), "running", str(path)], capture_output=True, text=True)
+        self.assertEqual((out.returncode, out.stdout), (0, "server::list_web_page_tests::c\n"), out.stderr)
+
+
 class Scope(unittest.TestCase):
     CRATE = "cmux-tui/crates/acpmux"
 

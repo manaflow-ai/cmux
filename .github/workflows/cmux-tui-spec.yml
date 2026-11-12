@@ -326,6 +326,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ steps.scope.outputs.base }}
           JOB: acpmux tests
+          # Seconds into this step when the watchdog starts naming tests still running: the
+          # job's 40 min less its setup (2-4 min) and room for a few reports before the cut.
+          WATCH_S: "1800"
         run: |
           set -o pipefail
           umask 022
@@ -333,10 +336,29 @@ jobs:
           head_log="$RUNNER_TEMP/acpmux-tests-head.log"
           suites=(--locked -p acpmux --lib --test hub_integration --no-fail-fast)
           started=$SECONDS
+          # The job's timeout cancels the run and names nothing (job 130955236972, 2026-11-12: cut
+          # at 40 min while one list test had run 35). From WATCH_S on, every 3 min, this names
+          # the tests libtest flagged as running past 60 s that have not finished, so a cancelled
+          # run says which test it was waiting on. Stopped (by its own PID) when the tests end.
+          (
+            sleep "$WATCH_S"
+            while :; do
+              mapfile -t slow < <(python3 "$verdict" running "$head_log")
+              if (( ${#slow[@]} > 0 )); then
+                echo "::error title=$JOB (near the job timeout)::$((SECONDS - started)) s in, still running: ${slow[*]}"
+                echo "acpmux tests: $((SECONDS - started)) s in, still running: ${slow[*]}" >> "$GITHUB_STEP_SUMMARY"
+              fi
+              sleep 180
+            done
+          ) &
+          watchdog=$!
+          stop_watchdog() { kill "$watchdog" 2>/dev/null || true; }
+          trap stop_watchdog EXIT
           if cargo test "${suites[@]}" 2>&1 | tee "$head_log"; then
             echo "acpmux tests: green in $((SECONDS - started)) s" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          stop_watchdog
           if [[ "$EVENT_NAME" != pull_request ]]; then
             exit 1
           fi
