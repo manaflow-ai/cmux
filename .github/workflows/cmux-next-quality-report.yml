@@ -56,13 +56,8 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: |
-            scripts/cmux-next/quality-report.py
-            scripts/cmux-next/tests/test_quality_report.py
-            scripts/cmux-next/perf-cron.py
-            scripts/cmux-next/perf-budgets.json
-            scripts/cmux-next/perf-budgets.py
-            .github/actions/setup-cmux-tui-rust/action.yml
-            cmux-tui/
+            /*
+            !/cmux-next-ios/verify/
           sparse-checkout-cone-mode: false
 
       - name: Test the report
