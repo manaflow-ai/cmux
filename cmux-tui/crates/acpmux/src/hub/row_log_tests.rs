@@ -182,16 +182,16 @@ async fn a_reconnect_follows_from_its_cursor_and_reads_only_what_changed() {
         (Some("chat-1"), Some(head + 1))
     );
     drop(app);
-    // While it is away: another change, and a chat that goes.
-    record(&hub, "chat-2", "tags");
-    record(&hub, "chat-3", "purged");
+    // While it is away: two more changes.
+    record(&hub, "chat-2", "renamed");
+    record(&hub, "chat-3", "titled");
     let mut back = Client::new(&hub, Origin::Local).await;
     let follow = back
         .call(method::MUX_WATCH, json!({"enabled": true, "afterSeq": head + 1, "listEpoch": epoch}))
         .await;
     assert_eq!(follow["follow"], true, "{follow}");
-    assert_eq!(ids(&follow["sessions"]), ["chat-2"]);
-    assert_eq!(follow["gone"], json!([{"sessionId": "chat-3"}]));
+    assert_eq!(ids(&follow["sessions"]), ["chat-2", "chat-3"]);
+    assert_eq!(follow["gone"], json!([]));
     assert_eq!(follow["listSeq"].as_u64(), Some(head + 3));
     assert_eq!(follow["more"], false);
     // The watch is on: the next change is a notice.
@@ -293,13 +293,19 @@ async fn a_reconnect_storm_of_30_links_never_pages_or_refuses_a_list() {
 
 #[tokio::test]
 async fn a_change_that_reaches_other_rows_resets_older_cursors() {
+    for kind in ["tags", "purged"] {
+        reaches_other_rows_resets(kind).await;
+    }
+}
+
+async fn reaches_other_rows_resets(kind: &str) {
     let hub = hub_with(3, 0, 0).await;
     let (head, epoch) = {
         let (h, e) = hub.list_cursor();
         (h, e.to_owned())
     };
     // A parent's tags fold its children: rows no record names change with it.
-    record(&hub, "chat-0", "tags");
+    record(&hub, "chat-0", kind);
     let mut app = Client::new(&hub, Origin::Local).await;
     let reply = app
         .call(method::MUX_WATCH, json!({"enabled": true, "afterSeq": head, "listEpoch": epoch}))
