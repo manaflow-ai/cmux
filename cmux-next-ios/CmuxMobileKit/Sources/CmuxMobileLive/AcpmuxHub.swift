@@ -880,6 +880,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// keeps the rest for the next one.
     func flushHeldPrompts() {
         guard !flushingHeld, !heldPrompts.isEmpty, let hub, hub.isReady else { return }
+        // A link back after the app was suspended may come before the expiry timer runs:
+        // nothing older than the window is sent.
+        guard !expireHeldPrompts() else { return }
         flushingHeld = true
         Task { [weak self] in
             while true {
