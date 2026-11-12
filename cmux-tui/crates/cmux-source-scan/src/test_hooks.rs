@@ -191,8 +191,8 @@ pub fn judge_source(rel: &str, text: &str) -> Vec<Finding> {
             }];
         }
     };
-    let mut names = Names::default();
-    Collect { names: &mut names }.visit_file(&file);
+    let mut names = Names { root: crate_module(rel), ..Names::default() };
+    Collect { names: &mut names, module: Vec::new(), blocks: 0 }.visit_file(&file);
     let mut sites = Sites { out: Vec::new(), test_depth: 0, test_file: is_test_file(rel) };
     sites.visit_file(&file);
     let lines: Vec<&str> = text.lines().collect();
@@ -240,6 +240,28 @@ pub fn judge_source(rel: &str, text: &str) -> Vec<Finding> {
         }
     }
     found
+}
+
+/// The module `rel` (a path from the repository root) is in its crate, when it sits under a
+/// `src/`: `src/hub/watches.rs` and `src/hub/watches/mod.rs` are `hub::watches`; `src/lib.rs`,
+/// `src/main.rs` and `src/bin/NAME.rs` are a crate's root.
+fn crate_module(rel: &str) -> Option<Vec<String>> {
+    let inner = match rel.split_once("/src/") {
+        Some((_, inner)) => inner,
+        None => rel.strip_prefix("src/")?,
+    };
+    let parts: Vec<&str> = inner.strip_suffix(".rs")?.split('/').collect();
+    let parts = match parts.as_slice() {
+        ["bin", _] => &[][..],
+        ["bin", _, rest @ ..] => rest,
+        all => all,
+    };
+    let parts = match parts {
+        ["lib" | "main"] => &[][..],
+        [rest @ .., "mod"] => rest,
+        all => all,
+    };
+    Some(parts.iter().map(|p| (*p).to_string()).collect())
 }
 
 fn is_test_file(rel: &str) -> bool {
@@ -327,6 +349,9 @@ struct Param {
 struct Def {
     params: Vec<Param>,
     body: Body,
+    /// The module it is defined in, from the file's root (`["tests"]` for one in `mod tests`);
+    /// None in a function or block body, where no `use` path reaches it.
+    module: Option<Vec<String>>,
 }
 
 fn params_of(generics: &Generics) -> Vec<Param> {
@@ -359,6 +384,11 @@ struct Names {
     defs: HashMap<String, Vec<Def>>,
     uses: HashMap<String, Vec<String>>,
     mods: HashSet<String>,
+    /// Every import as written: its local name, its path and the module it sits in.
+    imports: Vec<(String, String, Vec<String>)>,
+    /// The file's own module in its crate (`hub::watches` for `src/hub/watches.rs`), when its path
+    /// shows it.
+    root: Option<Vec<String>>,
 }
 
 impl Names {
@@ -379,22 +409,57 @@ impl Names {
     }
 
     /// Whether import `full` of `name` is this file's own definition of it (`use super::Lock;`
-    /// beside a `type Lock`): a crate path ending in a name the file defines, whose every
-    /// definition is read already.
+    /// beside a `type Lock`), whose every definition is read already: wherever the file writes
+    /// it, the path, read from the module it sits in, lands on the module of a definition of
+    /// `name`. A same-named import from any other module (`use crate::other::Lock`, a `super::`
+    /// out of the file, a `self::` into an out-of-line `mod other;`) is not (review of
+    /// cmux#41728 F1).
     fn own(&self, name: &str, full: &str) -> bool {
-        self.defs.contains_key(name)
-            && full.rsplit("::").next() == Some(name)
-            && self.local(full, &mut Vec::new())
+        let Some(defs) = self.defs.get(name) else {
+            return false;
+        };
+        let mut sites = self.imports.iter().filter(|(n, f, _)| n == name && f == full).peekable();
+        sites.peek().is_some()
+            && sites.all(|(_, _, module)| {
+                self.resolve(full, module).is_some_and(|(at, last)| {
+                    last == name && defs.iter().any(|d| d.module.as_ref() == Some(&at))
+                })
+            })
     }
 
-    fn bind_use(&mut self, local: String, path: String) {
+    /// The module, from the file's root, and the last name that path `full`, written in
+    /// `module`, names; None when it leaves the file (or it starts at `crate::` and the file's
+    /// own module is not known).
+    fn resolve(&self, full: &str, module: &[String]) -> Option<(Vec<String>, String)> {
+        let mut segs: Vec<&str> = full.split("::").collect();
+        let last = segs.pop()?.to_string();
+        let root: &[String] = self.root.as_deref().unwrap_or(&[]);
+        let (mut at, rest): (Vec<String>, &[&str]) = match segs.split_first() {
+            Some((&"crate", _)) if self.root.is_none() => return None,
+            Some((&"crate", rest)) => (Vec::new(), rest),
+            _ => (root.iter().chain(module).cloned().collect(), segs.as_slice()),
+        };
+        for seg in rest {
+            match *seg {
+                "self" => {}
+                "super" => {
+                    at.pop()?;
+                }
+                name => at.push(name.to_string()),
+            }
+        }
+        Some((at.strip_prefix(root)?.to_vec(), last))
+    }
+
+    fn bind_use(&mut self, local: String, path: String, module: &[String]) {
+        self.imports.push((local.clone(), path.clone(), module.to_vec()));
         let paths = self.uses.entry(local).or_default();
         if !paths.contains(&path) {
             paths.push(path);
         }
     }
 
-    fn use_tree(&mut self, prefix: &str, tree: &UseTree) {
+    fn use_tree(&mut self, prefix: &str, tree: &UseTree, module: &[String]) {
         let path_of = |ident: &syn::Ident| {
             if ident == "self" {
                 prefix.trim_end_matches("::").to_string()
@@ -403,19 +468,21 @@ impl Names {
             }
         };
         match tree {
-            UseTree::Path(p) => self.use_tree(&format!("{prefix}{}::", p.ident), &p.tree),
+            UseTree::Path(p) => {
+                self.use_tree(&format!("{prefix}{}::", p.ident), &p.tree, module);
+            }
             UseTree::Name(n) => {
                 let path = path_of(&n.ident);
                 let local = path.rsplit("::").next().unwrap_or(&path).to_string();
-                self.bind_use(local, path);
+                self.bind_use(local, path, module);
             }
             UseTree::Rename(r) => {
                 if r.rename != "_" {
-                    self.bind_use(r.rename.to_string(), path_of(&r.ident));
+                    self.bind_use(r.rename.to_string(), path_of(&r.ident), module);
                 }
             }
             UseTree::Glob(_) => {}
-            UseTree::Group(g) => g.items.iter().for_each(|t| self.use_tree(prefix, t)),
+            UseTree::Group(g) => g.items.iter().for_each(|t| self.use_tree(prefix, t, module)),
         }
     }
 }
@@ -423,12 +490,17 @@ impl Names {
 /// Fills a file's Names from every item, in any module, function or macro body.
 struct Collect<'n> {
     names: &'n mut Names,
+    /// The inline module being read, from the file's root.
+    module: Vec<String>,
+    /// How many function or block bodies deep it reads.
+    blocks: usize,
 }
 
 impl Collect<'_> {
     fn define(&mut self, name: &syn::Ident, generics: &Generics, body: Body) {
         let params = params_of(generics);
-        self.names.defs.entry(name.to_string()).or_default().push(Def { params, body });
+        let module = (self.blocks == 0).then(|| self.module.clone());
+        self.names.defs.entry(name.to_string()).or_default().push(Def { params, body, module });
     }
 }
 
@@ -457,10 +529,17 @@ impl<'ast> Visit<'ast> for Collect<'_> {
     }
     fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
         self.names.mods.insert(i.ident.to_string());
+        self.module.push(i.ident.to_string());
         visit::visit_item_mod(self, i);
+        self.module.pop();
+    }
+    fn visit_block(&mut self, i: &'ast syn::Block) {
+        self.blocks += 1;
+        visit::visit_block(self, i);
+        self.blocks -= 1;
     }
     fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
-        self.names.use_tree("", &i.tree);
+        self.names.use_tree("", &i.tree, &self.module);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         if process_wide(mac) {
@@ -1003,7 +1082,7 @@ impl Resolver<'_> {
             // for one of its bindings (`Lock` for an alias, `Lock<()>` for an import), so an
             // import here takes the bare name as well as `<()>`.
             let aliases = defs.iter().all(|def| match def {
-                Def { params, body: Body::Alias(inner) } if params.is_empty() => {
+                Def { params, body: Body::Alias(inner), .. } if params.is_empty() => {
                     self.is_serializer(inner, depth + 1)
                 }
                 _ => false,
