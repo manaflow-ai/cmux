@@ -476,6 +476,7 @@ fn handle_websocket_connection_with_permit(
         }
     }
     let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
+    mux.control_clients.git_lane.abandon(client);
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();
     let _ = websocket.close(None);
