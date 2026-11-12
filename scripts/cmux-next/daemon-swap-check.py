@@ -722,8 +722,9 @@ def startup_laps(root: Path, pid: int | None) -> dict:
             except ValueError:
                 continue
             if row.get("pid") == pid:
-                steps = sorted(row.get("steps", []), key=lambda s: -s.get("ms", 0))[:6]
-                return {"total_ms": row.get("total_ms"), "slowest_steps": steps}
+                steps = row.get("steps", [])
+                slowest = sorted(steps, key=lambda s: -s.get("ms", 0))[:6]
+                return {"total_ms": row.get("total_ms"), "slowest_steps": slowest, "steps": steps}
     return {}
 
 
