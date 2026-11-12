@@ -7,6 +7,7 @@ Packages/macOS/CmuxNext CmuxNextAppTests.BrowserPageNativeInputTests
 Packages/macOS/CmuxNext CmuxNextAppTests.ChatDockToolPlacementTests
 Packages/macOS/CmuxNext CmuxNextAppTests.GroupHeaderUnpinButtonTests
 Packages/macOS/CmuxNext CmuxNextAppTests.GroupPaletteDefaultTests
+Packages/macOS/CmuxNext CmuxNextAppTests.HeaderTerminalSplitAtOnceTests
 Packages/macOS/CmuxNext CmuxNextAppTests.HibernationWakeCoverTests
 Packages/macOS/CmuxNext CmuxNextAppTests.HostPressureBannerToastTests
 Packages/macOS/CmuxNext CmuxNextAppTests.IconPickerMotionTests

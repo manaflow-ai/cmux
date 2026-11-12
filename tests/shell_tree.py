@@ -107,6 +107,9 @@ class Word:
     start: int
     end: int
     parts: list
+    # The word's text as the parser that read it saw it: an eval's or -c string's word is read from the string's
+    # decoded value, which parse()'s text at START:END need not hold (a $'\x63' there is a c here).
+    text: str | None = None
 
 
 @dataclass
@@ -451,7 +454,7 @@ class _Parser:
         while i < self.n and (self.s[i] not in WORD_END or self.s.startswith(("<(", ">("), i)):
             got, i = self.piece(i, WORD_END)
             parts += got
-        return Word(self.o[start], self.o[i], parts), i
+        return Word(self.o[start], self.o[i], parts, self.s[start:i]), i
 
     def parts(self, i: int, stop: int, quotes: str) -> tuple[list, int]:
         """Parts of s[i:stop] read as double-quoted text (a here-document's body); the index after."""
@@ -596,39 +599,52 @@ ANSI_C = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", 
 
 def _ansi_c(raw: str, i: int, out: list, at: list) -> int:
     """Decode the $'...' string whose $ is at RAW[i] as bash does onto OUT, each character's offset in RAW (an
-    escape's: its backslash) onto AT; the index after its closing quote. \\nnn, \\xHH, \\uHHHH, \\UHHHHHHHH and \\cX
-    are read; another backslash stays as it is."""
-    i, n = i + 2, len(raw)
-    while i < n and raw[i] != "'":
-        c, start = raw[i], i
-        if c != "\\" or i + 1 >= n:
+    escape's: its backslash) onto AT; the index after its closing quote. The string ends at the first ' no backslash
+    escapes, then its text is decoded: \\nnn, \\xHH, \\uHHHH, \\UHHHHHHHH and \\cX (X & 0x1F; a \\\\ after it is one
+    backslash, a \\c at the end stays as it is) are read, and another backslash stays as it is. A \\U value past
+    0x7FFFFFFF adds nothing. Bash keeps a string in C strings, so its value ends at its first NUL (\\0, \\x00,
+    \\u0000, \\400, \\c@, ...): nothing after it in the string is kept, while the word's text after the string is."""
+    n, k = len(raw), i + 2
+    end = k
+    while end < n and raw[end] != "'":
+        end += 2 if raw[end] == "\\" else 1
+    end = min(end, n)
+    while k < end:
+        c, start = raw[k], k
+        if c != "\\" or k + 1 >= end:
             out.append(c)
-            at.append(i)
-            i += 1
+            at.append(k)
+            k += 1
             continue
-        e = raw[i + 1]
-        i += 2
+        e = raw[k + 1]
+        k += 2
         if e in ANSI_C:
             ch = ANSI_C[e]
         elif e in "01234567":
-            j = i
-            while j < n and j < i + 2 and raw[j] in "01234567":
+            j = k
+            while j < end and j < k + 2 and raw[j] in "01234567":
                 j += 1
-            ch, i = chr(int(raw[i - 1:j], 8) & 0xFF), j
-        elif e in "xuU" and i < n and raw[i] in "0123456789abcdefABCDEF":
-            j = i
-            while j < n and j < i + {"x": 2, "u": 4, "U": 8}[e] and raw[j] in "0123456789abcdefABCDEF":
+            ch, k = chr(int(raw[k - 1:j], 8) & 0xFF), j
+        elif e in "xuU" and k < end and raw[k] in "0123456789abcdefABCDEF":
+            j = k
+            while j < end and j < k + {"x": 2, "u": 4, "U": 8}[e] and raw[j] in "0123456789abcdefABCDEF":
                 j += 1
-            ch, i = chr(min(int(raw[i:j], 16), 0x10FFFF)), j
-        elif e == "c" and i < n:
-            ch, i = chr(ord(raw[i].upper()) ^ 0x40) if raw[i] != "?" else "\x7f", i + 1
+            value, k = int(raw[k:j], 16), j
+            ch = "" if value > 0x7FFFFFFF else chr(min(value, 0x10FFFF))
+        elif e == "c" and k < end:
+            if raw[k] == "\\" and k + 1 < end and raw[k + 1] == "\\":
+                k += 1
+            ch, k = "\x7f" if raw[k] == "?" else chr(ord(raw[k]) & 0x1F), k + 1
         else:
             out += "\\" + e
             at += [start, start + 1]
             continue
-        out.append(ch)
-        at.append(start)
-    return i + 1
+        if ch == "\0":
+            break
+        if ch:
+            out.append(ch)
+            at.append(start)
+    return end + 1
 
 
 def _unquote(raw: str) -> tuple[str, list[int]]:
@@ -723,10 +739,12 @@ def literal(text: str, word: Word) -> str:
 
 
 def name(text: str, word: Word) -> str:
-    """WORD's value when it is all literal (quotes and escapes removed), else ""."""
+    """WORD's value when it is all literal (quotes and escapes removed, a $'...' string decoded), else ""."""
     if any(not isinstance(p, Lit) for p in word.parts):
         return ""
-    return re.sub(r"[\"'\\]", "", literal(text, word))
+    if word.text is None:
+        return re.sub(r"[\"'\\]", "", literal(text, word))
+    return _unquote(word.text)[0]
 
 
 def unwrap(argv: list[str], assigned: list | None = None) -> list[str] | None:
