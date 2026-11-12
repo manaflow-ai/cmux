@@ -177,9 +177,11 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
         await browser?.close();
       });
 
-      test("scrolling Appearance top to bottom: one scroller, no row removed or moved", async () => {
-        await open(page, "appearance");
-        expect(await watchRows(page)).toBeGreaterThan(40);
+      // Editor is one of the longest pages of plain rows since the settings overhaul (2026-11-11) put
+      // Appearance's rarer rows behind More Options.
+      test("scrolling Editor top to bottom: one scroller, no row removed or moved", async () => {
+        await open(page, "editor");
+        expect(await watchRows(page)).toBeGreaterThan(20);
         const steps: string[] = [];
         // The loop stops at the end; the cap only bounds a page that never gets there. WebKit moves
         // about 110px per 120px wheel step, so 80 steps stopped 4px short once the regenerated schema
@@ -204,8 +206,8 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
       });
 
       test("an open select pop-up never makes the document scroll and stays at its anchor", async () => {
-        await open(page, "appearance");
-        const control = '[data-row-key="sidebar.sectionLook"] .ui-select-button';
+        await open(page, "editor");
+        const control = '[data-row-key="editor.autoSave"] .ui-select-button';
         // The select near the bottom edge, as in the report.
         await page.evaluate((selector) => {
           const content = document.querySelector(".content")!;
@@ -245,7 +247,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
       });
 
       test("opening a font list pushes no row down; its button closes it again", async () => {
-        await open(page, "appearance");
+        await open(page, "terminal");
         await watchRows(page);
         const button = '[data-row-key="terminal.fontFamily"] .domain-button';
         await page.click(button);

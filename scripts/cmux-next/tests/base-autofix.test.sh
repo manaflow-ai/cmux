@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's ba
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 FIX="$ROOT_DIR/scripts/cmux-next/base-autofix.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-base-autofix.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 
 repo="$tmp/repo"; gen="$tmp/generated"

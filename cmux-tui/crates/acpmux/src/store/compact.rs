@@ -91,7 +91,7 @@ struct StagedSegment {
 impl Drop for Staged {
     fn drop(&mut self) {
         for tmp in self.segments.iter().filter_map(|s| s.tmp.as_ref()) {
-            let _ = std::fs::remove_file(tmp);
+            let _ = crate::home_fs::remove_file(tmp);
         }
     }
 }
@@ -150,7 +150,7 @@ impl LocalStore {
             let tmp = write.then(|| path.with_extension("ndjson.compact"));
             let mut out = match &tmp {
                 Some(tmp) => {
-                    let _ = std::fs::remove_file(tmp);
+                    let _ = crate::home_fs::remove_file(tmp);
                     let file = open_private_append(tmp)?;
                     Some(std::io::BufWriter::with_capacity(256 * 1024, file))
                 }
@@ -232,7 +232,7 @@ impl LocalStore {
             // ago opens each by its name.
             for segment in &mut staged.segments {
                 if let Some(tmp) = segment.tmp.take() {
-                    std::fs::rename(&tmp, &segment.path)?;
+                    crate::home_fs::rename(&tmp, &segment.path)?;
                 }
             }
         }
@@ -252,26 +252,26 @@ fn write_durably(path: &Path, bytes: &[u8]) -> Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the record.
     let written = (|| -> Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
+        let mut options = crate::home_fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true).mode(0o600);
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        }
+        options.custom_flags(libc::O_NOFOLLOW);
         let mut file = options.open(&tmp).with_context(|| format!("write {}", tmp.display()))?;
         file.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         file.sync_all().map_err(SyncFailed).with_context(|| format!("sync {}", tmp.display()))?;
         drop(file);
-        std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+        crate::home_fs::rename(&tmp, path)
+            .with_context(|| format!("rename to {}", path.display()))?;
         match path.parent() {
             Some(dir) => sync_directory(dir).with_context(|| format!("sync {}", dir.display())),
             None => Ok(()),
         }
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written
 }

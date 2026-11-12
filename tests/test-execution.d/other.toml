@@ -226,6 +226,10 @@ path = "tests/test_git_fetch_retry.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_git_history.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_git_mirror_bundle.py"
 lane = "linux-guard"
 
@@ -287,6 +291,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_job_reuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_known_red.py"
 lane = "linux-guard"
 
 [[test]]
@@ -408,6 +416,10 @@ lane = "legacy"
 [[test]]
 path = "tests/test_mobile_stability_soak_attach_contract.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_needs_verdict.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_next_batch.py"
@@ -537,6 +549,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_upload_requests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_react_doctor_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -857,6 +873,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_zig_free_step_lockfiles.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_package_mirror.py"
 lane = "linux-guard"
 
 [[test]]

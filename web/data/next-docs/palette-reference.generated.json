@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1385,
-    "shortcuts": 187
+    "entries": 1389,
+    "shortcuts": 190
   },
   "sections": [
     {
@@ -5122,6 +5122,30 @@
           "command": "cmux screenshots open"
         },
         {
+          "id": "browserScrollDown",
+          "title": "Scroll Down",
+          "shortcut": "J",
+          "command": null
+        },
+        {
+          "id": "browserScrollToBottom",
+          "title": "Scroll to Bottom",
+          "shortcut": "⇧G",
+          "command": null
+        },
+        {
+          "id": "browserScrollToTop",
+          "title": "Scroll to Top",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "browserScrollUp",
+          "title": "Scroll Up",
+          "shortcut": "K",
+          "command": null
+        },
+        {
           "id": "browser.focusSearch",
           "title": "Search the Web",
           "shortcut": null,
@@ -6250,12 +6274,6 @@
           "command": null
         },
         {
-          "id": "agentChat.copyAcpmuxSessionFile",
-          "title": "Copy acpmux Session File",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "agentChat.copyIdentifier",
           "title": "Copy Agent Identifier",
           "shortcut": null,
@@ -6270,6 +6288,12 @@
         {
           "id": "agentChat.copyHost",
           "title": "Copy Chat Host",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentChat.copyAcpmuxSessionFile",
+          "title": "Copy cmux Session File",
           "shortcut": null,
           "command": null
         },

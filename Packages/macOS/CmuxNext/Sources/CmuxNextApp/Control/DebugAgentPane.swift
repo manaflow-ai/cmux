@@ -64,7 +64,7 @@ enum DebugAgentPane {
         "select_session": "selectSession", "answer_permission": "answerPermission", "open_changes": "openChanges",
         "set_model": "setModel", "models": "models", "stream": "stream", "pick_folder": "pickFolder",
         "compose_send": "composeSend", "run_mode": "runMode", "toast": "toast",
-        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe",
+        "load_seed": "loadSeed", "load_run": "loadRun", "layout_watch": "layoutWatch", "idle_probe": "idleProbe", "paste_probe": "pasteProbe",
     ]
 
     /// The chat verbs drive the chat as a person does, so each records a user gesture first: the

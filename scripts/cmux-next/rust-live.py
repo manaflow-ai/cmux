@@ -58,6 +58,7 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import statistics
 import subprocess
 import sys
@@ -231,13 +232,28 @@ def outside_path_deps(workspace: Path) -> list[str]:
     return sorted(f for f in folders if not any(f.startswith(o + "/") for o in folders if o != f))
 
 
+def control_dir() -> str:
+    """This user's ssh ControlMaster folder: short (a socket path is capped near 104 bytes on macOS), kept across runs
+    (ControlPersist), and refused unless it is a real 700 folder this user owns, so another account cannot plant the
+    socket an ssh here then talks to."""
+    path = f"/tmp/rust-live-{os.getuid()}"
+    try:
+        os.mkdir(path, 0o700)
+    except FileExistsError:
+        pass
+    st = os.lstat(path)
+    if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+        sys.exit(f"rust-live: {path} is not a private folder of this user's; remove it")
+    return path
+
+
 def ssh_options(state: Path) -> list[str]:
     # One connection kept open: each step after the first costs one round trip.
     # CMUX_RUST_LIVE_SSH_OPTS: more ssh options (a port, a jump host, a known-hosts file).
     extra = shlex.split(os.environ.get("CMUX_RUST_LIVE_SSH_OPTS", ""))
     return ["-o", "BatchMode=yes", "-o", "ControlMaster=auto",
             # %C is 40 characters; a socket path under a deep state folder passes macOS's 104 limit.
-            "-o", f"ControlPath=/tmp/rust-live-{os.getuid()}-%C", "-o", "ControlPersist=900", *extra]
+            "-o", f"ControlPath={control_dir()}/%C", "-o", "ControlPersist=900", *extra]
 
 
 def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:

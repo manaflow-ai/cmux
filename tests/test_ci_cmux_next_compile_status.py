@@ -31,11 +31,14 @@ REPO = "manaflow-ai/cmux"
 # A curl that answers the compile-check read from $REPLY (HTTP 404 when it is missing) and appends every status
 # post's body to $POSTS. $CODES (space-separated) overrides the HTTP code of each result read in turn, the last one
 # repeating; a probe (-o /dev/null) answers $PROBE_CODE (404 by default) and is logged to $READS.probe.
+# A status post answers $POST_REFUSALS (space-separated HTTP codes) to its first tries, with GitHub's rate-limit
+# body unless $REFUSAL_BODY says otherwise and $REFUSAL_HEADERS as its headers; every try is logged to $POSTS.tries.
 FAKE_CURL = r'''#!/usr/bin/env bash
-out="" body="" url="" fmt=""
+out="" body="" url="" fmt="" hdr=""
 while (($#)); do
   case "$1" in
     -o) out="$2"; shift 2 ;;
+    -D) hdr="$2"; shift 2 ;;
     -d) body="$2"; shift 2 ;;
     -w) fmt="$2"; shift 2 ;;
     --max-time) echo "max-time $2" >> "$READS.opts"; shift 2 ;;
@@ -45,8 +48,16 @@ while (($#)); do
   esac
 done
 if [[ "$url" == */statuses/* ]]; then
+  printf '%s\n' "$body" >> "$POSTS.tries"
   [[ -n "${POST_FAILS:-}" ]] && exit 22
-  printf '%s\n' "$body" >> "$POSTS"; exit 0
+  n=$(wc -l < "$POSTS.tries"); refusals=(${POST_REFUSALS:-})
+  if (( n <= ${#refusals[@]} )); then
+    [[ -z "$out" ]] || printf '%s' "${REFUSAL_BODY:-{\"message\":\"You have exceeded a secondary rate limit.\"}}" > "$out"
+    [[ -z "$hdr" ]] || printf '%b' "${REFUSAL_HEADERS:-}" > "$hdr"
+    [[ -n "$fmt" ]] && printf '%s' "${refusals[$((n - 1))]}"
+    exit 0
+  fi
+  printf '%s\n' "$body" >> "$POSTS"; [[ -n "$fmt" ]] && printf 201; exit 0
 fi
 if [[ "$out" == /dev/null ]]; then
   printf '%s\n' "$url" >> "$READS.probe"; code="${PROBE_CODE:-404}"
@@ -62,7 +73,7 @@ fi
 exit 0
 '''
 # Fast gaps for the fake: the step's probe, re-read and bad-answer bounds are 30 s, 30 s and 300 s.
-GAPS = {"PROBE_GAP": "0", "READ_GAP": "0"}
+GAPS = {"PROBE_GAP": "0", "READ_GAP": "0", "POST_GAP": "0", "LIMIT_GAP": "0"}
 # autoland's and base_red_excuse.py's no-verdict line (NO_VERDICT): a red that names no compile failure.
 NO_VERDICT_LINE = re.compile(r"cmux-next/compile is not a pass for \S+ \((?!fail\))")
 
@@ -98,6 +109,8 @@ class StatusMapping(unittest.TestCase):
                      "GITHUB_OUTPUT": str(Path(tmp, "output")), **env})
             self.stdout, self.output = done.stdout, (Path(tmp, "output").read_text()
                                                      if Path(tmp, "output").exists() else "")
+            self.tries = [json.loads(line)["state"] for line in Path(tmp, "posts.tries").read_text().splitlines()] \
+                if Path(tmp, "posts.tries").exists() else []
             posts = [json.loads(line) for line in Path(tmp, "posts").read_text().splitlines()] \
                 if Path(tmp, "posts").exists() else []
             reads = Path(tmp, "reads").read_text().splitlines() if Path(tmp, "reads").exists() else []
@@ -154,12 +167,13 @@ class StatusMapping(unittest.TestCase):
         step = next(step for step in job()["steps"] if "run" in step)
         self.assertIn("timeout \"$left\" curl", step["run"])
         self.assertIn("WAIT_SECONDS:-2400", step["run"])
-        # The deadline starts before the pending post, and the terminal post (3 tries of 30 s, 2 waits
-        # of 10 s) fits after it: 40 min + 110 s, inside the step's 50, the job's 55 and the token's 60.
+        # The deadline starts before the pending post, and the terminal post (waits of at most POST_BUDGET, then
+        # one try of at most 40 s) fits after it: 40 min + 640 s, inside the step's 56, the job's 58 and the token's 60.
         run = step["run"]
         self.assertLess(run.index("deadline=$((SECONDS"), run.index("post pending"))
-        self.assertIn("timeout 110 curl -sS --fail-with-body", run)
-        self.assertLessEqual(2400 + 110, step["timeout-minutes"] * 60 - 300)
+        self.assertIn("timeout 40 curl -sS", run)
+        self.assertIn("${POST_BUDGET:-600}", run)
+        self.assertLessEqual(2400 + 600 + 40, step["timeout-minutes"] * 60 - 300)
         self.assertLessEqual(step["timeout-minutes"], job()["timeout-minutes"])
         self.assertLess(job()["timeout-minutes"], 60)
 
@@ -167,9 +181,107 @@ class StatusMapping(unittest.TestCase):
         code, _, _ = self.run_step(self.reply("pass"), POST_FAILS="1")
         self.assertNotEqual(code, 0)
 
+    def test_a_rate_limited_pending_post_is_a_warning_and_the_verdict_still_posts(self):
+        """2026-11-11 02:38Z: cmux-bot's status posts got GitHub's 403 rate limit for about ten minutes, and the pending
+        post's three tries 10 s apart failed the job on #40351, #40942, #41007 and the base push before any compile
+        was read. The pending status only shows the wait: it gives up at once, and the verdict decides."""
+        code, posts, _ = self.run_step(self.reply("pass"), POST_REFUSALS="403", LIMIT_GAP="60")
+        self.assertEqual((code, [p["state"] for p in posts]), (0, ["success"]))
+        self.assertEqual(self.tries, ["pending", "success"])  # a rate limit waits a minute: over the pending budget
+        self.assertIn("GitHub refused the pending status for cmux-next/compile after 1 tries: HTTP 403: "
+                      "You have exceeded a secondary rate limit", self.stdout.replace('{"message":"', ""))
+        self.assertIn("(rate limited)", self.stdout)
+
+    def test_a_rate_limited_verdict_waits_and_posts(self):
+        # PENDING_BUDGET=-1: the pending post takes the first refusal and gives up; the verdict meets the rest.
+        code, posts, _ = self.run_step(self.reply("fail"), POST_REFUSALS="403 429 403", PENDING_BUDGET="-1")
+        self.assertEqual((code, [p["state"] for p in posts]), (1, ["failure"]))
+        self.assertEqual(self.tries, ["pending", "failure", "failure", "failure"])
+        self.assertIn("posting again in 0 s", self.stdout)
+        code, posts, _ = self.run_step(self.reply("pass"), POST_REFUSALS="000 403 503 403", PENDING_BUDGET="-1")
+        self.assertEqual((code, [p["state"] for p in posts]), (0, ["success"]))
+        # A Retry-After or an exhausted primary limit is waited out in full; past POST_BUDGET it is a red, said why.
+        code, posts, _ = self.run_step(self.reply("pass"), POST_REFUSALS="403 403", POST_BUDGET="5", PENDING_BUDGET="-1",
+                                       REFUSAL_HEADERS="retry-after: 30\r\n")
+        self.assertEqual((code, posts), (1, []))
+        self.assertIn("GitHub refused the success status for cmux-next/compile after 1 tries: HTTP 403", self.stdout)
+        self.assertRegex(self.stdout, NO_VERDICT_LINE)  # "(pass)": no verdict, never a compile red
+
+    def run_handoff(self, fast: str, mac: str, **env: str) -> tuple[int, list[dict], str]:
+        """compile-status-handoff's publish step, as written, against the fake curl."""
+        script = next(step["run"] for step in handoff_job()["steps"] if "run" in step)
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp, "bin")
+            bin_dir.mkdir()
+            curl = bin_dir / "curl"
+            curl.write_text(FAKE_CURL)
+            curl.chmod(0o755)
+            done = subprocess.run(
+                ["bash", "-e", "-c", script], capture_output=True, text=True, timeout=60,
+                env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "RUNNER_TEMP": tmp, "GH_TOKEN": "t", "SHA": SHA,
+                     "API": f"https://api.github.com/repos/{REPO}", "RUN_URL": "https://github.com/run/1",
+                     "DOWN": "HTTP 530", "FAST": fast, "MAC": mac, "POSTS": str(Path(tmp, "posts")),
+                     "READS": str(Path(tmp, "reads")), **GAPS, **env})
+            self.tries = [json.loads(line)["state"] for line in Path(tmp, "posts.tries").read_text().splitlines()] \
+                if Path(tmp, "posts.tries").exists() else []
+            posts = [json.loads(line) for line in Path(tmp, "posts").read_text().splitlines()] \
+                if Path(tmp, "posts").exists() else []
+            return done.returncode, posts, done.stdout
+
+    def test_the_handoff_waits_out_a_rate_limit_and_posts_the_fallbacks_verdict(self):
+        code, posts, _ = self.run_handoff("skipped/", "success", POST_REFUSALS="403 429")
+        self.assertEqual((code, [p["state"] for p in posts], self.tries), (0, ["success"], ["success"] * 3))
+        code, posts, _ = self.run_handoff("failure/fail", "skipped", POST_REFUSALS="403")
+        self.assertEqual((code, [p["state"] for p in posts]), (1, ["failure"]))
+        # Past its budget it is a red that names the refused post, never a pass.
+        code, posts, out = self.run_handoff("skipped/", "success", POST_REFUSALS="403 403", POST_BUDGET="5",
+                                            REFUSAL_HEADERS="retry-after: 30\r\n")
+        self.assertEqual((code, posts), (1, []))
+        self.assertIn("could not post the fallback's verdict", out)
+
+    def test_a_refused_terminal_post_still_prints_the_no_verdict_line(self):
+        """A rate limit past POST_BUDGET on a failure post: the job's own ::error line still says why, so
+        base_red_excuse.py reads it (NO_VERDICT for every state but fail)."""
+        code, posts, _ = self.run_step(self.reply("unavailable"), POST_REFUSALS="403 403 403", POST_BUDGET="5",
+                                       PENDING_BUDGET="-1", REFUSAL_HEADERS="retry-after: 30\r\n")
+        self.assertEqual((code, posts), (1, []))
+        self.assertRegex(self.stdout, NO_VERDICT_LINE)
+        code, _, _ = self.run_step(self.reply("fail"), POST_REFUSALS="403 403 403", POST_BUDGET="5",
+                                   PENDING_BUDGET="-1", REFUSAL_HEADERS="retry-after: 30\r\n")
+        self.assertEqual(code, 1)
+        self.assertIn("cmux-next/compile is not a pass for " + SHA + " (fail)", self.stdout)
+
+    def test_a_refusal_that_is_no_rate_limit_is_final(self):
+        for code_, body in (("403", '{"message":"Resource not accessible by integration"}'),
+                            ("401", '{"message":"Bad credentials"}'), ("422", '{"message":"No commit found"}')):
+            with self.subTest(code=code_):
+                code, posts, _ = self.run_step(self.reply("pass"), POST_REFUSALS=f"{code_} {code_} {code_}",
+                                               REFUSAL_BODY=body)
+                self.assertEqual((code, posts), (1, []))
+                self.assertEqual(self.tries, ["pending", "success"])  # one try each, no waiting on a bad token
+                self.assertIn(f"HTTP {code_}: {body}", self.stdout)
+
+    def test_every_cmux_next_compile_post_waits_out_a_rate_limit(self):
+        """The detector of this class: every step that posts cmux-next/compile uses the one post(), which reads the
+        answer, names it, and waits out a GitHub rate limit; no bare curl to the statuses API sits beside it."""
+        workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        posters = {name: step["run"] for name, j in workflow.items() for step in j.get("steps", [])
+                   if '"cmux-next/compile"' in step.get("run", "")}
+        self.assertEqual(sorted(posters), ["compile-status", "compile-status-handoff"])
+        body = lambda run: run[run.index("post() {"):run.index("\n}\n", run.index("post() {"))]
+        canon = body(posters["compile-status"])
+        for name, run in posters.items():
+            with self.subTest(job=name):
+                self.assertEqual(body(run), canon)
+                self.assertEqual(len(re.findall(r"statuses/", run)), 1)
+                self.assertNotIn("--retry-all-errors", run)
+        for needle in ("(403|429)", "rate limit", "retry-after", "x-ratelimit-reset", "LIMIT_GAP:-60} << (tries - 1)",
+                       '-o "$out"', 'said="HTTP $code: '):
+            self.assertIn(needle, canon)
+
     def test_it_sleeps_only_between_probes_and_re_reads(self):
         sleeps = re.findall(r"sleep[^;\n]*", step_script())
-        self.assertEqual(sorted(sleeps), ['sleep "$gap"', 'sleep "${PROBE_GAP:-30}"'])
+        self.assertEqual(sorted(sleeps), ['sleep "$gap"', 'sleep "$pause"', 'sleep "${PROBE_GAP:-30}"'])
         self.assertIn("${READ_GAP:-30}", step_script())
         self.assertIn("${BAD_BOUND:-300}", step_script())
         # The shared deadline: each read's --max-time and timeout are what is left, never a fixed wait plus 30 s.

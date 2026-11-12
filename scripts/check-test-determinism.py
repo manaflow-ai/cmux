@@ -23,7 +23,11 @@ Detectors (all line/regex heuristics, never an AST):
   (elapsed_ms, perf_counter, DispatchTime.now, CACurrentMediaTime,
   .uptimeNanoseconds, monotonic(), a *_ms variable, a `clock.now - start`)
   against a numeric literal or a Swift Duration literal (`.milliseconds(1000)`).
-  This is the "assert on latency" ban.
+  This is the "assert on latency" ban. It also follows a name: `took =
+  time.perf_counter() - started` then `self.assertLess(took, 0.5)` on a later
+  line of the same function (Python by indentation; Swift, JS and TS by
+  braces). A ratio of two timings (the n-vs-4n scaling check), a bound of 0,
+  and a timing that only reaches a log line or a message are not flagged.
 - live-network-host: a hardcoded external URL/host driving real network from a
   test (public domain or public IP). Loopback, data:, and 0.0.0.0 are allowed.
 - fixed-port-bind: binding/connecting a fixed non-zero port literal for a real
@@ -32,6 +36,15 @@ Detectors (all line/regex heuristics, never an AST):
   lines) by an assertion, where the sleep is NOT a loop body (i.e. not a poll).
   This is the "sleep as synchronization" ban. Deadline-bounded polls and
   scenario-pacing sleeps with no trailing assert are allowed.
+- wall-clock-window (JS/TS): the distance between two time stamps compared
+  against a named millisecond constant (`now.t - now.input <= INPUT_MS`,
+  `Date.now() - start < LEAVE_MS`). The window decides what a test counts
+  (whose motion a frame is, how long to watch), not how long anything took,
+  so assert-on-duration never sees it: it sits outside the assertion and its
+  bound is a constant, not a literal. A busy runner stretches the gaps
+  between frames and events past the window. Order by events instead (the
+  input the page saw, a frame that holds still, a signal the page emits). A
+  fake clock (`time.now()`, `clock.now()`) is allowed.
 - yield-count-poll (Swift): `for _ in 0..<N { ... await Task.yield() ... }`
   (N a literal or a named bound such as a `maxYields` parameter) that
   exits on a condition (`break`/`return`) and carries no deadline. N
@@ -65,6 +78,54 @@ Detectors (all line/regex heuristics, never an AST):
   lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID-v1.gitconfig,
   and a file planted there with core.hooksPath ran a hook in every fixture
   repo. Make the path with mktemp -d / tempfile.mkdtemp instead.
+- exit-trap-reraise-order: an EXIT trap under scripts/cmux-next/tests (its action, the function it names, or the
+    variable it expands) that puts the saved status back with a subshell `(exit "$s")` or a status-returning call
+    while errexit may still be on, or that runs a cleanup step after re-raising. Under `set -e` the status restore
+    ends the trap there, so the caller's cleanup never runs and a failing test leaks its temp repos (cmux#41195 F1).
+    Run every cleanup first, then `exit "$s"`; restore $? with a function's `return` only after `set +e`.
+- git-fixture-exit-trap: a shell test that sources
+  scripts/cmux-next/tests/lib/git-fixture.sh and then sets `trap ... EXIT`
+  itself. That replaces the helper's EXIT trap, so its private
+  GIT_CONFIG_GLOBAL folder is never removed (Codex F2 on cmux#40939:
+  web-bundles-readonly-sources.test.sh's `trap cleanup EXIT`). Call
+  `git_fixture_trap_exit CMD` instead; it runs CMD after the helper's cleanup.
+- git-write-without-fixture: a test (tests/, tests_v2/, scripts/**/tests/)
+  that runs a writing git command (init, commit, clone, fetch, push, ...)
+  through subprocess or the shell without loading tests/git_fixture_env.py
+  or scripts/cmux-next/tests/lib/git-fixture.sh. The helper is the one
+  place a fixture's git environment is built: it drops what an inherited
+  GIT_DIR, GIT_INDEX_FILE, GIT_CONFIG and friends point at (a test run from
+  a git hook would otherwise commit into the hook's repository) and turns
+  auto maintenance off. Unlike git-temp-repo-maintenance, a temp folder is
+  not required and setting maintenance.auto by hand does not count.
+- wall-clock-expiry (Rust): a test sets something to expire a few seconds
+  or less ahead on the real clock (`now_ms() + 50`, under 10 s) and then waits
+  the expiry out on that clock: a `while ... now_ms()` loop, or a sleep at the
+  test's own level at least as long as the expiry is ahead. The setup and the
+  first check before the wait race the same clock: on a loaded runner the
+  thing had expired before the test first looked at it (cmux#41466,
+  activity_batch_does_not_keep_expired_parent_relationship). Move a test clock
+  past the expiry instead (`store::test_clock::advance`, tokio's start_paused,
+  a ManualClock); a test that uses one is not flagged.
+- flock-released-by-close (Rust): a test takes `flock(f.as_raw_fd(),
+  LOCK_EX)`, frees it only by closing (`drop(f)`, no `LOCK_UN`), and checks at
+  once that the lock is free. A test on another thread that starts a process
+  copies every open descriptor into the child until its exec closes them, and
+  a flock belongs to the open file, so the close leaves the copy holding it
+  for that moment (cmux#41466,
+  a_held_lock_is_alive_a_free_one_is_dead_and_none_is_no_proof). Unlock with
+  `flock(f.as_raw_fd(), LOCK_UN)` before the drop.
+- exec-of-a-file-written-in-process (Rust): a test writes a program itself
+  (`fs::copy(src, &p)`, `fs::write(&p, ...)`) and then runs it
+  (`Command::new(&p)`). While this process holds the write descriptor, a test
+  on another thread that starts a process hands a copy of it to that child
+  until its exec, and running the program then fails with ETXTBSY ("Text file
+  busy"; agent_host::tree's exe_still_names_a_program_whose_file_was_replaced).
+  Have a child write it (`cp`, or `sh -c 'cat >"$1"'` as
+  cmux-tui's test_exec::write_executable does); a hard link writes nothing.
+  Rust files are scanned under RUST_ROOTS, and only their test code: a
+  `*_tests.rs`, `tests.rs` or `tests/` file whole, any other file from its first
+  `#[cfg(test)]` on. They get only these three rules.
 - isolated-import (--strict only): a Python test, run as `python3 -I`, fails to
   import a module that sits beside it or in tests/ (-I puts no script folder on
   sys.path). Each changed test file, and each that loads git_fixture_env, is
@@ -94,6 +155,13 @@ from typing import Iterable, Optional
 # Configuration
 # ---------------------------------------------------------------------------
 
+# Rust trees: scanned for their `.rs` test code only, and only for RUST_RULES.
+RUST_ROOTS: tuple[str, ...] = (
+    "cmux-tui/crates",
+    "cmux-next-ios/rust",
+    "first-party-apps/cloud",
+)
+
 DEFAULT_ROOTS: tuple[str, ...] = (
     "Packages",
     "cmux-next-ios",
@@ -101,6 +169,7 @@ DEFAULT_ROOTS: tuple[str, ...] = (
     "tests_v2",
     "web/tests",
     "webviews/test",
+    *RUST_ROOTS,
 )
 
 # Scanned only for GIT_FIXTURE_RULES: the other rules were never applied there.
@@ -116,7 +185,7 @@ DEFAULT_ALLOWLIST = ".github/test-determinism-allowlist.txt"
 # are broad (sources and tests side by side), so we additionally require a Tests
 # path segment for files under them.
 TESTS_SEGMENT_ROOTS = ("Packages", "cmux-next-ios")
-SCANNED_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs")
+SCANNED_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs", ".rs")
 
 IGNORED_PATH_PARTS = (
     "/.build/",
@@ -134,11 +203,18 @@ RULE_LIVE_NETWORK_HOST = "live-network-host"
 RULE_FIXED_PORT_BIND = "fixed-port-bind"
 RULE_SLEEP_THEN_ASSERT = "sleep-then-assert"
 RULE_YIELD_COUNT_POLL = "yield-count-poll"
+RULE_WALL_CLOCK_WINDOW = "wall-clock-window"
 RULE_GIT_TEMP_REPO_MAINTENANCE = "git-temp-repo-maintenance"
 RULE_GIT_FIXTURE_ENV_DROPPED = "git-fixture-env-dropped"
 RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
 RULE_ISOLATED_IMPORT = "isolated-import"
 RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
+RULE_GIT_FIXTURE_EXIT_TRAP = "git-fixture-exit-trap"
+RULE_GIT_WRITE_WITHOUT_FIXTURE = "git-write-without-fixture"
+RULE_WALL_CLOCK_EXPIRY = "wall-clock-expiry"
+RULE_FLOCK_RELEASED_BY_CLOSE = "flock-released-by-close"
+RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS = "exec-of-a-file-written-in-process"
+RULE_EXIT_TRAP_RERAISE_ORDER = "exit-trap-reraise-order"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -146,17 +222,28 @@ ALL_RULES = (
     RULE_FIXED_PORT_BIND,
     RULE_SLEEP_THEN_ASSERT,
     RULE_YIELD_COUNT_POLL,
+    RULE_WALL_CLOCK_WINDOW,
     RULE_GIT_TEMP_REPO_MAINTENANCE,
     RULE_GIT_FIXTURE_ENV_DROPPED,
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_ISOLATED_IMPORT,
     RULE_PREDICTABLE_TMP_PATH,
+    RULE_GIT_FIXTURE_EXIT_TRAP,
+    RULE_GIT_WRITE_WITHOUT_FIXTURE,
+    RULE_WALL_CLOCK_EXPIRY,
+    RULE_FLOCK_RELEASED_BY_CLOSE,
+    RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS,
+    RULE_EXIT_TRAP_RERAISE_ORDER,
 )
+RUST_RULES = (RULE_WALL_CLOCK_EXPIRY, RULE_FLOCK_RELEASED_BY_CLOSE, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS)
 GIT_FIXTURE_RULES = (
     RULE_GIT_TEMP_REPO_MAINTENANCE,
     RULE_GIT_FIXTURE_ENV_DROPPED,
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_PREDICTABLE_TMP_PATH,
+    RULE_GIT_FIXTURE_EXIT_TRAP,
+    RULE_EXIT_TRAP_RERAISE_ORDER,
+    RULE_GIT_WRITE_WITHOUT_FIXTURE,
 )
 
 # ---------------------------------------------------------------------------
@@ -3614,6 +3701,241 @@ def detect_assert_on_duration(line: str, path_suffix: str = "") -> bool:
     return has_threshold_compare or has_relational_assert
 
 
+# ---------------------------------------------------------------------------
+# assert-on-duration through a name: a clock difference stored on one line and bounded on a later one
+# ---------------------------------------------------------------------------
+
+# A call that reads a clock. Python, Swift and JavaScript/TypeScript (the scanned languages).
+_CLOCK_READ = re.compile(
+    r"""(?x)
+    \b(?:time\.)?(?:perf_counter|monotonic|process_time|thread_time)(?:_ns)?\s*\(
+  | \btime\.time(?:_ns)?\s*\(
+  | \b(?:loop|get_running_loop\(\)|get_event_loop\(\))\.time\s*\(
+  | \bdatetime\.(?:datetime\.)?(?:now|utcnow)\s*\(
+  | \bDate\.now\s*\(
+  | \bperformance\.now\s*\(
+  | \bprocess\.hrtime(?:\.bigint)?\s*\(
+  | \bnew\s+Date\s*\(\s*\)
+  | DispatchTime\.now\s*\(
+  | \bCACurrentMediaTime\s*\(
+  | \bCFAbsoluteTimeGetCurrent\s*\(
+  | \bmach_absolute_time\s*\(
+  | \bProcessInfo\.processInfo\.systemUptime\b
+  | \bDate\s*\(\s*\)
+  | \b(?:Continuous|Suspending)Clock\s*\(\s*\)\.now\b
+  | [Cc]lock\.now\b                  # clock.now, ContinuousClock.now, testClock.now
+    """
+)
+# A clock difference in one call, with no `-`: Date().timeIntervalSince(t0), t0.timeIntervalSinceNow,
+# start.duration(to: .now), process.hrtime(start).
+_CLOCK_DIFFERENCE_CALL = re.compile(
+    r"""(?x)
+    \.timeIntervalSince(?:Now\b|\s*\()
+  | \.duration\s*\(\s*to\s*:
+  | \bprocess\.hrtime\s*\(\s*\w
+    """
+)
+# Literal text one of the two patterns above needs: a cheap test that a file reads no clock at all.
+_CLOCK_KEYS = (
+    "perf_counter", "monotonic", "process_time", "thread_time", "time(", "time_ns(", "now", "hrtime", "Date",
+    "CACurrentMediaTime", "CFAbsoluteTimeGetCurrent", "mach_absolute_time", "systemUptime", "timeIntervalSince",
+    "duration",
+)
+_PY_ASSIGNMENT = re.compile(r"^\s*([A-Za-z_]\w*)\s*(?::\s*[\w\[\]., |]+)?=(?!=)\s*(\S.*)$")
+_BRACE_ASSIGNMENT = re.compile(r"^\s*(?:(?:let|var|const)\s+)?([A-Za-z_]\w*)\s*(?::\s*[^=]+)?=(?![=>])\s*(\S.*)$")
+_ONE_LINE_STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
+_BRACES = re.compile(r"[{}]")
+_PY_DEF = re.compile(r"^(\s*)(?:async\s+)?def\s")
+_RELATIONAL_HELPER = re.compile(
+    r"\b(?:XCTAssert(?:LessThan|GreaterThan)\w*|assert(?:Less|Greater)\w*|toBe(?:LessThan|GreaterThan)\w*)\s*\("
+)
+_ASSERT_OPENING = re.compile(r"(?:#expect|#require|\bXCTAssert\w*|\bself\.assert\w*|\bassert\w*|\bexpect)\s*\(")
+_RELATIONAL_OPERATOR = re.compile(r"(?<![<>=!\-])(?:<=|>=|<|>)(?![=>])")
+_ABSOLUTE_BOUND = re.compile(r"(?<![\w.$])\d[\d_]*(?:\.\d+)?|\.(?:nanoseconds|microseconds|milliseconds|seconds)\s*\(")
+
+
+def _top_level_args(text: str, start: int) -> tuple[list[str], int]:
+    """The comma-separated arguments of the call whose `(` is at START, and the index after its `)`.
+
+    A string literal is skipped whole, its interpolations with it: an argument that starts with one is a message.
+    """
+    args: list[str] = []
+    depth = 0
+    arg_start = start + 1
+    index = start
+    while index < len(text):
+        character = text[index]
+        if character in "\"'`":
+            end = index + 1
+            while end < len(text) and text[end] != character:
+                end += 2 if text[end] == "\\" else 1
+            index = end + 1
+            continue
+        if character in "([{":
+            depth += 1
+        elif character in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(text[arg_start:index])
+                return args, index + 1
+        elif character == "," and depth == 1:
+            args.append(text[arg_start:index])
+            arg_start = index + 1
+        index += 1
+    args.append(text[arg_start:])
+    return args, len(text)
+
+
+def _is_message(arg: str) -> bool:
+    return bool(re.match(r"\s*(?:[A-Za-z]{1,2})?[\"'`]", arg))
+
+
+def _names_in(text: str, names: set[str]) -> set[str]:
+    return {word for word in re.findall(r"(?<![\w.])[A-Za-z_]\w*", text) if word in names}
+
+
+def _is_timing_ratio(side: str, timings: set[str]) -> bool:
+    """A timing divided by another timing (the scaling check): `took_4n / took_n`, `a / max(b, 1e-9)`."""
+    slash = side.find("/")
+    return slash >= 0 and bool(_names_in(side[slash + 1:], timings) or _CLOCK_READ.search(side[slash + 1:]))
+
+
+def _bounds_a_timing(side: str, other: str, timings: set[str]) -> bool:
+    return (
+        # A bound of 0 (`took > 0`, `toBeGreaterThan(0)`) checks that a timing was taken, not how long it was.
+        not re.fullmatch(r"[\s(]*0(?:\.0*)?[\s)]*", other)
+        and bool(_names_in(side, timings))
+        and not _is_timing_ratio(side, timings)
+        and not _names_in(other, timings)
+        and not _CLOCK_READ.search(other)
+    )
+
+
+def _asserts_absolute_bound_on(line: str, timings: set[str]) -> bool:
+    """Whether the assertion on LINE bounds one of TIMINGS (names holding a clock difference) by a fixed amount."""
+    if not timings or not _is_assertion_line(line) or not _names_in(line, timings):
+        return False
+    helper = _RELATIONAL_HELPER.search(line)
+    if helper:
+        args, after = _top_level_args(line, helper.end() - 1)
+        if helper.group(0).startswith("toBe"):
+            # expect(took).toBeLessThan(500): the operand is expect's argument.
+            opening = re.search(r"\bexpect\s*\(", line[: helper.start()])
+            if not opening:
+                return False
+            subject, _ = _top_level_args(line, opening.end() - 1)
+            operands = [subject[0], args[0]]
+        else:
+            operands = [arg for arg in args if not _is_message(arg)][:2]
+        if len(operands) != 2:
+            return False
+        first, second = operands
+        return _bounds_a_timing(first, second, timings) or _bounds_a_timing(second, first, timings)
+    opening = _ASSERT_OPENING.search(line)
+    if opening:
+        args, _ = _top_level_args(line, opening.end() - 1)
+        conditions = [arg for arg in args if not _is_message(arg)][:1]
+    else:
+        bare = re.search(r"\bassert\s+(.*)$", line)
+        if not bare:
+            return False
+        conditions = [_top_level_args("(" + bare.group(1) + ")", 0)[0][0]]
+    # Each clause of `a >= 0 && a <= waited` is its own comparison: the 0 bounds `a`, not `waited`.
+    clauses = [clause for condition in conditions for clause in re.split(r"&&|\|\||\band\b|\bor\b", condition)]
+    for condition in clauses:
+        for operator in _RELATIONAL_OPERATOR.finditer(condition):
+            left, right = condition[: operator.start()], condition[operator.end():]
+            if _bounds_a_timing(left, right, timings) and _ABSOLUTE_BOUND.search(right):
+                return True
+            if _bounds_a_timing(right, left, timings) and _ABSOLUTE_BOUND.search(left):
+                return True
+    return False
+
+
+def _classify_assignment(value: str, timings: set[str], readings: set[str]) -> Optional[str]:
+    """'timing' for a clock difference, 'reading' for a bare clock reading, None for anything else."""
+    if not (timings or readings) and not any(key in value for key in _CLOCK_KEYS):
+        return None
+    if _is_timing_ratio(value, timings | readings):
+        return None
+    if _CLOCK_DIFFERENCE_CALL.search(value):
+        return "timing"
+    minus = re.search(r"(?<![-=<>*/+eE])-(?![->=])", value)
+    if minus:
+        left = value[: minus.start()]
+        right = value[minus.end():]
+        if re.search(r"\btimedelta\b|\b(?:weeks|days|hours|minutes|seconds)\s*=", right):
+            return None  # datetime.now() - timedelta(hours=1) is an instant, not a duration
+        # A clock reading minus a name (a start), not a timestamp moved by a constant: Date.now() + h - 1_000.
+        if (_CLOCK_READ.search(left) or _names_in(left, readings)) and "+" not in left and re.search(r"[A-Za-z]", right):
+            return "timing"
+        if _names_in(left, timings):
+            return "timing"
+        return None
+    if _names_in(value, timings) and re.search(r"[*/]\s*[\d(]|^\s*\(*\s*\w+\s*\)*\s*[*/]", value):
+        return "timing"  # (took) * 1000, took / 1e6: still the same duration
+    if _CLOCK_READ.search(value) and not re.search(r"[-+*/]", value):
+        return "reading"
+    return None
+
+
+def detect_assert_on_duration_through_name(code_lines: list[str], path_suffix: str) -> list[int]:
+    """Lines bounding a name that holds a clock difference assigned earlier in the same function.
+
+    `took = time.perf_counter() - started` then `self.assertLess(took, 0.5)`: the line-at-a-time check sees
+    neither half on one line. A name holds a timing from its assignment until it is reassigned or its function
+    (Python, by indentation) or block (Swift, JavaScript and TypeScript, by braces) ends. A ratio of two timings
+    is the scaling check and is not a bound on wall time; a timing that only reaches a log line or an assertion's
+    message measures nothing.
+    """
+    if path_suffix not in (".py", ".swift", ".ts", ".tsx", ".js", ".mjs"):
+        return []
+    # Most test files read no clock: skip the scope walk for them.
+    source = "\n".join(code_lines)
+    if not any(key in source for key in _CLOCK_KEYS):
+        return []
+    python = path_suffix == ".py"
+    # Each scope is (opening indent or brace depth, timings, readings); module level is the outermost.
+    scopes: list[tuple[int, set[str], set[str]]] = [(-1, set(), set())]
+    depth = 0
+    flagged: list[int] = []
+    for index, line in enumerate(code_lines):
+        if not line.strip():
+            continue
+        if python:
+            indent = len(line) - len(line.lstrip())
+            while len(scopes) > 1 and indent <= scopes[-1][0]:
+                scopes.pop()
+            definition = _PY_DEF.match(line)
+            if definition:
+                scopes.append((indent, set(), set()))
+                continue
+        _, timings, readings = scopes[-1]
+        if _asserts_absolute_bound_on(line, timings):
+            flagged.append(index)
+        assignment = (_PY_ASSIGNMENT if python else _BRACE_ASSIGNMENT).match(line)
+        if assignment:
+            name, value = assignment.group(1), assignment.group(2)
+            kind = _classify_assignment(value, timings, readings)
+            timings.discard(name)
+            readings.discard(name)
+            if kind == "timing":
+                timings.add(name)
+            elif kind == "reading":
+                readings.add(name)
+        if not python and ("{" in line or "}" in line):
+            # A brace in a one-line string literal does not open a block (comments are already stripped).
+            for character in _BRACES.findall(_ONE_LINE_STRING.sub("", line)):
+                if character == "{":
+                    depth += 1
+                    scopes.append((depth, set(), set()))
+                elif character == "}":
+                    if len(scopes) > 1 and scopes[-1][0] == depth:
+                        scopes.pop()
+                    depth = max(depth - 1, 0)
+    return flagged
+
+
 def detect_live_network_host(line: str, path_suffix: str = "") -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
@@ -3808,6 +4130,23 @@ _CANCELLATION_ONLY_EXIT = re.compile(
 _YIELD_COUNT_LOOP_MAX_LINES = 60
 
 
+# `a - b <= SOME_MS` (either relational operator, the constant ALL-CAPS and ending in _MS): the subtraction of
+# two stamps measured against a named window. streaming-parked-still counted an offset change as the reader's
+# while `now.t - now.input <= INPUT_MS`; a starved runner moved a frame past it.
+_WALL_CLOCK_WINDOW = re.compile(
+    r"[\w.)\]]\s-\s[^;,]*?(?<![<>=!])(?:<=|>=|<|>)(?![=>])\s*[A-Z][A-Z0-9_]*_MS\b"
+)
+# A clock the test owns and advances by hand is deterministic.
+_FAKE_CLOCK_NOW = re.compile(r"\b(?:time|clock|fakeClock|virtualClock|testClock)\.now\s*\(")
+
+
+def detect_wall_clock_window(line: str, path_suffix: str = "") -> bool:
+    """A JS/TS test that compares two time stamps' distance with a named millisecond window."""
+    if path_suffix not in _JAVASCRIPT_SUFFIXES or _FAKE_CLOCK_NOW.search(line):
+        return False
+    return bool(_WALL_CLOCK_WINDOW.search(line))
+
+
 def detect_yield_count_poll(lines: list[str], idx: int, path_suffix: str) -> bool:
     """A Swift condition poll bounded by a Task.yield() count, not a deadline."""
     if path_suffix != ".swift" or not _YIELD_COUNT_LOOP_HEADER.search(lines[idx]):
@@ -3858,6 +4197,36 @@ def detect_git_temp_repo_maintenance(code_lines: list[str], text: str, path_suff
         for index, line in enumerate(code_lines):
             if _SH_GIT_WRITE.search(line):
                 return index
+    return None
+
+
+_LOADS_GIT_FIXTURE = re.compile(r"git_fixture_env|git-fixture\.sh")
+# A git wrapper called with a writing verb: `git("init")`, `self.git("-C", d, "commit")`, `fixture_git(d, "init")`.
+_PY_GIT_WRAPPER_WRITE = re.compile(r"""\b(?:\w*_)?git\([^\n]*['"]""" + _GIT_WRITE_VERBS + r"""['"]""")
+
+
+def detect_git_write_without_fixture(code_lines: list[str], text: str, rel_posix: str) -> Optional[int]:
+    """0-based line of the first writing git command in a test that never loads the fixture helper, else None."""
+    in_scope = (
+        rel_posix.startswith(("tests/", "tests_v2/"))
+        or (rel_posix.startswith("scripts/") and "/tests/" in rel_posix)
+    )
+    kind = pathlib.PurePosixPath(rel_posix).suffix
+    if not in_scope or kind not in (".py", ".sh") or _LOADS_GIT_FIXTURE.search("\n".join(code_lines)):
+        return None
+    if kind == ".py":
+        # The writing verb must belong to a git call: a `git <verb>` string, an argv list naming git with the
+        # verb within its next lines, or a git wrapper called with the verb (`run_git("commit", ...)`). A
+        # "push" event name elsewhere in a file whose only git is `git show` is not a write.
+        for index, line in enumerate(code_lines):
+            if _PY_GIT_WRITE_STRING.search(line) or _PY_GIT_WRAPPER_WRITE.search(line):
+                return index
+            if _PY_GIT_ARGV.search(line) and _PY_GIT_WRITE_TOKEN.search("\n".join(code_lines[index:index + 4])):
+                return index
+        return None
+    for index, line in enumerate(code_lines):
+        if _SH_GIT_WRITE.search(line):
+            return index
     return None
 
 
@@ -3943,6 +4312,113 @@ def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str) -> l
             hits.append(index)
     return hits
 
+
+
+# The path may hold spaces inside a substitution: source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh".
+_SH_SOURCES_GIT_FIXTURE = re.compile(r"(?:^|[\s;&|(])(?:source|\.)\s+[^;&|\n]*git-fixture\.sh\b")
+_SH_TRAP = re.compile(r"(?:^|[\s;&|(])trap\s+(?!-[pl]\b)(.*)")
+_SH_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+_SH_EXIT_SIGNAL = re.compile(r"(?:^|\s)(?:EXIT|SIGEXIT|0)(?=\s|[;&|)]|$)")
+
+
+def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str) -> list[int]:
+    """0-based lines that set an EXIT trap after the file sources lib/git-fixture.sh (it replaces the helper's)."""
+    if path_suffix != ".sh":
+        return []
+    hits: list[int] = []
+    sourced = False
+    for index, line in enumerate(code_lines):
+        if _SH_SOURCES_GIT_FIXTURE.search(line):
+            sourced = True
+            continue
+        if not sourced:
+            continue
+        match = _SH_TRAP.search(line)
+        if not match:
+            continue
+        # The command is quoted (or one word); the signals follow it. Drop quoted text, then the command word.
+        words = _SH_QUOTED.sub(" CMD ", match.group(1)).split(None, 1)
+        if len(words) == 2 and _SH_EXIT_SIGNAL.search(words[1].split(";")[0]):
+            hits.append(index)
+    return hits
+
+
+_EXIT_TRAP_SCOPE = "scripts/cmux-next/tests/"
+_SH_SINGLE_QUOTED_ASSIGN = re.compile(r"^\s*(?:local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?(\w+)='([^']*)'\s*$")
+_SH_FUNCTION_START = re.compile(r"^\s*(?:function\s+)?([\w.-]+)\s*\(\)\s*\{?(.*)$")
+_SH_FIXTURE_TRAP_EXIT = re.compile(r"(?:^|[\s;&|(])git_fixture_trap_exit\s+'([^']*)'")
+# Puts a saved status back as $?: a subshell exit, or a call/return that hands the status back.
+_TRAP_STATUS_RESTORE = re.compile(r"\(\s*exit\b|^\s*return\s+\S|^\s*\w*(?:return|status)\w*\s+[\"']?\$")
+_TRAP_RERAISE = re.compile(r"\(\s*exit\b|^\s*(?:exit|return)\b")
+_TRAP_ERREXIT_OFF = re.compile(r"^\s*set\s+\+[a-zA-Z]*e")
+# A step that cleans up: removes files, stops a process, removes a worktree, or runs the caller's/a cleanup action.
+_TRAP_CLEANUP = re.compile(r"\b(?:rm|rmdir|p?kill|umount|eval)\b|worktree\s+remove|\w*(?:cleanup|remove|teardown)\w*")
+
+
+def _trap_statements(action: str) -> list[str]:
+    """The action's top-level statements, split on ; and newlines outside quotes."""
+    flat = _SH_QUOTED.sub(lambda m: m.group(0).replace(";", ",").replace("\n", " "), action)
+    return [part.strip() for part in re.split(r"[;\n]", flat) if part.strip()]
+
+
+def _trap_action_problem(action: str) -> bool:
+    """True when the action restores the status with errexit possibly on, or cleans up after re-raising."""
+    errexit_off = False
+    raised = False
+    for statement in _trap_statements(action):
+        if _TRAP_ERREXIT_OFF.search(statement):
+            errexit_off = True
+        if raised and _TRAP_CLEANUP.search(statement):
+            return True
+        if _TRAP_STATUS_RESTORE.search(statement) and not errexit_off:
+            return True
+        if _TRAP_RERAISE.search(statement):
+            raised = True
+    return False
+
+
+def detect_exit_trap_reraise_order(code_lines: list[str], rel_posix: str) -> list[int]:
+    """0-based lines of EXIT traps under scripts/cmux-next/tests whose action re-raises before (or instead of) cleanup."""
+    if not rel_posix.startswith(_EXIT_TRAP_SCOPE) or not rel_posix.endswith(".sh"):
+        return []
+    assigned: dict[str, str] = {}
+    functions: dict[str, str] = {}
+    for index, line in enumerate(code_lines):
+        match = _SH_SINGLE_QUOTED_ASSIGN.match(line)
+        if match:
+            assigned[match.group(1)] = match.group(2)
+        start = _SH_FUNCTION_START.match(line)
+        if start:
+            body = [start.group(2)]
+            depth = line.count("{") - line.count("}")
+            for follow in code_lines[index + 1:]:
+                if depth <= 0:
+                    break
+                body.append(follow)
+                depth += follow.count("{") - follow.count("}")
+            functions[start.group(1)] = "\n".join(body).rstrip().rstrip("}")
+    hits: list[int] = []
+    for index, line in enumerate(code_lines):
+        actions: list[str] = []
+        fixture = _SH_FIXTURE_TRAP_EXIT.search(line)
+        if fixture:
+            actions.append(fixture.group(1))
+        match = _SH_TRAP.search(line)
+        if match:
+            rest = re.sub(r"^--\s+", "", match.group(1).strip())
+            quoted = re.match(r"""'([^']*)'|"((?:\\.|[^"\\])*)"|(\S+)""", rest)
+            if quoted and _SH_EXIT_SIGNAL.search(rest[quoted.end():].split(";")[0]):
+                text = next(group for group in quoted.groups() if group is not None)
+                variable = re.fullmatch(r"\$\{?(\w+)\}?", text)
+                if variable:
+                    actions.append(assigned.get(variable.group(1), ""))
+                elif quoted.group(3) is not None and text in functions:
+                    actions.append(functions[text])
+                else:
+                    actions.append(text)
+        if any(_trap_action_problem(action) for action in actions):
+            hits.append(index)
+    return hits
 
 
 # A temp base (no word, $, /, . or } before it, so "$TMP/build/tmp/x" is not one) and then a literal name.
@@ -4069,7 +4545,8 @@ def collect_predictable_tmp_extra_findings(repo_root: pathlib.Path) -> list[Find
             if is_ignored_path(rel_posix) or _predictable_tmp_scope(rel_posix) is None:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            findings += [f for f in scan_text(rel_posix, text) if f.rule == RULE_PREDICTABLE_TMP_PATH]
+            findings += [f for f in scan_text(rel_posix, text)
+                         if f.rule in (RULE_PREDICTABLE_TMP_PATH, RULE_GIT_WRITE_WITHOUT_FIXTURE)]
     return findings
 
 def collect_isolated_import_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
@@ -4109,6 +4586,9 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     if suffix not in SCANNED_SUFFIXES:
         return False
+    # A Rust tree holds only Rust tests for this gate; a Rust file elsewhere follows its root's rules.
+    if root in RUST_ROOTS or any(rel_posix.startswith(r + "/") for r in RUST_ROOTS):
+        return suffix == ".rs"
     # Under Packages/ and cmux-next-ios/, only scan files inside a Tests path segment.
     if root in TESTS_SEGMENT_ROOTS and "/Tests/" not in ("/" + rel_posix):
         return False
@@ -4198,8 +4678,228 @@ def _logical_network_chunks(
     return chunks
 
 
+_RUST_FN = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+\w+")
+_RUST_TEST_CFG = re.compile(r"^\s*#\[cfg\((?:all\(\s*)?test\b")
+_RUST_SHORT_EXPIRY = re.compile(r"\bnow_ms\(\)\s*\+\s*(\d[\d_]*)(?![\w.])")
+_RUST_SHORT_EXPIRY_MS = 10_000
+_RUST_WALL_CLOCK_LOOP = re.compile(r"^\s*while\b.*\bnow_ms\(\)")
+_RUST_SLEEP = re.compile(
+    r"\b(?:thread|time)::sleep\s*\(\s*(?:std::time::|tokio::time::)?Duration::from_(millis|secs)\(\s*(\d[\d_]*)\s*\)"
+)
+_RUST_FAKE_CLOCK = re.compile(r"\btest_clock::|\bstart_paused\b|\bManualClock\b|\btime::pause\(")
+_RUST_FLOCK_EXCLUSIVE = re.compile(r"\bflock\(\s*(\w+)\.as_raw_fd\(\)\s*,\s*libc::LOCK_EX\b")
+_RUST_WRITES_FILE = re.compile(r"\bfs::(?:copy\([^,]+,\s*&?(\w+)\s*\)|write\(\s*&?(\w+)\s*,)")
+_RUST_ASSERTION = re.compile(r"^\s*(?:debug_)?assert(?:_eq|_ne|_matches)?!\s*\(")
+
+
+def _rust_code_lines(raw_lines: list[str]) -> list[str]:
+    """Each line with its `//` comment and the inside of its string literals blanked, and block
+    comments and raw strings across lines blanked whole (a lexer for brace counting, not Rust's)."""
+    code: list[str] = []
+    in_block = 0
+    raw_end: Optional[str] = None
+    for line in raw_lines:
+        out: list[str] = []
+        i = 0
+        in_string = False
+        while i < len(line):
+            if raw_end is not None:
+                if line.startswith(raw_end, i):
+                    out.append(" " * len(raw_end))
+                    i += len(raw_end)
+                    raw_end = None
+                else:
+                    out.append(" ")
+                    i += 1
+                continue
+            if in_block:
+                if line.startswith("*/", i):
+                    in_block -= 1
+                    out.append("  ")
+                    i += 2
+                elif line.startswith("/*", i):
+                    in_block += 1
+                    out.append("  ")
+                    i += 2
+                else:
+                    out.append(" ")
+                    i += 1
+                continue
+            ch = line[i]
+            if in_string:
+                if ch == "\\":
+                    out.append("  ")
+                    i += 2
+                    continue
+                if ch == '"':
+                    in_string = False
+                    out.append(ch)
+                else:
+                    out.append(" ")
+                i += 1
+                continue
+            if line.startswith("//", i):
+                break
+            if line.startswith("/*", i):
+                in_block += 1
+                out.append("  ")
+                i += 2
+                continue
+            raw = re.match(r'b?r(#*)"', line[i:])
+            if raw and (i == 0 or not (line[i - 1].isalnum() or line[i - 1] == "_")):
+                raw_end = '"' + raw.group(1)
+                out.append(" " * raw.end())
+                i += raw.end()
+                continue
+            if ch == "'" and re.match(r"'(?:\\.|[^\\'])'", line[i:]):
+                char_len = re.match(r"'(?:\\.|[^\\'])'", line[i:]).end()
+                out.append(" " * char_len)
+                i += char_len
+                continue
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+            i += 1
+        code.append("".join(out))
+    return code
+
+
+def _rust_test_code_start(rel_posix: str, code: list[str]) -> Optional[int]:
+    """The first line of `rel_posix`'s test code: 0 for a test file, else its first
+    `#[cfg(test)]`; None when it has none."""
+    path = "/" + rel_posix
+    if path.endswith("_tests.rs") or path.endswith("/tests.rs") or "/tests/" in path:
+        return 0
+    return next((i for i, line in enumerate(code) if _RUST_TEST_CFG.match(line)), None)
+
+
+def _rust_functions(code: list[str], start: int) -> Iterable[tuple[int, int]]:
+    """`(first, last)` of each outermost fn from line `start` on, its body found by braces."""
+    i = start
+    while i < len(code):
+        match = _RUST_FN.match(code[i])
+        if not match:
+            i += 1
+            continue
+        depth = 0
+        opened = False
+        j = i
+        while j < len(code):
+            depth += code[j].count("{") - code[j].count("}")
+            opened = opened or "{" in code[j]
+            if opened and depth <= 0:
+                break
+            if not opened and code[j].rstrip().endswith(";"):
+                break
+            j += 1
+        yield i, min(j, len(code) - 1)
+        i = j + 1
+
+
+def _rust_sleep_ms(line: str) -> Optional[int]:
+    match = _RUST_SLEEP.search(line)
+    if not match:
+        return None
+    amount = int(match.group(2).replace("_", ""))
+    return amount if match.group(1) == "millis" else amount * 1000
+
+
+def detect_rust_wall_clock_expiry(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        if any(_RUST_FAKE_CLOCK.search(line) for line in body):
+            continue
+        statement_indent = None
+        for line in body[1:]:
+            if line.strip():
+                statement_indent = len(line) - len(line.lstrip())
+                break
+        for k, line in enumerate(body):
+            match = _RUST_SHORT_EXPIRY.search(line)
+            if not match:
+                continue
+            ahead = int(match.group(1).replace("_", ""))
+            if ahead >= _RUST_SHORT_EXPIRY_MS:
+                continue
+            for later in body[k + 1 :]:
+                if _RUST_WALL_CLOCK_LOOP.match(later):
+                    hits.append(first + k)
+                    break
+                slept = _rust_sleep_ms(later)
+                at_test_level = len(later) - len(later.lstrip()) == statement_indent
+                if slept is not None and slept >= ahead and at_test_level:
+                    hits.append(first + k)
+                    break
+    return hits
+
+
+def detect_rust_flock_released_by_close(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        for k, line in enumerate(body):
+            match = _RUST_FLOCK_EXCLUSIVE.search(line)
+            if not match:
+                continue
+            name = re.escape(match.group(1))
+            unlocked = re.compile(r"\bflock\(\s*" + name + r"\.as_raw_fd\(\)\s*,\s*libc::LOCK_UN\b")
+            closed = re.compile(r"^\s*drop\(\s*" + name + r"\s*\)\s*;")
+            for n in range(k + 1, len(body)):
+                if unlocked.search(body[n]):
+                    break
+                if closed.match(body[n]):
+                    following = next((later for later in body[n + 1 :] if later.strip()), "")
+                    if _RUST_ASSERTION.match(following):
+                        hits.append(first + n)
+                    break
+    return hits
+
+
+def detect_rust_exec_of_file_written_in_process(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        for k, line in enumerate(body):
+            match = _RUST_WRITES_FILE.search(line)
+            if not match:
+                continue
+            name = re.escape(match.group(1) or match.group(2))
+            runs = re.compile(r"\bCommand::new\(\s*&?" + name + r"\s*\)")
+            if any(runs.search(later) for later in body[k + 1 :]):
+                hits.append(first + k)
+    return hits
+
+
+def scan_rust_text(rel_posix: str, text: str) -> list[Finding]:
+    # Most Rust files have no rule's anchor: skip the lexer for them (6,500 files).
+    if "now_ms()" not in text and "LOCK_EX" not in text and "Command::new" not in text:
+        return []
+    raw_lines = text.splitlines()
+    code = _rust_code_lines(raw_lines)
+    start = _rust_test_code_start(rel_posix, code)
+    if start is None:
+        return []
+    findings = [
+        Finding(rel_posix, i + 1, RULE_WALL_CLOCK_EXPIRY, raw_lines[i].strip())
+        for i in detect_rust_wall_clock_expiry(code, start)
+    ]
+    findings += [
+        Finding(rel_posix, i + 1, RULE_FLOCK_RELEASED_BY_CLOSE, raw_lines[i].strip())
+        for i in detect_rust_flock_released_by_close(code, start)
+    ]
+    findings += [
+        Finding(rel_posix, i + 1, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS, raw_lines[i].strip())
+        for i in detect_rust_exec_of_file_written_in_process(code, start)
+    ]
+    findings.sort(key=lambda f: (f.line, f.rule))
+    return findings
+
+
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
+    if suffix == ".rs":
+        return scan_rust_text(rel_posix, text)
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(line, suffix) for line in raw_lines]
     findings: list[Finding] = []
@@ -4240,6 +4940,15 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
         if detect_yield_count_poll(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_YIELD_COUNT_POLL, snippet))
+        if detect_wall_clock_window(code, suffix):
+            findings.append(Finding(rel_posix, line_no, RULE_WALL_CLOCK_WINDOW, snippet))
+
+    duration_lines = {f.line for f in findings if f.rule == RULE_ASSERT_ON_DURATION}
+    for duration_line in detect_assert_on_duration_through_name(code_lines, suffix):
+        if duration_line + 1 not in duration_lines:
+            findings.append(
+                Finding(rel_posix, duration_line + 1, RULE_ASSERT_ON_DURATION, raw_lines[duration_line].strip())
+            )
 
     git_line = detect_git_temp_repo_maintenance(code_lines, text, suffix)
     if git_line is not None:
@@ -4252,6 +4961,15 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
     for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
         findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
+    write_line = detect_git_write_without_fixture(code_lines, text, rel_posix)
+    if write_line is not None:
+        findings.append(
+            Finding(rel_posix, write_line + 1, RULE_GIT_WRITE_WITHOUT_FIXTURE, raw_lines[write_line].strip())
+        )
+    for trap_line in detect_git_fixture_exit_trap(code_lines, suffix):
+        findings.append(Finding(rel_posix, trap_line + 1, RULE_GIT_FIXTURE_EXIT_TRAP, raw_lines[trap_line].strip()))
+    for trap_line in detect_exit_trap_reraise_order(code_lines, rel_posix):
+        findings.append(Finding(rel_posix, trap_line + 1, RULE_EXIT_TRAP_RERAISE_ORDER, raw_lines[trap_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
@@ -4381,6 +5099,74 @@ def _isolated_import_self_test() -> list[str]:
 def _self_test() -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
+        # cmux#41466: a 50 ms tag life on the real clock, waited out by a loop on that clock.
+        (
+            "cmux-tui/crates/acpmux/src/chats/activity_tests.rs",
+            (
+                "#[test]\n"
+                "fn activity_batch_does_not_keep_expired_parent_relationship() {\n"
+                "    let expires = crate::store::now_ms() + 50;\n"
+                "    let hub = make_hub(expires);\n"
+                "    assert_eq!(decorate(&hub)[\"parent\"], \"claude-code:root\");\n"
+                "    while crate::store::now_ms() < expires {\n"
+                "        std::thread::yield_now();\n"
+                "    }\n"
+                "    assert_eq!(decorate(&hub)[\"parent\"], Value::Null);\n"
+                "}\n"
+            ),
+            {RULE_WALL_CLOCK_EXPIRY},
+        ),
+        # The same, waited out by a sleep at the test's own level, in a #[cfg(test)] module.
+        (
+            "cmux-tui/crates/acpmux/src/server/windows.rs",
+            (
+                "fn product() {}\n"
+                "#[cfg(test)]\n"
+                "mod tests {\n"
+                "    #[tokio::test(flavor = \"multi_thread\")]\n"
+                "    async fn an_archive_that_lapses() {\n"
+                "        let soon = crate::store::now_ms() + 400;\n"
+                "        archive(soon);\n"
+                "        tokio::time::sleep(Duration::from_millis(600)).await;\n"
+                "        assert!(folded());\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_WALL_CLOCK_EXPIRY},
+        ),
+        # cmux#41466: a held flock freed only by a close, then probed at once.
+        (
+            "cmux-tui/crates/acpmux/src/agent_host/wait.rs",
+            (
+                "#[cfg(all(test, unix))]\n"
+                "mod dead_now_tests {\n"
+                "    #[test]\n"
+                "    fn a_free_lock_is_a_dead_host() {\n"
+                "        let host = std::fs::File::create(&path).unwrap();\n"
+                "        assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_EX) }, 0);\n"
+                "        drop(host);\n"
+                "        assert!(dead_now_in(&dirs, \"s1\", \"n1\"), \"a free lock is a dead host\");\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_FLOCK_RELEASED_BY_CLOSE},
+        ),
+        # A program this test process wrote, then ran (ETXTBSY when another thread forks meanwhile).
+        (
+            "cmux-tui/crates/acpmux/src/agent_host/tree.rs",
+            (
+                "#[cfg(test)]\n"
+                "mod census_tests {\n"
+                "    #[test]\n"
+                "    fn exe_still_names_a_replaced_program() {\n"
+                "        let program = dir.join(\"server\");\n"
+                "        std::fs::copy(\"/bin/sleep\", &program).unwrap();\n"
+                "        let mut child = std::process::Command::new(&program).arg(\"30\").spawn().unwrap();\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS},
+        ),
         # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
         (
             "tests/git_temp_repo.py",
@@ -4460,6 +5246,72 @@ def _self_test() -> int:
             'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit_q clone --bare "$d/src" "$d/o.git"\n',
             {RULE_GIT_BARE_REPO_UNMANAGED},
         ),
+        # An EXIT trap that restores the status with errexit on, or cleans up after re-raising (cmux#41195 F1).
+        (
+            "scripts/cmux-next/tests/reraise_subshell.test.sh",
+            "set -euo pipefail\ntmp=$(mktemp -d)\ntrap 's=$?; (exit \"$s\"); rm -rf \"$tmp\"' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/lib/reraise_variable.sh",
+            "_t='_s=$?; _remove_dir; (exit \"$_s\"); eval \"$caller\"'\nbuiltin trap -- \"$_t\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_function.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ntrap cleanup EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_status_call.test.sh",
+            "set -e\ntmp=$(mktemp -d)\nkeep_status() { return \"$1\"; }\n"
+            "trap 's=$?; keep_status \"$s\"; rm -rf \"$tmp\"' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        # A test that writes with git and never loads the helper: an inherited GIT_DIR takes the commit.
+        (
+            "tests/git_write_plain.py",
+            "import subprocess\nsubprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_plain.test.sh",
+            'w=$(mktemp -d)\ngit -C "$w" init -q && git -C "$w" commit -q --allow-empty -m x\n',
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_wrapper.py",
+            "import subprocess\ndef run_git(*a):\n    return subprocess.run(['git', *a], check=True)\n\n\n\n\n"
+            "run_git('-C', repo, 'commit', '-qm', 'x')\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_comment_only.py",
+            "import subprocess\n# uses git_fixture_env somewhere\nsubprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_hand_opt_out.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # An EXIT trap after sourcing the helper replaces its cleanup: the GIT_CONFIG_GLOBAL folder leaks (cmux#40939 F2).
+        (
+            "scripts/cmux-next/tests/trap_after.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        (
+            "scripts/cmux-next/tests/trap_after_dirname.test.sh",
+            'source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # opt out\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        (
+            "tests/trap_after_word.sh",
+            '. "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\ncleanup() { rm -rf "$T"; }\nT=$(mktemp -d); trap cleanup EXIT INT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
         # A measured duration read with a string key is still code's data, not an assertion message.
         (
             "tests/string_key_duration.py",
@@ -4491,6 +5343,70 @@ def _self_test() -> int:
         (
             "tests/b.py",
             "elapsed_ms = (time.perf_counter() - t0) * 1000\nassert elapsed_ms < 50\n",
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # A clock difference stored in a name the token list does not know, then bounded on a later line
+        # (cmux#41236: test_base_red_excuse.py's `took` failed its 0.5 s bound under host load).
+        (
+            "tests/duration_through_name.py",
+            (
+                "class T(unittest.TestCase):\n"
+                "    def test_linear(self):\n"
+                "        started = time.perf_counter()\n"
+                "        owned = place(job)\n"
+                "        took = time.perf_counter() - started\n"
+                "        with self.subTest(shape=label):\n"
+                "            self.assertLess(took, 0.5, f\"place took {took:.2f} s\")\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        # Two clock readings, the difference taken from their names.
+        (
+            "tests/duration_end_minus_start.py",
+            (
+                "def test_fast():\n"
+                "    began = time.monotonic()\n"
+                "    run()\n"
+                "    done = time.monotonic()\n"
+                "    spent = done - began\n"
+                "    assert spent < 2\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_through_name.swift",
+            (
+                "    func testFast() async {\n"
+                "        let start = clock.now\n"
+                "        await model.load()\n"
+                "        let took = clock.now - start\n"
+                "        XCTAssertLessThan(took, .seconds(1))\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "cmuxTests/duration_interval_name.swift",
+            (
+                "    func testFast() {\n"
+                "        let t0 = Date()\n"
+                "        model.load()\n"
+                "        let spent = Date().timeIntervalSince(t0)\n"
+                "        XCTAssertLessThan(spent, 0.25)\n"
+                "    }\n"
+            ),
+            {RULE_ASSERT_ON_DURATION},
+        ),
+        (
+            "web/tests/duration_through_name.test.ts",
+            (
+                "it('loads fast', async () => {\n"
+                "  const started = performance.now();\n"
+                "  await load();\n"
+                "  const took = performance.now() - started;\n"
+                "  expect(took).toBeLessThan(500);\n"
+                "});\n"
+            ),
             {RULE_ASSERT_ON_DURATION},
         ),
         (
@@ -5508,9 +6424,65 @@ def _self_test() -> int:
             ),
             {RULE_YIELD_COUNT_POLL},
         ),
+        # A wall-clock window decides what a frame test counts (streaming-parked-still: an offset change
+        # was the reader's while it came within INPUT_MS of a wheel event; a starved runner broke it).
+        (
+            "webviews/test/wall_clock_window.test.ts",
+            "        const recent = now.t - now.input <= INPUT_MS;\n",
+            {RULE_WALL_CLOCK_WINDOW},
+        ),
+        (
+            "webviews/test/wall_clock_watch.test.ts",
+            "    while (Date.now() - start < LEAVE_MS) later = await look(page, x, y);\n",
+            {RULE_WALL_CLOCK_WINDOW},
+        ),
     ]
 
     negatives: list[tuple[str, str]] = [
+        # Git writes through the helper; git reads only; a git hook helper (not a test).
+        (
+            "tests/git_write_helper.py",
+            "import git_fixture_env\nsubprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+        ),
+        (
+            "scripts/ci/tests/git_write_helper.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nw=$(mktemp -d)\ngit_fixture_init "$w"\n'
+            'git -C "$w" commit -q --allow-empty -m x\n',
+        ),
+        (
+            "tests/git_read_only_event_names.py",
+            "import subprocess\ntext = subprocess.run(['git', '-C', root, 'show', 'origin/main:x.py'],\n"
+            "                      capture_output=True).stdout\n\n\n\n\ndef run(event='push'):\n    return event\n",
+        ),
+        (
+            "tests/git_read_only_plain.py",
+            "import subprocess\nsubprocess.run(['git', 'rev-parse', 'HEAD'], check=True)\n",
+        ),
+        # Exit cleanup through the helper; an EXIT trap set before sourcing; INT alone; `trap -p EXIT`.
+        # Cleanup first, then re-raise; a status call only after set +e; no re-raise at all.
+        (
+            "scripts/cmux-next/tests/reraise_ok.test.sh",
+            "set -euo pipefail\ntmp=$(mktemp -d)\ntrap 's=$?; rm -rf \"$tmp\"; exit \"$s\"' EXIT\n"
+            "_t='_s=$?; set +e; _remove_dir; _keep_return \"$_s\"; eval \"$caller\"; exit \"$_s\"'\n"
+            "builtin trap -- \"$_t\" EXIT\ncleanup() { [[ -n \"$pid\" ]] && kill \"$pid\"; rm -rf \"$tmp\"; }\n"
+            "trap cleanup EXIT\n",
+        ),
+        (
+            "scripts/cmux-next/tests/trap_ok.test.sh",
+            'trap \'echo early\' EXIT\nsource "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\n'
+            'tmp=$(mktemp -d)\ngit_fixture_trap_exit \'rm -rf "$tmp"\'\ntrap \'exit 130\' INT\nprev=$(trap -p EXIT)\n'
+            'trap "echo EXIT" TERM\n',
+        ),
+        # A clock the test advances by hand.
+        (
+            "webviews/test/fake_clock_window.test.ts",
+            "      if (time.now() - lostAt >= RECONNECT_LINE_AFTER_MS) recoveredAt = time.now();\n",
+        ),
+        # A configured constant, no subtraction of stamps.
+        (
+            "webviews/test/configured_window.test.ts",
+            "      expect(config.retryDelay <= RETRY_DELAY_MS).toBe(true);\n",
+        ),
         # A temp git repo whose test imports the auto-maintenance opt-out.
         (
             "tests/git_fixture_ok.py",
@@ -6233,6 +7205,90 @@ def _self_test() -> int:
             "tests/n29.py",
             'assert span < 5, "the duration was off"\n',
         ),
+        # Rust: a test clock moved past the expiry, not waited for.
+        (
+            "cmux-tui/crates/acpmux/src/chats/n_rs1_tests.rs",
+            (
+                "fn expired() {\n"
+                "    let expires = crate::store::now_ms() + 50;\n"
+                "    assert!(live(expires));\n"
+                "    crate::store::test_clock::advance(50);\n"
+                "    while crate::store::now_ms() < expires {}\n"
+                "}\n"
+            ),
+        ),
+        # Rust: a short sleep for distinct stamps, shorter than the instant is ahead; and a sleep
+        # inside a fake server's closure, not at the test's own level.
+        (
+            "cmux-tui/crates/acpmux/src/hub/n_rs2_tests.rs",
+            (
+                "async fn stamps() {\n"
+                "    let cutoff = now_ms() + 1000;\n"
+                "    std::thread::sleep(std::time::Duration::from_millis(2));\n"
+                "    assert!(untouched(cutoff));\n"
+                "}\n"
+                "fn hangs() {\n"
+                "    let soon = now_ms() + 300;\n"
+                "    let hang = Arc::new(move |request: &str| {\n"
+                "        std::thread::sleep(Duration::from_secs(4));\n"
+                "        mint(soon)\n"
+                "    });\n"
+                "    assert_eq!(run(hang), Ok(3));\n"
+                "}\n"
+            ),
+        ),
+        # Rust: an unlock before the close, and a close followed by other work, not a probe.
+        (
+            "cmux-tui/crates/acpmux/src/hub/n_rs3_tests.rs",
+            (
+                "fn unlocked() {\n"
+                "    assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_EX) }, 0);\n"
+                "    assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_UN) }, 0);\n"
+                "    drop(host);\n"
+                "    assert!(dead_now_in(&dirs, \"s1\", \"n1\"));\n"
+                "}\n"
+                "fn joined() {\n"
+                "    assert_eq!(unsafe { libc::flock(runner.as_raw_fd(), libc::LOCK_EX) }, 0);\n"
+                "    drop(runner);\n"
+                "    daemon.join().unwrap();\n"
+                "    assert!(stopped.is_ok());\n"
+                "}\n"
+            ),
+        ),
+        # Rust: a program written by a child (`cp`), or linked, then run; a copy that is never run.
+        (
+            "cmux-tui/crates/acpmux/src/n_rs5_tests.rs",
+            (
+                "fn by_cp() {\n"
+                "    let copied = Command::new(\"cp\").arg(\"/bin/sleep\").arg(&program).status();\n"
+                "    let child = Command::new(&program).spawn();\n"
+                "}\n"
+                "fn linked() {\n"
+                "    fs::hard_link(exe, &daemon).unwrap();\n"
+                "    let child = Command::new(&daemon).spawn();\n"
+                "}\n"
+                "fn data_only() {\n"
+                "    fs::copy(\"/bin/sleep\", &program).unwrap();\n"
+                "    let child = Command::new(\"ls\").arg(&program).spawn();\n"
+                "}\n"
+            ),
+        ),
+        # Rust product code with no #[cfg(test)] is not a test; nor is a pattern in a string.
+        (
+            "cmux-tui/crates/acpmux/src/n_rs4.rs",
+            (
+                "fn waits() {\n"
+                "    let soon = now_ms() + 50;\n"
+                "    while now_ms() < soon {}\n"
+                "}\n"
+                "#[cfg(test)]\n"
+                "mod tests {\n"
+                "    fn text() {\n"
+                "        let src = \"let soon = now_ms() + 50; while now_ms() < soon {}\";\n"
+                "    }\n"
+                "}\n"
+            ),
+        ),
         # A sleep inside a deadline-bounded Swift `repeat { } while` poll is a poll body.
         (
             "cmuxTests/n30.swift",
@@ -6248,6 +7304,92 @@ def _self_test() -> int:
         (
             "cmux-next-ios/CmuxMobileKit/Tests/KitTests/n31.swift",
             "#expect(clock.now == RecordedClock.at(.milliseconds(150)))\n",
+        ),
+        # The scaling pattern (cmux#41236): two timings of the same work at N and 4N, bounded only by their ratio.
+        (
+            "tests/n32.py",
+            (
+                "def test_scales_linearly(self):\n"
+                "    began = time.process_time()\n"
+                "    run(n)\n"
+                "    took_n = time.process_time() - began\n"
+                "    began = time.process_time()\n"
+                "    run(4 * n)\n"
+                "    took_4n = time.process_time() - began\n"
+                "    ratio = took_4n / max(took_n, 1e-9)\n"
+                "    self.assertLess(ratio, 8)\n"
+                "    self.assertLess(took_4n / took_n, 8)\n"
+                "    self.assertLess(took_4n, 8 * took_n)\n"
+            ),
+        ),
+        # A clock difference that only reaches a log line or an assertion's message measures nothing.
+        (
+            "tests/n33.py",
+            (
+                "def test_places_all(self):\n"
+                "    started = time.perf_counter()\n"
+                "    owned = place(job)\n"
+                "    took = time.perf_counter() - started\n"
+                "    print(f\"place took {took:.2f} s\")\n"
+                "    log.info('took %.2f s', took)\n"
+                "    self.assertEqual(len(owned), 3, f\"took {took:.2f} s\")\n"
+            ),
+        ),
+        # A name holds a clock difference only in the function that assigned it, and only until it is reassigned.
+        (
+            "tests/n34.py",
+            (
+                "def helper():\n"
+                "    took = time.perf_counter() - started\n"
+                "    return took\n"
+                "def test_rows(self):\n"
+                "    took = len(rows)\n"
+                "    self.assertLess(took, 5)\n"
+                "def test_again(self):\n"
+                "    self.assertLess(took, 5)\n"
+            ),
+        ),
+        # A bound of 0 on another value, and a timing used as that value's upper bound (a relative check).
+        (
+            "cmuxTests/n36.swift",
+            (
+                "    func a() {\n"
+                "        let waited = (seen - typed) * 1000\n"
+                "        let waited2 = (CACurrentMediaTime() - typed) * 1000\n"
+                "        #expect(latency >= 0 && latency <= waited2, \"echo \\(latency) ms\")\n"
+                "    }\n"
+            ),
+        ),
+        # A timestamp moved by a constant is an instant, not a measured duration.
+        (
+            "web/tests/n37.test.ts",
+            (
+                "const floor = Date.now() + FIVE_HOURS_MS - 1_000;\n"
+                "expect(stored).toBeGreaterThanOrEqual(floor);\n"
+                "const cutoff = Date.now() - 60_000;\n"
+                "expect(stored).toBeGreaterThan(cutoff);\n"
+            ),
+        ),
+        # A timing checked only to be positive: no bound on how long it took.
+        (
+            "web/tests/n38.test.ts",
+            (
+                "  const started = performance.now();\n"
+                "  const perKey = (performance.now() - started) / presses;\n"
+                "  expect(perKey).toBeGreaterThan(0);\n"
+            ),
+        ),
+        (
+            "cmuxTests/n35.swift",
+            (
+                "    func a() {\n"
+                "        let took = clock.now - start\n"
+                "        print(took)\n"
+                "    }\n"
+                "    func b() {\n"
+                "        XCTAssertLessThan(took, 3)\n"
+                "    }\n"
+            ),
         ),
     ]
 

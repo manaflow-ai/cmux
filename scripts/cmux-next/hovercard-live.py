@@ -20,7 +20,7 @@ pointer opens) and reads the card's text (`debug.hover_cards` card_text). Checks
 With --capture (the host's capture tool, $NX_CAPTURE) and --pid it writes PNGs of the window with
 the card to --shots. Exits 1 when a check fails.
 """
-import argparse, json, os, re, socket, subprocess, sys, time
+import argparse, json, os, re, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -161,7 +161,8 @@ check(working is not None, "made the working workspace")
 if working:
     # The program reads a line between its reports, so each step is one newline into its stdin.
     # OSC 7501 carries `title` and `msg` as base64: "Refactoring the parser", "Which branch should I use?".
-    demo = f"/tmp/hovercard-demo-{opts.tag}.sh"
+    # In a mkdtemp folder: a guessable /tmp name could be a script another account planted, which the shell then runs.
+    demo = os.path.join(tempfile.mkdtemp(prefix="hovercard-demo-"), "demo.sh")
     with open(demo, "w") as script:
         script.write("printf '\\033]7501;state=working:app=hcdemo:title=UmVmYWN0b3JpbmcgdGhlIHBhcnNlcg==\\033\\\\'\n"
                      "read step\n"
