@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Settings page layout (SETTINGS-PAGE-FIRST-PRINCIPLES P2, P4): categories by user task in sidebar order, each a list of group cards, plus the action buttons at the end of each section. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+PageLayout.generated.swift: SettingsPageLayout and SettingsSchema.actions(in:)); the schema export resolves it into settings-schema.json's `page`, which the web Settings page and the GPUI client draw. A row's key, section and CLI stay as they are; only where the page draws it is decided here. Every row the page shows has exactly one card (SettingsPageLayoutHomeTests). Fields: default_category, the category the page opens on. max_rows_per_card, the most rows one card holds (SettingsPageSectionsTests; user 2026-10-30: \"look a lot better with sections\"). cards, the parts of a category that are not schema rows (id is the export's card id). section_actions, per section id the registry action ids drawn as buttons at the end of that section (titles and availability come from the action registry); every section is listed. sidebar_sections, the sidebar's titled runs of categories (title null for the untitled lead run). A category has id, title ({key, text} or {section: id} for that section's title), symbol (SF Symbol), groups, and optional lead and trail (card ids drawn before and after the groups), actions (sections whose section_actions show at its end), aliases (section ids, from `cmux settings open --section` and old links, that open it), dev_only (shown only in DEV builds). A group card has group (a schema group key: its title, and every shown row of that group no other card claims, in schema order), keys (rows claimed by key, drawn after the group's rows), lead_keys (rows claimed by key, drawn first) and title ({key, text}; needed when there is no group). A card with no rows is dropped; a card without a group gets the key <category>.<index>. note is a comment.",
+  "$comment": "HAND-EDITED source of the Settings page layout (SETTINGS-PAGE-FIRST-PRINCIPLES P2, P4): categories by user task in sidebar order, each a list of group cards, plus the action buttons at the end of each section. scripts/cmux-next/gen-settings-sources.py writes the Swift copy (SettingsSchema+PageLayout.generated.swift: SettingsPageLayout and SettingsSchema.actions(in:)); the schema export resolves it into settings-schema.json's `page`, which the web Settings page and the GPUI client draw. A row's key, section and CLI stay as they are; only where the page draws it is decided here. Every row the page shows has exactly one card (SettingsPageLayoutHomeTests). Fields: default_category, the category the page opens on. max_rows_per_card, the most rows one card holds (SettingsPageSectionsTests; user 2026-10-30: \"look a lot better with sections\"). cards, the parts of a category that are not schema rows (id is the export's card id). section_actions, per section id the registry action ids drawn as buttons at the end of that section (titles and availability come from the action registry); every section is listed. sidebar_sections, the sidebar's titled runs of categories (title null for the untitled lead run). A category has id, title ({key, text} or {section: id} for that section's title), symbol (SF Symbol), groups, and optional lead and trail (card ids drawn before and after the groups), actions (sections whose section_actions show at its end), aliases (section ids, from `cmux settings open --section` and old links, that open it), legacy_ids (ids of retired categories, such as mobile and server, whose old #/settings/<id> links open it), dev_only (shown only in DEV builds). A group card has group (a schema group key: its title, and every shown row of that group no other card claims, in schema order), keys (rows claimed by key, drawn after the group's rows), lead_keys (rows claimed by key, drawn first) and title ({key, text}; needed when there is no group). A card with no rows is dropped; a card without a group gets the key <category>.<index>. note is a comment.",
   "default_category": "general",
   "max_rows_per_card": 16,
   "cards": [
@@ -60,50 +60,19 @@
           "id": "general",
           "title": {"section": "general"},
           "symbol": "gearshape",
-          "note": "Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section. The Screenshots pane's folders sit beside the other file-viewer groups.",
+          "note": "General holds the app itself: windows, quitting, history and housekeeping. The sidebar, tabs and panes, the New Tab page, the viewers and chats each have their own page (settings overhaul, 2026-11-07).",
           "groups": [
             {"group": "settings.group.window"},
-            {"group": "settings.group.tabs"},
-            {"title": {"key": "settings.pageGroup.tabWidths", "text": "Tab Widths"}, "keys": [
-              "appearance.metrics.tabMaxWidth", "appearance.metrics.tabMinActiveWidth",
-              "appearance.metrics.tabMinInactiveWidth", "appearance.metrics.tabPinnedWidth"
-            ]},
-            {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
-              "tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying",
-              "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.styleDots",
-              "tabs.newTabWidgets.order"
-            ]},
-            {"title": {"key": "settings.pageGroup.newTabWidgets", "text": "New Tab Widgets"}, "keys": [
-              "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
-              "tabs.newTabWidgets.machines", "tabs.newTabWidgets.weather", "tabs.newTabWidgets.weatherCity",
-              "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.quote"
-            ]},
-            {"group": "settings.group.columns"},
-            {"title": {"key": "settings.pageGroup.newPanes", "text": "New Panes"}, "keys": [
-              "layout.newPanePlacement", "layout.tileBrowsers", "layout.linkPlacement"
-            ]},
-            {"title": {"key": "settings.pageGroup.dockedColumns", "text": "Docked Columns"}, "keys": [
-              "layout.dockColumnEdge", "layout.dockColumnMode", "layout.frameOrientation"
-            ]},
-            {"title": {"key": "settings.pageGroup.scrollFocus", "text": "Scrolling and Focus"}, "keys": [
-              "layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
-            ]},
-            {"group": "settings.group.autoArchive"},
-            {"group": "settings.group.workspaceHibernation"},
-            {"group": "settings.group.history"},
             {"group": "settings.group.quit"},
+            {"group": "settings.group.history"},
+            {"group": "settings.group.workspaceHibernation"},
+            {"group": "settings.group.autoArchive"},
             {"group": "settings.group.picker"},
             {"group": "settings.group.tasks"},
-            {"group": "settings.group.diffViewer"},
-            {"group": "settings.group.markdownViewer"},
-            {"group": "settings.group.files"},
-            {"group": "settings.group.screenshots"},
-            {"group": "settings.group.announcements"},
-            {"group": "settings.group.chats"}
+            {"group": "settings.group.announcements"}
           ],
-          "trail": ["spaces"],
-          "actions": ["general", "rooms"],
-          "aliases": ["general", "rooms"]
+          "actions": ["general"],
+          "aliases": ["general"]
         },
         {
           "id": "updates",
@@ -129,19 +98,12 @@
           "id": "personalization",
           "title": {"key": "settings.category.personalization", "text": "Personalization"},
           "symbol": "wand.and.stars",
-          "note": "Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key.",
+          "note": "Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key. The one home of the theme (the Theme page's card moved here; old theme links open this page), the wallpaper, density, the Chief's look, chat text and sounds: no other page draws them.",
           "lead": ["personalization"],
-          "groups": []
-        },
-        {
-          "id": "theme",
-          "title": {"key": "settings.category.theme", "text": "Theme"},
-          "symbol": "paintpalette",
-          "note": "appearance.theme and appearance.appTheme are drawn by the theme studio (search still shows them as rows).",
           "groups": [
             {"group": "settings.group.appTheme"}
           ],
-          "lead": ["themeStudio"]
+          "legacy_ids": ["theme"]
         },
         {
           "id": "appearance",
@@ -149,7 +111,6 @@
           "symbol": "paintbrush",
           "note": "Change Background… lands here: the art picker draws appearance.background and appearance.backgroundOpacity (search still shows them as rows). The density card draws appearance.density, .customDensity and .customDensities.",
           "groups": [
-            {"group": "settings.group.terminalFont"},
             {"group": "settings.group.densityMotion"},
             {"title": {"key": "settings.pageGroup.sizes", "text": "Sizes"}, "note": "Text Size (appearance.metrics.chromeFontSize) is in the Density card.", "keys": [
               "app.uiScale", "appearance.metrics.sidebarWidth",
@@ -159,19 +120,41 @@
             {"group": "settings.group.motion", "note": "Motion holds ui.animations.enabled and the per-area switches (f35023e54c1c); without a group here they had no row on the page."},
             {"group": "settings.group.colorTransition"},
             {"group": "settings.group.windowBackground"},
-            {"group": "settings.group.panes"},
-            {"group": "settings.group.focusRing"},
+            {"group": "settings.group.statusIndicator"},
+            {"group": "settings.group.surfaces"},
+            {"title": {"key": "settings.pageGroup.windowSurfaces", "text": "Surfaces: Window"}, "keys": [
+              "appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity",
+              "appearance.surfaces.tabBar.color", "appearance.surfaces.tabBar.opacity",
+              "appearance.surfaces.browserChrome.color", "appearance.surfaces.browserChrome.opacity",
+              "appearance.surfaces.splitDivider.color", "appearance.surfaces.splitDivider.opacity",
+              "appearance.surfaces.docks.color", "appearance.surfaces.docks.opacity"
+            ]},
+            {"title": {"key": "settings.pageGroup.viewerSurfaces", "text": "Surfaces: Viewers"}, "keys": [
+              "appearance.surfaces.diff.color", "appearance.surfaces.diff.opacity",
+              "appearance.surfaces.markdown.color", "appearance.surfaces.markdown.opacity",
+              "appearance.surfaces.editor.color", "appearance.surfaces.editor.opacity"
+            ]}
+          ],
+          "actions": ["appearance"],
+          "aliases": ["appearance"]
+        },
+        {
+          "id": "sidebar",
+          "title": {"key": "settings.category.sidebar", "text": "Sidebar"},
+          "symbol": "sidebar.left",
+          "groups": [
             {"group": "settings.group.sidebar", "note": "Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384)."},
+            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.", "keys": [
+              "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient",
+              "sidebar.floatOnHover"
+            ]},
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps",
               "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
             ]},
-            {"title": {"key": "settings.pageGroup.sidebarLayout", "text": "Sidebar Layout"}, "note": "The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.", "keys": [
-              "sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient",
-              "sidebar.floatOnHover"
-            ]},
+            {"group": "settings.group.workspaceRows"},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
               "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
               "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
@@ -189,26 +172,52 @@
               "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members",
               "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git",
               "sidebar.hoverCards.groups.sections.ports"
-            ]},
-            {"group": "settings.group.workspaceRows"},
-            {"group": "settings.group.statusIndicator"},
-            {"group": "settings.group.surfaces"},
-            {"title": {"key": "settings.pageGroup.windowSurfaces", "text": "Surfaces: Window"}, "keys": [
-              "appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity",
-              "appearance.surfaces.tabBar.color", "appearance.surfaces.tabBar.opacity",
-              "appearance.surfaces.browserChrome.color", "appearance.surfaces.browserChrome.opacity",
-              "appearance.surfaces.splitDivider.color", "appearance.surfaces.splitDivider.opacity",
-              "appearance.surfaces.docks.color", "appearance.surfaces.docks.opacity"
-            ]},
-            {"title": {"key": "settings.pageGroup.viewerSurfaces", "text": "Surfaces: Viewers"}, "keys": [
-              "appearance.surfaces.diff.color", "appearance.surfaces.diff.opacity",
-              "appearance.surfaces.markdown.color", "appearance.surfaces.markdown.opacity",
-              "appearance.surfaces.editor.color", "appearance.surfaces.editor.opacity"
             ]}
           ],
-          "lead": ["backdrops", "density"],
-          "actions": ["appearance"],
-          "aliases": ["appearance"]
+          "trail": ["spaces"],
+          "actions": ["rooms"],
+          "aliases": ["rooms"]
+        },
+        {
+          "id": "tabs",
+          "title": {"key": "settings.category.tabsAndPanes", "text": "Tabs and Panes"},
+          "symbol": "rectangle.split.2x1",
+          "groups": [
+            {"group": "settings.group.tabs"},
+            {"title": {"key": "settings.pageGroup.tabWidths", "text": "Tab Widths"}, "keys": [
+              "appearance.metrics.tabMaxWidth", "appearance.metrics.tabMinActiveWidth",
+              "appearance.metrics.tabMinInactiveWidth", "appearance.metrics.tabPinnedWidth"
+            ]},
+            {"group": "settings.group.columns"},
+            {"title": {"key": "settings.pageGroup.newPanes", "text": "New Panes"}, "keys": [
+              "layout.newPanePlacement", "layout.tileBrowsers", "layout.linkPlacement"
+            ]},
+            {"title": {"key": "settings.pageGroup.dockedColumns", "text": "Docked Columns"}, "keys": [
+              "layout.dockColumnEdge", "layout.dockColumnMode", "layout.frameOrientation"
+            ]},
+            {"title": {"key": "settings.pageGroup.scrollFocus", "text": "Scrolling and Focus"}, "keys": [
+              "layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
+            ]},
+            {"group": "settings.group.panes"},
+            {"group": "settings.group.focusRing"}
+          ]
+        },
+        {
+          "id": "newTab",
+          "title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"},
+          "symbol": "plus.square",
+          "groups": [
+            {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
+              "tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying",
+              "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.styleDots",
+              "tabs.newTabWidgets.order"
+            ]},
+            {"title": {"key": "settings.pageGroup.newTabWidgets", "text": "New Tab Widgets"}, "keys": [
+              "tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats",
+              "tabs.newTabWidgets.machines", "tabs.newTabWidgets.weather", "tabs.newTabWidgets.weatherCity",
+              "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.quote"
+            ]}
+          ]
         }
       ]
     },
@@ -221,10 +230,14 @@
           "title": {"section": "terminal"},
           "symbol": "terminal",
           "groups": [
+            {"group": "settings.group.terminalFont"},
+            {"group": "settings.group.terminalCompatibility", "note": "The TERM new terminals start with (terminal.term)."},
+            {"title": {"key": "settings.group.links", "text": "Links"}, "note": "The program that opens links from a terminal, and its rules, beside the terminal they come from.", "keys": [
+              "terminal.linkOpener.default", "terminal.linkOpener.rules"
+            ]},
             {"title": {"key": "settings.pageGroup.terminalBehavior", "text": "Behavior"}, "keys": [
               "newTerminal.opensWorkspace", "app.warnBeforeClosingTab"
-            ]},
-            {"group": "settings.group.terminalCompatibility", "note": "The TERM new terminals start with (terminal.term)."}
+            ]}
           ],
           "lead": ["terminalInfo"],
           "trail": ["ghosttyDiagnostics"],
@@ -243,7 +256,11 @@
             {"group": "settings.group.editorDisplay"},
             {"group": "settings.group.editorCursor"},
             {"group": "settings.group.editorEditing"},
-            {"group": "settings.group.editorSaving"}
+            {"group": "settings.group.editorSaving"},
+            {"group": "settings.group.diffViewer"},
+            {"group": "settings.group.markdownViewer"},
+            {"group": "settings.group.files"},
+            {"group": "settings.group.screenshots"}
           ],
           "actions": ["editor"],
           "aliases": ["editor"]
@@ -278,12 +295,16 @@
       "title": {"key": "settings.sidebarSection.ai", "text": "AI"},
       "categories": [
         {
-          "id": "agents",
-          "title": {"key": "settings.category.agents", "text": "Agents"},
-          "symbol": "sparkles",
-          "note": "Computer Use (#28997) comes first among the trailing cards: its card draws the on/off switch, the guided setup and the helper's grants together, and the `settings.group.computerUse` rows (the page does not draw that group a second time). Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations (optional help, collapsed) installs the hooks that report an agent's state, through `cmux agent hook`.",
+          "id": "chat",
+          "title": {"key": "settings.category.chat", "text": "Chat"},
+          "symbol": "bubble.left",
+          "note": "How the agent chat looks and reads. Agents keeps what the agents may do.",
           "groups": [
-            {"group": "settings.group.agentChat", "keys": ["app.warnBeforeClosingAgentSession"]},
+            {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "keys": [
+              "agentPane.display.transcriptView", "agentPane.display.presentation",
+              "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
+              "agentPane.needsYou.enabled", "agentPane.showMachineLoadWarnings"
+            ]},
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
               "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
@@ -298,11 +319,24 @@
             ]},
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
               "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
-              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement"
+              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement",
+              "agentPane.display.promptCoach"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [
               "agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show",
               "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"
+            ]},
+            {"group": "settings.group.chats"}
+          ]
+        },
+        {
+          "id": "agents",
+          "title": {"key": "settings.category.agents", "text": "Agents"},
+          "symbol": "sparkles",
+          "note": "Computer Use (#28997) comes first among the trailing cards: its card draws the on/off switch, the guided setup and the helper's grants together, and the `settings.group.computerUse` rows (the page does not draw that group a second time). Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations (optional help, collapsed) installs the hooks that report an agent's state, through `cmux agent hook`.",
+          "groups": [
+            {"group": "settings.group.agentChat", "title": {"key": "settings.pageGroup.agentDefaults", "text": "Defaults"}, "keys": [
+              "app.warnBeforeClosingAgentSession"
             ]},
             {"group": "settings.group.computerUse"},
             {"group": "settings.group.cmuxRemote"},
@@ -329,7 +363,7 @@
             {"group": "settings.group.chiefReactions", "note": "Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416)."},
             {"group": "settings.group.chiefSubagents", "note": "Whether the Chief may route each subagent to the harness best at its task (spawn harness)."}
           ],
-          "lead": ["chiefs", "chiefPet", "voiceInput"],
+          "lead": ["chiefs", "voiceInput"],
           "trail": ["notices"]
         }
       ]
@@ -389,7 +423,6 @@
           "symbol": "person.crop.circle",
           "note": "Phone access sits beside the account it signs in with and the machines list. The Machines card draws Machine Colors on its rows (a color well per machine).",
           "groups": [
-            {"group": "settings.group.phone"},
             {"group": "settings.group.messagesServer"},
             {"group": "settings.group.machineColors"},
             {"group": "settings.group.cloudWorkspaces"}
@@ -402,9 +435,10 @@
           "id": "mobile",
           "title": {"key": "settings.category.mobile", "text": "Mobile"},
           "symbol": "iphone",
-          "note": "Phones reaching this Mac: the iPhone host's switch, then its live status and phones.",
+          "note": "Phones reaching this Mac: the iPhone host's switch and Phone Access, then its live status and phones (Lucas 2026-11-11: Mobile stays its own page).",
           "groups": [
-            {"group": "settings.group.mobile"}
+            {"group": "settings.group.mobile"},
+            {"group": "settings.group.phone"}
           ],
           "trail": ["mobile"]
         },
@@ -412,17 +446,11 @@
           "id": "devices",
           "title": {"key": "settings.category.devices", "text": "Devices"},
           "symbol": "laptopcomputer",
-          "note": "This Mac and the person's other devices on the device hub: names, fingerprints, Mac Screen access, relays and the access history (docs/device-hub). Every build: NIGHTLY and Release use the built-in hub (DeviceHubSettings.resolvedBaseURL), and Mac Screen's sharing switch, permissions and relays live only here.",
+          "note": "Devices holds what the Server page showed; its old links open it (legacy_ids).",
           "groups": [],
-          "lead": ["devices"]
-        },
-        {
-          "id": "server",
-          "title": {"key": "settings.category.server", "text": "Server"},
-          "symbol": "server.rack",
-          "note": "The servers behind the app (cmux-tui, acpmux): status, versions, restart when one is older.",
-          "groups": [],
-          "lead": ["server", "tailnet"]
+          "lead": ["devices"],
+          "trail": ["server", "tailnet"],
+          "legacy_ids": ["server"]
         }
       ]
     },

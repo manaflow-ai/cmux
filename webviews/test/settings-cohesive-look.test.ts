@@ -2,8 +2,10 @@
 // Settings reads as one surface, laid out like a desktop app's settings (user, 2026-10-30: "make
 // settings better, make it look like this" with ChatGPT's Settings; and "we need everything to be
 // cohesive with same bg color"). In real engines, on the settings dev server with the mock:
-// - one background: the sidebar and the content pane paint no fill of their own and no divider
-//   between them, so the page's one background shows everywhere;
+// - one background under the content: the content pane paints no fill of its own. The sidebar takes
+//   the window sidebar's fill (none by default: the app's sidebar is the window's color; Lucas
+//   2026-11-12, after Lawrence); the content is a panel beside it with rounded left corners and no line
+//   between them, only the two fills, as the window's main pane beside the app sidebar (Lucas 2026-11-12);
 // - the sidebar opens with the page's title ("Settings") above the search field;
 // - the content is one centered column of at most 680 px;
 // - a row's description wraps at about 60% of the card, leaving the right side to the control.
@@ -93,6 +95,13 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
         sidebarFill: alpha(sidebarStyle.backgroundColor),
         contentFill: alpha(getComputedStyle(content).backgroundColor),
         sidebarDivider: parseFloat(sidebarStyle.borderRightWidth),
+        panelEdge: parseFloat(getComputedStyle(sidebar.parentElement!, "::before").borderLeftWidth) || 0,
+        panelCorner: parseFloat(getComputedStyle(sidebar.parentElement!, "::before").borderTopLeftRadius),
+        panelOnSidebarEdge:
+          Math.abs(
+            parseFloat(getComputedStyle(sidebar.parentElement!, "::before").left) -
+              sidebar.getBoundingClientRect().width,
+          ) <= 0.5,
         title: sidebar.querySelector<HTMLElement>(".sidebar-title")?.textContent?.trim() ?? null,
         titleAboveSearch:
           (sidebar.querySelector(".sidebar-title")?.getBoundingClientRect().bottom ?? Infinity) <=
@@ -114,12 +123,13 @@ await requireBrowserLane("settings-cohesive-look.test.ts", async () => {
           for (const section of ["general", "appearance", "notifications"]) {
             await open(page, section);
             const look = await measure(page);
-            expect({ section, sidebarFill: look.sidebarFill, contentFill: look.contentFill }).toEqual({
-              section,
-              sidebarFill: 0,
-              contentFill: 0,
-            });
+            expect({ section, contentFill: look.contentFill }).toEqual({ section, contentFill: 0 });
+            // The window sidebar's fill: none on the dev server (no sidebar color, no separate shade).
+            expect(look.sidebarFill).toBe(0);
             expect(look.sidebarDivider).toBe(0);
+            expect(look.panelEdge).toBe(0);
+            expect(look.panelCorner).toBeGreaterThan(0);
+            expect(look.panelOnSidebarEdge).toBe(true);
             expect(look.title).toBe("Settings");
             expect(look.titleAboveSearch).toBe(true);
             expect(look.columnWidth).toBeLessThanOrEqual(680);

@@ -78,12 +78,26 @@ Detectors (all line/regex heuristics, never an AST):
   lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID-v1.gitconfig,
   and a file planted there with core.hooksPath ran a hook in every fixture
   repo. Make the path with mktemp -d / tempfile.mkdtemp instead.
+- exit-trap-reraise-order: an EXIT trap under scripts/cmux-next/tests (its action, the function it names, or the
+    variable it expands) that puts the saved status back with a subshell `(exit "$s")` or a status-returning call
+    while errexit may still be on, or that runs a cleanup step after re-raising. Under `set -e` the status restore
+    ends the trap there, so the caller's cleanup never runs and a failing test leaks its temp repos (cmux#41195 F1).
+    Run every cleanup first, then `exit "$s"`; restore $? with a function's `return` only after `set +e`.
 - git-fixture-exit-trap: a shell test that sources
   scripts/cmux-next/tests/lib/git-fixture.sh and then sets `trap ... EXIT`
   itself. That replaces the helper's EXIT trap, so its private
   GIT_CONFIG_GLOBAL folder is never removed (Codex F2 on cmux#40939:
   web-bundles-readonly-sources.test.sh's `trap cleanup EXIT`). Call
   `git_fixture_trap_exit CMD` instead; it runs CMD after the helper's cleanup.
+- git-write-without-fixture: a test (tests/, tests_v2/, scripts/**/tests/)
+  that runs a writing git command (init, commit, clone, fetch, push, ...)
+  through subprocess or the shell without loading tests/git_fixture_env.py
+  or scripts/cmux-next/tests/lib/git-fixture.sh. The helper is the one
+  place a fixture's git environment is built: it drops what an inherited
+  GIT_DIR, GIT_INDEX_FILE, GIT_CONFIG and friends point at (a test run from
+  a git hook would otherwise commit into the hook's repository) and turns
+  auto maintenance off. Unlike git-temp-repo-maintenance, a temp folder is
+  not required and setting maintenance.auto by hand does not count.
 - wall-clock-expiry (Rust): a test sets something to expire a few seconds
   or less ahead on the real clock (`now_ms() + 50`, under 10 s) and then waits
   the expiry out on that clock: a `while ... now_ms()` loop, or a sleep at the
@@ -196,9 +210,11 @@ RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
 RULE_ISOLATED_IMPORT = "isolated-import"
 RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
 RULE_GIT_FIXTURE_EXIT_TRAP = "git-fixture-exit-trap"
+RULE_GIT_WRITE_WITHOUT_FIXTURE = "git-write-without-fixture"
 RULE_WALL_CLOCK_EXPIRY = "wall-clock-expiry"
 RULE_FLOCK_RELEASED_BY_CLOSE = "flock-released-by-close"
 RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS = "exec-of-a-file-written-in-process"
+RULE_EXIT_TRAP_RERAISE_ORDER = "exit-trap-reraise-order"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -213,9 +229,11 @@ ALL_RULES = (
     RULE_ISOLATED_IMPORT,
     RULE_PREDICTABLE_TMP_PATH,
     RULE_GIT_FIXTURE_EXIT_TRAP,
+    RULE_GIT_WRITE_WITHOUT_FIXTURE,
     RULE_WALL_CLOCK_EXPIRY,
     RULE_FLOCK_RELEASED_BY_CLOSE,
     RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS,
+    RULE_EXIT_TRAP_RERAISE_ORDER,
 )
 RUST_RULES = (RULE_WALL_CLOCK_EXPIRY, RULE_FLOCK_RELEASED_BY_CLOSE, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS)
 GIT_FIXTURE_RULES = (
@@ -224,6 +242,8 @@ GIT_FIXTURE_RULES = (
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_PREDICTABLE_TMP_PATH,
     RULE_GIT_FIXTURE_EXIT_TRAP,
+    RULE_EXIT_TRAP_RERAISE_ORDER,
+    RULE_GIT_WRITE_WITHOUT_FIXTURE,
 )
 
 # ---------------------------------------------------------------------------
@@ -4180,6 +4200,36 @@ def detect_git_temp_repo_maintenance(code_lines: list[str], text: str, path_suff
     return None
 
 
+_LOADS_GIT_FIXTURE = re.compile(r"git_fixture_env|git-fixture\.sh")
+# A git wrapper called with a writing verb: `git("init")`, `self.git("-C", d, "commit")`, `fixture_git(d, "init")`.
+_PY_GIT_WRAPPER_WRITE = re.compile(r"""\b(?:\w*_)?git\([^\n]*['"]""" + _GIT_WRITE_VERBS + r"""['"]""")
+
+
+def detect_git_write_without_fixture(code_lines: list[str], text: str, rel_posix: str) -> Optional[int]:
+    """0-based line of the first writing git command in a test that never loads the fixture helper, else None."""
+    in_scope = (
+        rel_posix.startswith(("tests/", "tests_v2/"))
+        or (rel_posix.startswith("scripts/") and "/tests/" in rel_posix)
+    )
+    kind = pathlib.PurePosixPath(rel_posix).suffix
+    if not in_scope or kind not in (".py", ".sh") or _LOADS_GIT_FIXTURE.search("\n".join(code_lines)):
+        return None
+    if kind == ".py":
+        # The writing verb must belong to a git call: a `git <verb>` string, an argv list naming git with the
+        # verb within its next lines, or a git wrapper called with the verb (`run_git("commit", ...)`). A
+        # "push" event name elsewhere in a file whose only git is `git show` is not a write.
+        for index, line in enumerate(code_lines):
+            if _PY_GIT_WRITE_STRING.search(line) or _PY_GIT_WRAPPER_WRITE.search(line):
+                return index
+            if _PY_GIT_ARGV.search(line) and _PY_GIT_WRITE_TOKEN.search("\n".join(code_lines[index:index + 4])):
+                return index
+        return None
+    for index, line in enumerate(code_lines):
+        if _SH_GIT_WRITE.search(line):
+            return index
+    return None
+
+
 def _makes_temp_git_repos(code: str, path_suffix: str) -> bool:
     if path_suffix != ".py" or not _PY_TEMP_DIR.search(code):
         return False
@@ -4293,6 +4343,84 @@ def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str) -> lis
     return hits
 
 
+_EXIT_TRAP_SCOPE = "scripts/cmux-next/tests/"
+_SH_SINGLE_QUOTED_ASSIGN = re.compile(r"^\s*(?:local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?(\w+)='([^']*)'\s*$")
+_SH_FUNCTION_START = re.compile(r"^\s*(?:function\s+)?([\w.-]+)\s*\(\)\s*\{?(.*)$")
+_SH_FIXTURE_TRAP_EXIT = re.compile(r"(?:^|[\s;&|(])git_fixture_trap_exit\s+'([^']*)'")
+# Puts a saved status back as $?: a subshell exit, or a call/return that hands the status back.
+_TRAP_STATUS_RESTORE = re.compile(r"\(\s*exit\b|^\s*return\s+\S|^\s*\w*(?:return|status)\w*\s+[\"']?\$")
+_TRAP_RERAISE = re.compile(r"\(\s*exit\b|^\s*(?:exit|return)\b")
+_TRAP_ERREXIT_OFF = re.compile(r"^\s*set\s+\+[a-zA-Z]*e")
+# A step that cleans up: removes files, stops a process, removes a worktree, or runs the caller's/a cleanup action.
+_TRAP_CLEANUP = re.compile(r"\b(?:rm|rmdir|p?kill|umount|eval)\b|worktree\s+remove|\w*(?:cleanup|remove|teardown)\w*")
+
+
+def _trap_statements(action: str) -> list[str]:
+    """The action's top-level statements, split on ; and newlines outside quotes."""
+    flat = _SH_QUOTED.sub(lambda m: m.group(0).replace(";", ",").replace("\n", " "), action)
+    return [part.strip() for part in re.split(r"[;\n]", flat) if part.strip()]
+
+
+def _trap_action_problem(action: str) -> bool:
+    """True when the action restores the status with errexit possibly on, or cleans up after re-raising."""
+    errexit_off = False
+    raised = False
+    for statement in _trap_statements(action):
+        if _TRAP_ERREXIT_OFF.search(statement):
+            errexit_off = True
+        if raised and _TRAP_CLEANUP.search(statement):
+            return True
+        if _TRAP_STATUS_RESTORE.search(statement) and not errexit_off:
+            return True
+        if _TRAP_RERAISE.search(statement):
+            raised = True
+    return False
+
+
+def detect_exit_trap_reraise_order(code_lines: list[str], rel_posix: str) -> list[int]:
+    """0-based lines of EXIT traps under scripts/cmux-next/tests whose action re-raises before (or instead of) cleanup."""
+    if not rel_posix.startswith(_EXIT_TRAP_SCOPE) or not rel_posix.endswith(".sh"):
+        return []
+    assigned: dict[str, str] = {}
+    functions: dict[str, str] = {}
+    for index, line in enumerate(code_lines):
+        match = _SH_SINGLE_QUOTED_ASSIGN.match(line)
+        if match:
+            assigned[match.group(1)] = match.group(2)
+        start = _SH_FUNCTION_START.match(line)
+        if start:
+            body = [start.group(2)]
+            depth = line.count("{") - line.count("}")
+            for follow in code_lines[index + 1:]:
+                if depth <= 0:
+                    break
+                body.append(follow)
+                depth += follow.count("{") - follow.count("}")
+            functions[start.group(1)] = "\n".join(body).rstrip().rstrip("}")
+    hits: list[int] = []
+    for index, line in enumerate(code_lines):
+        actions: list[str] = []
+        fixture = _SH_FIXTURE_TRAP_EXIT.search(line)
+        if fixture:
+            actions.append(fixture.group(1))
+        match = _SH_TRAP.search(line)
+        if match:
+            rest = re.sub(r"^--\s+", "", match.group(1).strip())
+            quoted = re.match(r"""'([^']*)'|"((?:\\.|[^"\\])*)"|(\S+)""", rest)
+            if quoted and _SH_EXIT_SIGNAL.search(rest[quoted.end():].split(";")[0]):
+                text = next(group for group in quoted.groups() if group is not None)
+                variable = re.fullmatch(r"\$\{?(\w+)\}?", text)
+                if variable:
+                    actions.append(assigned.get(variable.group(1), ""))
+                elif quoted.group(3) is not None and text in functions:
+                    actions.append(functions[text])
+                else:
+                    actions.append(text)
+        if any(_trap_action_problem(action) for action in actions):
+            hits.append(index)
+    return hits
+
+
 # A temp base (no word, $, /, . or } before it, so "$TMP/build/tmp/x" is not one) and then a literal name.
 _TMP_BASE_SH = r"""(?<![\w$/.}-])(?:/tmp|/var/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp/?\})/[\w.$"{-]"""
 _SH_TMP_ASSIGN = re.compile(r"""^\s*(?:export\s+|local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?\w+=["']?""" + _TMP_BASE_SH)
@@ -4383,6 +4511,24 @@ def isolated_import_finding(repo_root: pathlib.Path, rel_posix: str) -> Optional
                    f"python3 -I {rel_posix}: No module named '{missing.group(1)}' (load it by path)")
 
 
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    import importlib.util
+    push_range = pathlib.Path(__file__).resolve().parent / "cmux-next" / "push_range.py"
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(pathlib.Path(root), ref)
+    if note:
+        print(f"check-test-determinism: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
+
 def _changed_python_tests(repo_root: pathlib.Path) -> Optional[list[str]]:
     """Python test files changed against the base branch, or None when history to diff against is missing."""
     import os
@@ -4395,6 +4541,7 @@ def _changed_python_tests(repo_root: pathlib.Path) -> Optional[list[str]]:
     bases = [f"origin/{os.environ['GITHUB_BASE_REF']}"] if os.environ.get("GITHUB_BASE_REF") else []
     bases += ["origin/feat-cmux-next", "origin/main"]
     for base in bases:
+        refresh_base(repo_root, base)
         merge_base = git("merge-base", "HEAD", base)
         if merge_base:
             names = git("diff", "--name-only", "--diff-filter=AMR", merge_base.strip(), "HEAD") or ""
@@ -4417,7 +4564,8 @@ def collect_predictable_tmp_extra_findings(repo_root: pathlib.Path) -> list[Find
             if is_ignored_path(rel_posix) or _predictable_tmp_scope(rel_posix) is None:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            findings += [f for f in scan_text(rel_posix, text) if f.rule == RULE_PREDICTABLE_TMP_PATH]
+            findings += [f for f in scan_text(rel_posix, text)
+                         if f.rule in (RULE_PREDICTABLE_TMP_PATH, RULE_GIT_WRITE_WITHOUT_FIXTURE)]
     return findings
 
 def collect_isolated_import_findings(repo_root: pathlib.Path, roots: Iterable[str]) -> list[Finding]:
@@ -4832,8 +4980,15 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
     for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
         findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
+    write_line = detect_git_write_without_fixture(code_lines, text, rel_posix)
+    if write_line is not None:
+        findings.append(
+            Finding(rel_posix, write_line + 1, RULE_GIT_WRITE_WITHOUT_FIXTURE, raw_lines[write_line].strip())
+        )
     for trap_line in detect_git_fixture_exit_trap(code_lines, suffix):
         findings.append(Finding(rel_posix, trap_line + 1, RULE_GIT_FIXTURE_EXIT_TRAP, raw_lines[trap_line].strip()))
+    for trap_line in detect_exit_trap_reraise_order(code_lines, rel_posix):
+        findings.append(Finding(rel_posix, trap_line + 1, RULE_EXIT_TRAP_RERAISE_ORDER, raw_lines[trap_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
@@ -5109,6 +5264,56 @@ def _self_test() -> int:
             "scripts/cmux-next/tests/bare.test.sh",
             'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit_q clone --bare "$d/src" "$d/o.git"\n',
             {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # An EXIT trap that restores the status with errexit on, or cleans up after re-raising (cmux#41195 F1).
+        (
+            "scripts/cmux-next/tests/reraise_subshell.test.sh",
+            "set -euo pipefail\ntmp=$(mktemp -d)\ntrap 's=$?; (exit \"$s\"); rm -rf \"$tmp\"' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/lib/reraise_variable.sh",
+            "_t='_s=$?; _remove_dir; (exit \"$_s\"); eval \"$caller\"'\nbuiltin trap -- \"$_t\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_function.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ntrap cleanup EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_status_call.test.sh",
+            "set -e\ntmp=$(mktemp -d)\nkeep_status() { return \"$1\"; }\n"
+            "trap 's=$?; keep_status \"$s\"; rm -rf \"$tmp\"' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        # A test that writes with git and never loads the helper: an inherited GIT_DIR takes the commit.
+        (
+            "tests/git_write_plain.py",
+            "import subprocess\nsubprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/git_write_plain.test.sh",
+            'w=$(mktemp -d)\ngit -C "$w" init -q && git -C "$w" commit -q --allow-empty -m x\n',
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_wrapper.py",
+            "import subprocess\ndef run_git(*a):\n    return subprocess.run(['git', *a], check=True)\n\n\n\n\n"
+            "run_git('-C', repo, 'commit', '-qm', 'x')\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_comment_only.py",
+            "import subprocess\n# uses git_fixture_env somewhere\nsubprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "tests/git_write_hand_opt_out.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
         ),
         # An EXIT trap after sourcing the helper replaces its cleanup: the GIT_CONFIG_GLOBAL folder leaks (cmux#40939 F2).
         (
@@ -6253,7 +6458,34 @@ def _self_test() -> int:
     ]
 
     negatives: list[tuple[str, str]] = [
+        # Git writes through the helper; git reads only; a git hook helper (not a test).
+        (
+            "tests/git_write_helper.py",
+            "import git_fixture_env\nsubprocess.run(['git', '-C', repo, 'commit', '-qm', 'x'], check=True)\n",
+        ),
+        (
+            "scripts/ci/tests/git_write_helper.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nw=$(mktemp -d)\ngit_fixture_init "$w"\n'
+            'git -C "$w" commit -q --allow-empty -m x\n',
+        ),
+        (
+            "tests/git_read_only_event_names.py",
+            "import subprocess\ntext = subprocess.run(['git', '-C', root, 'show', 'origin/main:x.py'],\n"
+            "                      capture_output=True).stdout\n\n\n\n\ndef run(event='push'):\n    return event\n",
+        ),
+        (
+            "tests/git_read_only_plain.py",
+            "import subprocess\nsubprocess.run(['git', 'rev-parse', 'HEAD'], check=True)\n",
+        ),
         # Exit cleanup through the helper; an EXIT trap set before sourcing; INT alone; `trap -p EXIT`.
+        # Cleanup first, then re-raise; a status call only after set +e; no re-raise at all.
+        (
+            "scripts/cmux-next/tests/reraise_ok.test.sh",
+            "set -euo pipefail\ntmp=$(mktemp -d)\ntrap 's=$?; rm -rf \"$tmp\"; exit \"$s\"' EXIT\n"
+            "_t='_s=$?; set +e; _remove_dir; _keep_return \"$_s\"; eval \"$caller\"; exit \"$_s\"'\n"
+            "builtin trap -- \"$_t\" EXIT\ncleanup() { [[ -n \"$pid\" ]] && kill \"$pid\"; rm -rf \"$tmp\"; }\n"
+            "trap cleanup EXIT\n",
+        ),
         (
             "scripts/cmux-next/tests/trap_ok.test.sh",
             'trap \'echo early\' EXIT\nsource "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\n'
