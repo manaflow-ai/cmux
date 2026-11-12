@@ -22,7 +22,6 @@ import importlib.util
 import json
 import os
 import re
-import select
 import subprocess
 import sys
 import tempfile
@@ -39,6 +38,14 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+# tests/process_gone.py, loaded by path the same way.
+_process_gone_spec = _git_fixture_importlib.spec_from_file_location(
+    "process_gone", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "process_gone.py"))
+process_gone = _git_fixture_importlib.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/cmux-next-fast-gates.yml"
@@ -75,6 +82,14 @@ def job(doc: dict, key: str = "fast-gates") -> dict:
     return doc["jobs"][key]
 
 
+def runner_text(job_body: dict) -> str:
+    """The job's runs-on, every matrix cell on its own line; a matrix nothing resolves fails."""
+    cells = workflow_jobs.runs_on_cells(job_body)
+    if cells is None:
+        raise AssertionError("runs-on reads a matrix value nothing resolves")
+    return "\n".join(cells)
+
+
 def step_named(steps: list[dict], fragment: str) -> dict:
     found = [s for s in steps if fragment in s.get("name", "")]
     if len(found) != 1:
@@ -91,10 +106,10 @@ class WorkflowShape(unittest.TestCase):
         # The reconciled Linux pool is the default for every trusted job; fork
         # pull requests retain their ephemeral Blacksmith branch, and reruns
         # accept bounded overflow explicitly.
-        guards_runner = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))["jobs"]["own-change-checks"]["runs-on"]
-        self.assertNotEqual(doc["jobs"]["resolve"]["runs-on"], guards_runner)
-        self.assertNotEqual(doc["jobs"]["post"]["runs-on"], guards_runner)
-        fast_runner = doc["jobs"]["fast-gates"]["runs-on"]
+        guards_runner = runner_text(workflow_jobs.jobs(GUARDS)["own-change-checks"])
+        self.assertNotEqual(runner_text(doc["jobs"]["resolve"]), guards_runner)
+        self.assertNotEqual(runner_text(doc["jobs"]["post"]), guards_runner)
+        fast_runner = runner_text(doc["jobs"]["fast-gates"])
         self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", fast_runner)
         self.assertIn("inputs.runner", fast_runner)
         self.assertNotIn("macos", fast_runner.lower())
@@ -105,7 +120,7 @@ class WorkflowShape(unittest.TestCase):
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
         for key in light:
             with self.subTest(light=key):
-                runner = str(doc["jobs"][key]["runs-on"])
+                runner = runner_text(doc["jobs"][key])
                 self.assertIn(f"cmux-next-fast-gates.yml#{key}", declared)
                 self.assertTrue(runner.endswith(
                     "|| github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}"), runner)
@@ -119,20 +134,26 @@ class WorkflowShape(unittest.TestCase):
             if key in light or key == "portable-placement":
                 continue
             with self.subTest(runner=key):
-                runner = str(each["runs-on"])
-                self.assertIn("cmux-fleet-linux-x64", runner)
-                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
-                self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
-                                "a stalled literal fleet label must not bypass the reconciled live pool")
-                self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
-                self.assertNotIn("vars.LINUX_RUNNER", str(each["runs-on"]))
+                # Each matrix cell (`${{ matrix.runner }}` read as its values) is a route of its own.
+                cells = workflow_jobs.runs_on_cells(each)
+                self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
+                for runner in cells:
+                    self.assertIn("cmux-fleet-linux-x64", runner)
+                    self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runner)
+                    self.assertTrue(runner.endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"),
+                                    "a stalled literal fleet label must not bypass the reconciled live pool")
+                    self.assertNotRegex(runner, r"\|\|\s*'cmux-fleet-linux-x64'")
+                    self.assertNotIn("vars.LINUX_RUNNER", runner)
         for key, each in doc["jobs"].items():
             with self.subTest(job=key):
                 # The panic ratchet builds cmux-tui twice, as cmux-tui-spec.yml's clippy job (40) does once. The gates
                 # job's own budget (--budget-seconds) ends a stalled gate with its reason well inside its 25.
                 limit = {"panic-ratchet": 40, "fast-gates": 25}.get(key, 15)
                 self.assertLessEqual(int(each["timeout-minutes"]), limit)
-                self.assertNotIn("macos", str(each["runs-on"]).lower())
+                cells = workflow_jobs.runs_on_cells(each)
+                self.assertTrue(cells, f"{key}: no runs-on, or a matrix value nothing resolves")
+                for runner in cells:
+                    self.assertNotIn("macos", runner.lower())
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
@@ -1098,17 +1119,8 @@ class GateBudget(unittest.TestCase):
             self.assertIsNone(module.run_gate([sys.executable, "-c", gate], Path(tmp), 5))
             child = int(pid_file.read_text(encoding="utf-8"))
 
-            def alive() -> bool:  # a killed child may linger only as a zombie until it is reaped
-                try:
-                    return Path(f"/proc/{child}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
-                except FileNotFoundError:
-                    return False
-            # SIGKILL was sent to the group; give the scheduler a bounded moment to deliver it.
-            for _ in range(200):
-                if not alive():
-                    break
-                select.select([], [], [], 0.05)
-            self.assertFalse(alive(), "the gate's child kept running after the gate was stopped")
+            # A zombie counts as gone; without /proc (macOS) the helper asks ps instead of reading "gone".
+            self.assertTrue(process_gone.died(child), "the gate's child kept running after the gate was stopped")
 
     def test_a_child_that_ignores_sigterm_is_killed_too(self):
         module = load(SCRIPT)
@@ -1121,16 +1133,7 @@ class GateBudget(unittest.TestCase):
             self.assertIsNone(module.run_gate([sys.executable, "-c", gate], Path(tmp), 5))
             child = int(pid_file.read_text(encoding="utf-8"))
 
-            def alive() -> bool:
-                try:
-                    return Path(f"/proc/{child}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
-                except FileNotFoundError:
-                    return False
-            for _ in range(200):
-                if not alive():
-                    break
-                select.select([], [], [], 0.05)
-            self.assertFalse(alive(), "a child that ignores SIGTERM outlived its stopped gate")
+            self.assertTrue(process_gone.died(child), "a child that ignores SIGTERM outlived its stopped gate")
 
     def test_a_gate_inside_the_budget_keeps_its_exit_code(self):
         module = load(SCRIPT)
