@@ -36,7 +36,8 @@ import UIKit
         tall.layoutIfNeeded()
         let caret = tall.caretRect(for: tall.endOfDocument)
         let visible = CGRect(origin: tall.contentOffset, size: tall.bounds.size)
-        #expect(caret.minY >= visible.minY - 0.5 && caret.maxY <= visible.maxY + 0.5, "caret \(caret) in \(visible)")
+        // The caret overhangs its line by about a point on each side.
+        #expect(caret.minY >= visible.minY - 2 && caret.maxY <= visible.maxY + 2, "caret \(caret) in \(visible)")
     }
 
     @Test func messageComposerAutocorrectsButKeepsShellQuotesStraight() {

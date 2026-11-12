@@ -65,9 +65,32 @@ open class ComposerReturnTextView: UITextView {
 
     /// The height rule for this view's font, insets and `maxLines`.
     public var fieldHeight: ComposerFieldHeight {
-        ComposerFieldHeight(lineHeight: (font ?? .preferredFont(forTextStyle: .body)).lineHeight,
+        ComposerFieldHeight(lineHeight: Self.laidOutLineHeight(font ?? .preferredFont(forTextStyle: .body)),
                             verticalInset: textContainerInset.top + textContainerInset.bottom,
                             maxLines: returnPolicy.maxLines)
+    }
+
+    /// One line's height as a text view lays it out in `font`. It is taller
+    /// than `font.lineHeight` (22 pt against 20.3 for the 17 pt body), so a
+    /// maximum computed from the font cut the sixth line in half and
+    /// scrolled a draft that fit. Measured once per font.
+    private static var lineHeights: [UIFont: CGFloat] = [:]
+
+    private static func laidOutLineHeight(_ font: UIFont) -> CGFloat {
+        if let height = lineHeights[font] { return height }
+        let probe = UITextView(frame: .zero, textContainer: nil)
+        probe.font = font
+        probe.textContainerInset = .zero
+        probe.textContainer.lineFragmentPadding = 0
+        probe.isScrollEnabled = false
+        probe.text = "Xg\nXg"
+        let two = probe.sizeThatFits(CGSize(width: 1_000, height: CGFloat.greatestFiniteMagnitude)).height
+        probe.text = "Xg"
+        let one = probe.sizeThatFits(CGSize(width: 1_000, height: CGFloat.greatestFiniteMagnitude)).height
+        // The pitch between lines, not the first line's own extent.
+        let height = two - one > 0 ? two - one : max(one, font.lineHeight)
+        lineHeights[font] = height
+        return height
     }
 
     /// The text's own height at `width` (all of it, however tall).

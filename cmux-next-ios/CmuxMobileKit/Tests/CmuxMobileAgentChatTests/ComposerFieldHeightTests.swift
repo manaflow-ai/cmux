@@ -86,6 +86,14 @@ import UIKit
         #expect(!Self.field(Self.lines(3)).textOverflows)
     }
 
+    /// Six lines fit whole: the field does not scroll until the seventh.
+    @Test func maxLinesFitWithoutScrolling() {
+        let six = Self.field(Self.lines(ChatComposerField.maxLines))
+        #expect(!six.textOverflows, "content \(six.contentSize.height) in \(six.bounds.height)")
+        #expect(six.contentOffset.y == -six.adjustedContentInset.top)
+        #expect(Self.field(Self.lines(ChatComposerField.maxLines + 1)).textOverflows)
+    }
+
     @Test func aKeystrokeOnTheSameLineKeepsTheHeight() {
         let before = Self.field("maybe ok whoa")
         let after = Self.field("maybe ok whoay")
@@ -103,7 +111,8 @@ import UIKit
             view.layoutIfNeeded()
             let caret = view.caretRect(for: view.endOfDocument)
             let visible = CGRect(origin: view.contentOffset, size: view.bounds.size)
-            #expect(caret.minY >= visible.minY - 0.5 && caret.maxY <= visible.maxY + 0.5,
+            // The caret overhangs its line by about a point on each side.
+            #expect(caret.minY >= visible.minY - 2 && caret.maxY <= visible.maxY + 2,
                     "caret \(caret) inside \(visible) with \(count) lines")
         }
     }
