@@ -3081,6 +3081,36 @@ class RustfmtLayerTests(unittest.TestCase):
         out = self.fake_rustfmt("thread 'main' panicked at src/lib.rs:1:1", code=101)
         self.assertTrue(out.startswith("rustfmt gave no verdict: exit 101"), out)
 
+    def test_a_rustfmt_whose_interpreter_is_missing_is_no_verdict(self):
+        # #41927 review (F1): an executable rustfmt whose `#!` interpreter is gone raises FileNotFoundError, which read
+        # as "no rustfmt on PATH" and passed. The file is on PATH; only a PATH with no rustfmt warns.
+        folder = Path(self.tmp.name) / "bin"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        fake.write_text("#!/nonexistent/interpreter\n")
+        fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            out = self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+
+    def test_rustups_answer_counts_only_as_the_whole_stderr(self):
+        # #41888 review (F1): a rustfmt diagnostic that quotes `toolchain` passed as rustup's missing component. Rustup
+        # answers alone: its error line first, then only its own help line. A rustup-shaped line after a rustfmt
+        # diagnostic is still the diagnostic's finding.
+        stderr = ("error: expected expression, found `;`\n --> <stdin>:1:17\n  |\n1 | let toolchain = ;\n  |\n"
+                  "error: toolchain 'stable' is not installed")
+        out = self.fake_rustfmt(stderr)
+        self.assertIn("cmux-tui/crates/x/src/hint.rs: rustfmt cannot parse it: error: expected expression", out)
+        # A panic whose message carries a rustup-shaped line is a crash, no verdict.
+        out = self.fake_rustfmt("thread 'main' panicked at src/config.rs:9:5:\nerror: toolchain 'stable' is not "
+                                "installed\nnote: run with `RUST_BACKTRACE=1`", code=101)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: exit 101"), out)
+
+
 class StopCleanlyTests(unittest.TestCase):
     """The gate stops what it started with SIGTERM first, so a `git` under it clears `.git/index.lock`.
 
