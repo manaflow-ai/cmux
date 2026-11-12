@@ -2421,7 +2421,8 @@ button.cv-subagent > :last-child {
   top: 0;
   right: 0;
   left: 0;
-  height: 6px;
+  /* The tuck's own click band's height (its top 8px), so the two read as one edge. */
+  height: var(--ds-space-2);
   cursor: ns-resize;
   touch-action: none;
 }
