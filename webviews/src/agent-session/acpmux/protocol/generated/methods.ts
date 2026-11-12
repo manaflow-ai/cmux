@@ -156,6 +156,7 @@ export interface AcpmuxRequests {
   "_acpmux/queue_approve": { params: QueueApproveParams; result: unknown };
   "_acpmux/queue_decline": { params: QueueDeclineParams; result: unknown };
   "_acpmux/queue_text": { params: unknown; result: unknown };
+  "_acpmux/rows": { params: unknown; result: unknown };
   "_acpmux/queue_get": { params: QueueGetParams; result: unknown };
   "_acpmux/draft_get": { params: DraftGetParams; result: unknown };
   "_acpmux/draft_set": { params: DraftSetParams; result: unknown };
@@ -318,6 +319,8 @@ export interface AcpmuxNotifications {
   "session/update": unknown;
   "catalog.changed": unknown;
   "_acpmux/process_update": unknown;
+  "_acpmux/rows_patch": unknown;
+  "_acpmux/rows_lagged": unknown;
   "_acpmux/chat_changed": unknown;
   "_acpmux/chats_lagged": unknown;
   "_acpmux/chats_window_changed": unknown;
@@ -507,6 +510,9 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/queue_approve", kind: "request", acp: false, typed: true },
   { name: "_acpmux/queue_decline", kind: "request", acp: false, typed: true },
   { name: "_acpmux/queue_text", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/rows", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/rows_patch", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/rows_lagged", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/queue_get", kind: "request", acp: false, typed: true },
   { name: "_acpmux/draft_get", kind: "request", acp: false, typed: true },
   { name: "_acpmux/draft_set", kind: "request", acp: false, typed: true },

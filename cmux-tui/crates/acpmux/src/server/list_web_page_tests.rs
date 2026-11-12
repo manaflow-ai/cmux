@@ -21,9 +21,13 @@ use super::Origin;
 /// limit. Fixed here rather than read from `list_reply.rs`, so raising that bound fails this.
 const MOST_LIST_REPLY_BYTES: usize = 4 << 20;
 
-/// This daemon's own chats: about 6 MB of summaries in all, past one Web page.
-const OWN: usize = 3_000;
-const TITLE_BYTES: usize = 10_000;
+/// This daemon's own chats: a few pages of every list (about 2.6 MB of census rows, about
+/// 3 MB of ACP rows), past one page of each, and no more. Each page past the first can wait
+/// for a list build and its pace: 3,000 chats with 10 KB titles (66 ACP pages) took this file's
+/// detector 1,605 s in a debug build on hosted Linux (run 43145234111).
+const OWN: usize = 1_200;
+/// Past the census row's title cut (`hub/views.rs` `TITLE_CHARS`), so the cut is on the path.
+const TITLE_BYTES: usize = 300;
 /// A chat mirrored from the peer `box`.
 const MIRRORED: &str = "box-chat";
 
@@ -173,7 +177,7 @@ async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
 }
 
 /// The detector: every list method, on every connection, answers a list past one page (this
-/// daemon's ~6 MB; one Mac's was 34 MB on 2026-11-11) in replies of at most
+/// daemon's few pages; one Mac's was 34 MB on 2026-11-11) in replies of at most
 /// [`MOST_LIST_REPLY_BYTES`], none of them skipped or repeated. The app's own connections (the
 /// Unix socket's feeds, the agent pane's) included: they were the ones sent 31 MB replies.
 #[tokio::test(flavor = "multi_thread")]
@@ -195,13 +199,25 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
         }
         // ACP's `session/list`, its cursor followed by `session/list` itself.
         let (mut page, size, _) = client.call(method::SESSION_LIST, json!({})).await;
-        let mut sizes = vec![size];
-        while let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) {
+        let (mut sizes, mut ids) = (vec![size], Vec::new());
+        loop {
+            for row in page["sessions"].as_array().expect("a session/list page lists sessions") {
+                ids.push(row["sessionId"].as_str().expect("a row has its id").to_owned());
+            }
+            let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) else { break };
             assert!(sizes.len() < 1_000, "{origin:?} session/list never ends");
             let (next, size, _) =
                 client.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
             (page, sizes) = (next, [sizes, vec![size]].concat());
         }
+        assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page goes in pages");
+        // Every own chat once, and no id this daemon does not list.
+        let unique: HashSet<&String> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len(), "{origin:?} session/list repeated a row");
+        let known: HashSet<String> = every_id().into_iter().collect();
+        assert!(ids.iter().all(|id| known.contains(id)), "{origin:?} session/list: an unknown id");
+        let skipped = own_ids().into_iter().find(|id| !unique.contains(id));
+        assert_eq!(skipped, None, "{origin:?} session/list skipped a row");
         let most = sizes.iter().max().copied().unwrap_or_default();
         assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} session/list: {most} bytes");
     }
@@ -210,9 +226,15 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
 /// Bench: bytes and time of the first watch reply, and of the whole list read in pages, on a Web
 /// connection against the app's own one (both paged now; the app's read its list in one reply
 /// up to the message limit before), on about 9,000 closed chats (a whole list of about 15 MB;
-/// summaries cap their titles).
-/// `cargo test -p acpmux list_web_page_bench -- --nocapture`.
+/// summaries cap their titles). It asserts only that each reply comes within `Client::call`'s
+/// 60 s: a debug build took 42 to 53 s in the lib's parallel run beside 16 busy loops on 8 CPUs,
+/// and 65 to 67 s in 2 of 10, so it is a check for its own run, one test at a time:
+/// `cargo test -p acpmux --lib server::list_web_page_tests::list_web_page_bench -- --ignored --exact --test-threads=1 --nocapture`.
+/// The default run checks what the paging holds by bytes and ids, on 3,000 chats:
+/// `a_web_connection_reads_a_large_whole_list_in_bounded_pages` (every page under the bound,
+/// every row once), the two peer-link tests, and `no_list_reply_passes_a_few_megabytes_on_any_connection`.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "own run, one test at a time: a bench, 15 MB through a debug build within a 60 s reply wait"]
 async fn list_web_page_bench() {
     let hub = hub_of(9_000, 2_600, "closed").await;
     let mut local = Client::on(&hub, Origin::Local).await;

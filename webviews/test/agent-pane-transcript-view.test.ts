@@ -3,9 +3,7 @@
 // talking JSON-RPC over a WebSocket to a stand-in acpmux daemon that serves one finished recorded
 // chat (replay/replayFixture.ts: a thought, a read, test runs and an edit).
 //
-// - Normal is today's transcript: the finished turn folds its work under "Worked for". Its reply
-//   between the calls stays in sight, the work around it on closed run lines (turns.ts
-//   `aroundReplies`; Leo, 2026-11-06: "your intermediate message got lost. that can never happen").
+// - Normal folds every interim reply and call under "Worked for", leaving only the final answer.
 // - Thinking, picked from the menu, opens that fold: the thought shows, each call's output stays folded.
 // - Verbose also opens each call to its output.
 // - Closing the turn's fold by hand in Verbose keeps it closed there; Normal keeps its own folds.
@@ -287,12 +285,14 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       const openCommands = page.locator('.cv-tools .cv-tool.is-toggle:not(.cv-thought)[aria-expanded="true"]');
       // A call's own row, not a closed run line beside a reply in sight.
       const calls = page.locator(".cv-tools .cv-tool.is-toggle:not(.cv-thought):not(.is-run)");
-      const reply = page.getByText("The loop allows one attempt too many");
+      const interim = page.getByText("The loop allows one attempt too many");
+      const reply = page.getByText(ANSWER);
       const normal = {
         worked: await worked.getAttribute("aria-expanded"),
         thoughts: await thought.count(),
         commands: await calls.count(),
         reply: await reply.isVisible(),
+        interim: await interim.isVisible(),
       };
 
       await pick(page, "Thinking");
@@ -347,17 +347,16 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         thoughts: await thought.count(),
         commands: await calls.count(),
         reply: await reply.isVisible(),
+        interim: await interim.isVisible(),
       };
 
-      // Closed, Worked for draws no call of its turn: every call stays under it and draws when it is
-      // opened (turns.ts, turn-fold-replies "replies", 765807060ed: "a closed Worked for hides every
-      // tool call"). Thinking and Verbose still open them all.
+      // Closing the turn hides every interim reply and call; only the final answer stays outside.
       expect({ normal, thinking, verbose, closedByHand, backToNormal }).toEqual({
-        normal: { worked: "false", thoughts: 0, commands: 0, reply: true },
+        normal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: false },
         thinking: { worked: "true", thoughts: true, commands: true, someClosed: true },
         verbose: { open: true },
         closedByHand: { worked: "false", fewer: true },
-        backToNormal: { worked: "false", thoughts: 0, commands: 0, reply: true },
+        backToNormal: { worked: "false", thoughts: 0, commands: 0, reply: true, interim: false },
       });
       await page.close();
     });
