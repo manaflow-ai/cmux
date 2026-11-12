@@ -520,8 +520,9 @@ impl Hub {
         let blocks = vec![json!({"type": "text", "text": text})];
         let (hub, s) = (self.clone(), session.clone());
         // The turn runs on: only acceptance is awaited.
-        let task =
-            tokio::spawn(async move { hub.prompt_with(&s, blocks, "acpmux", false, opts).await });
+        let task = self.scope.spawn_named("subagent-resume", async move {
+            hub.prompt_with(&s, blocks, "acpmux", false, opts).await
+        });
         let accepted = match rx.await {
             Ok(v) => v,
             Err(_) => match task.await {
