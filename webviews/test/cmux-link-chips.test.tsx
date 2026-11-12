@@ -27,6 +27,7 @@ import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/
 import { openOfferChat, openSenderChat } from "../src/agent-session/acpmux/rows/rowActions";
 import { chipSelectionText, selectionHtml } from "../src/agent-session/acpmux/conversation/selectionCopy";
 import { htmlMarkdown } from "../src/agent-session/acpmux/richClipboard";
+import { teardownDom } from "./support/domTeardown";
 
 const HEX = "16c92e4354fcaf05540386720d78e251";
 const WORKSPACE = `cmux-nightly://workspace/ws_${HEX}`;
@@ -103,14 +104,10 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
+afterAll(async () => {
   setLinkPlaces([]);
   setPageChats(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const place = (title: string, extra: Record<string, unknown> = {}) => ({

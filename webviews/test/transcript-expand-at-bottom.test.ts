@@ -12,6 +12,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
@@ -99,11 +100,17 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.mouse.click(point.x, point.y);
   };
 
-  async function open(variant = VARIANT, ready = GROUP, engine: Browser = browser!): Promise<Page> {
+  async function open(
+    variant = VARIANT,
+    ready = GROUP,
+    engine: Browser = browser!,
+    arms: Readonly<Record<string, string>> = {},
+  ): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await engine.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
+    await pinArms(page, arms);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
     await page.locator(ready).waitFor();
     await settled(page);
@@ -244,7 +251,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// frames, never most of the way in one.
   // In Chromium and in WebKit, the app's own engine (where the thread slide this replaced jumped).
   for (const engineName of ["chromium", "webkit"] as const)
-    test(`at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
+    test(`inline run at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
       let engine = browser!;
       if (engineName === "webkit") {
         try {
@@ -256,7 +263,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         }
         await warmGalleryFrame(vite!, ENTRY, { browser: engine, params: { variant: VARIANT } });
       }
-      const page = await open(VARIANT, GROUP, engine);
+      // This oracle measures the transcript's full inline expansion; boxed runs own their scroll.
+      const page = await open(VARIANT, GROUP, engine, { "run-scroll": "inline" });
       await page.locator(".acpmux-scroll").evaluate((node, selector) => {
         node.querySelector<HTMLElement>(selector)!.dataset.glideProbe = "true";
         node.scrollTop = node.scrollHeight;
@@ -314,14 +322,22 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// every frame, the lines it shows come in above it, and the rows under it and the view's end stay.
   test("at the very bottom, a shell block's Show all lines stays under the pointer and its log rises", async () => {
     // Its play opens and closes the group (three toggles at once mid-play): wait on the row itself.
-    const page = await open("collapse-tall-group", '[data-row-id="expand-at-bottom-run"]');
+    // This oracle follows the transcript end while output grows, so it uses the inline run arm.
+    const page = await open("collapse-tall-group", '[data-row-id="expand-at-bottom-run"]', browser!, {
+      "run-scroll": "inline",
+    });
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
       timeout: 60_000,
     });
     await settled(page);
+    // The control-hold branch applies only after the row's top scrolls above the view. The
+    // collapsed call defaults make this fixture shorter, so use a viewport its log exceeds.
+    await page.setViewportSize({ width: 900, height: 400 });
     const scrollToEnd = async () => {
       await page.locator(".acpmux-scroll").evaluate((node) => {
+        node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
         node.scrollTop = node.scrollHeight;
+        node.dispatchEvent(new Event("scroll"));
       });
       await settled(page);
     };
@@ -350,6 +366,14 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     const PROBE = "[data-more-probe]";
     const before = (await watchOpen(page, PROBE, 0, false))[0]!;
     expect(before.fromEnd).toBeLessThanOrEqual(2);
+    const aboveView = await page
+      .locator(PROBE)
+      .evaluate(
+        (node) =>
+          node.closest(".acpmux-row")!.getBoundingClientRect().top <
+          node.closest(".acpmux-scroll")!.getBoundingClientRect().top - 0.5,
+      );
+    expect(aboveView).toBe(true);
     const frames = await watchOpen(page, PROBE);
     await settled(page);
     const after = (await watchOpen(page, PROBE, 0, false))[0]!;

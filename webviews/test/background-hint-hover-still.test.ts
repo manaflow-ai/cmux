@@ -11,6 +11,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("background-hint-hover-still.test.ts", async () => {
@@ -51,6 +52,8 @@ await requireBrowserLane("background-hint-hover-still.test.ts", async () => {
     test(`at ${width}px, hovering a running command's live line moves and overlaps none of its counts`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;
       const page = await browser!.newPage({ viewport: { width, height: 360 } });
+      // The line keeps the turn's time and tokens, which this file checks for overlap.
+      await pinArms(page, CLOCK_ON_LINE);
       await page.addInitScript(() => localStorage.clear());
       await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT })}`);
       await page.locator(`${LINE} .cv-command__bg`).waitFor({ state: "attached", timeout: 30_000 });
