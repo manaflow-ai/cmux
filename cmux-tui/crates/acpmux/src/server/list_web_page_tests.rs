@@ -231,7 +231,9 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
 }
 
 async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
+    let began = Instant::now();
     let hub = hub().await;
+    println!("LIST-BUILDS hub made: ms={}", began.elapsed().as_millis());
     for origin in [Origin::Local, Origin::LocalApp, Origin::Web, Origin::Peer] {
         let mut client = Client::on(&hub, origin).await;
         let reads = [
@@ -240,10 +242,14 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
             (method::MUX_SESSIONS, json!({})),
         ];
         for (m, params) in reads {
-            let builds = hub.list_guard.builds_for_tests();
+            let (builds, began) = (hub.list_guard.builds_for_tests(), Instant::now());
             let (ids, sizes) = client.whole(m, params.clone()).await;
             let builds = hub.list_guard.builds_for_tests() - builds;
-            println!("LIST-BUILDS {origin:?} {m} {params}: pages={} builds={builds}", sizes.len());
+            println!(
+                "LIST-BUILDS {origin:?} {m} {params}: pages={} builds={builds} ms={}",
+                sizes.len(),
+                began.elapsed().as_millis()
+            );
             // One paged read is cut from about one build, however long its with-tools rows took
             // to make: built again for every page, the 30 pages with tools here waited out the
             // builder's pace each time and this test ran past CI's 40 minutes (run 43164890485).
@@ -259,6 +265,7 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
             assert_eq!(sorted(ids), every_id(), "{origin:?} {m} {params}");
         }
         // ACP's `session/list`, its cursor followed by `session/list` itself.
+        let (builds, began) = (hub.list_guard.builds_for_tests(), Instant::now());
         let (mut page, size, _) = client.call(method::SESSION_LIST, json!({})).await;
         let mut sizes = vec![size];
         while let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) {
@@ -267,6 +274,12 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
                 client.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
             (page, sizes) = (next, [sizes, vec![size]].concat());
         }
+        let builds = hub.list_guard.builds_for_tests() - builds;
+        println!(
+            "LIST-BUILDS {origin:?} session/list: pages={} builds={builds} ms={}",
+            sizes.len(),
+            began.elapsed().as_millis()
+        );
         let most = sizes.iter().max().copied().unwrap_or_default();
         assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} session/list: {most} bytes");
     }
