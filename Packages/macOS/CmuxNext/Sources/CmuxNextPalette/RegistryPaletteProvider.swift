@@ -149,7 +149,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
         let descriptor = entry.descriptor
         let action = registry.action(for: descriptor.id)
         // A row whose run would refuse for the focused object (a chat control that chat lacks) says so here.
-        let collectsTarget = descriptor.paletteTarget.map { kind in !capturedTargets.contains { $0.kind == kind } } ?? false
+        let collectsTarget = descriptor.paletteTarget != nil
         let paletteReason = overridden || collectsTarget ? nil : action?.paletteUnavailableReason?()
         let runs = overridden || (registry.canPerform(descriptor.id, in: paletteContext(for: descriptor)) && paletteReason == nil)
         // A row a person can run past its reason (Sign In, then the action: ``ActionRecovery``) stays enabled.

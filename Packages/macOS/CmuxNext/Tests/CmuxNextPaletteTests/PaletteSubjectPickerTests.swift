@@ -91,6 +91,29 @@ struct PaletteSubjectPickerTests {
         #expect(!opened)
     }
 
+    @Test func unsupportedCapturedMachineOffersRecoveryDespiteTargetGate() async throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        registry.bind("cloudOpenDesktop", invoke: { _ in Issue.record("unsupported machine ran") })
+        ActionTargetVisibility.gate("cloudOpenDesktop", in: registry) { _ in "Desktop service unavailable" }
+        targets.options = [PaletteTargetOption(id: "old", title: "Older machine", subtitle: "Desktop service unavailable",
+            recovery: PaletteTargetRecovery(action: "newCloudMachine", title: "Create desktop machine"))]
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets,
+                           captured: [ActionTargetRef(kind: .machine, id: "old")])
+        #expect(item.isEnabled)
+        guard case .push(let page) = item.primary.effect.resolved() else { Issue.record("missing recovery picker"); return }
+        let choice = try #require(await page.providers.first?.items().first)
+        #expect(choice.accessory == "Create desktop machine")
+    }
+
+    @Test func disabledCapturedMachineStaysInThePicker() throws {
+        let registry = ActionRegistry.standard(), targets = Targets()
+        registry.bind("cloudOpenDesktop", invoke: { _ in Issue.record("starting machine ran") })
+        targets.options = [PaletteTargetOption(id: "starting", title: "Starting machine", isEnabled: false)]
+        let item = try row("cloudOpenDesktop", registry: registry, targets: targets,
+                           captured: [ActionTargetRef(kind: .machine, id: "starting")])
+        guard case .push = item.primary.effect.resolved() else { Issue.record("missing starting picker"); return }
+    }
+
     @Test func missingTargetSourceNeverAsksForAControlSocketID() throws {
         let descriptor = try #require(ActionCatalog.all.first { $0.id == "cloudOpenDesktop" })
         let flow = PaletteArgumentFlow(registry: .standard(), descriptor: descriptor, targets: nil)

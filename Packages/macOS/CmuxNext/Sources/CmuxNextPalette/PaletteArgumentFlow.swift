@@ -161,7 +161,7 @@ struct PaletteArgumentFlow {
             // A captured Cloud machine cannot satisfy an SSH-only command.
             // This runs on selection, never while listing the command rows.
             if let targets, !targets.targets(of: kind, for: descriptor.id).contains(where: {
-                $0.recovery == nil && (ActionTargetRef(parsing: $0.id) ?? ActionTargetRef(kind: kind, id: $0.id)) == target
+                $0.isEnabled && $0.recovery == nil && (ActionTargetRef(parsing: $0.id) ?? ActionTargetRef(kind: kind, id: $0.id)) == target
             }) { return nil }
             return target
         }
