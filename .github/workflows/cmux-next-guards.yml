@@ -759,6 +759,9 @@ jobs:
           python3 tests/test_asc_developer_id_app.py
           python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py
 
+      - name: A malformed CMUX_NOW_EPOCH stops each script with one line
+        run: python3 -I tests/test_cmux_now_epoch.py
+
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         run: python3 tests/test_cmux_tui_republish_same_commit.py
 
