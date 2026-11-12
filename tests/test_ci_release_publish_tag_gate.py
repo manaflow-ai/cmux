@@ -760,6 +760,19 @@ SUBCOMMAND_ESCAPES = {
     "pnpm --dry-run false before publish": "pnpm --dry-run false publish",
     "xcrun notarytool with its own -f": "xcrun notarytool submit x.zip -f json",
     "xcrun --sdk, notarytool with its own --find": "xcrun --sdk macosx notarytool history --find x -f json",
+    # The review of #41735: only npm's and pnpm's boolean flags take a true or false, a loglevel shorthand takes
+    # none, and a cluster's last letter decides; xcrun's -f counts in a cluster, never as an option's value.
+    "npm --silent before publish": "npm --silent publish",
+    "npm -s before publish": "npm -s publish",
+    "npm -sg true before publish": "npm -sg true publish",
+    "npm --dry-run=false before publish": "npm --dry-run=false publish",
+    "pnpm --silent before publish": "pnpm --silent publish",
+    "xcrun -v before notarytool": "xcrun -v notarytool submit x.zip",
+    "xcrun -vn before notarytool": "xcrun -vn notarytool submit x.zip",
+    "xcrun --sdk -f: -f is the sdk's value": "xcrun --sdk -f notarytool submit x.zip",
+    "xcrun --toolchain -vf: -vf is the toolchain's value": "xcrun --toolchain -vf notarytool submit x.zip",
+    "python -W value cluster before -m twine upload": "python3 -Wignore -m twine upload dist/*",
+    "python -X value before -Im twine upload": "python3 -X dev -Im twine upload dist/*",
 }
 SUBCOMMAND_READS = {
     "gh release download --dir upload": "gh release download v1 --dir upload",
@@ -775,6 +788,20 @@ SUBCOMMAND_READS = {
     "xcrun -f notarytool": "xcrun -f notarytool",
     "xcrun --sdk --find notarytool": "xcrun --sdk macosx --find notarytool",
     "npm --yes true test publish": "npm --yes true test publish",
+    # The review of #41735 F1: --silent is --loglevel silent and takes no true or false, so npm runs `false`.
+    "npm --silent false publish": "npm --silent false publish",
+    "npm -s false publish": "npm -s false publish",
+    "npm --quiet true publish": "npm --quiet true publish",
+    "npm -gs false publish": "npm -gs false publish",
+    "pnpm --silent false publish": "pnpm --silent false publish",
+    "npm --dry-run=true test publish": "npm --dry-run=true test publish",
+    # The review of #41735 F2: -f in a cluster is still xcrun's --find.
+    "xcrun -vf notarytool": "xcrun -vf notarytool",
+    "xcrun -fv notarytool": "xcrun -fv notarytool",
+    "xcrun --sdk macosx -nf notarytool": "xcrun --sdk macosx -nf notarytool",
+    # The same class in python: a value attached to -W or -X is no unknown option.
+    "python -W value cluster before -m twine check": "python3 -Wignore -m twine check dist/*",
+    "python -Xdev before -m twine check": "python3 -Xdev -m twine check dist/*",
 }
 
 
