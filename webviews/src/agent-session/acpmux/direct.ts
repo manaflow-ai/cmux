@@ -6807,6 +6807,9 @@ export class AcpmuxDirectClient {
         this.resetSessionState("attach strayed");
       throw error;
     } finally {
+      // A failed attach must release only its own hold. If another attach already took over this
+      // chat, its `attachWatch` and `attachOut` remain authoritative.
+      if (this.attachWatch === watch && this.attachOut?.sessionId === sessionId) this.attachOut = undefined;
       if (this.attachWatch === watch) this.attachWatch = undefined;
     }
   }
