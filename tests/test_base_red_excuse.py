@@ -7353,6 +7353,26 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         self.pr_files("cmux-tui/bindings/rust/src/generated/types.rs")
         self.assertIn(f"only '{self.PIN}' is red", self.judge()[0])
 
+    def test_a_new_vendor_subfolder_is_unvouched(self):
+        # Lead decision (review of #40095 at 694d83e8, item 3): a vendored source tree needs no Cargo.toml (a C library
+        # a build script compiles), so a new folder under cmux-tui/vendor/ is unvouched like a new crate, while a vendor
+        # folder the base has (crossterm) is vouched for. The step-A excuse stands only for the vouched one.
+        self.assertEqual(excuse.ffi_walk_unvouched(["cmux-tui/vendor/brand-new-c-lib/src/x.c"]),
+                         ["cmux-tui/vendor/brand-new-c-lib/src/x.c"])
+        self.assertEqual(excuse.ffi_walk_unvouched(["cmux-tui/vendor/crossterm/src/lib.rs"]), [])
+        self.pr_files(*self.RUST, "cmux-tui/vendor/brand-new-c-lib/src/x.c")
+        with self.assertRaisesRegex(excuse.Refused, self.unvouched("cmux-tui/vendor/brand-new-c-lib/src/x.c")):
+            self.judge()
+
+    def test_the_unvouched_reader_needs_no_primed_cache(self):
+        # ffi_walk_unvouched reads the walk itself, never by indexing the cache behind a patched ffi_listing, so a
+        # cleared cache cannot make it fail with a KeyError: it walks again, and acpmux (on the base) is vouched for.
+        with unittest.mock.patch.dict(excuse._FFI_LISTED, clear=True), \
+                unittest.mock.patch.object(excuse, "ffi_listing", return_value=([], [])):
+            self.assertEqual(excuse.ffi_walk_unvouched(["cmux-tui/crates/acpmux/src/x.rs"]), [])
+        self.refused_walk()
+        self.assertEqual(excuse.ffi_walk_unvouched(["docs/x.md"]), [])
+
     def test_the_other_bindings_are_not_ffi_inputs(self):
         # No crate cmux-app-ffi reaches lives there; bindings/rust-sidebar shares the bindings/rust prefix but not its
         # folder. Each folder is on the base, so the base walk vouches for it (review of #40095 at 694d83e8, F1).
