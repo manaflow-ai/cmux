@@ -1206,3 +1206,16 @@ fn a_release_thread_acts_only_for_its_own_live_call() {
     assert_eq!(call_state(8, true, 7), CallState::Stale);
     assert_eq!(call_state(8, false, 7), CallState::Stale);
 }
+
+#[test]
+fn a_target_theft_whose_menu_was_never_seen_goes_back_when_the_call_ends() {
+    use key_focus::gives_back_at_disarm;
+    // The call never saw its menu (it showed late, or a panel off the menu
+    // layer took key focus) and the person's app is still in front.
+    assert!(gives_back_at_disarm(false, true, true));
+    // A menu that was seen and closed ended its theft itself.
+    assert!(!gives_back_at_disarm(true, true, true));
+    // Not a helper's, and not once the person moved on.
+    assert!(!gives_back_at_disarm(false, false, true));
+    assert!(!gives_back_at_disarm(false, true, false));
+}

@@ -161,11 +161,12 @@ struct State {
     guard: Option<std::sync::Arc<dyn crate::desktop::MenuGuard>>,
     /// The target's window, which a helper's menu window must overlap.
     target_frame: Option<crate::desktop::Rect>,
-    /// The target's theft (thief, person's app) that showed no menu: its
-    /// keyboard goes back when the call disarms.
-    pending: Option<(i32, i32, u64)>,
+    /// The target's theft of the armed call (thief, person's app, call
+    /// number), recorded when its notice is dropped: when the call never saw
+    /// its menu, its keyboard goes back as the call ends (disarm).
+    theft: Option<(i32, i32, u64)>,
     /// The armed call's number (each arm is a new call): a release thread
-    /// or a pending give-back of an earlier call is ignored.
+    /// or a theft of an earlier call is ignored.
     generation: u64,
     /// The call that saw its own menu open (menu_opened): its release
     /// thread gives the keyboard back at once.
@@ -176,8 +177,21 @@ struct State {
     /// when the keyboard was not given back.
     note: &'static str,
     lookup_until: Option<Instant>,
+    /// Releases and misses of the armed call only (reset at arm), so a late
+    /// give-back of an earlier call never reads as this call's.
     released: u64,
     missed: u64,
+}
+
+/// Counts a release (or a miss) for call `generation`, if it is current.
+fn bump(st: &mut State, generation: u64, released: bool) {
+    if st.generation == generation {
+        if released {
+            st.released += 1;
+        } else {
+            st.missed += 1;
+        }
+    }
 }
 
 fn state() -> std::sync::MutexGuard<'static, State> {
@@ -261,9 +275,9 @@ fn may_own_menu(
 pub(super) enum ReleasePlan {
     /// Give the keyboard back now (the menu shows).
     Now,
-    /// The target's notice was dropped but no menu showed: give the keyboard
-    /// back when the call disarms (a release before a slow menu shows would
-    /// bring the target's window above the person's).
+    /// The target's notice was dropped but no menu showed: its keyboard goes
+    /// back when the call ends (disarm), not on a timer (a release before a
+    /// slow menu shows would bring the target's window above the person's).
     AtDisarm,
     /// Nothing of the call's to give back.
     Miss,
@@ -282,6 +296,18 @@ pub(super) fn release_plan(
         (true, false, true) => ReleasePlan::AtDisarm,
         (true, false, false) => ReleasePlan::Miss,
     }
+}
+
+/// Whether the call's end gives the target's theft back: when the call
+/// never saw its menu (a menu that was seen and closed ends its theft
+/// itself), the theft is the target's, and the person's app is still in
+/// front. Pure, for tests.
+pub(super) fn gives_back_at_disarm(
+    menu_seen: bool,
+    thief_is_target: bool,
+    still_front: bool,
+) -> bool {
+    !menu_seen && thief_is_target && still_front
 }
 
 /// Whether a window (owner, layer, id) is a menu window `pid` shows that
@@ -348,7 +374,13 @@ extern "C" fn front_tap(
     match classify(event_type, subtype, thief, front, std::process::id() as i32, armed, owner) {
         Notice::Pass => event,
         Notice::ReleaseAndDrop(thief) => {
-            set_note(&mut state(), generation, "the theft was seen; the release had not run yet");
+            {
+                let mut st = state();
+                set_note(&mut st, generation, "the theft was seen; the release had not run yet");
+                if thief == target && st.generation == generation {
+                    st.theft = Some((thief, front, generation));
+                }
+            }
             // The release waits for the menu window: released earlier, the
             // window server orders the menu's window group (and the target's
             // window) to the front.
@@ -451,9 +483,11 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool, generation: u64)
     match current() {
         CallState::Live => {}
         // Its call is over: nothing is released by id any more.
+        // (The call's end already gave a target theft back if it never saw
+        // its menu.)
         CallState::Ended => {
             let mut st = state();
-            st.missed += 1;
+            bump(&mut st, generation, false);
             set_note(&mut st, generation, "the call ended before its menu was seen");
             return;
         }
@@ -461,19 +495,14 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool, generation: u64)
     }
     let person_front = super::frontmost_pid() == Some(front);
     match release_plan(menu_shows(), thief_is_target, person_front) {
-        ReleasePlan::Now => give_back(thief, generation),
+        ReleasePlan::Now => give_back(thief, generation, false),
+        // The call's end gives it back (disarm, from the recorded theft).
         ReleasePlan::AtDisarm => {
-            let mut st = state();
-            set_note(&mut st, generation, "no new menu window seen after the theft");
-            if call_state(st.generation, st.live, generation) == CallState::Live {
-                st.pending = Some((thief, front, generation));
-            } else {
-                st.missed += 1;
-            }
+            set_note(&mut state(), generation, "no new menu window seen after the theft");
         }
         ReleasePlan::Miss => {
             let mut st = state();
-            st.missed += 1;
+            bump(&mut st, generation, false);
             let why = if person_front {
                 "a helper's theft with no menu window over the target"
             } else {
@@ -485,8 +514,9 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool, generation: u64)
 }
 
 /// Releases `thief`'s key focus to the person's app (SkyLight), for the
-/// call numbered `generation`.
-fn give_back(thief: i32, generation: u64) {
+/// call numbered `generation`: only while that call is live, except the
+/// deliberate give-back as it ends (`at_disarm`).
+fn give_back(thief: i32, generation: u64, at_disarm: bool) {
     if !state().menus.contains_key(&thief)
         && let Some(tap) = spawn_tap(thief, menu_tap)
     {
@@ -506,6 +536,13 @@ fn give_back(thief: i32, generation: u64) {
             }
         }
     }
+    // Placing the tap can take a while: the call may have ended meanwhile.
+    if !at_disarm {
+        let st = state();
+        if call_state(st.generation, st.live, generation) != CallState::Live {
+            return;
+        }
+    }
     let ok = skylight().is_some_and(|sl| {
         state().lookup_until = Some(Instant::now() + LOOKUP_FOR);
         let mut own = 0i32;
@@ -520,35 +557,19 @@ fn give_back(thief: i32, generation: u64) {
         release_below(own, |id| unsafe { (sl.release)(id) }).is_some()
     });
     let mut st = state();
+    bump(&mut st, generation, ok);
     if ok {
-        st.released += 1;
         set_note(&mut st, generation, "released");
     } else {
-        st.missed += 1;
         set_note(&mut st, generation, "the SkyLight release found no theft to release");
     }
 }
 
 /// The call saw its menu open: its release thread gives the keyboard back
-/// at once (it need not recognize the menu window itself), and a pending
-/// give-back of this call goes now rather than at disarm.
+/// at once (it need not recognize the menu window itself).
 pub(super) fn menu_opened() {
-    let (generation, pending) = {
-        let mut st = state();
-        st.menu_seen = st.generation;
-        let generation = st.generation;
-        let pending = st.pending.take().filter(|p| p.2 == generation);
-        (generation, pending)
-    };
-    if let Some((thief, front, _)) = pending {
-        if super::frontmost_pid() == Some(front) {
-            give_back(thief, generation);
-        } else {
-            let mut st = state();
-            st.missed += 1;
-            set_note(&mut st, generation, "the person's app was no longer in front");
-        }
-    }
+    let mut st = state();
+    st.menu_seen = st.generation;
 }
 
 /// What the handoff did last for the armed call (for a result's note).
@@ -653,37 +674,38 @@ pub(super) fn arm(
     st.target_frame = Some(target_frame);
     st.generation += 1;
     st.live = true;
-    st.pending = None;
+    st.theft = None;
+    st.released = 0;
+    st.missed = 0;
     st.note = "no lost-key notice from the person's app";
     true
 }
 
 /// Ends the armed window when the call that armed it returns.
 pub(super) fn disarm() {
-    let (generation, pending) = {
+    let (generation, theft, seen) = {
         let mut st = state();
         st.armed_until = None;
         st.live = false;
         let generation = st.generation;
-        (generation, st.pending.take().filter(|p| p.2 == generation))
+        let theft = st.theft.take().filter(|t| t.2 == generation);
+        (generation, theft, st.menu_seen == generation)
     };
-    // The call's outcome is in and no menu showed: the target's theft goes
-    // back to the person's app (still in front).
-    if let Some((thief, front, _)) = pending {
-        if super::frontmost_pid() == Some(front) {
-            let spawned = std::thread::Builder::new()
-                .name("cu-key-focus-release".into())
-                .spawn(move || give_back(thief, generation));
-            if spawned.is_err() {
-                state().missed += 1;
-            }
-        } else {
-            state().missed += 1;
+    // A target theft whose menu the call never saw (one that shows late, a
+    // panel or list off the menu layer) goes back now, as the call ends:
+    // its outcome is in. A menu that was seen and closed ended its theft.
+    if let Some((thief, front, _)) = theft {
+        if gives_back_at_disarm(seen, true, super::frontmost_pid() == Some(front)) {
+            give_back(thief, generation, true);
+        } else if !seen {
+            let mut st = state();
+            bump(&mut st, generation, false);
+            set_note(&mut st, generation, "the person's app was no longer in front");
         }
     }
 }
 
-/// Releases and thefts that could not be released, so far.
+/// Releases and thefts that could not be released, for the armed call.
 pub(super) fn counts() -> (u64, u64) {
     let st = state();
     (st.released, st.missed)
