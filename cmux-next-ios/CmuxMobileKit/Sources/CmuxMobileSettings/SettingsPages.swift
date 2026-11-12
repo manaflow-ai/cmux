@@ -281,6 +281,12 @@ struct TerminalPage: View {
                 Text("Choose which device controls the shared terminal's size.")
             }
             Section {
+                Toggle(isOn: $settings.terminalFitToPhone) { SettingsLabel("Fit to Phone", symbol: "iphone") }
+                    .accessibilityIdentifier("settings.terminalFitToPhone")
+            } footer: {
+                Text("Off: the phone re-wraps the Mac's terminal at its own width and the Mac keeps its size. On: the Mac's terminal resizes to the phone. Applies to terminals opened next.")
+            }
+            Section {
                 Toggle(isOn: $settings.predictiveEcho) { SettingsLabel("Predictive echo", symbol: "bolt.horizontal") }
                     .accessibilityIdentifier("settings.predictiveEcho")
             } footer: {

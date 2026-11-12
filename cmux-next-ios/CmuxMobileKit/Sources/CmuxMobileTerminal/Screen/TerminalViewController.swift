@@ -647,7 +647,35 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
+        #if DEBUG
+        center.addObserver(self, selector: #selector(appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        #endif
     }
+
+    #if DEBUG
+    /// Return probe (TerminalProjectionUITests): from the app becoming active
+    /// to the first display frame that shows the terminal right.
+    private var returnProbe: (link: CADisplayLink, start: CFTimeInterval)?
+
+    @objc private func appBecameActive() {
+        returnProbe?.link.invalidate()
+        let link = CADisplayLink(target: self, selector: #selector(returnProbeTick(_:)))
+        link.add(to: .main, forMode: .common)
+        returnProbe = (link, CACurrentMediaTime())
+    }
+
+    @objc private func returnProbeTick(_ link: CADisplayLink) {
+        guard let probe = returnProbe else { return link.invalidate() }
+        let phoneWidth = model.isTUI || (appliedHostColumns ?? hostLayout.phoneColumns) == hostLayout.phoneColumns
+        let right = phoneWidth && freezeView == nil && !replayGate.isReplaying && output.isEmpty && !feedInFlight
+        let elapsed = link.timestamp - probe.start
+        guard right || elapsed > 5 else { return }
+        model.lastReturnMs = right ? Int((max(0, elapsed) * 1000).rounded()) : -2
+        sizingLog.notice("return probe: first right frame after \(self.model.lastReturnMs, privacy: .public) ms")
+        link.invalidate()
+        returnProbe = nil
+    }
+    #endif
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
@@ -1092,6 +1120,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 armReplayDeadline()
             }
             if isReset {
+                model.mirrorResets += 1
                 replayStartedAt = CACurrentMediaTime()
                 replayBytes = 0
             } else if replayGate.isReplaying {
@@ -1201,6 +1230,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .hostGrid(let columns, let rows):
                 appliedHostColumns = columns
                 appliedHostRows = rows
+                if !model.isTUI, columns != hostLayout.phoneColumns {
+                    model.wideGridsShown += 1
+                    sizingLog.notice("wide grid on the primary screen: \(columns, privacy: .public) columns (phone \(self.hostLayout.phoneColumns, privacy: .public))")
+                }
                 syncHostGrid()
             case .bytes(let data):
                 syncHostGrid()
@@ -2250,6 +2283,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         if !settingOffset { scroll.scrolled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY) }
+        if cell.height > 0 {
+            // A rotation's re-wrap keeps the lines being read (the projection).
+            let below = max(0, (maxOffsetY - scrollView.contentOffset.y) / cell.height)
+            model.session.noteReaderRowsFromEnd(Int(below.rounded() + scrollView.bounds.height / cell.height))
+        }
         // The reader moved to within a screen of the oldest row held: a Mac
         // terminal that attached with its latest screen first brings older
         // rows (never for the page's own placement or a short document).

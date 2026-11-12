@@ -2371,6 +2371,301 @@ public func FfiConverterTypeTerminalPrediction_lower(_ value: TerminalPrediction
 
 
 
+
+
+public protocol TerminalProjectionProtocol: AnyObject, Sendable {
+    
+    /**
+     * The program's bytes. `paint` false: taken, painted at the next feed.
+     */
+    func feed(bytes: Data, paint: Bool)  -> [ProjectionSegment]
+    
+    func isAlternate()  -> Bool
+    
+    /**
+     * The reader reached the oldest row the surface holds: `host_rows` more
+     * of the scrollback, as a reset. Empty when the surface has all of it.
+     */
+    func loadOlder(hostRows: UInt32)  -> [ProjectionSegment]
+    
+    /**
+     * Mac scrollback rows older than what the surface holds (a viewport
+     * change paints a window: the screen and two phone screens above it).
+     */
+    func olderRows()  -> UInt64
+    
+    /**
+     * Paints what changed since the last paint.
+     */
+    func paint()  -> [ProjectionSegment]
+    
+    /**
+     * The next paint starts the surface over.
+     */
+    func requestReset() 
+    
+    /**
+     * The Mac's PTY grid changed (its replay follows).
+     */
+    func setHostGrid(cols: UInt32, rows: UInt32) 
+    
+    /**
+     * Where the reader is: phone rows from the end of the surface's
+     * document to the top of the rows read (0: at the bottom). A viewport
+     * change keeps those lines in the window it paints.
+     */
+    func setReaderRowsFromEnd(rows: UInt32) 
+    
+    /**
+     * The phone's grid; a change repaints at once.
+     */
+    func setViewport(cols: UInt32, rows: UInt32)  -> [ProjectionSegment]
+    
+    func stats()  -> ProjectionStats
+    
+    /**
+     * Answers for the program (cursor and size reports in Mac cells).
+     */
+    func takeReplies()  -> Data
+    
+}
+open class TerminalProjection: TerminalProjectionProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_terminalprojection(self.handle, $0) }
+    }
+    /**
+     * A projection of a Mac terminal of `host_cols` x `host_rows`.
+     */
+public convenience init(hostCols: UInt32, hostRows: UInt32) {
+    let handle =
+        try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_constructor_terminalprojection_new(
+        FfiConverterUInt32.lower(hostCols),
+        FfiConverterUInt32.lower(hostRows),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_terminalprojection(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * The program's bytes. `paint` false: taken, painted at the next feed.
+     */
+open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_feed(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(bytes),
+        FfiConverterBool.lower(paint),$0
+    )
+})
+}
+    
+open func isAlternate() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_is_alternate(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The reader reached the oldest row the surface holds: `host_rows` more
+     * of the scrollback, as a reset. Empty when the surface has all of it.
+     */
+open func loadOlder(hostRows: UInt32) -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_load_older(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(hostRows),$0
+    )
+})
+}
+    
+    /**
+     * Mac scrollback rows older than what the surface holds (a viewport
+     * change paints a window: the screen and two phone screens above it).
+     */
+open func olderRows() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_older_rows(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Paints what changed since the last paint.
+     */
+open func paint() -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_paint(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The next paint starts the surface over.
+     */
+open func requestReset()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_request_reset(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The Mac's PTY grid changed (its replay follows).
+     */
+open func setHostGrid(cols: UInt32, rows: UInt32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_host_grid(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(cols),
+        FfiConverterUInt32.lower(rows),$0
+    )
+}
+}
+    
+    /**
+     * Where the reader is: phone rows from the end of the surface's
+     * document to the top of the rows read (0: at the bottom). A viewport
+     * change keeps those lines in the window it paints.
+     */
+open func setReaderRowsFromEnd(rows: UInt32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_reader_rows_from_end(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(rows),$0
+    )
+}
+}
+    
+    /**
+     * The phone's grid; a change repaints at once.
+     */
+open func setViewport(cols: UInt32, rows: UInt32) -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_viewport(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(cols),
+        FfiConverterUInt32.lower(rows),$0
+    )
+})
+}
+    
+open func stats() -> ProjectionStats  {
+    return try!  FfiConverterTypeProjectionStats_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_stats(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Answers for the program (cursor and size reports in Mac cells).
+     */
+open func takeReplies() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_take_replies(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTerminalProjection: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = TerminalProjection
+
+    public static func lift(_ handle: UInt64) throws -> TerminalProjection {
+        return TerminalProjection(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: TerminalProjection) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TerminalProjection {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: TerminalProjection, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalProjection_lift(_ handle: UInt64) throws -> TerminalProjection {
+    return try FfiConverterTypeTerminalProjection.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTerminalProjection_lower(_ value: TerminalProjection) -> UInt64 {
+    return FfiConverterTypeTerminalProjection.lower(value)
+}
+
+
+
+
 /**
  * One complete video frame.
  */
@@ -3068,6 +3363,63 @@ public func FfiConverterTypePredictionLayout_lower(_ value: PredictionLayout) ->
 
 
 /**
+ * Bytes painted and surface resets, for the sizing log and benches.
+ */
+public struct ProjectionStats: Equatable, Hashable {
+    public var bytesOut: UInt64
+    public var resets: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(bytesOut: UInt64, resets: UInt64) {
+        self.bytesOut = bytesOut
+        self.resets = resets
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionStats: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionStats: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionStats {
+        return
+            try ProjectionStats(
+                bytesOut: FfiConverterUInt64.read(from: &buf), 
+                resets: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionStats, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.bytesOut, into: &buf)
+        FfiConverterUInt64.write(value.resets, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionStats_lift(_ buf: RustBuffer) throws -> ProjectionStats {
+    return try FfiConverterTypeProjectionStats.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionStats_lower(_ value: ProjectionStats) -> RustBuffer {
+    return FfiConverterTypeProjectionStats.lower(value)
+}
+
+
+/**
  * One step of a dial, `millis` after `connect` was called.
  */
 public struct TimingMark: Equatable, Hashable {
@@ -3646,6 +3998,114 @@ public func FfiConverterTypeMediaState_lower(_ value: MediaState) -> RustBuffer 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * What a feed gives the phone's surface, in order.
+ */
+
+public enum ProjectionSegment: Equatable, Hashable {
+    
+    /**
+     * Bytes for the surface as it is.
+     */
+    case paint(bytes: Data
+    )
+    /**
+     * The surface starts over (`ESC c`, sent by the caller), then these bytes.
+     */
+    case reset(bytes: Data
+    )
+    /**
+     * The program switched to (true) or from the alternate screen here.
+     */
+    case alternate(on: Bool
+    )
+    /**
+     * The alternate screen's bytes, unchanged.
+     */
+    case raw(bytes: Data
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ProjectionSegment: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionSegment: FfiConverterRustBuffer {
+    typealias SwiftType = ProjectionSegment
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionSegment {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .paint(bytes: try FfiConverterData.read(from: &buf)
+        )
+        
+        case 2: return .reset(bytes: try FfiConverterData.read(from: &buf)
+        )
+        
+        case 3: return .alternate(on: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 4: return .raw(bytes: try FfiConverterData.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ProjectionSegment, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .paint(bytes):
+            writeInt(&buf, Int32(1))
+            FfiConverterData.write(bytes, into: &buf)
+            
+        
+        case let .reset(bytes):
+            writeInt(&buf, Int32(2))
+            FfiConverterData.write(bytes, into: &buf)
+            
+        
+        case let .alternate(on):
+            writeInt(&buf, Int32(3))
+            FfiConverterBool.write(on, into: &buf)
+            
+        
+        case let .raw(bytes):
+            writeInt(&buf, Int32(4))
+            FfiConverterData.write(bytes, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionSegment_lift(_ buf: RustBuffer) throws -> ProjectionSegment {
+    return try FfiConverterTypeProjectionSegment.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionSegment_lower(_ value: ProjectionSegment) -> RustBuffer {
+    return FfiConverterTypeProjectionSegment.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Settings → Connection → Transport.
  */
 
@@ -4025,6 +4485,31 @@ fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTimingMark.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeProjectionSegment: FfiConverterRustBuffer {
+    typealias SwiftType = [ProjectionSegment]
+
+    public static func write(_ value: [ProjectionSegment], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeProjectionSegment.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ProjectionSegment] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ProjectionSegment]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeProjectionSegment.read(from: &buf))
         }
         return seq
     }
@@ -4429,7 +4914,43 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_feed() != 63739) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_is_alternate() != 62553) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_load_older() != 3182) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_older_rows() != 21444) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_paint() != 61759) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_request_reset() != 536) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_host_grid() != 62931) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_reader_rows_from_end() != 42508) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_viewport() != 49630) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_stats() != 44562) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_take_replies() != 21867) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprediction_new() != 21303) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_constructor_terminalprojection_new() != 52508) {
         return InitializationResult.apiChecksumMismatch
     }
 

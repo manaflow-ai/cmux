@@ -1001,6 +1001,25 @@ TURN). There is no WebSocket relay any more. cmux-mobile-host reports the path a
 
 ## Terminal size claims
 
+**Projection (2026-11-12, the default).** The phone keeps a VT model of the
+Mac terminal at the Mac's grid, fed the attach stream's bytes
+(`cmux-terminal-projection`, `TerminalProjectingSession`), and re-wraps its
+primary screen (a shell, an inline TUI such as Claude Code) at the phone's
+own width. On the primary screen the phone claims no size: it attaches
+without one and never sends `resize-surface`, so attach, an app switch, a
+lock, the keyboard and a rotation never resize the Mac's PTY, and a rotation
+re-wraps on the phone in the same frame. On the alternate screen (vim, htop)
+it claims as below, only while the page claims, and releases when the
+program leaves the alternate screen. On the primary screen, cursor position
+(`CSI 6n`) and text area (`CSI 18t`) reports are answered by the projection
+in the Mac's cells; on the alternate screen the phone's terminal gets the
+program's bytes unchanged and answers them itself (once). A rotation
+re-wraps the Mac's screen and two phone screens of scrollback above it
+(plus the lines being read); older lines are re-wrapped as the reader
+scrolls up to them.
+Settings → Terminal → Fit to Phone turns projection off: the rest of this
+section then applies to every screen.
+
 When the phone shows a Mac terminal, the shared PTY is sized for the phone too
 (cmux-tui shared sizing, docs/shared-terminal-sizing.md), and the Mac's pane
 shows the phone's grid. The phone's size counts only while the person is
@@ -1552,4 +1571,6 @@ to a phone: it changes the Mac-wide preference only.
   horizontally (it follows the cursor while typing); shorter than the
   phone, the grid is pinned to the top and the rest is letterboxed with the
   terminal background and a one-line note (`120×40 · set by <device>`).
-  It never reflows the host's output to its own width.
+  This applies to the alternate screen, and to every screen with Fit to
+  Phone on; with projection (the default, "Terminal size claims" above)
+  the primary screen is re-wrapped to the phone's width instead.

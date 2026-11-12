@@ -13,8 +13,14 @@ public struct TerminalDemoRoot: View {
     @State private var host: TerminalTabHost
 
     public init() {
-        let session: any TerminalSession = TerminalHostGridDemoSession.requestedSpec
-            .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession()
+        let session: any TerminalSession
+        if TerminalDemoDriver.requestedPhases?.contains("projection") == true {
+            // A Mac pane of 120x40, through the session the app builds for a Mac terminal.
+            session = TerminalSessionChoice.session(live: MacPaneMockSession(), mockDataEnabled: false, macName: "Mac", programName: "zsh")
+        } else {
+            session = TerminalHostGridDemoSession.requestedSpec
+                .flatMap(TerminalHostGridDemoSession.init(spec:)) ?? MockTerminalSession()
+        }
         let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: "zsh — cmux-next")
         _model = State(initialValue: model)
         _host = State(initialValue: TerminalTabHost(model: model))
@@ -47,9 +53,7 @@ public struct TerminalDemoRoot: View {
         .task {
             // The host grid demo is a still: no scripted phases.
             guard TerminalHostGridDemoSession.requestedSpec == nil else { return }
-            let phases = UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?
-                .split(separator: ",").map(String.init)
-            await TerminalDemoDriver(model: model).run(phases: phases)
+            await TerminalDemoDriver(model: model).run(phases: TerminalDemoDriver.requestedPhases)
         }
     }
 }
@@ -58,6 +62,10 @@ public struct TerminalDemoRoot: View {
 struct TerminalDemoDriver {
     let model: TerminalModel
     let clock = ContinuousClock()
+
+    static var requestedPhases: [String]? {
+        UserDefaults.standard.string(forKey: "CmuxMobileTerminalDemoPhases")?.split(separator: ",").map(String.init)
+    }
 
     private func wait(_ seconds: Double) async {
         try? await clock.sleep(for: .milliseconds(Int(seconds * 1000)))
@@ -121,6 +129,7 @@ struct TerminalDemoDriver {
         // Opt-in only (not in `all`): the keyboard reversed mid-animation.
         if selected.contains("kbinterrupt") { await keyboardInterrupt() }
         if selected.contains("kbtui") { await keyboardOverTUI() }
+        if selected.contains("projection") { await projection() }
         mark("end")
         if let log = model.controller?.presentLog, !log.isEmpty,
            let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -240,6 +249,31 @@ struct TerminalDemoDriver {
         }
         await wait(0.5)
         note("done.rz\(before)-\(model.ptyResizesSent)")
+    }
+
+    /// `projection` (opt-in): a shell on a Mac pane of 120x40
+    /// (`MacPaneMockSession`). The keyboard is shown and hidden; then the
+    /// UI test switches apps and rotates the phone while `demoNote` keeps
+    /// `p.<stage>.mac<PTY resizes>.wide<wide grids>.rs<mirror resets>`
+    /// current (TerminalProjectionUITests).
+    private func projection() async {
+        let mac = model.session.underlyingSession as? MacPaneMockSession
+        func counters(_ stage: String) {
+            note("p.\(stage).mac\(mac?.ptyResizes ?? -1).wide\(model.wideGridsShown).rs\(model.mirrorResets).ret\(model.lastReturnMs)")
+        }
+        counters("attach")
+        await wait(1)
+        counters("kbstart")
+        model.toggleKeyboard()
+        await wait(1.6)
+        model.toggleKeyboard()
+        await wait(1.6)
+        counters("kb")
+        await wait(0.5)
+        for _ in 0..<600 {
+            counters("live")
+            await wait(0.25)
+        }
     }
 
     private func note(_ label: String) {
