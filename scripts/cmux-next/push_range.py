@@ -81,9 +81,11 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import fcntl
 import hashlib
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -431,7 +433,9 @@ UPSTREAM_REFRESH_FILE = "upstream-refresh"
 # SSH_ASKPASS (git takes the first one set, and runs none when it is empty), an empty SSH_ASKPASS with
 # SSH_ASKPASS_REQUIRE=never stops ssh's own, BatchMode=yes makes ssh fail instead of asking, GCM_INTERACTIVE=never
 # stops Git Credential Manager's window, and credential.interactive=false any other helper's. A stored credential
-# still answers; a fetch that would ask fails, and the note says so.
+# still answers; a fetch that would ask fails, and the note says so. The fetch also runs in a session of its own with
+# stdin from /dev/null (cmux#41715 review), so no program it starts (a GIT_SSH wrapper, plink, a credential helper)
+# has a terminal to open and ask on, whatever options it takes.
 _NO_PROMPT_CONFIG = ("-c", "credential.interactive=false")
 _NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": "", "SSH_ASKPASS_REQUIRE": "never",
                   "GCM_INTERACTIVE": "never"}
@@ -439,8 +443,10 @@ _NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": 
 
 def _no_prompt_env(repo: Path) -> dict[str, str]:
     """os.environ for a fetch that never prompts (_NO_PROMPT_ENV) and never takes a hook's index; ssh runs as the user
-    set it up (GIT_SSH_COMMAND, else core.sshCommand, else ssh) with BatchMode=yes. A GIT_SSH program (no command line
-    to add an option to) is left as it is; the askpass settings above still hold for it."""
+    set it up (GIT_SSH_COMMAND, else core.sshCommand, else GIT_SSH, else ssh: git's order) with BatchMode=yes. A
+    GIT_SSH that is OpenSSH itself (`ssh`) becomes the same command line with BatchMode=yes: GIT_SSH takes no options,
+    so it could still ask on the terminal (cmux#41715 review). Any other GIT_SSH program (a wrapper, plink) is left as
+    it is; the askpass settings above and the fetch's own session with no terminal (refresh_upstream) hold for it."""
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     env.update(_NO_PROMPT_ENV)
     ssh = env.get("GIT_SSH_COMMAND", "")
@@ -448,6 +454,9 @@ def _no_prompt_env(repo: Path) -> dict[str, str]:
         code, configured = _git(repo, "config", "--get", "core.sshCommand")
         ssh = configured.strip() if code == 0 else ""
     if not ssh and env.get("GIT_SSH"):
+        program = env["GIT_SSH"]
+        if os.path.basename(program).lower() in ("ssh", "ssh.exe"):
+            env["GIT_SSH_COMMAND"] = f"{shlex.quote(program)} -o BatchMode=yes"
         return env
     ssh = ssh or "ssh"
     if "plink" not in os.path.basename(ssh.split()[0]).lower():
@@ -461,9 +470,13 @@ def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREA
     and hook run (CMUX_PREPUSH_RUN, which the pre-push hook sets once per run: every check of one push calls this, and
     only the first fetches). The stamp holds for that run alone: a stamp keyed only by the rows outlived its run, so
     the same push tried again after the base moved skipped the fetch (cmux#41310 review); with no run named (a hook
-    installed before the run id) every call fetches. Returns "" when it is fresh, or was left alone (a push to a URL,
-    a remote whose refspecs do not map the branch there, a clone without the ref: the fallbacks), else the report's
-    note on why the stale copy bounds the walk (see the module docstring)."""
+    installed before the run id) every call fetches. A failed fetch is stamped too, with why it failed: each checker
+    of the run is its own process, and before that every one of them tried the same fetch again, up to 30 s each
+    (cmux#41715 review); the later ones give the first one's note. One checker fetches at a time (a lock beside the
+    stamp), so checkers that start together wait for the first one's stamp instead of fetching beside it. Returns ""
+    when it is fresh, or was left alone (a push to a URL, a remote whose refspecs do not map the branch there, a clone
+    without the ref: the fallbacks), else the report's note on why the stale copy bounds the walk (see the module
+    docstring)."""
     name = remote_name(repo, remote)
     if not name or not upstream_ref.startswith(f"{name}/"):
         return ""
@@ -479,34 +492,58 @@ def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREA
     if not (key and run):
         stamp = None
     token = hashlib.sha256(f"{name}\n{upstream_ref}\n{run}\n{key}".encode()).hexdigest()
+
+    def stale(why: str) -> str:
+        return (f"; {upstream_ref} could not be fetched ({why[:200]}), so what a base merge brought in past this "
+                f"clone's copy counts as {whose}: run `git fetch {name} {branch}` and {then}")
+
+    def stamped() -> str | None:
+        """The run's stamped result (why the fetch failed, "" for a fetch that worked), or None for none yet."""
+        try:
+            first, _, why = stamp.read_text().partition("\n")
+        except OSError:
+            return None
+        return why.strip() if first.strip() == token else None
+
+    if stamp is None:
+        return stale(why) if (why := _fetch_upstream(repo, name, branch, tracked)) else ""
     try:
-        if stamp is not None and stamp.read_text().strip() == token:
-            return ""
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        lock = os.open(stamp.with_name(f"{stamp.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
     except OSError:
-        pass
+        lock = None
+    try:
+        if lock is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        if (why := stamped()) is None:
+            why = _fetch_upstream(repo, name, branch, tracked)
+            try:
+                tmp = stamp.with_name(f"{stamp.name}.{os.getpid()}.tmp")
+                tmp.write_text(f"{token}\n{why}\n")
+                os.replace(tmp, stamp)
+            except OSError:
+                pass
+    finally:
+        if lock is not None:
+            os.close(lock)  # drops the flock
+    return stale(why) if why else ""
+
+
+def _fetch_upstream(repo: Path, name: str, branch: str, tracked: str) -> str:
+    """Fetch BRANCH of remote NAME into TRACKED without ever asking for a credential: "" when it worked, else why it
+    did not (one line). The fetch runs in a new session with stdin from /dev/null, so nothing it starts has a terminal
+    to prompt on (see _NO_PROMPT_ENV)."""
     args = ["git", "-C", str(repo), *_NO_PROMPT_CONFIG, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
             name, f"+refs/heads/{branch}:{tracked}"]
-    env = _no_prompt_env(repo)
     try:
-        result = subprocess.run(args, capture_output=True, text=True, env=env, timeout=UPSTREAM_FETCH_SECONDS,
-                                stdin=subprocess.DEVNULL)
+        result = subprocess.run(args, capture_output=True, text=True, env=_no_prompt_env(repo),
+                                timeout=UPSTREAM_FETCH_SECONDS, stdin=subprocess.DEVNULL, start_new_session=True)
         why = "" if result.returncode == 0 else (result.stderr.strip().splitlines() or [f"exit {result.returncode}"])[-1]
     except subprocess.TimeoutExpired:
         why = f"no answer in {UPSTREAM_FETCH_SECONDS}s"
     except OSError as error:
         why = str(error)
-    if why:
-        return (f"; {upstream_ref} could not be fetched ({why[:200]}), so what a base merge brought in past this "
-                f"clone's copy counts as {whose}: run `git fetch {name} {branch}` and {then}")
-    if stamp is not None:
-        try:
-            stamp.parent.mkdir(parents=True, exist_ok=True)
-            tmp = stamp.with_name(f"{stamp.name}.{os.getpid()}.tmp")
-            tmp.write_text(token + "\n")
-            os.replace(tmp, stamp)
-        except OSError:
-            pass
-    return ""
+    return " ".join(why.split())
 
 
 def refresh_base(repo: Path | str, ref: str, remote: str | None = DEFAULT_REMOTE) -> str:
