@@ -67,11 +67,21 @@ impl Connection {
 /// A cat terminal whose daemon was killed, restarted with every adoption
 /// held for [`ADOPTION_DELAY_MS`]: returns the terminal id and its host pid.
 fn adopting_cat_terminal(harness: &mut RecoveryHarness, name: &str) -> (String, libc::pid_t) {
+    adopting_cat_terminal_with(harness, name, Vec::new())
+}
+
+/// [`adopting_cat_terminal`], the restarted owner also given `env`.
+fn adopting_cat_terminal_with(
+    harness: &mut RecoveryHarness,
+    name: &str,
+    env: Vec<(String, String)>,
+) -> (String, libc::pid_t) {
     let (terminal_id, _) = run_cat_workspace(&harness.socket, 1, name);
     let host = wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid as libc::pid_t;
     harness.sigkill();
     harness.extra_env =
         vec![("CMUX_TUI_TEST_ADOPTION_DELAY_MS".into(), ADOPTION_DELAY_MS.to_string())];
+    harness.extra_env.extend(env);
     harness.restart();
     let resolved = request(
         &harness.socket,
@@ -127,6 +137,50 @@ fn input_sent_while_a_terminal_adopts_reaches_it_once_adopted() {
     );
 }
 
+/// An adoption can take far longer than a creation: at 320 terminals on a loaded Mac the new
+/// owner adopted for 48 s after an update. Input queued for an adopting terminal waits for the
+/// adoption's end, not the creating-input expiry: given back at the expiry, it reached no one
+/// (no client takes the notice) and the person's keys were lost.
+#[test]
+fn input_sent_while_a_terminal_adopts_longer_than_the_input_expiry_reaches_it() {
+    let mut harness = RecoveryHarness::start("input-while-adopting-slow");
+    // The creating-input expiry ends long before the adoption does.
+    let expiry = vec![("CMUX_TUI_TEST_CREATING_INPUT_EXPIRY_MS".to_string(), "300".to_string())];
+    let (terminal_id, _) = adopting_cat_terminal_with(&mut harness, "adopting-slow", expiry);
+    let mut connection = Connection::open(&harness.socket);
+    let reply = connection.call(serde_json::json!({
+        "id": 3, "cmd": "send", "terminal_id": terminal_id, "text": "typed-in-a-slow-adoption\n",
+    }));
+    assert_eq!(reply["data"]["queued"], true, "{reply}");
+
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+    let surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id": 5, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        if resolved["lifecycle"] == "running"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "the terminal was never adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    // The cat echoes the line once it was written; given back instead, it never shows.
+    let screen = wait_for_screen(&harness.socket, surface, "typed-in-a-slow-adoption");
+    assert!(
+        screen.contains("typed-in-a-slow-adoption"),
+        "input queued while the terminal adopted never reached it: {screen:?}; notices: {:?}",
+        connection.notices
+    );
+    assert!(
+        connection.notices.iter().all(|n| n["event"] != "terminal-input-unclaimed"),
+        "written input was also given back: {:?}",
+        connection.notices
+    );
+}
+
 #[test]
 fn input_sent_while_a_terminal_adopts_comes_back_when_its_host_is_gone() {
     let mut harness = RecoveryHarness::start("input-while-adopting-lost");
@@ -149,4 +203,91 @@ fn input_sent_while_a_terminal_adopts_comes_back_when_its_host_is_gone() {
         .decode(notice["bytes_base64"].as_str().unwrap())
         .unwrap();
     assert_eq!(bytes, b"never-written", "{notice}");
+}
+
+/// The surface of `terminal_id` once its adoption made it live.
+fn adopted_surface(harness: &RecoveryHarness, terminal_id: &str) -> u64 {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+    loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id": 5, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        if resolved["lifecycle"] == "running"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            return surface;
+        }
+        assert!(Instant::now() < deadline, "the terminal was never adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Input queued while a terminal adopts goes in before input another connection sends to
+/// the adopted surface as soon as it is live: the flush starts half a second after the
+/// adoption made the surface live, so the later input arrives first and must wait for it.
+#[test]
+fn input_queued_while_a_terminal_adopts_precedes_input_sent_once_it_is_live() {
+    let mut harness = RecoveryHarness::start("input-while-adopting-order");
+    let flush =
+        vec![("CMUX_TUI_TEST_CREATING_INPUT_FLUSH_DELAY_MS".to_string(), "500".to_string())];
+    let (terminal_id, _) = adopting_cat_terminal_with(&mut harness, "adopting-order", flush);
+    let mut sender = Connection::open(&harness.socket);
+    let reply = sender.call(serde_json::json!({
+        "id": 3, "cmd": "send", "terminal_id": terminal_id, "text": "QUEUED",
+    }));
+    assert_eq!(reply["data"]["queued"], true, "{reply}");
+
+    let surface = adopted_surface(&harness, &terminal_id);
+    let mut other = Connection::open(&harness.socket);
+    let live = other.call(serde_json::json!({
+        "id": 30, "cmd": "send", "surface": surface, "text": "-LIVE\n",
+    }));
+    assert_eq!(live["ok"], true, "{live}");
+    let screen = wait_for_screen(&harness.socket, surface, "QUEUED-LIVE");
+    assert!(
+        screen.contains("QUEUED-LIVE"),
+        "input sent once the terminal was live overtook the queued input: {screen:?}"
+    );
+}
+
+/// The 64 KiB queue limit holds while a terminal adopts: a request past it is refused whole
+/// (`input.overflow`) and queues nothing, what was queued before still reaches the adopted
+/// terminal, and a later request that fits is queued behind it.
+#[test]
+fn more_than_64_kib_for_an_adopting_terminal_is_refused_and_the_queue_is_kept() {
+    let mut harness = RecoveryHarness::start("input-while-adopting-overflow");
+    let (terminal_id, _) = adopting_cat_terminal(&mut harness, "adopting-overflow");
+    let mut sender = Connection::open(&harness.socket);
+    // Short lines: a terminal's line discipline limits one line, not the queue.
+    let mut first = format!("{}\n", "q".repeat(99)).repeat(600);
+    first.push_str("QUEUED-END\n");
+    let reply = sender.call(serde_json::json!({
+        "id": 3, "cmd": "send", "terminal_id": terminal_id, "text": first,
+    }));
+    assert_eq!(reply["data"]["queued"], true, "{reply}");
+    let over = sender.call(serde_json::json!({
+        "id": 4, "cmd": "send", "terminal_id": terminal_id, "text": "OVER\n".repeat(2_000),
+    }));
+    assert_eq!(over["ok"], false, "{over}");
+    assert_eq!(over["error_code"], "input.overflow", "{over}");
+    let fits = sender.call(serde_json::json!({
+        "id": 5, "cmd": "send", "terminal_id": terminal_id, "text": "FITS-AFTER\n",
+    }));
+    assert_eq!(fits["data"]["queued"], true, "the refused request queued nothing: {fits}");
+
+    let surface = adopted_surface(&harness, &terminal_id);
+    let screen = wait_for_screen(&harness.socket, surface, "FITS-AFTER");
+    let end = screen.rfind("QUEUED-END");
+    let after = screen.rfind("FITS-AFTER");
+    assert!(
+        end.is_some() && after.is_some() && end < after,
+        "the queue before the refused request did not reach the terminal in order: {screen:?}"
+    );
+    assert!(!screen.contains("OVER"), "the refused request was written: {screen:?}");
+    assert!(
+        sender.notices.iter().all(|n| n["event"] != "terminal-input-unclaimed"),
+        "written input was also given back: {:?}",
+        sender.notices
+    );
 }
