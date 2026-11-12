@@ -2,8 +2,8 @@
 //! `cmux cloud machine-auth --machine vm_…` runs it there): how the agents acpmux starts on this
 //! machine reach models, and whether the machine holds any provider login.
 //!
-//! It reads the running daemon's own environment (`/proc/<pid>/environ` of the `daemon.lock`
-//! holder), adds the machine's model route the way a spawn does (`cloud_model_plane.rs`), and
+//! It reads the env the running daemon recorded about itself at startup (`ENV_FILE`, written by
+//! the `daemon.lock` holder: keys as their state only, never a value), adds the machine's model route the way a spawn does (`cloud_model_plane.rs`), and
 //! looks for the login files Claude Code and Codex read. It prints names, verdicts and
 //! credential-free base URLs only, never a value of a key or a token.
 
@@ -195,17 +195,64 @@ pub fn report(
     })
 }
 
-fn daemon_env() -> Option<(u32, BTreeMap<String, String>)> {
-    let lock = crate::config::home().join("daemon.lock");
-    let text = std::fs::read_to_string(lock).ok()?;
+/// The daemon's own record of the env its agents start with, in its home (0600). The holder
+/// registers itself (plans/cmux-next/pty-holder.md): no reader scans another process.
+pub const ENV_FILE: &str = "daemon-agent-env.json";
+
+/// A recorded value that is set but is not the edge placeholder (a key's value is never written).
+const SET: &str = "<set>";
+
+/// What the record keeps of `name`'s value: a base URL without userinfo, query or fragment; a key
+/// as `PLACEHOLDER` or `SET`; a credential variable as `SET`. Empty or absent: nothing.
+fn recorded_value(name: &str, value: &str) -> Option<String> {
+    if value.is_empty() {
+        return None;
+    }
+    Some(if name.ends_with("_URL") {
+        safe_url(value)
+    } else if value == PLACEHOLDER {
+        PLACEHOLDER.to_owned()
+    } else {
+        SET.to_owned()
+    })
+}
+
+/// The record's JSON for `pid` from `env` (the watched names only).
+fn record_json(pid: u32, env: &dyn Fn(&str) -> Option<String>) -> Value {
+    let recorded: serde_json::Map<String, Value> = watched()
+        .filter_map(|name| Some((name.to_owned(), Value::from(recorded_value(name, &env(name)?)?))))
+        .collect();
+    json!({"pid": pid, "env": recorded})
+}
+
+/// Writes this process's record into `home` (temporary file, 0600, then rename). Called by the
+/// daemon once it holds `daemon.lock`; a failure only leaves `machine-auth` reporting no daemon.
+pub fn record_daemon_env(home: &Path) -> std::io::Result<()> {
+    let body = record_json(std::process::id(), &|k| std::env::var(k).ok()).to_string();
+    let tmp = home.join(format!("{ENV_FILE}.{}.tmp", std::process::id()));
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let _ = std::fs::remove_file(&tmp);
+    std::io::Write::write_all(&mut options.open(&tmp)?, body.as_bytes())?;
+    std::fs::rename(&tmp, home.join(ENV_FILE))
+}
+
+/// The lock holder's pid and its recorded env; `None` when no daemon holds the lock or its record
+/// is missing or belongs to another pid (a record left by an earlier daemon is never used).
+fn read_daemon_env(home: &Path) -> Option<(u32, BTreeMap<String, String>)> {
+    let text = std::fs::read_to_string(home.join("daemon.lock")).ok()?;
     let pid: u32 = text.lines().next()?.trim().parse().ok()?;
-    let raw = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
-    let names: Vec<&str> = watched().collect();
-    let env = raw
-        .split(|b| *b == 0)
-        .filter_map(|pair| std::str::from_utf8(pair).ok()?.split_once('='))
-        .filter(|(k, _)| names.contains(k))
-        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    let record: Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join(ENV_FILE)).ok()?).ok()?;
+    if record["pid"].as_u64() != Some(u64::from(pid)) {
+        return None;
+    }
+    let env = record["env"]
+        .as_object()?
+        .iter()
+        .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
         .collect();
     Some((pid, env))
 }
@@ -226,7 +273,7 @@ pub fn run(json_out: bool) -> i32 {
     let value = report(
         crate::cloud_host::is_cloud_vm(),
         cloud_model_plane::read_at(Path::new(PLANE_FILE), true),
-        daemon_env(),
+        read_daemon_env(&crate::config::home()),
         &home_dir(),
         managed,
     );
@@ -268,6 +315,38 @@ mod tests {
             std::env::temp_dir().join(format!("acpmux-machine-auth-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn the_daemon_record_keeps_no_key_value_and_belongs_to_its_pid() {
+        let env = BTreeMap::from([
+            ("ANTHROPIC_BASE_URL", "https://user:pw@coderouter.cmux.internal/v1?x=1"),
+            ("ANTHROPIC_API_KEY", PLACEHOLDER),
+            ("OPENAI_API_KEY", "sk-real-secret"),
+            ("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-secret"),
+            ("CODEX_API_KEY", ""),
+        ]);
+        let v = record_json(42, &|k| env.get(k).map(|v| (*v).to_owned()));
+        let text = v.to_string();
+        assert!(!text.contains("secret") && !text.contains("pw@"), "{text}");
+        assert_eq!(v["env"]["ANTHROPIC_BASE_URL"], "https://coderouter.cmux.internal/v1");
+        assert_eq!(v["env"]["ANTHROPIC_API_KEY"], PLACEHOLDER);
+        assert_eq!(v["env"]["OPENAI_API_KEY"], SET);
+        assert_eq!(v["env"]["CLAUDE_CODE_OAUTH_TOKEN"], SET);
+        assert!(v["env"].get("CODEX_API_KEY").is_none());
+
+        let home = temp_home();
+        std::fs::write(home.join(ENV_FILE), v.to_string()).unwrap();
+        std::fs::write(home.join("daemon.lock"), "42\n").unwrap();
+        let (pid, read) = read_daemon_env(&home).unwrap();
+        assert_eq!(pid, 42);
+        let r = report(true, Ok(plane()), Some((pid, read)), &home, Vec::new());
+        assert_eq!(r["agents"]["codex"]["key"], "other");
+        assert_eq!(r["holds_credential"], true);
+        // An earlier daemon's record is not this daemon's.
+        std::fs::write(home.join("daemon.lock"), "43\n").unwrap();
+        assert!(read_daemon_env(&home).is_none());
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// Lane F's finding: a daemon with no route in its env still gives its agents the edge.
