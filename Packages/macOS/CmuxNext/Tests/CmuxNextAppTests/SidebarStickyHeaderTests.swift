@@ -26,11 +26,28 @@ struct SidebarStickyHeaderTests {
         let bench = SidebarScrollBench(count: 300, shape: .oneGroup)
         defer { bench.close() }
         #expect(!bench.list.sticksHeaders)
-        for y: CGFloat in [400, 2_000] {
+        // At the top the header is on screen. At 400 and 2,000 pt its place is above the rows that the list keeps.
+        var realized = 0, away = 0
+        for y: CGFloat in [0, 400, 2_000] {
             _ = bench.frame(to: y)
             #expect(bench.list.stuckHeader == nil && bench.list.stuckVeil.isHidden && !bench.sidebar.edgeFade.holdsTopEdge)
-            if let header = try? Self.header(bench) { #expect(header.view.frame == bench.list.frame(for: header.row), "at its own place") }
+            let row = try #require(bench.list.displayed.row(for: .group(Self.group)), "the group's header is listed")
+            let place = bench.list.frame(for: row)
+            let view = bench.list.rowViews[.group(Self.group)]
+            // A header is a row as the others are: it has a view while its place is in the rows that the list realizes
+            // (`realizationRect`), and none past the prune margin (`pruneOffscreen`). Between the two it can have one.
+            let range = bench.list.realizationRect()
+            if place.intersects(range) {
+                realized += 1
+                #expect(view != nil, "a header in the realized rows has a view (y \(y))")
+            } else if !place.intersects(range.insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)) {
+                away += 1
+                #expect(view == nil, "a header that scrolled away keeps no view (y \(y))")
+            }
+            if let view { #expect(view.frame == place, "at its own place (y \(y))") }
+            if y == 0 { #expect(place.intersects(bench.clip.bounds), "at the top the header is on screen") }
         }
+        #expect(realized == 1 && away == 2, "on screen at the top, away after it: realized \(realized), away \(away)")
     }
 
     static func top(_ bench: SidebarScrollBench) -> CGFloat { bench.clip.bounds.minY + bench.list.stickyTopInset }
