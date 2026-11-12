@@ -30,7 +30,10 @@
 //! terminal`, so keys typed during an update were lost. Input for it is queued once an adoption
 //! of the id runs; the adoption's end ([`Mux::finish_adopting_input`]) writes the queue to the
 //! adopted terminal in order, or gives it back (`reason: "failed"`) when no live terminal has
-//! the id. The expiry bounds it as for a creation.
+//! the id. Its queue waits for that end, not the creation's 10 s expiry: an update's new owner
+//! adopted for 48 s at 320 terminals on a loaded Mac, and a queue given back at 10 s went to
+//! the focused terminal of the window (the app types given-back bytes there) or nowhere, not to
+//! the terminal it was for. [`ADOPTING_INPUT_EXPIRY`] only bounds an adoption that never ends.
 
 use super::*;
 
@@ -39,7 +42,12 @@ pub(crate) const CREATING_INPUT_LIMIT: usize = 64 * 1024;
 /// A creating terminal whose creation does not end this long after its first queued byte gives
 /// its input back (`reason: "expired"`). It also bounds how long other input waits for a flush.
 const CREATING_INPUT_EXPIRY: Duration = Duration::from_secs(10);
-/// Test hook: a shorter expiry in milliseconds.
+/// An adopting terminal's queue is written or given back when its adoption ends (an adoption
+/// thread always ends it); this gives it back only when the adoption has not ended this long
+/// after the first queued byte. 2.5 times the slowest adoption measured (48 s, 320 terminals,
+/// load 4-6 times the cores).
+const ADOPTING_INPUT_EXPIRY: Duration = Duration::from_secs(120);
+/// Test hook: a shorter creating-input expiry in milliseconds (not the adopting one).
 const EXPIRY_OVERRIDE_ENV: &str = "CMUX_TUI_TEST_CREATING_INPUT_EXPIRY_MS";
 /// Test hook (fault injection): the flush starts this many milliseconds after the commit, so a
 /// test can send input by another path inside that window.
@@ -347,7 +355,9 @@ impl Mux {
         creating.queued.push(QueuedInput { client, bytes: bytes.to_vec(), paste, notice });
         if !creating.expiry_started && !creating.flushing {
             creating.expiry_started = true;
-            self.start_creating_input_expiry(terminal_id, creating.generation);
+            let expiry =
+                if creating.adopting { ADOPTING_INPUT_EXPIRY } else { creating_input_expiry() };
+            self.start_creating_input_expiry(terminal_id, creating.generation, expiry);
         }
         Ok(TerminalInputTarget::Queued)
     }
@@ -592,9 +602,15 @@ impl Mux {
         }
     }
 
-    /// Give a creating terminal's input back when its creation has not ended by the expiry.
-    fn start_creating_input_expiry(self: &Arc<Self>, terminal_id: &str, generation: u64) {
-        let deadline = Instant::now() + creating_input_expiry();
+    /// Give a creating (or adopting) terminal's input back when its creation (or adoption) has
+    /// not ended `expiry` from now.
+    fn start_creating_input_expiry(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        generation: u64,
+        expiry: Duration,
+    ) {
+        let deadline = Instant::now() + expiry;
         let mux = Arc::downgrade(self);
         let terminal_id = terminal_id.to_string();
         let spawned =
