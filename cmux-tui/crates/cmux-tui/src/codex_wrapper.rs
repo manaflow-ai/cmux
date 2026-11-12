@@ -46,6 +46,7 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
 
     let mut command = Command::new(&codex);
     command.env("PATH", path_without_shims(&path, shim_dir.as_deref()));
+    crate::agent_terminal_identity::apply(&mut command);
     // The arguments as given, before the hooks are added (see claude_wrapper).
     command
         .env(crate::claude_wrapper::AGENT_ARGS_ENV, crate::claude_wrapper::agent_args_json(args));
