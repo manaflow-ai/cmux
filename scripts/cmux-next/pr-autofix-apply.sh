@@ -52,7 +52,6 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) return 0 ;; # action exports
     plans/cmux-next/daemon-capabilities.json) return 0 ;; # daemon capability export
     scripts/lint-namespace-types-ratchet.txt) return 0 ;;
-    scripts/ci/display-suites.txt) return 0 ;; # display_suites.py --fix
     clients/ts/cloud/src/generated.ts) return 0 ;;
     cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
     scripts/ghosttykit-checksums.txt) return 0 ;;
