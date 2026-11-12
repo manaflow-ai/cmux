@@ -1028,6 +1028,19 @@ Mechanisms, phone first, then the Mac:
   painted. Coming back claims at once:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
+- **Reclaim hold (phone, `TerminalReclaimHold`).** Any release (a page left
+  for another tab, the grid or a sheet, or a background claim that lapsed)
+  makes the Mac replay its own grid to the hidden page, and the claim makes it
+  replay the phone's again. The page draws neither round trip: while it is released, a
+  grid other than its claimed one, and every byte after it, is held. When the
+  claim brings the phone's grid back, the held events are dropped (the replay
+  after a grid change is whole) and the screen gets a reset and the replay's
+  alternate screen state. When the Mac is already at the phone's grid, the
+  stream ends, more than 8 MB is held, or the claim is not answered with the
+  phone's grid within 1.5 s of being attached (the Mac's policy keeps its own
+  grid), the held events show in order. The page keeps its last frame at its
+  own grid meanwhile (Leo, 2026-11-12: "i swipe up into another app and it
+  resize back... then i go to it again and it resize again").
 - **Stop (phone).** A session that stops (its tab cooled out of the warm set
   of 4, closed, another account) sends `release-surface-size` and waits for the
   answer (at most 2 s) before it closes its channel. The daemon would read a

@@ -16,7 +16,9 @@
 //! when the effective settings changed).
 //!
 //! Linux uses inotify directly with masks that leave out opens and reads
-//! (`inotify.rs`), so the kernel queues nothing for unrelated opens. macOS
+//! (`inotify.rs`), so the kernel queues nothing for unrelated opens; with
+//! [`Watcher::start_with_writes`] each watched file also has a watch of its
+//! own writes. macOS
 //! uses kqueue vnode watches directly (`kqueue.rs`): a watch of each
 //! directory's entries and of each watched regular file. FSEvents is not
 //! used there: it reports no Unix socket being bound (the daemon watches
@@ -67,7 +69,28 @@ impl Watcher {
         files: Vec<PathBuf>,
         on_hint: impl FnMut() + Send + 'static,
     ) -> notify::Result<Watcher> {
-        Ok(Watcher { _backend: backend::start(files, on_hint)? })
+        #[cfg(target_os = "linux")]
+        let backend = backend::start(files, false, on_hint)?;
+        #[cfg(not(target_os = "linux"))]
+        let backend = backend::start(files, on_hint)?;
+        Ok(Watcher { _backend: backend })
+    }
+
+    /// [`Watcher::start`], and also a hint for each burst of writes to a
+    /// watched file that its writer keeps open (a database's write-ahead
+    /// log, which is closed only when the program ends). macOS and the
+    /// portable backend see such writes either way; Linux adds an IN_MODIFY
+    /// watch on each watched file itself, so writes to other entries of its
+    /// directory still queue nothing.
+    pub fn start_with_writes(
+        files: Vec<PathBuf>,
+        on_hint: impl FnMut() + Send + 'static,
+    ) -> notify::Result<Watcher> {
+        #[cfg(target_os = "linux")]
+        let backend = backend::start(files, true, on_hint)?;
+        #[cfg(not(target_os = "linux"))]
+        let backend = backend::start(files, on_hint)?;
+        Ok(Watcher { _backend: backend })
     }
 }
 
