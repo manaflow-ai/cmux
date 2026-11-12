@@ -90,7 +90,7 @@ A space dot's right-click menu opens as the workspace group menu does (Leo 2026-
 spaces is wack"): the space's name in an editable field, then its colors as one row of swatches drawn in the colors
 themselves, No Color first and the current one ringed (`MenuIdentityHeader`). Set Space Theme and Reset Space Theme
 are rows of their own; no color pick opens into a theme list. A dot in the switcher draws its space's color exactly
-as its swatch does; the other spaces are dimmer by opacity only. Gallery: `AASpaceColorMenuGalleryTests`.
+as its swatch does, at full strength; the current space has its chip. Gallery: `AASpaceColorMenuGalleryTests`.
 
 ## Plan for the unbuilt rules
 

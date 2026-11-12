@@ -9,8 +9,14 @@ extension ProfileBarView {
     /// The mark's opacity: the current space full, others clearly dimmer.
     static func markAlpha(active: Bool, hovered: Bool) -> CGFloat { active ? 1 : (hovered ? 0.9 : 0.7) }
 
+    /// A dot's opacity: a colored space's dot is its swatch at full strength wherever it is (the current one has its
+    /// chip), so a yellow space reads as the yellow its menu shows; an uncolored dot and an icon dim as `markAlpha` says.
+    static func dotAlpha(_ profile: SidebarProfile, active: Bool, hovered: Bool) -> CGFloat {
+        profile.color != nil && profile.icon == nil && profile.image == nil ? 1 : markAlpha(active: active, hovered: hovered)
+    }
+
     func draw(profile: SidebarProfile, in rect: NSRect, active: Bool, hovered: Bool, compact: Bool) {
-        let color = profileColor(profile, active: active).withAlphaComponent(Self.markAlpha(active: active, hovered: hovered))
+        let color = profileColor(profile, active: active).withAlphaComponent(Self.dotAlpha(profile, active: active, hovered: hovered))
         if compact {
             // Too many spaces for full marks: a small dot in the space's color.
             color.setFill()
@@ -61,7 +67,7 @@ extension ProfileBarView {
 
     /// The space's color as the Color menu's swatch draws it (Leo 2026-11-11: "this colour selection for spaces is wack"):
     /// the chosen color itself, never mixed toward the strip, so a yellow space's dot is the yellow swatch; the other
-    /// spaces are dimmer by opacity only (`markAlpha`). A space with no color draws in the label ink.
+    /// spaces' colored dots are full strength too (`dotAlpha`). A space with no color draws in the label ink.
     // theme-scoped: called only from drawMarks(), inside performWithTheme
     func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor { profile.color?.markColor ?? Palette.textPrimary }
 

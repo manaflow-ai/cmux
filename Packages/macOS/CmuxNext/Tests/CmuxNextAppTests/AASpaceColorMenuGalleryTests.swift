@@ -9,9 +9,9 @@ import Testing
 
 /// The space menu's colors (Leo 2026-11-11: "this colour selection for spaces is wack"). Before: Color was a submenu of
 /// nine template rows (every swatch the same white dot) with Set Space Theme and Reset Space Theme nested inside it, and
-/// the footer's dots were mixed toward the strip. Now: the menu opens with the space's name and one row of real swatches
+/// the footer's dots were mixed toward the strip and dimmed to 70%. Now: the menu opens with the space's name and one row of real swatches
 /// (the current one ringed, No Color first), Set Space Theme and Reset Space Theme are rows of their own, and a dot draws
-/// the color its swatch draws.
+/// the color its swatch draws, at full strength.
 @MainActor @Suite(.serialized, .closesItsWindows) struct AASpaceColorMenuGalleryTests {
     static let target = ActionTargetRef(kind: .profile, id: "work")
 
@@ -68,6 +68,7 @@ import Testing
                 let drawn = bar.profileColor(profile, active: active).usingColorSpace(.sRGB)
                 let swatch = profile.color?.markColor.usingColorSpace(.sRGB)
                 #expect(drawn == swatch, "\(profile.name) (current \(active)) draws \(String(describing: drawn)), not its swatch \(String(describing: swatch))")
+                #expect(ProfileBarView.dotAlpha(profile, active: active, hovered: false) == 1, "\(profile.name)'s dot is dimmed")
             }
         }
     }

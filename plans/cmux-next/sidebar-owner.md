@@ -2074,6 +2074,7 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
 - 2026-11-11 (fix/space-color-swatches, for a590): the space dot's menu opens with the space's name field and one row of
   real color swatches (`MenuIdentityHeader`, as the group menu), in place of Rename Space… and the Color submenu whose
   nine rows all drew as the same template dot. Set Space Theme and Reset Space Theme leave that submenu for rows of
-  their own. The switcher's dots draw the space's swatch color, no longer mixed toward the strip (other spaces dim by
-  opacity only). Gallery: `AASpaceColorMenuGalleryTests` (three header variants, dots before/after dark and light).
+  their own. A colored space's dot draws its swatch color at full strength, no longer mixed toward the strip or dimmed
+  to 70% when not current (the current one has its chip). Gallery: `AASpaceColorMenuGalleryTests` (three header
+  variants, dots before/after dark and light).
   Sidebar-Look: Leo 2026-11-11, "this colour selection for spaces is wack".
