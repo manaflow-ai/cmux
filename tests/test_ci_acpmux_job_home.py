@@ -302,6 +302,37 @@ class AcpmuxJobHomeTests(unittest.TestCase):
         self.assertTrue(is_start({"run": "printf '%s\\n' \"ACPMUX_HOME=$RUNNER_TEMP/acpmux-home\" >> \"$GITHUB_ENV\"\n"
                                          "echo ACPMUX_SOCKET= >>$GITHUB_ENV\n"}))
 
+    def test_certainty_the_redirect_and_the_binding_belong_to_one_command(self) -> None:
+        # dep-fleet-6 F1 (:109): the export matched by its words, so `false && echo .. >> $GITHUB_ENV` borrowed the
+        # certainty of an identical echo to stdout. Certainty and the redirect are read off the same command.
+        export = 'echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home"'
+        clear = 'echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"\n'
+        self.assertFalse(is_start({"run": f'{export}\nfalse && {export} >> "$GITHUB_ENV"\n{clear}'}))
+        self.assertFalse(is_start({"run": f'{export} 2>> "$GITHUB_ENV"\n{clear}'}))
+        self.assertTrue(is_start({"run": f'{export} >> "$GITHUB_ENV"\n{clear}'}))
+        # dep-fleet-6 F2 (:122): `echo "home=.."` read as a binding, so `rm -rf "$home"` counted while home pointed
+        # elsewhere. Only a binding bash surely makes, and nothing else writes, names the home.
+        shutdown = 'env -u ACPMUX_SOCKET ACPMUX_HOME="$home" acpmux daemon shutdown --end-agents || true\n'
+        bound = 'home="$RUNNER_TEMP/acpmux-home"\n'
+        for form, run in (
+                ("an echo, not a binding", 'home=/tmp/elsewhere\necho "home=$RUNNER_TEMP/acpmux-home"\n'),
+                ("an echo alone", 'echo "home=$RUNNER_TEMP/acpmux-home"\n'),
+                ("bound, then rebound", bound + "home=/tmp/elsewhere\n"),
+                ("bound right of &&", 'false && home="$RUNNER_TEMP/acpmux-home"\n'),
+                ("bound in a subshell", '( home="$RUNNER_TEMP/acpmux-home" )\n'),
+                ("bound, then read", bound + "read -r home < /dev/null\n"),
+                ("bound for one command only", 'home="$RUNNER_TEMP/acpmux-home" true\n')):
+            with self.subTest(form):
+                self.assertFalse(is_stop(dict(STOP, run=run + shutdown + 'rm -rf "$home"\n')))
+        self.assertTrue(is_stop(dict(STOP, run=bound + shutdown + 'rm -rf "$home"\n')))
+        # dep-fleet-6 F3 (:147): reading through `env` dropped its -u, so a plain valid stop was refused.
+        for shutdown in ("env -u ACPMUX_SOCKET acpmux daemon shutdown --end-agents\n",
+                         "env --unset=ACPMUX_SOCKET /usr/local/bin/acpmux daemon shutdown --end-agents\n",
+                         "timeout 30 env -u ACPMUX_SOCKET acpmux daemon shutdown --end-agents || true\n"):
+            with self.subTest(shutdown):
+                self.assertTrue(is_stop(dict(STOP, run=bound + shutdown + 'rm -rf "$home"\n')))
+        self.assertFalse(is_stop(dict(STOP, run=bound + "env acpmux daemon shutdown --end-agents\n" + 'rm -rf "$home"\n')))
+
     def test_the_fleet_package_lane_gives_its_tests_a_home_of_their_own(self) -> None:
         # A fleet step (`cmux-ci run --script scripts/ci/package-test-lane.sh`) runs on a mini
         # outside this job, so the lane itself makes a home when it was given none.

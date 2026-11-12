@@ -239,6 +239,14 @@ class ShellTests(unittest.TestCase):
             with self.subTest(form):
                 self.assertIsNone(shell_polls(f"while true; do\n  {body}\ndone\n"))
 
+    def test_a_program_in_a_variable_may_call_the_api_and_may_sleep(self) -> None:
+        # dep-fleet-6 F4 (github_token_polling.py:281): `probe=gh; .. "$probe" api x` read as a program named
+        # "$probe", so the loop's call was not counted. A program word the reader cannot read counts as both.
+        for form, body in (("the call", '"$probe" api x; sleep 5'), ("the sleep", 'gh api x; "$nap" 5'),
+                           ("both", '"$probe" api x; ${nap} 5'), ("a substitution", '$(echo gh) api x; sleep 5')):
+            with self.subTest(form):
+                self.assertTrue(shell_polls(f"probe=gh\nnap=sleep\nwhile true; do\n  {body}\ndone\n"))
+
     def test_a_python_heredoc_is_read_as_python(self) -> None:
         script = ("python3 - <<'PY'\nimport time, subprocess\nfor _ in range(5):\n"
                   "    subprocess.run(['gh', 'api', 'x'])\n    time.sleep(5)\nPY\n")
