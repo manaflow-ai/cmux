@@ -3,6 +3,8 @@ freeze-ok label lets a pull request through."""
 import importlib.util
 import io
 import json
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -15,6 +17,82 @@ spec = importlib.util.spec_from_file_location("merge_freeze", ROOT / "scripts/ci
 freeze = importlib.util.module_from_spec(spec)
 sys.modules["merge_freeze"] = freeze  # dataclasses looks the module up by name
 spec.loader.exec_module(freeze)
+
+# What the lane-gh broker lets a graphql query select. Copied from cmuxterm-hq
+# tools/lane-gh-broker/parts/44-calls-graphql.py (read at d4f9e7ac3f, 2026-11-11): GRAPHQL_ROOT_FIELDS (line 18),
+# GRAPHQL_FIELDS (line 26), GRAPHQL_CHECK_SUITE_FIELDS, the keys of GRAPHQL_SCOPED_FIELDS and the fields it allows
+# under `issues`. The broker hardcodes them in that Python file (no file it loads, nothing it serves), so this is a
+# copy and drifts when the broker's list changes: refresh it from there. The check below holds field names only,
+# not where in the tree the broker accepts one (its scoped parents), so it is a floor, not the broker's full rule.
+BROKER_ROOT_FIELDS = frozenset({
+    "__typename", "rateLimit", "repository", "search",
+})
+BROKER_FIELDS = frozenset({
+    "__typename", "actor", "additions", "assignees", "author", "authorAssociation", "autoMergeRequest",
+    "baseRefName", "baseRefOid", "body", "byteSize", "changeType", "changedFiles", "closedAt", "color",
+    "comments", "commit", "commits", "committedDate", "committer", "context", "contexts", "cost",
+    "createdAt", "creator", "databaseId", "date", "defaultBranchRef", "deletions", "description", "email",
+    "enabledBy", "endCursor", "entries", "files", "hasNextPage", "hasPreviousPage", "headRefName",
+    "headRefOid", "id", "isArchived", "isBinary", "isCrossRepository", "isDraft", "isFork", "isMinimized",
+    "isPrivate", "isTruncated", "issueCount", "label", "labels", "lastEditedAt", "limit", "locked", "login",
+    "maintainerCanModify", "mergeCommit", "mergeMethod", "mergeStateStatus", "mergeable", "merged",
+    "mergedAt", "mergedBy", "message", "name", "nameWithOwner", "nodes", "number", "object", "oid",
+    "pageInfo", "parents", "path", "prefix", "pullRequest", "pushedAt", "remaining", "requestedReviewer",
+    "resetAt", "reviewRequests", "reviews", "slug", "startCursor", "state", "status", "submittedAt",
+    "target", "targetUrl", "text", "timelineItems", "title", "totalCount", "tree", "type", "updatedAt",
+    "url", "used", "user", "visibility",
+})
+BROKER_CHECK_SUITE_FIELDS = frozenset({
+    "__typename", "app", "branch", "checkRuns", "checkSuite", "commit", "completedAt", "conclusion",
+    "createdAt", "databaseId", "detailsUrl", "displayTitle", "endCursor", "event", "externalId", "file",
+    "hasNextPage", "id", "name", "nameWithOwner", "nodes", "number", "oid", "pageInfo", "path", "repository",
+    "runAttempt", "runNumber", "slug", "startedAt", "status", "steps", "summary", "title", "totalCount",
+    "updatedAt", "url", "workflow", "workflowRun",
+})
+BROKER_ISSUES_FIELDS = frozenset({
+    "__typename", "author", "body", "createdAt", "endCursor", "hasNextPage", "labels", "login", "name",
+    "nodes", "number", "pageInfo", "state", "title",
+})
+BROKER_SCOPED_FIELD_NAMES = frozenset({
+    "associatedPullRequests", "baseRepository", "checkSuites", "compare", "headRepository",
+    "headRepositoryOwner", "history", "isRequired", "issueOrPullRequest", "issues", "owner", "pullRequests",
+    "ref", "repository", "statusCheckRollup",
+})
+BROKER_BELOW_ROOT = BROKER_FIELDS | BROKER_CHECK_SUITE_FIELDS | BROKER_ISSUES_FIELDS | BROKER_SCOPED_FIELD_NAMES
+
+
+def graphql_fields(query):
+    """(root fields, other fields) a graphql document selects: aliases, argument lists, variable
+    definitions and the type after `... on` are not fields."""
+    tokens = re.findall(r'"(?:[^"\\]|\\.)*"|\.\.\.|[{}():]|\$?[A-Za-z_]\w*', re.sub(r"#[^\n]*", "", query))
+    roots, below, depth, parens, index = set(), set(), 0, 0, 0
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if token == "(":
+            parens += 1
+        elif token == ")":
+            parens -= 1
+        elif token == "{":
+            depth += 1
+        elif token == "}":
+            depth -= 1
+        elif token == "...":
+            if index < len(tokens) and tokens[index] == "on":
+                index += 2  # `on Type`
+        elif parens or depth == 0 or token.startswith(('"', "$")) or token == ":":
+            continue
+        elif index < len(tokens) and tokens[index] == ":":
+            continue  # an alias; the field follows
+        else:
+            (roots if depth == 1 else below).add(token)
+    return roots, below
+
+
+def broker_refused_fields(query):
+    roots, below = graphql_fields(query)
+    return sorted((roots - BROKER_ROOT_FIELDS) | (below - BROKER_BELOW_ROOT))
+
 
 NOW = datetime.now(timezone.utc)
 
@@ -246,7 +324,7 @@ class PaginationTests(unittest.TestCase):
             if "/issues?" in args[-1]:
                 return json.dumps([{**issue(body=body()), "user": {"login": "lawrence"}}])
             if args[1] == "graphql":
-                return json.dumps({"data": {"repository": {"issue": {"lastEditedAt": None}}}})
+                return json.dumps({"data": {"repository": {"issueOrPullRequest": {"lastEditedAt": None}}}})
             if "/events?" in args[-1]:
                 return "[]"
             return endless(*args)
@@ -296,6 +374,11 @@ class SpentRestQuotaTests(unittest.TestCase):
 
         def recording(*args):
             calls.append(args)
+            if args[1] == "graphql":
+                refused = broker_refused_fields(next(a for a in args if a.startswith("query=")))
+                if refused:  # what the lane-gh broker answers a query with a field outside its list
+                    raise subprocess.CalledProcessError(
+                        1, args, "", f"gh: lane-gh call graphql x/y: refused: graphql: field {refused[0]} is refused")
             return gh(*args)
         original = freeze.gh
         freeze.gh = recording
@@ -341,6 +424,9 @@ class SpentRestQuotaTests(unittest.TestCase):
         self.assertEqual(status, 0, err)
 
     def test_a_graphql_fallback_freeze_still_blocks(self):
+        """With a freeze open, check also reads the issue's last edit; the broker refused `repository { issue }`
+        for it, so `check` exited 2 (cannot read) exactly while a freeze was in force. Here the fake gh refuses
+        an off-list query as the broker does, and the check still exits 1."""
         frozen = issue(body=body())
 
         def gh(*args):
@@ -350,7 +436,7 @@ class SpentRestQuotaTests(unittest.TestCase):
             if self.issues_query(args):
                 return self.graphql_answer([node(frozen)])
             if target == "graphql":
-                return json.dumps({"data": {"repository": {"issue": {"lastEditedAt": None}}}})
+                return json.dumps({"data": {"repository": {"issueOrPullRequest": {"lastEditedAt": None}}}})
             if target.startswith("repos/x/y/issues/7/events?"):
                 return json.dumps([labeled("lawrence", name="merge-freeze")])
             if target == "repos/x/y/collaborators/lawrence/permission":
@@ -450,6 +536,34 @@ class SpentRestQuotaTests(unittest.TestCase):
         status, _, _, calls = self.run_check(gh)
         self.assertEqual(status, 2)
         self.assertEqual(len(calls), 1)
+
+
+
+class BrokerGraphqlFieldsTests(unittest.TestCase):
+    """The land gates read GitHub through the lane-gh broker, which refuses a graphql field outside its list. Scope:
+    merge_freeze.py and scripts/gh-merge-green (the scripts a land gate runs), not every graphql caller in scripts/."""
+
+    def gate_queries(self):
+        import ast
+        tree = ast.parse((ROOT / "scripts/ci/merge_freeze.py").read_text())
+        queries = [n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                   and "repository(" in n.value]
+        queries += re.findall(r"query='([^']*)'", (ROOT / "scripts/gh-merge-green").read_text())
+        return queries
+
+    def test_the_parser_reads_root_fields_fields_and_skips_aliases_arguments_and_types(self):
+        roots, below = graphql_fields('query($o:String!){a: repository(owner:$o,name:"x"){issue(number:1){... on Issue{lastEditedAt}}}}')
+        self.assertEqual((roots, below), ({"repository"}, {"issue", "lastEditedAt"}))
+
+    def test_the_refused_issue_field_is_detected(self):
+        self.assertEqual(broker_refused_fields("query{repository(owner:$owner,name:$name){issue(number:$i){lastEditedAt}}}"),
+                         ["issue"])
+
+    def test_every_land_gate_graphql_query_selects_only_fields_the_broker_accepts(self):
+        queries = self.gate_queries()
+        self.assertGreaterEqual(len(queries), 6, "the scan found too few queries; its pattern is stale")
+        for query in queries:
+            self.assertEqual([], broker_refused_fields(query), query)
 
 
 if __name__ == "__main__":
