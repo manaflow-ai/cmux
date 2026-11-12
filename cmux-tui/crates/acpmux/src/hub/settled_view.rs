@@ -196,6 +196,10 @@ impl Hub {
                 return false;
             }
         };
+        // A record logged between the meta read and the page (the store takes it before
+        // `last_seq` moves) is past this view: the delta after `last_seq` serves it, once.
+        let mut records = page.events;
+        records.retain(|r| r.seq <= m.last_seq);
         let detail = self.session_summary(session);
         let mut pending = session.permissions.lock().unwrap().pending_records();
         for p in &mut pending {
@@ -208,8 +212,8 @@ impl Hub {
             key: key.clone(),
             last_seq: m.last_seq,
             written_at: crate::store::now_ms(),
-            fork_seqs: fork_seqs(&page.events),
-            records: page.events,
+            fork_seqs: fork_seqs(&records),
+            records,
             has_more: page.has_more,
             queue: detail.get("queue").cloned().unwrap_or(Value::Array(Vec::new())),
             queued: detail.get("queued").and_then(Value::as_u64).unwrap_or(0),
