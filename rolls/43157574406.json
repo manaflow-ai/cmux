@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43157574406",
+  "recorded_at": "2026-11-12T04:59:52Z",
+  "reason": "cmux-tui 2303712c270c changes the image's cmux-tui (pinned 4743d98cb6c7)",
+  "dry_run": false,
+  "cmux_tui": "2303712c270cfefc2f654356614cfacf3ff98f39",
+  "fixes": [
+    {
+      "sha": "2303712c270cfefc2f654356614cfacf3ff98f39",
+      "mergedAt": "2026-11-11T20:39:16-08:00",
+      "subject": "cmux-tui tests: a screen reorder journals its screens, not the session"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T04:59:52Z",
+    "snapshot_id": "sh-f61f4c20bca14e6a8dd3f5cb30e2415d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43157574406): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "3e9e419aba0dd8dcb9fbffa4b5c4ba74042aae69",
+    "image": "cloud-native-auto-2303712c-43157574406-1",
+    "revision": "ci-43157574406-1",
+    "at": "2026-11-12T04:59:52Z"
+  },
+  "rolled_back": false
+}
