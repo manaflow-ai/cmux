@@ -99,7 +99,7 @@ async function frames() {
     });
 }
 
-const CARD = { left: 40, top: 300, right: 240, bottom: 420, radius: 0 };
+const CARD = { left: 40, top: 300, right: 240, bottom: 420, radius: 0, zoom: 1 };
 
 test("an open composer popover reports its rect, and an empty list once it closes", async () => {
   const container = installDom();
