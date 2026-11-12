@@ -95,6 +95,19 @@ impl HarnessHealth {
     pub fn needs_update(&self) -> bool {
         self.outdated || self.unsupported
     }
+
+    /// Sets `unsupported`: `version` is older than `minimum`, and an update can reach it. When
+    /// the channel's newest release is known and is itself older (a stable or Homebrew channel
+    /// that lags), its updater cannot bring the minimum, so the pane offers no Update that fails.
+    pub fn mark_unsupported(&mut self) {
+        self.unsupported = match (self.version.as_deref(), self.minimum.as_deref()) {
+            (Some(v), Some(m)) => {
+                minimum::below(v, m)
+                    && !self.latest.as_deref().is_some_and(|l| minimum::below(l, m))
+            }
+            _ => false,
+        };
+    }
 }
 
 /// A harness to check, as the hub's configuration describes it.
@@ -645,6 +658,7 @@ impl HealthService {
             }
             row.outdated =
                 matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
+            row.mark_unsupported();
         }
         self.apply_acp_auth(&mut rows);
         self.mark_auto(&mut rows, &settings);
@@ -760,8 +774,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         _ => builtin.unwrap_or((Auth::Unknown, None)),
     };
     let minimum = minimum::minimum(&s.family, &s.program);
-    let unsupported = matches!((&version, minimum), (Some(v), Some(m)) if minimum::below(v, m));
-    HarnessHealth {
+    let mut row = HarnessHealth {
         id: s.id,
         // In the account home the check read (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`), so Log In
         // signs that login in, not the default one.
@@ -779,7 +792,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         latest_checked_at: None,
         outdated: false,
         minimum: minimum.map(str::to_owned),
-        unsupported,
+        unsupported: false,
         auth,
         auth_detail,
         update,
@@ -787,7 +800,9 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         checked_at: now_ms(),
         auto_update: false,
         last_auto_update: None,
-    }
+    };
+    row.mark_unsupported();
+    row
 }
 
 #[cfg(test)]
@@ -876,6 +891,47 @@ mod tests {
             login(subject("gemini", "gemini", &[("CODEX_HOME", "/elsewhere")], None)),
             Some("gemini".into())
         );
+    }
+
+    /// Below the minimum is unsupported only while an update can reach it: a channel whose
+    /// newest release is itself older (stable, Homebrew) gets no Update that cannot work.
+    #[test]
+    fn unsupported_only_when_the_channel_can_reach_the_minimum() {
+        let row = |version: Option<&str>, latest: Option<&str>| {
+            let mut row = HarnessHealth {
+                id: "claude".into(),
+                program: "claude".into(),
+                path: Some("/usr/local/bin/claude".into()),
+                channel: Channel::Npm,
+                package: None,
+                version: version.map(str::to_owned),
+                latest: latest.map(str::to_owned),
+                latest_checked_at: None,
+                outdated: false,
+                minimum: Some("2.1.293".into()),
+                unsupported: false,
+                auth: Auth::SignedIn,
+                auth_detail: None,
+                login: None,
+                update: None,
+                problem: None,
+                checked_at: 1,
+                auto_update: false,
+                last_auto_update: None,
+            };
+            row.mark_unsupported();
+            (row.unsupported, row.needs_update())
+        };
+        // No newest-version lookup: an update is due.
+        assert_eq!(row(Some("2.1.278"), None), (true, true));
+        // The channel offers the minimum or newer.
+        assert_eq!(row(Some("2.1.278"), Some("2.1.300")), (true, true));
+        // The channel lags: nothing an update could bring.
+        assert_eq!(row(Some("2.1.278"), Some("2.1.290")), (false, false));
+        // Supported, or a prerelease of the minimum.
+        assert_eq!(row(Some("2.1.293"), None), (false, false));
+        assert_eq!(row(Some("2.1.293-beta.1"), None), (false, false));
+        assert_eq!(row(None, None), (false, false));
     }
 
     #[tokio::test]

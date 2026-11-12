@@ -42,6 +42,7 @@ const MINIMUMS: &[Minimum] = &[
 /// `claude-sr2` reports its own version, not the CLI's).
 pub fn minimum(family: &str, program: &str) -> Option<&'static str> {
     let name = Path::new(program).file_name()?.to_str()?;
+    let name = name.strip_suffix(".exe").unwrap_or(name);
     MINIMUMS.iter().find(|m| m.family == family && m.program == name).map(|m| m.version)
 }
 
@@ -70,6 +71,9 @@ mod tests {
         assert_eq!(minimum("codex", "codex-acp"), None);
         assert_eq!(minimum("claude", "/Users/me/.local/bin/claude-sr2"), None);
         assert_eq!(minimum("opencode", "opencode"), None);
+        // Windows names the program with its extension.
+        assert_eq!(minimum("claude", "/Users/me/.local/bin/claude.exe"), Some("2.1.293"));
+        assert_eq!(minimum("codex", "codex.exe"), Some("0.148.0"));
     }
 
     #[test]

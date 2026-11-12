@@ -192,7 +192,15 @@ impl Hub {
         let ran = self.health.run_auto_updates().await;
         if !ran.is_empty() {
             let rows = self.health.check(self.health_subjects().await, false).await;
-            let updated: Vec<&str> = ran.iter().map(String::as_str).collect();
+            // Only the runs that succeeded: a failed one changed nothing to list again.
+            let updated: Vec<&str> = ran
+                .iter()
+                .filter(|id| {
+                    rows.iter()
+                        .any(|r| &r.id == *id && r.last_auto_update.as_ref().is_some_and(|u| u.ok))
+                })
+                .map(String::as_str)
+                .collect();
             self.reprobe_after_update(&rows, &updated);
         }
         ran
