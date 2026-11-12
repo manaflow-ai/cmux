@@ -823,6 +823,9 @@ impl Hub {
         let mut running_turn_seq: Option<u64> = None;
         // Cancel stops the copy where it is; the fork is then discarded whole (`fork_cancel.rs`).
         let mut cancelled = false;
+        // A copy the journal refused is neither stored nor heard (`append_record_locked`): the
+        // fork would read as whole with history missing, so it fails instead and is purged.
+        let mut refused = false;
         if referenced {
             // Only the running turn is read, from its start: which of its tool calls still run.
             if let Some(turn) = &running {
@@ -869,7 +872,7 @@ impl Hub {
                             .and_then(Value::as_str)
                             .map(|text| short_text(text, 200));
                     }
-                    let (copy, _) = self.append_at_locked(
+                    let (copy, stored) = self.append_at_locked(
                         &new,
                         &e.dir,
                         &e.kind,
@@ -878,6 +881,10 @@ impl Hub {
                         Some(e.at),
                         false,
                     );
+                    if !stored {
+                        refused = true;
+                        return false;
+                    }
                     if starts_running {
                         running_turn_seq = Some(copy.seq);
                     }
@@ -895,6 +902,13 @@ impl Hub {
             if cancelled {
                 self.ledger.unsuppress(&new.id);
                 return Err(super::fork_cancel::cancelled_refusal());
+            }
+            if refused {
+                self.ledger.unsuppress(&new.id);
+                return Err(super::fork_before::refused(
+                    "fork.incomplete",
+                    "the journal refused a copied record",
+                ));
             }
             if before.is_some()
                 && let Err(e) = copied
