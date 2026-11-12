@@ -21,18 +21,24 @@
 //!   start 50 git processes on a machine that is busy already. Mutations
 //!   have places of their own: a person's commit does not wait for the reads
 //!   of a burst, and a push that takes its 120 s holds no read.
-//! - **A short read does not wait for long ones.** A diff and a file list
-//!   or search are long reads ([`Class::of`]): their git work grows with
-//!   the change or with the tree. They take at most [`MAX_LONG_READ_RUNS`]
-//!   of the read places, so one place is kept for the short reads (a
-//!   status, the branches, a checkpoint row, the comments). The wire does
+//! - **A short read does not wait for long ones.** A diff, a file list or
+//!   search, the branches and a checkpoint list with its candidates are
+//!   long reads ([`Class::of`]): their git work grows with the change, the
+//!   tree or the count of branches. They take at most
+//!   [`MAX_LONG_READ_RUNS`] of the read places, so one place is kept for
+//!   the short reads (a status, a checkpoint row, the comments). The wire does
 //!   not say who asks, but the operation says how long the answer takes:
 //!   the `git.status` of the view a person opens starts while the diffs of
 //!   a burst hold their places and wait in the queue.
 //! - **Equal reads share one run.** A read that waits takes in each later
 //!   read of its connection with the same operation and params. The run
 //!   starts after the last of them came, so its result is new enough for
-//!   each, and each gets it under its own id. A read with other params is a
+//!   each, and each gets it under its own id. The copies go to the
+//!   connection one after the other: a copy waits for room in the
+//!   connection's reply queue ([`SHARED_REPLY_WAIT`] at most for all the
+//!   copies of a run), because the copies of a large reply at one time are
+//!   above that queue's bound and the daemon closes a connection above it.
+//!   Before the lane, a git run was between two replies. A read with other params is a
 //!   different question and is never cancelled: the wire does not say who
 //!   asks, and its caller waits for an answer.
 //! - **A mutation keeps its connection's order.** It starts when every
@@ -58,9 +64,9 @@
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::MessageWriter;
 use super::ResourceRequestId;
@@ -96,21 +102,31 @@ const QUEUED_PER_CLIENT: usize = 512;
 /// Equal reads that share one run. One more waits as a request of its own.
 const SHARED_READS: usize = 64;
 
+/// The longest the copies of one shared reply wait, all together, for room
+/// in their connection's reply queue. The run keeps its place for that
+/// time, so it is short. A client that takes none of its replies for this
+/// long has a full queue, and the daemon closes it as it closes any
+/// connection whose queue is full.
+const SHARED_REPLY_WAIT: Duration = Duration::from_secs(10);
+
 /// What a git request is to the order rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Class {
-    /// A read whose git work is small: a status, the branches, a checkpoint
-    /// row or list, the comments, the state of a worktree's setup.
+    /// A read whose git work is small: a status, a checkpoint row or list,
+    /// the comments, the state of a worktree's setup.
     ShortRead,
-    /// A read whose git work grows with the size of the change or of the
-    /// tree: a diff, a file list or search.
+    /// A read whose git work grows with the size of the change, of the tree
+    /// or of the repository: a diff, a file list or search, the branches (a
+    /// git child for each branch), a checkpoint list with its candidates
+    /// (the untracked and the ignored paths of the tree).
     LongRead,
     /// A request that changes the repository or the daemon's git records.
     Mutation,
 }
 
 impl Class {
-    fn of(operation: ResourceOperation) -> Self {
+    /// The class of `operation` with the params `fields`.
+    fn of(operation: ResourceOperation, fields: &Map<String, Value>) -> Self {
         if operation.is_mutation() {
             return Self::Mutation;
         }
@@ -118,7 +134,13 @@ impl Class {
             ResourceOperation::GitDiff
             | ResourceOperation::GitCheckpointDiff
             | ResourceOperation::GitFilesList
-            | ResourceOperation::GitFilesSearch => Self::LongRead,
+            | ResourceOperation::GitFilesSearch
+            | ResourceOperation::GitBranches => Self::LongRead,
+            ResourceOperation::GitCheckpointList
+                if fields.get("include_candidates").and_then(Value::as_bool) == Some(true) =>
+            {
+                Self::LongRead
+            }
             _ => Self::ShortRead,
         }
     }
@@ -315,6 +337,8 @@ impl Job {
         let commands = mux.connection_stats().commands();
         let mut handled = Some(handled);
         let mut left = joined.len() + 1;
+        // Until when the copies of this reply wait for room in the connection's queue.
+        let room_by = Instant::now() + SHARED_REPLY_WAIT;
         for (index, waiter) in std::iter::once(first).chain(joined).enumerate() {
             left -= 1;
             let _scope = match scope.take() {
@@ -336,7 +360,11 @@ impl Job {
                         answered_ok(&response),
                         code.and_then(Value::as_str),
                     );
-                    let _ = writer.send_control(&response);
+                    let _ = if index == 0 {
+                        writer.send_control(&response)
+                    } else {
+                        writer.send_control_backpressured(&response, room_by)
+                    };
                 }
                 // Only a response that cannot be encoded, or a panic.
                 Some(Err(error)) => {
@@ -378,7 +406,7 @@ pub(super) fn submit(
     let lane = &mux.control_clients.git_lane;
     let operation = request.envelope.operation;
     let id = request.envelope.id.clone();
-    let class = Class::of(operation);
+    let class = Class::of(operation, &request.fields);
     {
         let mut schedule = lane.schedule.lock().recover_poison();
         let shared = if class.is_mutation() {
@@ -655,13 +683,26 @@ mod tests {
 
     #[test]
     fn the_class_of_an_operation() {
-        assert_eq!(Class::of(ResourceOperation::GitStatus), Class::ShortRead);
-        assert_eq!(Class::of(ResourceOperation::GitBranches), Class::ShortRead);
-        assert_eq!(Class::of(ResourceOperation::DiffCommentsList), Class::ShortRead);
-        assert_eq!(Class::of(ResourceOperation::GitDiff), Class::LongRead);
-        assert_eq!(Class::of(ResourceOperation::GitCheckpointDiff), Class::LongRead);
-        assert_eq!(Class::of(ResourceOperation::GitFilesSearch), Class::LongRead);
-        assert_eq!(Class::of(ResourceOperation::GitCommit), Class::Mutation);
-        assert_eq!(Class::of(ResourceOperation::DiffCommentsSave), Class::Mutation);
+        let plain = Map::new();
+        let class = |operation| Class::of(operation, &plain);
+        assert_eq!(class(ResourceOperation::GitStatus), Class::ShortRead);
+        assert_eq!(class(ResourceOperation::DiffCommentsList), Class::ShortRead);
+        assert_eq!(class(ResourceOperation::GitCheckpointGet), Class::ShortRead);
+        assert_eq!(class(ResourceOperation::GitDiff), Class::LongRead);
+        assert_eq!(class(ResourceOperation::GitCheckpointDiff), Class::LongRead);
+        assert_eq!(class(ResourceOperation::GitFilesSearch), Class::LongRead);
+        // A git child for each branch: work of the size of the repository.
+        assert_eq!(class(ResourceOperation::GitBranches), Class::LongRead);
+        assert_eq!(class(ResourceOperation::GitCommit), Class::Mutation);
+        assert_eq!(class(ResourceOperation::DiffCommentsSave), Class::Mutation);
+        // A checkpoint list is short, but not with the candidates: they are
+        // the untracked and the ignored paths of the whole tree.
+        let list = ResourceOperation::GitCheckpointList;
+        assert_eq!(class(list), Class::ShortRead);
+        let mut fields = Map::new();
+        fields.insert("include_candidates".to_string(), json!(false));
+        assert_eq!(Class::of(list, &fields), Class::ShortRead);
+        fields.insert("include_candidates".to_string(), json!(true));
+        assert_eq!(Class::of(list, &fields), Class::LongRead);
     }
 }
