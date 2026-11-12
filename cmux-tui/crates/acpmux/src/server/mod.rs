@@ -688,6 +688,13 @@ impl Conn {
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
+        // Each client's share of the list it is sent (`list_bytes.rs`), by its name and origin.
+        if matches!(method, Some(crate::rpc::method::MUX_WATCH | crate::rpc::method::MUX_SESSIONS))
+        {
+            let name = self.name.lock_or_recover().clone();
+            let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
+            crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
+        }
         match self.out.try_send(line) {
             Ok(()) if stale => self.enqueue_control_locked(lag()),
             Ok(()) => {}
@@ -1595,6 +1602,16 @@ pub async fn serve_connection_authed(
     .await
 }
 
+/// The usage-patterns key of a listener.
+fn origin_usage_key(origin: Origin) -> &'static str {
+    match origin {
+        Origin::Local => "local",
+        Origin::Web => "web",
+        Origin::LocalApp => "app",
+        Origin::Peer => "peer",
+    }
+}
+
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
 async fn serve_connection_from(
     hub: Arc<Hub>,
@@ -1624,6 +1641,14 @@ async fn serve_connection_from(
     // and a peer token checked at its upgrade; not a paired machine, nor an in-process carrier.
     let dual_principal = (wire.is_some() && auth == ConnAuth::PeerToken && device.is_none())
         .then_some(dual_requests::PEER_LINK);
+    // Opt-in usage patterns: connections by listener, and distinct paired machines (an opaque
+    // stand-in for the device id, never the id).
+    if cmux_usage_patterns::enabled() {
+        cmux_usage_patterns::count("acpmux-connection", origin_usage_key(origin));
+        if let Some(device) = device.as_deref() {
+            cmux_usage_patterns::count("machine", &cmux_usage_patterns::opaque_id(device));
+        }
+    }
     let conn = Arc::new(Conn {
         scope: hub.scope.child("acpmux conn"),
         id: uuid::Uuid::now_v7().to_string(),
@@ -1774,18 +1799,20 @@ async fn serve_connection_from(
                 }
                 // A peer link sent this request on two paths (`dual_requests.rs`): in order, so
                 // the copy read first runs it and the other answers with its answer.
-                let dual = dual_requests::key_for(conn.dual_principal, &m, params.as_ref())
-                    .and_then(dual_requests::admit);
+                let seen = dual_requests::key_for(conn.dual_principal, &m, params.as_ref());
+                let dual_key = seen.as_ref().map(|(key, _)| key.clone());
+                let dual = seen.and_then(dual_requests::admit);
+                let dual_key = dual_key.filter(|_| dual.is_some());
                 // Registered in order, before the request is spawned: a `$/cancel_request` read
                 // after it finds it, and taking it frees its slot (`in_flight.rs`).
-                let mut ticket = conn.in_flight.begin(&id, &m, slot);
+                let mut ticket = conn.in_flight.begin(&id, &m, slot, dual_key);
                 #[cfg(test)]
                 cancel_classes_tests::after_begin(&conn);
                 let owner = conn.clone();
                 let hub = hub.clone();
                 let conn = conn.clone();
                 owner.scope.spawn_named("conn-request", async move {
-                    let first = match dual_requests::before_run(dual).await {
+                    let mut first = match dual_requests::before_run(dual).await {
                         Ok(first) => first,
                         Err(answer) => {
                             // A cancel's part on this connection is its own (`dual_requests.rs`).
@@ -1809,11 +1836,22 @@ async fn serve_connection_from(
                         hub.request_hold(stage, &m, &id).await;
                         list_reply::scope(id.clone(), &m, claim, route).await
                     };
-                    let served = crate::request_cancel::until_cancelled(cancel, serve).await;
+                    // A cancel of its copy on another connection stops it too (`dual_requests.rs`).
+                    let also = first.as_mut().and_then(dual_requests::First::take_stop);
+                    let served = crate::request_cancel::until_either(cancel, also, serve).await;
                     // Cancelled: the cancel answered it, and a copy sent on another path gets
                     // that answer too (`dual_requests.rs`).
                     let Some((result, sent)) = served.filter(|_| conn.in_flight.finish(&ticket))
                     else {
+                        // Stopped by a cancel of its copy on another connection: this copy's
+                        // answer here is still owed, and is the cancel's.
+                        if conn.in_flight.finish(&ticket) {
+                            let cancelled = Err(crate::request_cancel::cancelled_error());
+                            conn.send_replying(
+                                &dual_requests::reply(id.clone(), cancelled),
+                                Some(&m),
+                            );
+                        }
                         tracing::debug!(
                             target: crate::request_cancel::LOG_TARGET,
                             conn = %conn.id,
@@ -1827,6 +1865,13 @@ async fn serve_connection_from(
                         );
                         return;
                     };
+                    // Opt-in usage patterns: methods this daemon serves (an unknown name a client
+                    // made up is no key), `/` as `.` so `_acpmux/chat/list` is one key.
+                    if cmux_usage_patterns::enabled()
+                        && result.as_ref().err().is_none_or(|e| e.code != -32601)
+                    {
+                        cmux_usage_patterns::count("acpmux-method", &m.replace('/', "."));
+                    }
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
@@ -1859,8 +1904,13 @@ async fn serve_connection_from(
             // own requests, so a read-only machine, a teammate and a trigger may send it.
             Message::Notification { method: m, params } if m == method::CANCEL_REQUEST => {
                 if let Some(id) = params.as_ref().and_then(crate::request_cancel::named_id)
-                    && let Some(cancelled) = conn.in_flight.cancel(id)
+                    && let Some((cancelled, dual)) = conn.in_flight.cancel(id)
                 {
+                    // One copy of a request sent on two paths: the copy that runs stops,
+                    // whichever connection it came on, and a later one never runs.
+                    if let Some(key) = dual {
+                        dual_requests::cancel(&key);
+                    }
                     let error = crate::request_cancel::cancelled_error();
                     conn.send_replying(&Message::err(id.clone(), error), Some(&cancelled));
                 }
@@ -2228,6 +2278,9 @@ mod app_reply;
 #[cfg(test)]
 #[path = "cancel_classes_tests.rs"]
 mod cancel_classes_tests;
+#[cfg(test)]
+#[path = "cancel_prompt_tests.rs"]
+mod cancel_prompt_tests;
 mod client_request;
 mod clock_text;
 mod in_flight;
@@ -2287,6 +2340,7 @@ pub mod peer_text;
 mod pending;
 mod place;
 mod processes;
+mod prompt_cancel;
 mod workflow_activity;
 mod workflow_runs;
 mod worktrees;

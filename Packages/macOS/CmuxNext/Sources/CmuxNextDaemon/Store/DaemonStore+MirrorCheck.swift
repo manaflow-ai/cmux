@@ -24,8 +24,27 @@ extension DaemonStore {
     /// outside the allowed writers is still found at the next recorded window.
     static let mirrorCheckInterval: Duration = .seconds(1)
 
+    /// Runs `body` with the mirror check off, for a test that times applies: the check's whole-tree
+    /// walk, once per `mirrorCheckInterval` of wall clock, lands on whichever apply crosses the second,
+    /// so on a slow runner it is an outlier that grows with the tree and not with the apply. The
+    /// check resumes when `body` ends or throws, and the next allowed writer records afresh.
+    /// Internal (tests reach it through `@testable import`); release builds have no check, so there
+    /// this only runs `body`.
+    func withMirrorCheckSuspended<T>(_ body: () async throws -> T) async rethrows -> T {
+        #if DEBUG
+        mirrorCheckSuspensions += 1
+        mirrorFingerprint = nil
+        defer {
+            mirrorCheckSuspensions -= 1
+            mirrorFingerprintTakenAt = nil
+        }
+        #endif
+        return try await body()
+    }
+
     func verifyMirrorUnchanged(before writer: String) {
         #if DEBUG
+        guard mirrorCheckSuspensions == 0 else { return }
         guard let recorded = mirrorFingerprint, layoutFingerprint() != recorded else { return }
         reportMirrorViolation("mirror records written outside daemon apply and the intent overlay "
             + "(found before \(writer); \(workspaces.count) workspaces, \(index.tabsBySurface.count) tabs now)")
@@ -34,6 +53,10 @@ extension DaemonStore {
 
     func recordMirror() {
         #if DEBUG
+        guard mirrorCheckSuspensions == 0 else {
+            mirrorFingerprint = nil
+            return
+        }
         let now = ContinuousClock.now
         if let last = mirrorFingerprintTakenAt, now - last < Self.mirrorCheckInterval {
             mirrorFingerprint = nil

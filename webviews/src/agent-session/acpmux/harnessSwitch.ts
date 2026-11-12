@@ -775,7 +775,13 @@ export class HarnessSwitch {
       return;
     }
     intent.phase = "failed";
-    intent.error = errorText(error) || t("switch.unknownError");
+    // acpmux's spawn error says only the io error ("No such file or directory"), the same for a
+    // missing CLI and a gone folder; its `recovery` says which ("claude-agent-acp is not installed",
+    // "The folder … is gone"), so the card reads both: a missing agent gets Install, not a dead end.
+    const typed = error as { errorKind?: unknown; recovery?: unknown } | undefined;
+    const recovery =
+      typed?.errorKind === "spawn.failed" && typeof typed.recovery === "string" ? typed.recovery : undefined;
+    intent.error = [errorText(error) || t("switch.unknownError"), recovery].filter(Boolean).join("\n");
     const code = (error as { code?: unknown } | undefined)?.code;
     intent.code = typeof code === "string" ? code : undefined;
     if (intent.queued.length) {
