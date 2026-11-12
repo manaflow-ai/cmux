@@ -84,7 +84,7 @@ try {
           console.log(`SHOT ${variant}-${scheme} ${JSON.stringify(info)}`);
         } catch (error) {
           failed++;
-          console.log(`FAIL ${variant}-${scheme} ${error}`);
+          console.log(`FAIL ${variant}-${scheme} ${String(error)}`);
           await page.screenshot({ path: path.join(out, `${variant}-${scheme}-FAILED.png`) }).catch(() => {});
         }
         await page.close();
