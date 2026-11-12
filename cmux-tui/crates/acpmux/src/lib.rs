@@ -156,8 +156,10 @@ pub(crate) mod opencode_ask;
 mod owner_only;
 pub mod pairing;
 pub mod parent_watch;
+pub mod parse_budget;
 pub mod path_canon;
 pub mod peer;
+pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
 pub mod peer_paths;
@@ -214,6 +216,8 @@ pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
+#[cfg(test)]
+mod single_shot_list_tests;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;
@@ -232,6 +236,8 @@ pub(crate) mod supervise;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
+#[cfg(test)]
+mod test_hooks_tree;
 #[cfg(test)]
 mod test_stack;
 pub mod tools_mcp;

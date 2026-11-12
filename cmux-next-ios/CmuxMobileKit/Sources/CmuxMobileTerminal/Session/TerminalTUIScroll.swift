@@ -174,3 +174,34 @@ public struct TerminalTUITapClick: Equatable, Sendable {
         return .click
     }
 }
+
+/// Where a finger's vertical drag over the terminal goes: the one rule every
+/// pan, fling and wheel on the phone follows (Leo, 2026-11-12: "this terminal
+/// projection nigh unusable due to me scroll and thumb land on subagent
+/// depiction").
+///
+/// A drag is a scroll, never a keystroke. On the primary screen it moves the
+/// phone's own copy of the scrollback (the shell's page), sending nothing.
+/// On the alternate screen the history lives in the app (Claude Code's and
+/// Codex's full-screen renderers, vim, less, htop): the drag reaches the app
+/// only as wheel reports, and only when the app asked for them (mouse
+/// reporting, DECSET 1000/1002/1003), which is the app saying a wheel
+/// scrolls it. Without mouse reporting Ghostty's alternate scroll (DECSET
+/// 1007, on by default) would turn the wheel into cursor up/down keys; a
+/// person's drag then typed arrows into the app, which walked Claude Code's
+/// prompt history and its background-agent list instead of the transcript.
+/// So there the drag does nothing: the alternate screen keeps no scrollback
+/// on the phone, the page stays put and no byte goes out.
+public enum TerminalPanRoute: Equatable, Sendable {
+    /// The phone's own scrollback scrolls; nothing is sent.
+    case localScrollback
+    /// The app gets wheel reports (it asked for the mouse).
+    case wheelReports
+    /// Nothing moves and nothing is sent (an alternate screen without mouse reporting).
+    case none
+
+    public static func route(alternateScreen: Bool, appReportsMouse: Bool) -> TerminalPanRoute {
+        guard alternateScreen else { return .localScrollback }
+        return appReportsMouse ? .wheelReports : .none
+    }
+}

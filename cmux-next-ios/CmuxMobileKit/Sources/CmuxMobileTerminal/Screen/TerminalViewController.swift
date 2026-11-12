@@ -2385,16 +2385,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         fling?.stop()
         fling = nil
         stopGlide()
-        if scrollView.isTracking || scrollView.isDragging {
-            let pan = scrollView.panGestureRecognizer
-            pan.isEnabled = false
-            pan.isEnabled = true
-        }
-        if scrollView.isDecelerating {
-            settingOffset = true
-            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
-            settingOffset = false
-        }
+        settingOffset = true
+        scrollView.haltScrollMomentum()
+        settingOffset = false
         // An animated scroll to the live bottom (CMUX-10: the tap snapped
         // there). Reduce Motion, a TUI or a page already at the bottom keep
         // the direct move.

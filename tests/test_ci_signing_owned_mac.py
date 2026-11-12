@@ -485,15 +485,10 @@ EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
 }
 # Jobs that read signing_runner.py's owned pick and are not counted by its cap (signing_runner.SIGNING_JOBS), each
 # with why. None: every owned pick a job takes is a mini held whole, which MAX_OWNED_SIGNING must count.
-OWNED_PICK_EXEMPT: dict[tuple[str, str], str] = {
-    # Found by this guard on 2026-11-10 and reported, not fixed here: it holds no secret, so it is not glaeda's
-    # exclusive class and the cap rightly does not count it, but it reads find-nightly-next-recovery's sign_owned
-    # (the recovery signer's own runner pin) where verify-signed-nightly and verify-final-dmg-nightly read the
-    # verify pick (`owned`), which find-nightly-next-recovery does not publish.
-    ("nightly.yml", "verify-recovered-nightly-next"):
-        "secret-free verify of the recovered DMG; it follows recover-nightly-next-notarization (needs) onto the "
-        "runner that job's pick named, after the signer released it, and glaeda does not hold that mini whole for it",
-}
+# verify-recovered-nightly-next was the one entry (found here 2026-11-10, reported, not fixed): it read the recovery
+# signer's pin, and glaeda admits only signing jobs on a signing mini, so it was refused and no recovered build ever
+# published (ask-2f54cdc7fc, run 43224144950). A secret-free job reads the verify pick, never a signer's pin.
+OWNED_PICK_EXEMPT: dict[tuple[str, str], str] = {}
 
 
 def owned_pick_reads(jobs: dict, runs_on: str) -> list[str]:
@@ -689,7 +684,7 @@ class SigningOwnedMacTests(unittest.TestCase):
             "no Blacksmith twin": {k: v for k, v in both.items() if k != twin_name},
             "must carry claim": {**both, "build-sign-notarize": {**good, "outputs": {}}},
             "must have the same steps": {**both, twin_name: {**both[twin_name], "steps": good["steps"][1:]}},
-            "must take Blacksmith only": {**both, twin_name: {**both[twin_name], "runs-on": good["runs-on"]}},
+            "must take Blacksmith only": {**both, twin_name: {**both[twin_name], "runs-on": workflow_jobs.single_runs_on(good)}},
             "if must be exactly": {**both, twin_name: {**both[twin_name], "if": "always()"}},
             "needs must be": {**both, twin_name: {**both[twin_name], "needs": ["pick"]}},
             "but not build-sign-notarize-blacksmith": {**both, "publish": workflow_jobs.copy_job(reader, {"needs": ["build-sign-notarize"]})},
@@ -1314,7 +1309,7 @@ class ClassificationTests(unittest.TestCase):
         documents = workflows()
         base = copy.deepcopy(documents["release.yml"]["jobs"]["build-sign-notarize"])
         base = keychain_guard.bracketed(base)
-        base["runs-on"] = re.sub(r"needs\.([\w-]+)\.outputs\.([\w-]+)", r"needs['\1'].outputs['\2']", str(base["runs-on"]))
+        base["runs-on"] = re.sub(r"needs\.([\w-]+)\.outputs\.([\w-]+)", r"needs['\1'].outputs['\2']", workflow_jobs.single_runs_on(base))
         found, _, _ = classification_failures(self._with(documents, "release.yml", "sign-split-fixture", base))
         self.assertTrue(any(why.startswith("release.yml sign-split-fixture:") and "not in GLAEDA_EXCLUSIVE_JOBS" in why
                             for why in found), found)

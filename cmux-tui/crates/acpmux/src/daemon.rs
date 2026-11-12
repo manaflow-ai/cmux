@@ -851,6 +851,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
             }
+            // Debug builds only: `ACPMUX_TEST_HOLD_STARTUP` holds the same step until the test
+            // removes its file (`hub/log_load.rs` `test_hold`). Release builds have no seam.
+            #[cfg(debug_assertions)]
+            if std::env::var_os("ACPMUX_TEST_HOLD_STARTUP").is_some() {
+                let held = tokio::task::spawn_blocking(|| {
+                    crate::hub::test_hold("ACPMUX_TEST_HOLD_STARTUP")
+                });
+                let _ = held.await;
+            }
             // Agents that outlived the previous daemon come back first: their chats' logs
             // (tails, queues), then adoption. Every other chat's log is read in the background
             // after it, or first by a request for that chat (`hub/log_load.rs`).
@@ -1337,7 +1346,12 @@ async fn take_over_holder(socket: &std::path::Path) {
         pid = status.get("pid").and_then(serde_json::Value::as_u64),
         "another daemon of this home serves its socket; asking it to hand over"
     );
-    let _ = client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})).await;
+    let _ = client
+        .request(
+            crate::rpc::method::MUX_SHUTDOWN,
+            serde_json::json!({"reason": "handover: another daemon of this home starts"}),
+        )
+        .await;
 }
 
 /// Whether two paths name the same file: equal, or equal once canonical (a missing file through
