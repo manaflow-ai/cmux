@@ -581,7 +581,7 @@ fn a_compaction_staged_by_an_older_build_starts_again_from_zero() {
 
     // The next compaction makes a new file, and that one is swapped.
     assert_eq!(stage(&at_open, CleanupMode::Compact, &|| true), StageOutcome::Built);
-    assert_eq!(staging_state(&at_open, "format").as_deref(), Some(super::stage::STAGING_FORMAT));
+    assert_eq!(staging_state(&at_open, "format").as_deref(), Some(stage::STAGING_FORMAT));
     assert_eq!(staging_state(&at_open, "mode").as_deref(), Some("compact"));
     assert_eq!(staging_state(&at_open, "made_by"), None, "the format 4 file was taken");
     assert!(std::fs::read(&at_open).unwrap() == original, "staging changed the registry");
@@ -592,7 +592,7 @@ fn a_compaction_staged_by_an_older_build_starts_again_from_zero() {
     assert_eq!(stage(&at_stage, CleanupMode::Compact, &|| true), StageOutcome::Built);
     make_staging_format_4(&at_stage);
     assert_eq!(stage(&at_stage, CleanupMode::Compact, &|| true), StageOutcome::Built);
-    assert_eq!(staging_state(&at_stage, "format").as_deref(), Some(super::stage::STAGING_FORMAT));
+    assert_eq!(staging_state(&at_stage, "format").as_deref(), Some(stage::STAGING_FORMAT));
     assert_eq!(staging_state(&at_stage, "made_by"), None, "the worker went on in a format 4 file");
     assert!(std::fs::read(&at_stage).unwrap() == original, "the discard changed the registry");
 

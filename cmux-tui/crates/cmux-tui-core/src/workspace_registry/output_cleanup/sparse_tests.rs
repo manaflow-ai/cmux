@@ -214,11 +214,14 @@ fn assert_rebuilt_above(sparse: &Sparse, cut: u64) {
 #[test]
 fn the_delete_in_place_crosses_the_sparse_part() {
     let sparse = sparse_registry("delete", 14_000, 8_000);
-    let Sparse { root, db_path, head, all, .. } = &sparse;
+    let Sparse { root, db_path, head, all, packed } = &sparse;
     let mux = open(&root.0);
-    // The worker ticks each 30 s; the test runs the same tick itself.
+    // The worker ticks each 30 s; the test runs the same tick itself. A tick
+    // deletes 8 segments, so the ticks follow the packed segments: another
+    // test of this process may make them small (the environment variable
+    // of `segment_record_limit`), and then the sparse part has hundreds.
     mux.stop_journal_maintenance();
-    for _ in 0..40 {
+    for _ in 0..packed.len() / 8 + 40 {
         if mux.run_journal_maintenance_for_test() {
             break;
         }
