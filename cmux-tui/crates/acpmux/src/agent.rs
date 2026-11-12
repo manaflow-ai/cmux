@@ -4,7 +4,7 @@
 //! the session log holds the raw wire traffic.
 
 use crate::config::HarnessProfile;
-use crate::no_panic::RwLockExt;
+use crate::no_panic::{LockExt as _, RwLockExt};
 use crate::rpc::{Id, Message, RpcError};
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
@@ -187,6 +187,28 @@ struct Hosted {
     /// (`is_stopped`, review 68 of #23322); a reattach clears it. Under MDM's off only: with it
     /// unset the agent counts as alive as before (`is_alive`, review 1 of #26059).
     stopped: std::sync::atomic::AtomicBool,
+    /// Answers to the agent's requests written to the host and not yet logged back as its `out`
+    /// tap, in the order written. The host taps every line it takes before the harness reads it,
+    /// and takes nothing from a connection another owner replaced; so an answer written through
+    /// a link that went down (the write failed, or the host no longer took that connection's
+    /// lines) is one with no tap once the next link's replay is all logged, and a reattach sends
+    /// it again (`resend_unlogged_answers`). Without this the agent waited for ever on an ask the
+    /// person had answered (a permission, most often).
+    unlogged_answers: std::sync::Mutex<Vec<UnloggedAnswer>>,
+}
+
+/// An answer [`Hosted::unlogged_answers`] keeps until the host logs it back.
+struct UnloggedAnswer {
+    /// [`key`] of the request it answers.
+    id: String,
+    msg: Value,
+    /// Its write's fence: a cut answer is never sent again here. The hub asks a cut question
+    /// again under the bound now (`hub/permissions.rs` `respond_answer`); sent again unchecked, it
+    /// could pass a bound an MDM off cut it for.
+    fence: Option<Fence>,
+    /// The link it was last written through: a reattach sends again only what went through a link
+    /// before its own, never what a writer sends through the new link meanwhile.
+    link: std::sync::Weak<crate::agent_host::link::Link>,
 }
 
 impl Hosted {
@@ -194,6 +216,10 @@ impl Hosted {
         self.link.read_or_recover().clone()
     }
 }
+
+/// How long a reattach or an adoption waits for its replay to make progress, and for all of it.
+pub(crate) const REPLAY_STALL: std::time::Duration = std::time::Duration::from_secs(10);
+pub(crate) const REPLAY_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// How a hosted agent was reached.
 pub enum Attached {
@@ -478,6 +504,20 @@ impl Fence {
     /// Whether it is settled: written, cut or failed.
     pub fn is_settled(&self) -> bool {
         self.now() >= Self::WRITTEN
+    }
+
+    /// For an answer written through a link that went down whose line its host never took (no
+    /// `out` tap once the next link's replay is all logged, `ChildAgent::resend_unlogged_answers`):
+    /// whether it may be sent again unchecked. Still queued: it is cut now, and a cut question is
+    /// asked again under the bound now (`hub/permissions.rs` `respond_answer`), never sent again
+    /// unchecked. Taken by that link's writer: its host never takes it now (it takes nothing from a
+    /// replaced connection), so it failed, and may be. Failed already: may be. Cut or written: not.
+    fn lost_with_its_link(&self) -> bool {
+        if self.step(Self::QUEUED, Self::CUT) {
+            return false;
+        }
+        self.step(Self::WRITING, Self::FAILED);
+        self.now() == Self::FAILED
     }
 
     /// Whether it was cut while queued: never written.
@@ -1599,8 +1639,22 @@ impl ChildAgent {
 
     async fn hand_on(&self, msg: &Message, fence: Option<&Fence>) -> Result<()> {
         if let Some(h) = &self.hosted {
-            // The host writes it and logs it back as an `out` entry.
-            return h.link().line_fenced(msg.to_value(), fence.cloned()).await;
+            // The host writes it and logs it back as an `out` entry. An answer is kept until then,
+            // whatever this write returns: a reattach sends it again if the host never took it.
+            // Kept under the link's lock: a reattach swaps the link under it, so an answer written
+            // through the old link is kept before the reattach looks (`resend_unlogged_answers`).
+            let link = {
+                let current = h.link.read_or_recover();
+                if let Message::Response { id, .. } = msg {
+                    let mut unlogged = h.unlogged_answers.lock_or_recover();
+                    unlogged.retain(|a| a.id != key(id));
+                    let link = Arc::downgrade(&current);
+                    let (id, msg, fence) = (key(id), msg.to_value(), fence.cloned());
+                    unlogged.push(UnloggedAnswer { id, msg, fence, link });
+                }
+                current.clone()
+            };
+            return link.line_fenced(msg.to_value(), fence.cloned()).await;
         }
         // A translator's state moves on with what it translates (Claude's permission asks, the
         // app-server's approvals), so a message it takes is as good as taken: never cut while
@@ -2134,8 +2188,62 @@ impl ChildAgent {
             h.broken.store(false, Ordering::SeqCst);
             h.stopped.store(false, Ordering::SeqCst);
         }
-        self.start_reader(link);
+        self.start_reader(link.clone());
+        let earlier = |a: &UnloggedAnswer| a.link.upgrade().is_none_or(|l| !Arc::ptr_eq(&l, &link));
+        // Complete: a write through the old link kept its answer before the swap (`hand_on`).
+        if h.unlogged_answers.lock_or_recover().iter().any(earlier) {
+            let agent = self.clone();
+            tokio::spawn(async move { agent.resend_unlogged_answers(&link).await });
+        }
         Ok(())
+    }
+
+    /// After a reattach to `link`: once its replay is all in the session log, every answer written
+    /// through an earlier link that the host never logged back went nowhere, and is written again
+    /// through `link`, once. Nothing is sent while the replay is not known to be complete (such an
+    /// answer may still be in it) or once a later reattach replaced `link` (that one sends it).
+    async fn resend_unlogged_answers(&self, link: &Arc<crate::agent_host::link::Link>) {
+        let Some(h) = &self.hosted else { return };
+        let replayed = match self.learn_replay_end(REPLAY_STALL).await {
+            Some(end) => self.wait_replayed(end, REPLAY_STALL, REPLAY_CEILING).await,
+            None => false,
+        };
+        if !replayed {
+            tracing::warn!(agent = %self.name, "agent host replay incomplete after a reattach; unlogged answers wait for the next one");
+            return;
+        }
+        let resend: Vec<Value> = {
+            // Under the link's lock: a reattach that replaced `link` since takes them instead.
+            let current = h.link.read_or_recover();
+            if !Arc::ptr_eq(&current, link) {
+                return;
+            }
+            let mut unlogged = h.unlogged_answers.lock_or_recover();
+            let earlier =
+                |a: &UnloggedAnswer| a.link.upgrade().is_none_or(|l| !Arc::ptr_eq(&l, link));
+            // What went through an earlier link and is not sent again is the hub's (a cut) or
+            // its host's (written): dropped here.
+            unlogged
+                .retain(|a| !earlier(a) || a.fence.as_ref().is_none_or(Fence::lost_with_its_link));
+            unlogged
+                .iter_mut()
+                .filter(|a| earlier(a))
+                .map(|a| {
+                    a.link = Arc::downgrade(link);
+                    // Sent again with no fence: what held the first write was settled above.
+                    a.fence = None;
+                    a.msg.clone()
+                })
+                .collect()
+        };
+        for msg in resend {
+            tracing::info!(agent = %self.name, "an answer written while the agent host link was down is sent again");
+            if let Err(e) = link.line_fenced(msg, None).await {
+                // Kept: the next reattach sends it.
+                tracing::warn!(agent = %self.name, "resending an answer failed: {e:#}");
+                return;
+            }
+        }
     }
 
     /// An adopted host's replay counts as pending until `learn_replay_end` learns how far it goes.
@@ -2255,6 +2363,7 @@ impl ChildAgent {
                 broken: std::sync::atomic::AtomicBool::new(false),
                 replay_to: std::sync::atomic::AtomicU64::new(0),
                 stopped: std::sync::atomic::AtomicBool::new(false),
+                unlogged_answers: std::sync::Mutex::new(Vec::new()),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
@@ -2416,6 +2525,12 @@ impl ChildAgent {
             Entry::Tap { dir, msg } => match Message::from_value(msg) {
                 Ok(m) => {
                     let d = if dir == TapDir::In { Direction::In } else { Direction::Out };
+                    if let (Direction::Out, Message::Response { id, .. }, Some(hosted)) =
+                        (d, &m, &self.hosted)
+                    {
+                        // The host took this answer: it is never sent again.
+                        hosted.unlogged_answers.lock_or_recover().retain(|a| a.id != key(id));
+                    }
                     (self.tap)(d, &m, Some(h))
                 }
                 Err(_) => true,
