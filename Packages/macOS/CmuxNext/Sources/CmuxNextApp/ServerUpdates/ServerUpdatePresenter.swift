@@ -40,10 +40,12 @@ final class ServerUpdatePresenter {
         let daemon = daemon
         let servers = servers
         observers.append(Task { [weak self] in
-            for await identity in ObservationStream({ daemon.identity }) {
+            for await (identity, replacing) in ObservationStream({ (daemon.identity, daemon.replacingDaemonPID) }) {
                 guard let identity else { continue }
+                // An older build's daemon the launch check is already handing off gets no toast.
                 servers.report(ServerHandshake(daemon: identity, host: .local),
-                               appCapabilities: ServerHandshake.appCmuxTUICapabilities, bundledBuild: nil)
+                               appCapabilities: ServerHandshake.appCmuxTUICapabilities, bundledBuild: nil,
+                               handingOff: identity.pid == replacing)
                 self?.sync()
                 await self?.refreshFacts()
             }
