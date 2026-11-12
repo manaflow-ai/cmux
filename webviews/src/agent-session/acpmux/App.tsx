@@ -723,7 +723,7 @@ import { askBtwQuestion, supportsBtwGuest } from "./btwCapability";
 import { SecondOpinionContext } from "./conversation/secondOpinion";
 import { canBeGuest, guestMention } from "./mentionItems";
 import { HELD_EFFORT_ID, HELD_FAST_ID, HELD_FAST_ON, isFastModeOption } from "./heldOptions";
-import { clearHeldFork, prepareHeldFork, sendHeldFork } from "./forkHold";
+import { clearHeldFork, holdFork, prepareHeldFork, sendHeldFork } from "./forkHold";
 import { setSuggestedTasks } from "./offer/offersShown";
 import { OfferDefaultsContext, offerDefaults, offerPicks } from "./offer/offerChoice";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -8807,12 +8807,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           "chat.forkOnto": async ({ harness, model, effort, fast, message }) => {
             harnessSwitch.cancel();
             const chat = client.selectedSession;
-            const forked = await client.forkOnto({
+            const pick = {
               harness: String(harness),
               ...(typeof model === "string" && model ? { model } : {}),
               ...(typeof effort === "string" && effort ? { effort } : {}),
               ...(fast === true ? { fast: true } : {}),
-            });
+            };
+            const forked = await client.forkOnto(pick);
             // l10n-allow: the composer's promise only; the fork's own toast says why.
             if (!forked) throw new Error("no fork");
             await openFork(forked, chat, "tab", {
@@ -8823,11 +8824,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               focus: () => composerHandle.current?.focus(),
             });
             const text = typeof message === "string" ? message.trim() : "";
+            // The prompt resolves when its turn ends, so nothing waits on it here. One the fork
+            // refused never reached it: the message and the pick come back to this chat's composer,
+            // so the person's words are never lost and a resend forks again (review of #41563).
             if (text)
               void client.promptSide(forked, text).catch((error: unknown) => {
                 const code = (error as { code?: unknown } | null)?.code;
-                if (typeof code === "string" && code.startsWith("transport."))
-                  notices.transient(translate("prompt.notSent", { reason: errorMessage(error) || code }));
+                notices.transient(
+                  translate("prompt.notSent", {
+                    reason: errorMessage(error) || (typeof code === "string" ? code : ""),
+                  }),
+                );
+                if (!chat || client.selectedSession !== chat) return;
+                holdFork({ sessionId: chat, ...pick });
+                composerHandle.current?.restore(text, []);
               });
             return forked;
           },
