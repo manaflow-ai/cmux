@@ -79,10 +79,10 @@ test("a capture from another chat plays nothing and draws nothing of it", async 
   dom.window.close();
 });
 
-test("a long fold keeps every 120 Hz frame under the bound, at the duration cap too", async () => {
-  // Review of #40350 (F1): at the 720 ms cap a 274 px fold on the settle's curve moved 19.34 px in
-  // its first 120 Hz frame, past the two thirds of a line turn-transition-jumps.test.ts holds every
-  // transition's frames to.
+test("a long fold resolves on the settle, its frames under the bound up to what the straight line fits", async () => {
+  // Leo, 2026-11-11, on the long fold that ran up to 1.2 s: "It looks like the f***ing Star Wars
+  // scroll-up animation ... it should not be slow." Every fold now ends with the settle; review of
+  // #40350 (F1) still holds where the straight line can: no 120 Hz frame past the bound.
   const { turnEndFoldTiming } = await import("./turnEndFold");
   const { bezierAt, parseBezier } = await import("../../../ui/cubicBezier");
   const { currentChatMetrics } = await import("../chatDisplay");
@@ -90,17 +90,17 @@ test("a long fold keeps every 120 Hz frame under the bound, at the duration cap 
   const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
   const line = currentChatMetrics().lineHeight;
   const frame = 1000 / 120;
-  for (const px of [100, 274, 500, 800]) {
+  for (const px of [100, 274, 290, 800, 2000]) {
     const { ms, easing } = turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
     const curve = parseBezier(easing);
     expect(curve).toBeDefined();
-    // The fold resolves fast: never past four settles for these moves.
-    expect(ms).toBeLessThanOrEqual(4 * MOTION_SETTLE_MS + frame);
+    // Never longer than the settle, however far it moves.
+    expect(ms).toBe(MOTION_SETTLE_MS);
     const drawn = (t: number) => px * bezierAt(curve!, Math.min(1, t / ms));
-    expect(drawn(frame)).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
+    expect(drawn(ms)).toBeCloseTo(px, 6);
+    if (px > 290) continue;
     for (let t = frame; t < ms + frame; t += frame)
       expect(drawn(t) - drawn(t - frame)).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
-    expect(drawn(ms)).toBeCloseTo(px, 6);
   }
   // A short fold keeps the settle as it is.
   expect(turnEndFoldTiming(40, MOTION_SETTLE_MS, MOTION_SETTLE)).toEqual({
@@ -109,16 +109,14 @@ test("a long fold keeps every 120 Hz frame under the bound, at the duration cap 
   });
 });
 
-test("the fold's curve search keeps the timings it found before", async () => {
-  // Review of #40627 (F1): the search ran about 33k curve reads for 274 px. Made constant cost, it
-  // still picks the same length and curve.
+test("the fold's curve search picks the least lean that fits, and the straight line past it", async () => {
   const { turnEndFoldTiming } = await import("./turnEndFold");
   const { MOTION_SETTLE, MOTION_SETTLE_MS } = await import("../../../motion/scale.generated");
   const timing = (px: number) => turnEndFoldTiming(px, MOTION_SETTLE_MS, MOTION_SETTLE);
-  expect(timing(100)).toEqual({ ms: 372, easing: MOTION_SETTLE });
-  expect(timing(274)).toEqual({ ms: 720, easing: "cubic-bezier(0.198, 0.854, 0.38, 0.927)" });
-  expect(timing(800)).toEqual({ ms: 720, easing: "cubic-bezier(0.306, 0.437, 0.609, 0.719)" });
-  expect(timing(2000)).toEqual({ ms: 1222, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(100)).toEqual({ ms: 180, easing: "cubic-bezier(0.236, 0.708, 0.46, 0.854)" });
+  expect(timing(274)).toEqual({ ms: 180, easing: "cubic-bezier(0.328, 0.354, 0.655, 0.677)" });
+  expect(timing(800)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
+  expect(timing(2000)).toEqual({ ms: 180, easing: "cubic-bezier(0.333, 0.333, 0.667, 0.667)" });
 });
 
 test("the fold's curve search for a 2000 px move stays under half a millisecond", async () => {

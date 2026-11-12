@@ -65,6 +65,9 @@ mod agent_messaging_tests;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+pub use fork::Retarget;
+#[cfg(test)]
+mod forum_held_turn_tests;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
@@ -134,6 +137,7 @@ mod team_information;
 mod team_sent;
 pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use list_guard::{RequestHold, RequestStage};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
 pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
@@ -169,6 +173,8 @@ mod policy_mode;
 mod policy_source;
 mod pool;
 pub(crate) use pool::SESSION_NEW_BUDGET;
+#[cfg(test)]
+mod fork_retarget_tests;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -487,6 +493,15 @@ pub struct RemoteRef {
     pub summary: Value,
 }
 
+impl RemoteRef {
+    /// The id this daemon's list row names the peer's session `mux_id` by (its
+    /// `qualifiedSessionId`, `Hub::remote_summary`): the one key a client matches the
+    /// peer's notices of that session to its row and to what it found by that row.
+    pub fn qualified_id(&self, mux_id: &str) -> String {
+        SessionReceipt::new(self.peer.as_str(), mux_id, None, 0).qualified_id()
+    }
+}
+
 /// A session that lives on a peer daemon.
 #[derive(Debug, Clone)]
 pub struct RemoteSession {
@@ -738,6 +753,9 @@ pub struct Hub {
     pub(super) events: list_guard::Events,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// Client requests every connection serves now, each holding its work slot
+    /// (`server/in_flight.rs`, `Hub::requests_in_flight`).
+    pub(crate) requests_in_flight: Arc<std::sync::atomic::AtomicUsize>,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
     /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
@@ -791,6 +809,9 @@ pub struct Hub {
     pub(super) cache_write_gate: Arc<StdMutex<()>>,
     #[cfg(test)]
     pub(super) cache_test_writes: AtomicU64,
+    /// Peer rows `visit_remote_sessions` copied out (`peer_notice_cost_tests.rs`).
+    #[cfg(test)]
+    pub(super) remote_rows_copied: AtomicU64,
     /// Bytes the peer cache saves wrote, both files (`peer_cache_disk_tests.rs`).
     #[cfg(test)]
     pub(super) cache_test_bytes: AtomicU64,
@@ -1208,6 +1229,7 @@ impl Hub {
             inline_btw: StdMutex::new(HashMap::new()),
             events,
             list_guard: Default::default(),
+            requests_in_flight: Default::default(),
             usage_stats: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
@@ -1229,6 +1251,8 @@ impl Hub {
             cache_write_gate: Arc::new(StdMutex::new(())),
             #[cfg(test)]
             cache_test_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            remote_rows_copied: AtomicU64::new(0),
             #[cfg(test)]
             cache_test_bytes: AtomicU64::new(0),
             #[cfg(test)]
@@ -1410,7 +1434,7 @@ impl Hub {
             hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
-                hub.bg_notify_resume();
+                hub.bg_notify_resume_in_background();
             }
             hub.watch_titles();
             hub.watch_recaps();

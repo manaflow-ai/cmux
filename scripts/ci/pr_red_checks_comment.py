@@ -69,8 +69,9 @@ TRACKED = (
     ("prefix", "web / "),                            # ci-web.yml jobs (ci.yml `web` caller)
     # cmux-next-guards.yml own-change-checks job: the CmuxNextApp size cap (hq-11) and the crash ratchet among its steps
     ("name", "cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files"),
-    # cmux-next-guards.yml static-checks job: page strings among its steps
-    ("name", "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)"),
+    # cmux-next-guards.yml static-checks job: page strings among its steps. GitHub reports a name past 100
+    # characters cut to 97 and "...", and this one's `name:` is 101: the full name never matched its red.
+    ("name", "cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page stri..."),
     ("name", "cmux-next checks (god files, concurrency, crash safety, l10n)"),  # cmux-next.yml checks job
 )
 RED = {"failure", "timed_out", "action_required", "startup_failure"}

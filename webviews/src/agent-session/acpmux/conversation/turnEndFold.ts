@@ -217,22 +217,19 @@ export function clearTurnEndFoldMemo(): void {
   timings.clear();
 }
 
-/// The fold's length and curve for a move of `px`: the settle's (`ms` on `easing`), changed only as a
-/// long move needs to keep every 120 Hz frame under ARRIVAL_FRAME_LINES of a line. The settle runs
-/// 180 ms since #39380 ("the animations end to end need to just resolve faster"); on its curve a 69 px
-/// fold then moved 19.9 px in its first frame, past the two thirds of a line no transition's frame may
-/// move (turn-transition-jumps.test.ts `tool-group`). In order:
+/// The fold's curve for a move of `px`: the settle's (`ms` on `easing`), its curve changed only as a
+/// long move needs, and never its length. The settle runs 180 ms since #39380 ("the animations end to
+/// end need to just resolve faster"). #40350 and #40627 ran a long fold longer to keep each 120 Hz
+/// frame under ARRIVAL_FRAME_LINES of a line (100 px: 372 ms, 274 px: 720 ms, 2000 px: 1222 ms), and
+/// a long reply then crept up its whole move (Leo, 2026-11-11: "It looks like the f***ing Star Wars
+/// scroll-up animation ... It should just be there, because it already was there. Now all you're
+/// doing is just moving s*** around. So, like, it should not be slow."). In order:
 /// - a fold under about 45 px keeps the settle as it is;
-/// - up to four times `ms` (720 ms), the settle's curve runs longer (100 px: 372 ms);
-/// - at four times `ms` the length stays, and the curve leans from the settle's toward a straight line
-///   just as far as the frames need, so its first frame, the settle's fastest, is flatter and the
-///   fold still ends on its last frame (274 px: 720 ms on cubic-bezier(0.198, 0.854, 0.38, 0.927),
-///   13.5 px a frame; 800 px: 720 ms on cubic-bezier(0.306, 0.437, 0.609, 0.719), 13.2 px a frame).
-///   Before, the length stopped there on the settle's curve, and the first frame broke the bound
-///   (review of #40350: 274 px moved 19.3 px in it, 800 px 56.5 px). Running the settle's curve
-///   longer instead keeps the bound only at 1030 ms for 274 px and 3040 ms for 800 px;
-/// - past about 1180 px even the straight line breaks the bound at 720 ms, and runs as long as it
-///   needs (2000 px: 1222 ms).
+/// - a longer one keeps the settle's 180 ms, and its curve leans from the settle's toward a straight
+///   line just as far as the frames need, so its first frame, the settle's fastest, is flatter
+///   (100 px: cubic-bezier(0.236, 0.708, 0.46, 0.854); 274 px: cubic-bezier(0.328, 0.354, 0.655, 0.677));
+/// - past about 295 px even the straight line moves more than the bound in a frame, and the fold still
+///   ends with the settle, on the straight line: a long move resolves as fast as a short one.
 /// Curves that are not a cubic-bezier() keep `ms` and `easing`.
 export function turnEndFoldTiming(px: number, ms: number, easing: string): { ms: number; easing: string } {
   const curve = parseBezier(easing);
@@ -253,7 +250,7 @@ export function turnEndFoldTiming(px: number, ms: number, easing: string): { ms:
   return found;
 }
 
-/// turnEndFoldTiming's search, for a move past the bound: each step bisects (`firstFit`), and each
+/// turnEndFoldTiming's search, for a move past the bound: it bisects the leans (`firstFit`), and each
 /// candidate stops at its first frame past the bound, so a move of any length reads a few hundred
 /// points of the curve, never tens of thousands (review of #40627: 9.6 ms for 274 px).
 function searchFoldTiming(
@@ -264,26 +261,17 @@ function searchFoldTiming(
   most: number,
 ): { ms: number; easing: string } {
   const over = most + 1e-9;
-  const fits = (length: number, on: CubicBezier) => longestFoldFrame(move, length, on, over) <= over;
-  const cap = Math.ceil(4 * ms);
-  // The settle's curve, a frame longer a step, up to the cap.
-  const lengths: number[] = [];
-  for (let length = ms; length < cap; length += FRAME_MS) lengths.push(Math.ceil(length));
-  const longer = firstFit(lengths.length, (index) => fits(lengths[index]!, curve));
-  if (longer !== undefined) return { ms: lengths[longer]!, easing };
+  const fits = (on: CubicBezier) => longestFoldFrame(move, ms, on, over) <= over;
   // The curve the browser plays is the CSS text's, so each lean is read back from it.
   const leanText = (step: number) => {
     if (step === 0) return easing;
     const lean = curve.map((value, index) => value + ((LINEAR_BEZIER[index]! - value) * step) / LEAN_STEPS);
     return cssBezier(lean as unknown as CubicBezier);
   };
-  const lean = firstFit(LEAN_STEPS + 1, (step) => fits(cap, parseBezier(leanText(step))!));
-  if (lean !== undefined) return { ms: cap, easing: leanText(lean) };
-  let length = Math.max(cap, Math.ceil((move * FRAME_MS) / most));
-  while (!fits(length, LINEAR_BEZIER)) length += 1;
-  return { ms: length, easing: cssBezier(LINEAR_BEZIER) };
+  const lean = firstFit(LEAN_STEPS + 1, (step) => fits(parseBezier(leanText(step))!));
+  return { ms, easing: lean !== undefined ? leanText(lean) : cssBezier(LINEAR_BEZIER) };
 }
-/// How long after its first painted frame a fold's clock may still grow: three 120 Hz frames (two at
+/// How long after its first painted frame a fold's curve may still flatten: three 120 Hz frames (two at
 /// 60 Hz), the frames in which the virtualizer mounts the rows above the swap. A pass later in the
 /// fold (a row unmounted far above, the pinned bottom's scroll) keeps the clock: a retarget then
 /// moved the rows 35 px in one frame (turn-transition-jumps `text-tool`, end step, 208 ms in).
@@ -335,14 +323,13 @@ export function playTurnEnd(
 ): TurnEndFold | undefined {
   if (capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
   const { ms: settleMs, easing: settleEasing } = settle(thread);
-  // The fold's one clock: the settle, lengthened (and past four settles, its curve flattened) as a
-  // pass finds a longer move (turnEndFoldTiming). Rows
-  // the virtualizer mounts above after the swap move the rows under them again, so the first pass's
-  // moves are not the longest (turn-transition-jumps `tool-group`: 2 px at the first pass, 77 px at
-  // the next). When the clock grows it starts again from that pass, and every row and copy goes on
-  // from where it was drawn in the last painted frame (its place and ink then), never from the swap's:
-  // nothing is drawn back and no fading copy comes back up.
-  let ms = settleMs;
+  // The fold's one clock: the settle's length, its curve flattened as a pass finds a longer move
+  // (turnEndFoldTiming). Rows the virtualizer mounts above after the swap move the rows under them
+  // again, so the first pass's moves are not the longest (turn-transition-jumps `tool-group`: 2 px at
+  // the first pass, 77 px at the next). When the curve changes the clock starts again from that pass,
+  // and every row and copy goes on from where it was drawn in the last painted frame (its place and
+  // ink then), never from the swap's: nothing is drawn back and no fading copy comes back up.
+  const ms = settleMs;
   let easing = settleEasing;
   let grew = false;
   const look = turnEndLook(thread);
@@ -369,7 +356,7 @@ export function playTurnEnd(
   const moving = new Map<HTMLElement, Moving>();
   const copyMoves = new Map<HTMLElement, Moving>();
   /// Where each row's or copy's motion on the current clock starts (a top in the view, as `tops`),
-  /// and its ink then: the swap's for the first clock, the drawn ones when the clock grows.
+  /// and its ink then: the swap's for the first clock, the drawn ones when the curve changes.
   const starts = new Map<HTMLElement, { top?: number; opacity?: number; shown?: number }>();
   /// Each row's and copy's laid-out top at the last pass: with its translate then, where it was drawn.
   const laid = new Map<HTMLElement, number>();
@@ -403,10 +390,14 @@ export function playTurnEnd(
         });
       return longest;
     };
-    // From where each row now starts: a move that needs more time than the clock has grows it, in
-    // the fold's first frames only.
+    // From where each row now starts: a move too fast for the clock's curve flattens it, in the fold's
+    // first frames only. A move past what the straight line fits keeps it: the curve is already
+    // as flat as it goes, and the clock never starts again for it.
     const early = startedAt === undefined || now() - startedAt <= GROW_WINDOW_MS;
-    grew = early && !foldFits(longestMove(), ms, easing);
+    const longest = early ? longestMove() : 0;
+    const timing =
+      early && !foldFits(longest, ms, easing) ? turnEndFoldTiming(longest, settleMs, settleEasing) : undefined;
+    grew = timing !== undefined && timing.easing !== easing;
     if (grew) {
       if (startedAt !== undefined) {
         // A frame has painted: each row and copy goes on from where it was drawn. All reads first.
@@ -423,10 +414,8 @@ export function playTurnEnd(
           starts.set(node, { top, opacity: Number.isFinite(opacity) ? opacity : undefined, shown });
         startedAt = now();
       }
-      // A longer move never shortens the clock: on the same curve, more time only slows each frame.
-      const timing = turnEndFoldTiming(longestMove(), settleMs, settleEasing);
-      ms = Math.max(ms, timing.ms);
-      easing = timing.easing;
+      // The clock starts again from this pass: its end moves out with it.
+      easing = timing!.easing;
       if (fold.timer !== undefined) {
         clearTimeout(fold.timer);
         fold.timer = setTimeout(() => settleTurnEnd(thread, fold), ms + 50);

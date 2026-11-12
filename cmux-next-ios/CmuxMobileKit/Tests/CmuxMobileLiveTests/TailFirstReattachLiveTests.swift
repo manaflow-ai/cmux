@@ -9,7 +9,7 @@ import Testing
 /// fill in afterwards, in bounded pages, in order, each once, while live records go on. A gap
 /// that fits one page reads as it always did, and a Mac that pages only forward still catches up.
 @MainActor
-@Suite(.serialized) struct TailFirstReattachLiveTests {
+@Suite(.serialized, .timeLimit(.minutes(5))) struct TailFirstReattachLiveTests {
     typealias Chat = ChatOpenSnapshotLiveTests
 
     /// A fake acpmux over a log of `Chat.turnRecords` turns that pages as acpmux does
@@ -162,10 +162,11 @@ import Testing
     }
 
     /// Each test reads hundreds of turns over the fake link; with the whole kit running in
-    /// parallel on one runner that takes several seconds, so the deadline is a minute (a wait
-    /// that is met returns at once). The suite runs its tests one at a time for the same reason.
+    /// parallel on one runner that takes several seconds, so a wait has no deadline of its own
+    /// and ends when it is met; the suite's time limit (5 min: it runs its tests one at a time,
+    /// for the same reason) bounds a hang.
     static func waitUntil(_ done: () -> Bool) async {
-        await LongChatOpenLiveTests.waitUntil(seconds: 60, done)
+        await LongChatOpenLiveTests.waitUntil(done)
     }
 
     static func ids(_ turns: some Sequence<Int>) -> [String] { turns.map { "t\($0)" } }
