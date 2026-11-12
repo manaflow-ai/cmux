@@ -419,7 +419,10 @@ impl Log {
                 return Err(Error::CorruptRow {
                     row_id: run
                         .iter()
-                        .find(|row| u64::from(row.off) + u64::from(row.len) > span.lo + read as u64)
+                        .find(|row| {
+                            u64::from(row.off).saturating_add(u64::from(row.len))
+                                > span.lo.saturating_add(read as u64)
+                        })
                         .unwrap_or(first)
                         .row_id,
                     reason: "a row index entry points past its segment",

@@ -33,10 +33,10 @@ where
 {
     let mut chunk = vec![0u8; CHUNK];
     let mut offset = from;
-    let mut bytes_read = 0;
+    let mut bytes_read = 0u64;
     loop {
         let read = fsio::read_at(file, &mut chunk, offset)?;
-        bytes_read += read as u64;
+        bytes_read = bytes_read.saturating_add(read as u64);
         if read == 0 {
             return Ok(Scan { end: offset, torn: false, bytes_read });
         }

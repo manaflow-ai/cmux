@@ -290,13 +290,13 @@ fn recover_raw_map(file: &File, mut files: u32, from: u64) -> Result<(u32, u64),
         if read == 0 {
             break;
         }
-        for (at, byte) in buf[..read].iter().enumerate() {
+        for (at, byte) in buf.iter().take(read).enumerate() {
             if *byte == b'\n' {
                 files = files.checked_add(1).ok_or(Error::Corrupt("raw.map is full"))?;
-                complete = offset + at as u64 + 1;
+                complete = offset.saturating_add(at as u64).saturating_add(1);
             }
         }
-        offset += read as u64;
+        offset = offset.saturating_add(read as u64);
     }
     if complete != len {
         file.set_len(complete)?;
@@ -306,7 +306,7 @@ fn recover_raw_map(file: &File, mut files: u32, from: u64) -> Result<(u32, u64),
 }
 
 fn check_segment_header(file: &File) -> Result<(), Error> {
-    let mut bytes = [0u8; SEGMENT_HEADER_LEN as usize];
+    let mut bytes = [0u8; 8];
     if fsio::read_at(file, &mut bytes, 0)? != bytes.len() {
         return Err(Error::Rebuild("a segment has no complete header"));
     }
@@ -533,7 +533,7 @@ impl Log {
                 row_id = row_id.saturating_add(1);
             }
             let last_slot = seqs.max_slot();
-            let mut slot = mark.last_seq / SEQ_STRIDE + 1;
+            let mut slot = (mark.last_seq / SEQ_STRIDE).saturating_add(1);
             while slot <= last_slot {
                 if !found_slots.contains(&slot) && seqs.get(slot)?.is_some() {
                     rewritten = rewritten.saturating_add(seqs.clear(slot)?);
@@ -685,9 +685,10 @@ impl Log {
             self.broken = true;
             return Err(Error::Io(error));
         }
-        self.raw_map_len += line.len() as u64 + 1;
+        self.raw_map_len = self.raw_map_len.saturating_add(line.len() as u64).saturating_add(1);
         self.raw_files = file;
-        self.stats.bytes_written = self.stats.bytes_written.saturating_add(line.len() as u64 + 1);
+        self.stats.bytes_written =
+            self.stats.bytes_written.saturating_add(line.len() as u64).saturating_add(1);
         self.stats.writes = self.stats.writes.saturating_add(1);
         self.stats.syncs = self.stats.syncs.saturating_add(1);
         Ok(file)

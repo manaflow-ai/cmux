@@ -46,6 +46,8 @@ pub(crate) fn encode(mark: &Mark, state: &[u8], open_rows: &[u64]) -> Result<Vec
     let Some(state_len) = state_len else {
         return Err(Error::CheckpointTooLarge { bytes });
     };
+    let open_count =
+        u32::try_from(open_rows.len()).map_err(|_| Error::CheckpointTooLarge { bytes })?;
     let mut out = Vec::with_capacity(bytes);
     out.extend_from_slice(&MAGIC.to_le_bytes());
     out.extend_from_slice(&VERSION.to_le_bytes());
@@ -56,7 +58,7 @@ pub(crate) fn encode(mark: &Mark, state: &[u8], open_rows: &[u64]) -> Result<Vec
     out.extend_from_slice(&mark.off.to_le_bytes());
     out.extend_from_slice(&mark.raw_files.to_le_bytes());
     out.extend_from_slice(&mark.raw_map_len.to_le_bytes());
-    out.extend_from_slice(&(open_rows.len() as u32).to_le_bytes());
+    out.extend_from_slice(&open_count.to_le_bytes());
     out.extend_from_slice(&state_len.to_le_bytes());
     for row_id in open_rows {
         out.extend_from_slice(&row_id.to_le_bytes());
