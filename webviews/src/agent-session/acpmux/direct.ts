@@ -1,3 +1,4 @@
+import { pageAttention } from "./attention";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
 import { externalAccessFromRequest } from "./permissions/externalAccess";
@@ -118,6 +119,7 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { noteTranscriptReplace } from "./flickerLog";
+import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
@@ -2902,6 +2904,7 @@ export class AcpmuxDirectClient {
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    this.stopAttention = pageAttention()?.subscribe(this.attentionChanged);
     // The chat on screen is handed over when this page goes away as well as when it is left, so a
     // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
     // hands the composer's chips over the same way). Without this the only chat the host ever
@@ -4364,7 +4367,14 @@ export class AcpmuxDirectClient {
       // tell failures apart.
       if (message.error) {
         const data = message.error.data as
-          | { code?: unknown; details?: unknown; reason?: unknown; detail?: unknown }
+          | {
+              code?: unknown;
+              details?: unknown;
+              reason?: unknown;
+              detail?: unknown;
+              errorKind?: unknown;
+              recovery?: unknown;
+            }
           | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
@@ -4374,6 +4384,9 @@ export class AcpmuxDirectClient {
             ...(typeof data?.reason === "string" ? { reason: data.reason } : {}),
             // A host refusal can carry acpmux's own words (a refused Enable harness prompt).
             ...(typeof data?.detail === "string" ? { detail: data.detail } : {}),
+            // acpmux's typed failures (`spawn.failed`) name their kind and the way out in words.
+            ...(typeof data?.errorKind === "string" ? { errorKind: data.errorKind } : {}),
+            ...(typeof data?.recovery === "string" ? { recovery: data.recovery } : {}),
             // A trust refusal names the folder it asks about (the folder acpmux resolved).
             ...(typeof (data as { cwd?: unknown } | undefined)?.cwd === "string"
               ? { cwd: (data as { cwd: string }).cwd }
@@ -4411,19 +4424,26 @@ export class AcpmuxDirectClient {
       if (params.sessionId !== this.selectedSessionId && this.offerChildren.event(params)) return;
       this.observeClock(notification.params?.sessionId, notification.params?.at);
       if (params.sessionId === this.selectedSessionId) acpmuxPerf.markEvent(notification.params?.at);
+      // `cmux app chat perf` (chatPerfCapture.ts): one boolean when no capture runs.
+      const arrived = chatPerfCapture.active && params.sessionId === this.selectedSessionId ? performance.now() : -1;
       this.apply(notification.params as EventRecord);
+      if (arrived >= 0) chatPerfCapture.arrived(params.kind, arrived);
     } else if (notification.method === "session/update") {
       this.observeClock(notification.params?.sessionId, notification.params?._meta?.acpmux?.at);
       if (notification.params?.sessionId === this.selectedSessionId)
         acpmuxPerf.markEvent(notification.params?._meta?.acpmux?.at);
+      const kind = String(notification.params?.update?.sessionUpdate ?? "");
+      const arrived =
+        chatPerfCapture.active && notification.params?.sessionId === this.selectedSessionId ? performance.now() : -1;
       this.apply({
         sessionId: notification.params?.sessionId,
         seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),
         at: Number(notification.params?._meta?.acpmux?.at ?? Date.now()),
         dir: "in",
-        kind: String(notification.params?.update?.sessionUpdate ?? ""),
+        kind,
         msg: { method: "session/update", params: { update: notification.params?.update } },
       });
+      if (arrived >= 0) chatPerfCapture.arrived(kind, arrived);
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) {
       this.asks.pending(notification.params);
@@ -4975,6 +4995,8 @@ export class AcpmuxDirectClient {
     }
     if (this.closed) return;
     if (pageShown()) this.wake();
+    // Showing the page is the reader's own move, made outside it (a tab, a workspace).
+    if (pageShown()) pageAttention()?.touch();
     const sessionId = this.selectedSessionId;
     if (!sessionId) return;
     this.syncView();
@@ -4984,6 +5006,17 @@ export class AcpmuxDirectClient {
     this.stopStallOwed = undefined;
     if (owed === sessionId && this.stoppingAfterSeq !== undefined && this.workingNow())
       this.checkStall(sessionId, "stop");
+  };
+
+  private stopAttention?: () => void;
+  /// The reader stepped away from the page or came back by hand (attention.ts): acpmux hears the
+  /// chat is not shown while they are away, so a turn that ends then stays unread, and their return
+  /// is seeing it: "New since you looked" goes after the last record they were here for.
+  private attentionChanged = (): void => {
+    const sessionId = this.selectedSessionId;
+    if (this.closed || !sessionId || !pageShown()) return;
+    this.syncView();
+    if (readerHere()) this.markSeen(sessionId);
   };
 
   private cameOnline = (): void => {
@@ -5067,13 +5100,16 @@ export class AcpmuxDirectClient {
   }
 
   /// Brings acpmux's view of the selected chat up to the page's. acpmux handles each request on
-  /// its own task, so a view must wait for the attach it changes and for the view before it.
+  /// its own task, so a view must wait for the attach it changes and for the view before it. Each
+  /// call keeps what the page was when it was made, so a reader who stepped away and came back
+  /// while an attach was out still tells acpmux both, in order: the turns that ended while they were
+  /// away stay unread.
   private syncView(): void {
     const generation = this.selectionGeneration;
+    const visible = readerHere();
     this.viewSync = this.viewSync.then(async () => {
       await this.attaching;
       const sessionId = this.selectedSessionId;
-      const visible = pageShown();
       if (
         generation !== this.selectionGeneration ||
         !sessionId ||
@@ -5092,9 +5128,10 @@ export class AcpmuxDirectClient {
     });
   }
 
-  /// Selecting a session is seeing it, including an unread flag acpmux sent. Turns that ended since
-  /// the person last left it put "New since you looked" after what they had seen; it stays until
-  /// another chat is selected, so it never appears or goes while the reader is on it.
+  /// Selecting a session is seeing it, including an unread flag acpmux sent, and so is coming back
+  /// to it by hand after stepping away (`attentionChanged`). Turns that ended since the person last
+  /// left it or stepped away put "New since you looked" after what they had seen; it stays until
+  /// the next return moves it or another chat is selected, so it never goes while the reader is on it.
   private markSeen(sessionId: string): void {
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
     const turns = listed?.unreadTurns;
@@ -5868,7 +5905,7 @@ export class AcpmuxDirectClient {
   /// Asks acpmux to attach `sessionId` (its newest page, then its records live) and, with
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip.
   private sendAttach(sessionId: string, generation: number, reads: boolean): SentAttach {
-    const visible = pageShown();
+    const visible = readerHere();
     const attaching = this.typed("_acpmux/attach", {
       sessionId,
       // The visible page must not wait for the daemon's restart-time full-log restoration. The
@@ -9400,6 +9437,10 @@ export class AcpmuxDirectClient {
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
   }
+  /** The started chat a send goes to in its own task (`send`'s `shown`); none while a chat starts. */
+  get startedSession(): string | undefined {
+    return this.creating ? undefined : this.selectedSessionId;
+  }
   /** Changes on every selection, including leaving and returning to the same session. */
   get selectionToken(): number {
     return this.selectionGeneration;
@@ -11137,8 +11178,11 @@ export class AcpmuxDirectClient {
     this.missingReason = undefined;
     this.missingAmbiguous = false;
     // A hidden pane does not see the chat it opens (the tab's missing chat came back while its
-    // workspace was in the background): it stays unread until the page shows (`showChanged`).
-    if (pageShown()) this.markSeen(sessionId);
+    // workspace was in the background): it stays unread until the page shows (`showChanged`). Nor
+    // does a reader who stepped away: a chat reopened on its own (`reopenMissing`, a started chat)
+    // stays unread until their hand is back (`attentionChanged`). A pick by hand in this page came
+    // with its click or key, so the reader is here for it.
+    if (readerHere()) this.markSeen(sessionId);
     this.resetSessionState("select");
     // A chat this page read already draws from what that visit left, on the frame the switch lands;
     // its attach lays what acpmux holds now over that (Leo: "instant if cached").
@@ -13345,6 +13389,8 @@ export class AcpmuxDirectClient {
   }
   private stopPageListeners(): void {
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    this.stopAttention?.();
+    this.stopAttention = undefined;
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.pageWentAway);
       window.removeEventListener("online", this.cameOnline);
@@ -13701,6 +13747,12 @@ function transcriptSeq(session: Session | undefined): number | undefined {
 
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+/// Whether the reader sees the chat: the page shows and their hand was on it lately (attention.ts).
+/// What acpmux hears as `visible`, so a turn that ends while they are away is unread.
+function readerHere(): boolean {
+  return pageShown() && (pageAttention()?.present() ?? true);
 }
 
 /// JSON-RPC's method-not-found code: a daemon that predates the method.

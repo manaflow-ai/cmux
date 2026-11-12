@@ -136,6 +136,17 @@ fn a_plan_names_its_machine_keys_and_setup_and_without_keys_is_no_answer() {
         (setup.state.as_deref(), setup.started_at, setup.has_script),
         (Some("running"), Some(2.0), Some(true))
     );
+    // A machine the plan found (or a reservation it bound) is not this send's to delete.
+    assert!(!plan.made_for_send);
+    let made = json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": true}});
+    let (answer, object) = parse(&output(&made.to_string(), "", 0));
+    assert!(start_chat_plan(answer, object.as_ref()).1.made_for_send, "{made}");
+    let (answer, object) = parse(&output(
+        &json!({"ok": true, "machine": "vm-2", "create_key": "c", "tab_key": "t", "ensured": {"created": false}}).to_string(),
+        "",
+        0,
+    ));
+    assert!(!start_chat_plan(answer, object.as_ref()).1.made_for_send);
     let (answer, object) =
         parse(&output("{\"ok\":true,\"new_name\":\"n\",\"create_key\":\"c\"}", "", 0));
     let (answer, plan) = start_chat_plan(answer, object.as_ref());
@@ -174,6 +185,43 @@ fn a_copy_is_an_answer_only_with_an_absolute_folder_holding_the_chat() {
         read(json!({"ok": false, "error_code": "machine_outdated"})).0.error_code.as_deref(),
         Some("machine_outdated")
     );
+}
+
+/// `link start-chat trust`, read before any machine: a level only from an ok answer naming one of
+/// acpmux's three, so an unreadable answer never refuses a start the copy would have trusted.
+#[test]
+fn a_trust_answer_names_this_macs_level_else_none() {
+    let call = invocation(
+        &serde_json::from_value(
+            json!({"verb": "start-chat-trust", "folder": "/Users/me/paint", "acpmuxHome": "/Users/me/.acpmux"}),
+        )
+        .unwrap(),
+    );
+    assert_eq!(
+        call.args,
+        [
+            "link",
+            "start-chat",
+            "trust",
+            "--folder",
+            "/Users/me/paint",
+            "--acpmux-home",
+            "/Users/me/.acpmux"
+        ]
+    );
+    assert_eq!(call.timeout_seconds, Some(START_CHAT_TRUST_TIMEOUT_SECONDS));
+    let level = |stdout: &str| {
+        read(Reading::StartChatTrust, &output(stdout, "", 0))["trust"]["level"]
+            .as_str()
+            .map(str::to_owned)
+    };
+    for answer in ["trusted", "untrusted", "unknown"] {
+        let line = json!({"ok": true, "folder": "/Users/me/paint", "level": answer}).to_string();
+        assert_eq!(level(&line).as_deref(), Some(answer));
+    }
+    assert_eq!(level(r#"{"ok":true,"level":"maybe"}"#), None);
+    assert_eq!(level(r#"{"ok":false,"error_code":"trust_unreadable","level":"untrusted"}"#), None);
+    assert_eq!(level("crashed"), None);
 }
 
 #[test]
@@ -322,6 +370,7 @@ fn each_verb_carries_its_arguments() {
         json!({"verb": "start-chat-create-refused", "key": "k", "account": "a", "createKey": "c"}),
         json!({"verb": "start-chat-target-pane", "key": "k", "account": "a", "machine": "m", "pane": "p"}),
         json!({"verb": "start-chat-import", "entries": "[]"}),
+        json!({"verb": "start-chat-strand", "key": "k", "account": "a", "machine": "m"}),
     ] {
         assert_eq!(
             call(ledger.clone()).timeout_seconds,
@@ -329,6 +378,19 @@ fn each_verb_carries_its_arguments() {
             "{ledger}"
         );
     }
+    let strand =
+        call(json!({"verb": "start-chat-strand", "key": "k", "account": "a", "machine": "m"}));
+    assert_eq!(
+        strand.args,
+        ["link", "start-chat", "strand", "--key", "k", "--account", "a", "--machine", "m"]
+    );
+    // The folder check before any machine: its own bound, never a copy's 30 minutes.
+    let preflight = call(json!({"verb": "start-chat-preflight", "local": "/Users/me/Projects"}));
+    assert_eq!(
+        preflight.args,
+        ["link", "start-chat", "preflight", "--local", "/Users/me/Projects"]
+    );
+    assert_eq!(preflight.timeout_seconds, Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS));
     // A plan reaches the platform and a copy moves the folder: they keep the default.
     assert_eq!(call(json!({"verb": "start-chat-plan", "request": "{}"})).timeout_seconds, None);
     assert_eq!(

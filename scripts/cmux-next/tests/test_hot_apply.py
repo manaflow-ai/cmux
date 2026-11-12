@@ -27,6 +27,13 @@ _git_fixture_env = importlib.util.spec_from_file_location(
 )
 git_fixture_env = importlib.util.module_from_spec(_git_fixture_env)
 _git_fixture_env.loader.exec_module(git_fixture_env)
+# tests/git_history.py fetches FIX into a shallow clone, or says "needs history" (a failure on CI).
+_git_history = importlib.util.spec_from_file_location(
+    "git_history",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "git_history.py"),
+)
+git_history = importlib.util.module_from_spec(_git_history)
+_git_history.loader.exec_module(git_history)
 
 SCRIPT = Path(__file__).resolve().parent.parent / "hot-apply.py"
 ROOT = SCRIPT.parents[2]
@@ -42,8 +49,12 @@ def key_of(sha):
                           cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
 
 
-@unittest.skipUnless(run_git("cat-file", "-e", f"{FIX}^{{commit}}").returncode == 0, "needs cmux#37155 in history")
 class HotApplyRust(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # FIX and its parent: a shallow CI checkout fetches them; one that cannot fails there, never skips.
+        git_history.require_history(ROOT, [FIX], depth=2)
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="hot-apply-test-"))
         self.base = run_git("rev-parse", f"{FIX}^").stdout.strip()

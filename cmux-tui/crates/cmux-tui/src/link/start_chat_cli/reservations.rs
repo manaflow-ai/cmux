@@ -121,13 +121,17 @@ pub(super) fn answer(result: Result<Value, PlatformCallError>) -> Value {
         }
         Ok(Value::Null) => json!({"ok": true}),
         Ok(_) => refused("bad_answer", "the cmux platform answered with no reservation"),
-        Err(PlatformCallError::Status { status, code, facts }) => refused(
-            if code.is_empty() { "refused" } else { code },
-            format!(
-                "the cmux platform refused the reservation ({status} {code}){}",
-                crate::cli::platform_refusal_reason(code, facts.as_ref())
-            ),
-        ),
+        Err(PlatformCallError::Status { status, code, facts }) => {
+            let mut line = refused(
+                if code.is_empty() { "refused" } else { code },
+                format!(
+                    "the cmux platform refused the reservation ({status} {code}){}",
+                    crate::cli::platform_refusal_reason(code, facts.as_ref())
+                ),
+            );
+            super::with_handling(&mut line, status, code, facts);
+            line
+        }
         Err(PlatformCallError::Unreachable(reason)) => refused("unreachable", reason),
         Err(PlatformCallError::Unreadable(status)) => refused(
             "bad_answer",
