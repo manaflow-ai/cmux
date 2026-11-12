@@ -232,7 +232,7 @@ pub struct PaletteMachine {
 pub enum PaletteTargetState {
     Ready,
     Resume,
-    ImageMissingDesktop,
+    DesktopUnavailable,
     Starting,
     Unavailable,
     Empty,
@@ -261,9 +261,6 @@ fn palette_status(
     desktop: bool,
     wants_desktop: bool,
 ) -> (PaletteTargetState, Option<PaletteTargetIntent>) {
-    if wants_desktop && !desktop {
-        return (PaletteTargetState::ImageMissingDesktop, Some(PaletteTargetIntent::CreateDesktop));
-    }
     let status = status.trim().to_ascii_lowercase();
     match status.as_str() {
         "paused" | "suspended" => (PaletteTargetState::Resume, Some(PaletteTargetIntent::Choose)),
@@ -271,9 +268,16 @@ fn palette_status(
             (PaletteTargetState::Starting, Some(PaletteTargetIntent::Choose))
         }
         "running" | "ready" | "connected" | "active" => {
-            (PaletteTargetState::Ready, Some(PaletteTargetIntent::Choose))
+            if wants_desktop && !desktop {
+                (PaletteTargetState::DesktopUnavailable, Some(PaletteTargetIntent::CreateDesktop))
+            } else {
+                (PaletteTargetState::Ready, Some(PaletteTargetIntent::Choose))
+            }
         }
-        _ => (PaletteTargetState::Unavailable, None),
+        _ => (
+            PaletteTargetState::Unavailable,
+            (!wants_desktop).then_some(PaletteTargetIntent::Choose),
+        ),
     }
 }
 
@@ -300,14 +304,10 @@ pub fn palette_targets(wants_desktop: bool, machines: &[PaletteMachine]) -> Vec<
                 PaletteTargetState::Ready => 0,
                 PaletteTargetState::Resume => 1,
                 PaletteTargetState::Starting => 2,
-                PaletteTargetState::ImageMissingDesktop => 3,
+                PaletteTargetState::DesktopUnavailable => 3,
                 PaletteTargetState::Unavailable | PaletteTargetState::Empty => 4,
             };
-            let title = if machine.title.trim().is_empty() {
-                "Cloud Machine"
-            } else {
-                machine.title.trim()
-            };
+            let title = machine.title.trim();
             (
                 index,
                 PaletteTargetRow { id: machine.id.clone(), title: title.to_owned(), state, intent },

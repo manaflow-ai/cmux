@@ -221,6 +221,9 @@ pub struct Action {
     /// Target kind the palette may ask the person to choose when no focused target exists.
     /// `None` preserves the action's focused/creation semantics.
     pub palette_target: Option<&'static str>,
+    /// Optional inventory used to collect the target (for example `cloud` or `ssh`).
+    /// `None` means the shared machine inventory handles the action.
+    pub palette_target_source: Option<&'static str>,
     pub cli_name: &'static str,
     pub main_menu: Option<&'static str>,
     pub is_debug_only: bool,
@@ -256,6 +259,7 @@ impl Action {
         arguments: &[],
         targets: &[],
         palette_target: None,
+        palette_target_source: None,
         cli_name: "",
         main_menu: None,
         is_debug_only: false,

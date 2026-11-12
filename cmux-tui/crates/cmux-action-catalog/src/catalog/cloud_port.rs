@@ -22,6 +22,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PORT, args::PATH.optional()],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud open-browser",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -38,6 +39,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "connection", 212).folder("connection")], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud port-list",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -55,6 +57,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PORT],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud port-forward",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -72,6 +75,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PORT],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud port-close",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -89,6 +93,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PORT],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud preview-share",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -106,6 +111,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PORT, args::LINK_ID],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud preview-revoke",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -122,6 +128,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PORT.optional()],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud machine-link",
         waits_for_result: true,
         ..Action::DEFAULT

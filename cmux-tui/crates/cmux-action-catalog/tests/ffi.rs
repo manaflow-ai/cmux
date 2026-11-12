@@ -64,8 +64,12 @@ fn palette_target_metadata_marks_cloud_machine_actions_and_preserves_exemptions(
     let actions = catalog["actions"].as_array().expect("actions");
     let row = |id: &str| actions.iter().find(|a| a["id"] == id).expect("action");
     assert_eq!(row("cloudOpenDesktop")["paletteTarget"], "machine");
+    assert_eq!(row("cloudOpenDesktop")["paletteTargetSource"], "cloud");
     assert_eq!(row("cloudExec")["paletteTarget"], "machine");
     assert_eq!(row("newCloudWorkspace")["paletteTarget"], serde_json::Value::Null);
     assert_eq!(row("cloudStartSession")["paletteTarget"], serde_json::Value::Null);
     assert_eq!(row("newTab")["paletteTarget"], serde_json::Value::Null);
+    assert_eq!(row("machine.doctor")["paletteTargetSource"], "ssh");
+    assert_eq!(row("remote.removeGroup")["paletteTargetSource"], "remote");
+    assert_eq!(row("machine.reconnect")["paletteTargetSource"], serde_json::Value::Null);
 }

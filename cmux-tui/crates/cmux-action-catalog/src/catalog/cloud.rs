@@ -54,6 +54,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud fork-machine",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -70,6 +71,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud snapshot-machine",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -87,6 +89,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::SNAPSHOT],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud restore-machine",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -103,6 +106,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud promote-machine-to-template",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -119,6 +123,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud machine-status",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -135,6 +140,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud machine-ports",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -151,6 +157,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud machine-tools",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -167,6 +174,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud hand-off-machine",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -227,6 +235,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 2)], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud ssh",
         starts_terminal: true,
         waits_for_result: true,
@@ -245,6 +254,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::COMMAND],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud exec",
         starts_terminal: true,
         waits_for_result: true,
@@ -262,6 +272,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 3)], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud setup-github",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -279,6 +290,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud files-list",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -296,6 +308,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud file-read",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -313,6 +326,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH, args::CONTENTS],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud file-write",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -330,6 +344,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud file-mkdir",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -347,6 +362,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH, args::CONFIRM.optional()],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud file-remove",
         is_destructive: true,
         waits_for_result: true,
@@ -365,6 +381,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud file-stat",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -382,6 +399,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PUBLIC_KEY],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud prepare-scp",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -543,6 +561,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PORT, args::NAME.optional()],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud provision-api",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -632,6 +651,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::VIEWER.optional()],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud open-desktop",
         ..Action::DEFAULT
     },
@@ -681,6 +701,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud pause-machine",
         ..Action::DEFAULT
     },
@@ -697,6 +718,7 @@ pub static ACTIONS: &[Action] = &[
         requires: &["cloudWorkspace"],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud resume-machine",
         ..Action::DEFAULT
     },
@@ -774,6 +796,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::MACHINE_CONFIG.optional()],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud apply-machine-config",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -792,6 +815,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::REPO_2.optional(), args::NAMES.optional()],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud deliver-secrets",
         waits_for_result: true,
         ..Action::DEFAULT
@@ -840,6 +864,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::SNAPSHOT, args::CONFIRM.optional()],
         targets: &["machine"],
         palette_target: Some("machine"),
+        palette_target_source: Some("cloud"),
         cli_name: "cloud delete-snapshot",
         is_destructive: true,
         ..Action::DEFAULT

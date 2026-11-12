@@ -58,6 +58,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "stethoscope",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sshMachine", "connection", 103)], ..SurfacePlan::DEFAULT },
+        palette_target_source: Some("ssh"),
         targets: &["machine"],
         cli_name: "machine doctor",
         ..Action::DEFAULT
@@ -84,6 +85,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "rectangle.stack.badge.minus",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("machineSection", "close", 200)], ..SurfacePlan::DEFAULT },
+        palette_target_source: Some("remote"),
         targets: &["machine"],
         cli_name: "remote remove-group",
         ..Action::DEFAULT

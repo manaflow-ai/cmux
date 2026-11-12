@@ -222,11 +222,23 @@ fn palette_desktop_targets_prioritize_capable_machines_and_inline_fixes() {
             PaletteTargetRow {
                 id: "no-desktop".into(),
                 title: "Shell".into(),
-                state: PaletteTargetState::ImageMissingDesktop,
+                state: PaletteTargetState::DesktopUnavailable,
                 intent: Some(PaletteTargetIntent::CreateDesktop)
             },
         ]
     );
+}
+
+#[test]
+fn palette_desktop_starting_state_wins_over_missing_capability() {
+    let machines: Vec<PaletteMachine> = serde_json::from_value(json!([
+        {"id": "booting", "title": "", "status": "provisioning", "desktop": false}
+    ]))
+    .unwrap();
+    let row = &palette_targets(true, &machines)[0];
+    assert_eq!(row.state, PaletteTargetState::Starting);
+    assert_eq!(row.intent, Some(PaletteTargetIntent::Choose));
+    assert!(row.title.is_empty(), "native code supplies the localized fallback title");
 }
 
 #[test]
@@ -239,6 +251,7 @@ fn palette_targets_keep_generic_machine_rows_actionable_and_offer_create_when_em
     .unwrap();
     assert_eq!(palette_targets(false, &machines)[0].id, "ready");
     assert_eq!(palette_targets(false, &machines)[0].intent, Some(PaletteTargetIntent::Choose));
+    assert_eq!(palette_targets(false, &machines)[1].intent, Some(PaletteTargetIntent::Choose));
     assert_eq!(
         palette_targets(true, &[]),
         vec![PaletteTargetRow {
