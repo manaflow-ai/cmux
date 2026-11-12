@@ -162,7 +162,7 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
   const url = () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${current.session.sessionId}`;
+    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${String(current.session.sessionId)}`;
   };
 
   beforeAll(async () => {
