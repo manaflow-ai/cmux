@@ -659,15 +659,19 @@ fn git_lane_a_git_status_of_another_connection_is_answered_while_the_apps_git_di
     const ASKS: usize = 20;
     let (repo, gate) = repository("cli");
     let socket = daemon();
+    let start = Instant::now();
     let mut app = Connection::open(&socket);
     let mut cli = Connection::open(&socket);
+    eprintln!("base-arm: 2 connections open at {:?}", start.elapsed());
 
     gate.hold("hold-diff");
     for number in 0..DIFFS {
         let params = json!({"path": repo, "scope": "uncommitted", "context_lines": number + 4});
         app.send(&format!("d{number}"), "git.diff", params);
     }
+    eprintln!("base-arm: {DIFFS} git.diff sent at {:?}", start.elapsed());
     wait_for("a diff held", || gate.runs_of("diff") >= 1);
+    eprintln!("base-arm: a diff is in git at {:?}", start.elapsed());
     // The lane holds 3 diffs in git. A daemon that runs a connection's git
     // on its reader holds 1: the wait for 3 has an end of its own.
     let all_held = Instant::now() + Duration::from_secs(3);
@@ -675,6 +679,8 @@ fn git_lane_a_git_status_of_another_connection_is_answered_while_the_apps_git_di
         std::thread::sleep(Duration::from_millis(5));
     }
     let held = gate.runs_of("diff");
+    eprintln!("base-arm: {held} diff runs in git at {:?}; the asks start", start.elapsed());
+    let git_log = || std::fs::read_to_string(gate.dir.join("log")).unwrap_or_default();
 
     let mut waits = Vec::new();
     let mut unanswered = 0;
@@ -682,19 +688,39 @@ fn git_lane_a_git_status_of_another_connection_is_answered_while_the_apps_git_di
         let id = format!("s{number}");
         let asked = Instant::now();
         cli.send(&id, "git.status", json!({"path": repo}));
-        match cli.reply_in(&json!(id), Duration::from_secs(10)) {
+        match cli.reply_in(&json!(id), Duration::from_secs(2)) {
             Some(status) => {
                 waits.push(asked.elapsed());
+                eprintln!("base-arm: ask {number} answered in {:?}: {status}", asked.elapsed());
                 assert_eq!(status["ok"], true, "git.status {number} failed: {status}");
             }
-            None => unanswered += 1,
+            None => {
+                unanswered += 1;
+                eprintln!(
+                    "base-arm: ask {number}: no answer in 2 s (at {:?}); git runs now {}; the \
+                     arguments of each git run so far: {:?}",
+                    start.elapsed(),
+                    gate.active(),
+                    git_log().lines().collect::<Vec<_>>(),
+                );
+            }
         }
     }
+    cli.ping(99);
+    let pong = cli.reply_in(&json!(99), Duration::from_secs(2)).is_some();
+    eprintln!(
+        "base-arm: the asks ended at {:?}: {unanswered} with no answer; a ping of that connection \
+         answered in 2 s: {pong}; git runs now {}",
+        start.elapsed(),
+        gate.active(),
+    );
     let diffs_early = (0..DIFFS).filter(|number| app.answered(&format!("d{number}"))).count();
 
     gate.release("hold-diff");
+    eprintln!("base-arm: released at {:?}", start.elapsed());
     for number in 0..DIFFS {
         let diff = app.reply(&json!(format!("d{number}")));
+        eprintln!("base-arm: git.diff {number} answered at {:?}", start.elapsed());
         assert_eq!(diff["ok"], true, "git.diff {number} failed: {diff}");
     }
     waits.sort_unstable();
