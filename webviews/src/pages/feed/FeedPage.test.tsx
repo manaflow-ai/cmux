@@ -331,7 +331,15 @@ test("past 200 rows the list draws only the rows near the viewport", async () =>
 function manualTimers() {
   const timers: { fire: () => void; ms: number; cancelled: boolean }[] = [];
   const schedule = (fire: () => void, ms: number) => {
-    const timer = { fire, ms, cancelled: false };
+    // A fired timer is done, like a cancelled one.
+    const timer = {
+      fire: () => {
+        timer.cancelled = true;
+        fire();
+      },
+      ms,
+      cancelled: false,
+    };
     timers.push(timer);
     return () => void (timer.cancelled = true);
   };
