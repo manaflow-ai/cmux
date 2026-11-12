@@ -751,7 +751,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     }
 
     /// The Chief screen on screen now: a rebuilt one may appear before the old one disappears.
-    private(set) static weak var shown: ChiefConversationContainer?
+    private static weak var shown: ChiefConversationContainer?
 
     /// The conversation the Chief screen on screen shows (``ChiefSession/conversationOnScreen``).
     static var shownConversation: String? {

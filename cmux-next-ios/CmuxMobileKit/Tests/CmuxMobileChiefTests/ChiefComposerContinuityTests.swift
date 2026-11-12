@@ -70,14 +70,15 @@ import UIKit
         window.makeKeyAndVisible()
         defer { window.isHidden = true; session.store.stop() }
 
-        let first = try #require(drain { ChiefConversationContainer.shown })
+        // This window's screen (the static `shown` may still name an earlier test's).
+        let first = try #require(drain { container(in: window) })
         let samples = (0 ..< 3 * ConversationWAV.sampleRate).map { sin(Float($0) * 0.05) * 0.5 }
         let draft = ConversationAudioDraft(wav: ConversationWAV.encode(samples), levels: Array(repeating: 0.5, count: 60))
         first.conversation.restoreAudioDraft(draft)
         try #require(drain { reviewSend(in: first.view) }, "the review shows on the first screen")
 
         session.use(ChiefOfflineBackend())
-        let rebuilt = try #require(drain { ChiefConversationContainer.shown.flatMap { $0 === first ? nil : $0 } },
+        let rebuilt = try #require(drain { container(in: window).flatMap { $0 === first ? nil : $0 } },
                                    "the screen is rebuilt on the new store")
         #expect(drain { reviewSend(in: rebuilt.view) } != nil, "the recording's review moved to the rebuilt screen")
         #expect(first.conversation.takeAudioDraft() == nil, "the old screen gave it up")
@@ -97,6 +98,16 @@ import UIKit
         let rebuilt = try #require(drain { composer(in: window).flatMap { $0 === first ? nil : $0 } })
         for _ in 0 ..< 20 { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }
         #expect(!rebuilt.isFirstResponder, "no keyboard the person did not ask for")
+    }
+
+    /// The Chief screen whose composer is in `window`.
+    private func container(in window: UIWindow) -> ChiefConversationContainer? {
+        var responder: UIResponder? = composer(in: window)
+        while let current = responder {
+            if let container = current as? ChiefConversationContainer { return container }
+            responder = current.next
+        }
+        return nil
     }
 
     /// The review strip's send button, when it shows (in the field, not faded out).
