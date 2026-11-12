@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1389,
+    "entries": 1397,
     "shortcuts": 190
   },
   "sections": [
@@ -4672,6 +4672,12 @@
           "command": "cmux bookmark move"
         },
         {
+          "id": "browserProfile.move",
+          "title": "Move Browser Profile to Position…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.extension.move",
           "title": "Move Pinned Extension",
           "shortcut": null,
@@ -5002,6 +5008,12 @@
           "command": "cmux browser-profile clear-icon"
         },
         {
+          "id": "browserProfile.clearProxy",
+          "title": "Remove Browser Profile Proxy",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "browser.extension.remove",
           "title": "Remove Extension",
           "shortcut": null,
@@ -5180,6 +5192,12 @@
           "title": "Set Browser Profile Icon…",
           "shortcut": null,
           "command": "cmux browser-profile set-icon"
+        },
+        {
+          "id": "browserProfile.setProxy",
+          "title": "Set Browser Profile Proxy…",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "phone.appearance",
@@ -5949,6 +5967,12 @@
       "id": "category.notifications",
       "title": "Notifications",
       "entries": [
+        {
+          "id": "notifications.allowDesktop",
+          "title": "Allow cmux Notifications",
+          "shortcut": null,
+          "command": null
+        },
         {
           "id": "clearAllNotifications",
           "title": "Clear All Notifications",
@@ -7354,6 +7378,12 @@
           "command": null
         },
         {
+          "id": "remote.stopScreenSession",
+          "title": "cmux Remote: End Screen Sharing Session",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "remote.refreshPermissions",
           "title": "cmux Remote: Refresh Permissions",
           "shortcut": null,
@@ -7460,6 +7490,18 @@
           "title": "Remove Remote Group",
           "shortcut": null,
           "command": "cmux remote remove-group"
+        },
+        {
+          "id": "machine.joined.revoke",
+          "title": "Revoke Joined Machine…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "machine.joined.rotate",
+          "title": "Rotate Joined Machine's Credential",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "macScreen.deviceAccess",
@@ -7842,6 +7884,12 @@
         {
           "id": "server.makeThisMacAServer",
           "title": "Make This Mac a Server",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "billing.openPortal",
+          "title": "Manage Billing",
           "shortcut": null,
           "command": null
         },
