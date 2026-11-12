@@ -252,9 +252,9 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       () =>
         trust
           ? !!host.querySelector(".acpmux-trust-ask-primary")
-          : [...host.querySelectorAll('[role="alert"]')].some((node) =>
-              node.textContent?.includes("agent unavailable"),
-            ),
+          : // The refusal says why in plain words, its raw words under Details (newtab/StartFailure.tsx).
+            !!host.querySelector('[role="alert"]') &&
+            !!host.querySelector("[data-error-detail]")?.textContent?.includes("agent unavailable"),
       "inline refusal",
     );
     expect(starts[0]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);

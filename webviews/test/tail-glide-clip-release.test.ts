@@ -121,7 +121,7 @@ describe("tail glide clip release", () => {
     // The reader scrolled so the live line lies below the view and the reply still shows.
     reply.box = { top: 20, bottom: 100 };
     live.box = { top: 100, bottom: 130 };
-    glide.dropUnseen({ top: 0, bottom: 90 } as DOMRect);
+    glide.dropUnseen(() => ({ top: 0, bottom: 90 }) as DOMRect);
     expect(slide.playState).toBe("idle");
     expect(clip.playState).toBe("idle");
     expect(glide.moving()).toBe(false);
@@ -131,7 +131,7 @@ describe("tail glide clip release", () => {
     const { glide, reply, live, clip, slide } = grownAndHeld();
     reply.box = { top: 20, bottom: 100 };
     live.box = { top: 60, bottom: 90 };
-    glide.dropUnseen({ top: 0, bottom: 200 } as DOMRect);
+    glide.dropUnseen(() => ({ top: 0, bottom: 200 }) as DOMRect);
     expect(slide.playState).toBe("paused");
     expect(clip.playState).toBe("paused");
     glide.resume();
@@ -142,7 +142,7 @@ describe("tail glide clip release", () => {
     const { glide, reply, live, clip, slide } = grownAndHeld();
     reply.box = { top: -100, bottom: -20 };
     live.box = { top: 0, bottom: 30 };
-    glide.dropUnseen({ top: 0, bottom: 200 } as DOMRect);
+    glide.dropUnseen(() => ({ top: 0, bottom: 200 }) as DOMRect);
     expect(slide.playState).toBe("paused");
     expect(clip.playState).toBe("paused");
   });
@@ -183,7 +183,7 @@ describe("tail glide clip release", () => {
       glide.hold();
       reply.box = { top: 20, bottom: 140 };
       live.box = { top: 140, bottom: 170 };
-      glide.dropUnseen({ top: 0, bottom: 130 } as DOMRect);
+      glide.dropUnseen(() => ({ top: 0, bottom: 130 }) as DOMRect);
       expect(clips[1]!.playState).toBe("idle");
       frame();
       expect(glide.moving()).toBe(false);
@@ -218,7 +218,7 @@ describe("tail glide clip release", () => {
     reply.box = { top: 20, bottom: 100 };
     near.box = { top: 100, bottom: 130 };
     far.box = { top: 130, bottom: 160 };
-    glide.dropUnseen({ top: 0, bottom: 125 } as DOMRect);
+    glide.dropUnseen(() => ({ top: 0, bottom: 125 }) as DOMRect);
     expect(far.animations[0]!.playState).toBe("idle");
     expect(near.animations[0]!.playState).toBe("paused");
     // Still 40 px over the nearer row, held where it was.
@@ -236,7 +236,7 @@ describe("tail glide clip release", () => {
     reply.box = { top: -120, bottom: -40 };
     near.box = { top: -40, bottom: -10 };
     far.box = { top: 0, bottom: 30 };
-    glide.dropUnseen({ top: 0, bottom: 200 } as DOMRect);
+    glide.dropUnseen(() => ({ top: 0, bottom: 200 }) as DOMRect);
     expect(near.animations[0]!.playState).toBe("idle");
     expect(far.animations[0]!.playState).toBe("paused");
     expect(clip!.playState).toBe("idle");

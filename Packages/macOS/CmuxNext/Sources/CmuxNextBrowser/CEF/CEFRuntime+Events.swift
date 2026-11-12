@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 import Foundation
 import os
 
@@ -175,7 +176,18 @@ extension CEFRuntime {
     /// which Chromium would dispatch from the Chromium toolbar cmux hides.
     func routeKey(_ event: NSEvent, browser: Int32) -> Bool {
         guard event.type == .keyDown, let tab = tabsByBrowser[browser] else { return false }
-        // A paste is about to reach the page: a cmux page records it first (`pagePasted`).
+        // A paste is about to reach the page: a cmux page records it first (`pagePasted`). A picture
+        // the pasteboard holds as TIFF only gets its PNG first, off the main thread, and the same key
+        // goes on once it is there: Chromium's own TIFF to PNG encode held the page 300 ms and more
+        // for a 5K screenshot (#41016). It goes on only where it was pressed: the person who moved
+        // to another window or field meanwhile does not get the paste there.
+        if Self.isPaste(event), tab.pagePasted != nil, let window = event.window {
+            let responder = window.firstResponder
+            if pastedImagePNG.hold(resume: { _ in
+                guard window.isKeyWindow, window.firstResponder === responder else { return }
+                NSApp.sendEvent(event)
+            }) { return true }
+        }
         if Self.isPaste(event) { tab.pagePasted?() }
         if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router = tab.keyRouter,
            router.browserTab(tab, keyEquivalent: event) == .handledByHost {

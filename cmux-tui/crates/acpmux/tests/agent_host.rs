@@ -4,6 +4,8 @@
 //! it logged without losing or repeating one.
 #![cfg(unix)]
 
+#[path = "agent_host/answer_after_reattach.rs"]
+mod answer_after_reattach;
 #[path = "agent_host/carried_hold.rs"]
 mod carried_hold;
 #[path = "support/daemon_env.rs"]

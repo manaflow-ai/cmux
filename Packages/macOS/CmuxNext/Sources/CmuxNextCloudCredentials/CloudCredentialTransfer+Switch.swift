@@ -46,3 +46,11 @@ extension CloudCredentialTransfer {
         isDogfoodBuild && passesHarnessLogin(isDogfoodBuild: true, defaults: defaults)
     }
 }
+
+public extension CloudCredentialTransfer {
+    /// The person's kept Claude login for a start's check before its lease (CmuxNextApp's `CloudAgentCheck`): the one
+    /// ``CloudCredentialLogin/loadAny(provider:teamID:otherTeams:userID:)`` reads; nil when none, or unreadable.
+    @MainActor static func cachedClaudeLogin(userID: String, teamID: String?, otherTeams: [String?]) async -> Data? {
+        try? await CloudCredentialLogin.loadAny(provider: .claude, teamID: teamID, otherTeams: otherTeams, userID: userID)
+    }
+}

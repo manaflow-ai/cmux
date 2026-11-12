@@ -392,7 +392,8 @@
         "browser.siteEngines",
         "browser.newTabPage",
         "browser.showBookmarksBar",
-        "browser.vimKeys"
+        "browser.vimKeys",
+        "browser.showLoadingBar"
       ]
     },
     {
@@ -1355,6 +1356,13 @@
       "why": "Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.",
       "keys": [
         "diagnostics.hangReports"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
+      "keys": [
+        "diagnostics.usagePatterns"
       ]
     },
     {

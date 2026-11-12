@@ -255,7 +255,7 @@ impl Outbox {
         }
         for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             if !named.contains(&entry.path()) {
-                let _ = std::fs::remove_file(entry.path());
+                let _ = crate::home_fs::remove_file(entry.path());
             }
         }
         let pending = book.deliveries.values().filter(|d| !d.settled()).cloned().collect();
@@ -528,7 +528,7 @@ impl Outbox {
                             // cannot truncate on Windows, so through its own write handle. Should
                             // that fail too, the next write is a snapshot (`snapshot_next`),
                             // which resets the journal.
-                            let _ = std::fs::OpenOptions::new()
+                            let _ = crate::home_fs::OpenOptions::new()
                                 .write(true)
                                 .open(&journal)
                                 .and_then(|w| w.set_len(start).and_then(|()| w.sync_data()));
@@ -657,7 +657,7 @@ fn read_saved(path: &Path) -> Saved {
             // Set aside: a journal started against "no snapshot" must never sit beside it, or a
             // later read that works would ignore that journal's accepted changes.
             let aside = path.with_extension("json.unreadable");
-            let moved = std::fs::rename(path, &aside);
+            let moved = crate::home_fs::rename(path, &aside);
             tracing::error!(
                 "outbox: {} cannot be read ({e}); starting empty, set aside at {} ({moved:?})",
                 path.display(),
@@ -682,7 +682,7 @@ fn read_saved(path: &Path) -> Saved {
             // Set aside, never replaced by the next change's new journal: its lines may hold
             // changes that were answered as saved.
             let aside = journal_path(path).with_extension("journal.unreadable");
-            let moved = std::fs::rename(journal_path(path), &aside);
+            let moved = crate::home_fs::rename(journal_path(path), &aside);
             tracing::error!(
                 "outbox: the journal cannot be read ({e}); reading the snapshot alone, journal \
                  set aside at {} ({moved:?})",

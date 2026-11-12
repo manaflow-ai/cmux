@@ -65,6 +65,7 @@ mod agent_messaging_tests;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+pub use fork::Retarget;
 #[cfg(test)]
 mod forum_held_turn_tests;
 #[cfg(test)]
@@ -172,6 +173,8 @@ mod policy_mode;
 mod policy_source;
 mod pool;
 pub(crate) use pool::SESSION_NEW_BUDGET;
+#[cfg(test)]
+mod fork_retarget_tests;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -1431,7 +1434,7 @@ impl Hub {
             hub.rehydrate_worker();
             if !loading {
                 hub.watch_orphans();
-                hub.bg_notify_resume();
+                hub.bg_notify_resume_in_background();
             }
             hub.watch_titles();
             hub.watch_recaps();
@@ -1758,6 +1761,7 @@ impl Hub {
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            rehydrate_note: StdMutex::new(None),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
