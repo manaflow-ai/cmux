@@ -1385,7 +1385,7 @@
     "tunable.browserPage.sparePage": true,
     "tunable.browserPage.uiPointer": false,
     "tunable.chiefPet.uploadAffordance": "tile",
-    "tunable.chrome.cornerFlush": "goo",
+    "tunable.chrome.cornerFlush": "off",
     "tunable.chrome.interfaceSize": false,
     "tunable.chrome.mainPane.cornerRadius": 10.0,
     "tunable.chrome.mainPane.curved": true,

@@ -14,10 +14,9 @@ public import CmuxNextDesignTokens
 /// then curves away and no concave foot that ends in a point. The sidebar's `+`, the window
 /// buttons and the tabs share one center line.
 ///
-/// The default is `flush-goo` (Leo, 2026-11-10: in light mode the selected tab should be white,
-/// the content's own color, not a gray highlight that reads as backgrounded; "morph it in as like,
-/// you know how folder tabs look"), over the stock chrome (``defaultFits``). Compact density keeps
-/// the pill under every value. `off` keeps the older pill look.
+/// The default is `off`, the pill (Lawrence, 2026-11-12: the folder tab is not the default). A Debug
+/// Settings pick turns it on, such as `flush-goo` (Leo, 2026-11-10: the selected tab in the content's own
+/// color, "you know how folder tabs look"). Compact density keeps the pill under every value.
 public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoice {
     /// The older corner: the selected tab is a gray pill on the frame.
     case off
@@ -40,8 +39,8 @@ public nonisolated enum CornerFlush: String, Sendable, CaseIterable, TunableChoi
 
     public static let tunable = Tunable<CornerFlush>.choice(
         "chrome.cornerFlush", .sidebar, "Corner flush",
-        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. The default is goo, a folder tab, over the stock chrome. Off: the gray pill.",
-        default: .goo, code: "CornerFlush.tunable")
+        help: "Thunderdome r2 A: the sidebar, the titlebar and the tab strips are one frame around a rounded content card; the selected tab is the card's color and runs into it, and each strip's first tab starts on its pane's edge, so the sidebar's edge rises straight into the first tab. Compact density keeps the pill. Off (the default): the gray pill.",
+        default: .off, code: "CornerFlush.tunable")
 
     /// The value in effect: `off` at compact density, which keeps the pill; else a Debug Settings
     /// value, else the default where the default chrome fits it (``defaultFits``), else `off`.
