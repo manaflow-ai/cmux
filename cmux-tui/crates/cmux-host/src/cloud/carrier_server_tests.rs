@@ -202,6 +202,23 @@ fn a_ticket_from_the_bind_goes_to_the_first_register_with_no_ticket_request() {
     assert!(logged.iter().all(|l| !l.contains("bind-ticket-0123")), "{logged:?}");
 }
 
+/// The bind HTTP answer can arrive before the role notes a resume, while
+/// installation of that answer on the ticket threads happens after it.
+#[test]
+fn a_resume_between_the_bind_answer_and_install_drops_the_ticket() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, _path) = serve(&dir);
+    let fake = Fake::default();
+    let answer = bind_ticket("before-resume", 300);
+    server.resumes.note();
+    server.bound_with_ticket(client(&fake), true, Some(answer));
+    let state = server.shared.lock();
+    assert!(
+        state.warm.as_ref().is_none_or(|warm| warm.reply["ticket"] != "before-resume"),
+        "a bind answer from before resume was kept"
+    );
+}
+
 #[test]
 fn a_bind_ticket_too_close_to_expiry_or_on_a_machine_without_a_carrier_is_not_kept() {
     // Too close to its expiry to keep: the bind asks for a ticket as before.
