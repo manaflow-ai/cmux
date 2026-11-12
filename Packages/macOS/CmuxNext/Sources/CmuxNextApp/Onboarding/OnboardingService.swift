@@ -198,7 +198,9 @@ final class OnboardingService {
         guard !services.environment.skipsOnboarding else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
-        guard route == .windows else { return }
+        // The cmux Tools question comes at launch whatever owns the first run, for an existing
+        // installation too: until it is answered, the person's agents get no cmux server.
+        guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 

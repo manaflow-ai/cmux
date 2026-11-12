@@ -166,23 +166,34 @@ import Testing
 
     // MARK: First run
 
-    @Test func firstRunAsksOnlyWhileNobodyAnsweredAndAnAgentIsThere() async {
+    /// The step is asked at launch, a first run or an existing installation, once: while nobody
+    /// answered and an agent is there; an answer, no agent, or an earlier showing keeps it quiet.
+    @Test func launchAsksOnceWhileNobodyAnsweredAndAnAgentIsThere() async throws {
         func presenter() -> (OnboardingWindowPresenter, () -> [OnboardingModel.Step]) {
             var shown: [OnboardingModel.Step] = []
             let presenter = OnboardingWindowPresenter(makeModel: { step in OnboardingModel(services: MockOnboardingServices(), step: step) },
                                                       activeLook: nil, present: { shown.append($0.model.step) })
             return (presenter, { shown })
         }
+        func fresh() throws -> UserDefaults {
+            try #require(UserDefaults(testSuiteName: "cmux-agent-tools-ask-\(UUID().uuidString)"))
+        }
+        let defaults = try fresh()
         let (asks, asked) = presenter()
-        await asks.showAgentToolsAtFirstRun(isFirstRun: true, source: Source())
+        await asks.askAgentToolsOnce(source: Source(), defaults: defaults)
         #expect(asked() == [.agentTools])
-        for (isFirstRun, source) in [(false, Source()), (true, Source(choice: .on)), (true, Source(choice: .off)), (true, Source(agents: []))] {
+        #expect(defaults.bool(forKey: OnboardingWindowPresenter.agentToolsAskedKey))
+        // Closed without an answer: the next launch does not ask again.
+        let (again, shownAgain) = presenter()
+        await again.askAgentToolsOnce(source: Source(), defaults: defaults)
+        #expect(shownAgain().isEmpty)
+        for source in [Source(choice: .on), Source(choice: .off), Source(agents: [])] {
             let (quiet, shown) = presenter()
-            await quiet.showAgentToolsAtFirstRun(isFirstRun: isFirstRun, source: source)
-            #expect(shown().isEmpty, "first run \(isFirstRun), answer \(source.choice), \(source.agents.count) agents")
+            await quiet.askAgentToolsOnce(source: source, defaults: try fresh())
+            #expect(shown().isEmpty, "answer \(source.choice), \(source.agents.count) agents")
         }
         let (none, shown) = presenter()
-        await none.showAgentToolsAtFirstRun(isFirstRun: true, source: nil)
+        await none.askAgentToolsOnce(source: nil, defaults: try fresh())
         #expect(shown().isEmpty)
     }
 

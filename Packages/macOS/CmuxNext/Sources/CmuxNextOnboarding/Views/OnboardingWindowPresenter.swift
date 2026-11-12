@@ -88,24 +88,31 @@ public final class OnboardingWindowPresenter {
     }
 
     /// The first-run steps, one at a time: Agents first (it gets a person to a working agent), then
-    /// cmux Tools (``showAgentToolsAtFirstRun(isFirstRun:source:)``), then `next` (Bring your
+    /// cmux Tools (``askAgentToolsOnce(source:defaults:)``), then `next` (Bring your
     /// history) once no tool window shows. Each keeps its own once flag.
     public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?, agentTools: (any AgentToolsSource)? = nil,
                                   defaults: UserDefaults = .standard, then next: @MainActor () -> Void) async {
         await showAgentsAtFirstRun(isFirstRun: isFirstRun, source: source, defaults: defaults)
         await untilClosed()
-        await showAgentToolsAtFirstRun(isFirstRun: isFirstRun, source: agentTools)
+        await askAgentToolsOnce(source: agentTools, defaults: defaults)
         await untilClosed()
         next()
     }
 
-    /// First run only: the cmux Tools step, asking whether cmux may add its MCP server to the
-    /// person's coding agents, when nobody answered yet (`agents.cmuxMcp` is `ask`), a coding agent
-    /// is installed to add it to, and no tool window shows. The answer is its once flag: an existing
-    /// installation, or a Mac with no agent, is never asked here (Settings > Agents keeps the row).
-    public func showAgentToolsAtFirstRun(isFirstRun: Bool, source: (any AgentToolsSource)?) async {
-        guard isFirstRun, let source, source.agentToolsChoice() == .ask, controller == nil else { return }
+    /// Set once the cmux Tools step was shown, so a person who closes it without answering is not
+    /// asked at every launch (Settings > Agents keeps the row).
+    public static let agentToolsAskedKey = "cmux.onboarding.agentToolsAsked"
+
+    /// The cmux Tools step, asking whether cmux may add its MCP server to the person's coding agents,
+    /// at launch (a first run or an existing installation) when nobody answered yet (`agents.cmuxMcp`
+    /// is `ask`), a coding agent is installed to add it to, no tool window shows, and it was not shown
+    /// before. Until the person answers, cmux gives their agents no server (agent_mcp_choice.rs), so
+    /// the question comes right away rather than waiting in Settings (Aziz, 2026-11-11).
+    public func askAgentToolsOnce(source: (any AgentToolsSource)?, defaults: UserDefaults = .standard) async {
+        guard let source, source.agentToolsChoice() == .ask, controller == nil,
+              !defaults.bool(forKey: Self.agentToolsAskedKey) else { return }
         guard !(await source.agentToolsAgents()).isEmpty, controller == nil else { return }
+        defaults.set(true, forKey: Self.agentToolsAskedKey)
         show(step: .agentTools)
     }
 
