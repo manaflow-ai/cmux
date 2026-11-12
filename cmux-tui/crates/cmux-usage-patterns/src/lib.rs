@@ -465,7 +465,8 @@ impl Recorder {
     /// count or a setting change, then writes what was counted
     /// [`FLUSH_EVERY`] after the last write (at once when counting stopped).
     /// Each time it wakes, and again before a timed write, it rereads the
-    /// setting ([`Recorder::refresh_gate`]). So a recorder with no watch
+    /// setting ([`Recorder::refresh_gate`]), but not when a stop asked for
+    /// its last write ([`Recorder::flush_within`]). So a recorder with no watch
     /// stops counting after the setting went off: when the thread was
     /// asleep, after the next count (each count made before the thread has
     /// reread the setting is still taken), else at the timed write it was
@@ -492,8 +493,11 @@ impl Recorder {
             // Awake for a count, a setting change or a stop's ask. A recorder
             // whose watch did not start ([`watch_gate`] gave None) has no
             // other reader of the setting, so it is reread here and before
-            // the timed write.
-            self.refresh_gate();
+            // the timed write. Not for a stop's ask: its write must not wait
+            // for the settings file.
+            if self.wake.asked.load(Ordering::Acquire) == served {
+                self.refresh_gate();
+            }
             // Counting stopped, or a stop asked: write what was counted now.
             if !self.enabled() || self.wake.asked.load(Ordering::Acquire) != served {
                 served = self.writer_flush();
@@ -520,8 +524,12 @@ impl Recorder {
             drop(pending);
             // The second reread, for a setting that went off during the
             // wait. The thread is awake for the write, so this adds no wake;
-            // an unchanged file costs one `metadata` call.
-            self.refresh_gate();
+            // an unchanged file costs one `metadata` call. Not when a stop's
+            // ask ended the wait: its write must not wait for the settings
+            // file.
+            if self.wake.asked.load(Ordering::Acquire) == served {
+                self.refresh_gate();
+            }
             served = self.writer_flush();
         }
     }
