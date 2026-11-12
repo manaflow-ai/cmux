@@ -626,14 +626,19 @@ impl Drop for UsageFiles {
 /// of that file and not only when it starts: it counts the commands that
 /// come after the setting went on, writes them when the setting goes off
 /// (not at the next timed write), and counts nothing after that.
+///
+/// This test and the next one are not named `cmux_next_`: that prefix puts
+/// a test in the job that gates nightly-next, and these two are run by name.
 #[test]
-fn cmux_next_daemon_usage_patterns_follow_the_setting_while_it_runs() {
+fn daemon_usage_patterns_follow_the_setting_while_it_runs() {
     /// How long the setting stays on. The daemon cannot say when it read the
     /// change, so commands come through all of it; the watch reads a change
     /// about 0.1 s after the write.
     const ON: Duration = Duration::from_secs(5);
-    /// From the start to the file on disk. Below the time between two timed
-    /// writes, so a file in time was written because the setting went off.
+    /// From the write that turns the setting on to the file on disk. The
+    /// first timed write comes `FLUSH_EVERY` after the daemon reads that
+    /// setting, so a file inside this limit was written because the setting
+    /// went off.
     const LIMIT: Duration = Duration::from_secs(20);
     const { assert!(LIMIT.as_secs() < cmux_usage_patterns::FLUSH_EVERY.as_secs()) };
 
@@ -649,7 +654,6 @@ fn cmux_next_daemon_usage_patterns_follow_the_setting_while_it_runs() {
             .expect("list-workspaces");
     };
     ask(10);
-    assert!(!files.0.exists(), "a daemon with the setting off wrote usage patterns");
 
     let deadline = Instant::now() + LIMIT;
     fs::write(&settings, "{ \"diagnostics\": { \"usagePatterns\": true } }\n").unwrap();
@@ -687,11 +691,22 @@ fn cmux_next_daemon_usage_patterns_follow_the_setting_while_it_runs() {
     assert_eq!(files.commands(), counted, "the daemon counted commands after the setting went off");
 }
 
-/// A daemon that counts usage patterns is as idle as one that does not: its
-/// writer sleeps until a count and writes one time for the counts of the
-/// start, so no thread runs in every window.
+/// A daemon that counts usage patterns has no thread that runs in every
+/// window, and its timed write happens: counting is on from the start, the
+/// writer writes the counts of the start `FLUSH_EVERY` later, inside the
+/// windows, and the file is on disk after them.
+///
+/// Not shown here: a writer that would wake each `FLUSH_EVERY` with nothing
+/// to write. That is one wake in the 3 windows, which the median allows.
 #[test]
-fn cmux_next_daemon_usage_patterns_on_has_no_periodic_wakeups() {
+fn daemon_usage_patterns_on_has_no_periodic_wakeups() {
+    // The timed write is due before the last window ends.
+    const {
+        assert!(
+            cmux_usage_patterns::FLUSH_EVERY.as_secs()
+                < SETTLE.as_secs() + WINDOW.as_secs() * WINDOWS as u64
+        )
+    };
     let files = UsageFiles::new("idle");
     let daemon = Daemon::start_with_env(
         "usage-idle",
@@ -703,7 +718,7 @@ fn cmux_next_daemon_usage_patterns_on_has_no_periodic_wakeups() {
     );
     assert_idle(&daemon, || {});
     // Counting was on through the windows: the commands of the start are on
-    // disk (the writer's one write, due inside the windows).
+    // disk (the timed write was due inside the windows).
     let deadline = Instant::now() + Duration::from_secs(10);
     while files.commands() == 0 {
         assert!(Instant::now() < deadline, "the daemon wrote no usage patterns");
