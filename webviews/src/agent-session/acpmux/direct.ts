@@ -144,6 +144,7 @@ import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled } from "./transportErrors";
 import { failedSendText, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
+import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { isCompletedPlumbingTool, isMuseTodoCall, isPlanToolCall, isPlumbingCall, showsNothing } from "./hiddenTools";
@@ -1219,6 +1220,34 @@ function sameQueuedEntry(a: QueuedPrompt, b: QueuedPrompt): boolean {
     a.listedRevision === b.listedRevision &&
     a.turnId === b.turnId
   );
+}
+
+/// What a sent prompt goes as (its blocks and inline parts) and what its row shows (text and pasted
+/// spans): one shape for a send and for the Not sent row a relaunch draws again (unsentPrompts.ts).
+export function sentPromptShape(
+  input: string,
+  carried: ComposerAttachment[],
+  options: Parameters<typeof promptBlocks>[2],
+) {
+  const blocks = promptBlocks(input, carried, options);
+  const inline = inlinePrompt(input, carried);
+  const isFrame = frameTextOf(imageNames(blocks));
+  const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
+  const { text, pasted } = inline
+    ? blocks.reduce(
+        (shown, block) => {
+          // A video's frames note is the agent's; the bubble draws the video's tile.
+          if (block.type !== "text" || isFrame(block.text)) return shown;
+          if (shown.text) shown.text += "\n";
+          const start = shown.text.length;
+          shown.text += block.text;
+          if (block._meta?.cmux.pasted) shown.pasted.push({ start, end: shown.text.length });
+          return shown;
+        },
+        { text: "", pasted: [] as { start: number; end: number }[] },
+      )
+    : shownPrompt(promptText(input, carried, options), carried);
+  return { blocks, inline, fileDisplay, text, pasted };
 }
 
 export function settleOptimisticPrompt(
@@ -2551,6 +2580,11 @@ export class AcpmuxDirectClient {
   }
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
+  /// The host's store of prompts no agent has taken yet (unsentPrompts.ts), and what this page put
+  /// there, by promptId. Never cleared by a chat switch: only an agent taking the prompt, Remove or
+  /// Edit takes one out, so a relaunch draws every one again as its Not sent row.
+  private unsentStore?: UnsentPromptStore;
+  private unsentKept = new Map<string, { sessionId: string; record: UnsentPromptRecord }>();
   /// Failed prompt rows a chat switch cleared (``select``), never ones the person removed or took
   /// back: a Trust replay kept for one (failedRowTrustRetry.ts) still sends it once its chat shows
   /// again (``restoreFailedPrompts``). Row ids only, the oldest dropped past a bound.
@@ -3584,6 +3618,9 @@ export class AcpmuxDirectClient {
 
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
   private resetSessionState(cause = "reset"): void {
+    // The chat's unsent prompts come back as Not sent rows once the reset and its caller are done
+    // (the rows go below): from the host's store, before acpmux answers anything.
+    queueMicrotask(() => void this.restoreUnsentPrompts());
     // The rows on screen go: the next frame of the same chat is a full replace unless it draws them
     // again (`noteReplace`). Only the newest reset names the cause; a switch to another chat is none.
     if (this.drawn && this.drawn.rows.length > 0) {
@@ -6998,6 +7035,8 @@ export class AcpmuxDirectClient {
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
     const sessionId = event.sessionId ?? this.selectedSessionId;
+    if ((event.kind === "user_message" || event.kind === "queued") && typeof msg.promptId === "string")
+      this.unsentTaken(msg.promptId);
     if (event.kind === "queue_updated") {
       // An edit keeps the prompt's place and its sender: acpmux keeps an agent's provenance and
       // names the editor beside it (hub/queue_edit.rs `editedBy`), so its row stays the agent's.
@@ -7772,6 +7811,13 @@ export class AcpmuxDirectClient {
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
     const sessionId = event.sessionId ?? this.selectedSessionId;
+    // acpmux recorded the prompt (ran it or queued it): the host stops keeping it as unsent.
+    if (
+      event.dir === "mux" &&
+      (event.kind === "user_message" || event.kind === "queued") &&
+      typeof msg.promptId === "string"
+    )
+      this.unsentTaken(msg.promptId);
     if (event.dir === "mux" && event.kind === NATIVE_HISTORY_KIND) {
       // Draws nothing: where the transcript's older turns end. The oldest one held is the seeded
       // page's (a page of the log seq order puts first).
@@ -9777,24 +9823,7 @@ export class AcpmuxDirectClient {
       const linked = new Map(carried.map((chip) => [chip.id, chip]));
       attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);
     }
-    const blocks = promptBlocks(input, carried, options);
-    const inline = inlinePrompt(input, carried);
-    const isFrame = frameTextOf(imageNames(blocks));
-    const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
-    const { text, pasted } = inline
-      ? blocks.reduce(
-          (shown, block) => {
-            // A video's frames note is the agent's; the bubble draws the video's tile.
-            if (block.type !== "text" || isFrame(block.text)) return shown;
-            if (shown.text) shown.text += "\n";
-            const start = shown.text.length;
-            shown.text += block.text;
-            if (block._meta?.cmux.pasted) shown.pasted.push({ start, end: shown.text.length });
-            return shown;
-          },
-          { text: "", pasted: [] as { start: number; end: number }[] },
-        )
-      : shownPrompt(promptText(input, carried, options), carried);
+    const { blocks, inline, fileDisplay, text, pasted } = sentPromptShape(input, carried, options);
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.promptRowKeys.set(promptId, rowId);
@@ -9828,6 +9857,8 @@ export class AcpmuxDirectClient {
       ...(this.summary?.host ? { connection: String(this.summary.host) } : {}),
     };
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    // On disk before it goes: a relaunch while it is on its way draws it again as not sent.
+    this.keepUnsent(sessionId, { promptId, input, attachments, at });
     if (waits) {
       this.queue = [
         ...this.queue.filter((entry) => entry.id !== promptId),
@@ -9874,6 +9905,8 @@ export class AcpmuxDirectClient {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
+      // acpmux has it, durably: not the host's to keep any more.
+      this.forgetUnsent(promptId);
       // Taken: the composer stops saying "Sending when ready" now, not when the turn ends.
       unhold?.();
       tookIt();
@@ -9945,6 +9978,7 @@ export class AcpmuxDirectClient {
             code: "timeout",
             error: translate("prompt.delivery.noAnswer"),
           });
+          this.noteUnsentFailure(promptId);
           this.emit();
         },
         this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs,
@@ -10065,6 +10099,8 @@ export class AcpmuxDirectClient {
         this.optimisticPromptInputs.delete(promptId);
         this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
         this.deliveries.delete(promptId);
+        // Its composer holds it (and keeps it as the chat's draft): one copy, never a row too.
+        this.forgetUnsent(promptId);
         // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
         // for want of a real key or click (dictation's autoSend after a session ended by itself)
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
@@ -10082,6 +10118,25 @@ export class AcpmuxDirectClient {
       // The connection went before acpmux took it (`rejectPending`, a closed client): this client's
       // rows go with it, so the sender gets the prompt back instead of a row nobody will see.
       if (!taken && (this.closed || code === "native.timed_out")) {
+        // Kept by the app host, it is not the sender's to take back: the pane's next connection
+        // draws it from there at once as Not sent, with Retry (and the host's journal may still send
+        // it, whose echo takes the row). It never comes back as a draft some time later.
+        const kept = this.unsentKept.get(promptId);
+        if (kept && this.unsentStore) {
+          const reason = (error as { reason?: unknown } | null)?.reason;
+          this.keepUnsent(kept.sessionId, {
+            ...kept.record,
+            error: failedSendText(error, this.retriedPrompts.has(promptId), sendAttachments),
+            failure: {
+              hop: "connection",
+              code: typeof code === "string" ? code : "native.timed_out",
+              ...(typeof reason === "string" ? { reason } : {}),
+              error: error instanceof Error ? error.message : errorMessage(error),
+              failedAt: Date.now(),
+            },
+          });
+          if (error && typeof error === "object") Object.assign(error, { failedRow: rowId });
+        }
         this.rows.delete(rowId);
         this.failedPrompts.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
@@ -10122,6 +10177,8 @@ export class AcpmuxDirectClient {
           ...(typeof reason === "string" ? { reason } : {}),
           error: error instanceof Error ? error.message : errorMessage(error),
         });
+        // A refusal never takes it off disk: the row, its words and its Retry come back after a relaunch.
+        this.noteUnsentFailure(promptId);
         // The prompt stays as this failed row: the pane's sender puts nothing back in the composer,
         // and a Trust answer re-sends this row (not whatever the composer holds then).
         if (error && typeof error === "object") Object.assign(error, { failedRow: rowId });
@@ -10283,6 +10340,123 @@ export class AcpmuxDirectClient {
     this.dropFailedPrompt(rowId, failed.promptId);
     return { input: failed.input, attachments: failed.attachments };
   }
+  /// The app host's store of unsent prompts (unsentPrompts.ts); the shown chat's come back at once.
+  setUnsentPromptStore(store: UnsentPromptStore | undefined): void {
+    this.unsentStore = store;
+    void this.restoreUnsentPrompts();
+  }
+  /// Puts prompt `record` of `sessionId` in the host's store (it replaces an earlier record of it).
+  private keepUnsent(sessionId: string, record: UnsentPromptRecord): void {
+    this.unsentKept.set(record.promptId, { sessionId, record });
+    void this.unsentStore?.put(sessionId, record).catch(() => undefined);
+  }
+  /// Keeps why prompt `promptId` was not sent, with its row's words, for the row a relaunch draws.
+  private noteUnsentFailure(promptId: string): void {
+    const kept = this.unsentKept.get(promptId);
+    const entry = this.deliveries.get(promptId);
+    if (!kept || !entry || entry.delivery.state !== "failed") return;
+    const { hop, code, reason, error, failedAt } = entry.delivery;
+    const shown = this.rows.get(entry.rowId)?.error;
+    this.keepUnsent(kept.sessionId, {
+      ...kept.record,
+      ...(shown ? { error: shown } : {}),
+      failure: {
+        ...(hop ? { hop } : {}),
+        ...(code ? { code } : {}),
+        ...(reason ? { reason } : {}),
+        ...(error ? { error } : {}),
+        ...(failedAt ? { failedAt } : {}),
+      },
+    });
+  }
+  /// Takes prompt `promptId` out of the host's store: an agent has it, or the person removed it or
+  /// took it back into the composer.
+  private forgetUnsent(promptId: string): void {
+    const kept = this.unsentKept.get(promptId);
+    if (!kept) return;
+    this.unsentKept.delete(promptId);
+    void this.unsentStore?.remove(kept.sessionId, promptId).catch(() => undefined);
+  }
+  /// acpmux recorded prompt `promptId` (its echo or its `queued` record): off disk, and a Not sent
+  /// row a relaunch drew for it goes (the echo draws the prompt; a queued one shows in the queue).
+  private unsentTaken(promptId: string): void {
+    if (!this.unsentKept.has(promptId)) return;
+    const rowId = `local-${promptId}`;
+    if (this.failedPrompts.has(rowId) && this.deliveries.get(promptId)?.delivery.state === "failed") {
+      this.failedPrompts.delete(rowId);
+      this.rows.delete(rowId);
+      this.optimisticPromptRows.delete(promptId);
+      this.deliveries.delete(promptId);
+    }
+    this.forgetUnsent(promptId);
+  }
+  /// Draws the shown chat's unsent prompts from the host's store as Not sent rows, with Retry, Edit
+  /// and Remove: a relaunch, a crash or an update loses none. One acpmux has recorded since (its echo
+  /// is drawn) is taken out instead, and one this page is still sending is left to its send.
+  private async restoreUnsentPrompts(): Promise<void> {
+    const store = this.unsentStore;
+    const sessionId = this.selectedSessionId;
+    if (!store || !sessionId) return;
+    const generation = this.selectionGeneration;
+    const records = await store.read(sessionId).catch(() => [] as UnsentPromptRecord[]);
+    if (!records.length || this.selectedSessionId !== sessionId || this.selectionGeneration !== generation) return;
+    const echoed = new Set<string>();
+    for (const row of this.rows.values()) if (row.promptId) echoed.add(row.promptId);
+    let drew = false;
+    for (const record of records) {
+      const { promptId } = record;
+      if (this.promptsShown.has(promptId) || echoed.has(promptId)) {
+        this.unsentKept.delete(promptId);
+        void store.remove(sessionId, promptId).catch(() => undefined);
+        continue;
+      }
+      if (!this.unsentKept.has(promptId)) this.unsentKept.set(promptId, { sessionId, record });
+      const rowId = `local-${promptId}`;
+      if (this.rows.has(rowId) || this.deliveries.has(promptId)) continue;
+      drew = true;
+      this.drawUnsentRow(sessionId, record);
+    }
+    if (drew) this.emit();
+  }
+  /// One kept prompt as its Not sent row. One sent before the relaunch with no answer yet fails as
+  /// timed out, so acpmux's late acknowledgement or echo (the host's journal sends it again) still
+  /// takes it (`setDelivery`, `unsentTaken`).
+  private drawUnsentRow(sessionId: string, record: UnsentPromptRecord): void {
+    const { promptId, input, attachments, at } = record;
+    const rowId = `local-${promptId}`;
+    const { inline, text, pasted } = sentPromptShape(input, attachments, { dropped: () => false });
+    const failure = record.failure ?? {};
+    const error = record.error ?? translate("prompt.delivery.noAnswer");
+    const delivery: PromptDelivery = {
+      state: "failed",
+      promptId,
+      sessionId,
+      sentAt: at,
+      failedAt: failure.failedAt ?? at,
+      hop: failure.hop ?? "acpmux",
+      code: failure.code ?? "timeout",
+      ...(failure.reason ? { reason: failure.reason } : {}),
+      error: failure.error ?? error,
+    };
+    this.promptRowKeys.set(promptId, rowId);
+    this.optimisticPromptRows.set(promptId, rowId);
+    this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    this.failedPrompts.set(rowId, { input, attachments, promptId });
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at,
+      kind: "user",
+      text,
+      ...(pasted.length ? { pasted } : {}),
+      ...(inline ? { inlineParts: inline.parts } : {}),
+      ...(attachments.length ? { images: attachedImages(attachments), retryAttachments: attachments } : {}),
+      pending: false,
+      failed: true,
+      error,
+      delivery,
+    });
+  }
   /// Remove on a prompt that was not sent: its row goes.
   removeFailedPrompt(rowId: string): void {
     // The person's Remove, also on the snapshot a held chat switch still shows: no replay brings it back.
@@ -10293,6 +10467,8 @@ export class AcpmuxDirectClient {
   private dropFailedPrompt(rowId: string, promptId: string | undefined): void {
     this.failedPrompts.delete(rowId);
     this.rows.delete(rowId);
+    // The person's Remove or Edit (or a Retry folding it into another): the one way off disk besides an agent taking it.
+    if (promptId) this.forgetUnsent(promptId);
     if (promptId) {
       this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
       this.deliveries.delete(promptId);

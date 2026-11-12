@@ -108,21 +108,25 @@ public final class AgentPaneDraftAttachments {
     private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL) -> [String] {
         let manager = FileManager.default
         let kept = saved(in: folder)
-        // A chat whose files can't be written keeps nothing rather than some of its chips. Bytes and
-        // text alike go to files of their own, so the list holds only the chips' names and kinds.
-        guard !attachments.isEmpty, let bytes = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, kept: kept?.files ?? [:]),
-              let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder, kept: kept?.texts ?? [:]),
-              !texts.attachments.isEmpty else {
+        // No chips: the chat's draft has none, so its folder goes. Only the person's own change
+        // (sending, or taking the last chip out) gets here.
+        guard !attachments.isEmpty else {
             try? manager.removeItem(at: folder)
             return []
         }
+        // A save that fails keeps the chips the chat had (a full disk, a locked folder): a failed
+        // write never deletes the copy before it. Bytes and text alike go to files of their own, so
+        // the list holds only the chips' names and kinds; the list is written last, atomically, so
+        // what is on disk is always one whole save.
+        guard let bytes = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, kept: kept?.files ?? [:]),
+              let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder, kept: kept?.texts ?? [:]),
+              !texts.attachments.isEmpty else { return [] }
         do {
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
             let list = try JSONEncoder().encode(Saved(attachments: texts.attachments, files: bytes.files.isEmpty ? nil : bytes.files,
                                                       texts: texts.files.isEmpty ? nil : texts.files))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
-            try? manager.removeItem(at: folder)
             return []
         }
         // Files no chip names any more (a chip taken out) go.
