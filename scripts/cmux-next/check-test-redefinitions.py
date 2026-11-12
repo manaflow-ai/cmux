@@ -34,6 +34,9 @@ ROOT = Path(__file__).resolve().parents[2]
 INPUTS = ("tests/**/*.py",)
 INTENDED_REUSE = frozenset({"overload", "setter", "getter", "deleter"})
 DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+# Blocks a scope can sit in. `match` cases are ast.match_case, which Python 3.9 (macOS /usr/bin/python3, which
+# install-git-hooks.sh accepts) does not have: getattr, so 3.9 builds this tuple too (a 3.9 parse has no match).
+BLOCKS = (ast.stmt, ast.excepthandler, getattr(ast, "match_case", ()))
 # A file the check could not read: its line, and the exit that says "no verdict" (not 1, a verdict).
 UNPARSED = ": does not parse: "
 UNPARSED_EXIT = 2
@@ -54,7 +57,7 @@ def _scopes(node: ast.AST):
     for child in ast.iter_child_nodes(node):
         if isinstance(child, DEFINITIONS):
             yield child
-        elif isinstance(child, (ast.stmt, ast.excepthandler, ast.match_case)):
+        elif isinstance(child, BLOCKS):
             yield from _scopes(child)
 
 
