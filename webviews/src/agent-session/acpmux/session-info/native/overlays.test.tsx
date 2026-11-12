@@ -159,5 +159,5 @@ test("under a trackpad pinch a popup's rect is where it shows, so the panel's cu
   const record = recorder();
   stop = reportOverlays(document, record.post);
   await record.until((last) => last !== undefined);
-  expect(record.reports.at(-1)).toEqual([{ left: 60, top: 400, right: 460, bottom: 640, radius: 0 }]);
+  expect(record.reports.at(-1)).toEqual([{ left: 60, top: 400, right: 460, bottom: 640, radius: 0, zoom: 1 }]);
 });

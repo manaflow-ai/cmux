@@ -38,13 +38,17 @@ public nonisolated struct AgentPaneHostGlassSurface: Equatable, Sendable {
     public var rect: CGRect
     public var radius: CGFloat
     public var opacity: CGFloat
+    /// View points per CSS pixel when the page measured it (``AgentPaneSessionInfoOverlay/zoom``).
+    public var zoom: CGFloat?
 
-    public init(id: String, level: GlassLevel = .popover, rect: CGRect, radius: CGFloat = 0, opacity: CGFloat = 1) {
+    public init(id: String, level: GlassLevel = .popover, rect: CGRect, radius: CGFloat = 0, opacity: CGFloat = 1,
+                zoom: CGFloat? = nil) {
         self.id = id
         self.level = level
         self.rect = rect
         self.radius = radius
         self.opacity = opacity
+        self.zoom = zoom
     }
 
     /// The most a report carries (the page's `HOST_GLASS_MAX`).
@@ -52,7 +56,7 @@ public nonisolated struct AgentPaneHostGlassSurface: Equatable, Sendable {
     /// The longest id (the page's are `g<n>`).
     static let idMaximum = 32
 
-    /// `[{id, level, left, top, right, bottom, radius?, opacity?}]`, or nil for anything else (a bad
+    /// `[{id, level, left, top, right, bottom, radius?, opacity?, zoom?}]`, or nil for anything else (a bad
     /// number, an unknown level, a repeated id, too many). Docked glass (`chrome`) is the window's own,
     /// never a floating surface, so it is refused too.
     static func decode(_ value: Any?) -> [AgentPaneHostGlassSurface]? {
@@ -74,11 +78,12 @@ public nonisolated struct AgentPaneHostGlassSurface: Equatable, Sendable {
                   let bottom = number("bottom"), right >= left, bottom >= top else { return nil }
             let radius = box["radius"] == nil ? 0 : number("radius")
             let opacity = box["opacity"] == nil ? 1 : number("opacity")
-            guard let radius, radius >= 0, let opacity, (0...1).contains(opacity) else { return nil }
+            guard let radius, radius >= 0, let opacity, (0...1).contains(opacity),
+                  let zoom = AgentPaneSessionInfoOverlay.decodeZoom(box["zoom"]) else { return nil }
             surfaces.append(AgentPaneHostGlassSurface(
                 id: id, level: level,
                 rect: CGRect(x: left, y: top, width: right - left, height: bottom - top),
-                radius: CGFloat(radius), opacity: CGFloat(opacity)
+                radius: CGFloat(radius), opacity: CGFloat(opacity), zoom: zoom
             ))
         }
         return surfaces

@@ -63,7 +63,7 @@ describe("toast avoidance", () => {
     place("form.acpmux-composer", { left: 20, top: 660, width: 860, height: 90 });
     const stop = watchToastAvoidance(dock, (box) => sent.push(box));
     flush();
-    expect(sent).toEqual([{ left: 20, top: 660, right: 880, bottom: 750 }]);
+    expect(sent).toEqual([{ left: 20, top: 660, right: 880, bottom: 750, zoom: 1 }]);
     // A resize that leaves the box where it was says nothing.
     resized.forEach((callback) => callback());
     flush();
@@ -97,17 +97,17 @@ describe("toast avoidance", () => {
       place("form.acpmux-composer", { left: 20, top: 660, width: 860, height: 90 });
       const chat = reportToastAvoidance(dock);
       flush();
-      expect(heard.at(-1)).toEqual([{ left: 20, top: 660, right: 880, bottom: 750 }]);
+      expect(heard.at(-1)).toEqual([{ left: 20, top: 660, right: 880, bottom: 750, zoom: 1 }]);
       // A New Tab composer card mounts over it (the chat's stack stays mounted a moment).
       const card = document.createElement("div");
       document.body.append(card);
       place("body > div", { left: 40, top: 600, width: 820, height: 100 });
       const newTab = reportToastAvoidance(card, elementBox);
       flush();
-      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700 }]);
+      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700, zoom: 1 }]);
       // The chat's stack goes first: the card is still what the toasts avoid.
       chat();
-      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700 }]);
+      expect(heard.at(-1)).toEqual([{ left: 40, top: 600, right: 860, bottom: 700, zoom: 1 }]);
       newTab();
       expect(heard.at(-1)).toEqual([]);
     } finally {

@@ -27,7 +27,7 @@ struct AgentPaneToastAvoidanceTests {
         let one = AgentPaneRequest(body: ["id": "t", "method": "pane.toastAvoidance", "params": [
             "rects": [["left": 20, "top": 600, "right": 880, "bottom": 690]],
         ]])
-        #expect(one == .toastAvoidance(CGRect(x: 20, y: 600, width: 860, height: 90)))
+        #expect(one == .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: 600, width: 860, height: 90))))
         #expect(String(describing: one) == "toastAvoidance")
         #expect(AgentPaneRequest(body: ["id": "t", "method": "pane.toastAvoidance", "params": ["rects": []]]) == .toastAvoidance(nil))
         let two = AgentPaneRequest(body: ["id": "t", "method": "pane.toastAvoidance", "params": [
@@ -61,7 +61,7 @@ struct AgentPaneToastAvoidanceTests {
 
         // The composer card 90 px tall, its bottom 10 px over the page's foot.
         let pageHeight = (view.page?.frame ?? view.webView.frame).height
-        _ = await view.model.respond(to: .toastAvoidance(CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90)))
+        _ = await view.model.respond(to: .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90))))
         let composer = view.convert(view.toastAvoidanceRect, to: nil)
         #expect(composer.height > 89 && composer.height < 91)
         #expect(composer.minX > 19 && composer.minX < 21)
@@ -100,7 +100,7 @@ struct AgentPaneToastAvoidanceTests {
         workspace.addSubview(view)
         view.layoutSubtreeIfNeeded()
         let pageHeight = (view.page?.frame ?? view.webView.frame).height
-        _ = await view.model.respond(to: .toastAvoidance(CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90)))
+        _ = await view.model.respond(to: .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90))))
         let composer = view.convert(view.toastAvoidanceRect, to: nil)
 
         workspace.isHidden = true
@@ -142,7 +142,7 @@ struct AgentPaneToastAvoidanceTests {
         source.addSubview(view)
         view.layoutSubtreeIfNeeded()
         let pageHeight = (view.page?.frame ?? view.webView.frame).height
-        _ = await view.model.respond(to: .toastAvoidance(CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90)))
+        _ = await view.model.respond(to: .toastAvoidance(AgentPaneSessionInfoOverlay(rect: CGRect(x: 20, y: pageHeight - 100, width: 860, height: 90))))
         let composer = view.convert(view.toastAvoidanceRect, to: nil)
 
         // The destination window shows a toast and has no chat yet: its stack rests at the window's foot.

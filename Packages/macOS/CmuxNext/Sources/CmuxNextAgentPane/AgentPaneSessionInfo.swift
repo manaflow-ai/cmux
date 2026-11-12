@@ -202,16 +202,27 @@ public nonisolated struct AgentPaneSessionInfoModel: Codable, Equatable, Sendabl
 public nonisolated struct AgentPaneSessionInfoOverlay: Equatable, Sendable {
     public var rect: CGRect
     public var radius: CGFloat
+    /// View points per CSS pixel when the page measured it (webviews ui/visualViewportBox.ts
+    /// `pageZoom`); nil from an older page, which is drawn at the pane's zoom now.
+    public var zoom: CGFloat?
 
-    public init(rect: CGRect, radius: CGFloat = 0) {
+    public init(rect: CGRect, radius: CGFloat = 0, zoom: CGFloat? = nil) {
         self.rect = rect
         self.radius = radius
+        self.zoom = zoom
+    }
+
+    /// A box's `zoom`: absent is nil, a number in range is that zoom, anything else is refused.
+    static func decodeZoom(_ value: Any?) -> CGFloat?? {
+        guard let value else { return .some(nil) }
+        guard let zoom = (value as? NSNumber)?.doubleValue, zoom.isFinite, (0.05...20).contains(zoom) else { return nil }
+        return .some(CGFloat(zoom))
     }
 
     /// The most a report carries (the page's `OVERLAY_RECTS_MAX`).
     static let maximum = 16
 
-    /// `[{left, top, right, bottom, radius?}]`, or nil for anything else (a bad number, too many).
+    /// `[{left, top, right, bottom, radius?, zoom?}]`, or nil for anything else (a bad number, too many).
     static func decode(_ value: Any?) -> [AgentPaneSessionInfoOverlay]? {
         guard let list = value as? [Any], list.count <= maximum else { return nil }
         var rects: [AgentPaneSessionInfoOverlay] = []
@@ -226,9 +237,9 @@ public nonisolated struct AgentPaneSessionInfoOverlay: Equatable, Sendable {
             guard let left = number("left"), let top = number("top"), let right = number("right"),
                   let bottom = number("bottom"), right >= left, bottom >= top else { return nil }
             let radius = box["radius"] == nil ? 0 : number("radius")
-            guard let radius, radius >= 0 else { return nil }
+            guard let radius, radius >= 0, let zoom = decodeZoom(box["zoom"]) else { return nil }
             rects.append(AgentPaneSessionInfoOverlay(
-                rect: CGRect(x: left, y: top, width: right - left, height: bottom - top), radius: CGFloat(radius)
+                rect: CGRect(x: left, y: top, width: right - left, height: bottom - top), radius: CGFloat(radius), zoom: zoom
             ))
         }
         return rects

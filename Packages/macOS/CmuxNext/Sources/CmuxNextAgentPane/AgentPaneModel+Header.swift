@@ -416,9 +416,9 @@ extension AgentPaneModel {
 
 extension AgentPaneModel {
     /// Keeps the page's bottom stack (`pane.toastAvoidance`); a change moves the window's toasts.
-    func setToastAvoidance(_ rect: CGRect?) {
-        guard rect != toastAvoidance else { return }
-        toastAvoidance = rect
+    func setToastAvoidance(_ box: AgentPaneSessionInfoOverlay?) {
+        guard box != toastAvoidance else { return }
+        toastAvoidance = box
         onToastAvoidance?()
     }
 }
