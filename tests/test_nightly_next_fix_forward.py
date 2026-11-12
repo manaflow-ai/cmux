@@ -10,6 +10,9 @@ import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/nightly_next_fix_forward.py"
 spec = importlib.util.spec_from_file_location("fix_forward", SCRIPT)
 ff = importlib.util.module_from_spec(spec)
@@ -170,7 +173,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("scripts/ci/nightly_next_fix_forward.py run", job)
         self.assertIn("actions: write", job)
         self.assertNotIn("environment:", job, "the fix-forward holds no feed secrets")
-        self.assertNotIn("secrets.", job)
+        self.assertEqual(workflow_jobs.secret_names(job), set())
         for out in ("changed", "serving", "pulled"):
             self.assertIn(f"{out}: ${{{{ steps.plan.outputs.{out} }}}}", self.text)
 

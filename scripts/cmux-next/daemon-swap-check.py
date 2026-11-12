@@ -51,6 +51,10 @@ takes the two newest NEXT NIGHTLYs from the feed and swaps the daemon the
 older one bundles for the newer one's, so a scheduled run swaps real builds.
 Old and new must differ in bytes; two local builds may report the same
 version and no commit stamp, so the new daemon is recognized by its process.
+`--hold-adoption SECS` (a debug build of NEW: the seam is debug-only) holds every adoption of the
+first swap's new daemon SECS, so with --typist keys are typed into adopting terminals for longer than
+the creating-input expiry; the swap fails when no terminal still adopts once the new daemon answers.
+Give --budget above SECS. A release drill does not use it.
 The report's "binaries" gives, for every binary the check runs (cmux-tui,
 the `cmux-tui-host` beside it that the build's hosts run from, and acpmux;
 old and new), its path, sha256 and the build identity the binary itself
@@ -85,6 +89,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 FILES = "https://files.cmux.com/cmux-tui"
 APPCAST = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
@@ -285,13 +291,13 @@ def kill_owned(owned: Owned) -> None:
     left unclaimed that still runs is reported too."""
     for pid, why in sorted(UNCLAIMED.items()):
         if pid not in owned and pid_alive(pid):
-            print(f"daemon-swap-check: left pid {pid} alive: {why}", file=sys.stderr)
+            safe_print(f"daemon-swap-check: left pid {pid} alive: {why}", file=sys.stderr)
     UNCLAIMED.clear()
     for pid, (start, pidfd) in owned.items():
         if pidfd is None:
             if pid_alive(pid):
                 same = "" if process_start(pid) == start else " (its start time changed: maybe another process now)"
-                print(f"daemon-swap-check: left pid {pid} alive: no pidfd to signal it safely{same}", file=sys.stderr)
+                safe_print(f"daemon-swap-check: left pid {pid} alive: no pidfd to signal it safely{same}", file=sys.stderr)
             continue
         try:
             signal.pidfd_send_signal(pidfd, signal.SIGKILL)
@@ -513,7 +519,7 @@ class Daemon:
         (root / "cmux-tui").mkdir(mode=0o700, parents=True, exist_ok=True)
         self.proc: subprocess.Popen | None = None
 
-    def start(self, binary: Path) -> None:
+    def start(self, binary: Path, extra_env: dict[str, str] | None = None) -> None:
         env = {k: v for k, v in os.environ.items()
                if not k.startswith(("ACPMUX_", "CMUX_")) and k not in ("ENV", "BASH_ENV")}
         env.update(
@@ -522,6 +528,7 @@ class Daemon:
             CMUX_TUI_SHELL_INTEGRATION="none",
             SHELL="/bin/sh",
         )
+        env.update(extra_env or {})
         with open(self.root / f"daemon-{int(time.time() * 1000)}.log", "wb") as log:
             self.proc = subprocess.Popen(
                 [str(binary), "--headless", "--session", self.session, "--socket", str(self.socket),
@@ -624,11 +631,13 @@ class Scenarios:
         self.control = getattr(args, "control", False)
         # Hosts of these binaries may lose the primary screen under a full-screen program.
         self.gap_hosts = {same_file_key(b) for b in getattr(args, "fullscreen_gap_host", None) or []}
+        # The new daemon of the first swap holds each adoption this long (debug-build seam).
+        self.hold_adoption = getattr(args, "hold_adoption", 0.0)
 
     @classmethod
     def none(cls) -> "Scenarios":
         return cls(argparse.Namespace(hidden=False, fullscreen=False, flood=0, typist=False,
-                                      typist_shell=False, control=False, alt_share=0.0))
+                                      typist_shell=False, control=False, alt_share=0.0, hold_adoption=0.0))
 
 
 def same_file_key(binary: Path) -> str:
@@ -1050,7 +1059,11 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
             daemon.socket.unlink()
         except FileNotFoundError:
             pass
-        daemon.start(new)
+        # --hold-adoption: every adoption of the first swap's new daemon starts this much later, so the
+        # typists type into adopting terminals longer than the creating-input expiry (debug builds only).
+        hold = step == 1 and scenarios.hold_adoption > 0
+        daemon.start(new, {"CMUX_TUI_TEST_ADOPTION_DELAY_MS": str(int(scenarios.hold_adoption * 1000))}
+                     if hold else None)
     timeline = Timeline(daemon.socket, [t["terminal_id"] for t in terms], marks["stop"])
     timeline.thread.start()
     if not scenarios.control:
@@ -1058,6 +1071,13 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
     ready_secs = now() - t0
     marks["ready"] = time.time()
     after_id = data(daemon.socket, {"cmd": "identify"})
+    held = None
+    if not scenarios.control and step == 1 and scenarios.hold_adoption > 0:
+        # The hold took effect only when a terminal still adopts once the new daemon answers: a release build
+        # has no seam and adopts at once, and then this step proves nothing.
+        held = resolve(daemon.socket, terms[0]["terminal_id"]).get("lifecycle") == "adopting"
+        extras["hold_adoption"] = {"secs": scenarios.hold_adoption, "held": held, "passed": held,
+                                   **({} if held else {"error": "no terminal adopted late: is NEW a debug build?"})}
 
     checks = []
     deadline = t0 + 60
@@ -1376,6 +1396,10 @@ def main() -> int:
     parser.add_argument("--fullscreen-gap-host", type=Path, action="append", metavar="BINARY",
                         help="report, not fail, a lost primary screen under a full-screen program whose host "
                              "BINARY's daemon started (a build before the alternate-screen replay fix); repeatable")
+    parser.add_argument("--hold-adoption", type=float, default=0.0, metavar="SECS",
+                        help="the new daemon of the first swap holds each adoption SECS (a debug build of NEW: the "
+                             "seam is debug-only); with --typist, input is typed into adopting terminals; fails when "
+                             "no terminal adopted late")
     parser.add_argument("--expect-new", metavar="SHA",
                         help="fail unless every new binary reports this commit as its build identity, not dirty")
     parser.add_argument("--drill", action="store_true",

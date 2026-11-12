@@ -90,6 +90,15 @@ import subprocess
 import sys
 import time
 import uuid
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 AGENT_PROGRAM = os.path.join(HERE, "session_real_agent.zsh")
@@ -1516,7 +1525,7 @@ def map_rows(args):
         if wanted and name not in wanted:
             return
         if time.time() > deadline:
-            print(f"SESSION-REAL-ROW-SKIPPED {name}: the time budget of this run ended", flush=True)
+            safe_print(f"SESSION-REAL-ROW-SKIPPED {name}: the time budget of this run ended", flush=True)
             skipped.append(name)
             return
         sampler = None
@@ -1530,7 +1539,7 @@ def map_rows(args):
         try:
             raw[name] = make()
         except (RuntimeError, OSError, ValueError, KeyError) as error:
-            print(f"SESSION-REAL-ROW-FAILED {name}: {type(error).__name__}: {error}", flush=True)
+            safe_print(f"SESSION-REAL-ROW-FAILED {name}: {type(error).__name__}: {error}", flush=True)
             app.unusable.append({"action": name, "error": str(error)})
             failed.append((name, f"{type(error).__name__}: {error}"))
             return

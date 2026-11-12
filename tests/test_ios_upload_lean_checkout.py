@@ -32,6 +32,7 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = {
@@ -134,7 +135,9 @@ class WorkflowPolicyTests(unittest.TestCase):
     def test_macos_checkouts_are_shallow_without_submodules(self):
         for name in WORKFLOWS:
             for job_name, job in load(name)["jobs"].items():
-                if "macos" not in str(job.get("runs-on", "")).lower():
+                # Each matrix cell is read as its values; a matrix value nothing resolves may be a Mac.
+                cells = workflow_jobs.runs_on_cells(job)
+                if cells is not None and not any("macos" in runs_on.lower() for runs_on in cells):
                     continue
                 for step in job.get("steps", []):
                     if not str(step.get("uses", "")).startswith("actions/checkout@"):
