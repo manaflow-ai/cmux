@@ -967,6 +967,7 @@ impl Hub {
 
 /// The longest `status` waits on any one reading that may wait. Under the app lookup's first
 /// 5 s ask (`AgentPaneHost.lookupStatusAttempts`) with room for the reply.
+// timeout: a reading past it is reported null, never an error; status itself always answers.
 pub(crate) const STATUS_READING_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// `reading`, or None when it misses [`STATUS_READING_BUDGET`].
