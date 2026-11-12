@@ -365,10 +365,10 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         // ring away, and with it every reveal that asks for keyboard focus. This dev server serves
         // `:focus-visible` ungated (the shipped pane gates it in build-agent-pane-web.sh, gate-css.mjs),
         // so the reveals are read here in their shipped, gated form against the live DOM.
-        const reveals = [
+        const reveals: string[] = [
           ".acpmux-queued:is(:hover,:has(:focus-visible)) .acpmux-queued-actions",
           ".acpmux-queued:focus-visible .acpmux-queued-actions",
-        ].map(gateFocusVisible);
+        ].map((selector: string): string => gateFocusVisible(selector));
         const revealed = () =>
           page.evaluate(([sel, list]) => list.some((reveal) => document.querySelector(sel)!.matches(reveal)), [
             `${ROW} .acpmux-queued-actions`,
