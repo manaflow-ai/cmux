@@ -61,7 +61,9 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   return (
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.
-    <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider"} data-find-skip>
+    // Over the work (turns.ts `shapeLiveTurn`) it keeps the closed "Worked for" line's box, rule and
+    // room (`is-toggle`, conversation.css), so the turn's end swaps the words and nothing moves.
+    <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider is-toggle"} data-find-skip>
       {!waiting && doing && row.doingCommand && !sending && (
         <span className="cv-worked__glyph" aria-hidden="true">
           <TerminalSquare />
@@ -84,7 +86,8 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
           <TimedLabel text={(time) => t("turn.working", { time })} time={Math.max(0, until - row.at)} />
         </span>
       )}
-      {counts?.tokens ? (
+      {/* Over the work it says only the turn's time, as the Codex app's "Working for 32s". */}
+      {row.below && counts?.tokens ? (
         <span className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
             ·

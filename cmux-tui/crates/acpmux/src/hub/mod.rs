@@ -245,6 +245,10 @@ mod start_retry;
 mod start_watch;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
+
+/// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
+type WithdrawsInFlight =
+    HashMap<(String, String), tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>>;
 pub(super) use session::{newest_first, prompt_text, short_text};
 pub(crate) mod shell_readonly;
 mod shutdown;
@@ -275,6 +279,7 @@ mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
 mod turn_retry;
+mod unread_steer;
 mod update_repeats;
 mod watch;
 pub use new_request::{
@@ -732,6 +737,8 @@ pub struct Hub {
     pub(super) closed_rows_walk: StdMutex<()>,
     /// The closed sessions' chat activity, built once for every chats reader (`chats/activity.rs`).
     pub(crate) chat_activity_cache: crate::chats::ActivityCache,
+    /// The transcript rows of the chats a client reads rows of (`rows/serve.rs`).
+    pub(crate) rows: crate::rows::RowsCache,
     /// Closed rows built anew because their cached bytes were missing or stale (tests).
     #[cfg(test)]
     pub(super) closed_summary_builds: AtomicU64,
@@ -984,6 +991,9 @@ pub struct Hub {
     /// The fence of an ancestor's answer, by permission id, for the write that delivers it
     /// (`subsession_answer.rs`).
     pub(super) answer_fences: StdMutex<HashMap<String, crate::agent::Fence>>,
+    /// Withdraws whose retraction notice is on its way, by session and prompt id: a second
+    /// withdraw of the same message answers as the first (`withdraw.rs`).
+    pub(super) withdraws: StdMutex<WithdrawsInFlight>,
     /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
     #[cfg(test)]
     pub(super) family_write_seam: full_access_bound::WriteSeam,
@@ -1218,6 +1228,7 @@ impl Hub {
             closed_summary_cache: StdMutex::new(Default::default()),
             closed_rows_walk: StdMutex::new(()),
             chat_activity_cache: Default::default(),
+            rows: Default::default(),
             #[cfg(test)]
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
@@ -1337,6 +1348,7 @@ impl Hub {
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
             family_cut: tokio::sync::watch::channel(0).0,
             answer_fences: StdMutex::new(HashMap::new()),
+            withdraws: StdMutex::new(HashMap::new()),
             #[cfg(test)]
             family_write_seam: Default::default(),
             #[cfg(test)]
@@ -1761,6 +1773,7 @@ impl Hub {
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            rehydrate_note: StdMutex::new(None),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),

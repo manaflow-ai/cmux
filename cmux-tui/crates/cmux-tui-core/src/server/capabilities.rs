@@ -440,6 +440,7 @@ pub(super) fn advertised_capabilities(
         crate::state::conversation_tabs_store::PAGE_TAB_ROUTE_CAPABILITY,
         crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_TABS_CAPABILITY,
         detached_terminals::DETACHED_TERMINALS_CAPABILITY,
+        cmd_terminals::CREATE_TERMINAL_WORKSPACE_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,

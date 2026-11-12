@@ -179,21 +179,21 @@ fn created(mux: &Arc<Mux>, name: &str, extra: Value) -> String {
 }
 
 /// The workspaces of the session, by the kind of field that each one has.
-struct Fields {
-    shown: String,
-    ephemeral: String,
-    home: String,
-    app: String,
-    with_folder: String,
-    creator: String,
-    made_by_a_live_one: String,
-    closed_creator: String,
-    made_by_a_closed_one: String,
-    folder_root: std::path::PathBuf,
-    folder: String,
+pub(crate) struct Fields {
+    pub(crate) shown: String,
+    pub(crate) ephemeral: String,
+    pub(crate) home: String,
+    pub(crate) app: String,
+    pub(crate) with_folder: String,
+    pub(crate) creator: String,
+    pub(crate) made_by_a_live_one: String,
+    pub(crate) closed_creator: String,
+    pub(crate) made_by_a_closed_one: String,
+    pub(crate) folder_root: std::path::PathBuf,
+    pub(crate) folder: String,
 }
 
-fn session_with_each_field(mux: &Arc<Mux>) -> Fields {
+pub(crate) fn session_with_each_field(mux: &Arc<Mux>) -> Fields {
     let home = send(mux, "workspace.ensure_home", json!({}), Some("home")).unwrap();
     let home = home["value"]["workspace_id"].as_str().unwrap().to_string();
     let _plain = empty_workspace(mux, "plain");

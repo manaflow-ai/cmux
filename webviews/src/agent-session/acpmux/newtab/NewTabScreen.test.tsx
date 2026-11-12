@@ -23,6 +23,7 @@ import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachine
 import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -75,9 +76,10 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -101,10 +103,12 @@ async function typePrompt(text: string) {
   return field;
 }
 
-async function press(field: MarkdownFieldElement, key: string) {
+async function press(field: MarkdownFieldElement, key: string, modifiers: KeyboardEventInit = {}) {
   const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   await act(async () => {
-    editor.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    editor.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers }),
+    );
   });
 }
 
@@ -599,6 +603,32 @@ test("Return on a typed address still opens it without a harness", async () => {
   } finally {
     unregister();
   }
+});
+
+// Lawrence 2026-11-11: Return on a typed address or search navigates the New Tab page's own tab (the host
+// replaces the page in place); Option-Return, as in Chrome's omnibox, asks for a new tab where links go.
+test("Return navigates the page's tab and Option-Return asks for a new tab beside it", async () => {
+  // Each call's arguments: the address (or search) and where it opens.
+  const opens: unknown[][] = [];
+  const searches: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        onOpen={(...args: unknown[]) => void opens.push(args)}
+        onSearch={(...args: unknown[]) => void searches.push(args)}
+      />,
+    );
+  });
+  const field = await typePrompt("https://example.com/");
+  await press(field, "Enter");
+  await typePrompt("https://example.org/");
+  await press(field, "Enter", { altKey: true });
+  expect(opens.map(([url, how]) => [url, (how as { beside?: boolean } | undefined)?.beside === true])).toEqual([
+    ["https://example.com/", false],
+    ["https://example.org/", true],
+  ]);
+  expect(searches).toEqual([]);
 });
 
 // A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed
@@ -1804,4 +1834,74 @@ test("a start refused because the agent is not installed says so in plain words,
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(asks).toHaveLength(before + 2);
   expect(asks.at(-1)?.[1]).toBe("");
+});
+
+// Cmd-T, then typing at once: the app holds the keys and replays them into the page when the field
+// reports ready. A Chromium page shown a moment ago is often not focused yet, and its renderer drops
+// keys replayed then: after a cold launch Cmd-T then "hello" left the field empty, about one try in
+// five (cmux-lawrence-2, 2026-11-11). The readiness waits until the page has focus.
+test("Cmd-T then typing at once: the field reports ready only once its page has focus", async () => {
+  let pageFocused = false;
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => pageFocused });
+  const ready: { token: string; pageFocused: boolean; fieldFocused: boolean }[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        inputToken="cmd-t-1"
+        onInputReady={(token) => {
+          const editor = container.querySelector(".nt-field [contenteditable]");
+          ready.push({ token, pageFocused, fieldFocused: !!editor && editor.contains(document.activeElement) });
+        }}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await promptField();
+  expect(ready, "the field reported ready while its page had no focus: the held keys would be lost").toEqual([]);
+
+  // The page gets focus (Chromium's grant lands): the readiness goes now, with the field focused.
+  pageFocused = true;
+  await act(async () => dom!.window.dispatchEvent(new dom!.window.FocusEvent("focus")));
+  expect(ready).toEqual([{ token: "cmd-t-1", pageFocused: true, fieldFocused: true }]);
+
+  // The held keys, replayed into the focused field, are typed into it.
+  await typePrompt("hello");
+  expect(promptValue()).toBe("hello");
+});
+
+test("a page that has focus already reports its field ready at once, and only once per token", async () => {
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => true });
+  const ready: string[] = [];
+  const render = (token: string) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          inputToken={token}
+          onInputReady={(reported) => ready.push(reported)}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+  await render("cmd-t-1");
+  await promptField();
+  expect(ready).toEqual(["cmd-t-1"]);
+  await render("cmd-t-1");
+  await act(async () => dom!.window.dispatchEvent(new dom!.window.FocusEvent("focus")));
+  expect(ready).toEqual(["cmd-t-1"]);
+  await render("cmd-t-2");
+  expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
 });
