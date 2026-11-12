@@ -132,6 +132,8 @@ import {
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
+import { setSavedPromptsTransport } from "./savedPrompts";
+import { setStashTab, setStashTransport } from "./composer/draftStash";
 import {
   composerDraft,
   DRAFT_SETTLE_MS,
@@ -1209,7 +1211,10 @@ registerComposerHost((method, show) => callNative(method, { show }));
 if (typeof window !== "undefined")
   window.addEventListener(PANE_TAB_EVENT, (event) => {
     const tab = (event as CustomEvent<{ tab?: unknown }>).detail?.tab;
-    if (typeof tab === "string" && tab) setSessionInfoTab(tab);
+    if (typeof tab === "string" && tab) {
+      setSessionInfoTab(tab);
+      setStashTab(tab);
+    }
   });
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
 registerComposerRingHost((ring) => callNative("pane.setComposerRing", { ring }));
@@ -7698,7 +7703,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const host = received.host;
         if (received.folder) setHandedFolder(received.folder);
         // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
-        if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
+        if (typeof host.tab === "string" && host.tab) {
+          setSessionInfoTab(host.tab);
+          setStashTab(host.tab);
+        }
         acpmuxPerf.markAgent("handshakeReady");
         acpmuxPerf.markLaunch("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
@@ -7994,6 +8002,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setBookmarkTransport({
           get: (id) => client.readBookmarks(id),
           set: (id, seq, on) => client.setBookmark(id, seq, on),
+        });
+        // Saved prompts live in acpmux, one list for every chat on the machine (savedPrompts.ts).
+        setSavedPromptsTransport({
+          list: () => client.listPrompts(),
+          save: (name, text) => client.savePrompt(name, text),
+          remove: (name) => client.deletePrompt(name),
+        });
+        // Stashed drafts live in acpmux too: the page's own storage is gone with it (draftStash.ts).
+        setStashTransport({
+          list: (chat) => client.listStash(chat),
+          push: (chat, text, attachments, replaces) => client.pushStash(chat, text, attachments, replaces),
+          get: (chat, id) => client.getStash(chat, id),
+          drop: (chat, id) => client.dropStash(chat, id),
+          move: (chat, to) => client.moveStash(chat, to),
         });
         // Every trust refusal (a new chat, a resumed one, a switch, a prewarm, a prompt) shows the
         // folder's one question above the composer; Trust re-runs the refused step (cx-nn3e).
@@ -9373,6 +9395,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       directClient.current?.close();
       directClient.current = undefined;
       setBookmarkTransport(undefined);
+      setSavedPromptsTransport(undefined);
+      setStashTransport(undefined);
       delete window.cmuxAcpmuxActions;
       notifyDraftActionsChanged();
     };

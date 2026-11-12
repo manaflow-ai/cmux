@@ -274,6 +274,22 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "agent-session-turn-rewind-v1",
         wire: &[method::AGENT_SESSION_TURN_PREPARE, method::AGENT_SESSION_TURN_ABANDON],
     },
+    // The person's saved prompts, with the read-only ones the settings file names (`prompts.rs`).
+    Capability {
+        id: "prompt-library-v1",
+        wire: &[method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE],
+    },
+    // The composer's stashed drafts, kept here so they outlive the pane's page (`stash.rs`).
+    Capability {
+        id: "draft-stash-v1",
+        wire: &[
+            method::MUX_STASH_LIST,
+            method::MUX_STASH_PUSH,
+            method::MUX_STASH_GET,
+            method::MUX_STASH_DROP,
+            method::MUX_STASH_MOVE,
+        ],
+    },
     // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).

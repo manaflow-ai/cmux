@@ -1,6 +1,270 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.agentPane.savedPrompts": {
+      "comment": "Settings row title: the named prompts the agent chat's / menu offers",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الموجّهات المحفوظة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sačuvani upiti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gemte prompts"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gesicherte Prompts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Prompts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts guardados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts enregistrés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt salvati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保存したプロンプト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបញ្ចូលដែលបានរក្សាទុក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "저장한 프롬프트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lagrede prompter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapisane prompty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts salvos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сохранённые запросы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พรอมต์ที่บันทึกไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kayıtlı istemler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Збережені запити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lời nhắc đã lưu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已保存的提示词"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已儲存的提示詞"
+          }
+        }
+      }
+    },
+    "settings.agentPane.savedPrompts.help": {
+      "comment": "Settings row help for Saved Prompts; /name is typed as is, {{date}} {{time}} {{folder}} {{branch}} are variable names and stay untranslated",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "موجّهات تعرضها قائمة / في كل محادثة: اسم ونصه. كتابة ‎/name‎ تضع النص في مربع الكتابة، مع ملء {{date}} و{{time}} و{{folder}} و{{branch}}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upiti koje nudi meni / u svakom chatu: naziv i njegov tekst. Upisivanje /name upisuje tekst u polje za pisanje, uz popunjene {{date}}, {{time}}, {{folder}} i {{branch}}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts, som /-menuen i hver chat tilbyder: et navn og dets tekst. Når du skriver /name, indsættes teksten i skrivefeltet med {{date}}, {{time}}, {{folder}} og {{branch}} udfyldt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts, die das /-Menü jedes Chats anbietet: ein Name und sein Text. /name schreibt den Text ins Eingabefeld, mit {{date}}, {{time}}, {{folder}} und {{branch}} ausgefüllt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts que ofrece el menú / de cada chat: un nombre y su texto. Escribir /name pone el texto en el editor, con {{date}}, {{time}}, {{folder}} y {{branch}} rellenados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts proposés par le menu / de chaque chat : un nom et son texte. Taper /name écrit le texte dans le champ de saisie, avec {{date}}, {{time}}, {{folder}} et {{branch}} remplis."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt offerti dal menu / di ogni chat: un nome e il suo testo. Digitare /name scrive il testo nel campo di composizione, con {{date}}, {{time}}, {{folder}} e {{branch}} compilati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "各チャットの / メニューに出るプロンプト(名前と本文)。/name と入力すると本文が入力欄に入り、{{date}}、{{time}}、{{folder}}、{{branch}} は自動で埋まります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបញ្ចូលដែលម៉ឺនុយ / ក្នុងការជជែកនីមួយៗផ្ដល់ជូន៖ ឈ្មោះ និងអត្ថបទរបស់វា។ ការវាយ /name សរសេរអត្ថបទចូលប្រអប់សរសេរ ដោយបំពេញ {{date}}, {{time}}, {{folder}} និង {{branch}}។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 채팅의 / 메뉴에 나오는 프롬프트: 이름과 본문. /name을 입력하면 본문이 입력란에 들어가며 {{date}}, {{time}}, {{folder}}, {{branch}}는 자동으로 채워집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompter som /-menyen i hver chat tilbyr: et navn og teksten. Når du skriver /name, settes teksten inn i skrivefeltet med {{date}}, {{time}}, {{folder}} og {{branch}} fylt ut."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompty oferowane przez menu / w każdym czacie: nazwa i jej tekst. Wpisanie /name wstawia tekst do pola wpisywania z wypełnionymi {{date}}, {{time}}, {{folder}} i {{branch}}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompts que o menu / de cada chat oferece: um nome e seu texto. Digitar /name escreve o texto no campo de escrita, com {{date}}, {{time}}, {{folder}} e {{branch}} preenchidos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запросы, которые предлагает меню / в каждом чате: название и текст. Ввод /name вставляет текст в поле ввода, а {{date}}, {{time}}, {{folder}} и {{branch}} заполняются сами."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พรอมต์ที่เมนู / ของทุกแชตเสนอให้: ชื่อและข้อความ การพิมพ์ /name จะใส่ข้อความลงในช่องพิมพ์ โดยเติม {{date}}, {{time}}, {{folder}} และ {{branch}} ให้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her sohbetin / menüsünün sunduğu istemler: bir ad ve metni. /name yazmak metni yazma alanına koyar; {{date}}, {{time}}, {{folder}} ve {{branch}} doldurulur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Запити, які пропонує меню / у кожному чаті: назва і текст. Введення /name вставляє текст у поле введення, а {{date}}, {{time}}, {{folder}} і {{branch}} заповнюються самі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các lời nhắc mà menu / của mọi cuộc trò chuyện đưa ra: một tên và nội dung. Gõ /name sẽ ghi nội dung vào ô soạn, với {{date}}, {{time}}, {{folder}} và {{branch}} được điền sẵn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每个聊天的 / 菜单提供的提示词:名称及其文本。输入 /name 会把文本写入输入框,并填好 {{date}}、{{time}}、{{folder}} 和 {{branch}}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "每個聊天的 / 選單提供的提示詞:名稱及其文字。輸入 /name 會把文字寫入輸入框,並填好 {{date}}、{{time}}、{{folder}} 和 {{branch}}。"
+          }
+        }
+      }
+    },
     "settings.internalDeveloperMode.help": {
       "comment": "Help text under the Internal Developer Mode toggle. \"Debug: …\" is the title prefix of the palette rows; translate it the same way as the action.debug.titleFormat string.",
       "extractionState": "manual",
@@ -136270,268 +136534,6 @@
         }
       }
     },
-    "settings.sessions.keepAwakeForCommands": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Also While Terminal Commands Run"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "أيضًا أثناء تشغيل أوامر الطرفية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Također dok se izvršavaju naredbe terminala"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Også mens terminalkommandoer kører"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Auch während Terminalbefehle laufen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "También mientras se ejecutan comandos del terminal"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aussi pendant l’exécution de commandes du terminal"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anche durante l’esecuzione di comandi del terminale"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルのコマンド実行中も"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ក៏ពេលពាក្យបញ្ជាទែមីណាល់កំពុងដំណើរការដែរ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "터미널 명령이 실행되는 동안에도"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Også mens terminalkommandoer kjører"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Również podczas działania poleceń terminala"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Também enquanto comandos do terminal são executados"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Также во время выполнения команд терминала"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ขณะที่คำสั่งในเทอร์มินัลทำงานด้วย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Terminal komutları çalışırken de"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Також під час виконання команд термінала"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cả khi lệnh terminal đang chạy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "终端命令运行时也保持唤醒"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "終端機指令執行時也保持喚醒"
-          }
-        }
-      }
-    },
-    "settings.sessions.keepAwakeForCommands.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يُبقي البناء أو الاختبار الذي يعمل منذ دقيقة جهاز Mac مستيقظًا ما دام يطبع مخرجات. يتبع إعداد إبقاء Mac مستيقظًا أثناء عمل الوكلاء."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Build ili test koji radi već minutu drži Mac budnim dok god ispisuje. Prati postavku Drži Mac budnim dok agenti rade."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Et build eller en test, der har kørt i et minut, holder Mac vågen, så længe den stadig skriver output. Følger Hold Mac vågen, mens agenter arbejder."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein Build oder Test, der seit einer Minute läuft, hält den Mac wach, solange er noch ausgibt. Folgt „Mac wach halten, während Agenten arbeiten“."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Una compilación o prueba que lleva un minuto en ejecución mantiene el Mac activo mientras siga mostrando salida. Sigue el ajuste Mantener el Mac activo mientras trabajan los agentes."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Une compilation ou un test lancé depuis une minute garde le Mac éveillé tant qu’il affiche encore des sorties. Suit le réglage Garder le Mac éveillé pendant que les agents travaillent."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Una build o un test in esecuzione da un minuto mantiene il Mac attivo finché produce output. Segue Mantieni il Mac attivo mentre gli agenti lavorano."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1 分以上実行中のビルドやテストは、出力が続く間 Mac をスリープさせません。「エージェントの作業中は Mac をスリープさせない」の設定に従います。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការបង្កើត ឬការធ្វើតេស្តដែលដំណើរការបានមួយនាទី រក្សា Mac ឱ្យភ្ញាក់ ដរាបណាវានៅតែបោះពុម្ពលទ្ធផល។ អនុវត្តតាម រក្សា Mac ឱ្យភ្ញាក់ពេលភ្នាក់ងារកំពុងធ្វើការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1분 이상 실행 중인 빌드나 테스트가 출력을 계속하는 동안 Mac을 깨어 있게 유지합니다. 에이전트가 작업하는 동안 Mac 깨어 있게 유지 설정을 따릅니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Et bygg eller en test som har kjørt i ett minutt, holder Mac våken så lenge den fortsatt skriver ut. Følger Hold Mac våken mens agenter arbeider."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kompilacja lub test działający od minuty nie pozwala Macowi zasnąć, dopóki wypisuje dane. Działa zgodnie z ustawieniem Nie usypiaj Maca, gdy agenci pracują."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Um build ou teste em execução há um minuto mantém o Mac ativo enquanto ainda gera saída. Segue Manter o Mac ativo enquanto os agentes trabalham."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сборка или тест, работающие уже минуту, не дают Mac уснуть, пока продолжают выводить данные. Следует настройке «Не давать Mac уснуть, пока работают агенты»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "บิลด์หรือการทดสอบที่ทำงานมาแล้วหนึ่งนาทีจะทำให้ Mac ไม่หลับตราบที่ยังแสดงผลอยู่ ทำตามการตั้งค่าให้ Mac ไม่หลับขณะที่เอเจนต์ทำงาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bir dakikadır çalışan bir derleme veya test, çıktı vermeye devam ettiği sürece Mac’i uyanık tutar. Ajanlar Çalışırken Mac’i Uyanık Tut ayarını izler."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Збірка або тест, що працюють уже хвилину, не дають Mac заснути, поки виводять дані. Дотримується налаштування «Не давати Mac заснути, поки працюють агенти»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bản build hoặc bài test đã chạy một phút sẽ giữ Mac thức khi vẫn còn in ra kết quả. Theo cài đặt Giữ Mac thức khi tác tử làm việc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已运行一分钟的构建或测试只要仍有输出，就会让 Mac 保持唤醒。遵循“代理工作时保持 Mac 唤醒”设置。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已執行一分鐘的建置或測試只要仍有輸出，就會讓 Mac 保持喚醒。依循「代理程式工作時讓 Mac 保持喚醒」設定。"
-          }
-        }
-      }
-    },
     "settings.sessions.keepAwake.help": {
       "extractionState": "manual",
       "localizations": {
@@ -218442,6 +218444,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "右鍵選單中的「檢查元素」和「切換開發者工具」(⌥⌘I) 可在代理聊天、首頁、Markdown 和設定中使用。瀏覽器分頁一律可用。"
+          }
+        }
+      }
+    },
+    "settings.sessions.keepAwakeForCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also While Terminal Commands Run"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيضًا أثناء تشغيل أوامر الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Također dok se izvršavaju naredbe terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Også mens terminalkommandoer kører"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auch während Terminalbefehle laufen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "También mientras se ejecutan comandos del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aussi pendant l’exécution de commandes du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anche durante l’esecuzione di comandi del terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのコマンド実行中も"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក៏ពេលពាក្យបញ្ជាទែមីណាល់កំពុងដំណើរការដែរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 명령이 실행되는 동안에도"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Også mens terminalkommandoer kjører"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Również podczas działania poleceń terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Também enquanto comandos do terminal são executados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Также во время выполнения команд терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขณะที่คำสั่งในเทอร์มินัลทำงานด้วย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal komutları çalışırken de"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Також під час виконання команд термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cả khi lệnh terminal đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端命令运行时也保持唤醒"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機指令執行時也保持喚醒"
+          }
+        }
+      }
+    },
+    "settings.sessions.keepAwakeForCommands.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A build or test that has run for a minute keeps the Mac awake while it still prints. Follows Keep Mac Awake While Agents Work."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُبقي البناء أو الاختبار الذي يعمل منذ دقيقة جهاز Mac مستيقظًا ما دام يطبع مخرجات. يتبع إعداد إبقاء Mac مستيقظًا أثناء عمل الوكلاء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build ili test koji radi već minutu drži Mac budnim dok god ispisuje. Prati postavku Drži Mac budnim dok agenti rade."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et build eller en test, der har kørt i et minut, holder Mac vågen, så længe den stadig skriver output. Følger Hold Mac vågen, mens agenter arbejder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Build oder Test, der seit einer Minute läuft, hält den Mac wach, solange er noch ausgibt. Folgt „Mac wach halten, während Agenten arbeiten“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una compilación o prueba que lleva un minuto en ejecución mantiene el Mac activo mientras siga mostrando salida. Sigue el ajuste Mantener el Mac activo mientras trabajan los agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une compilation ou un test lancé depuis une minute garde le Mac éveillé tant qu’il affiche encore des sorties. Suit le réglage Garder le Mac éveillé pendant que les agents travaillent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una build o un test in esecuzione da un minuto mantiene il Mac attivo finché produce output. Segue Mantieni il Mac attivo mentre gli agenti lavorano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 分以上実行中のビルドやテストは、出力が続く間 Mac をスリープさせません。「エージェントの作業中は Mac をスリープさせない」の設定に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការបង្កើត ឬការធ្វើតេស្តដែលដំណើរការបានមួយនាទី រក្សា Mac ឱ្យភ្ញាក់ ដរាបណាវានៅតែបោះពុម្ពលទ្ធផល។ អនុវត្តតាម រក្សា Mac ឱ្យភ្ញាក់ពេលភ្នាក់ងារកំពុងធ្វើការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1분 이상 실행 중인 빌드나 테스트가 출력을 계속하는 동안 Mac을 깨어 있게 유지합니다. 에이전트가 작업하는 동안 Mac 깨어 있게 유지 설정을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et bygg eller en test som har kjørt i ett minutt, holder Mac våken så lenge den fortsatt skriver ut. Følger Hold Mac våken mens agenter arbeider."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompilacja lub test działający od minuty nie pozwala Macowi zasnąć, dopóki wypisuje dane. Działa zgodnie z ustawieniem Nie usypiaj Maca, gdy agenci pracują."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um build ou teste em execução há um minuto mantém o Mac ativo enquanto ainda gera saída. Segue Manter o Mac ativo enquanto os agentes trabalham."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сборка или тест, работающие уже минуту, не дают Mac уснуть, пока продолжают выводить данные. Следует настройке «Не давать Mac уснуть, пока работают агенты»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บิลด์หรือการทดสอบที่ทำงานมาแล้วหนึ่งนาทีจะทำให้ Mac ไม่หลับตราบที่ยังแสดงผลอยู่ ทำตามการตั้งค่าให้ Mac ไม่หลับขณะที่เอเจนต์ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir dakikadır çalışan bir derleme veya test, çıktı vermeye devam ettiği sürece Mac’i uyanık tutar. Ajanlar Çalışırken Mac’i Uyanık Tut ayarını izler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Збірка або тест, що працюють уже хвилину, не дають Mac заснути, поки виводять дані. Дотримується налаштування «Не давати Mac заснути, поки працюють агенти»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản build hoặc bài test đã chạy một phút sẽ giữ Mac thức khi vẫn còn in ra kết quả. Theo cài đặt Giữ Mac thức khi tác tử làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已运行一分钟的构建或测试只要仍有输出，就会让 Mac 保持唤醒。遵循“代理工作时保持 Mac 唤醒”设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已執行一分鐘的建置或測試只要仍有輸出，就會讓 Mac 保持喚醒。依循「代理程式工作時讓 Mac 保持喚醒」設定。"
           }
         }
       }

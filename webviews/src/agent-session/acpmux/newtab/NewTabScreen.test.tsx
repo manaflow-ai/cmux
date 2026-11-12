@@ -24,6 +24,7 @@ import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
 import { settleReact } from "../../../../test/support/domTeardown";
+import { resetStashForTests, stashedNow, type StashTransport } from "../composer/draftStash";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -1304,6 +1305,152 @@ test.each(
   await act(async () => create(kind).click());
   expect(asks.length).toBe(kind === "chat" ? 1 : 0);
   expect(creates).toEqual(kind === "chat" ? [] : [kind]);
+});
+
+/// acpmux's stash, in memory (draftStash.test.ts has the same fake).
+function stashDaemon() {
+  const daemon = new Map<string, { id: string; text: string; attachments: ComposerAttachment[]; at: number }[]>();
+  let serial = 0;
+  const fake: StashTransport = {
+    list: async (chat) => ({ drafts: daemon.get(chat) ?? [] }),
+    push: async (chat, text, attachments, replaces) => {
+      const row = { id: `stash-${++serial}`, text, attachments: [...attachments], at: serial };
+      daemon.set(chat, [row, ...(daemon.get(chat) ?? []).filter((entry) => entry.id !== replaces)].slice(0, 5));
+      return { draft: row };
+    },
+    get: async (chat, id) => ({ draft: daemon.get(chat)?.find((entry) => entry.id === id) }),
+    drop: async (chat, id) => {
+      daemon.set(
+        chat,
+        (daemon.get(chat) ?? []).filter((entry) => entry.id !== id),
+      );
+      return { removed: true };
+    },
+    // New Tab's stack never moves.
+    move: async () => ({ moved: 0 }),
+  };
+  return { daemon, fake };
+}
+
+/// ⌃S on the prompt field, `turns` zero-delay turns after it (a restore's drop waits a frame).
+async function controlS(field: MarkdownFieldElement, turns = 5) {
+  const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+  await act(async () => {
+    editor.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+    for (let turn = 0; turn < turns; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
+test("⌃S on New Tab stashes the draft and empties the prompt; ⌃S on the empty prompt brings it back", async () => {
+  const { daemon, fake } = stashDaemon();
+  resetStashForTests(fake);
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+    const field = await typePrompt("half a thought");
+    const control = async () => {
+      const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+      await act(async () => {
+        editor.dispatchEvent(
+          new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+        // A few turns: the drop waits a frame (useDraftStash.ts).
+        for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    };
+    await control();
+    expect(promptValue()).toBe("");
+    const [chat] = [...daemon.keys()];
+    expect(stashedNow(chat!).map((entry) => entry.text)).toEqual(["half a thought"]);
+    expect(container.querySelector(".acpmux-stash")?.hasAttribute("data-shown")).toBe(true);
+    await control();
+    expect(promptValue()).toBe("half a thought");
+    expect(daemon.get(chat!)).toEqual([]);
+    expect(stashedNow(chat!)).toEqual([]);
+    // A page that goes the moment a draft comes back keeps the stashed copy.
+    await control();
+    expect(promptValue()).toBe("");
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => {
+      editor.dispatchEvent(
+        new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+      );
+      // Until the draft is back in the prompt; its drop waits for the next frame.
+      for (let turn = 0; turn < 50 && promptValue() === ""; turn++) await Promise.resolve();
+      expect(promptValue()).toBe("half a thought");
+      // Closed before that frame: an unmount runs at once.
+      root!.unmount();
+      root = createRoot(container);
+      for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(daemon.get(chat!)?.map((entry) => entry.text)).toEqual(["half a thought"]);
+  } finally {
+    resetStashForTests();
+  }
+});
+
+test("two ⌃S on an empty New Tab prompt at once bring back one draft, and the other stays stashed", async () => {
+  const { daemon, fake } = stashDaemon();
+  resetStashForTests(fake);
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+    let field = await typePrompt("one");
+    await controlS(field);
+    field = await typePrompt("two");
+    await controlS(field);
+    expect(promptValue()).toBe("");
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => {
+      for (let press = 0; press < 2; press++)
+        editor.dispatchEvent(
+          new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+      for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(promptValue()).toBe("two");
+    expect([...daemon.values()].flat().map((entry) => entry.text)).toEqual(["one"]);
+  } finally {
+    resetStashForTests();
+  }
+});
+
+test("two ⌃S at once on a New Tab draft stash it once", async () => {
+  const { daemon, fake } = stashDaemon();
+  resetStashForTests(fake);
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} />));
+    const field = await typePrompt("only once");
+    const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
+    await act(async () => {
+      for (let press = 0; press < 2; press++)
+        editor.dispatchEvent(
+          new dom!.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }),
+        );
+      for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect([...daemon.values()].flat().map((entry) => entry.text)).toEqual(["only once"]);
+    expect(promptValue()).toBe("");
+  } finally {
+    resetStashForTests();
+  }
+});
+
+test("New Tab text typed to read as the opening location is a draft; the untouched location is not", async () => {
+  const { daemon, fake } = stashDaemon();
+  resetStashForTests(fake);
+  try {
+    await act(async () => root!.render(<NewTabScreen {...firstRunProps} snapshot={noChat()} location="notes" />));
+    const field = await promptField();
+    await controlS(field);
+    expect([...daemon.values()].flat()).toEqual([]);
+    await typePrompt("note");
+    await typePrompt("notes");
+    await controlS(field);
+    expect([...daemon.values()].flat().map((entry) => entry.text)).toEqual(["notes"]);
+  } finally {
+    resetStashForTests();
+  }
 });
 
 test("a page that goes with an unsent draft hands it over; an untouched page hands nothing", async () => {

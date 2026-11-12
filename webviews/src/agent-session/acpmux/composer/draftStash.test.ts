@@ -1,0 +1,358 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { ComposerAttachment } from "../attachments";
+import {
+  draftsFrom,
+  dropStashed,
+  moveStash,
+  readStashed,
+  refreshStash,
+  resetStashForTests,
+  retryMoves,
+  setStashTransport,
+  stashMoves,
+  stashDraft,
+  stashedNow,
+  stashPreview,
+  type StashTransport,
+} from "./draftStash";
+
+// acpmux's stash (stash.rs), in memory: a list's chips without contents, a get whole. `refuse`
+// makes every push fail, as a refusal or a lost connection does.
+type Row = { id: string; text: string; attachments: ComposerAttachment[]; at: number };
+let daemon: Map<string, Row[]>;
+let refuse = false;
+let serial = 0;
+const fake: StashTransport = {
+  list: async (chat) => ({
+    drafts: (daemon.get(chat) ?? []).map((row) => ({
+      ...row,
+      attachments: row.attachments.map(({ data: _data, ...chip }) => chip),
+    })),
+  }),
+  push: async (chat, text, attachments, replaces) => {
+    if (refuse) throw new Error("refused");
+    const row = { id: `stash-${++serial}`, text, attachments: [...attachments], at: serial };
+    const rest = (daemon.get(chat) ?? []).filter((entry) => entry.id !== replaces);
+    daemon.set(chat, [row, ...rest].slice(0, 5));
+    return { draft: { ...row, attachments: row.attachments.map(({ data: _data, ...chip }) => chip) } };
+  },
+  get: async (chat, id) => {
+    const row = daemon.get(chat)?.find((entry) => entry.id === id);
+    if (!row) throw new Error("no stashed draft with that id");
+    return { draft: row };
+  },
+  drop: async (chat, id) => {
+    daemon.set(
+      chat,
+      (daemon.get(chat) ?? []).filter((entry) => entry.id !== id),
+    );
+    return { removed: true };
+  },
+  // One write under acpmux's lock: the moved drafts on top, none twice, at most five; then the
+  // source goes.
+  move: async (chat, to) => {
+    const kept = daemon.get(to) ?? [];
+    const moving = (daemon.get(chat) ?? []).filter((row) => !kept.some((own) => own.id === row.id));
+    const ids = (daemon.get(chat) ?? []).map((row) => row.id);
+    daemon.set(to, [...moving, ...kept].slice(0, 5));
+    daemon.delete(chat);
+    return { moved: moving.length, ids };
+  },
+};
+
+beforeEach(() => {
+  daemon = new Map();
+  refuse = false;
+  resetStashForTests(fake);
+});
+afterEach(() => resetStashForTests());
+
+const image = (id: string): ComposerAttachment => ({
+  id,
+  kind: "image",
+  name: `${id}.png`,
+  mimeType: "image/png",
+  size: 3,
+  data: "AAA",
+});
+const texts = (chat: string) => stashedNow(chat).map((entry) => entry.text);
+
+describe("draft stash", () => {
+  test("a stash shows at once, newest first, and an empty draft is not stashed", async () => {
+    expect(await stashDraft("chat", "  ", [])).toBe(false);
+    expect(await stashDraft("chat", "first", [])).toBe(true);
+    expect(await stashDraft("chat", "second", [image("a")])).toBe(true);
+    expect(texts("chat")).toEqual(["second", "first"]);
+    // The row's chip has no contents; the whole draft read back has them.
+    expect(stashedNow("chat")[0]!.attachments[0]!.data).toBeUndefined();
+    const whole = await readStashed("chat", stashedNow("chat")[0]!.id);
+    expect(whole?.attachments.map((chip) => chip.data)).toEqual(["AAA"]);
+  });
+
+  test("a draft stays stashed until it is dropped", async () => {
+    await stashDraft("chat", "kept", []);
+    const id = stashedNow("chat")[0]!.id;
+    expect((await readStashed("chat", id))?.text).toBe("kept");
+    expect(daemon.get("chat")?.length).toBe(1);
+    await dropStashed("chat", id);
+    expect(texts("chat")).toEqual([]);
+    expect(daemon.get("chat")).toEqual([]);
+    expect(await readStashed("chat", id)).toBeUndefined();
+  });
+
+  test("a push in place of a taken draft lets no other go from a full stack", async () => {
+    for (let index = 0; index < 5; index += 1) await stashDraft("chat", `draft ${index}`, []);
+    const newest = stashedNow("chat")[0]!;
+    expect(await stashDraft("chat", "typed meanwhile", [], newest.id)).toBe(true);
+    expect(texts("chat")).toEqual(["typed meanwhile", "draft 3", "draft 2", "draft 1", "draft 0"]);
+    expect(daemon.get("chat")?.map((row) => row.text)).toEqual(texts("chat"));
+  });
+
+  test("the page's stack holds at most five, as acpmux does", async () => {
+    for (let index = 0; index < 6; index += 1) await stashDraft("chat", `draft ${index}`, []);
+    expect(texts("chat")).toEqual(["draft 5", "draft 4", "draft 3", "draft 2", "draft 1"]);
+  });
+
+  test("another acpmux starts from no stacks, and the old one's late answers are dropped", async () => {
+    await stashDraft("chat", "old machine's", []);
+    let answer: (value: unknown) => void = () => undefined;
+    setStashTransport({ ...fake, list: () => new Promise((resolve) => (answer = resolve)) });
+    const late = refreshStash("chat");
+    const other = { ...fake, list: async () => ({ drafts: [] }) };
+    setStashTransport(other);
+    expect(texts("chat")).toEqual([]);
+    answer({ drafts: [{ id: "x", text: "late", attachments: [], at: 1 }] });
+    await late;
+    expect(texts("chat")).toEqual([]);
+  });
+
+  test("a draft acpmux does not take is not stashed", async () => {
+    refuse = true;
+    expect(await stashDraft("chat", "draft", [])).toBe(false);
+    expect(texts("chat")).toEqual([]);
+    resetStashForTests();
+    expect(await stashDraft("chat", "no connection", [])).toBe(false);
+  });
+
+  test("a new page reads the stacks back from acpmux", async () => {
+    await stashDraft("chat", "before the reload", [image("a")]);
+    resetStashForTests(fake);
+    expect(texts("chat")).toEqual([]);
+    await refreshStash("chat");
+    expect(texts("chat")).toEqual(["before the reload"]);
+  });
+
+  test("a new chat's stack follows it to its session, in order, and another new chat's stays", async () => {
+    await stashDraft("new-a", "older", []);
+    await stashDraft("new-a", "newer", [image("a")]);
+    await stashDraft("new-b", "another new chat's", []);
+    await moveStash("new-a", "session-1");
+    expect(texts("new-a")).toEqual([]);
+    expect(texts("session-1")).toEqual(["newer", "older"]);
+    expect((await readStashed("session-1", stashedNow("session-1")[0]!.id))?.attachments[0]?.data).toBe("AAA");
+    expect(texts("new-b")).toEqual(["another new chat's"]);
+  });
+
+  test("a move is one request, so the page never pushes or drops a draft of it itself", async () => {
+    await stashDraft("new-a", "older", []);
+    await stashDraft("new-a", "newer", []);
+    const calls: string[] = [];
+    setStashTransport({
+      ...fake,
+      push: (...args) => (calls.push("push"), fake.push(...args)),
+      drop: (...args) => (calls.push("drop"), fake.drop(...args)),
+      move: (...args) => (calls.push("move"), fake.move(...args)),
+    });
+    await moveStash("new-a", "session-1");
+    expect(calls).toEqual(["move"]);
+    expect(texts("session-1")).toEqual(["newer", "older"]);
+    expect(texts("new-a")).toEqual([]);
+  });
+
+  test("a list read while a stash was out never takes the stash back; the stack is read again", async () => {
+    const answers: ((value: unknown) => void)[] = [];
+    setStashTransport({ ...fake, list: () => new Promise((resolve) => answers.push(resolve)) });
+    const read = refreshStash("chat");
+    expect(await stashDraft("chat", "fresh", [])).toBe(true);
+    answers.shift()!({ drafts: [] });
+    for (let turn = 0; turn < 5 && !answers.length; turn++) await Promise.resolve();
+    expect(texts("chat")).toEqual(["fresh"]);
+    answers.shift()!(await fake.list("chat"));
+    await read;
+    expect(texts("chat")).toEqual(["fresh"]);
+  });
+
+  test("a move acpmux does not take is tried again, and a failed drop shows the draft again", async () => {
+    await stashDraft("new-a", "kept", []);
+    let failing = true;
+    setStashTransport({
+      ...fake,
+      move: async (chat, to) => {
+        if (failing) throw new Error("lost the connection");
+        return fake.move(chat, to);
+      },
+    });
+    await moveStash("new-a", "session-1");
+    expect(daemon.get("new-a")?.map((row) => row.text)).toEqual(["kept"]);
+    expect(texts("new-a")).toEqual(["kept"]);
+    failing = false;
+    await retryMoves("session-1");
+    expect(texts("session-1")).toEqual(["kept"]);
+    expect(daemon.get("new-a")).toBeUndefined();
+    // Done: shown again, the chat tries no move.
+    failing = true;
+    await retryMoves("session-1");
+    expect(texts("session-1")).toEqual(["kept"]);
+    // A drop acpmux does not take: the page reads the stack again and shows the draft.
+    setStashTransport({
+      ...fake,
+      drop: async () => {
+        throw new Error("refused");
+      },
+    });
+    await refreshStash("session-1");
+    const id = stashedNow("session-1")[0]!.id;
+    expect(await dropStashed("session-1", id)).toBe(false);
+    for (let turn = 0; turn < 5 && !texts("session-1").length; turn++) await Promise.resolve();
+    expect(texts("session-1")).toEqual(["kept"]);
+  });
+
+  test("a move another acpmux answers stays waiting, and finishes on the first one's reconnect", async () => {
+    await stashDraft("new-a", "kept", []);
+    setStashTransport({
+      ...fake,
+      move: async () => {
+        throw new Error("lost the connection");
+      },
+    });
+    await moveStash("new-a", "session-1");
+    // Another machine's acpmux: it holds nothing for the new chat and moves none.
+    const elsewhere = new Map<string, Row[]>();
+    setStashTransport({
+      ...fake,
+      list: async (chat) => ({ drafts: elsewhere.get(chat) ?? [] }),
+      move: async () => ({ moved: 0 }),
+    });
+    await retryMoves("session-1");
+    expect(daemon.get("new-a")?.map((row) => row.text)).toEqual(["kept"]);
+    // The first acpmux again, on a new connection: the move finishes.
+    setStashTransport({ ...fake });
+    await retryMoves("session-1");
+    expect(texts("session-1")).toEqual(["kept"]);
+    expect(daemon.get("new-a")).toBeUndefined();
+  });
+
+  test("a move waits for a stash into the new chat that is still on its way", async () => {
+    let land: () => void = () => {};
+    setStashTransport({
+      ...fake,
+      push: (...args) => new Promise((resolve) => (land = () => resolve(fake.push(...args)))),
+    });
+    const stashed = stashDraft("new-a", "typed just before", []);
+    for (let turn = 0; turn < 3; turn++) await Promise.resolve();
+    const moved = moveStash("new-a", "session-1");
+    for (let turn = 0; turn < 3; turn++) await Promise.resolve();
+    land();
+    await stashed;
+    await moved;
+    expect(texts("session-1")).toEqual(["typed just before"]);
+    expect(daemon.get("new-a")).toBeUndefined();
+  });
+
+  test("another acpmux whose session stack is full never finishes a move it holds none of", async () => {
+    await stashDraft("new-a", "kept", []);
+    setStashTransport({
+      ...fake,
+      move: async () => {
+        throw new Error("lost the connection");
+      },
+    });
+    await moveStash("new-a", "session-1");
+    const elsewhere = new Map<string, Row[]>([
+      ["session-1", [0, 1, 2, 3, 4].map((n) => ({ id: `other-${n}`, text: `other ${n}`, attachments: [], at: n }))],
+    ]);
+    setStashTransport({
+      ...fake,
+      list: async (chat) => ({ drafts: elsewhere.get(chat) ?? [] }),
+      move: async () => ({ moved: 0, ids: [] }),
+    });
+    await retryMoves("session-1");
+    setStashTransport({ ...fake });
+    await retryMoves("session-1");
+    expect(texts("session-1")).toEqual(["kept"]);
+    expect(daemon.get("new-a")).toBeUndefined();
+  });
+
+  test("a new chat's drafts whose move failed wait for its own session, never the next chat the tab opens", async () => {
+    await stashDraft("new-tab:t", "for a", []);
+    let failing = true;
+    setStashTransport({
+      ...fake,
+      move: async (chat, to) => {
+        if (failing) throw new Error("lost the connection");
+        return fake.move(chat, to);
+      },
+    });
+    await moveStash("new-tab:t", "session-a");
+    // The tab opens B, whose stack is full, while A's move still waits.
+    const full = [1, 2, 3, 4, 5].map((n) => ({ id: `b-${n}`, text: `b ${n}`, attachments: [], at: n }));
+    daemon.set("session-b", full);
+    failing = false;
+    await moveStash("new-tab:t", "session-b");
+    expect(daemon.get("session-b")?.map((row) => row.text)).toEqual(full.map((row) => row.text));
+    expect(daemon.get("session-a")?.map((row) => row.text)).toEqual(["for a"]);
+    expect(daemon.get("new-tab:t")).toBeUndefined();
+    // With A's move done, the tab's next new chat follows the session it gets.
+    await stashDraft("new-tab:t", "for c", []);
+    await moveStash("new-tab:t", "session-c");
+    expect(daemon.get("session-c")?.map((row) => row.text)).toEqual(["for c"]);
+  });
+
+  test("a reload asks no move: a page opened on another session never takes the tab's leftovers", () => {
+    // Opened (or reloaded) on B, whose stack may be full: the tab's drafts stay where they are.
+    expect(stashMoves({ newChatKey: "new-tab:t" }, { sessionId: "session-b", newChatKey: "new-tab:t" }, true)).toEqual(
+      [],
+    );
+    // A new chat that gets its session here brings its drafts.
+    expect(stashMoves({ newChatKey: "new-tab:t" }, { sessionId: "session-a", newChatKey: "new-tab:t" }, false)).toEqual(
+      [["new-tab:t", "session-a"]],
+    );
+    // A switch from A to B moves nothing.
+    expect(
+      stashMoves(
+        { sessionId: "session-a", newChatKey: "new-tab:t" },
+        { sessionId: "session-b", newChatKey: "new-tab:t" },
+        false,
+      ),
+    ).toEqual([]);
+    // The tab's key comes after the page's own: the page's drafts follow it.
+    expect(stashMoves({ newChatKey: "new-1" }, { newChatKey: "new-tab:t" }, false)).toEqual([["new-1", "new-tab:t"]]);
+    expect(stashMoves({ newChatKey: "new-1" }, { sessionId: "session-a", newChatKey: "new-tab:t" }, false)).toEqual([
+      ["new-tab:t", "session-a"],
+      ["new-1", "session-a"],
+    ]);
+  });
+
+  test("a page opened on a session brings the tab's leftover drafts, and asks no move when there are none", async () => {
+    const calls: string[] = [];
+    setStashTransport({ ...fake, move: (...args) => (calls.push("move"), fake.move(...args)) });
+    await moveStash("new-tab:t", "session-1");
+    expect(calls).toEqual([]);
+    // A move that failed before a reload left a draft under the tab's key: the next show takes it.
+    daemon.set("new-tab:t", [{ id: "stash-left", text: "left behind", attachments: [], at: 1 }]);
+    await moveStash("new-tab:t", "session-1");
+    expect(calls).toEqual(["move"]);
+    expect(texts("session-1")).toEqual(["left behind"]);
+  });
+
+  test("an answer that is not a stack reads as none", () => {
+    expect(draftsFrom(undefined)).toEqual([]);
+    expect(draftsFrom({ drafts: [{ id: 1 }, "x", null] })).toEqual([]);
+  });
+
+  test("the preview is one line", () => {
+    expect(stashPreview({ id: "x", text: "line one\n\n  line   two", attachments: [], at: 0 })).toBe(
+      "line one line two",
+    );
+  });
+});

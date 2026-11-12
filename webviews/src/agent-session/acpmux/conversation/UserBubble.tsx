@@ -57,6 +57,7 @@ import {
   PromptRetry,
   RewindButton,
 } from "./MessageActions";
+import { SavePromptButton } from "./SavePromptButton";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryTargetContext, TurnActionsContext, type QueuedActions } from "./turnActions";
 import { NO_RETRY_TARGET, retryPlacement } from "./turns";
@@ -295,6 +296,7 @@ export function UserBubble({
                 pending(actions, {
                   retry: retry && <PromptRetry rowId={row.id} prompt={resend} hasAttachment={retryAttachments} held />,
                   fork: forkButton,
+                  save: <SavePromptButton text={resend} />,
                 }))
             }
           >
@@ -354,6 +356,7 @@ export function UserBubble({
               {forkButton}
               <RewindButton rowId={row.id} />
               <PinButton rowId={row.id} bookmark />
+              <SavePromptButton text={resend} />
             </MessageFooterRow>
           </UserFooter>
         )}

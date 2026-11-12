@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 616,
+  "count": 617,
   "sections": [
     {
       "id": "general",
@@ -139,6 +139,14 @@
             "local",
             "cloud"
           ]
+        },
+        {
+          "key": "agentPane.savedPrompts",
+          "title": "Saved Prompts",
+          "help": "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in.",
+          "kind": "string_map",
+          "default": {},
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.scrollToBottomOnSend",

@@ -258,6 +258,16 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GITHUB_APP_LEASE, Request),
         keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
         keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
+        // Saved prompts (`prompts.rs`).
+        keyed::<params::PromptsListParams>(method::MUX_PROMPTS_LIST, Request),
+        keyed::<params::PromptsSaveParams>(method::MUX_PROMPTS_SAVE, Request),
+        keyed::<params::PromptsDeleteParams>(method::MUX_PROMPTS_DELETE, Request),
+        // Stashed drafts (`stash.rs`).
+        keyed::<params::StashListParams>(method::MUX_STASH_LIST, Request),
+        keyed::<params::StashPushParams>(method::MUX_STASH_PUSH, Request),
+        keyed::<params::StashGetParams>(method::MUX_STASH_GET, Request),
+        keyed::<params::StashDropParams>(method::MUX_STASH_DROP, Request),
+        keyed::<params::StashMoveParams>(method::MUX_STASH_MOVE, Request),
         keyed::<params::MemoryResolveParams>(method::MUX_MEMORY_RESOLVE, Request),
         keyed::<params::PromptCoachParams>(method::MUX_PROMPT_COACH, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),

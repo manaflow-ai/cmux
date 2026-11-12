@@ -385,6 +385,32 @@
           "swift_enum": {
             "name": "AgentPaneNewChatPlace"
           }
+        },
+        {
+          "key": "agentPane.savedPrompts",
+          "name": "savedPrompts",
+          "note": "Saved prompts by name (webviews/src/agent-session/acpmux/savedPrompts.ts). acpmux reads them at each list (crates/acpmux/src/prompts.rs) beside the ones Save as Prompt keeps in its own store; a saved one of the same name wins.",
+          "title": {
+            "key": "settings.agentPane.savedPrompts",
+            "text": "Saved Prompts"
+          },
+          "help": {
+            "key": "settings.agentPane.savedPrompts.help",
+            "text": "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in."
+          },
+          "kind": "string_map",
+          "default": {},
+          "keywords": [
+            "prompt",
+            "prompts",
+            "saved",
+            "snippet",
+            "template",
+            "library",
+            "slash",
+            "composer",
+            "agent"
+          ]
         }
       ]
     }

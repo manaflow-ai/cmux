@@ -25,6 +25,7 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
+import { SavePromptButton } from "./SavePromptButton";
 import { RetryTargetContext, TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import {
@@ -584,6 +585,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             {!messages && timeline.toggle}
             {!messages && text && <ReadAloudButton id={row.id} text={text} />}
             {!messages && text && <RowReplyButton text={text} />}
+            {!messages && text && <SavePromptButton text={text} />}
             {!messages && text && row.answerId && <MessageMore rowId={row.answerId} />}
             {authenticationFailed && transferCloudCredentials && row.retryRowId && prompt && (
               <button

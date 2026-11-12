@@ -278,6 +278,11 @@ export class MockAcpmuxSocket {
   /// Folder profiles the user enabled (`_acpmux/harness_enable`), by id.
   private enabledProfiles = new Set<string>();
   private bookmarks = new Map<string, Set<number>>();
+  /// Saved prompts by lower-cased name, as acpmux keeps them (prompts.rs), without its limits.
+  private prompts = new Map<string, { name: string; text: string; source: "saved"; updatedAt: number }>();
+  /// Stashed drafts by chat, newest first, as acpmux keeps them (stash.rs), without its limits.
+  private stash = new Map<string, { id: string; text: string; attachments: unknown[]; at: number }[]>();
+  private stashSerial = 0;
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -735,6 +740,71 @@ export class MockAcpmuxSocket {
           else marks.delete(Number(params.seq));
         this.bookmarks.set(target, marks);
         return { sessionId: target, bookmarks: [...marks].sort((a, b) => a - b) };
+      }
+      case "_acpmux/prompts_list":
+        return {
+          prompts: [...this.prompts.values()].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+          ),
+        };
+      case "_acpmux/prompts_save": {
+        const name = String(params.name ?? "").trim();
+        const text = String(params.text ?? "");
+        if (!name || !text.trim()) throw Object.assign(new Error("name and text are required"), { code: -32602 });
+        const prompt = { name, text, source: "saved" as const, updatedAt: Date.now() };
+        this.prompts.set(name.toLowerCase(), prompt);
+        return { prompt };
+      }
+      case "_acpmux/prompts_delete":
+        return {
+          removed: this.prompts.delete(
+            String(params.name ?? "")
+              .trim()
+              .toLowerCase(),
+          ),
+        };
+      case "_acpmux/stash_list":
+        return {
+          drafts: (this.stash.get(String(params.chat)) ?? []).map((draft) => ({
+            ...draft,
+            attachments: draft.attachments.map((chip) => {
+              const { data: _data, text: _text, ...light } = chip as Record<string, unknown>;
+              return light;
+            }),
+          })),
+        };
+      case "_acpmux/stash_push": {
+        const chat = String(params.chat ?? "");
+        const attachments = Array.isArray(params.attachments) ? params.attachments : [];
+        const text = String(params.text ?? "");
+        if (!chat || (!text.trim() && !attachments.length))
+          throw Object.assign(new Error("the draft is empty"), { code: -32602 });
+        const draft = { id: `stash-${++this.stashSerial}`, text, attachments, at: Date.now() };
+        const rest = (this.stash.get(chat) ?? []).filter((entry) => entry.id !== params.replaces);
+        this.stash.set(chat, [draft, ...rest].slice(0, 5));
+        return { draft };
+      }
+      case "_acpmux/stash_get": {
+        const draft = this.stash.get(String(params.chat))?.find((entry) => entry.id === params.id);
+        if (!draft) throw Object.assign(new Error("no stashed draft with that id"), { code: -32004 });
+        return { draft };
+      }
+      case "_acpmux/stash_drop": {
+        const list = this.stash.get(String(params.chat)) ?? [];
+        const rest = list.filter((entry) => entry.id !== params.id);
+        this.stash.set(String(params.chat), rest);
+        return { removed: rest.length !== list.length };
+      }
+      case "_acpmux/stash_move": {
+        const from = String(params.chat);
+        const to = String(params.to);
+        if (from === to) return { moved: 0 };
+        const kept = this.stash.get(to) ?? [];
+        const source = this.stash.get(from) ?? [];
+        const moving = source.filter((entry) => !kept.some((own) => own.id === entry.id));
+        this.stash.set(to, [...moving, ...kept].slice(0, 5));
+        this.stash.delete(from);
+        return { moved: moving.length, ids: source.map((entry) => entry.id) };
       }
       // The memory inbox's Accept and Dismiss (acpmux hub/memory.rs): writes nothing here, and logs
       // the `memory_resolved` record the daemon would, with only the offer's facts still open.

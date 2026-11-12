@@ -6142,6 +6142,48 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/bookmark_set", { sessionId, seq, bookmarked });
   }
 
+  /// The saved prompts acpmux keeps and cmux-next.json names (`{prompts: [...]}`, savedPrompts.ts).
+  listPrompts(): Promise<unknown> {
+    return this.request("_acpmux/prompts_list", {});
+  }
+
+  /// Saves `text` as the prompt `name`, replacing one of that name; acpmux answers with the row.
+  savePrompt(name: string, text: string): Promise<unknown> {
+    return this.request("_acpmux/prompts_save", { name, text });
+  }
+
+  /// Deletes the saved prompt `name`.
+  deletePrompt(name: string): Promise<unknown> {
+    return this.request("_acpmux/prompts_delete", { name });
+  }
+
+  /// Chat `chat`'s stashed drafts, newest first, their chips without contents (`{drafts}`,
+  /// composer/draftStash.ts).
+  listStash(chat: string): Promise<unknown> {
+    return this.request("_acpmux/stash_list", { chat });
+  }
+
+  /// Stashes a draft on top of `chat`'s stack, in place of draft `replaces` when given; acpmux
+  /// answers with its row (`{draft}`).
+  pushStash(chat: string, text: string, attachments: readonly unknown[], replaces?: string): Promise<unknown> {
+    return this.request("_acpmux/stash_push", { chat, text, attachments, ...(replaces ? { replaces } : {}) });
+  }
+
+  /// Stashed draft `id` of `chat`, whole (`{draft}`).
+  getStash(chat: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/stash_get", { chat, id });
+  }
+
+  /// Drops stashed draft `id` of `chat`.
+  dropStash(chat: string, id: string): Promise<unknown> {
+    return this.request("_acpmux/stash_drop", { chat, id });
+  }
+
+  /// Moves `chat`'s stashed drafts onto `to`'s stack in one write (a new chat's, once it has a session).
+  moveStash(chat: string, to: string): Promise<unknown> {
+    return this.request("_acpmux/stash_move", { chat, to });
+  }
+
   /// Files under `path` (else the selected session's folder) whose path matches `query`, best
   /// first (fileSearchModel.ts). acpmux serves no file search: the native host runs it on the
   /// session host as `git.files.search`, and mock mode's in-page daemon answers it.

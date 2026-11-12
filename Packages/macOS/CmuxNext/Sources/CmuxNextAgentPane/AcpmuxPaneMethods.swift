@@ -55,6 +55,15 @@ nonisolated enum AcpmuxPaneMethods {
         // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts
         // readBookmarks, setBookmark): a seq and a flag, kept in acpmux's session meta.
         "_acpmux/bookmark_get", "_acpmux/bookmark_set",
+        // The person's saved prompts (direct.ts listPrompts, savePrompt, deletePrompt; acpmux
+        // prompts.rs): one list for the machine, a name and a text, read into the `/` menu and
+        // written by Save as Prompt. Not a session's: no scope, and the text is only shown to be sent.
+        "_acpmux/prompts_list", "_acpmux/prompts_save", "_acpmux/prompts_delete",
+        // The composer's stashed drafts (direct.ts listStash, pushStash, getStash, dropStash; acpmux
+        // stash.rs): the person's own unsent text and chips, by the composer's chat key, kept in
+        // acpmux so they outlive the page. Not a session's: no scope; acpmux serves the person only.
+        "_acpmux/stash_list", "_acpmux/stash_push", "_acpmux/stash_get", "_acpmux/stash_drop",
+        "_acpmux/stash_move",
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",

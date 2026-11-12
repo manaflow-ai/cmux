@@ -362,6 +362,17 @@
       "title" : "Start New Chats In",
       "type" : "string"
     },
+    "agentPane.savedPrompts" : {
+      "default" : {
+
+      },
+      "description" : "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in.",
+      "properties" : {
+
+      },
+      "title" : "Saved Prompts",
+      "type" : "object"
+    },
     "agentPane.scrollToBottomOnSend" : {
       "default" : true,
       "description" : "When off, sending while you are reading up keeps your place and shows new messages below.",

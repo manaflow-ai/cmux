@@ -238,7 +238,7 @@ await requireBrowserLane("composer-goal-hat.test.ts", async () => {
       });
       await page.locator(".acpmux-goal-field").waitFor({ timeout: 30_000 });
       await settled(page);
-      const save = page.getByRole("button", { name: "Save" });
+      const save = page.getByRole("button", { name: "Save", exact: true });
       await save.scrollIntoViewIfNeeded();
       const inView = await save.evaluate((node) => {
         const r = node.getBoundingClientRect();

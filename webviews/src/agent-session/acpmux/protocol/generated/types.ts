@@ -1046,6 +1046,21 @@ export interface PromptCoachParams {
   sessionId?: unknown;
 }
 
+export interface PromptsDeleteParams {
+  _meta?: RequestMeta;
+  name?: unknown;
+}
+
+export interface PromptsListParams {
+  _meta?: RequestMeta;
+}
+
+export interface PromptsSaveParams {
+  _meta?: RequestMeta;
+  name?: unknown;
+  text?: unknown;
+}
+
 /** `_acpmux/protocol` takes no params. */
 export type ProtocolParams = Record<string, never>;
 
@@ -2037,6 +2052,37 @@ export interface StartModeParams {
   cwd?: unknown;
   harness?: unknown;
   preset?: unknown;
+}
+
+export interface StashDropParams {
+  _meta?: RequestMeta;
+  chat?: unknown;
+  id?: unknown;
+}
+
+export interface StashGetParams {
+  _meta?: RequestMeta;
+  chat?: unknown;
+  id?: unknown;
+}
+
+export interface StashListParams {
+  _meta?: RequestMeta;
+  chat?: unknown;
+}
+
+export interface StashMoveParams {
+  _meta?: RequestMeta;
+  chat?: unknown;
+  to?: unknown;
+}
+
+export interface StashPushParams {
+  _meta?: RequestMeta;
+  attachments?: unknown;
+  chat?: unknown;
+  replaces?: unknown;
+  text?: unknown;
 }
 
 export interface StatusParams {

@@ -58,6 +58,9 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var scrollToBottomOnSend = Self.scrollToBottomOnSendDefault
     public var showMachineLoadWarnings = Self.showMachineLoadWarningsDefault
     public var newChatsIn = Self.newChatsInDefault
+    /// `agentPane.savedPrompts`, checked here only: acpmux reads it from cmux.json at each list
+    /// (crates/acpmux/src/prompts.rs) and serves it to the page, so it is not in `pageValue`.
+    public var savedPrompts = Self.savedPromptsDefault
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -125,6 +128,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                     diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
                 }
                 setting.dictationShortcut = shortcut
+                continue
+            }
+            if descriptor.path == savedPromptsPath {
+                guard descriptor.accepts(value) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.savedPrompts = value
                 continue
             }
             if descriptor.path == newChatsInPath {
