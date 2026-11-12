@@ -22,6 +22,11 @@
 //!   in the person's order), kept in `<state>/apps-newtab-layout.json`.
 //!
 //! Every change is origin user only, as `set` (mirror reduce enforces it).
+//! Every write that changes what `panels.list` answers is an `apps-changed`
+//! to every client: `hidden.set`, `grant.set` and `grant.revoke` through the
+//! mirror commit (`set`), `panels.layout.set` with transaction
+//! `newtab-layout`, so every New Tab page, which keeps its listing while
+//! shown, hidden or just opened, hears another page's layout edit.
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -30,7 +35,7 @@ use serde_json::{Value, json};
 
 use super::mirror::{Origin, SetOp};
 use super::store::{params, risk, text, to_value};
-use super::supervisor::{ApiError, Supervisor};
+use super::supervisor::{ApiError, Out, Supervisor};
 
 /// Session Info's app sections.
 const SESSION_INFO_SECTION: &str = "cmux.session.info.section/1";
@@ -44,6 +49,8 @@ const NEW_TAB_LAYOUT_FILE: &str = "apps-newtab-layout.json";
 /// `app:<id>#<interface>` widget id or a built-in widget's name).
 const MAX_LAYOUT_ENTRIES: usize = 64;
 const MAX_LAYOUT_ENTRY_BYTES: usize = 256;
+/// The `apps-changed` transaction of a New Tab layout save.
+const NEW_TAB_LAYOUT_TRANSACTION: &str = "newtab-layout";
 
 /// One page panel: a Session Info section or a New Tab widget. A v2 app
 /// implements an interface once, so `section` is the interface name.
@@ -258,11 +265,28 @@ impl Supervisor {
             }
         }
         // Under the supervisor lock: two pages' writes land one after the other.
-        let _inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(dir) = &self.config.state_dir {
+        let outs = {
+            let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(dir) = &self.config.state_dir else {
+                return Ok(json!({ "layout": p.layout }));
+            };
+            let changed = self.new_tab_layout() != p.layout;
             write_durably(dir, NEW_TAB_LAYOUT_FILE, &json!({ "version": 1, "layout": p.layout }))
                 .map_err(|e| ApiError::new("operation.failed", e.to_string()))?;
-        }
+            // Every other page's listing holds the layout too: like every
+            // other panels write (hide, grant), a change is an `apps-changed`,
+            // so every other page that kept its listing lists again.
+            if changed {
+                vec![Out::Broadcast(json!({
+                    "event": "apps-changed",
+                    "revision": inner.mirror.revision,
+                    "transaction": NEW_TAB_LAYOUT_TRANSACTION,
+                }))]
+            } else {
+                Vec::new()
+            }
+        };
+        self.emit(outs);
         Ok(json!({ "layout": p.layout }))
     }
 

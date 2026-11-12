@@ -428,8 +428,11 @@ unchanged retry publishes nothing. Bookmarks advance neither
 | since | capability `apps-v1`; on `subscribe` for page relays, `page-events-v1` |
 
 Published by the app supervisor after a committed install-state change (an
-install, removal, enable, hide, grant, local reload) and when a deployed
-instance changes state. The payload is `{event:"apps-changed",
+install, removal, enable, hide, grant, local reload), when a deployed
+instance changes state, and when `apps.panels.layout.set` saves a New Tab
+widget layout that differs from the saved one (transaction `newtab-layout`,
+no `app`, the mirror's unchanged revision), so every New Tab page, which
+keeps its widget listing while shown, hidden or just opened, lists again. The payload is `{event:"apps-changed",
 revision:uint64, transaction:string, app:string}`. A connection gets it as an
 apps client after its first `apps-*` command. A page relay calls the store
 through the v2 page router, so it is no apps client: it hears this event on

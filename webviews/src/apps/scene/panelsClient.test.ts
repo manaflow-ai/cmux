@@ -324,6 +324,41 @@ test("hiding the page ends every widget mount", async () => {
   expect(mock.mounted).toBe(0);
 });
 
+test("a layout another page saves reaches this page with no extra list read", async () => {
+  // Two New Tab pages on one daemon, both started. A page keeps its listing, its mounts and its
+  // `panels.changed` watch whether it is shown, hidden or just opened (#40610), so A's save must reach B
+  // as a change (the daemon's `apps-changed` on `layout.set`, store_panels.rs). B shows A's layout from
+  // the one list read that change asks each watching page for, and no extra read.
+  const clock = "app:manaflow-ai/clock#cmux.newtab.widget/1";
+  const prs = "app:samples/github-prs#cmux.newtab.widget/1";
+  const mock = new MockAppPanelsClient();
+  mock.layout = [clock, prs];
+  let lists = 0;
+  const call = mock.call.bind(mock);
+  mock.call = (async (op: string, input: unknown) => {
+    if (op === "cmux.apps.panels.list") lists++;
+    return call(op, input);
+  }) as typeof mock.call;
+  const a = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  const b = new AppPanelsClient(mock, { surface: "newTab" }, WIDGET_OPTIONS);
+  a.start();
+  b.start();
+  for (let i = 0; i < 4; i++) await settled();
+  const placed = (owner: AppPanelsClient) => owner.getView().mounted.map((entry) => entry.panel.app);
+  expect(placed(b)).toEqual(["manaflow-ai/clock", "samples/github-prs"]);
+  const listed = lists;
+  a.setLayout([clock]);
+  for (let i = 0; i < 4; i++) await settled();
+  expect(placed(a)).toEqual(["manaflow-ai/clock"]);
+  expect(b.getView().layout).toEqual([clock]);
+  expect(placed(b)).toEqual(["manaflow-ai/clock"]);
+  // One read per watching page (A and B) for the one change.
+  expect(lists - listed).toBe(2);
+  a.stop();
+  b.stop();
+  expect(mock.mounted).toBe(0);
+});
+
 test("a host that ignores the interface lists no widgets and offers no edits", async () => {
   const mock = new MockAppPanelsClient();
   mock.ignoresInterface = true; // it answers with Session Info's sections and no layout
