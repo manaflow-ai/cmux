@@ -201,6 +201,9 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       content: ":root { --agent-motion-send: 180ms !important; --agent-motion-send-fade: 180ms !important; }",
     });
 
+  /// Frames after the sent row's first in which it may still step into place (no glide).
+  const REST_FRAMES = 3;
+
   /// Lands in place: no copy is drawn over the pane in any frame, the composer stays empty, and the
   /// sent bubble and its thumbnail are drawn, whole, from its first frame (the composer's
   /// or the next) and stays where it is from frame `from` on (the cut to the latest row): no flight,
@@ -221,12 +224,12 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       expect(frame.preview?.shown, `${label}: the screenshot is drawn at ${frame.at} ms`).toBe(true);
       expect(frame.preview!.ink, `${label}: the screenshot is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
     }
-    const placed = seen.slice(Math.max(mounted, from));
-    const tops = JSON.stringify(placed.map((frame) => [frame.at, Math.round(frame.bubble?.top ?? -1)]));
-    label = `${label} (tops ${tops})`;
-    // A thinking row that grows under it may nudge it a few px; a rise is the row's height.
+    // At rest by its third drawn frame: the composer's room comes back a frame after the row (one
+    // step, also on base), while a glide on the old 180 ms clock moved it for about a dozen frames.
+    const placed = seen.slice(Math.max(mounted, from) + REST_FRAMES);
+    const tops = JSON.stringify(seen.slice(0, 8).map((frame) => [frame.at, Math.round(frame.bubble?.top ?? -1)]));
     for (const frame of placed)
-      near(frame.bubble, placed[0]!.bubble, `${label}: the bubble stays in its place at ${frame.at} ms`, 12);
+      near(frame.bubble, placed[0]!.bubble, `${label}: the bubble rests at ${frame.at} ms (tops ${tops})`, 1.5);
   };
 
   test("at the bottom, the composer's words and screenshot are the sent message at once; nothing flies", async () => {
