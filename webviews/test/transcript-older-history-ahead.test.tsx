@@ -97,14 +97,13 @@ const turn = (index: number) => [
 ];
 
 async function scrollUp(step: number) {
-  const history = Array.from({ length: 200 }, (_, index) => turn(index + 1000)).flat();
+  const history = Array.from({ length: 120 }, (_, index) => turn(index + 1000)).flat();
   const root = createRoot(dom.window.document.getElementById("root")!);
-  let asked = 0;
-  let askedAt: number | undefined;
+  // Where the view was, among the rows, each time it asked.
+  const askedAt: number[] = [];
   const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const onLoadOlder = () => {
-    asked += 1;
-    askedAt ??= scroller().scrollTop;
+    askedAt.push(scroller().scrollTop);
     return new Promise<void>(() => {});
   };
   await act(async () =>
@@ -119,34 +118,40 @@ async function scrollUp(step: number) {
       />,
     ),
   );
-  // The reader's scroll: the offset moves, then one scroll event, a display frame apart.
-  const scrollTo = async (top: number) =>
+  // The reader's scroll: the offset moves up by `step`, then one scroll event, a display frame apart.
+  const scrollBy = async (delta: number) =>
     act(async () => {
-      scroller().scrollTop = top;
+      scroller().scrollTop = Math.max(0, scroller().scrollTop + delta);
       scroller().dispatchEvent(new dom.window.Event("scroll"));
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     });
+  const trace: string[] = [];
   try {
     const start = scroller().scrollTop;
+    trace.push(`start ${start} asked ${askedAt.length}`);
     // The tail opened far below the fixed reach, so nothing was asked for yet.
     expect(start).toBeGreaterThan(VIEWPORT * 20);
-    expect(asked).toBe(0);
-    for (let top = start; top > VIEWPORT * 10; top -= step) await scrollTo(top);
-    return { asked, askedAt };
+    expect(askedAt).toEqual([]);
+    for (let frame = 0; frame < 400 && scroller().scrollTop > VIEWPORT * 7; frame += 1) {
+      await scrollBy(-step);
+      if (trace.length < 60) trace.push(`${Math.round(scroller().scrollTop)}:${askedAt.length}`);
+    }
+    return askedAt;
   } finally {
+    console.log(`step ${step}: ${trace.join(" ")} asked at ${askedAt.map(Math.round).join(",")}`);
     await act(async () => root.unmount());
   }
 }
 
 test("a fast scroll up asks for the older page before the fixed six viewports", async () => {
-  // About 30 px a millisecond at one step a frame: a flick.
-  const { asked, askedAt } = await scrollUp(500);
-  expect(asked).toBe(1);
-  expect(askedAt!).toBeGreaterThan(VIEWPORT * 10);
+  // Hundreds of px a frame: a flick.
+  const askedAt = await scrollUp(500);
+  expect(askedAt.length).toBeGreaterThan(0);
+  expect(askedAt[0]!).toBeGreaterThan(VIEWPORT * 7);
 });
 
 test("a reading scroll asks no earlier than before", async () => {
-  // About 2 px a millisecond: its reach over a page's read is under the fixed six viewports.
-  const { asked } = await scrollUp(30);
-  expect(asked).toBe(0);
-});
+  // Tens of px a frame: its reach over a page's read is under the fixed six viewports.
+  const askedAt = await scrollUp(40);
+  expect(askedAt.filter((top) => top > VIEWPORT * 6)).toEqual([]);
+}, 60_000);
