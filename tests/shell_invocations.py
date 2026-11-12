@@ -257,6 +257,25 @@ def _arithmetic_body(text: str) -> str | None:
     return None
 
 
+def _legacy_arithmetic_subs(text: str) -> list[str] | None:
+    """The substitutions inside every legacy `$[ ]` arithmetic expansion in TEXT, including one nested in a
+    parameter expansion that shell_tree reads as literal text."""
+    found: list[str] = []
+    at = 0
+    while True:
+        at = text.find("$[", at)
+        if at < 0:
+            return found
+        end = _bracket_close(text, at)
+        if end is None:
+            return None
+        inner = _body_subs(text[at + 2:end - 1])
+        if inner is None:
+            return None
+        found.extend(script for script in inner if script not in found)
+        at = end
+
+
 def _tree_subs(source: str, words: list) -> list[str] | None:
     """The scripts of the command and process substitutions in WORDS (shell_tree Words of SOURCE), at any depth of
     parameter expansion, arithmetic and array subscript; one inside another is in its outer script. None when a
@@ -265,6 +284,10 @@ def _tree_subs(source: str, words: list) -> list[str] | None:
     for word in words:
         if word is None:
             continue
+        legacy = _legacy_arithmetic_subs(source[word.start:word.end])
+        if legacy is None:
+            return None
+        found.extend(script for script in legacy if script not in found)
         for sub in shell_tree.subs(word.parts):
             if sub.form == "`":
                 found.append(_backtick_script(source[sub.start + 1:sub.end - 1]))
