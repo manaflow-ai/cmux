@@ -1640,6 +1640,57 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
                     Ok(())
                 }
             }
+            // #41721 review F1: a known path keeps its shape through a method (or its
+            // associated-function form) that gives back the same path, so a read on what it
+            // gives is a read by path. One function a row.
+            impl LocalStore {
+                fn cold_path(&self, id: &str) -> PathBuf { self.dir(id).join("cold.zst") }
+                fn via_clone(&self, id: &str) {
+                    let archive = self.cold_path(id).clone();
+                    let _ = archive.metadata();
+                }
+                fn via_to_owned(&self, id: &str) {
+                    let archive = self.cold_path(id);
+                    let _ = archive.to_owned().is_file();
+                }
+                fn via_to_path_buf(&self, id: &str) {
+                    let archive = self.cold_path(id);
+                    let _ = Path::to_path_buf(&archive).metadata();
+                }
+                fn via_as_path(&self, id: &str) {
+                    let archive = PathBuf::as_path(&self.cold_path(id));
+                    let _ = archive.is_dir();
+                }
+                fn via_as_ref(&self, id: &str) {
+                    let archive: &Path = self.cold_path(id).as_ref();
+                    let _ = archive.is_symlink();
+                }
+                fn via_borrow(&self, id: &str) {
+                    let _ = self.cold_path(id).borrow().is_dir();
+                }
+                fn via_deref(&self, id: &str) {
+                    let archive = self.cold_path(id);
+                    let _ = (&*archive).metadata();
+                }
+                fn via_clone_trait(&self, id: &str) {
+                    let archive = Clone::clone(&self.cold_path(id));
+                    let _ = archive.is_file();
+                }
+                fn via_path_call(&self, id: &str) {
+                    let _ = Path::exists(&self.cold_path(id));
+                }
+                // A file's or a metadata's own value through the same methods stays no path:
+                // no row.
+                fn not_a_path(&self, id: &str) -> std::io::Result<()> {
+                    let meta = crate::home_fs::metadata(self.cold_path(id))?;
+                    let _ = meta.clone().is_file();
+                    let file = crate::home_fs::open(self.cold_path(id))?;
+                    let _ = file.borrow().metadata();
+                    let _ = (&*file).metadata();
+                    let _ = file.as_ref().metadata();
+                    Ok(())
+                }
+            }
             "#,
         ),
         // #41462 review F2: fields whose names another struct shares (`path`, `tmp`), read
@@ -1740,6 +1791,15 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
         "src/store/cold.rs LocalStore::rehydrate: Path::is_file",
         "src/store/cold.rs LocalStore::rehydrate: fs::read_dir",
         "src/store/cold.rs LocalStore::rehydrate: fs::symlink_metadata",
+        "src/store/cold.rs LocalStore::via_as_path: Path::is_dir",
+        "src/store/cold.rs LocalStore::via_as_ref: Path::is_symlink",
+        "src/store/cold.rs LocalStore::via_borrow: Path::is_dir",
+        "src/store/cold.rs LocalStore::via_clone: Path::metadata",
+        "src/store/cold.rs LocalStore::via_clone_trait: Path::is_file",
+        "src/store/cold.rs LocalStore::via_deref: Path::metadata",
+        "src/store/cold.rs LocalStore::via_path_call: Path::exists",
+        "src/store/cold.rs LocalStore::via_to_owned: Path::is_file",
+        "src/store/cold.rs LocalStore::via_to_path_buf: Path::metadata",
         "src/workflow_runs.rs read: OpenOptions::open (read)",
     ];
     let mut reads = reads;
