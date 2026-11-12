@@ -1,14 +1,13 @@
 // The parts every tool-call block in the transcript shares (an edit's diff, a command's Shell block,
-// a call's output): Wrap lines in its header beside Copy, the first `PREVIEW_LINES` lines under a
-// fade with "Show all N lines" below, and lines drawn one block each, so a wrapped line hangs under
-// its first row.
+// a call's output): Wrap lines in its header beside Copy, a box `PREVIEW_LINES` lines tall that a
+// longer block scrolls inside, and lines drawn one block each, so a wrapped line hangs under its
+// first row.
 import { cornerAction } from "./cornerActions";
 import { memo, useMemo, useRef } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap, type BlockKind } from "./blockWrap";
-import { ExpandRow } from "./ExpandRow";
 import { WrapLines } from "./icons";
-import { usePreview, lineCount, OUTPUT_LINE_WINDOW } from "./blockPartsModel";
+import { lineCount, OUTPUT_LINE_WINDOW } from "./blockPartsModel";
 /// The header's Wrap lines toggle for a block of `kind` (every block of the kind follows it). `shaped`
 /// is the block's own state until the viewer picks (blockWrap.ts `outputWraps`), so the button shows it.
 export function WrapButton({
@@ -33,22 +32,6 @@ export function WrapButton({
     >
       <WrapLines />
     </button>
-  );
-}
-
-/// "Show all N lines" under a cut block, "Show less" once it is open. A block that draws only the
-/// end of a long output counts all of its lines, and opened it draws them all (toolOutput.tsx
-/// `previewedOutput`), so N is never the tail's count. It is the block's whole bottom row (ExpandRow.tsx).
-export function PreviewMore({ preview }: { preview: ReturnType<typeof usePreview> }) {
-  const t = useT();
-  if (!preview.long) return null;
-  return (
-    <ExpandRow
-      className="cv-output-more"
-      open={preview.all}
-      onToggle={preview.toggle}
-      label={preview.all ? t("shell.showLess") : t("transcript.showAllLines", { n: preview.lines })}
-    />
   );
 }
 
