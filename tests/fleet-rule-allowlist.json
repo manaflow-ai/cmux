@@ -23,6 +23,7 @@
     "plans/cmux-next/mcp-connect-DESIGN.md": {"count": 1, "reason": "safe: a threat-model row naming the command the design refuses; reads nothing"}
   },
   "pkill": {
+    "tests/test_python_guard_logs_survive_closed_pipe.py": {"count": 4, "reason": "safe: pkill and killall are names in the scan's list of command words that stop a process (KILL_ARGV and its docstring), which it looks for in scripts; the test itself signals only the PIDs it started"},
     "docs/cmux-next/uninstall.md": {"count": 2, "reason": "safe: the uninstall page tells the reader not to use pkill or killall, since they would also end every other build's daemons; it runs nothing"},
     "cmux-tui/crates/acpmux/src/run_elsewhere.rs": {"count": 2, "reason": "safe: pkill and killall are names in the list of commands a run elsewhere refuses to send and keeps on this machine; nothing is signalled"},
     "cmux-tui/vendor/smoltcp/README.md": {"count": 1, "reason": "safe: vendored upstream smoltcp README; its TAP setup example for a person's own machine runs nowhere here"},
