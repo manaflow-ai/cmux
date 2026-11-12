@@ -27,7 +27,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from workflow_jobs import runs_on_cells, secret_names  # noqa: E402
+from workflow_jobs import runs_on_cells, secret_names, single_runs_on  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/portable_job_placement.py"
@@ -724,7 +724,7 @@ class Wiring(unittest.TestCase):
         picker = next(step for step in preflight["steps"] if step.get("id") == "linux-placement")
         self.assertEqual(picker["env"]["FLEET_LINUX"], "cmux-fleet-linux-x64")
         self.assertEqual(picker["env"]["REQUIRE_LIVE_CAPACITY"], "1")
-        daemon = workflow["cmux-next-daemon-tests"]["runs-on"]
+        daemon = single_runs_on(workflow["cmux-next-daemon-tests"])
         live = daemon.index("needs.tree-preflight.outputs.linux_runner")
         fallback = daemon.index("fromJSON(vars.RUNNER_POOLS).linux_8")
         self.assertLess(live, fallback)
@@ -805,7 +805,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(changes["needs"], ["portable-placement"])
         self.assertIn("always()", changes["if"])
         self.assertIn("!cancelled()", changes["if"])
-        changes_route = changes["runs-on"]
+        changes_route = single_runs_on(changes)
         live_linux = changes_route.index("contains(needs.portable-placement.outputs.linux_jobs, ' changes ')")
         hosted = changes_route.index("github.run_attempt == 1 && 'ubuntu-24.04'")
         paid = changes_route.rindex("fromJSON(vars.RUNNER_POOLS).linux_8")
@@ -821,7 +821,7 @@ class Wiring(unittest.TestCase):
         self.assertEqual(path_route["needs"], ["portable-placement"])
         self.assertIn("always()", path_route["if"])
         self.assertIn("!cancelled()", path_route["if"])
-        route = path_route["runs-on"]
+        route = single_runs_on(path_route)
         live_linux = route.index("contains(needs.portable-placement.outputs.linux_jobs, ' path_route ')")
         live_mini = route.index("contains(needs.portable-placement.outputs.mini_jobs, ' path_route ')")
         hosted = route.index("github.run_attempt == 1 && 'ubuntu-24.04'")

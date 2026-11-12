@@ -597,6 +597,23 @@ def runs_on_cells(job: Mapping[str, Any], workflow: str | None = None,
     return list(dict.fromkeys(", ".join(combination) for combination in itertools.product(*cells)))
 
 
+class UnresolvedRunsOn(ValueError):
+    """A job whose runs-on a guard reading one route cannot read as one."""
+
+
+def single_runs_on(job: Mapping[str, Any], workflow: str | None = None,
+                   workflows: Workflows | None = None) -> str:
+    """The one runs-on a job runs on, as runs_on_cells writes it. Raises UnresolvedRunsOn when a matrix value
+    cannot be resolved, the job has no runs-on, or its cells differ: a guard that checks one route text refuses a
+    job it cannot read as one, instead of checking `${{ matrix.runner }}` and passing every cell."""
+    cells = runs_on_cells(job, workflow, workflows)
+    if cells is None:
+        raise UnresolvedRunsOn(f"runs-on {runs_on(job)!r}: a matrix value cannot be resolved")
+    if len(cells) != 1:
+        raise UnresolvedRunsOn(f"runs-on {runs_on(job)!r}: {len(cells)} routes ({cells}), not one")
+    return cells[0]
+
+
 def _tracer(workflow: str | None, workflows: Workflows | None) -> Tracer | None:
     return workflows.tracer(workflow) if workflows is not None and workflow is not None else None
 

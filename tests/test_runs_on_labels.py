@@ -23,6 +23,7 @@ from runs_on_labels import EMPTY, Unknown, disallowed_labels, linux_runner_value
 from test_ci_fleet_rule_lints import CANDIDATE_WORDS_ANY_CASE  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+import workflow_jobs  # noqa: E402
 
 PERSONAL_WORKSTATION_LABEL = CANDIDATE_WORDS_ANY_CASE[0]
 
@@ -46,7 +47,7 @@ def _load(text: str) -> dict:
 
 
 def daemon_runs_on(text: str) -> str:
-    return _daemon_job(_load(text))["runs-on"]
+    return workflow_jobs.single_runs_on(_daemon_job(_load(text)))
 
 
 def lint_runner(text: str) -> str:

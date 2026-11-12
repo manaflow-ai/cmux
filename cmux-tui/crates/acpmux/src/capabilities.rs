@@ -24,6 +24,9 @@ pub const SESSION_MESSAGES: &str = "session-messages-v1";
 /// Cloud trigger chat: a short-lived trigger principal may bootstrap one scoped chat and
 /// submit idempotent ensure/send/status operations over fd0.
 pub const TRIGGER_CHAT: &str = "trigger-chat-v1";
+/// `_acpmux/attach` with `settled: true` answers the chat's settled view first, then the records
+/// logged since (`hub/settled_view.rs`, `server/requests/settled_attach.rs`, cmuxterm-hq#9655).
+pub const SETTLED_ATTACH: &str = "settled-attach-v1";
 
 pub struct Capability {
     pub id: &'static str,
@@ -106,6 +109,7 @@ pub const CAPABILITIES: &[Capability] = &[
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
     Capability { id: SESSION_MESSAGES, wire: &[method::MUX_MESSAGE] },
+    Capability { id: SETTLED_ATTACH, wire: &[method::MUX_ATTACH] },
     Capability {
         id: TRIGGER_CHAT,
         wire: &[
