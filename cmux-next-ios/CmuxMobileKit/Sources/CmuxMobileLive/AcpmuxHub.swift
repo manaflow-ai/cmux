@@ -787,7 +787,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func sendPrompt(_ prompt: HeldPrompt) async {
         guard let hub else { return }
         if !heldPrompts.isEmpty || flushingHeld || !hub.isReady {
-            hold(prompt)
+            // Its wait for the link starts now, not at its send (an upload may have taken long).
+            var waiting = prompt
+            waiting.waitingSince = now()
+            hold(waiting)
             return
         }
         let params = Self.promptParams(prompt, session: sessionID)
