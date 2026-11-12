@@ -14,7 +14,6 @@ import re
 import subprocess
 import tempfile
 import threading
-import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -158,6 +157,15 @@ class ShallowClone(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
+    def record_lock_waits(self) -> list[float]:
+        """Every pause the history fetch takes to wait out a git lock, in order. A failure that is not a lock is
+        returned at once and records none (how long the run took is the runner's load, not the code's choice)."""
+        waits: list[float] = []
+        patch = unittest.mock.patch.object(git_history.time, "sleep", waits.append)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return waits
+
     def fetch_fails_with(self, stderr: str) -> list[list[str]]:
         """Every `git fetch` fails with `stderr` (exit 128); the fetches made."""
         fetches: list[list[str]] = []
@@ -186,30 +194,28 @@ class ShallowClone(unittest.TestCase):
             git_dir.chmod(mode & ~0o222)  # git cannot create shallow.lock: Permission denied
             self.addCleanup(git_dir.chmod, mode)
         self.short_lock_budget()
-        started = time.monotonic()
+        waits = self.record_lock_waits()
         reason = git_history.missing_history(self.clone, [self.b], depth=2)
-        elapsed = time.monotonic() - started
         self.assertIsNotNone(reason)
         self.assertTrue(reason.startswith("needs history: "), reason)
         self.assertIn("Permission denied", reason)
         self.assertNotIn("git lock held", reason)
         if fetches:
             self.assertEqual(len(fetches), 1, f"one fetch, no lock retries: {fetches}")
-        self.assertLess(elapsed, 2, "a permission failure is not waited out as a lock")
+        self.assertEqual(waits, [], "a permission failure is not waited out as a lock")
 
     def test_a_remote_url_with_lock_in_it_fails_fast_with_its_own_error(self) -> None:
         # cmux#41716 review F1: real git, an origin whose path ends in ".lock" and does not exist.
         gone = Path(_git(self.clone, "rev-parse", "--path-format=absolute", "--git-dir")).parent.parent / "gone" / "repo.lock"
         _git(self.clone, "remote", "set-url", "origin", f"file://{gone}")
         self.short_lock_budget()
-        started = time.monotonic()
+        waits = self.record_lock_waits()
         reason = git_history.missing_history(self.clone, [self.b], depth=2)
-        elapsed = time.monotonic() - started
         self.assertIsNotNone(reason)
         self.assertTrue(reason.startswith("needs history: "), reason)
         self.assertIn("repo.lock", reason)
         self.assertNotIn("git lock held", reason)
-        self.assertLess(elapsed, 2, "a bad remote URL is not waited out as a lock")
+        self.assertEqual(waits, [], "a bad remote URL is not waited out as a lock")
 
 
 class GitLockLine(unittest.TestCase):
