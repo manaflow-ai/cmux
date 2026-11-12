@@ -358,7 +358,7 @@ struct ChatComposer: View {
     /// phone's width, large text sizes) the chips scroll sideways rather than truncate.
     private var pickerChips: some View {
         ScrollView(.horizontal) {
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 // The model button is there whenever the agent offers models, even when the
                 // current one is not among them (a default the account lacks, D4).
                 if store.currentModelName != nil || !store.models.isEmpty { modelButton }
@@ -454,11 +454,13 @@ struct ChatComposer: View {
 
     private func chipLabel(_ content: some View) -> some View {
         content
-            .font(.subheadline.weight(.medium))
+            // Footnote type and 9 pt sides: model, mode and effort fit beside the ring and Send
+            // on a phone at the default text size.
+            .font(.footnote.weight(.medium))
             .foregroundStyle(.primary)
             .lineLimit(1)
             .fixedSize()
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 9)
             .frame(minHeight: 34)
             .background(Color.cmuxMobileFill, in: .capsule)
             // 44 pt high target around the 34 pt chip.
