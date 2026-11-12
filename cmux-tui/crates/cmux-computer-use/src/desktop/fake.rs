@@ -8,7 +8,7 @@ use crate::keys::KeyCombo;
 use crate::menus::{self, MenuItemInfo, MenuPolicy, MenuReport};
 
 /// A pop-up button of a fake window: what its menu holds and shows.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FakePopup {
     pub window: String,
     pub element: String,
@@ -16,6 +16,10 @@ pub struct FakePopup {
     pub value: String,
     /// Its menu is open (a click left it open).
     pub open: bool,
+    /// Submenus by their parent item's title, filled only when they open
+    /// (as AppKit fills Open With): a path pick ("Open With > TextEdit")
+    /// reads them from there.
+    pub submenus: Vec<(String, Vec<String>)>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -266,27 +270,55 @@ impl FakeDesktop {
                 ..ActionOutcome::delivered("fake_menu_open")
             }));
         };
-        let hidden: Vec<bool> = p.items.iter().map(|t| self.item_blocked(t)).collect();
         p.open = false;
-        let i = match menus::pick(&p.items, &hidden, wanted) {
-            menus::Pick::Item(i) => i,
-            menus::Pick::Hidden => {
-                return Some(Err(DesktopError::Unsupported(menus::denied_item_refusal(Some(
-                    wanted,
-                )))));
+        // A path walks the submenus, each level opened (filled) and held to
+        // the same checks as the item pressed.
+        let path = menus::menu_path(wanted);
+        let mut level: Vec<String> = p.items.clone();
+        let mut picked_title = String::new();
+        for (n, part) in path.iter().enumerate() {
+            let hidden: Vec<bool> = level.iter().map(|t| self.item_blocked(t)).collect();
+            let i = match menus::pick(&level, &hidden, part) {
+                menus::Pick::Item(i) => i,
+                menus::Pick::Hidden => {
+                    return Some(Err(DesktopError::Unsupported(menus::denied_item_refusal(Some(
+                        part,
+                    )))));
+                }
+                menus::Pick::Missing(found) => {
+                    let shown: Vec<String> =
+                        level.iter().filter(|t| !self.item_blocked(t)).cloned().collect();
+                    return Some(Err(DesktopError::Unsupported(menus::not_found(
+                        part, &found, &shown,
+                    ))));
+                }
+            };
+            let title = level[i].clone();
+            let sub =
+                p.submenus.iter().find(|(parent, _)| *parent == title).map(|(_, l)| l.clone());
+            match (n + 1 == path.len(), sub) {
+                (true, None) => picked_title = title,
+                (true, Some(_)) => {
+                    return Some(Err(DesktopError::Unsupported(format!(
+                        "the item {title:?} opens a submenu; give the path to an item in it"
+                    ))));
+                }
+                (false, Some(items)) => level = items,
+                (false, None) => {
+                    return Some(Err(DesktopError::Unsupported(format!(
+                        "the item {title:?} opens no submenu"
+                    ))));
+                }
             }
-            menus::Pick::Missing(found) => {
-                return Some(Err(DesktopError::Unsupported(menus::not_found(
-                    wanted, &found, &visible,
-                ))));
-            }
-        };
-        p.value = p.items[i].clone();
-        let picked = p.items[i].clone();
+        }
+        let top = path.len() == 1;
+        if top {
+            p.value = picked_title.clone();
+        }
         drop(popups);
         self.push(event);
         Some(Ok(ActionOutcome {
-            menu: Some(MenuReport::picked(&picked, Some(1))),
+            menu: Some(MenuReport::picked(&picked_title, Some(1))),
             ..ActionOutcome::confirmed("fake_menu_pick")
         }))
     }

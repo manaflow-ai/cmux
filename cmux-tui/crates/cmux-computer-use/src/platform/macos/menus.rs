@@ -138,6 +138,15 @@ fn cancel(menu: &Ax, windows: &[u32], escape_to: Route) {
         return;
     }
     escape_while_showing(escape_to, windows);
+    // Last: AXCancel on the menu the owner says it shows (a submenu opened
+    // by a path pick may be the one holding on).
+    if showing(windows)
+        && let Route::Pid { pid, .. } = escape_to
+        && let Some(shown) = Ax::application(pid).and_then(|a| a.element("AXShownMenuUIElement"))
+    {
+        let _ = shown.perform("AXCancel");
+        wait_for(CANCEL_WAIT, || !showing(windows));
+    }
 }
 
 /// Posts Escape to the menu's app only while one of `windows` shows, read
@@ -346,6 +355,55 @@ impl Item {
                 get(1).and_then(Cf::as_string).is_some_and(|m| !m.trim().is_empty());
         }
     }
+}
+
+/// How long a submenu gets to open and fill after its parent is pressed.
+const SUBMENU_WAIT: Duration = Duration::from_millis(1000);
+
+/// The titles of a menu's items, as a cheap snapshot (one read each).
+fn item_titles(menu: &Ax) -> Vec<String> {
+    menu.elements("AXChildren").iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect()
+}
+
+/// Whether a submenu has opened and filled since its parent was pressed:
+/// a new menu-layer window showed, or its items changed from what they were
+/// while closed (a placeholder, a stale list, nothing). Pure, for tests.
+pub(super) fn submenu_opened(
+    windows_before: &[u32],
+    windows_now: &[u32],
+    titles_before: &[String],
+    titles_now: &[String],
+) -> bool {
+    let titled = titles_now.iter().any(|t| !t.trim().is_empty());
+    let new_window = windows_now.iter().any(|w| !windows_before.contains(w));
+    titled && (new_window || titles_now != titles_before)
+}
+
+/// Opens the submenu of the menu item `parent` (pressing it, else selecting
+/// it), waits up to SUBMENU_WAIT for it to open and fill, and returns its
+/// menu. None when it has no submenu.
+fn open_submenu(parent: &Ax) -> Option<Ax> {
+    let sub_now = || parent.elements("AXChildren").into_iter().find(is_menu);
+    let closed = sub_now()?;
+    let titles_before = item_titles(&closed);
+    let windows_before = menu_window_ids();
+    if parent.perform("AXPress").is_err()
+        && let Some(yes) = Cf::boolean(true)
+    {
+        let _ = parent.set("AXSelected", &yes);
+    }
+    let mut opened = None;
+    wait_for(SUBMENU_WAIT, || {
+        let Some(sub) = sub_now() else { return false };
+        let titles = item_titles(&sub);
+        let done = submenu_opened(&windows_before, &menu_window_ids(), &titles_before, &titles);
+        if done {
+            opened = Some(sub);
+        }
+        done
+    });
+    // A submenu that read the same (not filled on open) is used as it is.
+    opened.or_else(sub_now)
 }
 
 /// How many menus enclose `menu`'s items (it and the menus above it), and
@@ -911,8 +969,9 @@ impl MacDesktop {
                 chosen = Some(item);
                 break;
             }
-            let sub = item.el.elements("AXChildren").into_iter().find(is_menu);
-            let Some(sub) = sub else {
+            // Open the submenu (apps fill Open With, Services and the like
+            // only when it opens) and read it from there.
+            let Some(sub) = open_submenu(&item.el) else {
                 return refuse(format!("the item {:?} opens no submenu", item.info.title));
             };
             level = sub;

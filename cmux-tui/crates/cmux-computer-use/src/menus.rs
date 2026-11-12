@@ -274,7 +274,7 @@ pub const MENU_UNREAD: &str = "the app showed a menu that could not be read, so 
 pub const MENU_UNREAD_OPEN: &str = "the app showed a menu that could not be read, and it is still open (it ignored Escape); keys, typing and drags into this app are refused until it closes: click elsewhere in the window, or try perform_action on an element's own actions";
 
 /// Why Escape fails: the open menu did not close.
-pub const MENU_DID_NOT_CLOSE: &str = "the menu did not close (it ignored AXCancel and Escape); it stays open, and keys, typing and drags into this app are refused until it closes";
+pub const MENU_DID_NOT_CLOSE: &str = "the menu did not close (it ignored AXCancel and Escape) and may hold the person's keyboard (keyboard: menu): tell them, so they press Escape or click elsewhere; until it closes, keys, typing and drags into this app are refused";
 
 /// Why keys are refused while another app's menu stays open.
 pub const OTHER_MENU_KEYS_REFUSAL: &str = "a menu left open in another app did not close, and it holds the keyboard: keys and typing would reach it; press_key Escape in that app's window, or click elsewhere first";

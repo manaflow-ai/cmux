@@ -1181,3 +1181,16 @@ fn the_target_s_keyboard_goes_back_when_its_menu_shows_or_when_the_call_ends() {
     assert_eq!(release_plan(false, false, true), ReleasePlan::Miss);
     assert_eq!(release_plan(true, true, false), ReleasePlan::Miss);
 }
+
+#[test]
+fn a_submenu_counts_as_open_once_a_window_shows_or_its_items_change() {
+    let s = |v: &[&str]| v.iter().map(|t| (*t).to_string()).collect::<Vec<_>>();
+    // A placeholder that fills on open.
+    assert!(menus::submenu_opened(&[1], &[1], &s(&["Item"]), &s(&["TextEdit", "Terminal"])));
+    // A stale list that stays, but a new menu window showed.
+    assert!(menus::submenu_opened(&[1], &[1, 2], &s(&["Xcode"]), &s(&["Xcode"])));
+    // Nothing changed yet.
+    assert!(!menus::submenu_opened(&[1], &[1], &s(&["Xcode"]), &s(&["Xcode"])));
+    // Still empty, even with a window.
+    assert!(!menus::submenu_opened(&[1], &[1, 2], &s(&[]), &s(&["", ""])));
+}

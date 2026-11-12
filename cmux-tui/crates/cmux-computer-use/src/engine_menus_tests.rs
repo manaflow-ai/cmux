@@ -48,6 +48,7 @@ fn rig(menus: MenuMode) -> (Arc<FakeDesktop>, Engine) {
         items: ["Always", "When Unlocked", "Never", "Open in Terminal"].map(String::from).to_vec(),
         value: "When Unlocked".into(),
         open: false,
+        ..Default::default()
     }];
     *d.focus.lock().unwrap() = Some(person());
     let d = Arc::new(d);
@@ -216,6 +217,7 @@ fn the_deny_list_in_menus_is_the_menu_guard_the_engine_set() {
         items: ["Fill with 1Password", "Keep"].map(String::from).to_vec(),
         value: "Keep".into(),
         open: false,
+        ..Default::default()
     }];
     let out = e.call(&ctx("g1"), "click", &json!({"window_id": "1", "element_id": "p2"}));
     assert!(!out.is_error, "{:?}", out.body);
@@ -243,4 +245,32 @@ fn a_click_with_menu_item_picks_and_closes_in_one_call() {
     // Under refuse, nothing that opens a menu runs.
     e.set_config(PolicyConfig { menus: MenuMode::Refuse, ..PolicyConfig::default() });
     assert!(click("m3", "Always").is_error);
+}
+
+#[test]
+fn a_path_pick_opens_each_submenu_and_holds_every_level_to_the_deny_list() {
+    let (d, e) = rig(MenuMode::Open);
+    // A context menu whose Open With fills only when it opens.
+    *d.popups.lock().unwrap() = vec![FakePopup {
+        window: "1".into(),
+        element: "c1".into(),
+        items: ["Open", "Open With", "Get Info"].map(String::from).to_vec(),
+        submenus: vec![("Open With".into(), ["TextEdit", "Terminal"].map(String::from).to_vec())],
+        ..Default::default()
+    }];
+    let click = |call: &str, item: &str| {
+        e.call(
+            &ctx(call),
+            "click",
+            &json!({"window_id": "1", "element_id": "c1", "menu_item": item}),
+        )
+    };
+    let out = click("p1", "Open With > TextEdit");
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["menu"]["picked"], "TextEdit");
+    // Terminal is denied: refused at its level, named by the agent's text.
+    let out = click("p2", "Open With > Terminal");
+    assert!(out.is_error);
+    // The parent alone opens a submenu: a path is needed.
+    assert!(click("p3", "Open With").is_error);
 }
