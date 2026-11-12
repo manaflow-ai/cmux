@@ -229,7 +229,7 @@ def cleanup_stats(owner):
 
 # The lock sites of the retention pass, the cleanup and the History fold (source file names).
 LOCK_SITE_WORDS = ("journal_segment_retention", "journal_retention", "output_cleanup",
-                   "journal_maintenance", "history_ops")
+                   "journal_maintenance", "history_ops", "workspace_rename")
 
 
 LOCK_SITE_LIST = 20  # diagnostics.rs DETAIL_SITES
@@ -477,9 +477,11 @@ SERVED_TRIES = 200
 SAMPLE_TOOL = "/usr/bin/sample"
 STACK_CHUNK_SECONDS = 30
 STACK_LINE = re.compile(r"^([ +!:|]*)(\d+) (.*)$")
-# The delete of one segment (the registry lock is held from its first line to its commit), and
-# the pass around it when the compiler put the delete inside the pass.
-STACK_FRAME = "prune_oldest_journal_segment"
+# The holds of the delete of one segment (the registry lock is held from the first line of each
+# to its commit): the base and the floor, the rows of at most 256 records, the segment row with
+# its content. And the pass around them when the compiler put a hold inside the pass.
+STACK_FRAMES = ("begin_journal_segment_prune", "delete_pruned_segment_rows",
+                "finish_journal_segment_prune")
 STACK_OUTER = "retain_journal"
 STACK_FOLD = ("fold_for_retention", "history_ops")
 STACK_LOCK_WAIT = ("psynch_mutexwait", "pthread_mutex_lock", "pthread_mutex_firstfit")
@@ -516,12 +518,13 @@ def stack_shares(texts):
     """The samples of `sample` call graphs that are inside the delete of one segment, by group.
     A sample is counted where its stack ends (a node's count less the counts of its callees).
     Symbol names only: no path, no address, no data."""
-    groups, marks, tops = {}, {}, {}
+    groups, marks, tops, by_hold = {}, {}, {}, {}
     inside_total = lock_wait = 0
     frames = set()
-    # With the delete as a function of its own in one stack, only its stacks count; a stack of
-    # the pass outside it is another lock hold (the floor read) or no hold.
-    own_frame = any(STACK_FRAME in text for text in texts)
+    # With a hold as a function of its own in one stack, only those stacks count; a stack of
+    # the pass outside them is another lock hold (the floor read), the wait for the WAL
+    # syncer's look (no lock held) or no hold.
+    own_frame = any(frame in text for text in texts for frame in STACK_FRAMES)
     for text in texts:
         graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
         nodes, path = [], []
@@ -542,9 +545,13 @@ def stack_shares(texts):
             if own <= 0:
                 continue
             names = [nodes[index][2] for index in chain] + [symbol]
-            start = next((i for i, name in enumerate(names) if STACK_FRAME in name), None)
-            frame = STACK_FRAME
-            if start is None:
+            start = next((i for i, name in enumerate(names)
+                          if any(frame in name for frame in STACK_FRAMES)), None)
+            frame = None
+            if start is not None:
+                frame = next(frame for frame in STACK_FRAMES if frame in names[start])
+                by_hold[frame] = by_hold.get(frame, 0) + own
+            else:
                 start = next((i for i, name in enumerate(names) if STACK_OUTER in name), None)
                 frame = STACK_OUTER + " (the delete is inside it: the fold is left out)"
                 if start is None:
@@ -571,6 +578,7 @@ def stack_shares(texts):
             tops[top] = tops.get(top, 0) + own
     share = {key: round(value / inside_total, 3) for key, value in groups.items()}
     return {"frame": sorted(frames), "samples_in_the_delete": inside_total,
+            "samples_by_hold": by_hold,
             "by_group": groups, "share": share, "by_part_not_exclusive": marks,
             "pass_waits_for_a_lock_outside_the_delete": lock_wait,
             "top_of_stack_first_12": sorted(tops.items(), key=lambda row: -row[1])[:12]}
@@ -1091,6 +1099,15 @@ IN_PLACE_KEYS = ("registry_bytes", "wal_bytes", "freelist_pages", "records", "se
                  "pruned_ranges", "retention_floor", "journal_head", "history_cursor",
                  "roster_cursor")
 NO_REBUILD = "output cleanup: no rebuild in this start"
+# The owner's line at ticks 1, 2, 4, 8, ... of a start that began no hold of the delete because
+# the registry WAL had no room (journal_segment_retention.rs).
+NO_WAL_ROOM = "journal retention: no hold in "
+
+
+def no_wal_room_lines(owner):
+    """Those lines of the owner, the last 4: each names a count, 2 sizes and no path."""
+    return [line.strip()[:300] for line in owner.log_text().splitlines()
+            if NO_WAL_ROOM in line][-4:]
 # The in-place-kept arm ends when no read saw a delete for this long (a pass each 30 s).
 KEPT_QUIET_SECONDS = 75
 # A failure by TIME, not a loss: no retention pass deleted in the dwell (a slow fold, floor 0).
@@ -1136,6 +1153,7 @@ def in_place_arm(args, state, before, report, name="in-place"):
         stacks.stop()
         step["stacks"] = stacks.result()
     step["no_rebuild_line"] = NO_REBUILD in owner.log_text()
+    step["no_wal_room_lines"] = no_wal_room_lines(owner)
     # In the verdict as each other answer of the head build: `served` waits for the History
     # fold at the head (the retention pass folds before it deletes).
     step["served"] = served(owner)
@@ -1153,6 +1171,165 @@ def in_place_arm(args, state, before, report, name="in-place"):
         step["error"] = "the owner did not say that it starts no rebuild"
     elif step["segments_deleted"] <= 0:
         step["error"] = NO_DELETE_IN_DWELL
+    say("RMP", step)
+    report["steps"].append(step)
+
+
+# The 4 tables with a row for each record of a sealed segment (journal_retention.rs
+# PRUNED_ROW_TABLES), and the meta key of the sequence that retention deleted through.
+PRUNED_ROW_TABLES = (("journal_segment_reducer_records", "sequence"),
+                     ("journal_subject_index", "sequence"),
+                     ("journal_event_index", "sequence"),
+                     ("journal_ingress_receipts", "journal_sequence"))
+PRUNED_THROUGH = "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'journal_retention_floor'"
+
+
+class HoldWatch:
+    """A read-only connection of this script to the registry file: counts only, each read its
+    own short transaction (no request to the owner, no snapshot that stays)."""
+
+    def __init__(self, registry):
+        self.connection = sqlite3.connect(Path(registry).as_uri() + "?mode=ro", uri=True,
+                                          timeout=5)
+
+    def rows_through(self, end):
+        """The rows of records at or below `end`, by table."""
+        return {table: self.connection.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE {column} <= ?", (end,)).fetchone()[0]
+                for table, column in PRUNED_ROW_TABLES}
+
+    def read(self):
+        """(deleted through, the end of the oldest sealed segment, the rows at or below that
+        end by table). None when the file gave no answer (a schema change in progress)."""
+        try:
+            row = self.connection.execute(PRUNED_THROUGH).fetchone()
+            through = int(row[0]) if row and row[0] is not None else 0
+            end = self.connection.execute(
+                "SELECT MIN(end_sequence) FROM journal_segments").fetchone()[0]
+            return through, end, ({} if end is None else self.rows_through(end))
+        except sqlite3.Error:
+            return None
+
+    def segments_through(self, end):
+        """Sealed segments that end at or below `end` (None: no answer)."""
+        try:
+            return self.connection.execute(
+                "SELECT COUNT(*) FROM journal_segments WHERE end_sequence <= ?",
+                (end,)).fetchone()[0]
+        except sqlite3.Error:
+            return None
+
+    def close(self):
+        self.connection.close()
+
+
+def kill_hold_arm(args, state, before, report):
+    """kill -9 BETWEEN TWO HOLDS of the delete of one segment. The delete in place takes the
+    registry lock one time for the base and the floor, one time for the rows of each 256
+    records, and one time for the segment row with its content. Between two holds the segment
+    is PART-DELETED: its row and content are there, the floor is at its end, a part of its
+    rows is gone. As the in-place arm, a RELEASE owner on a clone from before start 1 with an
+    empty file of the kept name (no rebuild in this start). This script reads counts from the
+    file each few milliseconds and kills the owner when the oldest sealed segment is at or
+    below the floor with fewer rows than it had and more than 0. Then a second start: the
+    backfill of kept reducer rows runs before the pass and can write rows of that segment
+    again; the pass takes the segment again and ends its delete. The proof: the segment and
+    each row at or below its end are gone, and the counts and the served answer are equal."""
+    name = "kill-hold"
+    sdir = registry_of(state).parent
+    (sdir / KEPT).touch()
+    start = counts(args, state)
+    owner = Owner(args, state, name + "-a")
+    ready = owner.wait_ready()
+    step = {"arm": name, "ready_s": ready, "load_1m": os.getloadavg()[0],
+            "before": {key: start.get(key) for key in IN_PLACE_KEYS}}
+
+    def end_with(error, running=None):
+        step["error"] = error
+        if running is not None:
+            step["exit"] = running.stop()
+        say("RMP", step)
+        report["steps"].append(step)
+
+    if ready is None:
+        return end_with("not ready", owner)
+    watch = HoldWatch(registry_of(state))
+    most, hit, reads = {}, None, 0
+    deadline = time.monotonic() + max(args.in_place_dwell, 120)
+    while time.monotonic() < deadline and owner.child.poll() is None:
+        seen = watch.read()
+        reads += 1
+        if seen is None or seen[1] is None:
+            time.sleep(0.005)
+            continue
+        through, end, rows = seen
+        total = sum(rows.values())
+        most[end] = max(most.get(end, 0), total)
+        if through >= end and 0 < total < most[end]:
+            owner.kill9()
+            hit = end
+            break
+        time.sleep(0.002)
+    step["reads_before_the_kill"] = reads
+    if hit is None:
+        watch.close()
+        return end_with("no part-deleted segment was seen in the dwell",
+                        owner if owner.child.poll() is None else None)
+    # The owner is dead: this read is the state that the next start finds.
+    at_kill = watch.read()
+    through, end, rows = at_kill if at_kill is not None else (None, None, {})
+    left = sum(rows.values())
+    step["at_kill"] = {"segment_end": hit, "deleted_through": through,
+                       "the_segment_row_is_there": end == hit,
+                       "rows_before_its_delete": most[hit], "rows_at_the_kill": rows,
+                       "killed_at_s": round(owner.elapsed(), 1)}
+    step["point_hit"] = bool(end == hit and through is not None and through >= hit
+                             and 0 < left < most[hit])
+    second = Owner(args, state, name + "-b")
+    ready = second.wait_ready()
+    step["after_restart"] = {"ready_s": ready}
+    if ready is None:
+        watch.close()
+        return end_with("not ready after the kill", second)
+    # Until the pass of this start ended the delete: the segment is gone with each row at or
+    # below its end. The most rows seen on the way: more than at the kill = the backfill wrote
+    # rows of the part-deleted segment again before the pass took it.
+    most_after, gone_s, rows_left = left, None, None
+    deadline = time.monotonic() + max(args.in_place_dwell, 120)
+    while time.monotonic() < deadline and second.child.poll() is None:
+        try:
+            now = watch.rows_through(hit)
+        except sqlite3.Error:
+            time.sleep(0.01)
+            continue
+        most_after = max(most_after, sum(now.values()))
+        if watch.segments_through(hit) == 0 and sum(now.values()) == 0:
+            gone_s, rows_left = round(second.elapsed(), 1), now
+            break
+        rows_left = now
+        time.sleep(0.01)
+    watch.close()
+    step["after_restart"].update(
+        the_segment_was_gone_at_s=gone_s, rows_at_or_below_its_end=rows_left,
+        most_rows_seen_after_the_start=most_after,
+        rows_written_again_before_the_pass=most_after > left)
+    step["locks"] = lock_sites(second)
+    step["wal"] = wal_stats(second)
+    step["no_rebuild_line"] = NO_REBUILD in second.log_text()
+    step["no_wal_room_lines"] = no_wal_room_lines(second)
+    step["served"] = served(second)
+    step["exit"] = second.stop()
+    after = counts(args, state)
+    step["after"] = {key: after.get(key) for key in IN_PLACE_KEYS}
+    # As in the space arm: this folder is a copy from before start 1.
+    lost = compare(before, after)
+    if lost and not compare(report["before_start_1"], after):
+        lost = {}
+    step["lost"] = lost
+    if not step["point_hit"]:
+        step["error"] = "the kill was not between two holds of one segment's delete"
+    elif gone_s is None:
+        step["error"] = "the start after the kill did not end the delete of the segment"
     say("RMP", step)
     report["steps"].append(step)
 
@@ -1249,6 +1426,7 @@ def in_place_kept_arm(args, state, before, report, name="in-place-kept"):
         stacks.stop()
         step["stacks"] = stacks.result()
     step["no_rebuild_line"] = NO_REBUILD in owner.log_text()
+    step["no_wal_room_lines"] = no_wal_room_lines(owner)
     # The appended kind changes no agent and no session (synth_sparse.rs), so this answer must
     # equal start 1's: it is in the verdict as each other answer of the head build.
     step["served"] = served(owner)
@@ -1571,7 +1749,7 @@ def table(report):
                                 .get("agent_sessions")) for n in (1, 2, 3, 4))
                  + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
     names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "in-place-stacks",
-             "in-place-kept", "in-place-kept-stacks", "in-place-kept-nowatch",
+             "kill-hold", "in-place-kept", "in-place-kept-stacks", "in-place-kept-nowatch",
              "in-place-kept-quiet", "base-sample", "base-kept", "second-swap"]
     names += [name for name in steps if name.startswith(("old", "control"))
               and not name.endswith("-new")]
@@ -1600,7 +1778,8 @@ def table(report):
                                "appended_records", "ended_by", "ran_s", "passes",
                                "pass_rows_first_40", "watch_period_s", "probe_requests",
                                "requests", "stacks", "wal",
-                               "reads_the_file_while_the_owner_runs")}
+                               "reads_the_file_while_the_owner_runs",
+                               "no_wal_room_lines", "reads_before_the_kill")}
             if name == "second-swap":
                 keep["build"] = {key: step.get("build", {}).get(key) for key in
                                  ("ready_s", "staging_started_s", "built_s", "cleanup_lines",
@@ -1681,7 +1860,8 @@ def main():
             shutil.rmtree(scratch / name)
     if args.base_bin:
         args.arms.append("base-sample")
-    for name in ("kill-stage", "space", "in-place", "in-place-stacks", "base-sample"):
+    for name in ("kill-stage", "space", "in-place", "in-place-stacks", "kill-hold",
+                 "base-sample"):
         if name in args.arms:
             clone(args.state, scratch / name)
     if "main" not in args.arms:
@@ -1709,6 +1889,9 @@ def main():
         if name in args.arms:
             in_place_arm(args, scratch / name, before, report, name)
             shutil.rmtree(scratch / name)
+    if "kill-hold" in args.arms:
+        kill_hold_arm(args, scratch / "kill-hold", before, report)
+        shutil.rmtree(scratch / "kill-hold")
     if "base-sample" in args.arms:
         base_sample_arm(args, scratch / "base-sample", report)
         shutil.rmtree(scratch / "base-sample")
