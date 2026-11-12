@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43218701496",
+  "recorded_at": "2026-11-12T12:42:23Z",
+  "reason": "cmux-tui 78511698c9c7 changes the image's cmux-tui (pinned 383c4fdc9888)",
+  "dry_run": false,
+  "cmux_tui": "78511698c9c78664eedcc8b5e8561de22a19c033",
+  "fixes": [
+    {
+      "sha": "78511698c9c78664eedcc8b5e8561de22a19c033",
+      "mergedAt": "2026-11-12T06:15:09-06:00",
+      "subject": "acpmux test clock: a followed clock moves with ticked time only"
+    },
+    {
+      "sha": "a8ddc0d48672c3a199c2e2e60f603a736811c3cc",
+      "mergedAt": "2026-11-12T06:15:09-06:00",
+      "subject": "acpmux test clock: red test, a followed clock moves with real time"
+    },
+    {
+      "sha": "1c132353d6ecd220356c8b9d3507d30be13907d4",
+      "mergedAt": "2026-11-12T06:14:28-06:00",
+      "subject": "cmux-tui-core: input queued for an adopting terminal waits for the adoption's end"
+    },
+    {
+      "sha": "79725a0ba41b83bcb3da70e5c4b00a0f0556a5e4",
+      "mergedAt": "2026-11-12T06:14:27-06:00",
+      "subject": "cmux-tui tests: input typed while an adoption outlasts the input expiry reaches the terminal"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T12:42:23Z",
+    "snapshot_id": "sh-279ebb675e7144cb8de38ff65a4cafc6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43218701496): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "65ca8a3044aa30fcf8c9d127c871e0ffd3f774e2",
+    "image": "cloud-native-auto-78511698-43218701496-1",
+    "revision": "ci-43218701496-1",
+    "at": "2026-11-12T12:42:23Z"
+  },
+  "rolled_back": false
+}
