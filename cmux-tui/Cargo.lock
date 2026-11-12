@@ -110,6 +110,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "acpmux-book"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "libc",
+ "tempfile",
+]
+
+[[package]]
 name = "acpmux-build-id"
 version = "1.0.0"
 
