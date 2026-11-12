@@ -126,6 +126,56 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
         ])
     }
 
+    /// Every close confirmation the list asks, from its source: Close Other
+    /// Workspaces from the top, middle and bottom row, Above / Below / All,
+    /// the swipe's Close, and a group header's Close All in Group, Close Other
+    /// Groups and Delete Group; at the default size and at Accessibility L.
+    /// Each should point at the row or header it came from.
+    @MainActor
+    func testCloseConfirmations() {
+        typealias A = CloseConfirmAnchor
+        let g = "5b Close confirmations"
+        let sizes: [(String, [String])] = [
+            ("", []),
+            ("-ax", ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]),
+        ]
+        var scenes: [Scene] = []
+        for (suffix, extra) in sizes {
+            let args = Self.list + extra
+            let rowCases: [(String, A.Position, String)] = [
+                ("close-others-top", .top, "Close Other Workspaces"),
+                ("close-others-middle", .middle, "Close Other Workspaces"),
+                ("close-others-bottom", .bottom, "Close Other Workspaces"),
+                ("close-above-bottom", .bottom, "Close Workspaces Above"),
+                ("close-below-top", .top, "Close Workspaces Below"),
+                ("close-all-middle", .middle, "Close All Workspaces"),
+            ]
+            for (id, position, kind) in rowCases {
+                scenes.append(Scene(group: g, id: id + suffix, args: args) { app in
+                    guard let row = A.row(app, position) else { return "no \(position) row" }
+                    return A.openRowClose(app, row: row, kind: kind)
+                })
+            }
+            scenes.append(Scene(group: g, id: "swipe-close-bottom" + suffix, args: args) { app in
+                guard let row = A.row(app, .bottom) else { return "no bottom row" }
+                return A.openSwipeClose(app, row: row)
+            })
+            for (id, item) in [("group-close-all", "Close All in Group"), ("group-close-others", "Close Other Groups"),
+                               ("group-delete", "Delete Group")] {
+                scenes.append(Scene(group: g, id: id + suffix, args: args) { app in
+                    C.steps([
+                        { A.makeTwoGroups(app) },
+                        {
+                            guard let header = A.header(app, A.secondGroup) else { return "no group header" }
+                            return A.openHeaderItem(app, header: header, item: item)
+                        },
+                    ])
+                })
+            }
+        }
+        capture(scenes)
+    }
+
     @MainActor
     func testWorkspacePage() {
         let g = "6 Workspace page and tabs"
