@@ -185,20 +185,12 @@ export function rowsToHold(
   const was = new Set<string>();
   for (let index = from; index < before.length; index += 1) was.add(before[index]!.id);
   const seen = new Set(inView);
-  // The finished runs the update draws that the view before it did not, each with whether a row in
-  // view stands over it. A row in view over them all is one of the last rows before the tail.
-  let over = false;
-  for (let index = from - 1; index >= 0 && index >= from - ROWS_OVER_TAIL && !over; index -= 1) {
-    over = seen.has(drawn[index]!.id);
-  }
+  // The finished runs the update draws that the view before it did not.
   const came = new Map<string, { over: boolean; row: AcpmuxRow }>();
   for (let index = from; index < drawn.length; index += 1) {
     const row = drawn[index]!;
-    if (row.kind !== "activity" || was.has(row.id)) {
-      if (seen.has(row.id)) over = true;
-    } else if (!row.items?.some((item) => item.tool && isRunning(item.tool))) {
-      came.set(row.id, { over, row });
-    }
+    if (row.kind !== "activity" || was.has(row.id)) continue;
+    if (!row.items?.some((item) => item.tool && isRunning(item.tool))) came.set(row.id, { over: false, row });
   }
   if (came.size === 0) return [];
   // The chat's own rows of the reshaped tail, back from the latest: the runs that a prompt or a row
@@ -212,6 +204,19 @@ export function rowsToHold(
     source.add(row.id);
     if (row.kind === "activity" && follows) back.add(row.id);
     if ((row.kind === "user" && !isLineRow(row)) || (row.kind !== "plan" && was.has(row.id))) follows = true;
+  }
+  // Whether a row in view stands over each run: one of the last rows before the tail, or a row of
+  // the chat in the tail. A date over an older page that loads is in view and is no row of the
+  // chat: the page's runs come in over every row the reader reads, and move none of them.
+  let over = false;
+  for (let index = from - 1; index >= 0 && index >= from - ROWS_OVER_TAIL && !over; index -= 1) {
+    over = seen.has(drawn[index]!.id);
+  }
+  for (let index = from; index < drawn.length; index += 1) {
+    const { id } = drawn[index]!;
+    const run = came.get(id);
+    if (run) run.over = over;
+    else if (seen.has(id) && source.has(id)) over = true;
   }
   const comesBack = (row: AcpmuxRow) =>
     [...(row.merged ?? []), ...(row.joined ?? []), row.id].filter((id) => back.has(id));

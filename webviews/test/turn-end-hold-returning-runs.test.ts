@@ -113,16 +113,25 @@ test("an id in view that is no row of the turns says nothing about where the rea
 
 test("an older page that loads over the view holds none of its runs", () => {
   // The page comes in at the chat's start, so no row of the view before is reused. Its runs are
-  // over every row the reader has in view: nothing in view moves between two rows.
+  // over every row the reader reads: nothing in view moves between two rows. The app shapes the
+  // rows without the runs it holds already, before and after.
   const older = [
     row("u0", "user", { text: "Read the log" }),
     row("run0", "activity", { items: [call("tail log")] }),
     row("a0", "assistant", { text: "Two retries failed." }),
   ];
   const paged = [...older, ...split];
-  const before = live(withoutHeldRows(split, new Set(["run1", "run2", "run3"])));
-  expect(runs(live(paged))).toContain("run0");
-  expect(rowsToHold(paged, live(paged), before, 0, ["received:m", "a1", "a2"])).toEqual([]);
+  const held = new Set(["run1", "run2", "run3"]);
+  // One date over the chat, with the same id before and after the page: the view's row, in view.
+  const day = row("day", "date");
+  const shaped = (rows: readonly AcpmuxRow[]) => [
+    day,
+    ...live(withoutHeldRows(rows, held)).filter((each) => each.kind !== "date"),
+  ];
+  expect(runs(shaped(paged))).toEqual(["run0"]);
+  const hold = (inView: string[]) => rowsToHold(paged, shaped(paged), shaped(split), 0, inView);
+  expect(hold(["received:m", "a1", "a2"])).toEqual([]);
+  expect(hold(["day", "u", "a1"])).toEqual([]);
 });
 
 test("a new run with the todo list under it is not a run that comes back", () => {
