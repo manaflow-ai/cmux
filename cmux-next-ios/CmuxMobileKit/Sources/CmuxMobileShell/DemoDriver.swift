@@ -81,7 +81,7 @@ struct DemoDriver {
             shell.tab = .home
         case "retry-terminal":
             shell.terminalTabs.mockDataEnabled = false
-            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             if let workspace = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [workspace] }
         case "editor": await editor()
@@ -102,7 +102,7 @@ struct DemoDriver {
         case "ws-terminal": await workspaceTerminal()
         case "ws-terminal-idle":
             // The zsh tab of a workspace, as the app shows it (TabsKit chrome), and nothing scripted after.
-            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
@@ -110,7 +110,7 @@ struct DemoDriver {
         case "ws-terminal-armed":
             // The zsh tab with a draft in the composer and Control armed: the
             // Send button and an armed key, for screenshots of the key row.
-            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(0.6)
             guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
@@ -179,7 +179,7 @@ struct DemoDriver {
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
         case "kbd-tab":
-            shell.store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-claude", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
@@ -219,7 +219,7 @@ struct DemoDriver {
                let t = shell.store.workspaces[w].tabs.firstIndex(where: { $0.id == "t-zsh" }) {
                 shell.store.workspaces[w].tabs[t].harness = "codex"
             }
-            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(1.0)
             guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
@@ -236,7 +236,7 @@ struct DemoDriver {
     /// keyboard-pin probe counts any frame where the composer jumps instead of
     /// riding the keyboard; `demo=done` marks the end.
     private func workspaceTerminalKeyboardToggles() async {
-        shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        shell.store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
         shell.tab = .workspaces
         await pause(1.0)
         guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
@@ -414,7 +414,7 @@ struct DemoDriver {
     private func workspaces() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
-        store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+        store.requestOpen(tabID: "t-claude", in: "ws-cmux")
         shell.tab = .workspaces
         await pause(1.6)
         guard let ws = store.workspace(id: "ws-cmux") else { return }
@@ -646,7 +646,7 @@ struct DemoDriver {
         // Open the workspace that has an agent tab, on that tab.
         guard let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .agent } }),
               let agent = ws.tabs.first(where: { $0.kind == .agent }) else { return }
-        shell.store.noteOpened(tabID: agent.id, in: ws.id)
+        shell.store.requestOpen(tabID: agent.id, in: ws.id)
         step("open workspace \(ws.title) on \(agent.title)")
         shell.workspacesPath = [ws]
         await pause(4)
@@ -855,7 +855,7 @@ struct DemoDriver {
     private func workspaceTerminal() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
-        store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
         shell.tab = .workspaces
         await pause(1.2)
         guard let ws = store.workspace(id: "ws-cmux") else { return }
@@ -933,7 +933,7 @@ struct DemoDriver {
     private func workspaceTerminalCard() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
-        store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        store.requestOpen(tabID: "t-zsh", in: "ws-cmux")
         shell.tab = .workspaces
         await pause(1.2)
         guard let ws = store.workspace(id: "ws-cmux") else { return }
@@ -956,7 +956,7 @@ struct DemoDriver {
     private func tourHomeAndWorkspaces() async {
         let store = shell.store
         let tabs = WorkspaceDemoDirector.shared
-        store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+        store.requestOpen(tabID: "t-claude", in: "ws-cmux")
         mark("home")
         shell.tab = .home
         await pause(2.4)

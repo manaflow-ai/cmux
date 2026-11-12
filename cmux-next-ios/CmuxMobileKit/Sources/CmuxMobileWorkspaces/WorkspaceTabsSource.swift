@@ -14,9 +14,10 @@ import UIKit
 private let tabsLog = Logger(subsystem: "dev.cmux.mobile", category: "tabs")
 
 /// Drives one workspace's `TabsView`: the workspace's tabs (agent chats,
-/// terminals, browsers) as TabsKit tabs, with the last tab used on this
-/// device active when the workspace opens. Every activation is remembered
-/// (`AppStore.noteOpened`), so the next open (or the next launch) starts there.
+/// terminals, browsers) as TabsKit tabs, opening on the active tab of the
+/// leftmost, topmost pane of the Mac's layout unless the open asked for a tab
+/// (`AppStore.openingTab`). Every activation is remembered
+/// (`AppStore.noteOpened`), so a relaunch restores the tab on screen.
 @MainActor
 @Observable
 public final class WorkspaceTabsSource: TabsDataSource {
@@ -57,6 +58,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Kept while the Mac creates it, since the placeholder tab becomes the
     /// Mac's real tab (a new page) once it confirms.
     @ObservationIgnored private(set) var focusOnOpen = false
+    /// The screen appeared (`opened()`): a tab requested after that (a new workspace's
+    /// first tab, once the Mac creates it) is shown at once (`refreshTabs`).
+    @ObservationIgnored private var hasAppeared = false
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
                 sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
@@ -96,7 +100,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// have used it, so this only consumes (re-arming would raise the
     /// keyboard on the next page shown).
     public func opened() {
+        hasAppeared = true
         if let activeTabID, activeTabID != Self.screenSharingTabID { store.noteOpened(tabID: activeTabID, in: workspaceID) }
+        // `init` already opened on the requested tab: the next open starts at the layout's top-left again.
+        store.takeRequestedTab(workspaceID)
         _ = store.takeFocusOnOpen(workspaceID)
     }
 
@@ -224,6 +231,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         workspaceSnapshot = workspace
         if openingTabID != opening { openingTabID = opening }
+        if hasAppeared, let workspace, let opening, store.requestedTabByWorkspace[workspace.id] == opening {
+            if selectedTabID != opening { selectedTabID = opening }
+            // Consumed outside this rebuild (an action), so the next open starts at the layout's top-left.
+            Task { @MainActor [store] in store.takeRequestedTab(workspace.id) }
+        }
         let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch,
                                                          screens: $0.screens) }
         if workspaceIdentity != identity { workspaceIdentity = identity }
@@ -1731,7 +1743,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard let workspace, let chatsBackend else { return "Connect to \(macName) first." }
         do {
             let created = try await chatsBackend.openAgentChatInNewWorkspace(chat, on: workspace.macID)
-            if let tab = created.tabs.first { store.noteOpened(tabID: tab.id, in: created.id) }
+            if let tab = created.tabs.first { store.requestOpen(tabID: tab.id, in: created.id) }
             openWorkspace?(created)
             return nil
         } catch {
