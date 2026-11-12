@@ -23,10 +23,16 @@ extension CEFTab {
     }
 
     /// Keeps a focus ask the page cannot take now; granted once it can (``grantPendingFocusIfShown()``).
-    public func keepFocusAsk() { pendingFocus = true }
+    public func keepFocusAsk() {
+        host.lifecycleTrace.record(id, "keep-ask \(focusAskState)")
+        pendingFocus = true
+    }
 
     /// Drops a kept focus ask: the page is no longer the one its window gave focus to.
-    public func dropFocusAsk() { pendingFocus = false }
+    public func dropFocusAsk() {
+        host.lifecycleTrace.record(id, "drop-ask")
+        pendingFocus = false
+    }
 
     /// The host's frame changed. A focus ask kept while the host was empty is granted once, when it gets an area, after
     /// this pass's commit: the fork orders a hosted page's window in after the commit, and a key change inside a layout

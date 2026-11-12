@@ -677,10 +677,11 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Cmd-N New Tab page (a spare with a browser) asked a moment before it showed and kept no
     /// focus: only a browser's creation used to replay the ask.
     func grantPendingFocusIfShown() {
-        guard pendingFocus, isShown, pageWindowHostHasArea, !appearedThisTurn, !awaitsWindowMove, let browserID else { return }
+        guard pendingFocus else { return }
+        guard isShown, pageWindowHostHasArea, !appearedThisTurn, !awaitsWindowMove, let browserID else { return host.lifecycleTrace.record(id, "grant waits \(focusAskState)") }
         // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted):
         // the ask waits until this page's window has the keys again.
-        if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { return }
+        if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { return host.lifecycleTrace.record(id, "grant waits: another window has the keys") }
         pendingFocus = false
         host.lifecycleTrace.record(id, "focus(pending) granted")
         grantFocus(browserID)

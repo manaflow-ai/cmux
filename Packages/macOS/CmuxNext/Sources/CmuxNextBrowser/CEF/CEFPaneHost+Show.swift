@@ -33,7 +33,10 @@ extension CEFPaneHost {
         guard visibleTab === tab, tab.appearedThisTurn, !hostView.isHidden, tab.browserID != nil, !tab.awaitsWindowMove else { return }
         let windowInWindow = shownWithWindowOut !== tab && tab.pageWindow != nil
         // The hold's end grants the kept ask of the tab this host shows then (a tab switch in the hold).
-        hostView.layerHosting.pageAppeared(windowInWindow: windowInWindow) { [weak self] in self?.visibleTab?.grantPendingFocusIfShown() }
+        hostView.layerHosting.pageAppeared(windowInWindow: windowInWindow) { [weak self] in
+            self?.visibleTab.map { self?.lifecycleTrace.record($0.id, "first-frame hold ended") }
+            self?.visibleTab?.grantPendingFocusIfShown()
+        }
     }
 
     /// `windowCreated`'s show of the tab shown now, already Chromium's active tab.
