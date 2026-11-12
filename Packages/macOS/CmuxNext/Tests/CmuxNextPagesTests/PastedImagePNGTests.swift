@@ -190,4 +190,24 @@ struct PastedImagePNGTests {
         #expect(board.types?.contains(.png) == true)
         #expect(board.data(forType: .png) != nil)
     }
+
+    /// A conversion that takes longer than its deadline (the copying app is slow to hand over its
+    /// picture) lets the paste go on without it, so no Cmd-V waits behind a hung app.
+    @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
+    func aPastePastItsDeadlineGoesOnWithoutThePNG() async {
+        let board = board()
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        board.setData(Self.screenshot, forType: .tiff)
+        let hold = PastedImagePNGHold(deadline: .zero)
+        let added: Bool? = await withCheckedContinuation { done in
+            if !hold.hold(board, resume: { done.resume(returning: $0) }) { done.resume(returning: nil) }
+        }
+        #expect(added == false)
+        // The next paste is not queued behind the one that ran out.
+        let next: Bool? = await withCheckedContinuation { done in
+            if !hold.hold(board, resume: { done.resume(returning: $0) }) { done.resume(returning: nil) }
+        }
+        #expect(next != false)
+    }
 }

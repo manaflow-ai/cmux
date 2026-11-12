@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -112,9 +113,20 @@ public final class PastedImagePNGHold {
     /// The pastes waiting for the PNG being made, in order: a second Cmd-V (or a repeat) during the
     /// hold waits too, so none reads the pasteboard while it is being written.
     private var waiting: [@MainActor (_ added: Bool) -> Void] = []
+    /// The conversion `waiting` waits for; one that ends after its deadline resumes nothing again.
+    private var round = 0
     private let converter = PastedImagePNG()
+    /// The deadline's timer: it wakes only while a paste waits.
+    private let timer: DemandTimer
+    /// How long a paste waits for its PNG. Reading the picture asks the app that copied it, which
+    /// may be slow to answer or hung: past this the paste goes on and Chromium reads the TIFF, as
+    /// before; every Cmd-V into a cmux page would wait behind it otherwise.
+    private let deadline: Duration
 
-    public init() {}
+    public init(clock: any Clock<Duration> = ContinuousClock(), deadline: Duration = .seconds(1)) {
+        timer = DemandTimer(owner: "pasted-image-png", clock: clock)
+        self.deadline = deadline
+    }
 
     /// Whether to hold this paste: the general pasteboard holds a plain picture as TIFF only
     /// (``PastedImagePNG/needsPNG(_:)``) and this has not held a paste for its contents, or a PNG
@@ -129,14 +141,25 @@ public final class PastedImagePNGHold {
         guard held != changeCount, converter.needsPNG(pasteboard) else { return false }
         held = changeCount
         waiting = [resume]
+        round += 1
+        let this = round
         let name = pasteboard.name
         Task {
             let written = await converter.addPNG(pasteboard: name, changeCount: changeCount)
             if let written { held = written }
-            let resumed = waiting
-            waiting = []
-            for each in resumed { each(written != nil) }
+            finish(this, added: written != nil)
         }
+        timer.schedule(after: deadline) { @MainActor [weak self] in self?.finish(this, added: false) }
         return true
+    }
+
+    /// Resumes the pastes waiting for conversion `this`, once: its PNG was written (`added`), or
+    /// could not be, or its deadline passed first.
+    private func finish(_ this: Int, added: Bool) {
+        guard this == round, !waiting.isEmpty else { return }
+        timer.cancel()
+        let resumed = waiting
+        waiting = []
+        for each in resumed { each(added) }
     }
 }
