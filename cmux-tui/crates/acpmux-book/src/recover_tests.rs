@@ -152,7 +152,7 @@ fn incomplete_headers_after_the_last_record_are_cut_off() {
 }
 
 #[test]
-fn complete_invalid_headers_are_damage_and_preserved() {
+fn complete_invalid_headers_after_the_mark_are_cut() {
     for junk in [vec![0u8; 4096], vec![0xffu8; 300]] {
         let home = tempfile::tempdir().unwrap();
         {
@@ -166,8 +166,10 @@ fn complete_invalid_headers_are_damage_and_preserved() {
         file.write_all(&junk).unwrap();
         let len = file.metadata().unwrap().len();
         drop(file);
-        assert!(matches!(Log::open(home.path(), Options::default()), Err(Error::Corrupt(_))));
-        assert_eq!(fs::metadata(path).unwrap().len(), len);
+        let (mut log, recovered) = open(home.path());
+        assert_eq!(recovered.truncated, junk.len() as u64);
+        assert_eq!(fs::metadata(path).unwrap().len(), len - junk.len() as u64);
+        assert_rows(&mut log, 320);
     }
 }
 
