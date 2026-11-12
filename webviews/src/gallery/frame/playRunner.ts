@@ -546,6 +546,10 @@ export async function runPlay(
   };
   const input = async (kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up", target: PlayTarget) => {
     const element = find(target);
+    // PROBE, never to merge.
+    ((globalThis as unknown as { __foldRideProbe?: string[] }).__foldRideProbe ??= []).push(
+      `${performance.now().toFixed(1)} PLAY: ${kind} on ${describeTarget(target)}, aria-expanded "${element.getAttribute("aria-expanded")}" before it`,
+    );
     const action: PlayAction =
       kind === "click" ? "click" : kind === "contextmenu" ? "context-menu" : kind === "hover" ? "hover" : "press-drag";
     // Trusted input lands at the target's on-screen point, so bring it into view first, as a person

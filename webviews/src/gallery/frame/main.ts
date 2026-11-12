@@ -279,12 +279,19 @@ async function playThenReady(): Promise<void> {
   const variant = entry.variants[variantName];
   const play = variant?.play;
   if (play) {
+    // PROBE, never to merge.
+    ((globalThis as unknown as { __foldRideProbe?: string[] }).__foldRideProbe ??= []).push(
+      `${performance.now().toFixed(1)} PLAY: the frame starts the state's play (the DOM was still)`,
+    );
     const { runPlay } = await import("./playRunner");
     const report = await runPlay(play, {
       anchors: entry.anchors,
       checks: { ...entry.checks, ...variant.checks },
     });
     window.cmuxGalleryPlayReport = report;
+    ((globalThis as unknown as { __foldRideProbe?: string[] }).__foldRideProbe ??= []).push(
+      `${performance.now().toFixed(1)} PLAY: ended, status ${report.status}`,
+    );
     parent.postMessage({ type: "cmux-gallery-play", report }, "*");
   }
   if (experiment && experimentRunner && arm) await experimentRunner.prepareExperiment(experiment, params, arm);

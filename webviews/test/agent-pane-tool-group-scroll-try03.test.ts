@@ -64,6 +64,7 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
           runs: [...document.querySelectorAll(".cv-tools > .cv-tool.is-toggle")].map(
             (node) => `${node.getAttribute("aria-expanded")} ${box(node)}`,
           ),
+          frame: `ready "${document.documentElement.dataset.galleryReady}" play "${document.documentElement.dataset.galleryPlay}"`,
           ride: (globalThis as unknown as { __foldRideProbe?: string[] }).__foldRideProbe ?? [],
         };
       })
@@ -174,6 +175,35 @@ await requireBrowserLane("agent-pane-tool-group-scroll.test.ts", async () => {
     await openRun(page, "boxed run");
     const box = page.locator(".cv-run-scroll").first();
     await box.waitFor();
+    // The run's open plays a height fold, and its last frames can move the transcript's offset (a chat
+    // that fit starts to overflow). Wait for the fold's END before any offset is read: the run's row
+    // plays no animation, and its height and the transcript's offset hold for 6 frames.
+    await page
+      .waitForFunction(
+        () => {
+          const row = document.querySelector<HTMLElement>(".cv-run-scroll")?.closest<HTMLElement>(".acpmux-row");
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          if (!row || !scroller) return false;
+          const holder = globalThis as unknown as { __runFoldSeen?: { height: number; top: number; held: number } };
+          const seen = (holder.__runFoldSeen ??= { height: -1, top: -1, held: 0 });
+          const height = row.getBoundingClientRect().height;
+          const top = scroller.scrollTop;
+          const playing = row.getAnimations({ subtree: true }).some((each) => each.playState === "running");
+          const same = Math.abs(height - seen.height) < 0.01 && Math.abs(top - seen.top) < 0.01;
+          seen.held = same && !playing ? seen.held + 1 : 0;
+          seen.height = height;
+          seen.top = top;
+          return seen.held >= 6;
+        },
+        undefined,
+        { polling: "raf", timeout: 5_000 },
+      )
+      .catch((error: unknown) => {
+        throw new Error(
+          `the run's fold did not end in 5 s: its row's height and the transcript's offset never held for 6 frames (${String(error).split("\n")[0]})`,
+        );
+      });
+    await probeMark(page, "the run's fold ended (height and offset held for 6 frames)");
     await box.scrollIntoViewIfNeeded();
     await box.evaluate((node) => {
       node.scrollTop = 0;

@@ -607,6 +607,7 @@ import { NewestSteerContext, SteerChatContext, takeBackSteer, takesSteersBack } 
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
+import { foldRideProbe } from "./conversation/foldRide";
 import { readWakeFolds, wakeFolds, type PaneFolds } from "./conversation/wakeFolds";
 import {
   callsToHold,
@@ -3342,6 +3343,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
     if (subagentChat !== undefined)
       setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups, viewToggles }));
+    foldRideProbe(
+      `folds: CHAT SWITCH sets the open folds, chat "${subagentChat}" to "${shownSessionId}"; kept ${[...(kept?.expanded ?? [])].join(",") || "none"}; had ${[...expanded].join(",") || "none"}`,
+    );
     setExpanded(kept?.expanded ?? new Set());
     setViewToggles(kept?.viewToggles ?? new Map());
     setOpenedGroups(kept?.opened ?? new Set());
@@ -3351,6 +3355,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   if (wokenFolds && shownSessionId !== undefined && subagentChat === shownSessionId) {
     setWokenFolds(undefined);
     if (wokenFolds.session === shownSessionId) {
+      foldRideProbe(`folds: WOKEN adds ${[...wokenFolds.folds.expanded].join(",") || "none"}`);
       setExpanded(new Set([...wokenFolds.folds.expanded, ...expanded]));
       setOpenedGroups(new Set([...wokenFolds.folds.opened, ...openedGroups]));
       if (viewToggles.size === 0) setViewToggles(wokenFolds.folds.viewToggles);
@@ -3358,6 +3363,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }
   const foldsNow = useRef<{ session?: string } & PaneFolds>({ expanded, opened: openedGroups, viewToggles });
   foldsNow.current = { session: shownSessionId, expanded, opened: openedGroups, viewToggles };
+  // PROBE: each render that sees other open folds than the one before it.
+  const probeFolds = useRef<ReadonlySet<string> | undefined>(undefined);
+  if (probeFolds.current !== expanded) {
+    probeFolds.current = expanded;
+    foldRideProbe(`folds: OPEN NOW ${[...expanded].join(",") || "none"}; working ${snapshot.isWorking}`);
+  }
   // A group of subagents starts open while its agents run in the working turn, in the render that
   // first draws it (an agent a cancel or a reconnect left "running" in an earlier turn opens none).
   const liveGroups = useMemo(
@@ -3367,6 +3378,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const newGroups = subagentChat === shownSessionId ? liveGroups.filter((id) => !openedGroups.has(id)) : [];
   if (newGroups.length > 0) {
     setOpenedGroups(new Set([...openedGroups, ...newGroups]));
+    foldRideProbe(`folds: NEW GROUPS open ${newGroups.join(",")}`);
     setExpanded((current) => new Set([...current, ...newGroups]));
   }
   // After the reset above: a pane opened on a subagent shows it once its chat is shown, in the render
@@ -3394,7 +3406,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const next = openViewTurnFold(turnRowsRef.current, toggled, fold);
         return next === toggled ? current : new Map(current).set(view, next);
       });
-    else setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
+    else {
+      foldRideProbe(`folds: OPEN FOLD "${fold}" (a held fold or a jump)`);
+      setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
+    }
   }, []);
   // The folds a turn's end held open (turnRowsShown) become the reader's own open folds before the
   // frame paints, so they close only when the reader closes them.
@@ -3421,6 +3436,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const ended = workingSeen.session === shownSessionId && workingSeen.working && !snapshot.isWorking;
     setWorkingSeen({ session: shownSessionId, working: snapshot.isWorking });
     const keys = ended ? lastTurnWorkedKeys(snapshot.rows) : [];
+    foldRideProbe(
+      `folds: WORKING SEEN ${workingSeen.working} to ${snapshot.isWorking}, chat "${workingSeen.session}" to "${shownSessionId}"; turn ended ${ended}; keys to close ${keys.join(",") || "none"}`,
+    );
     // What the reader opened while it ran closes with it, once this render is done (the store tells
     // the rows, which may not update while the pane draws).
     if (keys.length) setClosedTurn({ session: shownSessionId, key: keys.at(-1)!, rows: snapshot.rows });
@@ -7482,6 +7500,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
       receive(next) {
         if (next.protocolVersion !== 1) return;
+        foldRideProbe(
+          `snapshot: received, ${next.rows.length} rows, working ${next.isWorking}, chat "${next.sessionId ?? next.summary?.sessionId}"`,
+        );
         harnessSwitch.reconcile(next);
         rowsRef.current = next.rows;
         snapshotRef.current = next;
@@ -10995,6 +11016,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string, covers?: readonly string[]) => {
     const view = chatViewRef.current;
+    foldRideProbe(`folds: TOGGLE "${id}" in the view "${view}"`);
     // A turn's fold opens with every line in it closed, whatever the reader opened there before
     // (Lucas, 2026-11-11): its toggle forgets them. Closed, nothing in it draws, so open or close alike.
     if (isWorkedFold(id)) {
