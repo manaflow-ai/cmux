@@ -326,7 +326,12 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
             if let Some(answer) = answer {
                 let row = view.reply(answer);
                 assert!(row.id > floor, "seed {seed}");
-                assert!(view.visible(row), "seed {seed}");
+                assert!(
+                    view.visible(row),
+                    "seed {seed} row {:?} group {:?}",
+                    row,
+                    row.group.and_then(|id| view.rows.get(&id))
+                );
                 floor = row.id;
             }
             for reply in stretch.replies {
