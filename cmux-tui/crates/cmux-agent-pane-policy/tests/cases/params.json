@@ -879,7 +879,9 @@
     "sessionId": 1,
     "throughSeq": 1,
     "live": true,
-    "cancelToken": "t-1"
+    "cancelToken": "t-1",
+    "harness": "codex",
+    "model": "gpt-5"
    }
   },
   "mode_fields": null,

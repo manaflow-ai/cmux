@@ -8,7 +8,7 @@ import Testing
 /// it goes: a page that fails, a lag that lands while the catch-up runs, and a session state
 /// that is older than the pages read after it.
 @MainActor
-@Suite struct ReattachCatchUpLiveTests {
+@Suite(.timeLimit(.minutes(2))) struct ReattachCatchUpLiveTests {
     typealias Chat = ChatOpenSnapshotLiveTests
 
     /// How many times each method was called, and the `afterSeq` of every attach.
@@ -56,7 +56,18 @@ import Testing
         reattach: @escaping @Sendable (_ id: String, _ after: Int, _ n: Int) -> [Data],
         events: @escaping @Sendable (_ id: String, _ after: Int, _ n: Int) -> [Data]
     ) -> MockMacLink {
-        MockMacLink { _, data in
+        let answer = responder(calls, log: log, reattach: reattach, events: events)
+        return MockMacLink { _, data in answer(data) }
+    }
+
+    /// The fake acpmux's answer to one request (`fake`).
+    nonisolated static func responder(
+        _ calls: Calls,
+        log: [String],
+        reattach: @escaping @Sendable (_ id: String, _ after: Int, _ n: Int) -> [Data],
+        events: @escaping @Sendable (_ id: String, _ after: Int, _ n: Int) -> [Data]
+    ) -> @Sendable (Data) -> [Data] {
+        { data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
             let id = object["id"].map { "\($0)" } ?? "null"
@@ -82,24 +93,64 @@ import Testing
     /// Opens the chat on the first 40 turns, then drops the link and binds it again.
     /// The source holds its hub weakly: a test keeps the hub until it ends.
     static func openThenReconnect(_ link: MockMacLink) async throws -> (AcpmuxHub, AgentChatStore) {
+        try await openThenReconnect { try await link.openChannel(service: "acpmux", args: [:]) }
+    }
+
+    /// `openThenReconnect` over the channels `open` makes, one per bind.
+    static func openThenReconnect(_ open: () async throws -> any LinkChannel) async throws -> (AcpmuxHub, AgentChatStore) {
         let hub = AcpmuxHub()
-        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        await hub.bind(try await open())
         let source = hub.source(sessionID: "s1", summary: Chat.summary)
         let store = AgentChatStore(source: source)
         await waitUntil { store.turns.count == Chat.turns }
         #expect(store.turns.count == Chat.turns)
         await hub.bind(nil)
-        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        await hub.bind(try await open())
         return (hub, store)
     }
 
-    /// Waits (on the clock: a retry sleeps) until `done`, for at most 60 s: with the whole kit
-    /// running in parallel on one runner a catch-up with a retry took 9.7 s, at the old 10 s
-    /// deadline's edge (a met wait returns at once).
+    /// A Mac on a slow link: its frames for a request come `late(request)` after it was
+    /// sent, in order among the frames of that delay (none: at once).
+    final class LateChannel: LinkChannel, @unchecked Sendable {
+        let id: UInt32 = 1
+        private let answer: @Sendable (Data) -> [Data]
+        private let late: @Sendable (Data) -> Duration
+        private let inbox: AsyncStream<Data>
+        private let continuation: AsyncStream<Data>.Continuation
+        private var iterator: AsyncStream<Data>.AsyncIterator
+
+        init(answer: @escaping @Sendable (Data) -> [Data], late: @escaping @Sendable (Data) -> Duration) {
+            self.answer = answer
+            self.late = late
+            (inbox, continuation) = AsyncStream.makeStream()
+            iterator = inbox.makeAsyncIterator()
+        }
+
+        func send(_ data: Data) async throws {
+            let frames = answer(data)
+            let delay = late(data)
+            guard delay > .zero else {
+                for frame in frames { continuation.yield(frame) }
+                return
+            }
+            let continuation = continuation
+            Task {
+                try? await Task.sleep(for: delay) // test: the Mac answers this request late
+                for frame in frames { continuation.yield(frame) }
+            }
+        }
+
+        func receive() async throws -> Data? { await iterator.next() }
+        func close(code: String, reason: String) async { continuation.finish() }
+    }
+
+    /// Waits until `done` (a retry sleeps, so on the clock, not a count of yields). No deadline
+    /// of its own: one counted on the wall clock (10 s, then 60 s in #40685) ended while a busy
+    /// run's main actor had not yet applied the catch-up, and the test read the chat unsettled.
+    /// The suite's time limit bounds a hang.
     static func waitUntil(_ done: () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(60)
-        while !done(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5))
+        while !done(), !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition; the suite's time limit bounds it
         }
     }
 
@@ -138,6 +189,45 @@ import Testing
             #expect(Self.answer(store, n) == "answer \(n)", "turn \(n)")
         }
         // Read again from the last record applied, not from the live one.
+        #expect(calls.attaches.prefix(3) == [0, Chat.turns * 5, (Chat.turns + 1) * 5])
+    }
+
+    /// As `aFailedPageIsReadAgainBeforeNewerRecords`, on a link slower than any fixed wait: the
+    /// read again after the failed page is answered 11 s after it was sent. A full kit run gives
+    /// the main actor to a hundred tests at once (each took about 14 s on the 2026-11-11 runs),
+    /// so this test's waits, which gave up after 10 s of the wall clock, read the chat before
+    /// the read again had landed (cmux#40598: turns 41-43 missing). A wait ends when what it
+    /// waits for holds; the suite's time limit bounds a hang.
+    @Test func aCatchUpSlowerThanAnyFixedWaitIsWaitedFor() async throws {
+        let calls = Calls()
+        let log = Self.log(turns: Chat.turns + 4)
+        let answer = Self.responder(calls, log: log, reattach: { id, after, n in
+            let (records, more) = Self.page(log, after: after)
+            var frames = [Self.reply(id, #"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":\#(more),"events":[\#(records)]}"#)]
+            if n == 1 { frames.append(Self.live(log[(Chat.turns + 3) * 5])) }
+            return frames
+        }, events: { id, after, n in
+            if n == 1 { return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"page timed out"}}"#.utf8)] }
+            let (records, more) = Self.page(log, after: after)
+            return [Self.reply(id, #"{"hasMore":\#(more),"events":[\#(records)]}"#)]
+        })
+        // The second reattach (the read again after the failed page) is answered late.
+        let attaches = Calls()
+        let late: @Sendable (Data) -> Duration = { data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["method"] as? String == "_acpmux/attach",
+                  ((object["params"] as? [String: Any])?["afterSeq"] as? NSNumber)?.intValue ?? 0 > 0 else { return .zero }
+            return attaches.next("reattach") == 2 ? .seconds(11) : .zero
+        }
+        let (hub, store) = try await Self.openThenReconnect { LateChannel(answer: answer, late: late) }
+        defer { withExtendedLifetime(hub) {} }
+        let last = Chat.turns + 3
+        await Self.waitUntil { store.turns.last?.id == "t\(last)" && store.turns.last?.status == .completed }
+
+        #expect(store.turns.map(\.id) == (0...last).map { "t\($0)" })
+        for n in Chat.turns...last {
+            #expect(Self.answer(store, n) == "answer \(n)", "turn \(n)")
+        }
         #expect(calls.attaches.prefix(3) == [0, Chat.turns * 5, (Chat.turns + 1) * 5])
     }
 

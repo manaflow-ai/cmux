@@ -278,6 +278,24 @@ elif [[ -f "$repo/scripts/ci/defaults_guard.py" ]]; then
   fi
 fi
 
+# 1e4. The display suite list, from the suites' display skip traits
+# (scripts/ci/display_suites.py --fix; pure Python, so it runs on every push). Tooling-tests checks it
+# on every pull request, but a direct push has none: 8d01c87e13c added HeaderTerminalSplitAtOnceTests
+# with a display trait and left tooling-tests red on base, as #38773 and #39410 had fixed by hand.
+display_list=scripts/ci/display-suites.txt
+if [[ -f "$repo/scripts/ci/display_suites.py" ]]; then
+  before="$(cksum < "$repo/$display_list" 2>/dev/null || true)"
+  python3 -I "$repo/scripts/ci/display_suites.py" --root "$repo" --fix
+  if [[ "$before" != "$(cksum < "$repo/$display_list")" ]]; then
+    if frozen "$display_list"; then
+      git -C "$repo" checkout --quiet -- "$display_list" 2>/dev/null || rm -f "$repo/$display_list"
+      echo "skipped (frozen): $display_list (stale; python3 scripts/ci/display_suites.py --fix)"
+    else
+      echo "fixed: regenerated $display_list"
+    fi
+  fi
+fi
+
 # 1f. Stale namespace ratchet rows. The update only drops fixed or gone
 # entries, never adds one; the lint's other findings are left to their PRs.
 ratchet=scripts/lint-namespace-types-ratchet.txt

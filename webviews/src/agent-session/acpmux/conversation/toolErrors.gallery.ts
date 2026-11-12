@@ -26,9 +26,11 @@ const shell = (command: string, description: string | undefined, output: string,
 
 /// Each call in its own run of a working chat, with the agent's note on it after: a note of two
 /// paragraphs keeps the runs apart (turns.ts mergeShortNotes), so every call draws as its own row.
-/// The stretch ended with its summary while the chat works on: under the shipped live-turn-work
+/// The stretch ended with its summary while the chat works on: under the live-turn-work
 /// `line` a stretch still running draws none of its calls, only its notes and the live line
-/// (turns.ts `codexRuns`).
+/// (turns.ts `codexRuns`). The ended stretch folds under its "Worked for" line, which draws its
+/// notes and none of its calls (turnFoldReplies.experiment.ts `replies`): a variant draws its calls
+/// only when its play opens that line (endedStretchPlay.ts), as `long-label` and `exit-opened` do.
 const calls = (prompt: string, entries: [AcpmuxActivity, string][], harness = "claude") =>
   chat(
     [
@@ -319,6 +321,7 @@ export default agentPaneEntry({
     "long-label": {
       note: "Failed calls whose labels run past the line: each label takes the ellipsis to the line's end; the failure word (Failed, Denied) is for screen readers only (Codex parity).",
       snapshot: longLabels,
+      play: openEndedStretch,
     },
     "failed-step-mixed": {
       note: 'A run where a Read and a command failed, opened: both steps say "Failed" to a screen reader and draw no word (Codex parity).',

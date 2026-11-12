@@ -408,6 +408,10 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "apps-terminal-links",
     "apps-unmount",
     "browser-host-provider",
+    // The app sends input by the id of a creating terminal only to its local daemon
+    // (`queuesCreatingInput`), so no owner link has such input to cancel: default deny
+    // (`native_terminal_cannot_cancel_creating_input`).
+    "cancel-creating-input",
     "client-hello",
     "close-screen",
     "close-screen-group",
