@@ -19,6 +19,13 @@ impl LinkObserver for Recorder {
     }
 }
 
+/// `body`, or a panic naming `what` once `limit` passes.
+async fn within<F: std::future::Future<Output = ()>>(limit: Duration, what: &str, body: F) {
+    if tokio::time::timeout(limit, body).await.is_err() {
+        panic!("{what} still running after {limit:?}: a stalled link or socket");
+    }
+}
+
 fn spawn_echo_mac(mac: SignalingClient) {
     tokio::spawn(async move {
         while let Some(session) = mac.next_session().await {
@@ -119,49 +126,59 @@ async fn wireguard_round_trip() {
 /// moves to the direct path (there is no backend relay any more).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn wireguard_relay_only_rides_turn() {
-    let turn = cmux_mobile_link::testing::TestTurn::start().await;
-    let server =
-        FakeSignaling::start(FakeOptions { ice_servers: vec![turn.udp_only()], ..FakeOptions::default() })
-            .await;
-    let mac_id = uuid::Uuid::new_v4().to_string();
-    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
-    let recorder = Arc::new(Recorder::default());
-    let handle = connect_inner(
-        ConnectRequest {
-            base_url: server.base_url.clone(),
-            token: "user:alice".into(),
-            team_id: "team".into(),
-            device_id: uuid::Uuid::new_v4().to_string(),
-            mac_device_id: mac_id,
-            transport: Transport::WireGuard,
-            include_loopback: true,
-            relay_only: true,
-            block_udp: false,
-            video_lane: false,
-            webrtc_media: false,
-            ultra_on_cellular: false,
-        },
-        Some(recorder.clone() as Arc<dyn LinkObserver>),
-    )
-    .await
-    .expect("connect");
-    let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
-    let payload = vec![7u8; 200_000];
-    channel.send(payload.clone()).await.unwrap();
-    let mut received = Vec::new();
-    while received.len() < payload.len() {
-        match channel.recv().await {
-            ChannelMessage::Data { bytes } => received.extend(bytes),
-            other => panic!("unexpected {other:?}"),
+    // Its own deadline: a link that stalls (cmux#41791: another test's
+    // network change roamed it onto a socket whose runtime was gone) fails
+    // here with a message instead of hanging the binary.
+    within(Duration::from_secs(60), "wireguard_relay_only_rides_turn", async {
+        let turn = cmux_mobile_link::testing::TestTurn::start().await;
+        let server = FakeSignaling::start(FakeOptions {
+            ice_servers: vec![turn.udp_only()],
+            ..FakeOptions::default()
+        })
+        .await;
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        spawn_echo_mac(
+            SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap(),
+        );
+        let recorder = Arc::new(Recorder::default());
+        let handle = connect_inner(
+            ConnectRequest {
+                base_url: server.base_url.clone(),
+                token: "user:alice".into(),
+                team_id: "team".into(),
+                device_id: uuid::Uuid::new_v4().to_string(),
+                mac_device_id: mac_id,
+                transport: Transport::WireGuard,
+                include_loopback: true,
+                relay_only: true,
+                block_udp: false,
+                video_lane: false,
+                webrtc_media: false,
+                ultra_on_cellular: false,
+            },
+            Some(recorder.clone() as Arc<dyn LinkObserver>),
+        )
+        .await
+        .expect("connect");
+        let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
+        let payload = vec![7u8; 200_000];
+        channel.send(payload.clone()).await.unwrap();
+        let mut received = Vec::new();
+        while received.len() < payload.len() {
+            match channel.recv().await {
+                ChannelMessage::Data { bytes } => received.extend(bytes),
+                other => panic!("unexpected {other:?}"),
+            }
         }
-    }
-    assert_eq!(received, payload);
-    // The direct UDP path would have been confirmed well within this.
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    assert_eq!(handle.path(), LinkPath::Turn);
-    let events = recorder.0.lock().unwrap().clone();
-    assert!(!events.contains(&LinkEvent::PathChanged { path: LinkPath::Direct }), "{events:?}");
-    handle.close();
+        assert_eq!(received, payload);
+        // The direct UDP path would have been confirmed well within this.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert_eq!(handle.path(), LinkPath::Turn);
+        let events = recorder.0.lock().unwrap().clone();
+        assert!(!events.contains(&LinkEvent::PathChanged { path: LinkPath::Direct }), "{events:?}");
+        handle.close();
+    })
+    .await;
 }
 
 /// Relay only over WireGuard without a TURN server has no path at all (the

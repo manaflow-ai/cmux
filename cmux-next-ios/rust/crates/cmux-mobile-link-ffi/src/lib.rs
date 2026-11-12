@@ -947,7 +947,10 @@ impl WarmPool {
         connect_on(&self.0, request, observer).await
     }
 
-    /// `prewarm` on this pool, on the caller's runtime.
+    /// `prewarm` on this pool. Like every exported call it runs on the
+    /// library's runtime, never the caller's: the sockets it opens and the
+    /// tasks they spawn must outlive a caller's runtime (a test's ends with
+    /// the test).
     pub async fn prewarm(
         &self,
         base_url: String,
@@ -955,27 +958,16 @@ impl WarmPool {
         team_id: String,
         device_id: String,
     ) -> Vec<TimingMark> {
-        let pool = &self.0;
-        let timeline = Timeline::new();
-        let key = SocketKey { base_url: base_url.clone(), team_id, device_id };
-        let socket = async {
-            if let Some(socket) = pool.pooled(&key).await {
-                if socket.client.probe(STALE_PROBE).await {
-                    timeline.mark("signaling_alive");
-                    return;
-                }
-                timeline.mark("signaling_stale");
-                pool.evict(&socket).await;
-            }
-            if pool.pooled_or_open(&key, &token, &timeline).await.is_err() {
-                timeline.mark("signaling_failed");
-            }
-        };
-        tokio::join!(pool.ice_servers(&base_url, &token, &timeline), socket);
-        timing_marks(&timeline)
+        let pool = Arc::clone(&self.0);
+        on_runtime(async move { prewarm_on(&pool, base_url, token, team_id, device_id).await }).await
     }
 
-    /// `network_changed` on this pool, on the caller's runtime.
+    /// `network_changed` on this pool, on the library's runtime. It roams
+    /// every live WireGuard session of the process, so the roam (its new
+    /// UDP socket, its TURN allocation) must not run on a caller's runtime:
+    /// a test's ends with the test, and a session another test still uses
+    /// would be left on a socket whose reactor is gone (cmux#41791: a relay-only
+    /// link stalled forever).
     pub async fn network_changed(
         &self,
         base_url: String,
@@ -983,43 +975,83 @@ impl WarmPool {
         team_id: String,
         device_id: String,
     ) -> Vec<TimingMark> {
-        let pool = &self.0;
-        let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
-        let timeline = Timeline::new();
-        let key = SocketKey { base_url, team_id, device_id };
-        if let Some(socket) = pool.pooled(&key).await {
-            if socket.client.probe(NETWORK_PROBE).await {
-                timeline.mark("alive");
-            } else {
-                timeline.mark("stale");
-                pool.evict(&socket).await;
-            }
-        }
-        match pool.pooled_or_open(&key, &token, &timeline).await {
-            Ok((socket, _)) => {
-                if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
-                    timeline.mark("rehomed");
-                }
-            }
-            Err(_) => timeline.mark("failed"),
-        }
-        let roamed = roam.await.unwrap_or_default();
-        let mut marks = roamed.first().map(|(_, timeline)| timing_marks(timeline)).unwrap_or_default();
-        marks.extend(
-            timing_marks(&timeline)
-                .into_iter()
-                .map(|mark| TimingMark { name: format!("signaling:{}", mark.name), millis: mark.millis }),
-        );
-        marks
+        let pool = Arc::clone(&self.0);
+        on_runtime(async move { network_changed_on(&pool, base_url, token, team_id, device_id).await }).await
     }
 
     /// `reset_warm_state` on this pool.
     pub async fn reset(&self) {
-        self.0.sockets.lock().await.clear();
-        for (_, cache) in self.0.ice.lock().unwrap_or_else(PoisonError::into_inner).iter() {
-            cache.clear();
+        let pool = Arc::clone(&self.0);
+        on_runtime(async move {
+            pool.sockets.lock().await.clear();
+            for (_, cache) in pool.ice.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+                cache.clear();
+            }
+        })
+        .await;
+    }
+}
+
+async fn prewarm_on(
+    pool: &Warm,
+    base_url: String,
+    token: String,
+    team_id: String,
+    device_id: String,
+) -> Vec<TimingMark> {
+    let timeline = Timeline::new();
+    let key = SocketKey { base_url: base_url.clone(), team_id, device_id };
+    let socket = async {
+        if let Some(socket) = pool.pooled(&key).await {
+            if socket.client.probe(STALE_PROBE).await {
+                timeline.mark("signaling_alive");
+                return;
+            }
+            timeline.mark("signaling_stale");
+            pool.evict(&socket).await;
+        }
+        if pool.pooled_or_open(&key, &token, &timeline).await.is_err() {
+            timeline.mark("signaling_failed");
+        }
+    };
+    tokio::join!(pool.ice_servers(&base_url, &token, &timeline), socket);
+    timing_marks(&timeline)
+}
+
+async fn network_changed_on(
+    pool: &Warm,
+    base_url: String,
+    token: String,
+    team_id: String,
+    device_id: String,
+) -> Vec<TimingMark> {
+    let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
+    let timeline = Timeline::new();
+    let key = SocketKey { base_url, team_id, device_id };
+    if let Some(socket) = pool.pooled(&key).await {
+        if socket.client.probe(NETWORK_PROBE).await {
+            timeline.mark("alive");
+        } else {
+            timeline.mark("stale");
+            pool.evict(&socket).await;
         }
     }
+    match pool.pooled_or_open(&key, &token, &timeline).await {
+        Ok((socket, _)) => {
+            if cmux_mobile_link::dial::wireguard::rehome(&socket.client) > 0 {
+                timeline.mark("rehomed");
+            }
+        }
+        Err(_) => timeline.mark("failed"),
+    }
+    let roamed = roam.await.unwrap_or_default();
+    let mut marks = roamed.first().map(|(_, timeline)| timing_marks(timeline)).unwrap_or_default();
+    marks.extend(
+        timing_marks(&timeline)
+            .into_iter()
+            .map(|mark| TimingMark { name: format!("signaling:{}", mark.name), millis: mark.millis }),
+    );
+    marks
 }
 
 /// How long `GET /v1/ice` may take before a dial goes on with host candidates only.
@@ -1123,7 +1155,7 @@ impl Warm {
 /// fails: the dial redoes whatever could not be warmed. Returns the steps.
 #[uniffi::export]
 pub async fn prewarm(base_url: String, token: String, team_id: String, device_id: String) -> Vec<TimingMark> {
-    on_runtime(WarmPool::shared().prewarm(base_url, token, team_id, device_id)).await
+    WarmPool::shared().prewarm(base_url, token, team_id, device_id).await
 }
 
 /// The device's network is cellular now, or not (iOS `NWPathMonitor`,
@@ -1153,13 +1185,13 @@ pub async fn network_changed(
     team_id: String,
     device_id: String,
 ) -> Vec<TimingMark> {
-    on_runtime(WarmPool::shared().network_changed(base_url, token, team_id, device_id)).await
+    WarmPool::shared().network_changed(base_url, token, team_id, device_id).await
 }
 
 /// Forget every warm socket and cached ICE server (sign-out, account switch).
 #[uniffi::export]
 pub async fn reset_warm_state() {
-    on_runtime(WarmPool::shared().reset()).await;
+    WarmPool::shared().reset().await;
 }
 
 async fn dial(
