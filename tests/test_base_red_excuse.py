@@ -2,7 +2,7 @@
 import ast
 import contextlib
 import copy
-import re
+import hashlib
 import io
 import importlib.util
 import json
@@ -7601,15 +7601,19 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
                 answer.returncode, answer.stdout = (128, b"") if text is None else (0, text.encode())
             elif "ls-tree" in argv:
-                # The definite-absence read (git_text's MISSING): the tree names the path only when the head has it.
-                # pin_unread: git cannot list the tree either, so the read falls through to GitHub.
-                path = argv[-1]
-                self.reads[("git ls-tree", path)] += 1
-                text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
+                # The tree listing git_text reads paths by (git_tree_entries): the head's files and their directories,
+                # so a file the head lacks is a definite absence (git_text's MISSING). pin_unread: git cannot list the
+                # tree either, so the read falls through to GitHub.
+                self.reads[("git ls-tree", argv[-1])] += 1
+                files = {path: text for path, text in {excuse.FFI_PIN_MANIFEST: self.manifest,
+                                                       excuse.FFI_PIN_FILE: self.pin_file}.items() if text is not None}
+                dirs = {"/".join(path.split("/")[:at]) for path in files for at in range(1, path.count("/") + 1)}
                 if self.pin_unread:
                     answer.returncode = 128
-                elif text is not None:
-                    answer.stdout = path.encode() + b"\n"
+                else:
+                    answer.stdout = b"".join([f"040000 tree {'d' * 40}\t{path}\0".encode() for path in sorted(dirs)]
+                                             + [f"100644 blob {hashlib.sha1(text.encode()).hexdigest()}\t{path}\0".encode()
+                                                for path, text in sorted(files.items())])
             return answer
         cache = tempfile.TemporaryDirectory(prefix="bre-git-")
         self.addCleanup(cache.cleanup)
