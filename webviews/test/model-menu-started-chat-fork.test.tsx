@@ -548,9 +548,11 @@ test("where acpmux forks onto another harness, the held pick's send forks there,
   };
   const forkOnto = async (params: Record<string, unknown>) => (forks.push(params), "s3");
   holdFork({ sessionId: "s1", harness: "codex", model: "gpt-6.1-sol", fast: true });
-  // A working chat forks as it is now, and images go with the message: neither keeps it.
+  // Images wait on uploads bound to this chat's send ticket: kept.
+  expect(sendHeldFork("s1", "look", { images: 1, ready: true, prepare, forkOnto })).toBe(false);
+  // A working chat forks as it is now: Continue In… can't start, the fork can.
   await expect(
-    sendHeldFork("s1", "and now?", { images: 1, ready: false, prepare, forkOnto, sent: (id) => cleared.push(id) }),
+    sendHeldFork("s1", "and now?", { images: 0, ready: false, prepare, forkOnto, sent: (id) => cleared.push(id) }),
   ).resolves.toBe("s3");
   expect(forks).toEqual([{ harness: "codex", model: "gpt-6.1-sol", fast: true, message: "and now?" }]);
   expect(heldFork("s1")).toBeUndefined();

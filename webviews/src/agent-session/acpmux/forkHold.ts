@@ -85,8 +85,8 @@ export function sendHeldFork(
     /// Continue In… can start now (canContinueIn).
     ready: boolean;
     prepare(params: Record<string, unknown>): Promise<string | undefined>;
-    /// Forks the chat onto the pick's harness and sends it the message (with the send's images),
-    /// resolving the fork; absent where acpmux can't fork onto another harness.
+    /// Forks the chat onto the pick's harness and sends it the message, resolving the fork; absent
+    /// where acpmux can't fork onto another harness.
     forkOnto?(params: HeldForkParams): Promise<string | undefined>;
     /// The fork started: the source chat's draft is cleared (the message went with the fork).
     sent?(sessionId: string): void;
@@ -94,7 +94,8 @@ export function sendHeldFork(
 ): false | Promise<string> | undefined {
   const pick = heldFork(sessionId);
   if (!pick) return undefined;
-  if (!forkOnto && (images > 0 || !ready)) return false;
+  // Images wait on uploads bound to this chat's send ticket, which the fork can't redeem: kept.
+  if (images > 0 || (!forkOnto && !ready)) return false;
   const params: HeldForkParams = {
     harness: pick.harness,
     ...(pick.model ? { model: pick.model } : {}),

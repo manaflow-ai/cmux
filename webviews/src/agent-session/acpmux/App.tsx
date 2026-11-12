@@ -8804,7 +8804,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // of its own (its forked line, with the chat's history above it, drawn on the frame it
           // opens), and the message is its first prompt. Resolves the fork once it is open; rejects
           // when no fork was made, so the composer keeps the message and the pick.
-          "chat.forkOnto": async ({ harness, model, effort, fast, message, attachments, gesture }) => {
+          "chat.forkOnto": async ({ harness, model, effort, fast, message }) => {
             harnessSwitch.cancel();
             const chat = client.selectedSession;
             const forked = await client.forkOnto({
@@ -8823,9 +8823,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               focus: () => composerHandle.current?.focus(),
             });
             const text = typeof message === "string" ? message.trim() : "";
-            const files = Array.isArray(attachments) ? (attachments as ComposerAttachment[]) : [];
-            if (text || files.length)
-              void client.promptSide(forked, text, files, sendGestureParam(gesture)).catch((error: unknown) => {
+            if (text)
+              void client.promptSide(forked, text).catch((error: unknown) => {
                 const code = (error as { code?: unknown } | null)?.code;
                 if (typeof code === "string" && code.startsWith("transport."))
                   notices.transient(translate("prompt.notSent", { reason: errorMessage(error) || code }));
@@ -11695,12 +11694,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   ready: canContinueIn(snapshot),
                   prepare: (params) => callNative<string | undefined>("chat.handoff.prepare", params),
                   ...(snapshot.canForkOnto && {
-                    forkOnto: (params) =>
-                      callNative<string | undefined>("chat.forkOnto", {
-                        ...params,
-                        attachments: shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
-                        ...(gesture ? { gesture } : {}),
-                      }),
+                    // The send's ticket is this chat's (bound for its uploads): the fork's prompt
+                    // carries none, as `/side`'s prompt with no files.
+                    forkOnto: (params) => callNative<string | undefined>("chat.forkOnto", params),
                   }),
                   // The composer leaves with the chat: its prompt is not the source chat's draft now.
                   sent: (source) => writePersistedDraft(source, ""),

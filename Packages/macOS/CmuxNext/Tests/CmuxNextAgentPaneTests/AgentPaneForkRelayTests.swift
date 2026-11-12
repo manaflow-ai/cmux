@@ -17,6 +17,8 @@ struct AgentPaneForkRelayTests {
     @Test(arguments: [
         #"{"sessionId":"s","live":true}"#,
         #"{"sessionId":"s","throughSeq":12}"#,
+        // A held pick of another harness's model, on send (forkHold.ts `forkOnto`).
+        #"{"sessionId":"s","live":true,"cancelToken":"t","_meta":{"acpmux":{"harness":"codex"}}}"#,
     ])
     func thePagesForkFramesPassTheParamsRule(_ params: String) {
         #expect(!AcpmuxPaneMethods.breaksParamsRule(Self.object(params), modeFields: []), "\(params)")

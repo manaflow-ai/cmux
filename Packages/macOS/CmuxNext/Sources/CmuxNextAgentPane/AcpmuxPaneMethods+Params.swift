@@ -176,7 +176,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
-        "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken"], []),
+        // `_meta.acpmux.harness`: a fork onto another harness, the send of a held pick of another
+        // harness's model (forkHold.ts, acpmux `Hub::fork_onto`); acpmux refuses it remotely.
+        "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken", "_meta"], ["harness"]),
         // `peer` names the machine that owns `cwd`; its folder is checked for shape only and
         // never canonicalized against this Mac's filesystem (the owning daemon checks it).
         "acp.trust.get": (["cwd", "sessionId", "peer"], []),

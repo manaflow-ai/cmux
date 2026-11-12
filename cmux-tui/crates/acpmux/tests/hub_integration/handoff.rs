@@ -722,10 +722,12 @@ async fn a_fork_onto_another_harness_runs_it_and_briefs_its_agent() {
     let mut c = connect(&hub).await;
     let src = new_session(&mut c, "src").await;
     c.request(method::SESSION_PROMPT, prompt(&src, "hello there", None)).await.unwrap();
+    // As the pane sends it: `acp.session.fork` of the chat as it is now (`live`), which becomes a
+    // `session/fork` that keeps the harness (`fork_through.rs`).
     let forked = c
         .request(
-            method::SESSION_FORK,
-            json!({"sessionId": src, "_meta": {"acpmux": {"harness": "mirror"}}}),
+            method::ACP_SESSION_FORK,
+            json!({"sessionId": src, "live": true, "_meta": {"acpmux": {"harness": "mirror"}}}),
         )
         .await
         .unwrap();

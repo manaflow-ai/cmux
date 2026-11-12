@@ -149,7 +149,7 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     if live || (working && !can_cut) {
         let mut out = json!({"sessionId": session.id});
         let mut mux = cancel_token(params);
-        for key in ["via", "requireFullAccess"] {
+        for key in ["via", "requireFullAccess", "harness"] {
             if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
                 mux.insert(key.into(), value.clone());
             }
