@@ -309,3 +309,54 @@ test("input lands the ride: the rows are placed before it reaches anything", () 
   expect(below.style.translate).toBe("0 850px");
   ride.release();
 });
+
+// A fold near the transcript's end, the view not at it: the last row stays under the view's end at
+// every frame, so nothing of the end shows and the rows ride, as they do far from the end. The ride
+// stood aside whenever the last row was within a screen of the view's end: closing "Show more" 1234px
+// over the end of a 1000px view rode one frame, then placed every row on each later frame
+// (chat-fold-frame-budget: 45 row renders for 21 mounted rows). It still gives way on the frame the
+// last row would end over the view's end: from there the end shows, and the transcript places it.
+test("a fold rides while the transcript's last row stays under the view's end", () => {
+  const rows = transcript(4);
+  const [row, , under, last] = rows as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+  // The mounted rows are the transcript's last ones.
+  for (const each of rows) each.setAttribute("aria-setsize", "4");
+  const scroller = row.closest<HTMLElement>(".acpmux-scroll")!;
+  Object.defineProperty(scroller, "clientHeight", { value: 600 });
+  Object.defineProperty(scroller, "scrollHeight", { value: 5000 });
+  // The last row ends 500px under the 600px view's end; its box moves with the translate it wears.
+  last.getBoundingClientRect = () => {
+    const worn = parseFloat(last.style.translate.split(" ")[1] ?? "") || 0;
+    return { top: 300 + worn, bottom: 1100 + worn, height: 800 } as DOMRect;
+  };
+  const placed = new Map<HTMLElement, number>(rows.map((each) => [each, 100]));
+  placed.set(row, 700);
+  const height = new Map(placed);
+  const ride = new FoldRide({
+    placed: (each) => placed.get(each),
+    height: (each) => height.get(each),
+    finish: () => {},
+  });
+  markHeightFold(row, 10_000);
+
+  // A close, frame by frame: the last row rides to 1060, then 800, both under the view's end.
+  height.set(row, 660);
+  expect(ride.ride([row])).toBe(true);
+  expect(last.style.translate).toBe("0 -40px");
+  height.set(row, 400);
+  expect(ride.ride([row])).toBe(true);
+  expect(under.style.translate).toBe("0 -300px");
+  expect(last.style.translate).toBe("0 -300px");
+  // The next frame would end it at 550, over the view's end at 600: the transcript places the end.
+  height.set(row, 150);
+  expect(ride.ride([row])).toBe(false);
+  expect(under.style.translate).toBe("");
+  expect(last.style.translate).toBe("");
+
+  // An open from there rides too: the rows move down, away from the view's end.
+  ride.release();
+  placed.set(row, 150);
+  height.set(row, 190);
+  expect(ride.ride([row])).toBe(true);
+  expect(last.style.translate).toBe("0 40px");
+});
