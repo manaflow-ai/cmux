@@ -21,7 +21,7 @@ const text = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 const SPLIT_SPAN =
-  /<span class="cv-worked__tokens is-split" title="Output 12\.4K · fresh input 18K · cache reads 2\.1M · cache writes 42K"><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 60K in<\/span><\/span>/;
+  /<span class="cv-worked__tokens is-split" title="Wrote 12\.4K tokens · read 60K new, 2\.1M again"><span class="cv-worked__tokens-part">↓ 12\.4K out<\/span><span class="cv-worked__tokens-part">↑ 60K in<\/span><\/span>/;
 
 for (const [name, line] of Object.entries(tokenLines))
   test(`${name}: output first, then what the model read, named on hover`, () => {
@@ -41,10 +41,11 @@ for (const [name, line] of Object.entries(tokenLines))
     expect(html).toMatch(/<span class="cv-worked__(label-)?time">35s<\/span>/);
   });
 
-test("the hover names each part, compact in the pane's language", () => {
-  expect(tokenDetail(translatorFor("en"), "en", SPLIT)).toBe(
-    "Output 12.4K · fresh input 18K · cache reads 2.1M · cache writes 42K",
-  );
+test("the hover says what the model wrote and read in plain words, compact in the pane's language", () => {
+  // Leo, 2026-11-12: "what even are cache writes?"
+  const words = tokenDetail(translatorFor("en"), "en", SPLIT);
+  expect(words).toBe("Wrote 12.4K tokens · read 60K new, 2.1M again");
+  expect(words).not.toMatch(/cache|input|output/i);
 });
 
 const worked: AcpmuxRow = {

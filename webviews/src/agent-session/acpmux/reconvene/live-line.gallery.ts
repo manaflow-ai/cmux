@@ -31,6 +31,8 @@ const thinking = () => thought(THOUGHT, { startedAt: minutesAgo(0.48), endedAt: 
 const grep = tool("grep -n status src/net/fetchJson.ts", "execute", "completed", {
   command: "grep -n status src/net/fetchJson.ts",
   startedAt: minutesAgo(0.26),
+  // Ended a moment ago, so the line is seen thinking, not waiting after a silence.
+  endedAt: minutesAgo(0.03),
   output: "14:  if (!res.ok) throw new HttpError(res.status)\n",
   exitCode: 0,
 });

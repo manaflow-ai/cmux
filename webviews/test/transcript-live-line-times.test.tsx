@@ -45,8 +45,8 @@ test("a finished step's time and the turn's clock are each named, never two bare
   expect(text).not.toMatch(/\b3s · 21s\b/);
 });
 
-test("the summed thinking beside Thinking stays bare; only the turn's clock is named", () => {
-  expect(drawn({ thoughtMs: 8_000 })).toContain("Thinking 8s · turn 21s");
+test("the thinking time beside Thinking stays bare; only the turn's clock is named", () => {
+  expect(drawn({ phaseAt: START + 13_000 })).toContain("Thinking 8s · turn 21s");
 });
 
 test("the other arms: the turn's clock alone, or the step's time with the turn's in its tooltip", () => {

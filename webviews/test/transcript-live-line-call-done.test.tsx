@@ -38,17 +38,19 @@ const view = (items: AcpmuxActivity[]) =>
     agentFamily: "claude",
     now: START + 140_000,
   });
-const words = (line: AcpmuxRow) =>
+const words = (line: AcpmuxRow, now = START + 140_000) =>
   renderToStaticMarkup(
     <Thinking
       since={line.at}
-      now={() => START + 140_000}
+      now={() => now}
       doing={line.doing}
       doingShell={line.doingShell}
       done={line.doingDone}
       doneMs={line.doingForMs}
       liveState={line.liveState}
-      thoughtMs={line.thoughtMs}
+      phaseAt={line.phaseAt}
+      heardAt={line.heardAt}
+      heardKey={line.heardKey}
       turnTotal={line.turnTotal}
       below
     />,
@@ -70,11 +72,13 @@ test("a command that finished at once: the line reads Thinking, with no frozen s
   expect(line.doing).toBeUndefined();
   expect(line.doingDone).toBeUndefined();
   expect(line.doingForMs).toBeUndefined();
-  const text = words(line);
-  expect(text).toStartWith("Thinking");
+  // Thinking from the call's end, its own time ticking, the turn's clock after it.
+  const text = words(line, START + 15_000);
+  expect(text).toBe("Thinking 5s · turn 15s");
   expect(text).not.toContain("pytest");
-  // The turn's clock goes on.
-  expect(text).toContain("2m 20s");
+  // Two minutes later with nothing heard, it is no longer seen thinking (Leo, 2026-11-12: "the
+  // whatever ms gets stuck and becomes false really quickly"); the turn's clock goes on.
+  expect(words(line)).toBe("Waiting 2m 10s · turn 2m 20s");
 });
 
 test("a command whose output came after its last tick: completed is completed, the line reads Thinking", () => {
@@ -82,6 +86,5 @@ test("a command whose output came after its last tick: completed is completed, t
   const lagged = call("completed", { endedAt: START + 11_000, output: "…\n120 passed\n", exitCode: 0 });
   const line = view([lagged]).at(-1)!;
   expect(line.doing).toBeUndefined();
-  expect(words(line)).toStartWith("Thinking");
-  expect(words(line)).not.toMatch(/\b1s ·/);
+  expect(words(line, START + 15_000)).toBe("Thinking 4s · turn 15s");
 });

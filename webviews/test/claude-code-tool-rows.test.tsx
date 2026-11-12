@@ -104,8 +104,8 @@ test("the live line is one line: the action, its time, then the turn's tokens as
   const html = liveLine({ doing: "Using repo: repo grep" });
   expect(html.match(/class="cv-worked( |")/g)).toHaveLength(1);
   expect(shown(html)).toBe("Using repo: repo grep 3m 2s · 47.4K tokens");
-  // The split stays on hover, named part by part.
-  expect(html).toContain('title="Output 47.4K · fresh input 9K · cache reads 2.7M · cache writes 41K"');
+  // The split stays on hover, in plain words.
+  expect(html).toContain('title="Wrote 47.4K tokens · read 50K new, 2.7M again"');
   expect(html).not.toContain("↑");
 });
 

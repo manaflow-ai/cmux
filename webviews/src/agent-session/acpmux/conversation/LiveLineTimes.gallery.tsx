@@ -2,7 +2,7 @@
 // The live line's times past the turn's first step. Leo's capture (2026-11-07) read "python3 -
 // <<'EOF' 3s · 21s · 549 tokens": a held finished step's own time and the turn's clock, two bare
 // durations. The line no longer holds a finished step (it reads Thinking the moment a call
-// completes), so the two times left are the turn's summed thinking beside "Thinking" and the turn's
+// completes), so the two times left are this stretch of thinking beside "Thinking" (ticking from its start) and the turn's
 // clock. The `live-line-times` arms: the turn's clock named, "Thinking 8s · turn 21s" (shipped); the
 // turn's clock alone; the thinking time alone with the turn's on hover. With no thoughts yet the
 // line reads "Thinking 21s", the turn's clock beside the word, never named "turn" (Leo, 2026-11-09:
@@ -39,7 +39,7 @@ function Fixture({ arm, thoughts = true }: Props) {
   return (
     <div style={{ padding: 24, maxWidth: 640 }}>
       <WorkingCountsContext.Provider value={counts}>
-        <Thinking since={since} below turnTotal verbKey="gallery" {...(thoughts && { thoughtMs: 8_000 })} />
+        <Thinking since={since} below turnTotal verbKey="gallery" {...(thoughts && { phaseAt: since + 13_000 })} />
       </WorkingCountsContext.Provider>
     </div>
   );

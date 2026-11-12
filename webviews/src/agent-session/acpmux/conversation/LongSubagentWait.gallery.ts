@@ -5,7 +5,7 @@
 // turns.ts `codexLiveTurn`): "Waiting on 3 subagents", a finished step with its own time, or
 // "Writing", and past the first step the turn's clock follows a step's own time after a dot.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
 
@@ -51,7 +51,7 @@ export default agentPaneEntry({
       ),
     },
     "finished-step": {
-      note: "Between steps: the finished step stays in its run and the line reads Thinking at once, the turn's clock named after a dot (Leo, 2026-11-07).",
+      note: "Between steps: the finished step stays in its run. The line read Thinking the moment it ended (Leo, 2026-11-07); a minute and a half on with nothing heard it reads Waiting 1m 33s, the turn's clock named after a dot (Leo, 2026-11-12).",
       snapshot: chat(
         [
           prompt(),
@@ -70,12 +70,16 @@ export default agentPaneEntry({
       ),
     },
     thinking: {
-      note: "Past the first step with nothing streaming and no own time: Thinking 1h 24m 7s, the turn's clock beside the word, no dot and no word total (#34866).",
+      note: "Past the first step, thinking again after a reply: Thinking 6s, this stretch's own clock ticking from its first chunk, then the turn's clock named after a dot (Leo, 2026-11-12).",
       snapshot: chat(
         [
           prompt(),
           activity([tool("git log --oneline -5", "execute", "completed", { command: "git log --oneline -5" })], 3),
           assistant("The signing step waits on a single runner.", 2),
+          activity(
+            [thought("Which runner pool does signing use?", { startedAt: minutesAgo(0.1), endedAt: minutesAgo(0.01) })],
+            0.1,
+          ),
         ],
         { isWorking: true },
       ),
@@ -90,11 +94,11 @@ export default agentPaneEntry({
             [
               tool("cat /tmp/copy/message.md | head -30", "execute", "completed", {
                 command: "cat /tmp/copy/message.md | head -30",
-                startedAt: minutesAgo(0.2),
-                endedAt: minutesAgo(0.2) + 300,
+                startedAt: minutesAgo(0.05),
+                endedAt: minutesAgo(0.05) + 300,
               }),
             ],
-            0.2,
+            0.05,
           ),
         ],
         { isWorking: true },

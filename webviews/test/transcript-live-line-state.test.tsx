@@ -66,7 +66,9 @@ const drawn = (line: AcpmuxRow, now: number) =>
         doneMs={line.doingForMs}
         liveState={line.liveState}
         liveAgents={line.liveAgents}
-        thoughtMs={line.thoughtMs}
+        phaseAt={line.phaseAt}
+        heardAt={line.heardAt}
+        heardKey={line.heardKey}
         turnTotal={line.turnTotal}
         untimed={line.untimed}
         quietKey={line.quietKey}
@@ -197,7 +199,8 @@ test("an answer that paused long before the line mounted reads Thinking at once"
   const run = row("run", "activity", { items: [call("git log")] });
   const reply = row("a", "assistant", { text: "So" });
   const line = codex([user, run, reply]).at(-1)!;
-  expect(drawn(line, reply.at + 60_000)).toStartWith("Thinking");
+  // Past WRITING_MS, before a silence of SILENT_MS reads Waiting.
+  expect(drawn(line, reply.at + 7_000)).toStartWith("Thinking");
 });
 
 test("before the turn's first output it still reads Thinking with the turn's time", () => {
@@ -212,8 +215,9 @@ test("the long-wait gallery entry's live line names its subagents and the turn's
   const line = codex(rows).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, liveState: "subagents", liveAgents: 3 });
   expect(drawn(line, GALLERY_NOW)).toBe("Waiting on 3 subagents 1h 24m 7s");
+  // Its finished step ended 1m 33s before the gallery's now, with nothing heard since: Waiting.
   const step = codex(longWait.variants["finished-step"]!.snapshot.rows).at(-1)!;
-  expect(drawn(step, GALLERY_NOW)).toBe("Thinking 1h 24m 7s");
+  expect(drawn(step, GALLERY_NOW)).toBe("Waiting 1m 33s · turn 1h 24m 7s");
 });
 
 test("a running call reads the turn's clock as its total, never a clock that starts at the call", () => {
@@ -237,7 +241,7 @@ test("waiting on subagents, the line does not count them a second time", () => {
   expect(words(html)).toBe("Waiting on 2 subagents 1m · 1 command");
 });
 
-test("Thinking past the first step shows only the thoughts' streamed time, the waits go to the total", () => {
+test("Thinking past the first step times only this stretch of thinking, the waits go to the total", () => {
   // Leo's sample, 2026-11-03: "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in", 7.5 min of "thinking" for
   // 4.5K output tokens. The calls, waits and queue time between thoughts are not thinking.
   const user = row("u", "user");
@@ -254,7 +258,11 @@ test("Thinking past the first step shows only the thoughts' streamed time, the w
       items: [{ kind: "thought", text: "The retry path is next.", startedAt: t0 + 449_000, endedAt: t0 + 454_000 }],
     }),
   ]).at(-1)!;
-  expect(line).toMatchObject({ kind: THINKING, thoughtMs: 8_000, turnTotal: true });
+  // The 49 s of nothing after the tests is no thinking: the stretch starts at the thought after it.
+  expect(line).toMatchObject({ kind: THINKING, phaseAt: t0 + 449_000, heardAt: t0 + 454_000, turnTotal: true });
   expect(line.doing).toBeUndefined();
-  expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · turn 7m 34s");
+  expect(drawn(line, t0 + 454_000)).toBe("Thinking 5s · turn 7m 34s");
+  // It keeps counting with no new event, then says it waits once nothing came for 10 s.
+  expect(drawn(line, t0 + 460_000)).toBe("Thinking 11s · turn 7m 40s");
+  expect(drawn(line, t0 + 470_000)).toBe("Waiting 16s · turn 7m 50s");
 });

@@ -57,7 +57,9 @@ const drawn = (row: AcpmuxRow, now: number) =>
       doingShell={row.doingShell}
       done={row.doingDone}
       doneMs={row.doingForMs}
-      thoughtMs={row.thoughtMs}
+      phaseAt={row.phaseAt}
+      heardAt={row.heardAt}
+      heardKey={row.heardKey}
       turnTotal={row.turnTotal}
       now={() => now}
     />,
@@ -73,7 +75,10 @@ test("a step that ran under a second gives the line back to Thinking, never a fl
   // immediately switch to the thinking?"), never the finished step with its frozen time.
   const live = line([prompt, run(bash!)]);
   expect(live.doing).toBeUndefined();
-  expect(drawn(live, prompt.at + 32_000)).toBe("Thinking 32s");
+  // Under a second after it, the thinking has no time of its own yet: the turn's clock alone.
+  const ended = bash!.tool!.endedAt!;
+  expect(drawn(live, ended + 500)).toBe(`Thinking ${Math.floor((ended + 500 - prompt.at) / 1_000)}s`);
+  expect(drawn(live, ended + 3_000)).toBe(`Thinking 3s · turn ${Math.floor((ended + 3_000 - prompt.at) / 1_000)}s`);
 });
 
 test("a subagent's launch never stands on the line as a step with its launch's time", () => {
@@ -91,10 +96,13 @@ test("a step stamped at one moment has no time of its own: the line shows only t
   const instant = { ...bash!, tool: { ...bash!.tool!, endedAt: bash!.tool!.startedAt } };
   const live = line([prompt, run(instant)]);
   expect(live.doingForMs).toBeUndefined();
-  expect(drawn(live, prompt.at + 32_000)).toBe("Thinking 32s");
+  const ended = instant.tool.endedAt!;
+  expect(drawn(live, ended + 500)).toBe(`Thinking ${Math.floor((ended + 500 - prompt.at) / 1_000)}s`);
 });
 
-test("thinking that streamed under a second says its time; one dated chunk has none", () => {
+test("thinking ticks from its first chunk after a silence, and a later silence reads Waiting", () => {
+  // Leo, 2026-11-12, on "Thinking 683ms · turn 15m 15s": "the whatever ms gets stuck and becomes
+  // false really quickly". The time beside Thinking is a live clock, never a frozen sum.
   const at = events[0]!.at;
   const thought = (startedAt: number, endedAt: number): AcpmuxActivity => ({
     kind: "thought",
@@ -103,11 +111,12 @@ test("thinking that streamed under a second says its time; one dated chunk has n
     endedAt,
   });
   const brief = line([prompt, { ...run(), items: [thought(at, at + 420)] }]);
-  expect(brief.thoughtMs).toBe(420);
-  expect(drawn(brief, prompt.at + 32_000)).toBe("Thinking 420ms · turn 32s");
-  const single = line([prompt, { ...run(), items: [thought(at, at)] }]);
-  expect(single.thoughtMs).toBeUndefined();
-  expect(drawn(single, prompt.at + 32_000)).toBe("Thinking 32s");
+  // 20 s of nothing after the prompt, then the thought: its stretch starts at its first chunk.
+  expect(brief.phaseAt).toBe(at);
+  expect(brief.heardAt).toBe(at + 420);
+  expect(drawn(brief, at + 3_000)).toBe("Thinking 3s · turn 23s");
+  expect(drawn(brief, at + 9_000)).toBe("Thinking 9s · turn 29s");
+  expect(drawn(brief, at + 420 + 12_000)).toBe("Waiting 12s · turn 32s");
 });
 
 test("every finished row's own time: milliseconds under a second, none for one stamped at one moment", async () => {
