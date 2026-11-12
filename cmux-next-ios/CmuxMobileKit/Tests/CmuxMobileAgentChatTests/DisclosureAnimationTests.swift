@@ -473,9 +473,42 @@ import UIKit
         chat.surface.following = false
         chat.scroll.contentOffset.y = max(0, top - 100)
         await chat.frames(20)
-        let cell = try #require(chat.list.cell(for: next))
+        let cell = try #require(chat.list.cell(for: next) as? ChatNativeRowCell, "the task is a native bubble")
         let drawn: [String] = cell.contentView.subviews.compactMap { ($0 as? UILabel)?.attributedText?.string }
         #expect(!drawn.contains { $0.contains("<chat>") }, "the bubble draws no <chat> tag: \(drawn)")
+        // Evidence for the ticket: the view's line and the task's bubble as drawn, closed and open,
+        // dark and light. Opening the view grows its row; the bubble stays under it.
+        for open in [false, true] {
+            let key = "chiefContext-\(ids[context])"
+            let disclosures = chat.surface.disclosures
+            if (disclosures.isOpen(key) ?? false) != open {
+                toggleDisclosure(chat.list.context.foldHold, key: key, in: disclosures) { disclosures.set(key, open) }
+            }
+            await chat.frames(40)
+            let contextCell = try #require(chat.list.cell(for: ids[context]), "the view's row is on screen")
+            let bubbleCell = try #require(chat.list.cell(for: next), "the bubble is on screen")
+            #expect(bubbleCell.frame.minY >= contextCell.frame.maxY - 0.5, "the bubble starts under the view's row (open: \(open))")
+            if open { #expect(contextCell.bounds.height > 100, "opened, the view shows its text: \(contextCell.bounds.height) pt") }
+            for style in [UIUserInterfaceStyle.dark, .light] {
+                let area = contextCell.frame.union(bubbleCell.frame).insetBy(dx: 0, dy: -12)
+                let shot = UIGraphicsImageRenderer(bounds: CGRect(origin: .zero, size: area.size), format: {
+                    let format = UIGraphicsImageRendererFormat(); format.scale = 3; return format
+                }()).image { image in
+                    (style == .dark ? UIColor.black : UIColor.white).setFill()
+                    image.fill(CGRect(origin: .zero, size: area.size))
+                    for drawnCell in [contextCell, bubbleCell] {
+                        drawnCell.overrideUserInterfaceStyle = style
+                        drawnCell.layoutIfNeeded()
+                        image.cgContext.saveGState()
+                        image.cgContext.translateBy(x: drawnCell.frame.minX - area.minX, y: drawnCell.frame.minY - area.minY)
+                        drawnCell.layer.render(in: image.cgContext)
+                        image.cgContext.restoreGState()
+                    }
+                }
+                let name = "chief-context-\(open ? "open" : "closed")-\(style == .dark ? "dark" : "light").png"
+                if let png = shot.pngData() { Attachment.record(png, named: name) }
+            }
+        }
     }
 }
 #endif
