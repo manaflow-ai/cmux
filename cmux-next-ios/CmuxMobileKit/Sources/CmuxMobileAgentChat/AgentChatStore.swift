@@ -1091,8 +1091,16 @@ public final class AgentChatStore {
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
-            returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
-            resendable = (text, attachments, promptID)
+            if let earlier = returnedDraft {
+                // Several messages came back before the composer took the first: none is lost.
+                // Joined, they are a new message (no single id runs them all once).
+                returnedDraft = ReturnedDraft(text: [earlier.text, text].filter { !$0.isEmpty }.joined(separator: "\n\n"),
+                                              attachments: earlier.attachments + attachments, promptID: promptID)
+                resendable = nil
+            } else {
+                returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
+                resendable = (text, attachments, promptID)
+            }
         case .subagent(let change):
             applySubagent(change)
         case .batch(let events):

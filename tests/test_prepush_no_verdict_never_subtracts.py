@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import subprocess
 import sys
@@ -294,9 +295,22 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         config.write_text("", encoding="utf-8")
         (self.repo / "cmux-tui").mkdir()
         hang = subprocess.TimeoutExpired(["rustfmt"], 60)
-        with mock.patch.object(self.gate.subprocess, "run", side_effect=hang):
+        with self.rustfmt_on_path(), mock.patch.object(self.gate.subprocess, "run", side_effect=hang):
             out = self.quiet(self.gate.rustfmt, self.repo, config, tree, ["cmux-tui/crates/x/src/lib.rs"])
         self.assertNoVerdictText(out, "rustfmt")
+
+    @contextlib.contextmanager
+    def rustfmt_on_path(self):
+        """Put a filesystem rustfmt fixture on PATH before mocking its run, so the gate's availability precheck is
+        exercised on a machine with or without a real install (#41945 review, F3/F4)."""
+        from unittest import mock  # noqa: PLC0415
+        folder = Path(self.tmp.name) / "rustfmt-fixture"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        fake.write_text("fixture\n", encoding="utf-8")
+        fake.chmod(0o644)
+        with mock.patch.dict(os.environ, {"PATH": str(folder)}):
+            yield
 
     def test_a_whats_new_validator_that_crashes_refuses(self) -> None:
         # The validator at the head raises on the highlight (not a ValueError, so not a finding): it fell open.
@@ -360,7 +374,7 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         config.write_text("", encoding="utf-8")
         (self.repo / "cmux-tui").mkdir(exist_ok=True)
         done = subprocess.CompletedProcess(["rustfmt"], 101, stdout=b"", stderr=stderr)
-        with mock.patch.object(self.gate.subprocess, "run", return_value=done):
+        with self.rustfmt_on_path(), mock.patch.object(self.gate.subprocess, "run", return_value=done):
             return self.quiet(self.gate.rustfmt, self.repo, config, tree, ["cmux-tui/crates/x/src/lib.rs"])
 
     def test_rustfmt_that_panics_is_no_verdict(self) -> None:
@@ -370,6 +384,48 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
     def test_rustfmt_missing_from_the_toolchain_still_warns_and_passes(self) -> None:
         out = self.rustfmt_failing(b"error: 'rustfmt' is not installed for the toolchain '1.90.0'\n")
         self.assertEqual(out, "")
+
+    # #41945 review (P1): the "is rustfmt there" probe read PATH entries from the gate's own folder, but rustfmt runs in
+    # cmux-tui/, so with PATH=. or an empty entry the two disagreed: a rustfmt in cmux-tui/ that fails was never
+    # looked for, and the layer warned "no rustfmt on PATH" and passed. The lookup is now made from cmux-tui/ and the
+    # file it finds is the one run.
+
+    def rustfmt_from_path(self, path_value: str, in_scope: bool, in_gate_cwd: bool) -> str:
+        from unittest import mock  # noqa: PLC0415
+        tree = Path(self.tmp.name) / "tree"
+        (tree / "cmux-tui/crates/x/src").mkdir(parents=True, exist_ok=True)
+        (tree / "cmux-tui/crates/x/src/lib.rs").write_text("fn a() {}\n", encoding="utf-8")
+        config = Path(self.tmp.name) / "rustfmt.toml"
+        config.write_text("", encoding="utf-8")
+        scope = self.repo / "cmux-tui"
+        gate_cwd = Path(self.tmp.name) / "gate-cwd"
+        for folder, wanted in ((scope, in_scope), (gate_cwd, in_gate_cwd)):
+            folder.mkdir(parents=True, exist_ok=True)
+            fake = folder / "rustfmt"
+            if wanted:
+                # A rustfmt that crashes: run, it is no verdict; never looked for, the layer passes.
+                fake.write_text("#!/bin/sh\necho \"thread 'main' panicked at src/lib.rs:1:1\" >&2\nexit 101\n")
+                fake.chmod(0o755)
+            elif fake.exists():
+                fake.unlink()
+        saved = os.getcwd()
+        os.chdir(gate_cwd)
+        try:
+            with mock.patch.dict(os.environ, {"PATH": path_value}):
+                return self.quiet(self.gate.rustfmt, self.repo, config, tree, ["cmux-tui/crates/x/src/lib.rs"])
+        finally:
+            os.chdir(saved)
+
+    def test_a_rustfmt_found_through_a_relative_path_entry_is_the_one_run(self) -> None:
+        for path_value in (".", "", ":/nonexistent", "./"):
+            with self.subTest(path=path_value):
+                out = self.rustfmt_from_path(path_value, in_scope=True, in_gate_cwd=False)
+                self.assertNoVerdictText(out, f"PATH={path_value!r}, a crashing rustfmt in cmux-tui/")
+
+    def test_a_rustfmt_only_in_the_gates_own_folder_is_not_the_one_run(self) -> None:
+        # The other direction: PATH=. names the gate's folder to the probe, but rustfmt runs in cmux-tui/, where there
+        # is none; that is "no rustfmt here", which warns, not a launch failure.
+        self.assertEqual(self.rustfmt_from_path(".", in_scope=False, in_gate_cwd=True), "")
 
     def test_a_cargo_locks_exit_1_with_no_stale_line_refuses(self) -> None:
         from unittest import mock  # noqa: PLC0415
@@ -426,6 +482,96 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         head = self.commit("head")
         found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
         self.assertRefusedWithNoVerdict(found, "ui font, unreadable output alike on both sides")
+
+    # #41945 review (F1): any nonempty exit-0 answer to --inputs was taken as the paths the check reads, so a
+    # diagnostic there became the changed-path set, matched no changed file, and the check was skipped (passed).
+    # Only an answer whose every line is a repository path is the check's inputs; else the check runs.
+
+    def test_a_ui_font_inputs_answer_that_is_not_repo_paths_runs_the_check(self) -> None:
+        for answer in ("could not list INPUTS: config missing", "Traceback (most recent call last):", "error",
+                       "/abs/inputs/", "../outside/", "webviews/../src/", "webviews/src/"):
+            with self.subTest(answer=answer):
+                self.install(self.gate.UI_FONT_SCRIPT,
+                             "import sys\n"
+                             f"if '--inputs' in sys.argv:\n    print({answer!r})\n    raise SystemExit(0)\n"
+                             "if '--base' in sys.argv:\n    print('webviews/src/a.css: names Inter')\n"
+                             "    print('ui font: 1 finding(s).')\n    raise SystemExit(1)\n"
+                             "print('ui font: ok')\n")
+                self.write("webviews/src/a.css", "a {}\n")
+                base = self.commit(f"base {answer}")
+                self.write("webviews/src/a.css", "b {}\n")
+                head = self.commit(f"head {answer}")
+                found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
+                # webviews/src/ is a path the push changes, so the check runs there too (the control row).
+                self.assertEqual(found, ["webviews/src/a.css: names Inter"],
+                                 f"--inputs answer {answer!r}: the check was skipped instead of judging the push")
+
+    def test_a_ui_font_inputs_answer_of_nested_repo_paths_still_skips_an_unrelated_push(self) -> None:
+        # The real answer names a file inside a folder it also names (desktop.css under webviews/src/): it is a path
+        # list, so a push that changes none of them still skips the check.
+        ran = Path(self.tmp.name) / "ui-font-ran"
+        self.install(self.gate.UI_FONT_SCRIPT,
+                     "import sys\nif '--inputs' in sys.argv:\n"
+                     "    print('webviews/src/\\nwebviews/src/pages/shared/desktop.css\\nschemas/pin.json')\n"
+                     f"    raise SystemExit(0)\nopen({str(ran)!r}, 'a').write('ran\\n')\nprint('ui font: ok')\n")
+        self.write("webviews/src/pages/shared/desktop.css", "a {}\n")
+        self.write("schemas/pin.json", "{}\n")
+        self.write("other.txt", "a\n")
+        base = self.commit("base")
+        self.write("other.txt", "b\n")
+        head = self.commit("head")
+        self.assertEqual(self.quiet(self.gate.ui_font, self.repo, base, head, self.installed), [])
+        self.assertFalse(ran.exists(), "a push that changes none of the check's inputs ran it")
+
+    # #41945 review (F2): every line starting `ui font:` was dropped before the shape check, so a diagnostic in that
+    # prefix (`ui font: could not read ...`) with exit 0 read as a clean run. Only its two summary lines are dropped.
+
+    def test_a_ui_font_diagnostic_in_its_summary_prefix_refuses(self) -> None:
+        self.install(self.gate.UI_FONT_SCRIPT, "import sys\nif '--inputs' in sys.argv:\n    print('webviews/')\n"
+                                               "    raise SystemExit(0)\n"
+                                               "print('ui font: could not read schemas/type-scale/type-scale.json')\n")
+        self.write("webviews/a.css", "a {}\n")
+        base = self.commit("base")
+        self.write("webviews/a.css", "b {}\n")
+        head = self.commit("head")
+        found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "ui font, a `ui font:` diagnostic with exit 0")
+
+    def test_a_ui_font_clean_run_still_passes(self) -> None:
+        self.install(self.gate.UI_FONT_SCRIPT, "import sys\nif '--inputs' in sys.argv:\n    print('webviews/')\n"
+                                               "    raise SystemExit(0)\nprint('ui font: ok')\n")
+        self.write("webviews/a.css", "a {}\n")
+        base = self.commit("base")
+        self.write("webviews/a.css", "b {}\n")
+        head = self.commit("head")
+        self.assertEqual(self.quiet(self.gate.ui_font, self.repo, base, head, self.installed), [])
+
+    # #41851 review (F1): escaped() read lines[index] before checking INDEX against the file (a negative index read
+    # the last line; one past the end raised IndexError in the comment walk and crashed the gate) and read any path
+    # ast-grep named, inside the tree or not. An escape it cannot place in the tree escapes nothing.
+
+    def test_ast_grep_match_outside_the_file_or_tree_is_still_a_finding(self) -> None:
+        tree = self.swift_tree()
+        # No final newline: line -1 is the escaped line itself.
+        (tree / "Sources" / "A.swift").write_text("let a = try! b() // crash-allow: reviewed", encoding="utf-8")
+        (Path(self.tmp.name) / "Outside.swift").write_text("let a = try! b() // crash-allow: reviewed",
+                                                           encoding="utf-8")
+        for file, line in (("Sources/A.swift", 5), ("Sources/A.swift", -1), ("../Outside.swift", 0),
+                           (str(Path(self.tmp.name) / "Outside.swift"), 0)):
+            with self.subTest(file=file, line=line):
+                match = json.dumps([{"file": file, "range": {"start": {"line": line}}, "ruleId": "no-try-bang",
+                                     "message": "no try!"}])
+                tool = self.fake_tool("ast-grep", f"print({match!r})\nraise SystemExit(1)\n")
+                out = self.gate.ast_grep(tool, tree / "sgconfig.yml", tree, ["Sources/A.swift"])
+                self.assertEqual(out, f"{file}:{line + 1}: [no-try-bang] no try!")
+
+    def test_ast_grep_escape_on_the_line_still_escapes(self) -> None:
+        tree = self.swift_tree()
+        (tree / "Sources" / "A.swift").write_text("let a = try! b() // crash-allow: reviewed\n", encoding="utf-8")
+        match = json.dumps([{"file": "Sources/A.swift", "range": {"start": {"line": 0}}, "ruleId": "no-try-bang",
+                             "message": "no try!"}])
+        tool = self.fake_tool("ast-grep", f"print({match!r})\nraise SystemExit(1)\n")
+        self.assertEqual(self.gate.ast_grep(tool, tree / "sgconfig.yml", tree, ["Sources/A.swift"]), "")
 
     def test_real_finding_lines_still_subtract(self) -> None:
         # The shapes the two checkers print: old debt on both sides is not the push's.

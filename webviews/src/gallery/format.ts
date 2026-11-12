@@ -188,6 +188,9 @@ type VariantBase = {
   play?: Play;
   /** Variant-specific play thresholds, merged over the entry defaults. */
   checks?: PlayChecks;
+  /** The title area tone the variant is drawn under, over the env's (env.ts TITLE_AREA_TONES): for
+   * a variant that only means something under one tone (a folder tab's join under Subtle Tone). */
+  titleAreaTone?: import("./env").TitleAreaToneName;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */

@@ -776,33 +776,31 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     // MARK: Toolbar swipe
 
-    /// Swipe up on the bar: the page shrinks toward its card with the finger.
+    /// Swipe up on the bar: the page shrinks toward its card under the
+    /// finger, 1:1 with its travel; nothing runs on its own clock while the
+    /// finger is down.
     private func swipeUpChanged(_ up: CGFloat, _ velocity: CGFloat) {
         if zoomState.phase == .page {
             guard !chrome.swiping, activeID != nil else { return }
             zoomTabId = activeID
             prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
-            // Safari's page follows its swipe-up curve in time (by finger travel
-            // alone it dropped 98 pt in the first frame, cmux-next re-audit 3 D7).
-            zoomDriver.startSwipeUp()
-            return
+            zoomDriver.beginInteraction()
         }
-        // The finger turned back down: the swipe takes over interactively.
-        if zoomState.playingSwipeUp, velocity < -50 { zoomDriver.beginInteraction() }
-        guard zoomState.phase == .interactive else { return }
-        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up), velocity: BarSwipe.velocity(up: up, velocity: velocity))
+        guard zoomState.phase == .interactive, !zoomPinchActive else { return }
+        let travel = BarSwipe.travel(path: zoomPath())
+        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up, travel: travel),
+                                     velocity: BarSwipe.velocity(velocity, travel: travel))
     }
 
-    /// Release: on to the grid or back to the page, on the release spring.
+    /// Release: on to the grid or back to the page on the release spring,
+    /// which starts at the finger's speed.
     private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
         guard zoomState.phase == .interactive, !zoomPinchActive else { return }
-        // Safari goes on to the grid along its own curve from where the
-        // finger left the page; a swipe back down (or barely up) returns.
-        if up > 24 && velocity >= 0 {
-            zoomDriver.releaseOnSwipeUpCurve()
-        } else {
-            zoomDriver.endInteraction(velocity: BarSwipe.releaseVelocity(velocity), startedFromOverview: false)
-        }
+        let travel = BarSwipe.travel(path: zoomPath())
+        let progress = BarSwipe.progress(up: up, travel: travel)
+        let v = BarSwipe.velocity(velocity, travel: travel)
+        zoomDriver.updateInteraction(progress: progress, velocity: v)
+        zoomDriver.release(toOverview: BarSwipe.releaseToOverview(progress: progress, velocity: v))
     }
 
     /// Closing from the grid: the active card is first handed to the grid
