@@ -106,7 +106,6 @@ struct CreatingTerminalInputCloseTests {
             #expect(await input.write(Data("ls".utf8)))
             #expect(!input.close(), "a daemon with no creating-input-cancel-v1 was sent a cancel")
             #expect(await input.write(Data("\r".utf8)), "a chunk of a closed view was not taken")
-            try await Task.sleep(for: .milliseconds(200))
             #expect(try await Self.calls(connection) == ["send:ls"], "an older daemon got more than the chunk sent before the close")
         }
     }

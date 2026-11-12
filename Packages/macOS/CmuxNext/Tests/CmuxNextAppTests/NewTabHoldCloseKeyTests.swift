@@ -58,6 +58,9 @@ struct NewTabHoldCloseKeyTests {
                                       charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode))
     }
 
+    /// A run of the CLI that may not change the view, as `ActionRegistry` binds it for the handler.
+    private static let scriptRun = ActionRunScope(origin: .cli, allowsViewChange: false)
+
     /// What `withAHeldLine` made.
     @MainActor private struct Held {
         let services: AppServices
@@ -93,7 +96,7 @@ struct NewTabHoldCloseKeyTests {
     /// (`incoming`: of Cmd-N's new workspace) with the line `ls` and Return in it, and the probe with the
     /// keyboard. With `besideTheFocusedPane` the page is in the second of two panes and the focus model names
     /// the first, as after a click on the + of a pane that is not the focused one. `body` ends the hold.
-    private static func withAHeldLine(incoming: Bool = false, besideTheFocusedPane: Bool = false, byScript: Bool = false, _ body: (Held) throws -> Void) async throws {
+    private static func withAHeldLine(incoming: Bool = false, besideTheFocusedPane: Bool = false, byScript: Bool = false, thenAScriptOpens: Bool = false, _ body: (Held) throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
@@ -160,9 +163,10 @@ struct NewTabHoldCloseKeyTests {
         input.incomingHoldLimit = .seconds(600)
         input.scheduleDeadline = { _, _ in Task {} }
         // `byScript`: the opening is a run of the CLI that may not change the view, as `ActionRegistry` binds it.
-        let opening = byScript ? ActionRunScope(origin: .cli, allowsViewChange: false) : nil
-        let token = try #require(ActionRunScope.$current.withValue(opening) { incoming ? input.beginIncoming(in: window) : input.begin(for: pane) })
+        var token = try #require(ActionRunScope.$current.withValue(byScript ? scriptRun : nil) { incoming ? input.beginIncoming(in: window) : input.begin(for: pane) })
         if !incoming { input.didShow(in: window) }
+        // `thenAScriptOpens`: a script's opening in the same window replaces the hold before the first key.
+        if thenAScriptOpens { token = try #require(ActionRunScope.$current.withValue(scriptRun) { input.begin(for: pane) }, "the script's opening began no hold") }
         let line = [try keyDown("l", keyCode: 37, in: window), try keyDown("s", keyCode: 1, in: window), try keyDown("\r", keyCode: 36, in: window)]
         for event in line { try #require(router.interceptKeyDown(event, in: window), "the hold did not take a key of the line: \(input.log)") }
         try #require(input.isHolding(in: window) && probe.typed.isEmpty, "the line is not held: probe \"\(probe.typed)\", \(input.log)")
@@ -273,6 +277,29 @@ struct NewTabHoldCloseKeyTests {
             #expect(!held.input.isHolding(in: held.window), "the hold did not end at its limit: \(held.input.log)")
             #expect(held.probe.typed == "ls\r", "the line the person typed in their terminal while a script opened a page did not reach it in order: \"\(held.probe.typed)\" (hold log \(held.input.log))")
             #expect(!held.input.log.contains { $0.hasPrefix("dropped") }, "the hold of a script's opening dropped keys: \(held.input.log)")
+        }
+    }
+
+    /// Two scripts open pages one after the other while the person types in their terminal: the second opening
+    /// takes the keys of the first hold. They are still what the person typed in their terminal, so it gets them.
+    @Test func aLineTypedWhileTwoScriptsOpenPagesStillGoesToThePersonsTerminal() async throws {
+        try await Self.withAHeldLine(besideTheFocusedPane: true, byScript: true) { held in
+            _ = try #require(ActionRunScope.$current.withValue(Self.scriptRun) { held.input.begin(for: held.pane) }, "the second script's opening began no hold")
+            #expect(held.input.isHolding(in: held.window), "the second script's opening holds no keys: \(held.input.log)")
+            held.passTheLimit()
+            #expect(!held.input.isHolding(in: held.window), "the hold did not end at its limit: \(held.input.log)")
+            #expect(held.probe.typed == "ls\r", "the line the person typed in their terminal while two scripts opened pages did not reach it in order: \"\(held.probe.typed)\" (hold log \(held.input.log))")
+            #expect(!held.input.log.contains { $0.hasPrefix("dropped") }, "a hold of a script's opening dropped keys: \(held.input.log)")
+        }
+    }
+
+    /// The person clicks the + of a pane beside the focused one, and a script's opening in the same window
+    /// replaces that hold before the person's first key. The line is still the person's line for the new page:
+    /// at the limit it does not go to the terminal that had the keyboard at the person's opening.
+    @Test func aLineTypedForThePersonsPageGoesToNoTerminalWhenAScriptsOpeningReplacedTheHoldFirst() async throws {
+        try await Self.withAHeldLine(besideTheFocusedPane: true, thenAScriptOpens: true) { held in
+            held.passTheLimit()
+            Self.expectNoKeyReachedTheOldView(held, "the limit of a script's hold that replaced the person's")
         }
     }
 
