@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! magic u32 | version u32 | last_seq u64 | min_row u64 | max_row u64 | seg u32 | off u64 |
-//! state_len u32 | state | crc32
+//! raw_files u32 | raw_map_len u64 | open_count u32 | state_len u32 | open_row_ids | state | crc32
 //! ```
 //!
 //! `seg` and `off` are the end of the last segment when the checkpoint was written: everything
@@ -21,9 +21,9 @@ pub const MAX_CHECKPOINT: usize = 64 * 1024 - 1;
 const MAGIC: u32 = u32::from_le_bytes(*b"ABCK");
 const VERSION: u32 = 1;
 /// The bytes before `state`.
-const FIXED: usize = 48;
+const FIXED: usize = 64;
 /// `FIXED` and the crc.
-const OVERHEAD: usize = 52;
+pub(crate) const OVERHEAD: usize = 68;
 
 /// Where the log stood when a checkpoint was written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,10 +35,13 @@ pub(crate) struct Mark {
     /// The last segment and its length.
     pub seg: u32,
     pub off: u64,
+    pub raw_files: u32,
+    pub raw_map_len: u64,
 }
 
-pub(crate) fn encode(mark: &Mark, state: &[u8]) -> Result<Vec<u8>, Error> {
-    let bytes = state.len().saturating_add(OVERHEAD);
+pub(crate) fn encode(mark: &Mark, state: &[u8], open_rows: &[u64]) -> Result<Vec<u8>, Error> {
+    let bytes =
+        state.len().saturating_add(OVERHEAD).saturating_add(open_rows.len().saturating_mul(8));
     let state_len = u32::try_from(state.len()).ok().filter(|_| bytes <= MAX_CHECKPOINT);
     let Some(state_len) = state_len else {
         return Err(Error::CheckpointTooLarge { bytes });
@@ -51,7 +54,13 @@ pub(crate) fn encode(mark: &Mark, state: &[u8]) -> Result<Vec<u8>, Error> {
     out.extend_from_slice(&mark.max_row.to_le_bytes());
     out.extend_from_slice(&mark.seg.to_le_bytes());
     out.extend_from_slice(&mark.off.to_le_bytes());
+    out.extend_from_slice(&mark.raw_files.to_le_bytes());
+    out.extend_from_slice(&mark.raw_map_len.to_le_bytes());
+    out.extend_from_slice(&(open_rows.len() as u32).to_le_bytes());
     out.extend_from_slice(&state_len.to_le_bytes());
+    for row_id in open_rows {
+        out.extend_from_slice(&row_id.to_le_bytes());
+    }
     out.extend_from_slice(state);
     let crc = crc32fast::hash(&out);
     out.extend_from_slice(&crc.to_le_bytes());
@@ -60,7 +69,7 @@ pub(crate) fn encode(mark: &Mark, state: &[u8]) -> Result<Vec<u8>, Error> {
 
 /// The mark and the state of a checkpoint file; `None` when the bytes are not a whole
 /// checkpoint of this version (recovery then reads the segments from the start).
-pub(crate) fn decode(bytes: &[u8]) -> Option<(Mark, &[u8])> {
+pub(crate) fn decode(bytes: &[u8]) -> Option<(Mark, &[u8], &[u8])> {
     if bytes.len() > MAX_CHECKPOINT || le_u32(bytes, 0)? != MAGIC || le_u32(bytes, 4)? != VERSION {
         return None;
     }
@@ -70,15 +79,18 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<(Mark, &[u8])> {
         max_row: le_u64(bytes, 24)?,
         seg: le_u32(bytes, 32)?,
         off: le_u64(bytes, 36)?,
+        raw_files: le_u32(bytes, 44)?,
+        raw_map_len: le_u64(bytes, 48)?,
     };
-    let state_end = FIXED.checked_add(le_u32(bytes, 44)? as usize)?;
+    let state_start = FIXED.checked_add((le_u32(bytes, 56)? as usize).checked_mul(8)?)?;
+    let state_end = state_start.checked_add(le_u32(bytes, 60)? as usize)?;
     let crc_end = state_end.checked_add(4)?;
     if crc_end != bytes.len()
         || crc32fast::hash(bytes.get(..state_end)?) != le_u32(bytes, state_end)?
     {
         return None;
     }
-    Some((mark, bytes.get(FIXED..state_end)?))
+    Some((mark, bytes.get(state_start..state_end)?, bytes.get(FIXED..state_start)?))
 }
 
 /// The tags of the actor's state sections.

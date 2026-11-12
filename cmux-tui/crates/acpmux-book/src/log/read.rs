@@ -314,7 +314,7 @@ impl Log {
         }
         let slot = cursor.saturating_add(1) / SEQ_STRIDE;
         let (mut seg, mut offset) = if slot == 0 {
-            (1u32, 0u64)
+            (1u32, super::SEGMENT_HEADER_LEN)
         } else {
             let (seg, off) = self
                 .seqs
@@ -332,7 +332,7 @@ impl Log {
                     return Ok(since);
                 }
                 seg = seg.saturating_add(1);
-                offset = 0;
+                offset = super::SEGMENT_HEADER_LEN;
                 continue;
             }
             let mut at = 0usize;
@@ -386,7 +386,7 @@ impl Log {
     /// always is. Returns the reads made.
     ///
     /// Each row's record header is checked against the row asked for, so an index entry that
-    /// does not match its record is [`Error::Corrupt`], never another row's text.
+    /// does not match its record is [`Error::CorruptRow`], never another row's text.
     pub fn fill(
         &mut self,
         rows: &[RowRef],
@@ -416,7 +416,14 @@ impl Log {
             };
             reads = reads.saturating_add(1);
             if read != len {
-                return Err(Error::Corrupt("a row index entry points past its segment"));
+                return Err(Error::CorruptRow {
+                    row_id: run
+                        .iter()
+                        .find(|row| u64::from(row.off) + u64::from(row.len) > span.lo + read as u64)
+                        .unwrap_or(first)
+                        .row_id,
+                    reason: "a row index entry points past its segment",
+                });
             }
             for row in run {
                 let header_at = usize::try_from(
@@ -429,15 +436,19 @@ impl Log {
                     header.row_id == row.row_id && header.rev == row.rev && header.len == row.len
                 });
                 if !same {
-                    return Err(Error::Corrupt("a row index entry does not match its record"));
+                    return Err(Error::CorruptRow {
+                        row_id: row.row_id,
+                        reason: "a row index entry does not match its record",
+                    });
                 }
                 if let Some(header) = header {
                     if header.raw_len != 0
                         && (header.raw_file == 0 || header.raw_file > self.raw_files)
                     {
-                        return Err(Error::Corrupt(
-                            "a record names a raw file absent from raw.map",
-                        ));
+                        return Err(Error::CorruptRow {
+                            row_id: row.row_id,
+                            reason: "a record names a raw file absent from raw.map",
+                        });
                     }
                 }
                 let text = header_at.saturating_add(HEADER_LEN);

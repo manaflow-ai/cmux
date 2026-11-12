@@ -45,9 +45,9 @@ fn killed_at_every_byte_of_a_record(checkpoint_after: Option<u64>) {
         let copy = home.path().join(format!("cut-{cut}"));
         copy_book(&book, &copy);
         fs::write(segment(&copy), &whole[..cut]).unwrap();
-        // The index write comes after the record's. Half the time the entry is not there (the
-        // kill came first); half the time it is, pointing past the end (a stale page).
-        if cut.is_multiple_of(2) && cut < whole.len() {
+        // Byte cuts follow write order. Power-loss tests separately retain newer entries
+        // for raw-backed settlements; a synced daemon row cannot leave such an entry.
+        if cut < whole.len() {
             forget_index_entry(&copy, 8);
         }
 
@@ -115,6 +115,7 @@ fn killed_across_the_largest_record() {
     let near_an_end = |cut: usize| cut < settled + 128 || cut + 128 >= whole.len();
     for cut in (settled..whole.len()).filter(|cut| near_an_end(*cut) || cut.is_multiple_of(53)) {
         fs::write(segment(&book), &whole[..cut]).unwrap();
+        forget_index_entry(&book, 4);
         let (mut log, recovered) = open(&book);
         assert_eq!(recovered.truncated as usize, cut - settled, "cut {cut}");
         assert_eq!((log.last_seq(), log.max_row()), (3, 3), "cut {cut}");
@@ -199,6 +200,7 @@ fn killed_around_a_segment_roll() {
         let copy = home.path().join(format!("cut-{cut}"));
         copy_book(&book, &copy);
         fs::write(copy.join("rows/000002.seg"), &whole[..cut]).unwrap();
+        forget_index_entry(&copy, last);
         let (mut log, recovered) = Log::open(&copy, options).unwrap();
         assert_eq!(recovered.truncated as usize, cut - SEGMENT_HEADER_LEN as usize);
         assert_rows(&mut log, last - 1);
@@ -257,20 +259,28 @@ fn a_torn_patch_restores_the_previous_revision() {
     let book = home.path().join("book");
     let old = b"old revision".to_vec();
     let next = b"new revision".to_vec();
+    let old_index;
     {
         let (mut log, _) = open(&book);
         log.append_settled(1, 1, RawRange::NONE, &old).unwrap();
         log.write_checkpoint(&[]).unwrap();
-        log.patch(1, 2, RawRange::NONE, &next).unwrap();
+        old_index = fs::read(book.join("rows.idx")).unwrap();
+        let file = log.append_raw_file(b"events/patch").unwrap();
+        log.patch(1, 2, RawRange { file, off: 0, len: 1 }, &next).unwrap();
     }
     let segment = book.join("rows/000001.seg");
     let whole = fs::read(&segment).unwrap();
     let patch_at = SEGMENT_HEADER_LEN as usize + old.len() + RECORD_OVERHEAD;
-    for cut in (patch_at + 1)..=whole.len() {
+    for cut in patch_at..=whole.len() {
         let copy = home.path().join(format!("patch-cut-{cut}"));
         copy_book(&book, &copy);
         fs::write(copy.join("rows/000001.seg"), &whole[..cut]).unwrap();
-        let (mut log, _) = open(&copy);
+        // The patch's index is written only after its complete record has been synced.
+        if cut < whole.len() {
+            fs::write(copy.join("rows.idx"), &old_index).unwrap();
+        }
+        let (mut log, recovered) = open(&copy);
+        assert_eq!(recovered.scanned_bytes, (cut - patch_at) as u64, "cut {cut}");
         if cut < whole.len() {
             let row = log.row(1).expect("the old revision remains settled");
             assert_eq!(row.rev, 1, "cut {cut}");
@@ -291,19 +301,19 @@ fn replayed_indexes_are_synced_by_the_following_checkpoint() {
     let book = home.path().join("book");
     {
         let (mut log, _) = open(&book);
-        settle(&mut log, 1, 1);
+        settle(&mut log, 1, 255);
         log.write_checkpoint(&[]).unwrap();
-        log.append_settled(2, 1, RawRange::NONE, &text(2)).unwrap();
+        log.append_settled(256, 1, RawRange::NONE, &text(256)).unwrap();
     }
     let (mut log, recovered) = open(&book);
     assert_eq!(recovered.replayed, 1);
     let before = log.stats().syncs;
     log.write_checkpoint(&[]).unwrap();
-    assert!(log.stats().syncs > before, "the checkpoint synced replayed indexes");
+    assert_eq!(log.stats().syncs - before, 4, "segment, rows.idx, seq.idx, checkpoint");
     drop(log);
     let (mut log, recovered) = open(&book);
     assert_eq!((recovered.checkpoint, recovered.replayed), (true, 0));
-    assert_rows(&mut log, 2);
+    assert_rows(&mut log, 256);
 }
 
 #[test]
@@ -319,7 +329,9 @@ fn bad_segment_headers_request_a_rebuild() {
         file.seek(SeekFrom::Start(offset)).unwrap();
         file.write_all(&bytes).unwrap();
         drop(file);
+        let damaged = fs::read(&path).unwrap();
         assert!(matches!(Log::open(&book, Options::default()), Err(Error::Rebuild(_))));
+        assert_eq!(fs::read(&path).unwrap(), damaged, "unsupported formats are never truncated");
     }
 }
 
@@ -330,8 +342,8 @@ fn raw_map_precedes_records_and_replay_repairs_a_missing_index() {
     let map_line = b"events/one\n";
     {
         let (mut log, _) = open(&book);
-        let file = log.append_raw_file(b"events/one").unwrap();
         log.write_checkpoint(&[]).unwrap();
+        let file = log.append_raw_file(b"events/one").unwrap();
         log.append_settled(1, 1, RawRange { file, off: 0, len: 4 }, b"row1").unwrap();
     }
     let original_map = fs::read(book.join("raw.map")).unwrap();
@@ -352,8 +364,23 @@ fn raw_map_precedes_records_and_replay_repairs_a_missing_index() {
             vec![0u8; fs::metadata(copy.join("rows.idx")).unwrap().len() as usize],
         )
         .unwrap();
-        let (log, _) = open(&copy);
+        let (mut log, _) = open(&copy);
         assert_eq!(log.max_row(), 0, "map cut {cut}");
+        let file = log.append_raw_file(b"events/next").unwrap();
+        assert_eq!(file, if cut == original_map.len() { 2 } else { 1 });
+        log.append_settled(1, 1, RawRange { file, off: 0, len: 1 }, b"next").unwrap();
+        let row = log.row(1).unwrap();
+        assert_eq!(log.raw_range(&row).unwrap().file, file);
+        let map = fs::read(copy.join("raw.map")).unwrap();
+        assert!(map.ends_with(b"events/next\n"));
+        assert_eq!(
+            map.len(),
+            if file == 2 {
+                original_map.len() + b"events/next\n".len()
+            } else {
+                b"events/next\n".len()
+            }
+        );
         drop(log);
         fs::remove_dir_all(copy).unwrap();
     }
@@ -472,4 +499,91 @@ fn a_writer_killed_40_times_loses_no_row_it_reported() {
     }
     assert!(reported > 40 * 30);
     println!("kill9: 40 kills, {reported} rows, {truncations} torn tails cut");
+}
+
+#[test]
+fn a_power_loss_clears_a_checkpoint_open_row_without_reading_older_records() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path();
+    let (mut log, _) = open(book);
+    settle(&mut log, 2, 300);
+    let file = log.append_raw_file(b"raw").unwrap();
+    log.write_checkpoint_with_open_rows(b"opaque actor state", &[1]).unwrap();
+    let mark = fs::metadata(segment(book)).unwrap().len();
+    log.append_settled(1, 1, RawRange { file, off: 0, len: 3 }, b"old tool").unwrap();
+    drop(log);
+    let whole = fs::read(segment(book)).unwrap();
+    let indexes = fs::read(book.join("rows.idx")).unwrap();
+    for cut in mark..whole.len() as u64 {
+        fs::write(segment(book), &whole[..cut as usize]).unwrap();
+        // Unlike a patch, this raw-backed new settlement may leave a durable index behind.
+        fs::write(book.join("rows.idx"), &indexes).unwrap();
+        let (mut log, recovered) = open(book);
+        assert_eq!(recovered.scanned_bytes, cut - mark);
+        assert!(log.row(1).is_none());
+        let row = log.row(300).unwrap();
+        assert_eq!(texts(&mut log, &[row]).0[0], text(300));
+        assert_eq!(
+            log.append_settled(1, 1, RawRange { file, off: 0, len: 3 }, b"old tool").unwrap(),
+            300
+        );
+        assert!(matches!(
+            log.append_settled(1, 1, RawRange { file, off: 0, len: 3 }, b"old tool"),
+            Err(Error::AlreadySettled { row_id: 1 })
+        ));
+    }
+}
+
+#[test]
+fn a_raw_backed_record_and_its_index_can_be_cut_at_every_byte() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    let (mut log, _) = open(&book);
+    log.write_checkpoint(&[]).unwrap();
+    let file = log.append_raw_file(b"events/one").unwrap();
+    let mark = fs::metadata(segment(&book)).unwrap().len() as usize;
+    log.append_settled(1, 1, RawRange { file, off: 0, len: 4 }, b"row1").unwrap();
+    drop(log);
+    let whole = fs::read(segment(&book)).unwrap();
+    let index = fs::read(book.join("rows.idx")).unwrap();
+    for cut in mark..=whole.len() + 16 {
+        let copy = home.path().join(format!("raw-record-cut-{cut}"));
+        copy_book(&book, &copy);
+        let record_end = cut.min(whole.len());
+        fs::write(segment(&copy), &whole[..record_end]).unwrap();
+        let mut partial = vec![0; index.len()];
+        let index_bytes = cut.saturating_sub(whole.len());
+        partial[16..16 + index_bytes].copy_from_slice(&index[16..16 + index_bytes]);
+        fs::write(copy.join("rows.idx"), &partial).unwrap();
+        let (mut log, recovered) = open(&copy);
+        assert_eq!(recovered.scanned_bytes as usize, record_end - mark);
+        if record_end == whole.len() {
+            let row = log.row(1).unwrap();
+            assert_eq!(log.raw_range(&row).unwrap().file, 1);
+            assert_eq!(texts(&mut log, &[row]).0[0], b"row1");
+        } else {
+            assert!(log.row(1).is_none());
+        }
+    }
+}
+
+#[test]
+fn power_loss_clears_a_sparse_seq_entry_beyond_the_checkpoint() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path();
+    let (mut log, _) = open(book);
+    settle(&mut log, 1, 255);
+    let file = log.append_raw_file(b"raw").unwrap();
+    log.write_checkpoint(&[]).unwrap();
+    let mark = fs::metadata(segment(book)).unwrap().len();
+    log.append_settled(256, 1, RawRange { file, off: 0, len: 3 }, b"new").unwrap();
+    drop(log);
+    OpenOptions::new().write(true).open(segment(book)).unwrap().set_len(mark).unwrap();
+    let (mut log, recovered) = open(book);
+    assert_eq!(recovered.scanned_bytes, 0);
+    assert!(log.row(256).is_none());
+    let index = fs::read(book.join("seq.idx")).unwrap();
+    assert_eq!(&index[8..16], &[0; 8]);
+    assert_eq!(log.append_settled(256, 1, RawRange { file, off: 0, len: 3 }, b"new").unwrap(), 256);
+    assert_eq!(ids(&log.since(255, 1000).unwrap().rows), vec![256]);
 }

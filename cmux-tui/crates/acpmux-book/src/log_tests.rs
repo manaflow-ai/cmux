@@ -398,7 +398,7 @@ fn the_checkpoint_keeps_the_actors_state_under_64_kb() {
         log.write_checkpoint(&too_large),
         Err(Error::CheckpointTooLarge { bytes }) if bytes > MAX_CHECKPOINT
     ));
-    let largest = vec![7u8; MAX_CHECKPOINT - 52];
+    let largest = vec![7u8; MAX_CHECKPOINT - 68];
     log.write_checkpoint(&largest).unwrap();
     assert_eq!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len(), 65535);
     log.write_checkpoint(state.as_bytes()).unwrap();
@@ -499,7 +499,10 @@ fn an_index_entry_that_does_not_match_its_record_is_reported_not_served() {
     let window = log.window(Anchor::End, 400, 1 << 20);
     assert_eq!(ids(&window.rows), (1..=20).collect::<Vec<_>>(), "the ghost entry is not a row");
     let (mut buf, mut at) = (Vec::new(), Vec::new());
-    assert!(matches!(log.fill(&window.rows, &mut buf, &mut at), Err(Error::Corrupt(_))));
+    assert!(matches!(
+        log.fill(&window.rows, &mut buf, &mut at),
+        Err(Error::CorruptRow { row_id: 5, .. })
+    ));
     // The ghost's id can settle, and then it is a row like any other.
     log.append_settled(21, 1, RawRange::NONE, &text(21)).unwrap();
     let row = log.row(21).unwrap();
@@ -535,5 +538,30 @@ fn a_clean_reopen_writes_nothing_and_a_short_index_is_rebuilt() {
         assert_rows(&mut log, 720);
         assert_eq!(ids(&log.since(700, 1 << 20).unwrap().rows), (701..=720).collect::<Vec<_>>());
         log.write_checkpoint(&[]).unwrap();
+    }
+}
+
+#[test]
+fn patches_from_one_line_sync_once_before_their_indexes() {
+    use crate::log::Patch;
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    settle(&mut log, 1, 3);
+    let file = log.append_raw_file(b"events/patch").unwrap();
+    log.write_checkpoint(&[]).unwrap();
+    let syncs = log.stats().syncs;
+    let raw = RawRange { file, off: 0, len: 8 };
+    log.patch_many(&[
+        Patch { row_id: 1, rev: 2, raw, text: b"one" },
+        Patch { row_id: 2, rev: 2, raw, text: b"two" },
+        Patch { row_id: 3, rev: 2, raw: RawRange::NONE, text: b"three" },
+    ])
+    .unwrap();
+    assert_eq!(log.stats().syncs - syncs, 1);
+    drop(log);
+    let (log, recovered) = open(home.path());
+    assert_eq!(recovered.replayed, 3);
+    for id in 1..=3 {
+        assert_eq!(log.row(id).unwrap().rev, 2);
     }
 }

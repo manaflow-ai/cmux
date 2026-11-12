@@ -107,17 +107,6 @@ impl RowIndex {
         self.len.saturating_sub(1) / ROW_ENTRY_LEN
     }
 
-    /// Returns entries whose records start at or after `off` in `seg`. This is used only when
-    /// recovery found a torn tail; the normal checkpoint path never walks the whole index.
-    pub(crate) fn entries_at_or_after(&self, seg: u32, off: u64) -> Vec<(u64, Entry)> {
-        (1..=self.max_row_id())
-            .filter_map(|row_id| {
-                let entry = self.get(row_id)?;
-                (entry.seg == seg && u64::from(entry.off) >= off).then_some((row_id, entry))
-            })
-            .collect()
-    }
-
     pub(crate) fn mark_dirty(&mut self) {
         self.dirty = true;
     }
