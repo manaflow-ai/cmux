@@ -85,12 +85,15 @@ pub(crate) fn from_settings(root: &Value, base: PolicyConfig) -> PolicyConfig {
     {
         config.settle = settle;
     }
-    // Any case ("Refuse" in a managed profile); a value that is not a mode
-    // keeps menus closed rather than open (a typo never loosens the setting).
-    if let Some(text) = section.get("menus").and_then(Value::as_str) {
+    // Any case ("Refuse" in a managed profile); a value that is not a mode,
+    // a string or not (null, false, a number), keeps menus closed rather
+    // than open: a typo never loosens the setting (as MenuMode reads).
+    if let Some(value) = section.get("menus") {
         use cmux_computer_use::menus::MenuMode;
-        config.menus =
-            MenuMode::parse(&text.trim().to_ascii_lowercase()).unwrap_or(MenuMode::Refuse);
+        config.menus = value
+            .as_str()
+            .and_then(|text| MenuMode::parse(&text.trim().to_ascii_lowercase()))
+            .unwrap_or(MenuMode::Refuse);
     }
     let flag = |key: &str| section.get(key).and_then(Value::as_bool);
     if let Some(value) = flag("allowOwnMachines") {
@@ -209,8 +212,15 @@ mod tests {
         assert_eq!(menus(json!(" OPEN ")), MenuMode::Open);
         assert_eq!(menus(json!("sometimes")), MenuMode::Refuse);
         assert_eq!(menus(json!("Refsue")), MenuMode::Refuse);
-        // Not a string: the setting is not there; the default stays.
-        assert_eq!(menus(json!(3)), MenuMode::Open);
+        // Present but not a string: menus stay closed.
+        assert_eq!(menus(json!(3)), MenuMode::Refuse);
+        assert_eq!(menus(json!(null)), MenuMode::Refuse);
+        assert_eq!(menus(json!(false)), MenuMode::Refuse);
+        // Absent: the default stays.
+        assert_eq!(
+            from_settings(&json!({"computerUse": {}}), PolicyConfig::default()).menus,
+            MenuMode::Open
+        );
         // The owner file and the app push use the camelCase key.
         let owner: PolicyConfig = serde_json::from_value(json!({"menus": "refuse"})).unwrap();
         assert_eq!(owner.menus, MenuMode::Refuse);

@@ -48,6 +48,9 @@ const ESCAPE: u16 = 53;
 /// How many submenu levels below a menu are checked before it is left
 /// open holding the person's keyboard (deeper counts as hiding).
 const SUBMENU_LEVELS: usize = 3;
+/// How many elements that check reads at most, across all levels (as the
+/// menu bar's MENU_NODES); running out counts as hiding.
+const HELD_CHECK_NODES: usize = 600;
 /// Why a press or right click showed no menu.
 const MENU_DID_NOT_OPEN: &str = "the menu did not open (the app showed no menu)";
 
@@ -280,18 +283,25 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
     let text = |v: &Result<Option<Cf>, AXError>| -> Result<Option<String>, AXError> {
         v.as_ref().map(|v| v.as_ref().and_then(Cf::as_string)).map_err(|e| *e)
     };
-    let read: Vec<(Ax, Result<Option<String>, AXError>)> = menu
+    // One round trip per item: its role, title and children (a submenu).
+    let read: Vec<(Ax, Result<Option<String>, AXError>, bool)> = menu
         .elements("AXChildren")
         .into_iter()
         .filter_map(|el| {
-            let (role, title) = match el.attrs(&["AXRole", "AXTitle"]) {
-                Ok(v) => (text(&v[0]), text(&v[1])),
-                Err(e) => (Err(e), Err(e)),
+            let (role, title, submenu) = match el.attrs(&["AXRole", "AXTitle", "AXChildren"]) {
+                Ok(v) => {
+                    // Children that cannot be read count as a submenu.
+                    let submenu = v[2]
+                        .as_ref()
+                        .map_or(true, |c| c.as_ref().is_some_and(|c| !c.items().is_empty()));
+                    (text(&v[0]), text(&v[1]), submenu)
+                }
+                Err(e) => (Err(e), Err(e), true),
             };
             match role {
                 Ok(r) if r.as_deref() != Some("AXMenuItem") => None,
                 // A role that cannot be read is checked like an item.
-                _ => Some((el, title)),
+                _ => Some((el, title, submenu)),
             }
         })
         .collect();
@@ -299,11 +309,11 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
     // Whether the menu is a launch list by its items: once per menu.
     let launch = d.opened_needs_siblings(depth) && {
         let titles: Vec<String> =
-            read.iter().map(|(_, t)| t.clone().ok().flatten().unwrap_or_default()).collect();
+            read.iter().map(|(_, t, _)| t.clone().ok().flatten().unwrap_or_default()).collect();
         roles::siblings_name_apps(&titles, &workspace::apps_named_indexed)
     };
     read.into_iter()
-        .filter_map(|(el, title)| {
+        .filter_map(|(el, title, submenu)| {
             let (title, title_failed) = match title {
                 Ok(t) => (t.unwrap_or_default(), false),
                 Err(_) => (String::new(), true),
@@ -321,21 +331,25 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
             if title.trim().is_empty() && !(title_failed && denied) {
                 return None;
             }
-            Some(Item { el, info: MenuItemInfo { title, ..MenuItemInfo::default() }, denied })
+            Some(Item {
+                el,
+                info: MenuItemInfo { title, submenu, ..MenuItemInfo::default() },
+                denied,
+            })
         })
         .collect()
 }
 
 impl Item {
-    /// Reads whether it is enabled, checked and opens a submenu (one round
-    /// trip), for an item a result lists or a pick presses.
+    /// Reads whether it is enabled and checked (one round trip), for an
+    /// item a result lists or a pick presses (whether it opens a submenu
+    /// came with its title; unreadable children count as one).
     pub(super) fn detail(&mut self) {
-        if let Ok(v) = self.el.attrs(&["AXEnabled", "AXMenuItemMarkChar", "AXChildren"]) {
+        if let Ok(v) = self.el.attrs(&["AXEnabled", "AXMenuItemMarkChar"]) {
             let get = |i: usize| v[i].as_ref().ok().and_then(|x| x.as_ref());
             self.info.disabled = get(0).and_then(Cf::as_bool) == Some(false);
             self.info.checked =
                 get(1).and_then(Cf::as_string).is_some_and(|m| !m.trim().is_empty());
-            self.info.submenu = get(2).is_some_and(|c| !c.items().is_empty());
         }
     }
 }
@@ -718,28 +732,91 @@ impl MacDesktop {
         }
     }
 
-    /// Whether any submenu below `level` (down `levels` more levels, at most
-    /// LISTED_ITEMS_MAX items read per menu) hides an item; one that cannot
-    /// be read, or a cap that cuts the check short, counts as hiding.
-    fn submenus_hide(&self, level: &[Item], levels: usize) -> bool {
-        let parents: Vec<&Item> = level.iter().filter(|i| !i.denied).collect();
-        for item in parents {
-            let kids = match item.el.attr("AXChildren") {
+    /// Whether, while something is denied, a menu that holds the person's
+    /// keyboard could put a hidden item in front of them: their own Right,
+    /// Down and Return (or typing) reach every level, so refusing the agent's
+    /// keys is not enough. It could when any level (submenus too, within
+    /// SUBMENU_LEVELS and one HELD_CHECK_NODES budget across all levels):
+    /// - hides an item;
+    /// - has an item that opens one of AppKit's launch submenus (Open With,
+    ///   Services, Share, Quick Actions, Recent Items): AppKit fills those
+    ///   when they open, so their closed contents prove nothing;
+    /// - has a submenu with no titled items (filled when it opens);
+    /// - or cannot be read, or runs out of the budget.
+    fn held_menu_hides(&self, root: &Ax) -> bool {
+        let launch_titles = workspace::launch_submenu_titles();
+        let (depth0, path0) = menu_place(root);
+        let Some(path0) = path0 else { return true };
+        let mut budget = HELD_CHECK_NODES;
+        let mut queue = std::collections::VecDeque::from([(root.clone(), depth0, path0)]);
+        while let Some((menu, depth, path)) = queue.pop_front() {
+            let kids = match menu.attr("AXChildren") {
                 Ok(kids) => kids.map(|k| k.items()).unwrap_or_default(),
                 Err(_) => return true,
             };
-            let Some(sub) = kids.into_iter().filter_map(Ax::from_cf).find(is_menu) else {
-                continue;
+            if kids.len() > budget {
+                return true;
+            }
+            budget -= kids.len();
+            // One round trip per item: its role, title and children.
+            let mut level: Vec<(String, Vec<Cf>)> = Vec::new();
+            for kid in kids.into_iter().filter_map(Ax::from_cf) {
+                let Ok(v) = kid.attrs(&["AXRole", "AXTitle", "AXChildren"]) else { return true };
+                let Ok(role) = &v[0] else { return true };
+                if role.as_ref().and_then(Cf::as_string).as_deref() != Some("AXMenuItem") {
+                    continue;
+                }
+                let Ok(title) = &v[1] else { return true };
+                let Ok(children) = &v[2] else { return true };
+                let title = title.as_ref().and_then(Cf::as_string).unwrap_or_default();
+                level.push((title, children.as_ref().map(|c| c.items()).unwrap_or_default()));
+            }
+            // A submenu with no titled items is filled when it opens.
+            if depth > depth0 && !level.iter().any(|(t, _)| !t.trim().is_empty()) {
+                return true;
+            }
+            let launch = self.opened_needs_siblings(depth) && {
+                let titles: Vec<String> = level.iter().map(|(t, _)| t.clone()).collect();
+                roles::siblings_name_apps(&titles, &workspace::apps_named_indexed)
             };
-            if levels == 0 {
-                return true;
-            }
-            let below = items(self, &sub);
-            if below.len() > menus::LISTED_ITEMS_MAX || below.iter().any(|i| i.denied) {
-                return true;
-            }
-            if self.submenus_hide(&below, levels - 1) {
-                return true;
+            for (title, children) in level {
+                let item = super::ax::OpenedItem {
+                    title: &title,
+                    title_failed: false,
+                    depth,
+                    path: Some(&path),
+                    launch,
+                };
+                if self.opened_item_known(&item) {
+                    return true;
+                }
+                if children.is_empty() {
+                    continue;
+                }
+                if launch_titles.contains(&roles::submenu_title_key(&title)) {
+                    return true;
+                }
+                if depth + 1 - depth0 > SUBMENU_LEVELS || children.len() > budget {
+                    return true;
+                }
+                budget -= children.len();
+                let mut sub = None;
+                for child in children.into_iter().filter_map(Ax::from_cf) {
+                    match child.attr("AXRole") {
+                        Ok(r)
+                            if r.as_ref().and_then(Cf::as_string).as_deref() == Some("AXMenu") =>
+                        {
+                            sub = Some(child);
+                            break;
+                        }
+                        Ok(_) => {}
+                        Err(_) => return true,
+                    }
+                }
+                let Some(sub) = sub else { continue };
+                let mut below = path.clone();
+                below.push(title);
+                queue.push_back((sub, depth + 1, below));
             }
         }
         false
@@ -805,7 +882,7 @@ impl MacDesktop {
         // (Services ▸, Open With ▸ hide items in submenus too).
         let nested_hidden = held
             && self.denies_any()
-            && (all.iter().any(|i| i.denied) || self.submenus_hide(&all, SUBMENU_LEVELS));
+            && (all.iter().any(|i| i.denied) || self.held_menu_hides(&menu));
         if nested_hidden {
             let why = if workspace::app_names_ready() {
                 menus::HIDDEN_ITEMS_HELD_REFUSAL

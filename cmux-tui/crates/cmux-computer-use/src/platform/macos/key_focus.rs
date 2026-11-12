@@ -219,23 +219,34 @@ fn may_own_menu(
     guard: Option<&dyn crate::desktop::MenuGuard>,
     target_frame: Option<crate::desktop::Rect>,
 ) -> bool {
-    let candidate = pid == target
-        || match super::workspace::app_for_pid(pid) {
-            // A denied menu-bar app's menu is never the call's.
-            Some(app) => {
-                !app.is_regular() && !guard.is_some_and(|g| g.app_blocked(&app.id(), &app.name))
-            }
-            None => !guard.is_some_and(|g| g.denies_any()),
-        };
-    // The target too must show a new menu-layer window: a non-activating
-    // panel of its own that takes key focus is not the call's menu. A
-    // helper's window counts only over the target's window.
-    candidate
+    // The target's theft is the call's: its notice is dropped at once, and
+    // the release thread gives the keyboard back whether or not a menu
+    // window shows (a panel of its own that took key focus goes back too).
+    if pid == target {
+        return true;
+    }
+    let helper = match super::workspace::app_for_pid(pid) {
+        // A denied menu-bar app's menu is never the call's.
+        Some(app) => {
+            !app.is_regular() && !guard.is_some_and(|g| g.app_blocked(&app.id(), &app.name))
+        }
+        None => !guard.is_some_and(|g| g.denies_any()),
+    };
+    // A helper's counts only once it shows a new menu-layer window over the
+    // target's window (a launcher panel shows none).
+    helper
         && super::cgwindows::on_screen().iter().any(|w| {
             new_menu_window(w.pid, w.layer, w.id, pid, before)
-                && (pid == target
-                    || target_frame.is_none_or(|f| super::menus::overlaps(&w.frame, &f)))
+                && target_frame.is_none_or(|f| super::menus::overlaps(&w.frame, &f))
         })
+}
+
+/// Whether the release thread gives the keyboard back: only while the
+/// person's app is still in front, and for a helper only once its menu
+/// shows (the target's notice was dropped at once, so its keyboard goes
+/// back even when no menu window shows). Pure, for tests.
+pub(super) fn gives_back(menu_shown: bool, thief_is_target: bool, person_front: bool) -> bool {
+    person_front && (menu_shown || thief_is_target)
 }
 
 /// Whether a window (owner, layer, id) is a menu window `pid` shows that
@@ -306,7 +317,7 @@ extern "C" fn front_tap(
             // window) to the front.
             let spawned = std::thread::Builder::new()
                 .name("cu-key-focus-release".into())
-                .spawn(move || release_theft(thief, front));
+                .spawn(move || release_theft(thief, front, thief == target));
             if spawned.is_ok() { std::ptr::null_mut() } else { event }
         }
     }
@@ -347,16 +358,17 @@ extern "C" fn menu_tap(
 }
 
 /// Gives the keyboard back from `thief`'s menu to the person's app.
-fn release_theft(thief: i32, front: i32) {
+fn release_theft(thief: i32, front: i32, thief_is_target: bool) {
     let start = Instant::now();
     let menu_shows =
         || super::cgwindows::on_screen().iter().any(|w| w.pid == thief && w.layer == MENU_LAYER);
     while start.elapsed() < MENU_WAIT && !menu_shows() {
         std::thread::sleep(Duration::from_millis(2));
     }
-    // No menu (it closed already) or the person moved to another app:
-    // nothing of the call's to give back.
-    if !menu_shows() || super::workspace::frontmost_pid() != Some(front) {
+    // The person moved to another app, or a helper showed no menu: nothing
+    // of the call's to give back.
+    let person_front = super::workspace::frontmost_pid() == Some(front);
+    if !gives_back(menu_shows(), thief_is_target, person_front) {
         state().missed += 1;
         return;
     }

@@ -1167,3 +1167,16 @@ fn a_helper_s_menu_window_counts_only_over_the_target_s_window() {
     let touching = Rect { x: 500.0, y: 100.0, width: 50.0, height: 50.0 };
     assert!(!menus::overlaps(&touching, &win));
 }
+
+#[test]
+fn the_keyboard_goes_back_for_the_target_even_before_its_menu_window_shows() {
+    // The target's notice is dropped at once; the release thread checks the
+    // window after it, and gives the keyboard back either way.
+    assert!(key_focus::gives_back(false, true, true));
+    assert!(key_focus::gives_back(true, true, true));
+    // A helper only once its menu shows.
+    assert!(key_focus::gives_back(true, false, true));
+    assert!(!key_focus::gives_back(false, false, true));
+    // Never once the person has moved to another app.
+    assert!(!key_focus::gives_back(true, true, false));
+}

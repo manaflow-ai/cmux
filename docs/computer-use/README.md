@@ -135,9 +135,14 @@ Prevention, in the desktop (macOS):
     it shows, as Codex Computer Use's does; such a menu is never left open
     when it hides items while anything is denied (the person's typing could
     reach one): `click` with `menu_item`, or `set_value`, picks in one call.
-  - A menu that holds the keyboard is left open only when no level of it
-    (submenus too, three deep) hides an item; `click` with `menu_item`
-    takes a path for a submenu's item ("Sort By > Name").
+  - While anything is denied, a menu that holds the keyboard is left open
+    only when no level of it can put a hidden item in front of the person,
+    whose own arrows and Return reach every level: no hidden item, no
+    submenu AppKit fills when it opens (Open With, Services, Share, Quick
+    Actions, Recent Items) and no submenu that reads empty, all within three
+    levels and 600 elements. So a Finder context menu is not left open on
+    macOS 27; `click` with `menu_item` picks in one call and takes a path for
+    a submenu's item ("Sort By > Name").
   - Display screenshots show a menu the agent opened as it is on screen,
     hidden items' titles included (only the windows of blocked apps are
     redacted; a window screenshot leaves menus out). Codex Computer Use
