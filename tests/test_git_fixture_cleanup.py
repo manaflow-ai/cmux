@@ -723,6 +723,25 @@ class RandomTrapsMatchTheBuiltin(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.env["TMPDIR"])), [], "a fixture folder was left")
 
 
+class CallerIFS(unittest.TestCase):
+    """The differential sweep of the review of cmux#41810 / hq#9795 found the file splitting git's redirect list with
+    the caller's IFS: under `IFS=:` the list was one word, so a test run from a git hook kept GIT_DIR and its fixture
+    commits went to the hook's repository. Red at the base (GIT_DIR and GIT_INDEX_FILE survived sourcing)."""
+
+    def test_a_caller_ifs_still_unsets_the_repo_redirects(self):
+        tmp = Path(tempfile.mkdtemp(prefix="git-fixture-ifs-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)], check=False)
+        env = Env.clean(tmp)
+        for ifs in (":", "", "x", " "):
+            with self.subTest(ifs=ifs):
+                script = (f"IFS='{ifs}'\nexport GIT_DIR=/nonexistent GIT_INDEX_FILE=/nonexistent/index\n"
+                          'source "$1"\necho "${GIT_DIR-unset} ${GIT_INDEX_FILE-unset}"\n')
+                done = subprocess.run(["bash", "-c", script, "_", str(LIB)], env=env, capture_output=True, text=True,
+                                      timeout=60, stdin=subprocess.DEVNULL, cwd=tmp)
+                self.assertEqual((done.stdout, done.returncode), ("unset unset\n", 0), done.stderr)
+        self.assertEqual(sorted(os.listdir(env["TMPDIR"])), [], "a fixture folder was left")
+
+
 class Bash32(unittest.TestCase):
     """The review of hq#9715 F1, ported: macOS's /bin/bash is 3.2, which has no $BASHPID, so a `set -u` caller died
     sourcing the file ("BASHPID: unbound variable"). bash 4+ always sets BASHPID, so no run here can reproduce that;
