@@ -566,7 +566,7 @@ pub fn delta_frame(delta: &Delta<Summary>) -> Result<Frame, FrameError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wire::Stream;
+    use crate::wire::{Cursor, Stream};
     use acpmux_book::index::replay_log;
     use std::fs::OpenOptions;
     use std::io::Write;
