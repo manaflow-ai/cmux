@@ -148,3 +148,42 @@ test("a row landing after the send motion played arrives on the arrival step, no
     await act(async () => root.unmount());
   }
 });
+
+test("a send that makes a tail that fit overflow rises on the send's clock", async () => {
+  const container = dom.window.document.createElement("div");
+  dom.window.document.body.append(container);
+  const root = createRoot(container);
+  const render = (rows: AcpmuxRow[], sends: number) =>
+    act(async () => {
+      root.render(
+        <VirtualTranscript
+          rows={rows}
+          sessionId="session-2"
+          sends={sends}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      );
+      await nextFrame();
+    });
+  try {
+    // One short turn: the tail fits the viewport, so the chat has not opened at its latest row yet.
+    const short = history.slice(0, 3).map((item) => ({ ...item, id: `fit-${item.id}` }));
+    await render(short, 0);
+    stepped += 1_000;
+    await render(
+      short.map((item) => ({ ...item })),
+      0,
+    );
+    // The reader sends a long prompt: the tail overflows with the send, and its rise is the send's.
+    const long = Array.from({ length: 40 }, (_, index) => `Paragraph ${index} of a long prompt.`).join("\n\n");
+    const first = shifts.length;
+    await render([...short, row("fit-sent", "user", long)], 1);
+    const rise = shifts.slice(first);
+    expect(rise.length).toBeGreaterThan(0);
+    expect(rise[0]?.sent).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
