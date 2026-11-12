@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43307980367",
+  "recorded_at": "2026-11-12T21:22:11Z",
+  "reason": "cmux-tui 2bbbfec30c52 changes the image's cmux-tui (pinned 240f86bb43ac)",
+  "dry_run": false,
+  "cmux_tui": "2bbbfec30c522d88160c04dea7f937a0b8211029",
+  "fixes": [
+    {
+      "sha": "2bbbfec30c522d88160c04dea7f937a0b8211029",
+      "mergedAt": "2026-11-12T12:44:10-08:00",
+      "subject": "acpmux: every stop names its reason; Restart to Update stops the daemon once, not twice (#41885)"
+    },
+    {
+      "sha": "9823035b067c0c5231960948d9c25187382a271f",
+      "mergedAt": "2026-11-12T12:43:42-08:00",
+      "subject": "acpmux: a peer keeps the tokens it read across restarts, so a cold start skips an ssh login (and WireGuard stops waiting on ssh) (#42069)"
+    },
+    {
+      "sha": "a2fe2fe61c2aaeb694907fcb9a8303389bcdc37b",
+      "mergedAt": "2026-11-12T12:41:33-08:00",
+      "subject": "Palette rows for the device, setup and account CLI verbs (#38644)"
+    },
+    {
+      "sha": "63a0515234ee2ddb298a81737a71290a91f1b44e",
+      "mergedAt": "2026-11-12T12:33:45-08:00",
+      "subject": "acpmux: ten local JSON getters read through cmux-json's JsonGet; #42064 F1 (#42072)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T21:22:11Z",
+    "snapshot_id": "sh-ced6e094235c475b91e1d7083a61e2b6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43307980367): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "02cac4b967ba1ace56894136ef3aab6f7db0fecc",
+    "image": "cloud-native-auto-2bbbfec3-43307980367-1",
+    "revision": "ci-43307980367-1",
+    "at": "2026-11-12T21:22:11Z"
+  },
+  "rolled_back": false
+}
