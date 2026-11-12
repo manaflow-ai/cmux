@@ -48,13 +48,23 @@ struct BrowserPaneMotionPointerAreasTests {
             window.displayIfNeeded()
             CATransaction.flush()
 
+            // DIAGNOSTIC (not for merge): where each loading cover is before the press.
+            let content = try #require(window.contentView)
+            for line in PaneMotionPointerAreasTests.Spy.inventory(of: "AgentPaneLoadingView", under: content) { print("HPA-COVER before \(line)") }
+            for line in PaneMotionPointerAreasTests.Spy.inventory(of: "AgentPaneView", under: content) { print("HPA-AGENT-PANE before \(line)") }
+            print("HPA-PANES first=\(first.pane.handle.rawValue) tabs=\(first.pane.tabs.count) split=\(pane.pane.handle.rawValue) tabs=\(pane.pane.tabs.count)")
+            print("HPA-WINDOW windows=\(NSApp.windows.count) content=\(content.frame)")
             PaneMotionPointerAreasTests.Spy.install()
+            PaneMotionPointerAreasTests.Spy.context = { "motion=\(layout.isInLayoutMotion)" }
+            defer { PaneMotionPointerAreasTests.Spy.context = nil }
             defer { PaneMotionPointerAreasTests.Spy.uninstall() }
             #expect(services.registry.perform("resizePaneLeft", invocation: ActionInvocation(origin: .user)), "the press was refused")
             try await PasswordManagerRouteTests.until({ layout.isInLayoutMotion }, within: .seconds(2), report: { "the press did not spring" })
             try await PasswordManagerRouteTests.until({ !layout.isInLayoutMotion }, within: .seconds(3), report: { "the press never landed" })
             let line = PaneMotionPointerAreasTests.Spy.line
             print("HPA-COUNT case=browser-pane-motion-pointer-areas \(line)")
+            for record in PaneMotionPointerAreasTests.Spy.records { print("HPA-INVALIDATION \(record)") }
+            for line in PaneMotionPointerAreasTests.Spy.inventory(of: "AgentPaneLoadingView", under: content) { print("HPA-COVER after \(line)") }
             #expect(PaneMotionPointerAreasTests.Spy.invalidations.isEmpty, "a key resize with a browser pane invalidated cursor rects: \(line)")
             #expect(PaneMotionPointerAreasTests.Spy.areasAdded.isEmpty, "a key resize with a browser pane re-added tracking areas: \(line)")
         }

@@ -32,10 +32,50 @@ struct PaneMotionPointerAreasTests {
         static var trackingUpdates: [String: Int] = [:]
         static var areasAdded: [String: Int] = [:]
         static var dragMarginResets = 0
+        /// DIAGNOSTIC (not for merge): one line for each invalidation: the view, where it is and who asked.
+        static var records: [String] = []
+        static var context: (@MainActor () -> String)?
         private static var originals: [(Method, IMP)] = []
+
+        /// DIAGNOSTIC (not for merge): the view, its state, the views above it and the callers.
+        @MainActor static func describe(_ view: NSView, withStack: Bool) -> String {
+            var chain: [String] = []
+            var up = view.superview
+            while let current = up, chain.count < 16 {
+                let name = String(describing: type(of: current))
+                chain.append(current.isHidden ? name + "(hidden)" : name)
+                up = current.superview
+            }
+            let inWindow = view.superview.map { $0.convert(view.frame, to: nil) } ?? view.frame
+            var line = "view=\(type(of: view)) id=\(ObjectIdentifier(view).hashValue) frame=\(view.frame) inWindow=\(inWindow)"
+            line += " hidden=\(view.isHidden) hiddenAncestor=\(view.isHiddenOrHasHiddenAncestor) alpha=\(view.alphaValue)"
+            line += " hasWindow=\(view.window != nil) subviews=\(view.subviews.count)"
+            line += " chain=[" + chain.joined(separator: " < ") + "]"
+            if withStack {
+                let symbols: [String] = Array(Thread.callStackSymbols.dropFirst(2).prefix(30))
+                let stack: [String] = symbols.map { symbol in
+                    symbol.split(separator: " ", omittingEmptySubsequences: true).dropFirst(3).joined(separator: " ")
+                }
+                let note: String = context?() ?? "none"
+                line += " context=" + note + " stack=[" + stack.joined(separator: " | ") + "]"
+            }
+            return line
+        }
+
+        /// DIAGNOSTIC (not for merge): each view of `kind` under `root`, by name of its class.
+        @MainActor static func inventory(of kind: String, under root: NSView) -> [String] {
+            var found: [String] = []
+            var queue: [NSView] = [root]
+            while let view = queue.popLast() {
+                if String(describing: type(of: view)) == kind { found.append(describe(view, withStack: false)) }
+                queue.append(contentsOf: view.subviews)
+            }
+            return found
+        }
 
         static func install() {
             invalidations = [:]
+            records = []
             trackingUpdates = [:]
             areasAdded = [:]
             dragMarginResets = 0
@@ -45,7 +85,10 @@ struct PaneMotionPointerAreasTests {
                 typealias Fn = @convention(c) (AnyObject, Selector, NSView) -> Void
                 let call = unsafeBitCast(imp, to: Fn.self)
                 let block: @convention(block) (AnyObject, NSView) -> Void = { this, view in
-                    MainActor.assumeIsolated { invalidations[String(describing: type(of: view)), default: 0] += 1 } // main-proof: AppKit calls it on main
+                    MainActor.assumeIsolated { // main-proof: AppKit calls it on main
+                        invalidations[String(describing: type(of: view)), default: 0] += 1
+                        if records.count < 24 { records.append(describe(view, withStack: true)) }
+                    }
                     call(this, #selector(NSWindow.invalidateCursorRects(for:)), view)
                 }
                 method_setImplementation(method, imp_implementationWithBlock(block))
