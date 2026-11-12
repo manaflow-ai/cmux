@@ -53,7 +53,7 @@
     }
   },
   "pull_request": {
-    "about": "The budget of one change (scripts/cmux-next/bundle-size-pr.py, workflow cmux-next-size-budget.yml): a pull request that grows the shipped files plus the built web bundles by more than threshold_bytes, or links a new crate into a shipped Rust binary, fails unless its body has a line `size: <reason>`. tree_paths are committed paths the app copies in; web_outputs are build-web-bundles.sh outputs (relative to --out-root); rust lists each shipped binary's lockfile and root packages. Attribution and cuts: cmuxterm-hq docs/perf/bundle-size.md.",
+    "about": "The budget of one change (scripts/cmux-next/bundle-size-pr.py, workflow cmux-next-size-budget.yml): a pull request that grows the shipped files plus the built web bundles by more than threshold_bytes, or links a new crate into a shipped Rust binary, fails unless its body has a line `size: <reason>`. tree_paths are committed paths the app copies in (Assets.xcassets is source that actool compiles into Resources/Assets.car: a stand-in for the car's growth); web_outputs are build-web-bundles.sh outputs (relative to --out-root); rust lists each shipped binary's lockfile and root packages. Attribution and cuts: cmuxterm-hq docs/perf/bundle-size.md.",
     "threshold_bytes": 102400,
     "tree_paths": [
       "Resources",

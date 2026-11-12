@@ -279,15 +279,25 @@ def macho_parts(data: bytes) -> dict[str, int] | None:
     None when it is not a 64-bit Mach-O (thin or fat)."""
     if len(data) < 32:
         return None
-    magic = struct.unpack("<I", data[:4])[0]
-    if magic in (0xBEBAFECA, 0xCAFEBABE):  # fat: add up each slice
+    magic = struct.unpack(">I", data[:4])[0]
+    if magic in (0xCAFEBABE, 0xCAFEBABF):  # fat (32- or 64-bit offsets): each slice, plus the fat header and alignment
+        wide = magic == 0xCAFEBABF
         n = struct.unpack(">I", data[4:8])[0]
+        entry = 32 if wide else 20
+        if n == 0 or n > 16 or 8 + n * entry > len(data):  # Java class files share 0xCAFEBABE
+            return None
         parts: dict[str, int] = {}
-        for i in range(min(n, 8)):
-            _ct, _st, off, size, _al = struct.unpack(">IIIII", data[8 + 20 * i: 28 + 20 * i])
+        for i in range(n):
+            e = data[8 + entry * i: 8 + entry * (i + 1)]
+            off, size = struct.unpack(">QQ", e[8:24]) if wide else struct.unpack(">II", e[8:16])
             for k, v in (macho_parts(data[off:off + size]) or {}).items():
                 parts[k] = parts.get(k, 0) + v
-        return parts or None
+        if not parts:
+            return None
+        rest = "headers, link edit and padding"
+        parts[rest] = parts.get(rest, 0) + max(0, len(data) - sum(parts.values()))
+        return parts
+    magic = struct.unpack("<I", data[:4])[0]
     if magic != 0xFEEDFACF:
         return None
     ncmds = struct.unpack("<I", data[16:20])[0]
@@ -345,9 +355,12 @@ def file_facts(job: tuple[str, str]) -> dict:
     with open(path, "rb") as f:
         head = f.read(4)
     facts = {"rel": rel, "bytes": os.path.getsize(path), "dmg": dmg_estimate(path), "sha256": sha256_of(path)}
-    if head in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
+    if head in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
         with open(path, "rb") as f:
-            facts["macho"] = macho_parts(f.read())
+            try:
+                facts["macho"] = macho_parts(f.read())
+            except struct.error:  # truncated load commands: counted as a plain file
+                facts["macho"] = None
     return facts
 
 

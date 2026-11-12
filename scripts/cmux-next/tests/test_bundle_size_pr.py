@@ -38,7 +38,7 @@ def lock(*packages: tuple[str, str, list[str], bool]) -> str:
     return "\n".join(out)
 
 
-APP_TOML = '[package]\nname = "app"\nversion = "0.1.0"\n\n[dev-dependencies]\ninsta = "1"\n'
+APP_TOML = '[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nserde = "1"\n\n[dev-dependencies]\ninsta = "1"\n'
 BASE_LOCK = lock(("app", "0.1.0", ["serde"], False), ("serde", "1.0.0", [], True))
 
 
@@ -125,15 +125,22 @@ def test_files_outside_the_shipped_paths_do_not_count(tmp: Path) -> None:
     assert r.returncode == 0 and data["growth_bytes"] == 0, r.stdout
 
 
+def manifest(repo: Path, deps: str, extra: str = "") -> None:
+    (repo / "rs/Cargo.toml").write_text(f'[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\n{deps}\n{extra}')
+
+
 def test_a_new_crate_in_a_shipped_binary_fails_even_when_small(tmp: Path) -> None:
     repo, base = make_repo(tmp)
+    manifest(repo, 'serde = "1"\nregex = "1"')
     (repo / "rs/Cargo.lock").write_text(lock(("app", "0.1.0", ["serde", "regex"], False), ("serde", "1.0.0", [], True),
                                              ("regex", "1.10.0", ["aho-corasick"], True), ("aho-corasick", "1.1.0", [], True)))
     commit(repo)
     r, data = run(repo, base)
     assert r.returncode == 1, r.stdout
-    assert sorted(c["crate"] for c in data["new_crates"]) == ["aho-corasick 1.1.0", "regex 1.10.0"], data
+    assert [c["crate"] for c in data["new_crates"]] == ["regex"], data
     assert "- `regex 1.10.0` (rs/Cargo.lock)" in r.stdout, r.stdout
+    # What regex pulls in is listed, not counted: the lockfile cannot say it links on macOS.
+    assert [(c["crate"], c["why"]) for c in data["crate_notes"]] == [("aho-corasick", "transitive")], data
 
 
 def test_a_version_bump_is_not_a_new_crate_but_a_second_version_is(tmp: Path) -> None:
@@ -141,14 +148,55 @@ def test_a_version_bump_is_not_a_new_crate_but_a_second_version_is(tmp: Path) ->
     (repo / "rs/Cargo.lock").write_text(lock(("app", "0.1.0", ["serde"], False), ("serde", "1.0.9", [], True)))
     commit(repo)
     r, data = run(repo, base)
-    assert r.returncode == 0 and data["new_crates"] == [], r.stdout
+    assert r.returncode == 0 and data["new_crates"] == [] and data["crate_notes"] == [], r.stdout
+    manifest(repo, 'serde = "1"\nserde2 = { package = "serde", version = "2" }\nother = "0.1"')
     (repo / "rs/Cargo.lock").write_text(lock(("app", "0.1.0", ["serde 1.0.9", "serde 2.0.0", "other"], False),
                                              ("serde", "1.0.9", [], True), ("serde", "2.0.0", [], True), ("other", "0.1.0", [], True)))
     commit(repo)
     r, data = run(repo, base)
     assert r.returncode == 1, r.stdout
-    crates = {c["crate"]: c["second_version"] for c in data["new_crates"]}
-    assert crates.get("serde 2.0.0") is True and crates.get("other 0.1.0") is False, data
+    # One entry per crate name, with every version the head links.
+    assert data["new_crates"] == [
+        {"lockfile": "rs/Cargo.lock", "crate": "other", "versions": ["0.1.0"], "second_version": False},
+        {"lockfile": "rs/Cargo.lock", "crate": "serde", "versions": ["1.0.9", "2.0.0"], "second_version": True},
+    ], data
+
+
+def test_crates_for_other_targets_and_optional_ones_are_listed_not_counted(tmp: Path) -> None:
+    repo, base = make_repo(tmp)
+    manifest(repo, 'serde = "1"\nfancy = { version = "1", optional = true }',
+             '[target.\'cfg(windows)\'.dependencies]\nwinapi = "0.3"\n'
+             '[target.\'cfg(all(unix, not(target_os = "macos")))\'.dependencies]\ninotify = "0.10"\n'
+             '[target.\'cfg(any(target_os = "macos", target_os = "ios"))\'.dependencies]\ncore-foundation = "0.10"\n')
+    (repo / "rs/Cargo.lock").write_text(lock(
+        ("app", "0.1.0", ["serde", "fancy", "winapi", "inotify", "core-foundation"], False), ("serde", "1.0.0", [], True),
+        ("fancy", "1.0.0", [], True), ("winapi", "0.3.9", [], True), ("inotify", "0.10.0", [], True),
+        ("core-foundation", "0.10.0", [], True)))
+    commit(repo)
+    r, data = run(repo, base)
+    assert r.returncode == 1, r.stdout
+    assert [c["crate"] for c in data["new_crates"]] == ["core-foundation"], data
+    notes = {c["crate"]: c["why"] for c in data["crate_notes"]}
+    assert notes == {"fancy": "optional", "inotify": "transitive", "winapi": "transitive"}, notes
+
+
+def test_workspace_and_path_dependencies_are_followed(tmp: Path) -> None:
+    repo, base = make_repo(tmp)
+    (repo / "rs/Cargo.toml").write_text(
+        '[workspace]\nmembers = ["crates/core"]\n[workspace.dependencies]\nbytes = "1"\n'
+        'core = { path = "crates/core" }\n\n'
+        '[package]\nname = "app"\nversion = "0.1.0"\n\n[dependencies]\nserde = "1"\ncore = { workspace = true }\n')
+    (repo / "rs/crates/core").mkdir(parents=True)
+    (repo / "rs/crates/core/Cargo.toml").write_text(
+        '[package]\nname = "core"\nversion = "0.1.0"\n\n[dependencies]\nbytes = { workspace = true }\n'
+        '[build-dependencies]\ncc = "1"\n[dev-dependencies]\nproptest = "1"\n')
+    (repo / "rs/Cargo.lock").write_text(lock(
+        ("app", "0.1.0", ["serde", "core"], False), ("serde", "1.0.0", [], True), ("core", "0.1.0", ["bytes", "cc", "proptest"], False),
+        ("bytes", "1.5.0", [], True), ("cc", "1.0.0", [], True), ("proptest", "1.0.0", [], True)))
+    commit(repo)
+    r, data = run(repo, base)
+    assert sorted(c["crate"] for c in data["new_crates"]) == ["bytes", "cc"], data
+    assert data["crate_notes"] == [], data  # proptest is a dev-dependency
 
 
 def test_dev_dependencies_and_crates_off_the_shipped_graph_do_not_count(tmp: Path) -> None:
