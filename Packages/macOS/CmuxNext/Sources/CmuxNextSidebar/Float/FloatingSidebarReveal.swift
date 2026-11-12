@@ -39,6 +39,9 @@ public final class FloatingSidebarReveal {
     /// while a menu tracks.
     public var pointerInPanel: @MainActor () -> Bool = { false }
 
+    /// Whether the sidebar's hide slide still runs (the window passes its container's on-screen share).
+    public var isSettling: @MainActor () -> Bool = { false }
+
     /// The pointer is in the edge zone.
     public private(set) var edgeEngaged = false
     /// The pointer is over the floating sidebar's zone.
