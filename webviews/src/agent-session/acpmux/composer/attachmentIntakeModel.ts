@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
   filesFrom,
+  filesOnce,
   isImageFile,
   pastedImageFiles,
   installFileDropLifecycle,
@@ -919,6 +920,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     [],
   );
   useEffect(() => {
+    // One set of bytes is one chip (attachments.ts filesOnce).
+    const attachOnce = (files: File[], uploads: boolean, kind: SourceKind) => {
+      const once = filesOnce(files);
+      if (Array.isArray(once)) void attach(once, uploads, kind);
+      else void once.then((files) => attach(files, uploads, kind));
+    };
     const paste = (event: ClipboardEvent) => {
       if (live.current.options.locked?.() || pastesPlaced.has(event)) return;
       const owned = live.current.options.pasteTarget(event.target as Node);
@@ -930,7 +937,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const other = pasted.length ? undefined : pastedImageFiles(event.clipboardData);
       const files = other ? other.files : pasted;
       if (!other) event.preventDefault();
-      if (files.length) void attach(files, owned.uploads, "paste");
+      if (files.length) attachOnce(files, owned.uploads, "paste");
       if (other?.text !== undefined) pasteTextInto(event, other.text);
     };
     const removeFileDropLifecycle = installFileDropLifecycle(
@@ -938,7 +945,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         if (live.current.options.locked?.()) return showDrop(HIDDEN_DROP);
         if (refused()) return showDrop(HIDDEN_DROP);
         showDrop(landDropOverlay(dropRef.current, files));
-        void attach(files, true, "drop");
+        attachOnce(files, true, "drop");
       },
       (active, event) => {
         const { allowImages, dropZone, locked } = live.current.options;
