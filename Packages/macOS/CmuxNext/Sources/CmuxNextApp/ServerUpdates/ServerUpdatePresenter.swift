@@ -41,11 +41,7 @@ final class ServerUpdatePresenter {
         let servers = servers
         observers.append(Task { [weak self] in
             for await identity in ObservationStream({ daemon.identity }) {
-                guard let identity else { continue }
-                // A daemon this launch is handing off to the bundled build gets the update by
-                // itself: a restart offer for it is a false alarm (Leo, 2026-11-12: "a weird toast
-                // about "cmux tui.." something something and an option to restart").
-                if identity.pid == daemon.launchHandoffPID { continue }
+                guard let identity, daemon.offersRestart(for: identity) else { continue }
                 servers.report(ServerHandshake(daemon: identity, host: .local),
                                appCapabilities: ServerHandshake.appCmuxTUICapabilities, bundledBuild: nil)
                 self?.sync()

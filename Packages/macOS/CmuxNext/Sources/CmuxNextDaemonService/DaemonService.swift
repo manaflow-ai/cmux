@@ -566,6 +566,13 @@ public final class DaemonService {
     /// (`DaemonLauncher.handOffIncompatible`); the next connect reaches its successor.
     /// The handoff can come after the first deadline already showed a failure, so the
     /// successor gets a fresh `.connecting` window and the old failure is dropped.
+    /// Whether a restart offer ("Update ready for cmux-tui") may follow `identity`'s handshake: not
+    /// for a daemon this launch is handing off to the bundled build, which gets the update by itself
+    /// (Leo, 2026-11-12: "a weird toast about "cmux tui.." something something and an option to restart").
+    public func offersRestart(for identity: DaemonIdentity) -> Bool {
+        identity.pid != launchHandoffPID
+    }
+
     /// The launch check is handing the daemon `pid` off to the bundled build (``launchHandoffPID``).
     func noteLaunchHandoff(pid: Int32) {
         launchHandoffPID = pid
