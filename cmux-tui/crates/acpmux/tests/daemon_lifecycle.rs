@@ -214,7 +214,14 @@ async fn socket_answers_before_post_hub_setup_finishes() {
     let ready = tokio::time::timeout(Duration::from_secs(5), ready).await.unwrap().unwrap();
     assert_eq!(ready["pid"], pid);
     unsafe { libc::kill(pid, libc::SIGTERM) };
-    let status = tokio::time::timeout(Duration::from_secs(8), child.wait()).await.unwrap().unwrap();
+    let status = tokio::time::timeout(
+        Duration::from_secs(8),
+        tokio::task::spawn_blocking(move || child.wait()),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .unwrap();
     assert!(status.success(), "{status:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
