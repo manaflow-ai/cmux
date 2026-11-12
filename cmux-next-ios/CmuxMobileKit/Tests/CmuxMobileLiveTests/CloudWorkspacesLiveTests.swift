@@ -570,7 +570,9 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         await cloud.refresh()
         #expect(store.cloudMachines.first?.cloud?.status == .paused)
         cloud.start(machineID: "vm_p")
-        await settle { store.cloudMachines.first?.cloud?.status == .starting }
+        // The line wakes at once, before the op answers (optimistic).
+        #expect(store.cloudMachines.first?.cloud?.status == .starting)
+        await settle { ops.all.contains("cloud.machine.start") }
         #expect(ops.all.contains("cloud.machine.start"))
     }
 
