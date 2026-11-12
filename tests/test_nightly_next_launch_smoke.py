@@ -531,7 +531,8 @@ class PrePublishGateTests(unittest.TestCase):
 class GateScriptTests(unittest.TestCase):
     """launch-smoke-gate.sh against a stub harness: only a crash with launch evidence fails."""
 
-    def run_gate(self, plan: list[str], attempt_seconds: str = "60", stale: dict | None = None) -> tuple[int, str, Path]:
+    def run_gate(self, plan: list[str], attempt_seconds: str = "60", stale: dict | None = None,
+                 stale_folder: bool = False) -> tuple[int, str, Path]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ci = root / "scripts" / "ci"
@@ -596,6 +597,8 @@ class GateScriptTests(unittest.TestCase):
                 for n in (1, 2):
                     (root / "runner" / "launch-smoke" / f"attempt-{n}").mkdir(parents=True)
                     (root / "runner" / "launch-smoke" / f"attempt-{n}" / "report.json").write_text(json.dumps(stale))
+            if stale_folder:
+                (root / "runner" / "launch-smoke" / "attempt-1" / "report.json" / "kept").mkdir(parents=True)
             env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(root / "runner"), "STUB_PLAN": ",".join(plan),
                    "LAUNCH_SMOKE_ATTEMPT_SECONDS": attempt_seconds, "LAUNCH_SMOKE_KILL_GRACE": "1",
                    "GITHUB_STEP_SUMMARY": str(root / "summary.md")}
@@ -699,6 +702,12 @@ class GateScriptTests(unittest.TestCase):
             self.assertNotIn("launch smoke attempt 2", output)
             self.assertNotIn("not published", output)
             self.assertIn("### Launch smoke: cannot-run", self.summary)
+        # An old report that cannot be removed (here: a folder with that name) ends the check with no launch.
+        status, output, root = self.run_gate(["crash", "crash"], stale_folder=True)
+        self.assertEqual(status, 0, output)
+        self.assertIn("cannot be removed", output)
+        self.assertNotIn("launch smoke attempt 1: exit", output)
+        self.assertIn("### Launch smoke: cannot-run", self.summary)
         # A report that this attempt wrote is still read, in a folder that had an old one.
         status, output, _ = self.run_gate(["cut-crash", "cut-crash"], attempt_seconds="2", stale={"verdict": "pass", "pid": 9})
         self.assertEqual(status, 1, output)

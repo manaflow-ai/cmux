@@ -67,6 +67,9 @@ cmux_signing_runtime_guard || cannot_run "a signing keychain is still present in
 for attempt in 1 2; do
   out="$dir/attempt-$attempt"
   mkdir -p "$out" && chmod 0777 "$out"
+  # The report is read after a cut, so it must be this attempt's: a harness that is killed writes none,
+  # and a report that an earlier run left in this folder is not this launch. The folder is the gate's own.
+  rm -f "${out:?}/report.json" || cannot_run "an old report in $out cannot be removed"
   status=0
   "$ci/frame-pacing/console-session.sh" python3 -I "$ci/fresh_home_launch_smoke.py" \
     --dmg "$dmg" --out "$out" --arms empty,seeded &
