@@ -50,13 +50,22 @@ def on_self_hosted_selector(job: Mapping[str, Any]) -> bool:
     return cells is None or any(SELF_HOSTED.search(cell) for cell in cells)
 
 
-WORKSPACE_PREFIX = re.compile(r"^\$\{\{\s*github\.workspace\s*\}\}(/|$)")
+def _without_workspace(path: str) -> str:
+    """`path` without a leading whole `${{ github.workspace }}` and the `/` after it (the tokenizer finds the span)."""
+    try:
+        first = gh_expressions.STRIPPED.search(path)
+    except gh_expressions.Unterminated:
+        return path
+    if first is None or first.start() != 0 or first.group(1) != "github.workspace":
+        return path
+    rest = path[first.end():]
+    return rest[1:] if rest.startswith("/") else rest if rest == "" else path
 
 
 def workspace_relative(path: str) -> str | None:
     """`path` as a directory under the workspace ("" for the workspace itself); None when it is elsewhere or holds
     an expression this cannot place."""
-    path = WORKSPACE_PREFIX.sub("", path.strip())
+    path = _without_workspace(path.strip())
     if path.startswith("/") or "${{" in path or "$" in path:
         return None
     parts = [part for part in path.split("/") if part not in ("", ".")]
