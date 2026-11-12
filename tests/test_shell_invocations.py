@@ -75,6 +75,13 @@ FIXTURES = [
     ("after exit nothing runs", "exit 0\nsign", set(), None),
     ("exit in a branch makes the rest uncertain", "if false; then exit 0; fi\nsign", {"sign"}, set()),
     ("exec with a program ends the script", "exec true\nsign", set(), None),
+    # A skipped `exit N` with a literal nonzero N ends only a failing run: the rest is still certain on success.
+    ("a skipped failing exit leaves the rest certain", "true || exit 1\nsign", {"sign"}, None),
+    ("a failing exit in a branch leaves the rest certain", "if false; then exit 3; fi\nsign", {"sign"}, None),
+    ("a skipped exit 0 does not", "true || exit 0\nsign", {"sign"}, set()),
+    ("a skipped exit 256 is exit 0", "true || exit 256\nsign", {"sign"}, set()),
+    ("a skipped exit with a dynamic status does not", "rc=1\ntrue || exit $rc\nsign", {"sign"}, set()),
+    ("a reached failing exit ends the script", "exit 1\nsign", set(), None),
     ("exec with only redirections does not", "exec 2>/dev/null\nsign", {"sign"}, None),
 
     # Uncertain constructs: must_run() leaves the command out, may_run() still allows what bash ran.

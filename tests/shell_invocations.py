@@ -479,9 +479,17 @@ class _Flow:
         return index
 
     def ended(self, words: list[Token], start: int) -> None:
-        """After a command bash ran: an exit or return there ends the script for every command after it."""
+        """After a command: an exit, return or exec PROGRAM there may end the script, so every command after it is
+        unreached. One exception: an `exit N` bash may skip (`test -n "$X" || exit 1`) with N a literal nonzero
+        status ends only a run that fails, and a credit holds for a run that succeeds."""
         rest = [word for word in words[start:] if not _ASSIGNMENT.match(word.text)]
-        if rest and not rest[0].quoted and (rest[0].text in _ENDS or (rest[0].text == "exec" and len(rest) > 1)):
+        if not rest or rest[0].quoted:
+            return
+        name = rest[0].text
+        if name == "exit" and not self.reached() and len(rest) == 2 and not rest[1].quoted and not rest[1].dynamic \
+                and rest[1].text.isdigit() and int(rest[1].text) % 256 != 0:
+            return
+        if name in _ENDS or (name == "exec" and len(rest) > 1):
             self.lost = True
 
     def operator(self, text: str, starts_command: bool) -> None:
@@ -752,6 +760,23 @@ def must_run(run: str) -> list[list[str]]:
     """The commands (program first) bash really runs and the detector is certain of. Anything it cannot be sure of
     is left out: use this where a script is credited with running something."""
     return [invocation.words for invocation in may_run(run) if invocation.certain]
+
+
+def run_when_reached(run: str) -> list[list[str]]:
+    """must_run() without the control flow: the commands bash runs whenever it gets to them (behind `&&`, in a branch
+    or a loop too), read in full: none in a substitution, behind an expansion or eval, or after a function is
+    defined. Use it only where a credit holds for every run that gets to the command, and holds when no run does
+    (script_made_keychain(): a script that imports the certificate and makes the keychain in one)."""
+    defined: set[str] = set()
+    commands, complete = _commands(run, False, defined)
+    if defined:
+        return []
+    found = []
+    for command in commands:
+        invocation = _classify(command._replace(reached=True), defined)
+        if invocation is not None and invocation.certain:
+            found.append(invocation.words)
+    return found
 
 
 def may_run_program(run: str, program: str) -> bool:

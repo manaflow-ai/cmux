@@ -90,7 +90,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import signing_runner_variables  # noqa: E402
 import workflow_jobs  # noqa: E402
-from shell_invocations import must_run  # noqa: E402  (every caller here CREDITS a step: uncertain is not run)
+from shell_invocations import must_run, run_when_reached  # noqa: E402  (every caller here CREDITS a step: uncertain is not run)
 
 CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keychain\b")
 DELETE = re.compile(
@@ -99,6 +99,20 @@ DELETE = re.compile(
     r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-helper-notarization\.sh"
     r"|scripts/ci/resume-stapled-app-notarization\.sh"
 )
+# The scripts DELETE names that delete the keychain themselves.
+SELF_DELETING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-helper-notarization.sh",
+                         "scripts/ci/resume-stapled-app-notarization.sh")
+
+
+def deletes_keychain(words: list[str]) -> bool:
+    """Whether one command (program first, as must_run() gives it) deletes a keychain: the program itself, not an
+    argument (`echo ./scripts/ci/signing-keychain.sh delete` deletes nothing)."""
+    program = words[0].rsplit("/", 1)[-1]
+    return ((program == "signing-keychain.sh" and words[1:2] == ["delete"])
+            or (program == "security" and words[1:2] == ["delete-keychain"])
+            or words[0] in SELF_DELETING_SCRIPTS)
+
+
 BUNDLE_CODE = [
     re.compile(r"smoke-launch-macos-app\.sh"),
     re.compile(r"smoke-signed-app-cli\.sh"),
@@ -636,6 +650,11 @@ def script_made_keychain(job: dict) -> str | None:
         for program in invoked_programs(step):
             if program in KEYCHAIN_MAKING_SCRIPTS:
                 return program
+        # The script imports the certificate and makes the keychain in one: a run that skips it (a loop over
+        # candidates, an if branch) imports nothing, so any run of it that bash gets to counts (run_when_reached()).
+        for words in run_when_reached(str(step.get("run", ""))):
+            if words[0] in KEYCHAIN_MAKING_SCRIPTS:
+                return words[0]
     return None
 
 
@@ -777,6 +796,16 @@ def script_made_fixture_failures(documents: dict[str, dict]) -> list[str]:
     if found != [f"{label}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create"]:
         problems.append(f"script-made keychains: a job that reads the certificate and makes no keychain is not "
                         f"named: {found}")
+    # #40784: a run of the script bash may skip (a loop over candidates, an if branch) still makes the keychain
+    # whenever it imports the certificate, so it is credited; a run in a substitution or behind eval is not.
+    for form, run in (("in a loop", f"for c in $LIST; do ./{KEYCHAIN_MAKING_SCRIPTS[0]} \"$c\"; done"),
+                      ("in an if branch", f"if [ -n \"$X\" ]; then ./{KEYCHAIN_MAKING_SCRIPTS[0]}; fi")):
+        looped = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": [{**CERTIFICATE_STEP, "run": run}]}
+        found = [why for why in tree_job_failures(with_job(documents, "release.yml", "script-keychain-fixture", looped),
+                                                  label) if "Developer ID certificate" in why]
+        if found:
+            problems.append(f"script-made keychains: a job that runs {KEYCHAIN_MAKING_SCRIPTS[0]} {form} fails "
+                            f"rule 3: {found}")
     # Codex: the script named only as text (a step name, a comment, an env value, an echo, another step) makes no
     # keychain; the certificate step runs ./sign.sh, so rule 3 still names the job.
     script = KEYCHAIN_MAKING_SCRIPTS[0]
@@ -962,7 +991,7 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
         # A keychain is deleted only by a delete bash surely runs (must_run()); a line that names one behind `&&`, in
         # an if branch or in an echo deletes nothing (#40784 F1 sweep). Creating stays read off any mention: it
         # opens the window, which only makes the guard stricter.
-        deletes = any(DELETE.search(" ".join(words)) for words in must_run(str(step.get("run", ""))))
+        deletes = any(deletes_keychain(words) for words in must_run(str(step.get("run", ""))))
         for command in commands(str(step.get("run", ""))):
             if CREATE.search(command):
                 open_window = label
