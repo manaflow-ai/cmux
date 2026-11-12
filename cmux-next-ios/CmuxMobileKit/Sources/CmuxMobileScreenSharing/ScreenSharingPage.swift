@@ -193,8 +193,6 @@ struct ScreenSharingViewerScreen: View {
     var body: some View {
         Group {
             if let screen = viewer.screen {
-                // No .resumeOnForeground: a ticket admits once, so a dropped stream cannot
-                // reconnect; the viewer ends it and its card asks the Mac again.
                 ScreenSessionView(session: screen, features: Self.features, close: close)
             } else {
                 card.background(theme.colors.bg.color.ignoresSafeArea())
@@ -204,7 +202,7 @@ struct ScreenSharingViewerScreen: View {
         .onDisappear { ScreenSharingOrientation.shared.end() }
     }
 
-    static let features = ScreenFeatures.all.subtracting(.resumeOnForeground)
+    static let features = ScreenFeatures.all
 
     @ViewBuilder private var card: some View {
         switch viewer.phase {
@@ -216,6 +214,9 @@ struct ScreenSharingViewerScreen: View {
                        message: "Allow this iPhone on the Mac to start sharing.", secondaryTitle: "Cancel", secondary: close)
         case .streaming:
             EmptyState(symbol: "desktopcomputer", title: "Starting the screen…", secondaryTitle: "Close", secondary: close)
+        case .reconnecting:
+            EmptyState(symbol: "arrow.triangle.2.circlepath", title: "Reconnecting to \(viewer.hostName)…",
+                       message: "The Mac is still reachable. Reconnecting this screen…", secondaryTitle: "Close", secondary: close)
         case .declined:
             EmptyState(symbol: "hand.raised.slash", title: "\(viewer.hostName) declined",
                        message: "Someone at the Mac said Deny.", primaryTitle: "Ask Again", primary: retry,
