@@ -17,6 +17,15 @@
 //! `open_append`, `open_rw`, `open_rw_existing`, `create_dir_all`, `private_dir`, `restrict`).
 //! Any path through `home_fs` is no sink.
 //!
+//! A read (#41697 review F1: `rehydrate`'s first check of the archive went by path, so a
+//! replacement home without it hid the held home's archive): a call of `fs::metadata`,
+//! `symlink_metadata`, `read`, `read_to_string`, `read_dir`, `read_link`, `exists` or
+//! `try_exists`; `File::open`; `.open(path)` on an `OpenOptions` that only reads; and a path's
+//! `.exists()`, `.try_exists()`, `.is_file()`, `.is_dir()`, `.is_symlink()`, `.metadata()`,
+//! `.symlink_metadata()`, `.read_dir()` or `.read_link()`. A read by path decides by what a
+//! replacement home holds, not the held one the writes that follow change. Reads are checked in
+//! [`READ_CHECKED`] only (`no_read_under_the_home_goes_by_path`).
+//!
 //! "Comes from the home" (taint, computed to a fixed point over the whole crate):
 //! - The roots: `config::home()` and `config::default_home()`.
 //! - A local binding (`let`, `if let`, `match`, `for`, an assignment, a closure's argument given
@@ -87,6 +96,35 @@ const FS_WRITES: &[&str] = &[
     "chown",
     "lchown",
 ];
+
+/// The read calls by path (`<module ending in fs>::<name>`).
+const FS_READS: &[&str] = &[
+    "metadata",
+    "symlink_metadata",
+    "read",
+    "read_to_string",
+    "read_dir",
+    "read_link",
+    "exists",
+    "try_exists",
+];
+
+/// Methods of a path that read the file system by it.
+const PATH_READS: &[&str] = &[
+    "exists",
+    "try_exists",
+    "is_file",
+    "is_dir",
+    "is_symlink",
+    "metadata",
+    "symlink_metadata",
+    "read_dir",
+    "read_link",
+];
+
+/// The files whose reads by path from the home are checked: a read there decides a write in the
+/// held home (#41697 review F1). Elsewhere a read by path is not yet checked.
+const READ_CHECKED: &[&str] = &["src/store/cold.rs"];
 
 /// `OpenOptions` methods that make an open a write.
 const WRITEISH: &[&str] = &["write", "append", "create", "create_new", "truncate"];
@@ -227,13 +265,14 @@ impl Func<'_> {
     }
 }
 
-/// A write by path whose path comes from the home.
+/// A write (or, `read`, a read) by path whose path comes from the home.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Row {
     pub rel: String,
     pub line: usize,
     pub func: String,
     pub sink: String,
+    pub read: bool,
 }
 
 impl std::fmt::Display for Row {
@@ -1101,11 +1140,20 @@ struct Walk<'s, 'i, 'a> {
 
 impl Walk<'_, '_, '_> {
     fn row(&mut self, at: proc_macro2::Span, sink: String) {
+        self.push(at, sink, false);
+    }
+
+    fn read_row(&mut self, at: proc_macro2::Span, sink: String) {
+        self.push(at, sink, true);
+    }
+
+    fn push(&mut self, at: proc_macro2::Span, sink: String, read: bool) {
         self.found.rows.push(Row {
             rel: self.scope.func.rel.clone(),
             line: at.start().line,
             func: self.scope.func.qualified(),
             sink,
+            read,
         });
     }
 
@@ -1172,6 +1220,16 @@ impl<'ast> Visit<'ast> for Walk<'_, '_, '_> {
             {
                 self.row(c.span(), sink);
             }
+            let read = match tail.as_slice() {
+                ["fs", op] if by_path && FS_READS.contains(op) => Some(format!("fs::{op}")),
+                ["File", "open"] if by_path => Some("File::open".to_owned()),
+                _ => None,
+            };
+            if let Some(read) = read
+                && args.first().is_some_and(|a| self.scope.taint(a))
+            {
+                self.read_row(c.span(), read);
+            }
             self.flow(&targets, &args, true);
         }
         syn::visit::visit_expr_call(self, c);
@@ -1185,9 +1243,17 @@ impl<'ast> Visit<'ast> for Walk<'_, '_, '_> {
         {
             if open && method == "open" && methods.iter().any(|x| WRITEISH.contains(&x.as_str())) {
                 self.row(m.span(), "OpenOptions::open".to_owned());
+            } else if open && method == "open" {
+                self.read_row(m.span(), "OpenOptions::open (read)".to_owned());
             } else if !open && method == "create" {
                 self.row(m.span(), "DirBuilder::create".to_owned());
             }
+        }
+        if m.args.is_empty()
+            && PATH_READS.contains(&method.as_str())
+            && self.scope.taint(&m.receiver)
+        {
+            self.read_row(m.span(), format!("Path::{method}"));
         }
         let targets = self.scope.methods_of(&method, Scope::is_self(&m.receiver));
         let args: Vec<&syn::Expr> = m.args.iter().collect();
@@ -1343,7 +1409,36 @@ fn crate_sources() -> Vec<Source> {
 
 /// The crate's writes by path from the home, outside `home_fs.rs`.
 pub(crate) fn rows() -> Vec<Row> {
+    all_rows().into_iter().filter(|row| !row.read).collect()
+}
+
+/// The crate's writes and reads by path from the home, outside `home_fs.rs`.
+fn all_rows() -> Vec<Row> {
     analyze(&crate_sources()).into_iter().filter(|row| row.rel != "src/home_fs.rs").collect()
+}
+
+/// #41697 review F1: no read by path from the home in [`READ_CHECKED`]. A read there decides
+/// what a write in the held home does (`rehydrate`'s first check of the archive, read by path,
+/// found none in a replacement home and left the held home's archive as it was): it reads the
+/// held home through `home_fs` (`exists_nofollow`, `read_dir`, `private_state_file`).
+#[test]
+fn no_read_under_the_home_goes_by_path() {
+    let reads: Vec<Row> = all_rows().into_iter().filter(|row| row.read).collect();
+    let elsewhere = reads.iter().filter(|r| !READ_CHECKED.contains(&r.rel.as_str())).count();
+    println!("reads by path from the home outside {READ_CHECKED:?}, not checked: {elsewhere}");
+    let red: Vec<String> = reads
+        .iter()
+        .filter(|r| READ_CHECKED.contains(&r.rel.as_str()))
+        .map(ToString::to_string)
+        .collect();
+    assert!(
+        red.is_empty(),
+        "{} read(s) by path from the home in {READ_CHECKED:?}: read each in the held home \
+         through `home_fs` (`exists_nofollow`, `read_dir`, `private_state_file`, \
+         `OpenOptions`):\n  {}",
+        red.len(),
+        red.join("\n  "),
+    );
 }
 
 #[test]
@@ -1447,6 +1542,14 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
             impl LocalStore {
                 pub fn rehydrate(&self, id: &str) -> anyhow::Result<()> {
                     let dir = self.dir(id);
+                    // #41697 review F1: the archive checked by path.
+                    if std::fs::symlink_metadata(dir.join("cold.zst")).is_err() {
+                        return Ok(());
+                    }
+                    let _ = dir.join("events").exists();
+                    let _ = std::fs::File::open(dir.join("cold.zst"));
+                    let _ = crate::home_fs::exists_nofollow(dir.join("cold.zst"));
+                    let _ = std::path::Path::new("/tmp/not-the-home").exists();
                     for entry in std::fs::read_dir(&dir)? {
                         let _ = std::fs::remove_file(entry?.path());
                     }
@@ -1538,8 +1641,28 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
             "#,
         ),
     ];
-    let rows: Vec<String> =
-        analyze(&sources).iter().map(|r| format!("{} {}: {}", r.rel, r.func, r.sink)).collect();
+    let all = analyze(&sources);
+    let reads: Vec<String> = all
+        .iter()
+        .filter(|r| r.read)
+        .map(|r| format!("{} {}: {}", r.rel, r.func, r.sink))
+        .collect();
+    let rows: Vec<String> = all
+        .iter()
+        .filter(|r| !r.read)
+        .map(|r| format!("{} {}: {}", r.rel, r.func, r.sink))
+        .collect();
+    let want_reads = [
+        "src/store/cold.rs LocalStore::rehydrate: File::open",
+        "src/store/cold.rs LocalStore::rehydrate: Path::exists",
+        "src/store/cold.rs LocalStore::rehydrate: fs::read_dir",
+        "src/store/cold.rs LocalStore::rehydrate: fs::symlink_metadata",
+        "src/workflow_runs.rs read: OpenOptions::open (read)",
+    ];
+    let mut reads = reads;
+    reads.sort();
+    reads.dedup();
+    assert_eq!(reads, want_reads, "reads");
     let want = [
         "src/hub/file_uploads.rs finish: fs::rename",
         "src/sender_token.rs ensure: OpenOptions::open",
