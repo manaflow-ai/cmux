@@ -118,7 +118,7 @@ public final class ServerUpdateCoordinator {
         }
         let previous = reported[key]
         reported[key] = Reported(handshake: successor, appCapabilities: previous?.appCapabilities ?? [],
-                                 bundledBuild: previous?.bundledBuild)
+                                 bundledBuild: previous?.bundledBuild, handingOff: false)
         handshakeRevision += 1
         let still = policy.notice(for: successor, appCapabilities: previous?.appCapabilities ?? [],
                                   bundledBuild: previous?.bundledBuild)

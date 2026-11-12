@@ -62,10 +62,11 @@ public final class DaemonService {
     /// replaces it on every handshake, so capabilities follow a daemon that
     /// restarted or was handed off to a newer build after the first connect.
     public var identity: DaemonIdentity? { store.identity }
-    /// The local daemon the launch check is replacing with the bundled build (an older build's,
-    /// after an update): the app attaches to it while the bundled build premigrates, then hands
-    /// it off. Its server-update toast is not shown, since the app restarts it already.
-    public private(set) var replacingDaemonPID: Int32?
+    /// The generation of the local daemon the launch check is replacing with the bundled build (an
+    /// older build's, after an update): the app attaches to it while the bundled build premigrates,
+    /// then hands it off. Its server-update toast is not shown, since the app restarts it already.
+    /// Cleared when that handoff fails, so a daemon that stays gets its toast back.
+    public private(set) var replacingDaemon: DaemonGeneration?
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
@@ -259,11 +260,14 @@ public final class DaemonService {
             let bundled = await bundledBuild.value
             var decision = DaemonService.launchVersionCheck(identity: identity, bundled: bundled)
             if case .restart = decision {
-                decision = await launcher.handOffIfStale(identity: identity, using: connection, bundled: bundled)
+                decision = await launcher.handOffIfStale(identity: identity, using: connection, bundled: bundled,
+                                                         onHandoffEnd: { handedOff in
+                    if !handedOff { await weakSelf?.noteReplacementFailed(identity.generation) }
+                })
             }
             // Set before the app attaches, so the attach's handshake never offers a Restart.
             if case .handOffAfterPremigrate = decision {
-                await weakSelf?.noteReplacing(pid: identity.pid)
+                await weakSelf?.noteReplacing(identity.generation)
             }
             guard case .restart(let running, let target) = decision else {
                 if case .keep(let reason) = decision, reason != "same build" {
@@ -565,9 +569,14 @@ public final class DaemonService {
 
     /// The handshake handed an incompatible owner off to the bundled build
     /// (`DaemonLauncher.handOffIncompatible`); the next connect reaches its successor.
-    /// The launch check is handing the daemon `pid` off to the bundled build (``replacingDaemonPID``).
-    func noteReplacing(pid: Int32) {
-        replacingDaemonPID = pid
+    /// The launch check is handing the daemon of `generation` off to the bundled build (``replacingDaemon``).
+    func noteReplacing(_ generation: DaemonGeneration) {
+        replacingDaemon = generation
+    }
+
+    /// That handoff failed or was refused: the daemon stays, so its update notice shows again.
+    func noteReplacementFailed(_ generation: DaemonGeneration) {
+        if replacingDaemon == generation { replacingDaemon = nil }
     }
 
     /// The handoff can come after the first deadline already showed a failure, so the

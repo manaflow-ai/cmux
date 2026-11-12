@@ -40,10 +40,10 @@ final class ServerUpdatePresenter {
         let daemon = daemon
         let servers = servers
         observers.append(Task { [weak self] in
-            for await (identity, replacing) in ObservationStream({ (daemon.identity, daemon.replacingDaemonPID) }) {
+            for await (identity, replacing) in ObservationStream({ (daemon.identity, daemon.replacingDaemon) }) {
                 guard let identity else { continue }
                 servers.report(ServerHandshake(daemon: identity, host: .local), appCapabilities: ServerHandshake.appCmuxTUICapabilities,
-                               bundledBuild: nil, handingOff: identity.pid == replacing)
+                               bundledBuild: nil, handingOff: identity.generation == replacing)
                 self?.sync()
                 await self?.refreshFacts()
             }
