@@ -6,6 +6,7 @@ import CmuxNextBridge
 import CmuxNextSettings
 import Foundation
 import Testing
+import UserNotifications
 
 /// https://github.com/manaflow-ai/cmux/issues/42221: with `notifications.sound` at `"default"` a
 /// notification sounds as it does in cmux classic. A banner carries the system sound. When no
@@ -82,5 +83,21 @@ struct NotificationDefaultSoundTests {
         #expect(service.desktop.posted.isEmpty)
         #expect(recorder.played.map(\.name) == ["default"], "a workspace notification with no banner played no sound")
         #expect(recorder.played.map(\.banner) == [false])
+    }
+
+    @Test func aBannerMacOSRefusedPlaysTheDefaultSoundUnlessNotificationsAreDenied() {
+        let notifier = DesktopNotifier()
+        var beeps = 0
+        notifier.playUnshownDefaultSound = { beeps += 1 }
+        notifier.bannerRefused(defaultSound: true, status: .notDetermined, asksPermission: true)
+        #expect(beeps == 1, "a banner refused before authorization was answered must still sound")
+        notifier.bannerRefused(defaultSound: true, status: .authorized, asksPermission: true)
+        #expect(beeps == 2, "a banner the center failed to add must still sound")
+        notifier.bannerRefused(defaultSound: true, status: .denied, asksPermission: true)
+        #expect(beeps == 2, "a person who denied cmux notifications hears nothing, as in classic")
+        notifier.bannerRefused(defaultSound: false, status: .notDetermined, asksPermission: true)
+        #expect(beeps == 2, "a silent banner or a custom sound (played by the player) adds nothing")
+        notifier.bannerRefused(defaultSound: true, status: .notDetermined, asksPermission: false)
+        #expect(beeps == 2, "a GUI job never asks for permission, so its refused banners stay silent")
     }
 }

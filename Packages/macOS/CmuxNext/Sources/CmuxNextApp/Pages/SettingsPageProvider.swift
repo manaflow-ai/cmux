@@ -324,7 +324,7 @@ final class SettingsPageProvider: PageProvider {
             return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }
-            if name != "default", name != "none" { NSSound(named: NSSound.Name(name))?.play() }
+            if name == "default" { NSSound.beep() } else if name != "none" { NSSound(named: NSSound.Name(name))?.play() }
             return .object([:])
         default:
             throw PageError.unknownOp(op)
