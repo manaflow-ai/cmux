@@ -171,6 +171,38 @@ path, accepts an arbitrary service, or treats the carrier as a local-owner
 connection. Sign-out stops the supervised hostd and its channels; each new
 channel needs a fresh app snapshot.
 
+## `cloud-carrier`: the phone's own session on a Cloud machine
+
+The phone reaches a Cloud machine's daemon itself, with no Mac in between: the
+same carrier a Mac's `cmux carrier dial` opens (`cmux-mobile-carrier`, linked
+through `CmuxMobileLinkFFI` as `CloudCarrier`).
+
+- **Who may dial.** The phone asks cmux-platform for a carrier
+  (`POST /v1/cloud/machines/{vm}/carrier`) with the person's own access token
+  and active team. The platform admits a person's session or an `ios` install
+  with `execute` or `cloud-link` (`CarrierRoute.ts` `carrierClient`), decides
+  the machine side (`CloudDO.relayScope`), and signs a single-use carrier grant
+  naming this phone's Noise static key. Nothing on the phone widens that.
+- **Which daemon.** The answer names the daemon's Noise key; the phone pins it
+  and never handshakes unpinned. A daemon that is not the pinned one, or that
+  refuses the grant, ends the dial (`carrier.handshake`), with no retry.
+- **Which role.** The grant carries the platform's `vmk` claim; the machine's
+  session host stamps it on every stream (`carrier-role`) before the phone's
+  bytes, so the daemon sees the person's own role, never one the phone names.
+- **What it carries.** Only the `daemon` service: `cmux.protocol/2` lines on
+  mux-control streams. Every other service name is refused on the phone
+  (`CloudCarrierLink`, deny by default). Terminal attach, input and sizing are
+  the daemon's own commands, under the daemon's own authorization, exactly as
+  for the person's Mac on the same machine: it is the person's machine, reached
+  with the person's credentials.
+- **Keys and secrets.** The Noise private key is generated on the phone, kept in
+  its Keychain and removed at sign-out. Tickets, grants and tokens live in
+  zeroized memory, never in a log, `Debug`, error text or the snapshot.
+- **What it does not change.** `cloud-acpmux` (chat through a Mac, at the asking
+  floor) keeps its rules; this path does not relay through a Mac and does not
+  touch the Mac's carrier sockets. A teammate's machine is the platform's call
+  (team grant scope), not the phone's.
+
 ## `file`: read-only previews
 
 - **Path checks.** Only absolute paths inside `CMUX_MOBILE_FILE_ROOTS` or one of the
