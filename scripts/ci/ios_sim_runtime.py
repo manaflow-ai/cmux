@@ -23,7 +23,7 @@ import sys
 
 ENV = "CMUX_CI_IOS_SIM_RUNTIME"
 BUILD = re.compile(r"^[0-9]{2}[A-Z][0-9]{1,5}[a-z]?$")
-PHONES = ("iPhone 17 Pro", "iPhone 17", "iPhone 16 Pro")
+PHONES = ("iPhone 13 mini", "iPhone SE (3rd generation)", "iPhone 16e", "iPhone 17e")
 
 
 def version_key(runtime):
