@@ -134,7 +134,9 @@ if (!appHosted) {
 if (!appHosted) installSystemFontStandIn();
 if (!appHosted)
   (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
-    webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough),
+    webThemePayload(tokens, deriveAppTheme(theme, env.accent), seeThrough, {
+      titleAreaTone: entry.variants[variantName]!.titleAreaTone ?? env.titleAreaTone,
+    }),
   );
 if (seeThrough && !appHosted) {
   const [{ applyGalleryBackground }, { default: metrics }] = await Promise.all([

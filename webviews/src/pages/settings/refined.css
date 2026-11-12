@@ -304,7 +304,7 @@
     padding: var(--ds-space-3) var(--ds-space-3) var(--ds-space-2);
     gap: var(--ds-space-2);
     border-right: 0;
-    border-bottom: 1px solid var(--polish-edge);
+    border-bottom: 1px solid var(--polish-divider, var(--polish-edge));
   }
 
   /* The strip scrolls sideways itself (layout.css .section-list); the scroll area only holds it. */

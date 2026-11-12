@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// The shade over the chrome around the curved main pane: the window minus
 /// the pane's rounded rect, filled with black at a low alpha. It sits on
@@ -23,6 +24,9 @@ public final class MainPaneChromeShadeView: NSView {
     /// The divider's line, in `Palette.chromeDivider` at ``Metrics/tabRowDividerStrength``, less the folders.
     private let dividerLayer = CAShapeLayer()
     private var cardsObservation: AnyObject?
+    /// Repaints the divider on a live change to `chrome.dividerStrength` (Debug Settings), as the update and the
+    /// appearance do.
+    private var dividerStrengthWatch: Task<Void, Never>?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
         didSet {
@@ -42,6 +46,14 @@ public final class MainPaneChromeShadeView: NSView {
         layer?.addSublayer(shade)
         dividerLayer.fillRule = .evenOdd
         layer?.addSublayer(dividerLayer)
+        dividerStrengthWatch = Task { [weak self] in
+            for await _ in ObservationStream({ ChromeTunables.dividerStrength.value }) { self?.rebuild() }
+        }
+    }
+
+    // The watch is Sendable and cancels from any thread (`GlassModeWatch`'s deinit).
+    nonisolated deinit {
+        dividerStrengthWatch?.cancel()
     }
 
     @available(*, unavailable)

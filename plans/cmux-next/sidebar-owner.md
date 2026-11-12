@@ -2143,3 +2143,12 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   ghost round on the rows' and tabs' curve (`Metrics.tabCornerCurve`, circular by default) instead of a hard-coded
   continuous one, so every 8 pt row corner in and beside the sidebar is one shape. Leo, verbatim: "all corners
   looking good". Sidebar-Look: the hover card rows and the drag ghost round as the rows do.
+- 2026-11-12 (lane two-tone-polish-native, on #41640): under a style whose card edge is the sidebar's seam (the explicit
+  Two-Tone and card styles, a flush corner picked in Debug Settings) the resize handle's hover now lights its glow,
+  along the whole edge, and `sidebar.border` on draws the full-height line instead of clipping it to the titlebar
+  band (`SidebarResizeHandle`). Leo, verbatim: "you've slightly regressed the border thing, the border divider. And
+  then there's no more drag divider highlight". Sidebar-Look: the glow shows on hover in every style; a sidebar
+  border runs the whole edge.
+- 2026-11-12 (#41952 review follow-up): the sidebar's edge line takes a theme's split divider colour
+  (`Palette.surfaceOverride(.splitDivider)`) before `Palette.chromeDivider`, as the split lines and the page's
+  `--cmux-sidebar-line` do, so the three match under such a theme. Sidebar-Look: the sidebar edge matches the split lines under a themed divider.
