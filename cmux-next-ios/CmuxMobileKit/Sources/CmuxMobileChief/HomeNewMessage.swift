@@ -155,6 +155,8 @@ public final class HomeNewMessage {
         let conversation = ConversationViewController(store: session.store, options: .chief)
         // New Message keeps its title and X.
         conversation.hidesNavigationBar = false
+        // To: names it: no header of its own (its room stays, slid under To:).
+        conversation.showsHeader = false
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         container.focusesComposerOnAppear = !carrying.text.isEmpty
         // A message sent there: New Message is done, and the conversation opens on Home.

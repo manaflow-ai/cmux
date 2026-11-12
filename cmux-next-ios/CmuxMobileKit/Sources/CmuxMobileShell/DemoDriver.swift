@@ -100,7 +100,8 @@ struct DemoDriver {
             // conversations, and the demo team; real touches open the sheet from the compose button.
             if name == "new-message" { ChiefSources.shared.showDemoCloudChief(named: "Atlas", brains: true) }
             ChiefSources.shared.mac.macName = "Mac Studio"
-            MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio")
+            // The Mac Chief's row is its session's conversation, as on a real Mac's list.
+            MacHomeFeed.shared.seedNewMessageRows(macID: "mac-studio", macChief: ChiefSources.shared.mac.conversationID)
             shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).

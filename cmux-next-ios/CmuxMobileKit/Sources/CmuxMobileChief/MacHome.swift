@@ -457,10 +457,11 @@ public final class MacHomeFeed {
 
     /// New Message's demo (verify/new-message): a Mac's Home with its Chief, two more Chiefs and
     /// a few other conversations, with no link.
-    public func seedNewMessageRows(macID: String) {
+    public func seedNewMessageRows(macID: String, macChief: String? = nil) {
+        let chiefRow = macChief ?? "conv-mac-chief"
         let stamp = ISO8601DateFormatter()
         let rows: [(id: String, kind: String, name: String, chief: String?, minutes: Double, preview: String)] = [
-            ("conv-mac-chief", "chief", "Chief", "agent_mux", 4, "The nightly is green. Two flaky tests were retried."),
+            (chiefRow, "chief", "Chief", "agent_mux", 4, "The nightly is green. Two flaky tests were retried."),
             ("conv-builder", "chief", "Builder", "agent_builder", 52, "I opened the release branch and bumped the version."),
             ("conv-reviewer", "chief", "Reviewer", "agent_reviewer", 60 * 26, "Three PRs are waiting for your review."),
             ("conv-infra", "group", "Infra", nil, 90, "Lawrence: the mini fleet is back up."),
@@ -476,7 +477,7 @@ public final class MacHomeFeed {
             return MacHomeRow(wire: wire)
         }, complete: true)
         self.macID = macID
-        macChiefID = "conv-mac-chief"
+        macChiefID = chiefRow
     }
     #endif
 

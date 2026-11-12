@@ -334,6 +334,7 @@ public final class ConversationViewController: UIViewController {
         topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(topEdgeFade)
         view.addSubview(header)
+        applyHeaderVisibility()
 
         let keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: true, keyboard: keyboard)
         keyboardDock.trackInteractiveDismissal(of: collectionView)
@@ -425,6 +426,17 @@ public final class ConversationViewController: UIViewController {
     /// controller's bar. False when it is shown inside another screen that
     /// keeps its bar (New Message's existing conversation under To:).
     public var hidesNavigationBar = true
+    /// False hides the conversation's own header and its top fade (New
+    /// Message shows the conversation under its To: field, which names it).
+    public var showsHeader = true {
+        didSet { applyHeaderVisibility() }
+    }
+
+    private func applyHeaderVisibility() {
+        guard isViewLoaded else { return }
+        header.isHidden = !showsHeader
+        topEdgeFade.isHidden = !showsHeader
+    }
 
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)

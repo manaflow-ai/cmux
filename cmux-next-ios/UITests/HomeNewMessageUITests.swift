@@ -157,6 +157,10 @@ final class HomeNewMessageUITests: XCTestCase {
                 field.tap()
                 field.typeText("Status of the nightly?")
             }
+            // Send shows once the field holds the text (empty, the same slot is the microphone).
+            _ = field.waitForExistence(timeout: 5)
+            let typed = expectation(for: NSPredicate(format: "value CONTAINS %@", "nightly"), evaluatedWith: field)
+            _ = XCTWaiter().wait(for: [typed], timeout: 5)
             attach(app, look, "13-existing-typed")
             if send.waitForExistence(timeout: 5) { send.tap() }
             // The sheet goes; the Chief conversation is on Home with the message.
@@ -213,8 +217,9 @@ final class HomeNewMessageUITests: XCTestCase {
 
             app = launch("new-message-mac-only", look: look)
             _ = openSheet(app, look)
-            XCTAssertTrue(app.cells["conversation.compose.suggestion.chief:mac"].waitForExistence(timeout: 10),
-                          "the Mac Chief leads\n\(app.debugDescription)")
+            let macChief = app.cells["conversation.compose.suggestion.chief:mac"]
+            XCTAssertTrue(macChief.waitForExistence(timeout: 10), "the Mac Chief leads\n\(app.debugDescription)")
+            XCTAssertTrue((macChief.value as? String ?? "").contains("Main"), "tagged Main: \(macChief.value ?? "")")
             let invite = app.cells["conversation.compose.action.invite"]
             XCTAssertTrue(invite.waitForExistence(timeout: 5), "Invite for a team of one\n\(app.debugDescription)")
             attach(app, look, "19-mac-only-invite")
