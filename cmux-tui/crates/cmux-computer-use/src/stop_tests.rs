@@ -150,3 +150,37 @@ fn nothing_stopped_costs_one_load() {
     stops.resume("s1");
     assert!(!stops.any.load(std::sync::atomic::Ordering::Acquire));
 }
+
+/// A call the person stopped while it ran keeps the focus guard's report:
+/// the agent sees the focus it put back, not only that it was stopped.
+#[test]
+fn a_stopped_call_keeps_the_focus_report() {
+    use crate::desktop::FocusSnapshot;
+    let (d, e, _, _) = engine(Some(Duration::from_millis(777)));
+    let person = FocusSnapshot {
+        pid: 99,
+        app_id: "com.apple.TextEdit".into(),
+        window_id: Some("9".into()),
+        top_pid: Some(99),
+        pointer: None,
+    };
+    *d.focus.lock().unwrap() = Some(person.clone());
+    *d.steal_on_input.lock().unwrap() = Some(FocusSnapshot {
+        pid: 10,
+        app_id: "com.apple.Safari".into(),
+        window_id: Some("1".into()),
+        top_pid: Some(10),
+        pointer: None,
+    });
+    let out = e.call(
+        &ctx("s1", "f1"),
+        "batch",
+        &json!({"window_id": "1", "observe": false, "actions": [
+            {"action": "click", "element_id": "e1"},
+            {"action": "wait", "ms": 777},
+            {"action": "press_key", "keys": "Return"}
+        ]}),
+    );
+    assert_eq!(out.code.as_deref(), Some(STOPPED_CODE), "{:?}", out.body);
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+}

@@ -572,8 +572,9 @@ impl Engine {
         }
         let acted = !out.is_error && out.body.get("completed") != Some(&json!(0));
         let mut stopped = stop::stopped_in_flight(acted);
-        // A batch says how far it got.
-        for key in ["completed", "of"] {
+        // A batch says how far it got, and the focus guard's report (a focus it
+        // put back) stays with the call.
+        for key in ["completed", "of", "focus"] {
             if let Some(value) = out.body.get(key) {
                 stopped.body[key] = value.clone();
             }
