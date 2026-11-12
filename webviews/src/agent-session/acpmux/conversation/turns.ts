@@ -1543,25 +1543,23 @@ function shapeTurn(
       if (open)
         shaped.push(
           // The answer between `before` and `after` is a seam: the runs on either side of it stay apart.
-          ...[...merge(before), ...merge(after)]
-            .flatMap(withoutDrafts)
-            .map((row) => ({
-              ...endedPlan(row),
-              id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
-              settled: true,
-              // A finished turn's earlier replies fold here too; each keeps its action row, while a
-              // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
-              ...(replies.has(row.id) && { foldedReply: true }),
-              // A folded run draws otherwise, so its version moves (memos compare versions).
-              ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
-              // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,
-              // doubled, so the run redraws without a sixth `RUN_STATES` (`OPEN_RUN_STATES`).
-              ...(runsOpen &&
-                row.kind === "activity" && {
-                  runOpen: true as const,
-                  version: (row.version * RUN_STATES + 3) * OPEN_RUN_STATES + 1,
-                }),
-            })),
+          ...[...merge(before), ...merge(after)].flatMap(withoutDrafts).map((row) => ({
+            ...endedPlan(row),
+            id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
+            settled: true,
+            // A finished turn's earlier replies fold here too; each keeps its action row, while a
+            // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
+            ...(replies.has(row.id) && { foldedReply: true }),
+            // A folded run draws otherwise, so its version moves (memos compare versions).
+            ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
+            // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,
+            // doubled, so the run redraws without a sixth `RUN_STATES` (`OPEN_RUN_STATES`).
+            ...(runsOpen &&
+              row.kind === "activity" && {
+                runOpen: true as const,
+                version: (row.version * RUN_STATES + 3) * OPEN_RUN_STATES + 1,
+              }),
+          })),
         );
     }
     // Context and actionable rows stay available beside the fold. Render cards keep their
