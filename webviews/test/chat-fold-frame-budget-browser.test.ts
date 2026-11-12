@@ -16,7 +16,6 @@
 //   four frames in five within a frame and a half at 60 Hz.
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
-// Baseline measurements for the flaky-chat-tests repair run with runner retries disabled.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
@@ -149,10 +148,9 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
                 (animation) =>
                   animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
               );
-            // The virtualizer can adjust its mounted range after scroll geometry has settled,
-            // especially in WebKit.  A stable scrollHeight alone let measurement begin while
-            // rows were still entering, counting that catch-up as fold work.  Wait for the
-            // actual mounted row run and its identities to settle as well.
+            // Geometry can settle before the virtualizer has finished adjusting its mounted run,
+            // especially in WebKit. Wait for the actual row identities and range to stop changing
+            // so catch-up work is outside the fold measurement.
             const mounted = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
               .map((row) => `${row.getAttribute("aria-posinset")}:${row.dataset.rowId}`)
               .join(",");
@@ -241,12 +239,6 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
         await cdp.send("Profiler.start");
       }
       costs.push(await measureToggle(page, label, clicker(page, selector, nth), () => settle(page), cdp));
-      if (process.env.FOLD_DIAGNOSTICS)
-        console.log(
-          `FOLD_PROBE ${name} ${turns} ${label}\n${await page.evaluate(
-            () => (globalThis as unknown as { __foldRideProbe?: string[] }).__foldRideProbe?.join("\n") ?? "",
-          )}`,
-        );
       if (profile) {
         const { profile: data } = (await cdp.send("Profiler.stop")) as unknown as {
           profile: {
