@@ -354,14 +354,13 @@ export function buildPickerCatalog({
   const hidden = hiddenHarnesses(user);
   const covered = new Set<string>();
   const harnesses = layered.harnesses.map((harness) => {
-    const members = acpmux.filter((entry) => harness.families.includes(familyOf(entry)));
+    const members = acpmux.filter((entry) => covers(harness, entry));
     for (const member of members) covered.add(member.id);
     return catalogHarness(harness, members, join);
   });
   // A profile whose family a hidden catalog harness covers stays hidden with it.
   for (const harness of catalog.harnesses)
-    if (hidden.has(harness.id))
-      for (const entry of acpmux) if (harness.families.includes(familyOf(entry))) covered.add(entry.id);
+    if (hidden.has(harness.id)) for (const entry of acpmux) if (covers(harness, entry)) covered.add(entry.id);
   for (const entry of acpmux) {
     if (!covered.has(entry.id) && !hidden.has(entry.id)) harnesses.push(uncataloguedHarness(entry, join));
   }
@@ -935,6 +934,13 @@ function withLiveOptions(model: PickerModel, options: ConfigOptions): PickerMode
     ...(efforts && efforts.length > 0 ? { efforts } : {}),
     ...(fast ? { fast: true } : {}),
   };
+}
+
+/// A catalog harness stands for a profile of one of its families, or for the profile with its own id:
+/// a hyphenated id ("vercel-ai-gateway") reported with no family has the first word as its key
+/// ("vercel"), and must not draw a second row for the same harness.
+function covers(harness: CatalogHarness, entry: AcpmuxHarness): boolean {
+  return harness.families.includes(familyOf(entry)) || entry.id === harness.id;
 }
 
 function familyOf(entry: AcpmuxHarness): string {

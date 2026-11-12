@@ -13,6 +13,7 @@
 // listeners first (wheelPassThrough.ts), as they did when the card was inside it.
 import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { failureCopy, failureKind } from "../failureCopy";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { forwardWheel } from "../wheelPassThrough";
@@ -434,7 +435,15 @@ export const PreviewCard = React.forwardRef<
       {(metadata?.failure || metadata?.failed) && (
         <div className="acpmux-minimap__failure" data-failure="true">
           <Icon name="status.error" size={14} className="acpmux-minimap__failure-icon" />
-          <span>{metadata.failure || t("turn.failed")}</span>
+          {/* A failure the pane recognizes reads as the turn's own error card does (a spent plan,
+            a sign-in, a network drop), with the agent's words on hover; any other keeps its words. */}
+          <span title={metadata.failure && failureKind(metadata.failure) !== "other" ? metadata.failure : undefined}>
+            {metadata.failure
+              ? failureKind(metadata.failure) === "other"
+                ? metadata.failure
+                : failureCopy(t, metadata.failure)
+              : t("turn.failed")}
+          </span>
         </div>
       )}
       {reply.length > 0 && (
