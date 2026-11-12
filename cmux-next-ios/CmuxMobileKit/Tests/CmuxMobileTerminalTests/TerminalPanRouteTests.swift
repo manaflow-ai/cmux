@@ -37,7 +37,7 @@ import UIKit
         Program(name: "shell", modes: "\u{1b}[?2004h", route: .localScrollback),
     ]
 
-    final class Rig {
+    @MainActor final class Rig {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let surface = TerminalSurfaceView(frame: CGRect(x: 0, y: 0, width: 360, height: 600))
         var sent = Data()
