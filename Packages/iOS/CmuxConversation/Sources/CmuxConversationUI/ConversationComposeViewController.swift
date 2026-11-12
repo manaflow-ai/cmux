@@ -544,9 +544,14 @@ extension ConversationComposeViewController: UITableViewDataSource, UITableViewD
 /// the address that will be used under it.
 final class ComposeSuggestionCell: UITableViewCell {
     static let reuseID = "compose.suggestion"
-    static let height: CGFloat = 60
+    /// The list under To:: iOS 26 measured 60 pt rows and a 40 pt avatar at x 16; iOS 27 is
+    /// 55.3 pt with 36 pt at x 20 (both put the name at x 68). The Contacts picker keeps 60/40.
+    static var height: CGFloat { ComposeMetrics.iOS27 ? 55.33 : 60 }
+    static let listedHeight: CGFloat = 60
     static let avatarSize: CGFloat = 40
     static let textLeading: CGFloat = 16 + avatarSize + 12
+    /// This row is in the list under To: (not the Contacts picker).
+    private var suggestion = true
     private let avatar = ConversationAvatarView()
     /// An action row's leading circle (New Chief, Invite) in place of the avatar.
     private let symbolCircle = UIView()
@@ -577,6 +582,7 @@ final class ComposeSuggestionCell: UITableViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(_ contact: ConversationContact, query: String) {
+        suggestion = true
         avatar.isHidden = false
         symbolCircle.isHidden = true
         avatar.configure(initials: contact.initials, colorHex: contact.colorHex)
@@ -598,8 +604,13 @@ final class ComposeSuggestionCell: UITableViewCell {
             detail.text = line
             detail.textColor = .secondaryLabel
         } else {
-            detail.text = handle.map { "\($0.label) \($0.value)" }
+            detail.text = handle.map { ComposeMetrics.iOS27 || $0.label.isEmpty ? $0.value : "\($0.label) \($0.value)" }
             detail.textColor = contact.service == .iMessage ? .systemBlue : .systemGreen
+            if ComposeMetrics.iOS27 {
+                // iOS 27 tints the name with its address (bold prefix included).
+                text.addAttribute(.foregroundColor, value: detail.textColor ?? .label, range: NSRange(location: 0, length: text.length))
+                name.attributedText = text
+            }
         }
         accessibilityLabel = contact.name
         accessibilityValue = contact.detail ?? handle?.value
@@ -610,6 +621,7 @@ final class ComposeSuggestionCell: UITableViewCell {
 
     /// An action row: the symbol in a gray circle, its title in the tint.
     func configure(_ action: ConversationComposeAction) {
+        suggestion = true
         avatar.isHidden = true
         symbolCircle.isHidden = false
         symbol.image = UIImage(systemName: action.systemImage)
@@ -625,6 +637,7 @@ final class ComposeSuggestionCell: UITableViewCell {
     /// The Contacts list: no address line, the last name bold, the
     /// monogram on Messages' gray gradient.
     func configureListed(_ contact: ConversationContact) {
+        suggestion = false
         avatar.isHidden = false
         symbolCircle.isHidden = true
         avatar.configure(initials: contact.initials, colorHex: nil)
@@ -642,15 +655,17 @@ final class ComposeSuggestionCell: UITableViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let size = Self.avatarSize
-        let leading = CGRect(x: 16, y: (bounds.height - size) / 2, width: size, height: size)
+        let compact = suggestion && ComposeMetrics.iOS27
+        let size: CGFloat = compact ? 36 : Self.avatarSize
+        let leading = CGRect(x: compact ? 20 : 16, y: (bounds.height - size) / 2, width: size, height: size)
         avatar.frame = leading
         symbolCircle.frame = leading
+        symbolCircle.layer.cornerRadius = size / 2
         symbol.frame = symbolCircle.bounds
         let x = Self.textLeading
         let hasDetail = !(detail.text ?? "").isEmpty
-        name.frame = CGRect(x: x, y: hasDetail ? 9 : (bounds.height - 22) / 2, width: bounds.width - x - 16, height: 22)
-        detail.frame = CGRect(x: x, y: 31, width: bounds.width - x - 16, height: 19)
+        name.frame = CGRect(x: x, y: hasDetail ? (compact ? 8.3 : 9) : (bounds.height - 22) / 2, width: bounds.width - x - 16, height: 22)
+        detail.frame = CGRect(x: x, y: compact ? 28.7 : 31, width: bounds.width - x - 16, height: 19)
     }
 }
 
@@ -756,7 +771,7 @@ final class ComposeContactPickerController: UITableViewController {
             self?.dismiss(animated: true)
         })
         tableView.register(ComposeSuggestionCell.self, forCellReuseIdentifier: ComposeSuggestionCell.reuseID)
-        tableView.rowHeight = ComposeSuggestionCell.height
+        tableView.rowHeight = ComposeSuggestionCell.listedHeight
         tableView.sectionHeaderHeight = 38
         tableView.sectionHeaderTopPadding = 0
         tableView.separatorInset = UIEdgeInsets(top: 0, left: ComposeSuggestionCell.textLeading, bottom: 0, right: 0)
