@@ -5604,9 +5604,11 @@
           ]
         },
         "forksAnyTurn": {
-          "default": false,
-          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent from a peer on an older acpmux, where a client\nfalls back to the family.",
-          "type": "boolean"
+          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent when unknown (the configuration was being written\nas the summary was built) and from a peer on an older acpmux: a client then falls back to\nthe family, never reads absence as false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "harness": {
           "type": "string"
@@ -6318,9 +6320,11 @@
           ]
         },
         "forksAnyTurn": {
-          "default": false,
-          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent from a peer on an older acpmux, where a client\nfalls back to the family.",
-          "type": "boolean"
+          "description": "Whether the chat forks, and edits, through any completed turn, not only its latest: its\nharness cuts a conversation at a turn (Claude Code and Codex, `config::turn_cut`), whatever\nfamily name its profile carries. Absent when unknown (the configuration was being written\nas the summary was built) and from a peer on an older acpmux: a client then falls back to\nthe family, never reads absence as false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "harness": {
           "type": "string"

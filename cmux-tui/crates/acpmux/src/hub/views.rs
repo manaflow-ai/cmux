@@ -492,12 +492,13 @@ impl Hub {
 
     /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
     /// profile cuts a conversation at a turn (`config::turn_cut`), by kind, not by family name (a
-    /// Claude Code profile named `claude-sr2` with that family is Claude Code too). False while the
-    /// configuration is being written, as the other summary reads of it.
-    pub(crate) fn forks_any_turn(&self, m: &crate::store::SessionMeta) -> bool {
-        self.config.try_read().ok().is_some_and(|cfg| {
-            cfg.profile(&m.harness).and_then(|p| crate::config::turn_cut(&m.harness, p)).is_some()
-        })
+    /// Claude Code profile named `claude-sr2` with that family is Claude Code too). None (unknown)
+    /// while the configuration is being written: a config write emits session events under its
+    /// lock, and a summary built then must not say false, which would take Fork and Edit off a
+    /// Claude or Codex chat.
+    pub(crate) fn forks_any_turn(&self, m: &crate::store::SessionMeta) -> Option<bool> {
+        let cfg = self.config.try_read().ok()?;
+        Some(cfg.profile(&m.harness).and_then(|p| crate::config::turn_cut(&m.harness, p)).is_some())
     }
 
     fn summary_with_tools(&self, session: &Session, with_tools: bool) -> Value {
@@ -1000,10 +1001,27 @@ mod forks_any_turn_tests {
         .unwrap();
         config.store.mode = crate::config::StoreMode::Memory;
         let hub = crate::hub::Hub::new(config, Box::new(crate::store::MemoryStore::default()));
-        assert!(hub.forks_any_turn(&meta("claude-sr2")));
-        assert!(hub.forks_any_turn(&meta("codex")));
-        assert!(!hub.forks_any_turn(&meta("opencode")));
-        assert!(!hub.forks_any_turn(&meta("gone")));
+        assert_eq!(hub.forks_any_turn(&meta("claude-sr2")), Some(true));
+        assert_eq!(hub.forks_any_turn(&meta("codex")), Some(true));
+        assert_eq!(hub.forks_any_turn(&meta("opencode")), Some(false));
+        assert_eq!(hub.forks_any_turn(&meta("gone")), Some(false));
+    }
+
+    /// A summary built while the configuration is being written (a default-permissions change
+    /// emits session events under the write lock) says nothing, never false: false would take
+    /// Fork and Edit off every earlier message of a Claude or Codex chat until the next summary.
+    #[test]
+    fn a_summary_built_during_a_config_write_leaves_forks_any_turn_unknown() {
+        let mut config: crate::config::Config =
+            serde_json::from_value(json!({"harnesses": {"codex": {"argv": ["codex-acp"]}}}))
+                .unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let hub = crate::hub::Hub::new(config, Box::new(crate::store::MemoryStore::default()));
+        let writing = hub.config.try_write().unwrap();
+        let unknown = hub.forks_any_turn(&meta("codex"));
+        drop(writing);
+        assert_eq!(unknown, None, "a contended read is unknown, not false");
+        assert_eq!(hub.forks_any_turn(&meta("codex")), Some(true), "known again once written");
     }
 }
 
