@@ -23,6 +23,7 @@ import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachine
 import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -75,9 +76,10 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -101,10 +103,12 @@ async function typePrompt(text: string) {
   return field;
 }
 
-async function press(field: MarkdownFieldElement, key: string) {
+async function press(field: MarkdownFieldElement, key: string, modifiers: KeyboardEventInit = {}) {
   const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   await act(async () => {
-    editor.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    editor.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers }),
+    );
   });
 }
 
@@ -599,6 +603,32 @@ test("Return on a typed address still opens it without a harness", async () => {
   } finally {
     unregister();
   }
+});
+
+// Lawrence 2026-11-11: Return on a typed address or search navigates the New Tab page's own tab (the host
+// replaces the page in place); Option-Return, as in Chrome's omnibox, asks for a new tab where links go.
+test("Return navigates the page's tab and Option-Return asks for a new tab beside it", async () => {
+  // Each call's arguments: the address (or search) and where it opens.
+  const opens: unknown[][] = [];
+  const searches: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        onOpen={(...args: unknown[]) => void opens.push(args)}
+        onSearch={(...args: unknown[]) => void searches.push(args)}
+      />,
+    );
+  });
+  const field = await typePrompt("https://example.com/");
+  await press(field, "Enter");
+  await typePrompt("https://example.org/");
+  await press(field, "Enter", { altKey: true });
+  expect(opens.map(([url, how]) => [url, (how as { beside?: boolean } | undefined)?.beside === true])).toEqual([
+    ["https://example.com/", false],
+    ["https://example.org/", true],
+  ]);
+  expect(searches).toEqual([]);
 });
 
 // A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed

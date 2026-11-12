@@ -165,6 +165,10 @@ import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
+/// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
+/// new tab where links go (Option-Return, an Option- or Cmd-click on a row, as in Chrome's omnibox).
+export type NewTabOpenHow = { beside?: boolean };
+
 export type NewTabScreenActions = NewTabCommandActions & {
   /// Setup can start the pending chat with its newly available harness, keeping this draft.
   onSetup?(continueWith: (harness: string) => void): void;
@@ -188,12 +192,16 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// project the person picked on this page, when there is one; it must win over the tab's
   /// inherited folder so checkout discovery uses the explicit choice.
   onFixFromLink?(url: string, cwd?: string, harness?: string, model?: string): void | Promise<void>;
-  onOpen(url: string): void;
+  /// An address the field or a row opens. Without `how` it navigates this page's own tab (Return, as in a
+  /// browser's new tab: Lawrence 2026-11-11); `how.beside` is Option-Return or an Option- or Cmd-click, a new
+  /// tab where links go.
+  onOpen(url: string, how?: NewTabOpenHow): void;
   /// Open in Profile…'s pick (Lawrence 2026-11-05): `url` in the browser profile `id`.
-  onOpenInProfile?(url: string, id: string): void;
+  onOpenInProfile?(url: string, id: string, how?: NewTabOpenHow): void;
   /// Open in New Profile: `url` in a profile made for it, named `name` (else the host's default name).
   onOpenInNewProfile?(url: string, name?: string): void;
-  onSearch(text: string): void;
+  /// A web search for `text`, placed as ``onOpen``'s address is.
+  onSearch(text: string, how?: NewTabOpenHow): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
   onShell(command: string): void;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
@@ -646,7 +654,7 @@ export function NewTabScreen(props: Props) {
   }, []);
   // The input card, which a file drag rings (composer/DropOverlay.tsx).
   const dropLandingTarget = useCallback(() => fieldElement()?.closest(".nt-box") ?? null, []);
-  const submitNow = useRef(() => {});
+  const submitNow = useRef((_beside?: boolean) => {});
   /// Set while the send a finished dictation session waited for goes (submit, below).
   const dictationEnded = useRef(false);
   /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
@@ -759,6 +767,14 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  // A refusal is about the send it answered: another mode or folder is a new pick, so it goes
+  // (it stayed over every folder and team Leo then picked, 2026-11-10).
+  const refusalPick = `${props.runMode?.mode ?? ""}\u0000${envFolder ?? ""}`;
+  const [refusedPick, setRefusedPick] = useState(refusalPick);
+  if (refusedPick !== refusalPick) {
+    setRefusedPick(refusalPick);
+    setSandboxRefusal(undefined);
+  }
   const [startError, setStartError] = useState<NewTabStartFailure>();
   /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
   /// opens the page again, never an older one's late reply.
@@ -1321,14 +1337,17 @@ export function NewTabScreen(props: Props) {
     };
   }, [inputToken, focusOnShow, fieldReady]);
 
-  const activate = (row: ScreenRow) => {
+  /// Runs `row`; `beside` (Option-Return, a modified click) opens a browser pick as a new tab instead of
+  /// navigating this page's tab.
+  const activate = (row: ScreenRow, beside = false) => {
+    const how = beside ? { beside: true } : undefined;
     switch (row.type) {
       case "search":
-        return props.onSearch(row.text);
+        return props.onSearch(row.text, how);
       case "open":
-        return props.onOpen(row.url);
+        return props.onOpen(row.url, how);
       case "history":
-        return props.onOpen(row.url);
+        return props.onOpen(row.url, how);
       case "tab":
         return props.onJump("tab", row.id);
       case "workspace":
@@ -1342,7 +1361,7 @@ export function NewTabScreen(props: Props) {
       case "inProfile":
         return enterProfilePick(row.url, row.text);
       case "profile":
-        return props.onOpenInProfile?.(row.url, row.id);
+        return props.onOpenInProfile?.(row.url, row.id, how);
       case "newProfile":
         return props.onOpenInNewProfile?.(row.url, row.name);
     }
@@ -1394,14 +1413,15 @@ export function NewTabScreen(props: Props) {
       environment || newProject || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
     );
   };
-  const submit = () => {
+  /// Return on the field; `beside` is Option-Return (an address or search opens as a new tab).
+  const submit = (beside = false) => {
     // A dictation session still running ends first, keeping its words; this goes once they land.
     if (listening && props.dictation && !dictationEnded.current) {
       props.dictation.finish(() => {
         // The session is over even if this render has not heard so yet.
         dictationEnded.current = true;
         try {
-          submitNow.current();
+          submitNow.current(beside);
         } finally {
           dictationEnded.current = false;
         }
@@ -1411,7 +1431,7 @@ export function NewTabScreen(props: Props) {
     // The profile search: Return opens the address in the highlighted profile (the first one).
     if (profilePick) {
       const row = rows[current] ?? suggested[defaultSelection(suggested)];
-      if (row) activate(row);
+      if (row) activate(row, beside);
       return;
     }
     const prompt = typed.trim();
@@ -1420,7 +1440,7 @@ export function NewTabScreen(props: Props) {
     // with the address bar's word, and the page keeps the text.
     if (!shell && pairingLinkRefused(typed)) return props.onOpen(typed.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
-    if (holdForAttachments(() => submitNow.current())) return;
+    if (holdForAttachments(() => submitNow.current(beside))) return;
     if (command.intercept(prompt, harness, attachments.length)) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
     // address with no row selected (↑ from the top row): there is no prompt to send.
@@ -1436,7 +1456,7 @@ export function NewTabScreen(props: Props) {
       openSetup();
       return;
     }
-    if (row && keeps) return activate(row);
+    if (row && keeps) return activate(row, beside);
     // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
     if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) {
       // A fresh install has no harness to ask yet. Return on the empty composer should take the
@@ -1726,6 +1746,11 @@ export function NewTabScreen(props: Props) {
     } else if (event.key === "Enter" && event.metaKey && !event.shiftKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       askTyped();
+    } else if (event.key === "Enter" && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+      // Option-Return, as in Chrome's omnibox: an address or search opens as a new tab where links go; plain
+      // Return navigates this page's tab.
+      event.preventDefault();
+      submit(true);
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
@@ -2743,7 +2768,8 @@ export function NewTabScreen(props: Props) {
                     // anymore it doesnt send it to claude"). A press still runs the row it presses.
                     onMouseDown={(event) => {
                       event.preventDefault();
-                      activate(row);
+                      // Option- or Cmd-click: a page row opens as a new tab, as in Chrome's omnibox.
+                      activate(row, event.altKey || event.metaKey);
                     }}
                   >
                     {rowFavicon(row) ? (

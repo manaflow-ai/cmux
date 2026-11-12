@@ -45,10 +45,6 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
-    # lane = "manual" (no new CI tests, CLAUDE.md). It reads the workflows only as data: that each job portable
-    # placement may put on a mini installs PyYAML before it runs Python tests. Run it by hand after adding
-    # such a job. Exit: as below.
-    "tests/test_portable_jobs_bring_their_python.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.
@@ -149,6 +145,14 @@ UNWIRED: set[str] = {
     # lane = "manual" for the same rule. It fails when a publishing step of coderouter-release.yml or app-ffi-release.yml
     # loses its release-ref gate or a workflow_dispatch can reach it; run it by hand after editing either workflow.
     "tests/test_ci_release_publish_tag_gate.py",
+    # lane = "manual" (tests/test-execution.d/ci.toml): it pins scripts/cmux-next/check-single-host-fallbacks.py,
+    # which ci-guards.yml runs only with --advisory and the pre-push gate runs strictly. Run it by hand after
+    # changing the checker or .github/single-host-fallbacks.json.
+    "tests/test_ci_single_host_fallbacks.py",
+    # No new CI tests (CLAUDE.md). It needs cargo, which no guard step has, and reads rust-workspaces.yml's lock
+    # check step; that job runs scripts/cmux-next/cargo-locks.py check --strict itself on every Rust change. Run
+    # it by hand after changing cargo-locks.py or that step.
+    "tests/test_cargo_locks.py",
 }
 
 

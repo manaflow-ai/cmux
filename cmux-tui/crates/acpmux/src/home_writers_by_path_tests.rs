@@ -1265,10 +1265,16 @@ fn read_func<'a>(index: &Index<'a>, state: &State, at: usize, with_params: bool)
         }
     }
     if !scope.builders.is_empty() {
+        // A method anywhere on a chain that starts at the local counts, not only one called on
+        // the local itself: `options.read(true).write(true)` writes (#41462 review F2).
         struct OnLocal<'b>(&'b mut HashMap<String, (bool, HashSet<String>)>);
         impl<'ast> Visit<'ast> for OnLocal<'_> {
             fn visit_expr_method_call(&mut self, m: &'ast syn::ExprMethodCall) {
-                if let syn::Expr::Path(p) = &*m.receiver
+                let mut root = &*m.receiver;
+                while let syn::Expr::MethodCall(inner) = root {
+                    root = &inner.receiver;
+                }
+                if let syn::Expr::Path(p) = root
                     && let Some(ident) = p.path.get_ident()
                     && let Some((_, methods)) = self.0.get_mut(&ident.to_string())
                 {
@@ -1505,6 +1511,32 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
             }
             "#,
         ),
+        // #41462 review F2: a builder local whose write flags follow another method in one
+        // chain (`options.read(true).write(true)`): the chain's receiver is a method call, not
+        // the local. A local that only reads is no row.
+        source(
+            "src/workflow_runs.rs",
+            &["workflow_runs"],
+            r#"
+            use std::fs::OpenOptions;
+            use std::path::Path;
+            fn lock(dir: &Path) -> std::io::Result<std::fs::File> {
+                let mut options = OpenOptions::new();
+                options.read(true).write(true).create(true).truncate(false);
+                options.open(dir.join("record.lock"))
+            }
+            fn read(path: &Path) -> std::io::Result<std::fs::File> {
+                let mut options = OpenOptions::new();
+                options.read(true);
+                options.open(path)
+            }
+            pub fn start(id: &str) {
+                let dir = crate::config::home().join("workflows").join(id);
+                let _ = lock(&dir);
+                let _ = read(&dir.join("record.json"));
+            }
+            "#,
+        ),
     ];
     let rows: Vec<String> =
         analyze(&sources).iter().map(|r| format!("{} {}: {}", r.rel, r.func, r.sink)).collect();
@@ -1517,6 +1549,7 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
         "src/store/cold.rs LocalStore::rehydrate: fs::rename",
         "src/store/compact.rs Staged::drop: fs::remove_file",
         "src/store/compact.rs LocalStore::commit: fs::rename",
+        "src/workflow_runs.rs lock: OpenOptions::open",
     ];
     // `write_atomic` is no row: nothing here calls it with a path from the home.
     let mut rows = rows;

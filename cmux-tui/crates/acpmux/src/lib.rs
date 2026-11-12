@@ -183,6 +183,7 @@ mod route_probe;
 pub mod route_shadow;
 mod router_socket;
 pub mod routes;
+pub mod rows;
 pub mod rpc;
 pub mod run_elsewhere;
 pub mod schema;

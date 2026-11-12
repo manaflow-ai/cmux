@@ -9,10 +9,9 @@ import Testing
 /// positioning and spacing throughout all the different modes". In a real window at each density the top
 /// row (traffic lights, sidebar toggle, Back, Forward, the sidebar's +) keeps one rhythm:
 /// - the lights sit as far from the window's left edge as from its top edge;
-/// - the toggle's glyph sits that same distance right of the lights;
 /// - every top-row button has one size, the +'s;
-/// - Back and Forward's glyphs are as far apart as the toggle's and Back's (the pair is not looser than
-///   the gap before it).
+/// - as in cmux classic (Lawrence 2026-11-11: the gaps between the lights, the toggle and Back were uneven at
+///   Compact), the lights, the toggle's glyph, Back's and Forward's stand evenly apart.
 @MainActor @Suite(.serialized) struct TopRowSpacingDensityTests {
     /// The glyph's drawn extent (alpha > 0.3) in window x, from the button's image centered in its frame.
     private func ink(_ button: NSButton) throws -> ClosedRange<CGFloat> {
@@ -65,11 +64,10 @@ import Testing
         let group = back.lowerBound - toggle.upperBound, pair = forward.lowerBound - back.upperBound
         print("SPACING|\(density.rawValue)|top \(top) left \(left)|after lights \(afterLights)|group \(group)|pair \(pair)")
         #expect(abs(left - top) <= 0.5, "\(density): the lights are \(left) from the left edge, \(top) from the top")
-        #expect(abs(afterLights - left) <= 0.75, "\(density): the toggle's glyph is \(afterLights) right of the lights, which sit \(left) in")
+        #expect(abs(afterLights - group) <= 1.5, "\(density): the toggle's glyph is \(afterLights) right of the lights, \(group) before Back")
         for button in [band.sidebarToggle, band.backButton, band.forwardButton] as [NSView] {
             #expect(button.frame.size == plus.frame.size, "\(density): a band button is \(button.frame.size), the + is \(plus.frame.size)")
         }
-        #expect(pair <= group + 1.5, "\(density): Back and Forward are \(pair) apart, more than the \(group) before Back")
-        #expect(pair >= group * 0.75, "\(density): Back and Forward are \(pair) apart, far tighter than the \(group) before Back")
+        #expect(abs(pair - group) <= 1.5, "\(density): Back and Forward are \(pair) apart, the toggle and Back \(group)")
     }
 }

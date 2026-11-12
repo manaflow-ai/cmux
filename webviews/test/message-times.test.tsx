@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { exactTime, messageAge, nextMessageAge } from "../src/agent-session/acpmux/conversation/relativeTime";
 import { pageClocks } from "../src/ui/pageClock";
+import { settleReact } from "./support/domTeardown";
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
@@ -130,7 +131,8 @@ afterEach(() => {
   root = undefined;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

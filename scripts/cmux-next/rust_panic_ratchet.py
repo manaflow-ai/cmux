@@ -40,6 +40,7 @@ only for hits it adds. A base run that did not finish excuses nothing.
 """
 import argparse
 import collections
+import functools
 import json
 import os
 import re
@@ -51,10 +52,12 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 BASELINE = os.path.join(HERE, "rust-panic-baseline.json")
 
 
+@functools.lru_cache(maxsize=None)
 def refresh_base(root, ref: str) -> str:
     """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
     copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
-    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's, once per process); a failed fetch is said on
+    stderr, once: _changed_first asks for every failing crate/lint group."""
     import importlib.util
     push_range = os.path.join(HERE, "push_range.py")
     spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)

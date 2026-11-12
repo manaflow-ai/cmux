@@ -1,9 +1,32 @@
 # cmux next: pane keys (Ctrl-Shift-HJKL), one model
 
-Status: landed 2026-11-08 (resize rule). Owner: Chief subagent "Pane move model redesign".
+Status: landed 2026-11-08 (resize rule); splits and rows changed 2026-11-11 (see "Splits follow the arrow"). Owner: Chief subagent "Pane move model redesign".
 User (2026-11-07): "behavior of ctrl shift hjkl is still unintuitive to me, with regards to splits and
 columns, from first principles what is the most sensible way to do this? maybe there's a better
 abstraction than splits and columns".
+
+## Splits follow the arrow (2026-11-11)
+
+User (2026-11-11): "ctrl shift hl behavior is unintuitive when i'm in a column, i think it sizes things the wrong
+way?? like inside a single column?" The grow/shrink rule below made Ctrl-Shift-H on the right pane of a side-by-side
+split (in a screen or inside a column) move the divider **right**: the pane got narrower, against the arrow.
+
+Rule now, two cases:
+
+1. **A split around the focused pane along the arrow's axis** (inside a screen, a column or a row), and a **rows-v1 row
+   edge**: the nearest such divider moves **in the arrow's direction**, whichever side of it the pane is on (tmux,
+   Ghostty `resize_split`). H / L never move a stacked (vertical) split; K / J never move a side-by-side one. A divider
+   at its limit refuses the press; the key never falls back to the column's edge or another split.
+2. **No such split** (a strip column or a dock with no side-by-side split around the pane): the grow/shrink rule below
+   stays, niri's column width +/-: L / J make the column or dock wider / taller, H / K narrower / shorter.
+
+Why the split: a divider between two panes is something a person sees and pushes; a strip column is a width (niri),
+and its last column's left edge moving left on L is the column growing. Cost: a pane inside a column's split no longer
+widens its column from the keyboard (drag the column edge, or focus a pane with no side-by-side split). Tests:
+`KeyboardResizeSplitDividerTests` (one column split both panes, split screen, middle/last column split, stack over a
+pair, middle of three, stacked column J/K, H/L never touch a stack, divider at its limit refused, rows).
+
+The tables below describe 2026-11-08; their split and row rows are replaced by case 1.
 
 ## What Ctrl-Shift-HJKL is today
 

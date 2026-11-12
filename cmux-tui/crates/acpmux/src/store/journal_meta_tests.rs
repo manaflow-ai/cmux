@@ -34,6 +34,23 @@ fn open(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
         .unwrap_or_else(|e| panic!("open the store: {e:#}"))
 }
 
+/// Opens the store at `home` and returns once its checkpointer went idle: the checkpoint the
+/// replay asks for (`JournalStore::open`) has run on its thread. Only a later change wakes it
+/// again, one period (30 s) after that change, so the journal keeps the records of the saves
+/// that follow until the test's own flush or kill.
+fn open_after_replay_checkpoint(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
+    let (arrived, idle) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    super::journal_store::checkpointer_seams(home, |seams| {
+        seams.idle_hold = Some((arrived, released));
+    });
+    let store = open(home, journal);
+    idle.recv_timeout(WAIT)
+        .unwrap_or_else(|e| panic!("the checkpointer never went idle after the open: {e}"));
+    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    store
+}
+
 fn meta(id: &str, name: &str, last_seq: u64) -> SessionMeta {
     serde_json::from_value(json!({
         "schema": META_SCHEMA,
@@ -1579,7 +1596,10 @@ fn a_session_json_written_outside_the_store_is_never_patched_over() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    let store = open(home.path(), &killed);
+    // The checkpoint the replay asks for runs on the checkpointer's thread, at background
+    // priority: under load it can come after the saves below and retire their records before
+    // the kill, and then nothing replays to go aside. Wait for it first.
+    let store = open_after_replay_checkpoint(home.path(), &killed);
     let loaded = store
         .load(CHAT)
         .unwrap_or_else(|e| panic!("{e:#}"))
