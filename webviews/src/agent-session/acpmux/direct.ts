@@ -537,7 +537,8 @@ type AttachWatch = {
 /// together with its attach so the chat waits on one round trip, not two (`startAttachReads`).
 type AttachReads = { permissions: Promise<void>; handoff?: Promise<void> };
 /// An attach as it was sent: its reply, and the reads asked with it.
-type SentAttach = { attaching: Promise<any>; reads?: AttachReads };
+type AttachHold = { sessionId: string; generation: number };
+type SentAttach = { attaching: Promise<any>; reads?: AttachReads; hold: AttachHold };
 /// The attach of the chat a page opens, asked with the chat list instead of after it (`askEarly`),
 /// so the chat's first frame waits on one daemon reply after the handshake. `live` holds the chat's
 /// records that came before the open took the attach, applied in order once it does: as if the
@@ -3257,7 +3258,7 @@ export class AcpmuxDirectClient {
   /// The attach out now, of which session: a row that says its machine is back while it is out
   /// (no copy drawn yet) is kept for after it, as for a copy's attach (`copyBack`).
   /// The attach of the selected chat that is out.
-  private attachOut?: { sessionId: string };
+  private attachOut?: AttachHold;
   /// Each session and machine the selected chat's row named while an attach of it ran, from its
   /// ask until it drew its page (one entry each): the page is of none of the others (`attach`).
   private attachWatch?: AttachWatch;
@@ -6617,7 +6618,7 @@ export class AcpmuxDirectClient {
 
   /// Asks acpmux to attach `sessionId` (its newest page, then its records live) and, with
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip.
-  private sendAttach(sessionId: string, generation: number, reads: boolean): SentAttach {
+  private sendAttach(sessionId: string, generation: number, reads: boolean, hold?: AttachHold): SentAttach {
     const visible = readerHere();
     const ask = (settled: boolean) =>
       this.typed("_acpmux/attach", {
@@ -6657,16 +6658,19 @@ export class AcpmuxDirectClient {
           return ask(false);
         })
       : ask(false);
-    const out = { sessionId };
+    const out = hold ?? { sessionId, generation };
     this.attachOut = out;
+    const failed = () => {
+      if (this.attachOut === out) this.attachOut = undefined;
+    };
     this.attaching = attaching.then(
       () => {
         if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
           this.shownToAcpmux = { sessionId, visible };
       },
-      () => {},
+      () => failed(),
     );
-    return { attaching, reads: reads ? this.startAttachReads(sessionId) : undefined };
+    return { attaching, reads: reads ? this.startAttachReads(sessionId) : undefined, hold: out };
   }
 
   /// The chat's permission groups and handoff, read as its attach is asked rather than once it
@@ -6784,12 +6788,13 @@ export class AcpmuxDirectClient {
     const watch: AttachWatch = early?.watch ?? { sessionId, seen: new Map() };
     this.attachWatch = watch;
     const token = this.copyAttaches;
+    const hold = early?.sent.hold ?? { sessionId, generation };
     try {
-      const page = await this.attachWatched(watch, sessionId, generation, keptThrough, tries, early);
+      const page = await this.attachWatched(watch, sessionId, generation, keptThrough, tries, hold, early);
       // `attachWatched` publishes the page while the old rows are still held. Release that hold
       // only after the complete page is available, then publish once more so the pane can retire
       // the retained rows in the same chat without an empty frame.
-      if (this.attachOut?.sessionId === sessionId) {
+      if (this.attachOut === hold) {
         this.attachOut = undefined;
         this.emit("attach-complete");
       }
@@ -6809,7 +6814,7 @@ export class AcpmuxDirectClient {
     } finally {
       // A failed attach must release only its own hold. If another attach already took over this
       // chat, its `attachWatch` and `attachOut` remain authoritative.
-      if (this.attachWatch === watch && this.attachOut?.sessionId === sessionId) this.attachOut = undefined;
+      if (this.attachWatch === watch && this.attachOut === hold) this.attachOut = undefined;
       if (this.attachWatch === watch) this.attachWatch = undefined;
     }
   }
@@ -6820,6 +6825,7 @@ export class AcpmuxDirectClient {
     generation: number,
     keptThrough: number,
     tries: number,
+    hold: AttachHold,
     early?: EarlyAttach,
   ): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
@@ -6843,7 +6849,7 @@ export class AcpmuxDirectClient {
     watch.asked = { createdAt: askedGen, peer: askedOf };
     // A chat on another machine reads its asks and handoff once its attach answers, as before:
     // its machine may be down, and the Mac's copy shown then has none to read.
-    const sent = early?.sent ?? this.sendAttach(sessionId, generation, typeof askedOf !== "string");
+    const sent = early?.sent ?? this.sendAttach(sessionId, generation, typeof askedOf !== "string", hold);
     // What came live of the chat since the attach asked with the list applies now, once its rows
     // are drawn and held (`copyLive`). One the open dropped: this attach's page holds what it
     // streamed, so none of it applies (`dropEarly`), and what comes from here on does.

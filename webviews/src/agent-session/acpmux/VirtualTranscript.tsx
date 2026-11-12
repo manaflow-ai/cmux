@@ -1229,6 +1229,7 @@ function TranscriptView({
   loadThrough,
   loadPromptIndex,
   sessionId,
+  sessionGeneration,
   onToggleActivity,
   onOpenDiff,
   expanded,
@@ -1284,6 +1285,8 @@ function TranscriptView({
   /// Asks for the chat's prompt index (a hover or click on a pending tick): true once it named them.
   loadPromptIndex?: () => Promise<boolean>;
   sessionId?: string;
+  /// The session's creation generation, so a recreated chat cannot reuse a row's reveal state.
+  sessionGeneration?: number;
   /// Where the transcript opens instead of the latest message, when that row is loaded.
   openAt?: ScrollAnchor;
   /// Where it rests after each settled scroll (null at the latest message).
@@ -5748,7 +5751,7 @@ function TranscriptView({
                       row.kind === WORKED && isExpanded ? disclosureControls(rows, absoluteIndex + 1) : undefined;
                     return (
                       <RowFrame
-                        key={`${sessionId ?? ""}:${rowFrameKey(row)}`}
+                        key={`${sessionId ?? ""}:${sessionGeneration ?? ""}:${rowFrameKey(row)}`}
                         row={row}
                         kind={kind}
                         joinsPrevious={

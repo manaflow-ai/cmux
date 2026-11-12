@@ -64,18 +64,30 @@ type Loop = {
 };
 
 /// The part of `text` to show this frame, and the steps still fading in.
-export function useStreamReveal(text: string, streaming: boolean): { visible: string; fresh: Reveal[]; now: number } {
+export function useStreamReveal(
+  text: string,
+  streaming: boolean,
+  identity?: string | number,
+): { visible: string; fresh: Reveal[]; now: number } {
   const reveal = useRef<StreamReveal | null>(null);
   const reduce = useRef<boolean | null>(null);
   reduce.current ??= reducedMotion();
+  const identityRef = useRef(identity);
+  const identityChanged = identity !== identityRef.current;
+  if (identityChanged) identityRef.current = identity;
   // Assistant text is append-only. A reconnect can briefly deliver a shorter prefix; keep the
   // last complete body on screen until the replacement page restores it.
   const knownText = useRef(text);
   const previous = useRef({ text, streaming });
+  if (identityChanged) {
+    knownText.current = text;
+    previous.current = { text, streaming };
+  }
   const historicalReplacement = !streaming && !previous.current.streaming && text !== previous.current.text;
   if (text.length >= knownText.current.length) knownText.current = text;
   const displayText = text.length < knownText.current.length ? knownText.current : text;
   // Text there when the row mounts shows at once; only what arrives after it flows in.
+  if (identityChanged) reveal.current = new StreamReveal({ initial: displayText, reduceMotion: reduce.current });
   reveal.current ??= new StreamReveal({ initial: displayText, reduceMotion: reduce.current });
   const [shown, setShown] = useState<Shown>(() => ({ length: displayText.length, fresh: [], now: 0 }));
   const latest = useRef({ text: displayText, streaming, shown });
@@ -90,7 +102,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     // A completed historical row is already settled when it is published. If a page swap gives
     // it a fuller body, paint that body in the same commit; waiting for the reveal loop would show
     // the old prefix and animate the restored suffix as if it were new text.
-    if (historicalReplacement) {
+    if (identityChanged || historicalReplacement) {
       current.replace(displayText);
       const next = { length: displayText.length, fresh: [], now: shown.now };
       latest.current.shown = next;
@@ -163,7 +175,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     loop.current.handle = revealFrames.request(tick);
     // `shown` is read only to skip a loop that has nothing to do.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayText, historicalReplacement, shown, streaming]);
+  }, [displayText, historicalReplacement, identityChanged, shown, streaming]);
   useLayoutEffect(() => {
     previous.current = { text, streaming };
   }, [text, streaming]);
@@ -200,8 +212,11 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     return () => query.removeEventListener("change", changed);
   }, []);
   return {
-    visible: historicalReplacement ? displayText : displayText.slice(0, Math.min(shown.length, displayText.length)),
-    fresh: historicalReplacement ? [] : shown.fresh,
+    visible:
+      identityChanged || historicalReplacement
+        ? displayText
+        : displayText.slice(0, Math.min(shown.length, displayText.length)),
+    fresh: identityChanged || historicalReplacement ? [] : shown.fresh,
     now: shown.now,
   };
 }

@@ -68,8 +68,10 @@ function frames(from: number, count: number): string[] {
   return seen;
 }
 
-const render = (text: string, streaming: boolean) =>
-  act(() => root!.render(<RevealedMarkdown text={text} streaming={streaming} />));
+const render = (text: string, streaming: boolean, artifactIdentity?: string) =>
+  act(() => {
+    root!.render(<RevealedMarkdown text={text} streaming={streaming} artifactIdentity={artifactIdentity} />);
+  });
 
 test("a completed reply replaced by its full historical text does not re-reveal", () => {
   root = createRoot(container);
@@ -77,6 +79,15 @@ test("a completed reply replaced by its full historical text does not re-reveal"
   render("Earlier paragraph.\n\nAlready visible suffix.", false);
 
   expect(container.querySelector(".cv-md")?.textContent).toBe("Earlier paragraph.Already visible suffix.");
+  expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
+});
+
+test("a recreated reply with a reused row id does not keep the old body", () => {
+  root = createRoot(container);
+  render("The old session had a longer answer.", false, "assistant-1:old");
+  render("The new session answer.", false, "assistant-1:new");
+
+  expect(container.querySelector(".cv-md")?.textContent).toBe("The new session answer.");
   expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
 });
 

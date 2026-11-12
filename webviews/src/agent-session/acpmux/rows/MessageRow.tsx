@@ -210,7 +210,9 @@ export const MessageRow = memo(
         streaming={row.streaming === true}
         githubRepository={githubRepository}
         messageAt={row.at}
-        artifactIdentity={row.id}
+        // `row.id` can repeat when a recreated session starts its sequence over. The event time
+        // keeps a replacement reply from inheriting the old row's reveal state.
+        artifactIdentity={`${row.id}:${row.at ?? ""}`}
         artifactRevision={row.version}
         // No claim marks (#39244's green or red underline on "tests pass"): Codex draws a reply as
         // written (Lucas, 2026-11-11: "we want to remove this red line thing").
