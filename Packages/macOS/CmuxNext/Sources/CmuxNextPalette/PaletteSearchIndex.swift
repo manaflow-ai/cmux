@@ -112,7 +112,8 @@ extension PaletteSearchEntry {
             queryPrefix: item.queryPrefix,
             sectionIndex: sectionIndex
         )
-        hidesWhenTyping = item.hidesWhenTyping
+        // A notice is not a result: the ranker never finds it for a typed query, the model adds it (`PaletteModel.withNotices`).
+        hidesWhenTyping = item.hidesWhenTyping || item.showsForEveryQuery
         entersScope = item.enters != nil
         actionID = item.actionID?.rawValue
         demoted = item.isDemoted

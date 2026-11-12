@@ -67,6 +67,12 @@ public struct PaletteItem: Identifiable {
     /// The row matches a query but is left out of the empty query's list (a family member that
     /// its family's row stands for).
     public var hidesWhenQueryEmpty = false
+    /// The row is a notice about the list itself, not a result (a list that is not complete yet): on a page
+    /// that filters by the typed query, the query never filters it out and never finds it. It is on screen
+    /// only, right under the rows the query found in its section, or last under its section's header when the
+    /// query found none of them: it is not ranked, not selected and not a row Return runs. A headless query
+    /// (`PaletteController.query`) with a text does not list it.
+    public var showsForEveryQuery = false
     /// A row of a secondary kind (a setting): it ranks below a command with
     /// the same match (ten setting rows are titled "Color"), so 200 setting
     /// rows never bury the commands.
@@ -103,6 +109,7 @@ public struct PaletteItem: Identifiable {
         section: PaletteSection = .results,
         keywords: [String] = [],
         isEnabled: Bool = true,
+        showsForEveryQuery: Bool = false,
         primary: PaletteCommand,
         alternate: PaletteCommand? = nil,
         secondary: [PaletteCommand] = [],
@@ -121,6 +128,7 @@ public struct PaletteItem: Identifiable {
         self.section = section
         self.keywords = keywords
         self.isEnabled = isEnabled
+        self.showsForEveryQuery = showsForEveryQuery
         self.primary = primary
         self.alternate = alternate
         self.secondary = secondary

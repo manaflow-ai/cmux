@@ -25,6 +25,9 @@ final class PageState {
     var answeringSearch: Int?
     var answersQuery: Bool { answeringSearch != nil }
     var tasks: [Task<Void, Never>] = []
+    /// How many of the provider reads in `tasks` have not ended. A list that reads again by itself
+    /// (`AsyncPaletteProvider.rereading`) can run for minutes: a hidden palette ends it (`PaletteModel.didHide`).
+    var liveReads = 0
     /// The query the page's contributed answers last asked for (`PaletteContributedAnswers`).
     var answeredQuery: String?
     /// Each contributed answer's last rows, by section id, and the query they answer: `answeredQuery`'s, or an
@@ -70,6 +73,8 @@ final class PageState {
     private(set) var items: [PaletteItem] = []
     private(set) var sections: [PaletteSection] = []
     private(set) var entries: [PaletteSearchEntry] = []
+    /// The rows a typed query never filters out (`PaletteItem.showsForEveryQuery`), in item order. Empty for nearly every page.
+    private(set) var notices: [PaletteItem] = []
     private(set) var version = 0
     /// Versions are unique across pages: the searcher keeps one index and
     /// must never mistake another page's snapshot for this one.
@@ -111,6 +116,7 @@ final class PageState {
         var sections: [PaletteSection] = []
         var sectionIndexByID: [String: Int] = [:]
         var seen = Set<String>()
+        var notices: [PaletteItem] = []
         for provider in page.providers {
             for item in providerItems[provider.id] ?? [] where seen.insert(item.id).inserted {
                 let sectionIndex: Int
@@ -122,6 +128,7 @@ final class PageState {
                     sections.append(item.section)
                 }
                 items.append(item)
+                if item.showsForEveryQuery { notices.append(item) }
                 let visible = provider.showsItemsForEmptyQuery && item.queryPrefix == nil && !item.hidesWhenQueryEmpty
                 entries.append(PaletteSearchEntry(item, visible: visible, sectionIndex: sectionIndex))
             }
@@ -153,6 +160,7 @@ final class PageState {
         self.items = items
         self.entries = entries
         self.sections = sections
+        self.notices = notices
         Self.versionCounter += 1
         version = Self.versionCounter
     }
@@ -168,10 +176,15 @@ final class PageState {
     }
 
     func cancel() {
-        for task in tasks { task.cancel() }
-        tasks = []
+        cancelReads()
         cancelAnswers()
         sourceTokens = []
+    }
+
+    /// Ends the provider reads that still run; the rows they gave stay.
+    func cancelReads() {
+        for task in tasks { task.cancel() }
+        tasks = []
     }
 
     /// Ends the contributed answers' streams and drops their rows (the page is left).
