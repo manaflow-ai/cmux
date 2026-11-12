@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43304139489",
+  "recorded_at": "2026-11-12T20:59:00Z",
+  "reason": "image inputs changed in 9077fb8059ab9224bd881fa78e35f306cc52c318..c35c324b52e325efd9101a578995f532f995f047",
+  "dry_run": false,
+  "cmux_tui": "ddfc3af2937bbbb0f5e73ee68434b8cf3df38127",
+  "fixes": [
+    {
+      "sha": "c35c324b52e325efd9101a578995f532f995f047",
+      "mergedAt": "2026-11-12T12:49:35-08:00",
+      "subject": "repo: delete root notes no one reads, and the app's orphan copy of the tasks catalog (#42074)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T20:59:00Z",
+    "snapshot_id": "sh-aa0e6f9e02374a3e97fa53725aa5e389",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43304139489): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9c16ec59de216e7f0bba5cb1268c6b97e72cd57d",
+    "image": "cloud-native-auto-ddfc3af2-43304139489-1",
+    "revision": "ci-43304139489-1",
+    "at": "2026-11-12T20:59:00Z"
+  },
+  "rolled_back": false
+}
