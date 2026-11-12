@@ -126,24 +126,29 @@ pub(crate) fn create_dir_all(dir: impl AsRef<Path>, mode: u32) -> io::Result<()>
 }
 
 /// Off Unix: refuses an operation on `path` under a home that is no longer the held one (its
-/// file id moved on), right before the operation.
-#[cfg(not(unix))]
+/// file id moved on), right before the operation. Built in tests on every platform too: the
+/// forced race on [`held_read`] (`lost_home_race_tests.rs`) runs on Linux CI, with the same home
+/// check (`config::refuse_lost_home`), which compares the device and inode there.
+#[cfg(any(not(unix), test))]
 fn held(path: &Path) -> io::Result<()> {
     crate::config::refuse_lost_home(path).map_err(io::Error::other)
 }
 
 /// Off Unix: `read` of `path`, made between two checks of the home ([`held`]): the answer is the
 /// held home's, or an error when the home was replaced before or during the read. A replacement
-/// that lacks a file the held home has then never reads as "not there" (#41721 review F1).
-#[cfg(not(unix))]
-fn held_read<T, E: From<io::Error>>(
+/// that lacks a file the held home has then never reads as "not there" (#41721 review F1). The
+/// second check runs whatever the read answered: a read that failed in a replacement (a
+/// `NotFound`, which `LocalStore::load` reads as "no session") is the lost home's error too
+/// (#41915 review F1).
+#[cfg(any(not(unix), test))]
+pub(crate) fn held_read<T, E: From<io::Error>>(
     path: &Path,
     read: impl FnOnce() -> Result<T, E>,
 ) -> Result<T, E> {
     held(path)?;
-    let answer = read()?;
+    let answer = read();
     held(path)?;
-    Ok(answer)
+    answer
 }
 
 /// [`create_dir_all`] with 0700, and an existing folder of this user narrowed to 0700 (one an

@@ -78,11 +78,16 @@ start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` en
 call through the ACP permission flow: announced, asked, run only after an allow.
 
 CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
-FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri"} (its own, as it starts) to <path>.
+FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri", "nice"} (its own, as it starts) to <path>.
 "class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
+
+Start under load (tests/start_under_load_bench.rs):
+FAKE_BOOT_CPU_MS=<ms>: before it reads its first line, the agent spends that much CPU time (not
+wall time), as a real harness spends CPU loading its code: on a busy machine a harness that gets
+little of the CPU takes much longer to start.
 """
 import base64
 import hashlib
@@ -118,6 +123,17 @@ RUNNING_MCP = []
 # schema strips the draft `subagents` field, so that one does not count).
 NATIVE_SUBAGENTS = False
 SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
+
+
+def boot_work():
+    """FAKE_BOOT_CPU_MS: this process's CPU time, spent before it reads anything."""
+    budget = int(os.environ.get("FAKE_BOOT_CPU_MS", "0")) / 1000
+    until = time.process_time() + budget
+    while time.process_time() < until:
+        pass
+
+
+boot_work()
 
 
 def send(obj):
@@ -1813,7 +1829,8 @@ def main():
             LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
-                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
+                nice = os.getpriority(os.PRIO_PROCESS, 0)
+                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri(), "nice": nice}) + "\n")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
         # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
         # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.

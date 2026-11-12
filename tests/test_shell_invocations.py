@@ -124,6 +124,8 @@ FIXTURES = [
     # The parser reads what bash reads (#41768 review: a `case` pattern credited as a command, `X+=x cmd` unseen). Each
     # row is a place the two disagreed: a word bash takes as an assignment, a pattern, an arithmetic or conditional
     # expression, or an expansion of the program word.
+    ("an assignment operator after a quoted subscript equals is still an assignment (dep-fleet-6 F1)",
+     'X["a=b"]=v gh', {"gh"}, None),
     ("an append assignment before a command (#41768 F2)", "X+=x gh release create v1", {"gh"}, None),
     ("a subscripted assignment before a command", "X[0]=v gh", {"gh"}, None),
     ("a subscripted append assignment before a command", "X[i]+=v gh", {"gh"}, None),
@@ -133,6 +135,8 @@ FIXTURES = [
     ("an escaped = is the program, not an assignment", "X\\=1 gh", set(), None),
     ("a keyword after an assignment is the program", "X=1 if gh", set(), None),
     ("a ! after an assignment is the program", "X=1 ! gh", set(), None),
+    ("a ;;& retests after a nonmatching clause (dep-fleet-6 F2)",
+     "case x in x) a ;;& y) b ;; x) c ;; esac", {"a", "c"}, None),
     ("a case pattern after ;& is no command (#41768 F1)", "case x in x) a ;& gh) b ;; esac", {"a", "b"}, None),
     ("a case pattern list is no command", "case x in x|gh) a ;; esac", {"a"}, None),
     ("a case pattern after a leading paren is no command", "case gh in (gh) a ;; esac", {"a"}, None),
@@ -152,6 +156,23 @@ FIXTURES = [
     ("a conditional expression's operators split no command", "[[ -n x && ( gh || b ) ]]\na", {"a"}, None),
     ("a coprocess runs its command", "coproc a\nwait", {"a"}, set()),
     ("a coprocess after time runs its command (dep-fleet-6 F4)", "time coproc a; wait", {"a"}, set()),
+    ("a coprocess after repeated time runs its command (dep-fleet-6 follow-up)", "time time coproc a; wait", {"a"}, set()),
+    ("a coprocess after mixed time wrappers runs its command (dep-fleet-6 follow-up)",
+     "time -p time coproc a; wait", {"a"}, set()),
+    ("a quoted subscript operator is not repaired by a later equals (dep-fleet-6 F2)",
+     'X[0]"="v=w gh', set(), None),
+    ("time before an assignment leaves coproc ordinary (dep-fleet-6 follow-up)", "time X=1 coproc a", set(), set()),
+    ("an assignment before time leaves coproc ordinary (dep-fleet-6 follow-up)", "X=1 time coproc a", set(), set()),
+    ("an assignment before ! runs ! as the command (dep-fleet-6 F1)", "X=1 ! true", set(), None),
+    ("an assignment before coproc runs coproc as the command (dep-fleet-6 F1)", "X=1 coproc true", set(), None),
+    ("a quoted time leaves coproc ordinary (dep-fleet-6 follow-up)", '"time" coproc a', set(), set()),
+    ("a negated coprocess remains reserved (dep-fleet-6 follow-up)", "! coproc a; wait", {"a"}, set()),
+    ("an assignment before ! leaves coproc ordinary (dep-fleet-6 follow-up)", "X=1 ! coproc a", set(), set()),
+    ("a quoted ! leaves coproc ordinary (dep-fleet-6 follow-up)", '"!" coproc a', set(), set()),
+    ("a quoted coproc leaves its argument ordinary (dep-fleet-6 follow-up)", '"coproc" a', set(), set()),
+    ("env treats coproc as a program name (dep-fleet-6 F1)", "env coproc a", set(), set()),
+    ("time env treats coproc as a program name (dep-fleet-6 F1)", "time env coproc a", set(), set()),
+    ("an assignment makes coproc a program name (dep-fleet-6 F1)", "X=1 coproc a", set(), set()),
     ("a brace expansion in the program word", "{a,b}", {"a"}, set()),
 ]
 
@@ -220,6 +241,7 @@ SCRIPT_FIXTURES = [
     ("env X+=1 ./sign.sh", True, True),
     ("env 'A B=1' ./sign.sh", True, True),
     ("env Y[0]=2 ./sign.sh", True, False),
+    ('"env" ./sign.sh', True, True),
     ("time X+=1 ./sign.sh 2>/dev/null", True, True),
     ("./sig*.sh", True, False),
 ]
@@ -300,6 +322,22 @@ def possible(script: str) -> set[str]:
 
 
 class AgainstBash(unittest.TestCase):
+    def test_prefix_assignments_leave_bang_and_coproc_as_programs(self) -> None:
+        self.assertEqual(must_run("X=1 ! true"), [["!", "true"]])
+        self.assertEqual(must_run("X=1 coproc true"), [["coproc", "true"]])
+
+    def test_quoted_subscript_operator_does_not_credit_gh(self) -> None:
+        self.assertEqual(must_run('X[0]"="v=w gh'), [])
+        self.assertTrue(may_run_program('"env" gh release create v1', "gh"))
+
+    def test_coproc_program_position_is_not_any_program(self) -> None:
+        for script in (
+                "env coproc a", "time env coproc a", "X=1 coproc a",
+                "time X=1 coproc a", "X=1 time coproc a", '"time" coproc a',
+                "X=1 ! coproc a", '"!" coproc a', '"coproc" a'):
+            with self.subTest(script=script):
+                self.assertFalse(may_run_program(script, "a"))
+
     def test_every_fixture_is_sound_in_both_directions(self) -> None:
         for name, script, ran, expected_certain in FIXTURES:
             with self.subTest(name):

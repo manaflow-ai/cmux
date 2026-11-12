@@ -864,6 +864,14 @@ const SCROLL_TRAIL_VIEWPORTS = 1;
 /// Viewports of rows kept mounted either side of the reader, built between frames.
 const WARM_VIEWPORTS = 1;
 
+/// Viewports of history mounted above the reader, in the commit that draws the view: a chat opens
+/// with rows to scroll up into already drawn, and the warm rows keep that much above while the reader
+/// scrolls (Leo, 2026-11-12: "if you try to scroll up, you can't really scroll much of anything up at
+/// all. Like it doesn't load enough"). Rows the transcript already holds only; older pages still come
+/// by OLDER_AHEAD_VIEWPORTS. Above the view, so a followed view's end anchors them: their heights
+/// land in the offset in the frame they are measured and no visible row moves.
+const HISTORY_VIEWPORTS = 4;
+
 /// How far the reader scrolls, in viewports, before the warm rows move with them.
 const WARM_STEP_VIEWPORTS = 0.5;
 
@@ -1386,7 +1394,9 @@ function TranscriptView({
   /// The oldest event seq held (AcpmuxSnapshot.historyFrom): a read that drew no row still moves it.
   historyFrom?: number;
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
-  onLoadOlder?: () => Promise<void>;
+  /// `fill`: the loaded rows do not reach the view's top, so the first page that draws above them lands
+  /// at once rather than with the pages read after it.
+  onLoadOlder?: (fill: boolean) => Promise<void>;
   /// How many prompts this pane has sent: each new one puts the view at the latest message.
   sends?: number;
   /// Keeps the parent send path in sync with the reader's current follow state.
@@ -1535,6 +1545,11 @@ function TranscriptView({
 
   const jumpBack = useRef<JumpBack | undefined>(undefined);
   const [jumpBackHeld, setJumpBackHeld] = useState(false);
+  /// Lets go of the way back a Jump up press holds.
+  const dropJumpBack = useCallback(() => {
+    jumpBack.current = undefined;
+    setJumpBackHeld(false);
+  }, []);
   const promptScan = useRef<PromptScan>({ length: 0 });
   const jumpUpHint = useRef(-1);
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
@@ -3660,12 +3675,25 @@ function TranscriptView({
       : warmAnchor(layout, rows, liveWarmAt, warmStep);
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
   const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt)) ?? liveWarmAt;
+  // Above the view the warm rows reach HISTORY_VIEWPORTS: history to scroll up into, built between
+  // frames as the rest of them are.
   const warm = visibleLayoutRange(
     layout,
-    warmTop - height * WARM_VIEWPORTS - warmStep / 2,
-    height * (1 + 2 * WARM_VIEWPORTS) + warmStep,
+    warmTop - height * HISTORY_VIEWPORTS - warmStep / 2,
+    height * (1 + HISTORY_VIEWPORTS + WARM_VIEWPORTS) + warmStep,
   );
-  const scrolledRanges = mergeRowRanges(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]);
+  // A followed view (a chat as it opens, at its latest row) mounts that history in the commit that
+  // draws it, not a deferred render later: the deferred anchor of a chat's first commit is the top of
+  // its rows, nowhere near the view, so its first painted frame held only the rows in view and
+  // nothing to scroll up into. A followed view is anchored at its end, so rows drawn above it at their
+  // estimate and measured move the offset, never a visible row. Scrolled up, the warm rows hold it.
+  const history = renderFollowing
+    ? visibleLayoutRange(layout, shownTop - height * HISTORY_VIEWPORTS, height * HISTORY_VIEWPORTS, 0)
+    : undefined;
+  const scrolledRanges = mergeRowRanges([
+    ...(warm.last < range.first || warm.first > range.last ? ahead : [...ahead, warm]),
+    ...(history ? [history] : []),
+  ]);
   // A held row (gutterSelect.ts) is at its index, or as far from the end as it was when older history
   // pages in above it. At most two, so this reads two rows. Only when rows came in at both ends at once
   // is it looked for by id; the effect below then keeps where it was found (or drops a row that is
@@ -4936,8 +4964,9 @@ function TranscriptView({
     seenSends.current = sends;
     // The send's ride and the rows it brings are the motion the full rate is for: never a reason to cap it.
     renderRate.sent(performance.now());
-    // The reader acted: the pinned Jump up mark goes, and an idle stretch starts at the prompt's row
-    // once it comes (jumpUp.ts).
+    // The reader acted: the pinned Jump up mark goes, an idle stretch starts at the prompt's row once
+    // it comes, and a way back a Jump up press held goes with the ride to the latest message (jumpUp.ts).
+    if (jumpButton) dropJumpBack();
     if (jumpButton) idle.sent(promptScan.current.found);
     const node = ref.current;
     if (!node) return;
@@ -5257,6 +5286,9 @@ function TranscriptView({
       const { layout: placed, rows: shown } = latestLayout.current;
       idle.scrolled(restingAnchor(target + node.clientHeight / 3, false, placed, shown) ?? undefined);
     }
+    // At the latest message nothing is left to go back to: a way back a Jump up press held goes, or
+    // the button came back at the bottom pointing down at where the reader already is.
+    dropJumpBack();
     stopJump();
     rideToLatest(node, target, reduce, true);
   };
@@ -5834,7 +5866,9 @@ function TranscriptView({
         checkOlderNow.current();
       }, OLDER_RECHECK_MS);
     };
-    onLoadOlder().then(settled, settled);
+    // Rows that do not reach the view's top leave a blank band above them until the page lands
+    // (Leo's NIGHTLY, 2026-11-12: the top ~40% empty above "Received 3 messages").
+    onLoadOlder(node.scrollHeight - (layout.origin ?? 0) <= node.clientHeight).then(settled, settled);
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
@@ -5887,6 +5921,9 @@ function TranscriptView({
       const index = indexOfRow(rows, place.rowId, idle.hint);
       return index >= 0 ? layout.geometry.topAt(index) + place.offset : undefined;
     },
+    rows,
+    heightAt: (index) => layout.geometry.heightAt(index),
+    indexOf: (place) => indexOfRow(rows, place.rowId, idle.hint),
     totalHeight: layout.totalHeight,
     viewHeight: height,
     lastPrompt: ownPrompt?.id,
