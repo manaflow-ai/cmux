@@ -12,6 +12,7 @@ mod launch_codec;
 mod output_path;
 mod parser_failure;
 mod parser_order;
+mod parser_queue_memory;
 mod pty_reader_stack;
 mod smart_viewer_exit;
 mod terminal_queries;
