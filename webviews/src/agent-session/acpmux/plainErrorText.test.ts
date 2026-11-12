@@ -41,6 +41,14 @@ test("only the pane's own words count as a reason", () => {
   expect(knownRefusalText({ code: "transport.gesture_required" })).toBe(translate("transport.gestureRequired"));
   expect(knownRefusalText({ reason: "trust.pending" })).toBe(translate("error.trustPending"));
   expect(knownRefusalText({ reason: "remote.session_cancel_ownership" })).toBe(translate("error.stopOwnerOnly"));
+  // acpmux's reason is worded; its own message (written for the agent or the CLI) is not.
+  expect(knownRefusalText(Object.assign(new Error(RAW), { reason: "subsessions.width_limit" }))).toBe(
+    translate("error.subsessionsFull"),
+  );
+  expect(knownRefusalText(Object.assign(new Error(RAW), { reason: "remote.cwd_outside_roots" }))).toBe(
+    translate("error.cwdOutsideRoots"),
+  );
+  expect(knownRefusalText(Object.assign(new Error(RAW), { reason: "subsessions.unworded" }))).toBeUndefined();
 });
 
 test("a refused mode or model pick never prints the agent's text or a bare ?", () => {

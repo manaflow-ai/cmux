@@ -44,6 +44,12 @@ const DAEMON_REASON_TEXT: Record<string, StringKey> = {
   "trust.untrusted": "error.trustUntrusted",
   // A Stop from a link that is not the chat's owner (remote_guard/cancel_owner.rs).
   "remote.session_cancel_ownership": "error.stopOwnerOnly",
+  // A sub-session start (a plan build's worktree) refused at the chat's open sub-session limit
+  // (hub/subsessions.rs): acpmux's message is written for the agent, the person reads this.
+  "subsessions.width_limit": "error.subsessionsFull",
+  // A remote link's folder outside the machine's webRoots and known projects
+  // (server/remote_guard.rs `outside_roots`): a save that can never pass reads as one.
+  "remote.cwd_outside_roots": "error.cwdOutsideRoots",
 };
 
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the
