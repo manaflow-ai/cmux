@@ -48,6 +48,40 @@ Read the matching skill before changing an area, then only the references needed
   OS-dependent bug or a launch on 14/15 in Tart VMs: `scripts/cmux-next/os-matrix.sh --build JOB
   --os 14,15` ([MATRIX.md](scripts/fuzz/macos-matrix/MATRIX.md)). VM timing is not perf evidence.
 
+## Finishing a task
+
+A change to the Mac or iOS app is not done until the person can open it. Every agent report for
+such a change ends with the dev build link, the Simulator state and the iPhone install result.
+Use one task tag, `<task-slug>` (for example `sidebar-star-align-v1`), for the Mac and iOS builds.
+A documentation-only change needs no build; give the file path instead.
+
+- **Mac:** build the pushed exact head on the fleet and publish it to HQ, never on the person's Mac:
+
+  ```bash
+  JOB_ID=$(cmux-ci build cmux --ref "$(git rev-parse HEAD)" --tag <task-slug> \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+  cmux-ci wait "$JOB_ID"
+  cmux-ci publish-hq "$JOB_ID"
+  ```
+
+  Report the Tag Opener link `http://127.0.0.1:17320/<task-slug>`. Never `open` it (macOS sends it
+  to the default browser); team members add it to their workspace with hq's `scripts/open-dev-build.sh <task-slug>`.
+- **iOS:** run `ios/scripts/reload.sh --review --tag <task-slug>`. In one command it builds on the
+  fleet (the Mac build above included, same tag, published to HQ), installs on the connected
+  iPhone through the authenticated install (`scripts/verify-iphone-auth.sh` must pass; never raw
+  `devicectl`), then boots the tag's Simulator on the person's Mac, opens its window without taking
+  focus and launches the app signed in and paired, ready to review. Details: [ios/AGENTS.md](ios/AGENTS.md#finishing-a-task).
+- **The iPhone is always connected.** An unreachable or locked phone, a queued install or a
+  failed auth gate is a blocker to report with its error and retry command, never a step to skip
+  or replace with a simulator-only result.
+- End the report with:
+
+  ```text
+  Dev build:  http://127.0.0.1:17320/<task-slug>   (fleet job <JOB_ID>, head <sha>)
+  Simulator:  cmux-dev-<slug>: booted, window open, app signed in and paired
+  iPhone:     <device id>: installed, verify-iphone-auth PASS   (or BLOCKED: <reason>; retry: <command>)
+  ```
+
 ## cmux-next checks before every push
 
 Before every push, run `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook runs it

@@ -11,6 +11,38 @@ or explain the remaining verification gap in the PR.
 
 Script paths are relative to the repository root. Team members: shared build fleet rules for iOS are in cmuxterm-hq.
 
+## Finishing a task
+
+Every agent report for an app change ends with a hand-off the person can review on the
+Simulator and the iPhone, from one command run at the pushed head:
+
+```bash
+ios/scripts/reload.sh --review --tag <task-slug> [--workspace <pr-url>]
+```
+
+It does, in order, and fails (non-zero) if any step fails:
+
+1. Builds the same-tag Mac app and the iOS app on the build fleet through hq's
+   `build-fleet/ios-reload.py` (found through `CMUX_HQ_ROOT`, then `cmux-ci hq-root`), installs
+   the Mac app at its Tag Opener path and publishes it to HQ. Without an hq checkout it builds
+   locally, which is only for contributors outside the team.
+2. Signs and installs the iOS app on the connected iPhone with the authenticated install:
+   signed in with the `personal` profile, paired to the tagged Mac, `scripts/verify-iphone-auth.sh`
+   PASS. Never raw `devicectl`.
+3. Boots the tag's isolated simulator `cmux-dev-<slug>` on the person's Mac (at most three booted),
+   opens its Simulator window in the background (`open -g`, never taking focus) and launches the
+   app signed in and paired, ready to review. This review simulator signs in with the `personal`
+   profile, the phone's account, so it cannot replace the phone's pairing with the tagged Mac;
+   agent-driven Simulator verification still uses `agent`.
+4. Runs `verify-iphone-auth.sh` again, so the phone is proven signed in after the simulator launch,
+   and prints a `Review ready` block with the Tag Opener link, the simulator state and the iPhone result.
+
+The iPhone is always connected. An unreachable or locked phone, a queued install or a failed auth
+gate is a blocker: report its `FAIL:` line and the retry command. Do not skip the phone, fall back
+to `--simulator-only` or pass `--no-sign-in`/`--no-attach`/`--no-setup`. Rerunning the same command
+resumes the saved fleet jobs without resubmitting. Copy the `Review ready` block into the report
+(format in the root [AGENTS.md](../AGENTS.md#finishing-a-task)).
+
 ## Keep cheap iOS-only regressions in `ios/tests/`
 
 Linux-runnable regressions that only inspect iOS scripts/configuration belong in

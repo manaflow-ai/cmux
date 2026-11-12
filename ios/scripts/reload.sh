@@ -7,8 +7,23 @@ Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <i
        ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --simulator-only
+       ios/scripts/reload.sh --tag <tag> --review [--device-id <id>] [--workspace <pr-url>]
 
 Build, install, and launch the cmux iOS app with an isolated tag.
+
+--review is the end-of-task hand-off (AGENTS.md "Finishing a task"). One
+command builds the same-tag Mac app and the iOS app, installs the iOS app on the
+iPhone through the authenticated install (scripts/verify-iphone-auth.sh must
+pass), then boots the tag's isolated simulator, opens its Simulator window in
+the background (never taking focus) and launches the app there signed in and
+paired, ready to review. It ends with a "Review ready" block: the Tag Opener
+link, the simulator state and the iPhone result. Builds run on the build fleet
+when an hq checkout with build-fleet/ios-reload.py is found (CMUX_HQ_ROOT, then
+`cmux-ci hq-root`); otherwise they build locally. A phone that is unreachable,
+locked or fails the auth gate fails the command (exit non-zero): it is a
+blocker to report, never something to skip. The review simulator signs in with
+the personal profile, the same account as the phone, so it cannot replace the
+phone's pairing with the tagged Mac; the phone is re-verified after it.
 
 Verification default is simulator + iPhone: when a default iPhone is configured
 (CMUX_IPHONE_DEVICE_ID or ~/.config/cmux/iphone-device-id), the device leg is
@@ -172,6 +187,10 @@ SWIFT_FRONTEND_WORKAROUND="${CMUX_SWIFT_FRONTEND_WORKAROUND:-0}"
 # --prod-auth: bake CMUXAuthEnvironment=production so the dev build signs in
 # against the production Stack project.
 PROD_AUTH=0
+# --review: fleet build + authenticated iPhone install + a signed-in simulator
+# in an open Simulator window (see usage).
+REVIEW=0
+REVIEW_WORKSPACE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -254,6 +273,15 @@ while [[ $# -gt 0 ]]; do
       PROD_AUTH=1
       shift
       ;;
+    --review)
+      REVIEW=1
+      shift
+      ;;
+    --workspace)
+      require_option_value "$1" "${2:-}"
+      REVIEW_WORKSPACE="${2:-}"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -286,6 +314,21 @@ if [[ "$RELOAD_SIMULATOR" -eq 0 && "$RELOAD_DEVICE" -eq 0 ]]; then
   echo "error: nothing to reload" >&2
   usage >&2
   exit 1
+fi
+
+if [[ "$REVIEW" -eq 1 ]]; then
+  # The review hand-off is always simulator + authenticated iPhone, launched.
+  if [[ "$SIMULATOR_ONLY" -eq 1 || "$RELOAD_SIMULATOR" -eq 0 || "$LAUNCH" -eq 0 \
+      || "$NO_SIGN_IN" -eq 1 || "$NO_ATTACH" -eq 1 || "$NO_SETUP" -eq 1 \
+      || "$PROD_AUTH" -eq 1 || "$SIMULATOR_EXPLICIT" -eq 1 || -n "$DEVICE_NAME" ]]; then
+    echo "error: --review always installs the tag's isolated simulator and the authenticated iPhone build;" >&2
+    echo "error: it takes only --tag, --device-id, --team and --workspace" >&2
+    exit 2
+  fi
+  RELOAD_DEVICE=1
+elif [[ -n "$REVIEW_WORKSPACE" ]]; then
+  echo "error: --workspace applies only to --review" >&2
+  exit 2
 fi
 
 if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 && "$ALLOW_PROVISIONING_UPDATES" -eq 0 ]]; then
@@ -503,6 +546,167 @@ if [[ "$RELOAD_DEVICE" -eq 1 && "$PROD_AUTH" -eq 0 \
   [[ -n "$DEVICE_AUTH_ACCOUNT" ]] \
     || { echo "error: iPhone auth preflight returned no selected account" >&2; exit 2; }
   echo "==> iPhone auth contract: $DEVICE_AUTH_PROFILE ($DEVICE_AUTH_ACCOUNT)"
+fi
+
+# --- --review -----------------------------------------------------------------
+# The fleet installer (cmuxterm-hq build-fleet/ios-reload.py) builds the Mac and
+# iOS apps for the pushed HEAD on the build fleet, installs the Mac app at the
+# Tag Opener path, signs the iOS app on this Mac, installs it on the phone, runs
+# scripts/verify-iphone-auth.sh and publishes the Mac build to HQ. It leaves the
+# simulator app installed but not launched; review_simulator finishes that leg.
+review_hq_root() {
+  local cmux_ci="${CMUX_CI:-}" candidate
+  if [[ -z "$cmux_ci" ]]; then
+    cmux_ci="$(command -v cmux-ci 2>/dev/null || true)"
+    [[ -z "$cmux_ci" && -x "$HOME/.local/bin/cmux-ci" ]] && cmux_ci="$HOME/.local/bin/cmux-ci"
+  fi
+  local candidates=("${CMUX_HQ_ROOT:-}")
+  if [[ -n "$cmux_ci" ]]; then
+    while IFS=$'\t' read -r candidate _; do
+      candidates+=("$candidate")
+    done < <("$cmux_ci" hq-root 2>/dev/null || true)
+  fi
+  for candidate in ${candidates[@]+"${candidates[@]}"}; do
+    if [[ -n "$candidate" && -f "$candidate/build-fleet/ios-reload.py" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+review_booted_simulator_count() {
+  xcrun simctl list devices booted -j | /usr/bin/python3 -c \
+    'import json,sys; print(sum(d.get("state") == "Booted" for ds in json.load(sys.stdin)["devices"].values() for d in ds))'
+}
+
+review_simulator_state() {
+  SIM_UDID="$1" /usr/bin/python3 -c '
+import json, os, subprocess
+data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "-j"]))
+for devices in data["devices"].values():
+    for device in devices:
+        if device["udid"] == os.environ["SIM_UDID"]:
+            print(device.get("state", "unknown"))
+            raise SystemExit(0)
+print("missing")'
+}
+
+REVIEW_SIM_STATUS=""
+REVIEW_PHONE_STATUS=""
+REVIEW_MAC_STATUS=""
+
+# Boot the tag's isolated simulator, open its window without taking focus, and
+# launch the installed app signed in and paired to the tagged Mac.
+review_simulator() {
+  # shellcheck source=../../scripts/lib/ios-sim-isolate.sh
+  source "$IOS_DIR/../scripts/lib/ios-sim-isolate.sh"
+  local udid name state
+  udid="$(cmux_ios_isolated_sim_udid "$TAG_SLUG")" \
+    || { echo "error: could not resolve the isolated simulator for tag $TAG" >&2; return 1; }
+  name="$(cmux_ios_isolated_sim_name "$TAG_SLUG")"
+  state="$(review_simulator_state "$udid")"
+  if [[ "$state" != "Booted" ]]; then
+    # ios/AGENTS.md: at most three local simulators booted.
+    if (( $(review_booted_simulator_count) >= 3 )); then
+      echo "error: three simulators are already booted; shut one down (xcrun simctl shutdown <udid>) and rerun" >&2
+      return 1
+    fi
+    xcrun simctl boot "$udid"
+  fi
+  xcrun simctl bootstatus "$udid" -b >/dev/null
+  if ! xcrun simctl get_app_container "$udid" "$BUNDLE_ID" app >/dev/null 2>&1; then
+    echo "error: $BUNDLE_ID is not installed in $name ($udid); the build leg did not install the simulator app" >&2
+    return 1
+  fi
+  # -g opens Simulator.app in the background: it shows the booted device's
+  # window without becoming the frontmost app or taking keyboard focus.
+  local simulator_app
+  simulator_app="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null)}/Applications/Simulator.app"
+  [[ -d "$simulator_app" ]] || simulator_app="Simulator"
+  if [[ "$simulator_app" == "Simulator" ]]; then
+    open -g -a Simulator --args -CurrentDeviceUDID "$udid"
+  else
+    open -g "$simulator_app" --args -CurrentDeviceUDID "$udid"
+  fi
+  local waited=0
+  until pgrep -x Simulator >/dev/null 2>&1; do
+    (( waited++ < 20 )) || { echo "error: Simulator.app did not start" >&2; return 1; }
+    sleep 0.5
+  done
+  xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
+  # The personal profile is the phone's account: signing the simulator into it
+  # keeps the tagged Mac on that account, so the phone's pairing survives.
+  if ! "$MOBILE_DEV_LAUNCH" --tag "$TAG" --simulator "$name" --simulator-id "$udid" --detach \
+      --auth-profile "$DEVICE_AUTH_PROFILE" --expected-account "$DEVICE_AUTH_ACCOUNT" \
+      --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE" --ensure-mac; then
+    echo "error: the simulator app is installed but its signed-in launch failed" >&2
+    echo "error: retry: scripts/mobile-dev-launch.sh --tag $TAG --simulator-id $udid --detach --auth-profile personal --ensure-mac" >&2
+    return 1
+  fi
+  REVIEW_SIM_STATUS="$name ($udid): booted, window open, $BUNDLE_ID launched signed in as $DEVICE_AUTH_ACCOUNT and paired to the tagged Mac"
+}
+
+# Re-run the phone's auth gate after the simulator launch, so the report proves
+# the phone is still signed in and paired.
+review_verify_phone() {
+  local verify="$IOS_DIR/../scripts/verify-iphone-auth.sh" device_id="${DEVICE_ID:-$DEFAULT_DEVICE_ID}"
+  local args=(--tag "$TAG" --auth-profile "$DEVICE_AUTH_PROFILE" \
+    --expected-account "$DEVICE_AUTH_ACCOUNT" --credentials-file "$DEVICE_AUTH_CREDENTIALS_FILE")
+  [[ -n "$device_id" ]] && args+=(--device-id "$device_id")
+  local line
+  if ! line="$("$verify" "${args[@]}" | tail -n 1)"; then
+    echo "$line" >&2
+    echo "error: iPhone auth gate failed after the simulator launch; this is a blocker to report" >&2
+    return 1
+  fi
+  REVIEW_PHONE_STATUS="${device_id:-default iPhone}: installed, signed in and paired ($line)"
+}
+
+review_report() {
+  cat <<EOF
+==> Review ready (tag: $TAG)
+Mac dev build:
+  http://127.0.0.1:17320/$TAG  ($REVIEW_MAC_STATUS)
+Simulator:
+  $REVIEW_SIM_STATUS
+iPhone:
+  $REVIEW_PHONE_STATUS
+EOF
+}
+
+review_finish() {
+  review_simulator || return 1
+  review_verify_phone || return 1
+  review_report
+}
+
+if [[ "$REVIEW" -eq 1 ]]; then
+  # xcode-select may point at the Command Line Tools, which have no simctl or
+  # devicectl; use the installed Xcode then instead of failing mid-hand-off.
+  if ! xcrun --find simctl >/dev/null 2>&1 && [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  fi
+  if [[ -z "${DEVICE_ID:-$DEFAULT_DEVICE_ID}" ]]; then
+    echo "error: --review needs the iPhone: pass --device-id, set CMUX_IPHONE_DEVICE_ID, or write ~/.config/cmux/iphone-device-id" >&2
+    exit 2
+  fi
+  if REVIEW_HQ_ROOT="$(review_hq_root)"; then
+    echo "==> --review: building on the fleet through $REVIEW_HQ_ROOT/build-fleet/ios-reload.py"
+    fleet_args=(--tag "$TAG" --checkout "$(cd "$IOS_DIR/.." && pwd)" --device-id "${DEVICE_ID:-$DEFAULT_DEVICE_ID}")
+    [[ -n "$REVIEW_WORKSPACE" ]] && fleet_args+=(--workspace "$REVIEW_WORKSPACE")
+    fleet_rc=0
+    /usr/bin/python3 "$REVIEW_HQ_ROOT/build-fleet/ios-reload.py" "${fleet_args[@]}" || fleet_rc=$?
+    if [[ "$fleet_rc" -ne 0 ]]; then
+      echo "error: fleet build/install failed (exit $fleet_rc); a pending phone install is a blocker to report." >&2
+      echo "error: rerun the same command to resume the saved fleet jobs without resubmitting." >&2
+      exit "$fleet_rc"
+    fi
+    REVIEW_MAC_STATUS="fleet build, published to HQ"
+    review_finish || exit 1
+    exit 0
+  fi
+  echo "==> --review: no hq checkout with build-fleet/ios-reload.py; building locally"
 fi
 
 # Keep the linked xcframework synchronized with the checked-out Ghostty
@@ -1276,6 +1480,11 @@ fi
 
 if [[ "$RELOAD_DEVICE" -eq 1 ]]; then
   reload_device
+fi
+
+if [[ "$REVIEW" -eq 1 ]]; then
+  REVIEW_MAC_STATUS="local build"
+  review_finish || exit 1
 fi
 
 update_qr_tag_marker
