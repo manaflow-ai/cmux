@@ -186,6 +186,21 @@ test("a turn's sound waiting for its summary stays quiet when the page is hidden
   expect(sounds).toEqual([]);
 });
 
+test("a turn's waiting sound stays quiet when the page was hidden and shown again before the summary comes", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 60_000, turnSummary: done("old") });
+  render({ session: "s", working: false, turnSummary: done("old") });
+  expect(sounds).toEqual([]);
+  // Hidden for a while (the Agent Finished notification sounds for the turn), then shown again.
+  const doc = dom.window.document;
+  Object.defineProperty(doc, "visibilityState", { value: "hidden", configurable: true });
+  act(() => void doc.dispatchEvent(new dom.window.Event("visibilitychange")));
+  Object.defineProperty(doc, "visibilityState", { value: "visible", configurable: true });
+  act(() => void doc.dispatchEvent(new dom.window.Event("visibilitychange")));
+  render({ session: "s", working: false, turnSummary: done("new") });
+  expect(sounds).toEqual([]);
+});
+
 test("switching to a working chat with no reported start never times its end from the last chat (review F3)", () => {
   setChatDisplay({ [FINISH_SOUND_KEY]: true });
   render({ session: "s", working: true, turnStartedAtMs: Date.now() - 90_000 });

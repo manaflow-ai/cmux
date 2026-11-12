@@ -12,6 +12,8 @@ import { opensProcessTerminal } from "../../processTerminal";
 import type { StartedSession } from "../../started/startedSessions";
 import { useNow } from "../../subagents/subagentGroupModel";
 import type { Subagent } from "../../subagents/subagentFold";
+import { useResumeRuns, type ResumeActions } from "../../subagents/ResumeControl";
+import { resumeVersion } from "../../subagents/resumeState";
 import type { WorkflowAgent, WorkflowSummary } from "../../summary/workflow";
 import type { Artifact } from "../../conversation/artifactPreview";
 import type { TurnFile } from "../../diff";
@@ -118,6 +120,8 @@ export type NativeSessionInfoProps = {
   workflows: readonly WorkflowSummary[];
   agent?: Subagent;
   onOpenSubagent?: (id: string) => void;
+  /// Resume on a stopped subagent's row (subagents/ResumeControl.tsx), as a row button here.
+  resumeSubagent?: ResumeActions;
   onOpenSession?: (sessionId: string) => void;
   onSetRunningLimit?: (sessionId: string, maxRunning: number | null, from?: number) => Promise<unknown>;
   onStopWorkflow?: (id: string) => Promise<unknown>;
@@ -219,6 +223,9 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
     [props.processes, props.workflows],
   );
   const stops = useNativeOperations(activeStops);
+  // Each stopped subagent's Resume as it goes, as the page's own rows keep it (ResumeControl.tsx).
+  const resumes = useResumeRuns();
+  const resumeAgent = props.resumeSubagent?.resumeAgent;
   const sourceFiles = useNativeSourceFiles(props.onOpenSourceFile, t);
   const [localReveal, setLocalReveal] = useState<NativeSessionInfoModel["reveal"]>();
   // The person's choices inside the sections (the page's components keep these in their own state).
@@ -469,6 +476,13 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           pendingMax: limit.pendingMax,
           limitState: limit.state,
           onOpen: props.onOpenSubagent,
+          ...(resumeAgent && {
+            resume: {
+              capabilities: props.resumeSubagent?.retryCapabilities,
+              run: (agent) => resumes.run(agent, resumeVersion(agent), resumeAgent),
+              shown: (agent) => resumes.shown(agent.id, resumeVersion(agent)),
+            },
+          }),
           onOpenSession: props.onOpenSession,
           now,
           showAll: subagentsAll,

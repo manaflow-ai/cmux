@@ -288,6 +288,71 @@ struct NewTabHoldCloseKeyTests {
         }
     }
 
+    /// A key typed while a menu tracks (the blink of a picked item) comes from the app's key path, not from a hold that
+    /// runs it again: the router's menu-pick hold still takes it, BEFORE the New Tab hold (e7defd506a45). Only a key
+    /// that the New Tab hold runs again (`heldBefore`) passes the menu-pick hold.
+    @Test func aKeyTypedWhileAMenuTracksWaitsInTheMenuPickHoldAndNotInTheNewTabHold() async throws {
+        try await Self.withAHeldLine(besideTheFocusedPane: true) { held in
+            let router = held.services.keyRouter
+            let holdKeys = { held.input.log.filter { $0.hasPrefix("hold key") }.count }
+            // Key-downs with no character: the menu-pick hold sends its one on after the menu's end, and it types nothing.
+            let before = try Self.keyDown("", keyCode: 255, in: held.window)
+            let typed = try Self.keyDown("", keyCode: 255, in: held.window)
+            // The control: with no menu, the New Tab hold takes such a key behind the line. If not, the count below
+            // is true for a wrong reason.
+            try #require(router.interceptKeyDown(before, in: held.window) && holdKeys() == 4, "with no menu the New Tab hold did not take a key with no character behind the line (\(holdKeys()) keys): this run proves nothing (hold log \(held.input.log))")
+            let menu = NSMenu()
+            // From the first notice to the last, nothing throws and no turn of the main actor ends (see the test above).
+            // global-notice-allow: the router's menu-pick hold (KeyRouter.menuPickKeys) reads the default center and takes no center; the object is this test's own menu
+            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+            let taken = router.interceptKeyDown(typed, in: held.window)
+            let inTheNewTabHold = holdKeys()
+            // global-notice-allow: the end of the same menu, in the same call as its begin (see above)
+            NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+            #expect(taken, "the router did not take a key typed while a menu tracked (hold log \(held.input.log))")
+            #expect(inTheNewTabHold == 4, "a key typed while a menu tracked went into the New Tab hold (\(inTheNewTabHold) keys), not into the menu-pick hold that the router asks first: \(held.input.log)")
+            held.passTheLimit()
+            Self.expectNoKeyReachedTheOldView(held, "the hold's limit after a menu")
+        }
+    }
+
+    /// The page's field gets READY while a menu tracks. The hold gives its keys to the field at once: they run again
+    /// through the router with `heldBefore`, so the menu-pick hold does not take them. If it took them, the page got
+    /// them only after the menu's end, behind each key typed in a pick's blink, and the replay did not judge the
+    /// person's held Return in the page (the line did not run there).
+    @Test func aLineHeldForAPageGoesToThePageAtItsReadinessWhileAMenuTracks() async throws {
+        try await Self.withAHeldLine(besideTheFocusedPane: true) { held in
+            let page = try #require(held.services.agentTabs.existingView(held.tab), "the fixture's page is gone")
+            let gestures = page.model.transport.gestures
+            // One more Return, as the HID system sends the person's (source pid 0): the page's gesture record takes
+            // such a key in each build, and the replay of the hold gives it to the page that gets the key.
+            let source = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true))
+            source.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+            let personsReturn = try #require(NSEvent(cgEvent: source))
+            try #require(held.services.keyRouter.interceptKeyDown(personsReturn, in: held.window) && held.input.isHolding(in: held.window), "the hold did not take the person's Return: \(held.input.log)")
+            try #require(!gestures.isAvailable, "the page has a gesture before the hold gave it a key: this run proves nothing")
+            let menu = NSMenu()
+            // A key-down with no character: the menu-pick hold sends it on after the menu's end, and it types nothing.
+            let control = try Self.keyDown("", keyCode: 255, in: held.window)
+            // From the first notice to the last, nothing throws and no turn of the main actor ends (see the test above).
+            // global-notice-allow: the router's menu-pick hold (KeyRouter.menuPickKeys) reads the default center and takes no center; the object is this test's own menu
+            NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: menu)
+            // The control: the router's menu-pick hold takes a key now. If not, the asserts below are true for a wrong reason.
+            let tracks = held.services.keyRouter.menuPickKeys.capture(control)
+            // The field reports ready, as the page does (`NewTabPage.open`).
+            held.input.acknowledge(held.token, in: held.window)
+            let reachedThePage = gestures.isAvailable
+            let keyboard = held.window.firstResponder
+            // global-notice-allow: the end of the same menu, in the same call as its begin (see above)
+            NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
+            #expect(tracks, "the menu's notice did not reach the router's menu-pick hold: this run proves nothing (hold log \(held.input.log))")
+            #expect(!held.input.isHolding(in: held.window) && held.input.log.contains { $0.hasPrefix("drained to field") }, "the hold did not give its keys to the ready field: \(held.input.log)")
+            #expect(keyboard === page.webView, "the page's field did not get the keyboard at its readiness (first responder \(String(describing: keyboard))): this run proves nothing")
+            #expect(reachedThePage, "the line held for the page did not go to the page at its readiness while a menu tracked (the menu-pick hold took the keys, and sends them on after the menu's end): \(held.input.log)")
+            #expect(held.probe.typed.isEmpty, "the line went to the view that had the keyboard before the opening: \"\(held.probe.typed)\"")
+        }
+    }
+
     /// Cmd-N, a line typed for the new workspace's page, and the creation fails: the window still shows the
     /// old workspace and its terminal has the keyboard.
     @Test func aLineHeldForCmdNsPageGoesToNoTerminalWhenTheCreationFails() async throws {
