@@ -124,6 +124,14 @@ impl Client {
 
 #[tokio::test]
 async fn a_list_and_a_row_each_past_the_message_limit_still_list_every_id() {
+    super::list_web_page_tests::list_test_within(
+        "a_list_and_a_row_each_past_the_message_limit_still_list_every_id",
+        a_list_and_a_row_each_past_the_message_limit_still_list_every_id_body(),
+    )
+    .await
+}
+
+async fn a_list_and_a_row_each_past_the_message_limit_still_list_every_id_body() {
     let hub = big_hub().await;
     let mut client = Client::new(&hub).await;
     // `acpmux ls`'s pages (limit 1000), with tools, and with no limit at all.
@@ -176,6 +184,14 @@ fn token(seed: &str) -> String {
 /// secret its preview's cut would split is masked before the cut, never left as a head.
 #[tokio::test]
 async fn a_trimmed_row_still_goes_to_a_peer_masked() {
+    super::list_web_page_tests::list_test_within(
+        "a_trimmed_row_still_goes_to_a_peer_masked",
+        a_trimmed_row_still_goes_to_a_peer_masked_body(),
+    )
+    .await
+}
+
+async fn a_trimmed_row_still_goes_to_a_peer_masked_body() {
     let (head, cut) = (token("Head"), token("Cut"));
     // The second starts 20 bytes before the 1 KiB preview ends: the cut would split it.
     let mut prompt = format!("run {head} then ");
