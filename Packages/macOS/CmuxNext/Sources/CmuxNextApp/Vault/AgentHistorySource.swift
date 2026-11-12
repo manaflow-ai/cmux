@@ -1,5 +1,7 @@
+import AppKit
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
+import CmuxNextPages
 
 /// The vault's sessions from `AgentHistory`: the agent sessions of every
 /// connected machine, as its daemon lists them.
@@ -21,11 +23,31 @@ final class AgentHistorySource: VaultSessionSource {
     }
 
     var isComplete: Bool { services?.history.agents.isComplete ?? true }
-    func waitForPending(afterReads reads: Int) async throws { try await DaemonHistoryClient.waitForPending(afterReads: reads) } // the daemon client's own wait
+
+    /// The daemon client's own wait between two reads of a list that is not complete.
+    func waitForPending(afterReads reads: Int) async throws {
+        try await DaemonHistoryClient.waitForPending(afterReads: reads)
+    }
 
     /// Not ended, and its tab is still on a connected machine.
     func isLive(_ session: AgentSession) -> Bool {
         guard session.endedAt == nil, let tab = session.tab else { return false }
         return services?.locateTabOnAnyMachine(tab) != nil
+    }
+}
+
+extension SessionVault {
+    /// The app's vault: the general pasteboard, the link router and the localized row titles.
+    convenience init(source: any VaultSessionSource, pullRequests: VaultPullRequests = VaultPullRequests(),
+                     copyText: @escaping @MainActor (String) -> Void = SessionVault.writeGeneralPasteboard,
+                     openURL: @escaping @MainActor (URL) -> Void = { _ = LinkRouter.shared.open($0) }) {
+        self.init(source: source, pullRequests: pullRequests, copyText: copyText, openURL: openURL,
+                  title: { HistoryAppStrings.agentTitle(provider: $0.provider, cwd: $0.cwd) })
+    }
+
+    /// The app's copy: `text` as the general pasteboard's only string.
+    static func writeGeneralPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
