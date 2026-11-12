@@ -405,6 +405,91 @@ fn the_lint_finds_each_shape_of_a_check_by_path() {
     );
 }
 
+/// The lint judges a call by the path its `use` imports resolve it to, per module (#41915 review
+/// F2): a std function imported by name, under an alias, in a group, by a glob or in a block is a
+/// row, as is `fs::` through `use std::fs;`. A function of the same name that is not std's (a
+/// local fn, an import from this crate, an `fs` that is another module, a name an inner module
+/// does not inherit) and the held-home forms are not.
+#[test]
+fn the_lint_resolves_imported_fs_functions() {
+    let fixture = r#"
+        mod direct {
+            use std::fs::symlink_metadata;
+            fn a(p: &Path) -> bool { symlink_metadata(p).is_ok() }
+        }
+        mod aliased {
+            use std::fs::symlink_metadata as sm;
+            fn a(p: &Path) -> bool { sm(p).is_ok() }
+        }
+        mod grouped {
+            use std::{fs::{self, metadata}, path::Path};
+            fn a(p: &Path) -> bool { metadata(p).is_ok() }
+            fn b(p: &Path) -> bool { fs::symlink_metadata(p).is_ok() }
+            fn c(p: &Path) -> bool { Path::exists(p) }
+        }
+        mod module_import {
+            use std::fs;
+            fn a(p: &Path) -> bool { fs::metadata(p).is_ok() }
+        }
+        mod globbed {
+            use std::fs::*;
+            fn a(p: &Path) -> bool { exists(p).unwrap_or(false) }
+        }
+        mod in_a_block {
+            fn a(p: &Path) -> bool {
+                use std::fs::metadata as m;
+                m(p).is_ok()
+            }
+        }
+        mod local_fn {
+            fn metadata(_: &Path) -> Option<u64> { None }
+            fn a(p: &Path) -> bool { metadata(p).is_some() }
+        }
+        mod local_import {
+            use crate::store::disk::{exists, metadata as meta};
+            fn a(p: &Path) -> bool { exists(p) && meta(p).is_some() }
+        }
+        mod local_fs {
+            use crate::store::disk as fs;
+            fn a(p: &Path) -> bool { fs::metadata(p).is_some() }
+        }
+        mod glob_shadowed {
+            use std::fs::*;
+            fn exists(_: &Path) -> bool { true }
+            fn a(p: &Path) -> bool { exists(p) }
+        }
+        mod not_inherited {
+            use std::fs::metadata;
+            mod inner {
+                fn metadata(_: &Path) -> bool { true }
+                fn a(p: &Path) -> bool { metadata(p) }
+            }
+        }
+        mod held {
+            use crate::home_fs::{self as hfs, symlink_metadata};
+            fn a(p: &Path) -> bool { symlink_metadata(p).is_ok() && hfs::metadata(p).is_ok() }
+        }
+    "#;
+    let file = syn::parse_file(fixture).unwrap();
+    let rows: Vec<String> = rows_in("x.rs", &file)
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "symlink_metadata(..) (std::fs::symlink_metadata)",
+            "sm(..) (std::fs::symlink_metadata)",
+            "metadata(..) (std::fs::metadata)",
+            "fs::symlink_metadata(..)",
+            "Path::exists(..)",
+            "fs::metadata(..)",
+            "exists(..) (std::fs::exists)",
+            "m(..) (std::fs::metadata)",
+        ],
+    );
+}
+
 /// Every operation in `home_fs.rs` whose Unix arm goes through the held home's descriptor
 /// (`unix::...`) checks the held home in its other arms too (`held` or `held_read`): no
 /// `home_fs` function that the store's reads go through is path-based on any platform (#41721

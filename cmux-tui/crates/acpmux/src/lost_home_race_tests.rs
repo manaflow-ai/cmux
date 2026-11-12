@@ -516,6 +516,51 @@ fn a_replaced_home_is_refused_by_its_file_id_and_the_same_home_passes() {
     );
 }
 
+/// Off Unix a read goes between two checks of the home (`home_fs::held_read`). A home replaced
+/// after the first check and before the read: the read, made by path in the replacement, fails
+/// (`NotFound`: the replacement has no such file). That error must not stand for the held home's
+/// answer: `LocalStore::load` reads `NotFound` as "no session", which would hide the lost home
+/// (#41915 review F1). The second check runs whatever the read answered, and a home replaced
+/// before it is the lost home's error. The race is forced at the end of the first check
+/// (`config::seams::on_checked`) on the same `held_read` the Windows arms use, so it runs on
+/// every platform.
+#[test]
+fn a_held_read_that_fails_in_a_replaced_home_is_the_lost_home_not_not_found() {
+    isolated(
+        module_path!(),
+        "a_held_read_that_fails_in_a_replaced_home_is_the_lost_home_not_not_found",
+        |home| {
+            let file = home.join("sessions").join("c").join("session.json");
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, b"{}").unwrap();
+            crate::config::hold_home();
+            let swapped = std::rc::Rc::new(std::cell::Cell::new(false));
+            let _hook = {
+                let (swapped, home, file) = (swapped.clone(), home.to_path_buf(), file.clone());
+                crate::config::seams::on_checked(move |path, passed| {
+                    if path == file && passed && !swapped.replace(true) {
+                        replace(&home);
+                    }
+                })
+            };
+            let read = crate::home_fs::held_read(&file, || std::fs::symlink_metadata(&file));
+            assert!(
+                swapped.get(),
+                "the home was not replaced between the first check and the read"
+            );
+            let error = read.expect_err("a read in a replaced home answered");
+            assert_ne!(
+                error.kind(),
+                std::io::ErrorKind::NotFound,
+                "the replacement's NotFound stood for the held home's answer: {error}"
+            );
+            assert!(error.to_string().contains("is gone"), "not the lost home's error: {error}");
+            assert!(home.with_extension("old").join("sessions/c/session.json").exists());
+        },
+        |_, _| {},
+    );
+}
+
 /// The permission bits of `path` itself (never through a link).
 #[cfg(unix)]
 fn mode_of(path: &Path) -> u32 {
