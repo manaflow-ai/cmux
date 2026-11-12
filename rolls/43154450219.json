@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43154450219",
+  "recorded_at": "2026-11-12T04:31:36Z",
+  "reason": "cmux-tui 08b93ed2fb14 changes the image's cmux-tui (pinned df657d374676)",
+  "dry_run": false,
+  "cmux_tui": "08b93ed2fb142d66915ab514b38252148c615383",
+  "fixes": [
+    {
+      "sha": "08b93ed2fb142d66915ab514b38252148c615383",
+      "mergedAt": "2026-11-11T20:07:08-08:00",
+      "subject": "acpmux: a fork onto another harness tells its agent it was forked from the chat (#41688)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T04:31:36Z",
+    "snapshot_id": "sh-9a240b1f2692455ca84f2c1ab01e94c3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43154450219): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "557cbf821e010d851b2757af891d81b77efa373e",
+    "image": "cloud-native-auto-08b93ed2-43154450219-1",
+    "revision": "ci-43154450219-1",
+    "at": "2026-11-12T04:31:36Z"
+  },
+  "rolled_back": false
+}
