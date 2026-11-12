@@ -92,9 +92,20 @@ pub struct Fold {
     // Current Codex records each finished tool call as an `item_completed` event; older Codex
     // wrote `exec_command_end` and patch events, read until the first such item.
     tool_items: bool,
-    /// A message item without kinds was folded as a turn after `current` was set: a read that
-    /// starts past the item that set it would fold that one as an item instead.
-    plain_after_current: bool,
+    /// What the last line folded was, as a reader that starts later sees it ([`ItemLine`]).
+    last: ItemLine,
+}
+
+/// A Codex line, as it decides where a read that starts at a later line folds message items.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ItemLine {
+    /// Neither below.
+    Other,
+    /// A message item annotated with its kinds: from it on, items are the turns.
+    Annotated,
+    /// A prompt item without kinds, folded as a turn only because an earlier line was
+    /// annotated: a read that starts past every annotated line before it folds it as an item.
+    PlainPrompt,
 }
 
 impl Fold {
@@ -109,12 +120,13 @@ impl Fold {
             items_settled: 0,
             current: false,
             tool_items: false,
-            plain_after_current: false,
+            last: ItemLine::Other,
         }
     }
 
     /// Folds one line (a record; anything that does not parse is skipped).
     pub fn line(&mut self, line: &[u8]) {
+        self.last = ItemLine::Other;
         let Ok(record) = serde_json::from_slice::<Value>(line) else { return };
         let at = record.get("timestamp").and_then(Value::as_str).and_then(parse_ms);
         if !self.codex {
@@ -128,6 +140,9 @@ impl Fold {
         let kinds = has_item_kinds(&record);
         let was_current = self.current;
         self.current = self.current || kinds;
+        if kinds {
+            self.last = ItemLine::Annotated;
+        }
         if let Some((tool, item)) = crate::adopt_tools::codex_tool(&record, at) {
             self.tool_items = self.tool_items || item;
             if self.tools && (item || !self.tool_items) {
@@ -142,7 +157,9 @@ impl Fold {
         } else if let Some(step) = codex_step(&record) {
             add(&mut self.turns, step, at);
         } else if let Some(step) = codex_item_step(&record) {
-            self.plain_after_current = self.plain_after_current || (was_current && !kinds);
+            if was_current && !kinds && matches!(step, Step::Prompt(_)) {
+                self.last = ItemLine::PlainPrompt;
+            }
             add(if self.current { &mut self.turns } else { &mut self.items }, step, at);
         }
     }
@@ -152,9 +169,9 @@ impl Fold {
         self.current
     }
 
-    /// A message item without kinds was folded after [`Self::current`] was set.
-    pub fn plain_after_current(&self) -> bool {
-        self.plain_after_current
+    /// What the last line folded was ([`ItemLine`]).
+    pub fn last_line(&self) -> ItemLine {
+        self.last
     }
 
     /// How many turns (event messages, or Claude Code's) and Codex items were folded so far.

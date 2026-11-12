@@ -280,3 +280,93 @@ fn a_long_followed_chat_holds_a_whole_reads_newest_messages_in_its_bound() {
         "numbered as the transcript"
     );
 }
+
+#[test]
+fn a_rewrite_in_place_that_keeps_every_line_end_is_read_whole_again() {
+    // Review of #41870, F1: the same inode, length and line ends, other words.
+    let mut chat = Followed::new(AdapterKind::ClaudeCode);
+    let prompt = |word: &str| {
+        format!(r#"{{"type":"user","message":{{"role":"user","content":"say {word}"}}}}"#) + "\n"
+    };
+    chat.append(&(prompt("first-word") + &prompt("old-word")));
+    chat.check("first read");
+    let before = chat.bytes();
+    std::fs::write(&chat.path, prompt("first-word") + &prompt("new-word")).expect("rewrite end");
+    chat.check("the newest line rewritten");
+    assert!(chat.bytes() > before, "read whole again");
+    std::fs::write(&chat.path, prompt("other-word") + &prompt("new-word")).expect("rewrite start");
+    chat.check("the first line rewritten");
+    assert!(chat.text.search(&Needle::parse("old-word").expect("words")).is_empty());
+}
+
+/// A current Codex turn: an annotated prompt, about 1 MB of tool output, a plain final answer.
+fn codex_turn(i: usize) -> String {
+    let out = "o".repeat(1 << 20);
+    [
+        format!(
+            r#"{{"type":"response_item","payload":{{"type":"message","role":"user","content":[{{"type":"input_text","text":"prompt {i}"}}],"internal_chat_message_metadata_passthrough":{{"content_item_kinds":["user.text"]}}}}}}"#
+        ),
+        format!(
+            r#"{{"type":"response_item","payload":{{"type":"function_call_output","call_id":"c{i}","output":"{out}"}}}}"#
+        ),
+        format!(
+            r#"{{"type":"response_item","payload":{{"type":"message","role":"assistant","phase":"final_answer","content":[{{"type":"output_text","text":"answer {i}"}}]}}}}"#
+        ),
+    ]
+    .map(|line| line + "\n")
+    .concat()
+}
+
+#[test]
+fn a_current_codex_chat_past_the_newest_bytes_reads_only_what_was_appended() {
+    // Review of #41870, F2: annotated prompts and plain answers read the whole newest 64 MB on
+    // every append once the first annotated prompt left it.
+    let mut chat = Followed::new(AdapterKind::Codex);
+    let turns = (crate::adopt_replay::MAX_BYTES >> 20) as usize + 16;
+    chat.append(&(0..turns).map(codex_turn).collect::<String>());
+    chat.check("past the newest bytes");
+    for i in turns..turns + 8 {
+        let turn = codex_turn(i);
+        let before = chat.bytes();
+        chat.append(&turn);
+        chat.check(&format!("turn {i}"));
+        assert_eq!(chat.bytes() - before, turn.len() as u64, "turn {i}: only the turn is read");
+    }
+}
+
+#[test]
+fn a_plain_codex_prompt_left_without_an_annotated_line_before_it_reads_whole_as_a_whole_read() {
+    // A rollout begun on a current Codex and resumed on an older one: the plain prompts after the
+    // annotated ones are turns only while an annotated line is still in the newest bytes.
+    let mut chat = Followed::new(AdapterKind::Codex);
+    let plain = |i: usize| {
+        let out = "o".repeat(1 << 20);
+        [
+            format!(
+                r#"{{"type":"response_item","payload":{{"type":"message","role":"user","content":[{{"type":"input_text","text":"plain prompt {i}"}}]}}}}"#
+            ),
+            format!(
+                r#"{{"type":"response_item","payload":{{"type":"function_call_output","call_id":"p{i}","output":"{out}"}}}}"#
+            ),
+        ]
+        .map(|line| line + "\n")
+        .concat()
+    };
+    chat.append(&(0..8).map(codex_turn).collect::<String>());
+    let span = (crate::adopt_replay::MAX_BYTES >> 20) as usize;
+    let mut i = 0;
+    chat.append(
+        &(0..span - 12)
+            .map(|_| {
+                i += 1;
+                plain(i)
+            })
+            .collect::<String>(),
+    );
+    chat.check("annotated prompts still in the newest bytes");
+    for _ in 0..12 {
+        i += 1;
+        chat.append(&plain(i));
+        chat.check(&format!("plain prompt {i}"));
+    }
+}
