@@ -156,9 +156,11 @@ pub struct SessionMeta {
     /// default (`hub/new_request.rs` `unique_name_among`). False in a log from before it was kept.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub name_given: bool,
-    #[serde(alias = "harness")]
+    /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
+    #[serde(alias = "agent")]
     pub harness: String,
-    #[serde(default, alias = "agent_argv")]
+    /// `agentArgv` (or `agent_argv`) in a chat stored before that rename.
+    #[serde(default, alias = "agentArgv", alias = "agent_argv")]
     pub harness_argv: Vec<String>,
     /// The argv its agent last started with: a config or preset reload since creation can change
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).

@@ -585,6 +585,8 @@ pub struct AcpmuxCompactor {
     prompts: AtomicU64,
     /// Image descriptions started (each gets its own node id).
     describes: AtomicU64,
+    /// Fresh session names given when acpmux kept a node's name taken (`start`).
+    renames: AtomicU64,
     /// The harness and model a node runs on instead of the compactor's
     /// (a reaction classifier's, `ReactionJudge`); such a node never takes
     /// or leaves a warm session.
@@ -642,6 +644,7 @@ impl AcpmuxCompactor {
             prompts: AtomicU64::new(0),
             flight: crate::single_flight::SingleFlight::new(),
             describes: AtomicU64::new(0),
+            renames: AtomicU64::new(0),
             overrides: Mutex::new(HashMap::new()),
             stamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -894,6 +897,15 @@ impl AcpmuxCompactor {
             // The probe's session is purged when the probe ends.
             let n = self.probes.fetch_add(1, Ordering::SeqCst);
             format!("{}-probe-{}-{n}", self.spec.name, std::process::id())
+        } else if is_describe(node) {
+            // The count under a description's id restarts with each host, so the id alone
+            // named the last run's description again: this run's stamp keeps it apart.
+            format!(
+                "{}-describe-{}-{}",
+                self.spec.name,
+                self.stamp,
+                u64::MAX - node.i
+            )
         } else {
             format!("{}-{}", self.spec.name, node.name())
         }
@@ -1136,15 +1148,11 @@ impl AcpmuxCompactor {
         // Left by a host that stopped while the node was being built. When the
         // list does not name it, acpmux ends a session by its exact name too
         // (`_acpmux/kill` resolves a name; cx-oqnw3: the list missed one).
-        match self.port.find(name) {
-            Ok(Some(old)) => {
-                let _ = self.port.end_session(&old);
-            }
-            _ => {
-                let _ = self.port.end_session(name);
-            }
-        }
-        let spec = SessionSpec {
+        let ended = match self.port.find(name) {
+            Ok(Some(old)) => self.port.end_session(&old),
+            _ => self.port.end_session(name),
+        };
+        let mut spec = SessionSpec {
             name: name.to_owned(),
             cwd: cwd.clone(),
             harness: admitted.profile.clone(),
@@ -1160,13 +1168,28 @@ impl AcpmuxCompactor {
         let id = self
             .port
             .new_session(&spec)
-            .inspect_err(|e| {
-                if e.contains("is taken") {
-                    let listed = self.port.find(name);
-                    self.say(&format!(
-                        "compactor: acpmux says the session name {name} is taken; acpmux finds it as {listed:?}"
-                    ));
+            .or_else(|e| {
+                if !e.contains("is taken") {
+                    return Err(e);
                 }
+                // acpmux keeps the name: its session did not end (a refused purge kept it
+                // for days, and every try asked for the same name). A fresh name builds
+                // the node now; the old session stays for acpmux to end.
+                let listed = self.port.find(name);
+                let why = ended.as_ref().err().map_or_else(String::new, |k| format!("; ending it: {k}"));
+                let n = self.renames.fetch_add(1, Ordering::SeqCst);
+                spec.name = format!("{name}-r{}-{n}", self.stamp);
+                self.say(&format!(
+                    "compactor: acpmux says the session name {name} is taken (acpmux finds it as {listed:?}{why}); starting it as {}",
+                    spec.name
+                ));
+                self.trace.emit(
+                    "compactor.name_taken",
+                    json!({"name": name, "fresh": spec.name, "end_error": ended.as_ref().err()}),
+                );
+                self.port.new_session(&spec).map_err(|again| {
+                    format!("{again} (after {e}{why})")
+                })
             })
             .and_then(|id| {
                 // The session's own harness is what answers (a name that is
