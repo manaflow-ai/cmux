@@ -36,6 +36,22 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         attach(app, "after-jump")
     }
 
+    /// Keyboard up, the stack rides the keyboard: the pill stays above the
+    /// key row, centered.
+    @MainActor
+    func testJumpToBottomAboveKeyRowWithKeyboardUp() throws {
+        let app = launch()
+        let field = app.textViews["terminal.composer.field"]
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard shows")
+        let jump = app.buttons["terminal.jumpToBottom"]
+        XCTAssertTrue(scrollUp(app, until: jump), "scrolled up with the keyboard up: Jump to bottom shows\n\(app.debugDescription)")
+        let keyRow = app.descendants(matching: .any)["terminal.key.keyboard"]
+        XCTAssertLessThanOrEqual(jump.frame.maxY, keyRow.frame.minY, "above the key row: jump \(jump.frame) keys \(keyRow.frame)")
+        XCTAssertEqual(jump.frame.midX, app.windows.firstMatch.frame.midX, accuracy: 2, "centered")
+        attach(app, "keyboard-up-scrolled-up")
+    }
+
     @MainActor
     func testSettingOffRemovesJumpToBottom() throws {
         // Control: with the setting on, the same scroll shows it.
