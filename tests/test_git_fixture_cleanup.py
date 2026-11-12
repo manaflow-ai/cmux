@@ -586,6 +586,10 @@ class TrapMatchesTheBuiltin(unittest.TestCase):
         ("set -T, then ignore DEBUG", [r"set -T", r"trap 'n=1' INT", r"trap '' DEBUG", r"builtin trap -p DEBUG"]),
         ("the ignored mark outlives set -T", [r"set -T", r"trap 'n=1' INT", r"set +T", r"trap '' DEBUG",
                                               r"builtin trap -p DEBUG"]),
+        # Review of cmux#41922 F1: the wrapper suspended an ignored DEBUG trap with `:`, which cleared bash's
+        # "ignored" mark, so after `trap - DEBUG` a second `trap '' DEBUG` took effect where plain bash's does not.
+        ("ignore, reset, ignore DEBUG under set -T", [r"set -T", r"trap '' DEBUG", r"trap - DEBUG", r"trap '' DEBUG",
+                                                      r"trap -p DEBUG", r"builtin trap -p DEBUG"]),
     ]
     # Set before the script (and before sourcing, under the wrapper).
     BEFORE = {"ignored before sourcing": "trap '' EXIT\n",
@@ -857,6 +861,10 @@ class RandomTrapsAllowanceIsBounded(unittest.TestCase):
             ("the dispatcher's step twice", self.PLAIN + self.DISPATCH * 2),
             ("the dispatcher's step before the body", self.DISPATCH + self.PLAIN),
             ("prep's steps twice", self.PLAIN + self.DISPATCH + self.PREP * 2),
+            # Review of hq#9885 F2: prep's allowance was bounded by count, not by place. Prep runs from the EXIT trap,
+            # right after the dispatcher's first step, never inside the body.
+            ("prep's steps before the body ends", head + self.PREP + tail),
+            ("prep's steps before the body ends, the dispatcher's step after it", head + self.PREP + tail + self.DISPATCH),
         ]
 
     def test_the_allowance_rejects_what_its_bound_forbids(self):
@@ -872,6 +880,46 @@ class RandomTrapsAllowanceIsBounded(unittest.TestCase):
         self.assertTrue(self.judge([], self.PLAIN + self.DISPATCH + "E2 1\n"))
         self.assertFalse(self.judge([], head + self.GROUP + tail), "without set -T no wrapper step is seen")
         self.assertFalse(self.judge([], self.PLAIN + self.DISPATCH + self.PREP), "without set -T prep is not seen")
+
+    def test_a_shared_debug_and_err_action_counts_once_per_signal(self):
+        """Review of cmux#41922 F2 (seed 1238: `trap '...; false' ERR DEBUG RETURN` under set -ET): one action set on
+        DEBUG and ERR prints the same line for its DEBUG run at a wrapper step and for the ERR run that run's failure
+        starts, and skip_err took no line a DEBUG leaf printed, so each ERR run counted as one more wrapper step. Such
+        a line is that DEBUG run's ERR run once, and only under set -E (without it no ERR trap runs in a function)."""
+        case = RandomTraps(0)
+        case.signals_of, case.fails = {"E1": {"ERR", "DEBUG"}}, {"E1"}
+        plain = "E1:trap@top 0\nE1:trap@top 1\n@exit\n"
+        step = ('E1:trap@trap 0\nE1:trap@trap 1\nE1:local@trap 0\nE1:local@trap 1\n'
+                'E1:"${_git_fixture_suspend_cmd[${#_git_fixture_t_debug}@trap 0\n'
+                'E1:"${_git_fixture_suspend_cmd[${#_git_fixture_t_debug}@trap 1\n')
+        head, tail = "E1:trap@top 0\nE1:trap@top 1\n", "@exit\n"
+
+        def judge(flags: list[str], wrapped: str) -> bool:
+            case.flags = flags
+            return case.allowed((plain, 3, ""), (wrapped, 3, ""))
+
+        self.assertTrue(judge(["-T", "-E"], head + step + tail), "three steps, each with its ERR run")
+        self.assertFalse(judge(["-T"], head + step + tail), "without set -E those are six DEBUG runs")
+        self.assertFalse(judge(["-T", "-E"], head + step + step.splitlines(keepends=True)[0] + tail),
+                         "a fourth DEBUG run")
+        self.assertFalse(judge(["-T", "-E"], head + step.replace("@trap 1\n", "@trap 1\nE1:trap@trap 1\n", 1) + tail),
+                         "two ERR runs after one DEBUG run")
+
+    def test_an_action_ending_in_a_backslash_is_compared_exactly(self):
+        """Review of hq#9885 F1: the comparator dropped every trailing backslash before comparing, so a wrapped run
+        that lost the one an action's output ends in, or doubled it, matched plain bash. A leaf that ends in a
+        backslash prints exactly one (`D1:echo@top\\`, `E2\\`); only the parse of a DEBUG line's function sets it
+        aside."""
+        case = RandomTraps(0)
+        case.signals_of, case.fails, case.flags = {"D1": {"DEBUG"}, "E2": {"ERR"}}, set(), ["-T"]
+        plain = "D1:echo@top\\\nE2\\\n@exit\n"
+        self.assertTrue(case.allowed((plain, 3, ""), (plain, 3, "")))
+        for name, wrapped in (("the DEBUG line's backslash lost", "D1:echo@top\nE2\\\n@exit\n"),
+                              ("the DEBUG line's backslash doubled", "D1:echo@top\\\\\nE2\\\n@exit\n"),
+                              ("the ERR line's backslash lost", "D1:echo@top\\\nE2\n@exit\n"),
+                              ("the ERR line's backslash doubled", "D1:echo@top\\\nE2\\\\\n@exit\n")):
+            with self.subTest(row=name):
+                self.assertFalse(case.allowed((plain, 3, ""), (wrapped, 3, "")), name)
 
 
 class RandomTrapsMatchTheBuiltin(unittest.TestCase):
