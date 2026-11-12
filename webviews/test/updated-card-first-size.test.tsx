@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { PageClient } from "../src/pages/shared/pageClient";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
+import { settleReact } from "./support/domTeardown";
 
 // Leo 2026-11-04: "i feel like the restarted after nightly update does too many layout shifts/flicker
 // renderings". The sidebar lays the Updated card out at the first height its page reports, so the page
@@ -107,6 +108,7 @@ test("the Updated card reports with its title and a loading change line, then sw
     expect(host.querySelector(".wn-card-title")?.textContent).toContain("Updated to Nightly");
     expect(sizes.length).toBe(1);
   } finally {
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;
