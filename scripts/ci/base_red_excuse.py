@@ -1977,25 +1977,22 @@ def touched_by(path: str, changed: list[str]) -> list[str]:
 
 
 def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict, view: "FailedView | Unplaced",
-                           unplaced: "UnplacedSignature | None", same_job: dict | None, runs: list[dict],
-                           base_jobs: dict, github, run_reads: dict) -> str | None:
-    """The audit line for red job NAME (JOB, its failed_view VIEW, its whole-log UNPLACED) when every compiler error it
-    prints is one red base job's in a file the PR does not change (the rule above); None when the rule does not apply
-    or no base job shows it. SAME_JOB: the base verdict of the same job; RUNS: the workflow's base runs, newest
-    first."""
+                           head: "CompileErrors | None", unplaced: "UnplacedSignature | None", same_job: dict | None,
+                           runs: list[dict], base_jobs: dict, github, run_reads: dict) -> str | None:
+    """The audit line for red job NAME (JOB, its failed_view VIEW, its whole-log UNPLACED, and HEAD, read_head's
+    compile_errors of it) when every compiler error it prints is one red base job's in a file the PR does not change
+    (the rule above); None when the rule does not apply or no base job shows it. SAME_JOB: the base verdict of the
+    same job; RUNS: the workflow's base runs, newest first."""
     if view is UNPLACED:
         if unplaced is None or unplaced.tests or unplaced.crashes or unplaced.unnamed:
             return None
         if any(error.startswith("ratchet: ") for error in unplaced.errors):
             return None
-        lines = test_reds.lines_of(github.log(repo, job))
     else:
         _, tests, errors = signature(view)
         if tests or crash_signals(view) or any(RATCHET_SCOPE.match(error) for error in errors):
             return None
-        lines = list(lines_of(view_text(view)))
-    head = compile_errors(lines, job)
-    if head.other or not head.located:
+    if head is None or head.other or not head.located:
         return None
     ran = {str(step.get("name") or ""): step.get("conclusion")  # step-name: classify
            for step in (same_job or {}).get("steps") or []}
@@ -2011,7 +2008,7 @@ def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict,
         return None
     newest = created(runs[0]) if runs else None
     fixed: set = set()
-    reads = logs = 0
+    reads = compared = 0
     for run in runs:
         if run.get("conclusion") not in ("failure", "success"):
             continue
@@ -2027,15 +2024,10 @@ def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict,
         for other in jobs:
             if other.get("conclusion") != "failure" or other.get("name") in fixed | passed:
                 continue
-            if logs >= COMPILE_ERROR_LOGS:
+            if compared >= COMPILE_ERROR_LOGS:
                 return None
-            logs += 1
-            text = github.log(repo, other)
-            seen = failed_view(other, text, base=True,
-                               step_names=job_step_names(repo, other, github, run_reads, path=run.get("path")))
-            theirs = compile_errors(list(lines_of(view_text(seen))) if seen is not UNPLACED
-                                    else test_reds.lines_of(text), other)
-            if head.located <= theirs.located:
+            compared += 1
+            if head.located <= compile_base_evidence(repo, run, other, github, run_reads).located:
                 url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
                 return (f"excused '{name}': every compiler error it prints is one {base} run {run['id']}'s red "
                         f"'{other.get('name')}' prints ({url}), in files this PR does not change: "
@@ -6193,6 +6185,9 @@ class Head(NamedTuple):
     # The whole-log signature of an unplaced head (VIEW UNPLACED) or of a placed one with nothing to compare, else
     # None: unplaced_verdict compares it.
     unplaced: "UnplacedSignature | None" = None
+    # Its compiler errors (compile_errors) of its failed sections, or of its whole log when VIEW is UNPLACED:
+    # compile_errors_verdict compares them.
+    compile: "CompileErrors | None" = None
 
 
 def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_reads: dict,
@@ -6258,7 +6253,19 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     bare = (early is not UNPLACED and not early[1] and not early[2] and not crash_signals(view)
             and not chromium_without_diagnostics)
     return Head(None, view, chromium_without_diagnostics, per_test,
-                unplaced_signature(job, head_log) if view is UNPLACED or bare else None)
+                unplaced_signature(job, head_log) if view is UNPLACED or bare else None,
+                compile_errors(test_reds.lines_of(head_log) if view is UNPLACED else list(lines_of(view_text(view))),
+                               job))
+
+
+def compile_base_evidence(repo: str, run: dict, found: dict, github, run_reads: dict) -> "CompileErrors":
+    """compile_errors of red base job FOUND (of base run RUN): of its failed sections (failed_view), or of its whole
+    log when step_owners cannot place it, as pr_only_step_verdict reads an unplaced base job. The one reader of the
+    raw log of a base job compile_errors_verdict compares."""
+    text = github.log(repo, found)
+    view = failed_view(found, text, base=True,
+                       step_names=job_step_names(repo, found, github, run_reads, path=run.get("path")))
+    return compile_errors(test_reds.lines_of(text) if view is UNPLACED else list(lines_of(view_text(view))), found)
 
 
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
@@ -6654,8 +6661,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 # Or a step the green verdict skipped, red only on compiler errors another red base job prints in
                 # files this PR does not change (compile_errors_verdict; cmux#40935's acpmux simulation clippy step).
                 if aside is None and (same := compile_errors_verdict(
-                        repo, base, sha, name, job, view, got.unplaced, base_job, evidence.runs(workflow), base_jobs,
-                        github, run_reads)) is not None:
+                        repo, base, sha, name, job, view, got.compile, got.unplaced, base_job, evidence.runs(workflow),
+                        base_jobs, github, run_reads)) is not None:
                     audit.append(same)
                     continue
                 if purpose == PER_STEP_PURPOSE:
@@ -6728,7 +6735,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                 pr_only.add((job.get("run_id"), name))
                                 break
                             if aside is None and (same := compile_errors_verdict(
-                                    repo, base, sha, name, job, view, got.unplaced, newest_job,
+                                    repo, base, sha, name, job, view, got.compile, got.unplaced, newest_job,
                                     evidence.runs(workflow), base_jobs, github, run_reads)) is not None:
                                 audit.append(same)
                                 break
@@ -6767,7 +6774,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         or (newest and created(run) and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
                     if aside is not None:  # the step-A pin rule set its red aside: judged as before
                         raise
-                    if (same := compile_errors_verdict(repo, base, sha, name, job, view, got.unplaced,
+                    if (same := compile_errors_verdict(repo, base, sha, name, job, view, got.compile, got.unplaced,
                                                        window[0][1].job, evidence.runs(workflow), base_jobs, github,
                                                        run_reads)) is not None:
                         audit.append(same)

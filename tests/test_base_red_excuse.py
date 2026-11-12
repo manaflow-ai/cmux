@@ -10054,7 +10054,7 @@ VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
-    "owned_unnamed"})
+    "owned_unnamed", "compile_errors_verdict"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -10081,7 +10081,7 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "shared_generated_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "compile_base_evidence", "shared_generated_host", "pr_only_step_verdict", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -10174,6 +10174,7 @@ ROLES = {
     ("base_red_excuse", "read_head"): (False,),  # the head's red job
     ("base_red_excuse", "guard_routes_view"): (False,),  # validate_guard_routes: the head's routed rollup guard
     ("base_red_excuse", "base_evidence"): (True,),  # a compared base run's job
+    ("base_red_excuse", "compile_base_evidence"): (True,),  # a red base job compile_errors_verdict compares
     ("next_batch", "probe_base"): (True, True),  # the base probe's run, then its rerun
     ("next_batch", "failing_on_base"): (True,),  # the base's newest push run
     ("next_batch", "base_tier_failures"): (True,),  # the base tier's runs
@@ -12828,6 +12829,7 @@ SCANNERS = {
     "base_red_excuse.owned_unnamed": lambda f: excuse.owned_unnamed(TR.Result(), f.view),
     "base_red_excuse.step_errors": lambda f: excuse.step_errors(f.view),
     "base_red_excuse.unplaced_signature": lambda f: excuse.unplaced_signature(f.job, f.log),
+    "base_red_excuse.compile_errors": lambda f: excuse.compile_errors(f.lines, f.job),
     "base_red_excuse.generated_stale_host": lambda f: excuse.generated_stale_host(f.log),
     "base_red_excuse.no_verdict": lambda f: excuse.no_verdict(f.log),
     "base_red_excuse.summary_red": lambda f: excuse.summary_red(f.log),
