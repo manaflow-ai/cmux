@@ -11,7 +11,7 @@
 
 use super::index::Entry;
 use super::record::{HEADER_LEN, HEADER_LEN_U32, HEADER_LEN_U64, Header};
-use super::{Error, Log, SEQ_STRIDE};
+use super::{Error, Log, RawRange, SEQ_STRIDE};
 use std::ops::Range;
 
 /// The most rows one window, page or resume returns.
@@ -38,9 +38,12 @@ pub struct RowRef {
     /// (the index does not hold it).
     pub seq: u64,
     pub seg: u32,
-    /// Where the row text starts in the segment (24 bytes after its record).
+    /// Where the row text starts in the segment (40 bytes after its record).
     pub off: u32,
     pub len: u32,
+    /// The raw bytes that produced this record. Resume rows carry it immediately because they
+    /// inspect headers; windows and pages leave it empty until [`Log::raw_range`] is requested.
+    pub raw: RawRange,
 }
 
 impl RowRef {
@@ -52,6 +55,7 @@ impl RowRef {
             seg: entry.seg,
             off: entry.off.saturating_add(HEADER_LEN_U32),
             len: entry.len,
+            raw: RawRange::NONE,
         }
     }
 }
@@ -241,16 +245,19 @@ impl Log {
                 // before it did not use goes after again.
                 let mut ahead = Budget {
                     rows: budget.rows.saturating_sub(budget.rows / 2),
-                    bytes: budget.bytes.saturating_sub(budget.bytes / 2),
+                    // The anchor may be the one oversized row, but it still consumes the shared
+                    // byte budget when it fits. Rows before and after it must not each get a half
+                    // budget after the anchor has been counted.
+                    bytes: budget.bytes,
                     first_free: true,
                     one_read: false,
                 };
-                let kept = (budget.rows / 2, budget.bytes / 2);
+                let kept_rows = budget.rows / 2;
                 let mut after = Vec::new();
                 let mut hi = self.walk(start, true, &mut ahead, &mut after);
                 budget = Budget {
-                    rows: kept.0.saturating_add(ahead.rows),
-                    bytes: kept.1.saturating_add(ahead.bytes),
+                    rows: kept_rows.saturating_add(ahead.rows),
+                    bytes: ahead.bytes,
                     first_free: after.is_empty(),
                     one_read: false,
                 };
@@ -307,7 +314,7 @@ impl Log {
         }
         let slot = cursor.saturating_add(1) / SEQ_STRIDE;
         let (mut seg, mut offset) = if slot == 0 {
-            (1u32, 0u64)
+            (1u32, super::SEGMENT_HEADER_LEN)
         } else {
             let (seg, off) = self
                 .seqs
@@ -325,7 +332,7 @@ impl Log {
                     return Ok(since);
                 }
                 seg = seg.saturating_add(1);
-                offset = 0;
+                offset = super::SEGMENT_HEADER_LEN;
                 continue;
             }
             let mut at = 0usize;
@@ -350,6 +357,11 @@ impl Log {
                         off: u32::try_from(text)
                             .map_err(|_| Error::Corrupt("a segment is past 4 GiB"))?,
                         len: header.len,
+                        raw: RawRange {
+                            file: header.raw_file,
+                            off: header.raw_off,
+                            len: header.raw_len,
+                        },
                     });
                     since.cursor = header.seq;
                     left = left.saturating_sub(len);
@@ -374,7 +386,7 @@ impl Log {
     /// always is. Returns the reads made.
     ///
     /// Each row's record header is checked against the row asked for, so an index entry that
-    /// does not match its record is [`Error::Corrupt`], never another row's text.
+    /// does not match its record is [`Error::CorruptRow`], never another row's text.
     pub fn fill(
         &mut self,
         rows: &[RowRef],
@@ -404,7 +416,17 @@ impl Log {
             };
             reads = reads.saturating_add(1);
             if read != len {
-                return Err(Error::Corrupt("a row index entry points past its segment"));
+                return Err(Error::CorruptRow {
+                    row_id: run
+                        .iter()
+                        .find(|row| {
+                            u64::from(row.off).saturating_add(u64::from(row.len))
+                                > span.lo.saturating_add(read as u64)
+                        })
+                        .unwrap_or(first)
+                        .row_id,
+                    reason: "a row index entry points past its segment",
+                });
             }
             for row in run {
                 let header_at = usize::try_from(
@@ -417,7 +439,19 @@ impl Log {
                     header.row_id == row.row_id && header.rev == row.rev && header.len == row.len
                 });
                 if !same {
-                    return Err(Error::Corrupt("a row index entry does not match its record"));
+                    return Err(Error::CorruptRow {
+                        row_id: row.row_id,
+                        reason: "a row index entry does not match its record",
+                    });
+                }
+                if let Some(header) = header
+                    && header.raw_len != 0
+                    && (header.raw_file == 0 || header.raw_file > self.raw_files)
+                {
+                    return Err(Error::CorruptRow {
+                        row_id: row.row_id,
+                        reason: "a record names a raw file absent from raw.map",
+                    });
                 }
                 let text = header_at.saturating_add(HEADER_LEN);
                 at.push(text..text.saturating_add(row.len as usize));
