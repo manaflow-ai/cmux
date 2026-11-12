@@ -79,16 +79,34 @@ export class ChatDrawn {
 /// The page's one record (a transcript mounting again reads what the last one drew).
 export const chatDrawn = new ChatDrawn();
 
+/// One open of a chat: its tick on this computer's clock, whether the page drew the chat before,
+/// and the page's record of what it drew.
+export type ChatOpen = { at: number; drewBefore: boolean; drawn: ChatRows };
+
+/// Opens chat `session` now (a transcript showing it, after a click, a switch or a page load).
+export function openChat(session: string, page: ChatDrawn = chatDrawn): ChatOpen {
+  const drewBefore = page.drewAny(session);
+  return { at: Date.now(), drewBefore, drawn: page.open(session) };
+}
+
 /// What a drawn row is remembered by: its id, and for the running turn's live line, which keeps one
 /// id from turn to turn (turns.ts LIVE_THINKING), its turn's time too, so the next turn's line is new.
 export const drawnKey = (row: Pick<AcpmuxRow, "id" | "at" | "below">): string =>
   row.below ? `${row.id}@${row.at}` : row.id;
 
+/// Whether a row's time is already on this computer's clock: a prompt the pane echoed before the
+/// host had it (direct.ts, `local-` ids) and the running turn's live line (turns.ts moves it).
+const onLocalClock = (row: Pick<AcpmuxRow, "id" | "below">) => row.below === true || row.id.startsWith("local-");
+
 /// Whether a row that arrived now happened after the chat was opened (`openedAt`, the open's tick on
-/// this computer's clock), and so may take a live entrance. A row's time is the agent host's clock;
+/// this computer's clock), and so may take a live entrance. A host row's time is the agent host's clock;
 /// `clockOffset` (the snapshot's `clockOffsetMs`) moves it onto this computer's, so a host whose
 /// clock runs behind or ahead neither replays history nor holds back what came after the open.
 /// One the page already drew never gets here.
-export function happenedAfterOpen(row: { at: number }, openedAt: number, clockOffset = 0): boolean {
-  return row.at + clockOffset >= openedAt;
+export function happenedAfterOpen(
+  row: Pick<AcpmuxRow, "id" | "at" | "below">,
+  openedAt: number,
+  clockOffset = 0,
+): boolean {
+  return row.at + (onLocalClock(row) ? 0 : clockOffset) >= openedAt;
 }

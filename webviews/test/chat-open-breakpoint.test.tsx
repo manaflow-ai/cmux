@@ -209,7 +209,41 @@ test("a row's host time is read on this computer's clock: a skewed host neither 
   const { happenedAfterOpen } = await import("../src/agent-session/acpmux/conversation/openBreakpoint");
   const openedAt = 1_000_000;
   // The host's clock runs 5 minutes behind this computer's: a row it sent just now reads as old.
-  expect(happenedAfterOpen({ at: openedAt - 300_000 + 10 }, openedAt, 300_000)).toBe(true);
+  expect(happenedAfterOpen({ id: "r", at: openedAt - 300_000 + 10 }, openedAt, 300_000)).toBe(true);
   // The host's clock runs 5 minutes ahead: a row from before the open reads as new.
-  expect(happenedAfterOpen({ at: openedAt + 300_000 - 10 }, openedAt, -300_000)).toBe(false);
+  expect(happenedAfterOpen({ id: "r", at: openedAt + 300_000 - 10 }, openedAt, -300_000)).toBe(false);
+  // A prompt the pane echoed and the live line are already on this computer's clock: no offset.
+  expect(happenedAfterOpen({ id: "local-p1", at: openedAt + 10 }, openedAt, -300_000)).toBe(true);
+  expect(happenedAfterOpen({ id: "liveThinking", at: openedAt - 10, below: true }, openedAt, 300_000)).toBe(false);
+});
+
+test("under StrictMode the rows a commit drew are recorded: a later cold remount of the chat shows at once", async () => {
+  const { StrictMode } = await import("react");
+  const rows = [row("s1", "user", "First"), row("s2", "assistant", "First reply")];
+  const host = dom.window.document.createElement("div");
+  dom.window.document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <StrictMode>
+        <VirtualTranscript
+          rows={rows}
+          registry={defaultRegistry}
+          sessionId="breakpoint-strict"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />
+      </StrictMode>,
+    );
+  });
+  await act(async () => root.unmount());
+  host.remove();
+  fades.length = 0;
+  const again = mount("breakpoint-strict");
+  try {
+    await again.render(rows, { coldOpen: 4 });
+    expect(fades.length).toBe(0);
+  } finally {
+    await again.unmount();
+  }
 });
