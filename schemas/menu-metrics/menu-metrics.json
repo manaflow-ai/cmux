@@ -19,12 +19,12 @@
     {
       "name": "stateX",
       "pt": 10,
-      "for": "a checkmark or dash, in a menu that has one"
+      "for": "a checkmark or dash, in a menu with no icons that has one; in a menu with icons it takes its row's icon slot"
     },
     {
       "name": "stateIconX",
       "pt": 22,
-      "for": "where a row's icon starts in a menu with a checkmark or dash"
+      "for": "where a row's title starts in a menu with no icons and a checkmark or dash (a menu with icons opens no state column)"
     },
     {
       "name": "iconX",

@@ -110,19 +110,24 @@ import CmuxNextDesignTokens
         menu.themeRows(in: Self.darkScope())
         #expect(!menu.showsStateColumn)
         #expect(menu.items[2].submenu?.showsStateColumn == false)
+        // AppKit's own column, as an unthemed checked row opens it (it follows the rows' state, not
+        // `showsStateColumn` alone: measured on the profile menu, 2026-11-10).
         let kept = Self.menu(NativeMenuTarget())
         kept.themeRows(in: Self.darkScope())
-        kept.showsStateColumn = true
+        kept.items[0].state = .on
         print("state column widths: without \(menu.size.width) with \(kept.size.width)")
         #expect(menu.size.width < kept.size.width, "dropping the column must take its width off the leading edge")
     }
 
-    /// A checked or mixed row keeps the column its mark draws in; a hidden one does not.
-    @Test func aCheckedRowKeepsTheStateColumn() {
+    /// In a menu with no icons, a checked or mixed row keeps the column its mark draws in, as a
+    /// macOS menu with no icons does; a hidden one does not.
+    @Test func aCheckedRowKeepsTheStateColumnInAMenuWithoutIcons() {
         let menu = Self.menu(NativeMenuTarget())
+        menu.items[0].image = nil
         menu.items[0].state = .on
         menu.themeRows(in: Self.darkScope())
         #expect(menu.showsStateColumn)
+        #expect(menu.items[0].image == nil, "a menu with no icon column gets no mark image")
         #expect(menu.items[2].submenu?.showsStateColumn == false, "a submenu decides by its own rows")
         let hidden = Self.menu(NativeMenuTarget())
         hidden.items[2].submenu?.items[0].state = .mixed
@@ -131,12 +136,55 @@ import CmuxNextDesignTokens
         #expect(hidden.items[2].submenu?.showsStateColumn == false)
         // A row added and checked while the menu is open brings the column back.
         let open = Self.menu(NativeMenuTarget())
+        open.items[0].image = nil
         open.themeRows(in: Self.darkScope())
         let added = NSMenuItem(title: "Pinned", action: nil, keyEquivalent: "")
         added.state = .on
         open.addItem(added)
         open.themeAddedRows()
         #expect(open.showsStateColumn)
+    }
+
+    /// One leading column (Leo, 2026-11-10, on the profile menu's checked team row: "this is too big
+    /// at the left i think", "at the very least it's awkward looking"): in a menu whose rows carry
+    /// icons, a checked row's mark takes its icon's slot, so no checkmark column opens left of every
+    /// icon, and the menu is as narrow as with nothing checked.
+    @Test func aCheckedRowWithIconsMarksItsIconSlot() throws {
+        let box = NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize)
+        let plain = Self.menu(NativeMenuTarget())
+        plain.items[0].image = NSImage(size: box)
+        plain.themeRows(in: Self.darkScope())
+        let menu = Self.menu(NativeMenuTarget())
+        let icon = NSImage(size: box)
+        menu.items[0].image = icon
+        menu.items[0].state = .on
+        menu.themeRows(in: Self.darkScope())
+        #expect(!menu.showsStateColumn, "an icon menu never stacks a checkmark column left of its icons")
+        #expect(menu.items[0].state == .off, "AppKit opens its column for any row whose state is not off")
+        #expect(MenuStateMark.markedState(menu.items[0]) == .on)
+        let mark = try #require(menu.items[0].image)
+        #expect(mark !== icon, "the checked row draws its mark in its icon slot")
+        #expect(mark.size == box && mark.isTemplate)
+        #expect(mark.accessibilityDescription == "Checked")
+        #expect(menu.size.width == plain.size.width, "checking a row takes no width: \(menu.size.width) vs \(plain.size.width)")
+        // Marked mixed later, the slot shows the dash; still no column.
+        menu.items[0].state = .mixed
+        menu.themeAddedRows()
+        #expect(MenuStateMark.markedState(menu.items[0]) == .mixed)
+        #expect(menu.items[0].image?.accessibilityDescription == "Mixed")
+        #expect(!menu.showsStateColumn)
+    }
+
+    /// A checked row without an icon, in a menu with an icon column, marks the same slot.
+    @Test func aCheckedRowWithoutAnIconMarksTheIconSlotToo() {
+        let menu = Self.menu(NativeMenuTarget())
+        let plain = NSMenuItem(title: "Pinned", action: nil, keyEquivalent: "")
+        plain.state = .on
+        menu.addItem(plain)
+        menu.themeRows(in: Self.darkScope())
+        #expect(!menu.showsStateColumn)
+        #expect(plain.state == .off)
+        #expect(plain.image?.size == NSSize(width: MenuMetrics.iconSize, height: MenuMetrics.iconSize))
     }
 }
 
