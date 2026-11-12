@@ -224,6 +224,7 @@ fn the_copy_runs_with_the_grants_limits() {
     }
     with_limits(10, 5, || {
         refused(&top);
+        super::measure(&top, None).unwrap();
         super::record(&top, 30, 30).unwrap();
         let set = collect(&top, Rules::Copy, Some(Cap::of(&top))).unwrap();
         assert_eq!(set.files.len(), 30);
@@ -237,6 +238,8 @@ fn the_copy_runs_with_the_grants_limits() {
 /// "Copy anyway" counts to the end, never stopping at a limit, and reports as it goes.
 #[test]
 fn measure_counts_the_whole_folder_and_reports_progress() {
+    let state = tempfile::tempdir().unwrap();
+    grants_in(state.path());
     let root = tempfile::tempdir().unwrap();
     let top = std::fs::canonicalize(root.path()).unwrap();
     for index in 0..4_100 {
@@ -262,8 +265,12 @@ fn a_grant_is_written_whole_and_private() {
     grants_in(state.path());
     let root = tempfile::tempdir().unwrap();
     let top = std::fs::canonicalize(root.path()).unwrap();
-    super::record(&top, 5, 1).unwrap();
-    let grant = super::record(&top, 7, 2).unwrap();
+    for index in 0..7 {
+        write(&top, &format!("f{index}.txt"), 1);
+    }
+    super::measure(&top, None).unwrap();
+    super::record(&top, 5, 5).unwrap();
+    let grant = super::record(&top, 7, 7).unwrap();
     let path = super::grant_path(&top).unwrap();
     let names: Vec<_> = std::fs::read_dir(path.parent().unwrap())
         .unwrap()
@@ -281,7 +288,7 @@ fn a_grant_from_yesterday_or_the_future_is_no_grant() {
     grants_in(state.path());
     let root = tempfile::tempdir().unwrap();
     let top = std::fs::canonicalize(root.path()).unwrap();
-    let mut grant = super::record(&top, 5, 1).unwrap();
+    let mut grant = super::allow(&top).unwrap();
     for granted_at in [grant.granted_at - 25 * 60 * 60, grant.granted_at + 60 * 60] {
         grant.granted_at = granted_at;
         let path = super::grant_path(&top).unwrap();
@@ -371,4 +378,84 @@ fn a_grant_without_its_size_is_no_grant() {
     with_limits(u64::MAX, 5, || {
         assert!(super::check_plain(&top).is_err(), "an old grant lets nothing through");
     });
+}
+
+/// "Copy anyway" grants only what a count found: `record` takes its numbers from a fresh
+/// `measure` of the same folder, never from free input. With no count, or numbers above what the
+/// count found, it refuses and grants nothing.
+#[test]
+fn a_grant_is_never_more_than_a_count_found() {
+    let state = tempfile::tempdir().unwrap();
+    grants_in(state.path());
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    for index in 0..20 {
+        write(&top, &format!("f{index}.txt"), 1);
+    }
+    with_limits(10, 5, || {
+        assert!(super::record(&top, 20, 20).is_err(), "no count yet");
+        assert_eq!(super::granted(&top), None);
+        let measured = super::measure(&top, None).unwrap();
+        assert_eq!((measured.bytes, measured.files), (20, 20));
+        assert!(super::record(&top, 21, 20).is_err(), "more bytes than the count found");
+        assert!(super::record(&top, 20, 21).is_err(), "more files than the count found");
+        assert!(super::record(&top, u64::MAX, u64::MAX).is_err());
+        assert_eq!(super::granted(&top), None, "a refused record grants nothing");
+        let grant = super::record(&top, 20, 20).unwrap();
+        assert_eq!((grant.bytes, grant.files), (20, 20));
+        assert_eq!(super::check_plain(&top), Ok(()));
+    });
+    // A count of another folder is no count of this one.
+    let other = tempfile::tempdir().unwrap();
+    let other = std::fs::canonicalize(other.path()).unwrap();
+    assert!(super::record(&other, 1, 1).is_err());
+}
+
+/// A grant is written through no symbolic link: a link planted at the temporary file's name is
+/// refused, and what it points at is left as it was.
+#[test]
+fn a_grant_is_never_written_through_a_link() {
+    let state = tempfile::tempdir().unwrap();
+    grants_in(state.path());
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    write(&top, "f.txt", 1);
+    super::measure(&top, None).unwrap();
+    let path = super::grant_path(&top).unwrap();
+    let dir = path.parent().unwrap();
+    std::fs::create_dir_all(dir).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("target");
+    std::fs::write(&target, b"keep").unwrap();
+    let name = path.file_name().unwrap().to_string_lossy();
+    let temporary = dir.join(format!(".{name}.{}.tmp", std::process::id()));
+    std::os::unix::fs::symlink(&target, &temporary).unwrap();
+    assert!(super::record(&top, 1, 1).is_err(), "a link at the temporary name is refused");
+    assert_eq!(std::fs::read(&target).unwrap(), b"keep", "nothing written through the link");
+    assert_eq!(super::granted(&top), None);
+}
+
+/// The folder that keeps grants is this user's only (0700), also when it was there already, open
+/// to others; a link in its place is refused.
+#[test]
+fn the_grant_folder_is_private_and_no_link() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let state = tempfile::tempdir().unwrap();
+    grants_in(state.path());
+    let root = tempfile::tempdir().unwrap();
+    let top = std::fs::canonicalize(root.path()).unwrap();
+    write(&top, "f.txt", 1);
+    super::measure(&top, None).unwrap();
+    let path = super::grant_path(&top).unwrap();
+    let dir = path.parent().unwrap().to_path_buf();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    super::record(&top, 1, 1).unwrap();
+    assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(elsewhere.path(), &dir).unwrap();
+    assert!(super::record(&top, 1, 1).is_err(), "a link in place of the grant folder");
+    assert_eq!(std::fs::read_dir(elsewhere.path()).unwrap().count(), 0, "nothing written there");
 }
