@@ -2682,6 +2682,34 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
              while let Ok(_) = rx.RECV {}\n",
         ),
         (
+            "#42081 F1: a local `mod mem` whose drop forgets the sender",
+            "mod mem {\n    pub fn drop<T>(t: T) {\n        std::mem::forget(t)\n    }\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: a local `fn drop` that forgets the sender",
+            "fn drop<T>(t: T) {\n    std::mem::forget(t)\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: a `drop` imported from another module",
+            "use other::drop;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: a `mem` imported from another crate",
+            "use other::mem;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
             "#42023 F1: a drain whose sender another function's drop drops",
             "let (tx, rx) = channel::<()>();\n\
              other::drop(tx);\n\
@@ -2793,6 +2821,34 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             "use std::mem;\n\
              let (tx, rx) = channel::<u8>();\n\
              mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: std's drop imported under another name",
+            "use std::mem::drop as release_tx;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             release_tx(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: std's mem imported under another name",
+            "use std::mem as m;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             m::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: core's drop imported by name",
+            "use core::mem::drop;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42081 F1: a `Drop` impl's `fn drop` is a method, not a shadow of the prelude's",
+            "impl Drop for Guard {\n    fn drop(&mut self) {}\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             drop(tx);\n\
              while let Ok(n) = rx.RECV {}\n",
         ),
         (
