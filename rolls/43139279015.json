@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43139279015",
+  "recorded_at": "2026-11-12T02:17:54Z",
+  "reason": "cmux-tui 524625aa445b changes the image's cmux-tui (pinned 4d5739a9d264)",
+  "dry_run": false,
+  "cmux_tui": "524625aa445b097108e41ae1a49c02993f662ec5",
+  "fixes": [
+    {
+      "sha": "524625aa445b097108e41ae1a49c02993f662ec5",
+      "mergedAt": "2026-11-11T19:52:47-06:00",
+      "subject": "cmux-tui-core: a quit stores only what the tail cannot carry"
+    },
+    {
+      "sha": "24fb74f0da8a67060fcc038cfa7452b5145b44a3",
+      "mergedAt": "2026-11-11T19:52:46-06:00",
+      "subject": "cmux-tui-core: test that a quit writes only what the tail cannot carry"
+    },
+    {
+      "sha": "d0571f6082230d104946f72ebc3329ae5cdbebb9",
+      "mergedAt": "2026-11-11T19:52:46-06:00",
+      "subject": "cmux-tui-core: the daemon logs where its shutdown spent its time"
+    },
+    {
+      "sha": "954567603215940cd9fb4d390b54bd63f3a76417",
+      "mergedAt": "2026-11-11T17:51:45-08:00",
+      "subject": "acpmux: every list reply is a page of at most 1 MiB; never serialize a frame past the cap (#41559)"
+    },
+    {
+      "sha": "a2175918b46066c35d1ee42a68b5af41646a22c5",
+      "mergedAt": "2026-11-12T01:48:56Z",
+      "subject": "Fix history.entries.list refused by its catalog while the History fold is behind (#41639)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T02:17:54Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
