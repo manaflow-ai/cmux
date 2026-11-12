@@ -186,11 +186,18 @@ const START_SLACK_MS: u64 = 1_000;
 /// `flock` on the thread lock, released at once. No lock file: no writer.
 #[cfg(unix)]
 fn codex_holder(home: &Path, id: &str) -> Option<LiveUse> {
-    use std::os::fd::AsRawFd;
     let dir = home.join("thread-writer-locks");
     let thread = std::fs::File::open(dir.join(format!("{id}.lock"))).ok()?;
     let coordination = std::fs::File::open(dir.join(".coordination.lock")).ok();
-    if let Some(file) = &coordination {
+    writer_holds(coordination.as_ref(), &thread).then_some(LiveUse::WriterLock)
+}
+
+/// Whether a Codex writer holds the thread lock `thread`, probed under the home's `coordination`
+/// lock (when the home has one).
+#[cfg(unix)]
+fn writer_holds(coordination: Option<&std::fs::File>, thread: &std::fs::File) -> bool {
+    use std::os::fd::AsRawFd;
+    if let Some(file) = coordination {
         // A writer holds it only while it opens its thread lock; wait briefly, never forever.
         // Still held after that: a writer is taking the thread lock now, so the chat is busy.
         let taken = (0..50).any(|attempt| {
@@ -201,16 +208,12 @@ fn codex_holder(home: &Path, id: &str) -> Option<LiveUse> {
             unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
         });
         if !taken {
-            return Some(LiveUse::WriterLock);
+            return true;
         }
     }
-    // SAFETY: flock on the thread lock descriptor this function opened.
-    let held = unsafe { libc::flock(thread.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0
-        && std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK);
-    // Closing both descriptors (end of scope) releases what was taken.
-    drop(thread);
-    drop(coordination);
-    held.then_some(LiveUse::WriterLock)
+    // SAFETY: flock on the thread lock descriptor the caller keeps open.
+    let refused = unsafe { libc::flock(thread.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0;
+    refused && std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
 }
 
 #[cfg(not(unix))]
@@ -330,6 +333,47 @@ fn acpmux_tree(procs: &[Proc]) -> HashSet<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The probe of a Codex writer leaves no lock on either lock file, also while the descriptions
+    /// it probed through stay open: a child that another daemon thread forked during the probe
+    /// keeps a copy of each until it execs, and a lock the probe took and only closed stays held
+    /// through that copy. Codex then finds its thread busy (or its coordination lock held) and
+    /// refuses to write (LOCK-AUDIT adopt_live.rs:201 and :208).
+    #[cfg(unix)]
+    #[test]
+    fn a_writer_probe_leaves_no_lock_while_its_descriptions_stay_open() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-writer-probe-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = |name: &str| dir.join(name);
+        std::fs::write(path(".coordination.lock"), b"").unwrap();
+        std::fs::write(path("t.lock"), b"").unwrap();
+        let open = |name: &str| std::fs::File::open(path(name)).unwrap();
+        let free = |name: &str| {
+            let file = open(name);
+            let taken = file.try_lock().is_ok();
+            let _ = file.unlock();
+            taken
+        };
+        // The probe's descriptions stay open, as a forked child's copies of them do.
+        let (coordination, thread) = (open(".coordination.lock"), open("t.lock"));
+        assert!(!writer_holds(Some(&coordination), &thread), "no writer holds the thread");
+        let (coordination_free, thread_free) = (free(".coordination.lock"), free("t.lock"));
+        // The probe's descriptions go (as a forked child's copies do at its exec): a writer that
+        // holds the thread lock is then seen.
+        drop((coordination, thread));
+        let writer = open("t.lock");
+        let seen = writer.try_lock().is_ok()
+            && writer_holds(Some(&open(".coordination.lock")), &open("t.lock"));
+        let _ = writer.unlock();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(coordination_free, "the probe left the coordination lock held");
+        assert!(thread_free, "the probe left the thread lock held");
+        assert!(seen, "a writer that holds the thread lock is not seen");
+    }
 
     fn procs(rows: &[(u32, u32, &str)]) -> Vec<Proc> {
         rows.iter()
