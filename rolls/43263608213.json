@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43263608213",
+  "recorded_at": "2026-11-12T17:07:51Z",
+  "reason": "cmux-tui e7dd2d9fe047 changes the image's cmux-tui (pinned 3ee124bd63c2)",
+  "dry_run": false,
+  "cmux_tui": "e7dd2d9fe0470e03d641b3b7d9388067d671e7e2",
+  "fixes": [
+    {
+      "sha": "e7dd2d9fe0470e03d641b3b7d9388067d671e7e2",
+      "mergedAt": "2026-11-12T08:22:07-08:00",
+      "subject": "acpmux: every process and pending list is read page by page; detector for single-shot list reads (#41633)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T17:07:51Z",
+    "snapshot_id": "sh-68ab59cbc71a41e6b335ebabb1edfd73",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43263608213): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1f46c353fc97374eb96178e0583a06877e519fc0",
+    "image": "cloud-native-auto-e7dd2d9f-43263608213-1",
+    "revision": "ci-43263608213-1",
+    "at": "2026-11-12T17:07:51Z"
+  },
+  "rolled_back": false
+}
