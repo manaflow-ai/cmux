@@ -587,6 +587,7 @@ impl State {
                 block: blocks::Block::default(),
                 facts,
                 deferred_cut: false,
+                resume_closed: false,
             }
         };
         // A tool boundary settles the current row, but a later chunk for the
