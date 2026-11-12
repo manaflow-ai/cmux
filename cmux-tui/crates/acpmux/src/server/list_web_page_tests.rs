@@ -21,9 +21,14 @@ use super::Origin;
 /// limit. Fixed here rather than read from `list_reply.rs`, so raising that bound fails this.
 const MOST_LIST_REPLY_BYTES: usize = 4 << 20;
 
-/// This daemon's own chats: about 6 MB of summaries in all, past one Web page.
+/// This daemon's own chats: every list past one page, and a list with tools, whose rows keep
+/// their whole titles, 6 MB of titles alone, past [`MOST_LIST_REPLY_BYTES`] too.
 const OWN: usize = 3_000;
-const TITLE_BYTES: usize = 10_000;
+/// 10,000 made each list with tools 30 MB: at acpmux's `opt-level = 0` one build of it took
+/// 7.6 s on a CI runner, and a peer's page (a build, then its own rows with tools, masked)
+/// passed the snapshot's 15 s window, so each of its pages built the list again and the detector
+/// below ran past 20 minutes alone, past the job's 40 with the lib beside it (2026-11-12).
+const TITLE_BYTES: usize = 2_000;
 /// A chat mirrored from the peer `box`.
 const MIRRORED: &str = "box-chat";
 
@@ -31,8 +36,9 @@ const MIRRORED: &str = "box-chat";
 const FRAME: usize = 256;
 
 /// Unpaced (`Hub::unpace_lists_for_tests`): these tests check what each page holds, and the
-/// detector below reads 16 whole lists, which the pace made 17 to over 35 minutes on a busy
-/// runner. The pace has its own tests (`hub/list_scale_tests.rs`).
+/// detector below reads 16 whole lists, which with the pace took 17 to over 35 minutes on a CI
+/// runner (and had not ended in 25 alone on an idle one). The pace has its own tests
+/// (`hub/list_scale_tests.rs`).
 async fn hub() -> Arc<crate::hub::Hub> {
     let hub = hub_of(OWN, TITLE_BYTES, "idle").await;
     hub.unpace_lists_for_tests();
