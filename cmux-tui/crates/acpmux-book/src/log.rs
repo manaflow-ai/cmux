@@ -770,7 +770,8 @@ impl Log {
         self.stats.syncs = self.stats.syncs.saturating_add(1);
         let seg = self.tail.seg.checked_add(1).ok_or(Error::Corrupt("too many segments"))?;
         let file = Self::create_segment(&self.rows_dir, seg)?;
-        self.tail = Tail { seg, file, len: 0 };
+        // The new segment already contains its synced 8-byte preamble.
+        self.tail = Tail { seg, file, len: SEGMENT_HEADER_LEN };
         self.unsynced = false;
         Ok(())
     }

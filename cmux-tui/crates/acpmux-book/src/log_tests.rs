@@ -183,7 +183,10 @@ fn segments_roll_and_every_read_crosses_them() {
     let segments = std::fs::read_dir(home.path().join("rows")).unwrap().count();
     assert!(segments > 20, "{segments} segments");
     for entry in std::fs::read_dir(home.path().join("rows")).unwrap() {
-        assert!(entry.unwrap().metadata().unwrap().len() <= 8 * 1024);
+        let entry = entry.unwrap();
+        let bytes = std::fs::read(entry.path()).unwrap();
+        assert!(bytes.len() <= 8 * 1024);
+        assert_eq!(&bytes[..8], b"ABSG\x01\0\0\0", "{}", entry.path().display());
     }
     assert_rows(&mut log, 600);
     assert!(log.stats().open_readers <= 4, "old segments are read through at most four handles");

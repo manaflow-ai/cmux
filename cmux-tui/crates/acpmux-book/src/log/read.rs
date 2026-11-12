@@ -41,8 +41,8 @@ pub struct RowRef {
     /// Where the row text starts in the segment (40 bytes after its record).
     pub off: u32,
     pub len: u32,
-    /// The raw bytes that produced this record. Windows and pages fill this lazily at the
-    /// segment read; resume rows carry it immediately because they already inspect headers.
+    /// The raw bytes that produced this record. Resume rows carry it immediately because they
+    /// inspect headers; windows and pages leave it empty until [`Log::raw_range`] is requested.
     pub raw: RawRange,
 }
 
