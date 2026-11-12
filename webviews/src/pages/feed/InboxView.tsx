@@ -26,7 +26,7 @@ import {
   type FeedLine,
   type InboxConnection,
 } from "./model";
-import { EmptyState, FeedLines, FeedRow, Glyph, PosterLine, PromptSummary } from "./parts";
+import { EmptyState, FeedLines, FeedLoadState, FeedRow, Glyph, PosterLine, PromptSummary } from "./parts";
 import { ReportsView } from "./ReportsView";
 import type { GitHubAction, GitHubDetail, ViewItem } from "./types";
 
@@ -59,7 +59,7 @@ export function InboxView(props: FeedProps) {
       <div className="feed-inbox-column">
         <InboxHeader {...props} hasUnread={items.some(isUnread)} onListKeys={keys} />
         {lines.length === 0 && !isHydrated(snap.view) ? (
-          <div className="feed-inbox-list" />
+          <FeedLoadState {...props} />
         ) : lines.length === 0 ? (
           <EmptyState text={t(filtered ? "feed.noMatches" : "feed.empty")} />
         ) : (

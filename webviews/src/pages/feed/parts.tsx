@@ -2,6 +2,7 @@
 // state, the disconnected banner (FeedView), a request card (FeedListView's FeedRequestCard), the
 // prompt summary (FeedPromptSummary) and the list that virtualizes past 200 rows (FeedRowsView).
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { Button } from "../../ui/Button";
 import { cx } from "../../ui/cx";
 import type { Strings } from "../shared/i18n";
 import { VirtualList } from "../../ui/VirtualList";
@@ -64,6 +65,28 @@ export function EmptyState({ text, size = 32 }: { text: string; size?: 32 | 44 }
       <FeedIcon name="inbox.empty" size={size} />
       <span>{text}</span>
     </div>
+  );
+}
+
+/** The list's place before the view is hydrated (ui-state-fixes M4): "Loading the feed…", and past
+ * its deadline (`FeedSnapshot.loadFailed`) "Couldn't load the feed." with Try Again. Never "Nothing
+ * new" before the feed was read, never loading forever. */
+export function FeedLoadState({ store, snap, strings }: FeedProps) {
+  const { t } = strings;
+  if (snap.loadFailed)
+    return (
+      <div className="feed-empty feed-load" data-feed-load="failed" role="alert">
+        <FeedIcon name="status.warning" size={32} />
+        <span>{t("feed.loadFailed")}</span>
+        <Button size="sm" data-feed-retry="" onClick={() => store.retryLoad()}>
+          {t("feed.retry")}
+        </Button>
+      </div>
+    );
+  return (
+    <output className="feed-empty feed-load" data-feed-load="loading" aria-busy="true">
+      <span>{t("feed.loading")}</span>
+    </output>
   );
 }
 

@@ -73,10 +73,11 @@ async function mount(
   hash: string,
   options: ConstructorParameters<typeof MockFeedProvider>[1] = {},
   items = sampleFeed(NOW),
+  storeOptions: ConstructorParameters<typeof FeedStore>[2] = {},
 ) {
   const provider = new MockFeedProvider(items, options);
   const strings = createStrings(table, ["en"]);
-  const store = new FeedStore(provider, hash, { rejectText: (reject) => rejectText(reject, strings) });
+  const store = new FeedStore(provider, hash, { rejectText: (reject) => rejectText(reject, strings), ...storeOptions });
   host = dom.window.document.getElementById("root")!;
   root = createRoot(host);
   await act(async () => {
@@ -178,14 +179,18 @@ test("an empty feed says Nothing new", async () => {
 
 test("a feed whose cloud snapshot never came is loading, not empty", async () => {
   const offline = { loaded: false, connection: { state: "disconnected" as const, reason: "offline" } };
-  await mount("#/list", offline, []);
-  expect(host.querySelector(".feed-empty")).toBeNull();
+  const held = { loadDeadline: { schedule: () => () => undefined } };
+  await mount("#/list", offline, [], held);
+  // Round 8 (verifier M4): the list was blank before hydration; it says it is loading.
+  expect(text("[data-feed-load]")).toEqual(["Loading the feed…"]);
+  expect(host.querySelector('[data-feed-load="loading"]')!.getAttribute("aria-busy")).toBe("true");
+  expect(text(".feed-empty")).not.toContain("Nothing new");
   act(() => root?.unmount());
   root = undefined;
-  await mount("#/inbox", offline, []);
-  // Only the detail's "Select an inbox item"; the list is the loading placeholder.
-  expect(text(".feed-inbox-column .feed-empty")).toEqual([]);
-  expect(host.querySelector(".feed-inbox-list")).not.toBeNull();
+  await mount("#/inbox", offline, [], held);
+  // The list says it is loading; the detail keeps its "Select an inbox item".
+  expect(text(".feed-inbox-column [data-feed-load]")).toEqual(["Loading the feed…"]);
+  expect(text(".feed-inbox-column .feed-empty")).not.toContain("Nothing new");
   act(() => root?.unmount());
   root = undefined;
   // Signed out, there is no cloud part to wait for: empty is empty.
@@ -320,4 +325,60 @@ test("past 200 rows the list draws only the rows near the viewport", async () =>
   const rows = all(".feed-row");
   expect(rows.length).toBeLessThan(100);
   expect(host.querySelector('[role="grid"]')).not.toBeNull();
+});
+
+/** A timer the test fires itself (the store's injected `loadDeadline.schedule`). */
+function manualTimers() {
+  const timers: { fire: () => void; ms: number; cancelled: boolean }[] = [];
+  const schedule = (fire: () => void, ms: number) => {
+    const timer = { fire, ms, cancelled: false };
+    timers.push(timer);
+    return () => void (timer.cancelled = true);
+  };
+  return { schedule, live: () => timers.filter((timer) => !timer.cancelled), count: () => timers.length };
+}
+
+// Round 8 (verifier M4, blocking 2): a feed that never connected or hydrated stayed blank forever.
+// Past its 10 s deadline the list says it couldn't load the feed, with Try Again; Try Again reads
+// again under a fresh deadline; a hydration that comes late replaces the error.
+for (const hash of ["#/list", "#/inbox"])
+  test(`${hash}: a feed never hydrated ends in Try Again at its deadline, and a late hydration replaces it`, async () => {
+    const timers = manualTimers();
+    const offline: { loaded: boolean; connection: { state: "disconnected" | "connected"; reason?: string } } = {
+      loaded: false,
+      connection: { state: "disconnected", reason: "offline" },
+    };
+    const { provider, store } = await mount(hash, offline, [], { loadDeadline: { schedule: timers.schedule } });
+    expect(host.querySelector('[data-feed-load="loading"]')).not.toBeNull();
+    const deadline = timers.live().find((timer) => timer.ms === 10_000);
+    expect(deadline).toBeDefined();
+
+    await act(async () => deadline!.fire());
+    expect(host.querySelector('[data-feed-load="failed"]')!.textContent).toContain("Couldn’t load the feed.");
+    expect(text(".feed-empty")).not.toContain("Nothing new");
+
+    // Try Again: loading again under a fresh deadline, and the view is read again.
+    const reads = provider.calls.filter((call) => call.op === FeedOps.viewRead).length;
+    const before = timers.count();
+    await click(host.querySelector<HTMLElement>("[data-feed-retry]")!);
+    expect(host.querySelector('[data-feed-load="loading"]')).not.toBeNull();
+    expect(provider.calls.filter((call) => call.op === FeedOps.viewRead).length).toBeGreaterThan(reads);
+    expect(timers.count()).toBeGreaterThan(before);
+    await act(async () => timers.live().at(-1)!.fire());
+    expect(host.querySelector('[data-feed-load="failed"]')).not.toBeNull();
+
+    // The cloud snapshot comes late: the error goes and the (empty) feed says Nothing new.
+    offline.loaded = true;
+    offline.connection = { state: "connected" };
+    await act(async () => store.reload());
+    expect(host.querySelector("[data-feed-load]")).toBeNull();
+    expect(text(".feed-empty")).toContain("Nothing new");
+    expect(timers.live()).toHaveLength(0);
+  });
+
+test("a feed that hydrates before its deadline ends it: no error ever shows", async () => {
+  const timers = manualTimers();
+  await mount("#/list", {}, [], { loadDeadline: { schedule: timers.schedule } });
+  expect(host.querySelector(".feed-empty")!.textContent).toBe("Nothing new");
+  expect(timers.live()).toHaveLength(0);
 });

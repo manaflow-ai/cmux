@@ -6,7 +6,7 @@ import { Button } from "../../ui/Button";
 import { isPending, plain, type FeedProps } from "./context";
 import { FeedIcon } from "./icons";
 import { groupEntries, isHydrated, moveSelection, restLines } from "./model";
-import { EmptyState, FeedLines, RequestCard } from "./parts";
+import { EmptyState, FeedLines, FeedLoadState, RequestCard } from "./parts";
 
 export function ListView({ store, snap, strings }: FeedProps) {
   const { t } = strings;
@@ -14,7 +14,8 @@ export function ListView({ store, snap, strings }: FeedProps) {
   const requests = groupEntries(view, "requests");
   const lines = restLines(view?.groups ?? [], snap.selection, (item) => isPending(snap, item));
   const badge = view?.counts.badge ?? 0;
-  const empty = isHydrated(view) && requests.length === 0 && lines.length === 0;
+  const nothing = requests.length === 0 && lines.length === 0;
+  const empty = isHydrated(view) && nothing;
   const keys = (event: KeyboardEvent) => {
     if (!plain(event)) return;
     if (event.key === "ArrowDown") store.select(moveSelection(lines, snap.selection, 1));
@@ -45,6 +46,8 @@ export function ListView({ store, snap, strings }: FeedProps) {
       </header>
       {empty ? (
         <EmptyState text={t("feed.empty")} />
+      ) : nothing && !isHydrated(view) ? (
+        <FeedLoadState store={store} snap={snap} strings={strings} />
       ) : (
         <div className="feed-list-scroll">
           {requests.map((entry) => (

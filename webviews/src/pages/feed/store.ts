@@ -14,6 +14,7 @@ import {
   DEFAULT_FILTER,
   EMPTY_DRAFTS,
   allItems,
+  isHydrated,
   isOpenRequest,
   isRequest,
   isUnread,
@@ -57,6 +58,18 @@ import {
 
 export type PageLink = "connecting" | "connected" | "disconnected";
 
+/** How long the Feed's list says it is loading before it says it couldn't load the feed (with Try
+ *  Again): the same 10 s as the agent pane's loads, Settings' part reads and Mobile Pairing. */
+export const FEED_LOAD_DEADLINE_MS = 10_000;
+
+/** Runs `fire` once after `ms`; the returned function cancels it. Tests pass their own. */
+export type Schedule = (fire: () => void, ms: number) => () => void;
+
+const scheduleTimeout: Schedule = (fire, ms) => {
+  const timer = setTimeout(fire, ms);
+  return () => clearTimeout(timer);
+};
+
 /** Why the owner refused an intent, for the toast (FeedReject). */
 export type FeedReject =
   | { kind: "closed"; item?: ViewItem }
@@ -69,6 +82,10 @@ export interface FeedSnapshot {
   view?: FeedView;
   /** True until the first reply for the current read arrives. */
   loading: boolean;
+  /** The view is not hydrated (`isHydrated`) and stayed so past FEED_LOAD_DEADLINE_MS: the list
+   *  says it couldn't load the feed, with Try Again (`retryLoad`), instead of loading forever. A
+   *  view that hydrates later clears it (ui-state-fixes M4). */
+  loadFailed: boolean;
   /** The page's link to its host (and through it to the daemon). */
   link: PageLink;
   filter: InboxFilter;
@@ -98,6 +115,8 @@ export interface FeedStoreOptions {
   clock?: () => number;
   /** The reader's offset from UTC in minutes (Today and Earlier are the reader's days). */
   tzOffsetMin?: () => number;
+  /** The first hydration's deadline (`loadFailed`) and its timer; tests pass their own. */
+  loadDeadline?: { ms?: number; schedule?: Schedule };
 }
 
 const NO_SET: ReadonlySet<string> = new Set();
@@ -110,6 +129,8 @@ export class FeedStore {
   private lifetime = 0;
   private starting = false;
   private stops: Array<() => void> = [];
+  /** Cancels the pending hydration deadline (`loadFailed`); unset while none runs. */
+  private cancelLoadDeadline?: () => void;
   /** The Reports basket's change subscription: made the first time the page shows the Inbox. */
   private viewWatch: "none" | "starting" | "on" = "none";
   private reportsWatch: "none" | "starting" | "on" = "none";
@@ -127,6 +148,7 @@ export class FeedStore {
     this.snapshot = {
       route: parseRoute(hash, options.attributes),
       loading: client !== null,
+      loadFailed: false,
       link: client ? "connecting" : "disconnected",
       filter: DEFAULT_FILTER,
       drafts: EMPTY_DRAFTS,
@@ -159,6 +181,7 @@ export class FeedStore {
     const lifetime = ++this.lifetime;
     const alive = () => lifetime === this.lifetime;
     this.starting = true;
+    this.followLoad();
     try {
       await this.watchView(lifetime);
       if (this.snapshot.route.view === "inbox") await this.watchReports(lifetime);
@@ -189,7 +212,45 @@ export class FeedStore {
     this.starting = false;
     this.viewWatch = "none";
     this.reportsWatch = "none";
+    this.cancelLoadDeadline?.();
+    this.cancelLoadDeadline = undefined;
     for (const stop of this.stops.splice(0)) stop();
+  }
+
+  /** Try Again under "Couldn't load the feed.": the list says it is loading again under a fresh
+   *  deadline while the page subscribes again where that failed and reads the view again. */
+  retryLoad(): void {
+    if (!this.client) return;
+    this.cancelLoadDeadline?.();
+    this.cancelLoadDeadline = undefined;
+    this.set({ loadFailed: false, loading: true });
+    if (!this.stops.length && !this.starting) {
+      void this.start();
+      return;
+    }
+    this.followLoad();
+    void this.relink(this.lifetime);
+  }
+
+  /** Never "loading" forever (the rule for every surface): while the view is not hydrated the
+   *  deadline runs once; past it `loadFailed` says so. A hydrated view ends a pending deadline and
+   *  replaces the error; one that is not hydrated again (another account) runs a fresh deadline. */
+  private followLoad(): void {
+    if (!this.client) return;
+    if (isHydrated(this.snapshot.view)) {
+      this.cancelLoadDeadline?.();
+      this.cancelLoadDeadline = undefined;
+      if (this.snapshot.loadFailed) this.set({ loadFailed: false });
+      return;
+    }
+    if (this.snapshot.loadFailed || this.cancelLoadDeadline) return;
+    const lifetime = this.lifetime;
+    const { ms = FEED_LOAD_DEADLINE_MS, schedule = scheduleTimeout } = this.options.loadDeadline ?? {};
+    this.cancelLoadDeadline = schedule(() => {
+      this.cancelLoadDeadline = undefined;
+      if (lifetime !== this.lifetime || isHydrated(this.snapshot.view)) return;
+      this.set({ loadFailed: true, loading: false });
+    }, ms);
   }
 
   /** Subscribes to the view's changes unless that is live or under way; a failed one (the daemon
@@ -307,6 +368,7 @@ export class FeedStore {
         link: "connected",
         now: this.clock(),
       });
+      this.followLoad();
     } catch (error) {
       if (generation !== this.generation) return;
       this.set({ loading: false });

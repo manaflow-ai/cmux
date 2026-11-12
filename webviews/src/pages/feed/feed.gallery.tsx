@@ -12,7 +12,7 @@ import { createStrings } from "../shared/i18n";
 import { FeedPage, rejectText } from "./FeedPage";
 import table from "./generated/strings.json";
 import { manyNotices, MockFeedProvider, sampleFeed, type MockFeedOptions } from "./mockProvider";
-import { FeedStore } from "./store";
+import { FeedStore, type FeedStoreOptions } from "./store";
 
 const NOW = Date.parse("2026-11-06T15:00:00Z");
 
@@ -25,9 +25,24 @@ type Props = {
   connection?: "github" | "reports";
   query?: string;
   refuse?: boolean;
+  /** The first hydration's deadline: `held` never ends (loading), `failed` has passed (Try Again). */
+  load?: "held" | "failed";
 };
 
-function FeedGallery({ hash, items = "sample", options = {}, select, connection, query, refuse }: Props) {
+/** The store's hydration deadline for a `load` state (FeedStore `loadDeadline`). */
+function loadDeadline(load: Props["load"]): FeedStoreOptions["loadDeadline"] {
+  if (load === "held") return { schedule: () => () => undefined };
+  if (load === "failed")
+    return {
+      schedule: (fire) => {
+        queueMicrotask(fire);
+        return () => undefined;
+      },
+    };
+  return undefined;
+}
+
+function FeedGallery({ hash, items = "sample", options = {}, select, connection, query, refuse, load }: Props) {
   const [strings] = useState(() => createStrings(table, ["en"]));
   const [store] = useState(() => {
     const seed = items === "empty" ? [] : items === "many" ? manyNotices(NOW, 600) : sampleFeed(NOW);
@@ -36,6 +51,7 @@ function FeedGallery({ hash, items = "sample", options = {}, select, connection,
       clock: () => NOW,
       tzOffsetMin: () => 0,
       rejectText: (reject) => rejectText(reject, strings),
+      loadDeadline: loadDeadline(load),
     });
   });
   const [host, setHost] = useState<HTMLElement | null>(null);
@@ -136,6 +152,42 @@ export default componentEntry<Props>({
       props: { hash: "#/list", options: { refuse: "feed.moving" }, refuse: true },
     },
     "list-empty": { note: "Nothing new.", props: { hash: "#/list", items: "empty" } },
+    "list-loading": {
+      note: "Before the feed's first read: Loading the feed…, never a blank list or Nothing new.",
+      props: {
+        hash: "#/list",
+        items: "empty",
+        options: { loaded: false, connection: { state: "disconnected", reason: "offline" } },
+        load: "held",
+      },
+    },
+    "list-load-failed": {
+      note: "A feed that never connected past its 10 s deadline: Couldn't load the feed. with Try Again.",
+      props: {
+        hash: "#/list",
+        items: "empty",
+        options: { loaded: false, connection: { state: "disconnected", reason: "offline" } },
+        load: "failed",
+      },
+    },
+    "inbox-loading": {
+      note: "The Inbox before the feed's first read: the list says Loading the feed…",
+      props: {
+        hash: "#/inbox",
+        items: "empty",
+        options: { loaded: false, connection: { state: "disconnected", reason: "offline" } },
+        load: "held",
+      },
+    },
+    "inbox-load-failed": {
+      note: "The Inbox when the feed never hydrated within its deadline: the error with Try Again.",
+      props: {
+        hash: "#/inbox",
+        items: "empty",
+        options: { loaded: false, connection: { state: "disconnected", reason: "offline" } },
+        load: "failed",
+      },
+    },
     "needs-you-rows": { note: "Needs you as rows, with the count and N more.", props: { hash: "#/needs-you" } },
     "needs-you-cards": { note: "Needs you as cards with inline answers.", props: { hash: "#/needs-you?style=cards" } },
     "needs-you-bar": { note: "Needs you as one line.", props: { hash: "#/needs-you?style=bar" } },
