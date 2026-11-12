@@ -320,7 +320,8 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     // A paged-in turn is timed from its own prompt, not the newest one.
     expect([...workedLabels]).toEqual(["Worked for 4s"]);
     // Older turns came in pages, each before the oldest record the pane held, and stopped at the start.
-    expect(older.length).toBeGreaterThan(5);
+    // The 1 MiB page cap can cover this fixture in two reads; assert that paging still occurred.
+    expect(older.length).toBeGreaterThan(1);
     expect(older.every((request) => Number(request.params.limit) <= 2000)).toBe(true);
     expect(older.every((request) => Number(request.params.maxBytes) <= 1024 * 1024)).toBe(true);
     const cursors = older.map((request) => request.params.beforeSeq as number);
