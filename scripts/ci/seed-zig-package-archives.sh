@@ -40,6 +40,14 @@
 # stops after CMUX_ZIG_SEED_TIMEOUT seconds (default 300), leaving the rest to Zig.
 set -euo pipefail
 
+# The sha256 of a file, read through stdin: given a file name with a backslash (the
+# Zig cache on a Windows runner, C:\Users\...), sha256sum and shasum put a "\" before
+# the hash, and every mirror copy failed its check (cmux-tui job 130915587979).
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum < "$1" | cut -d' ' -f1
+  else shasum -a 256 < "$1" | cut -d' ' -f1; fi
+}
+
 if [[ "${1:-}" == --one ]]; then
   # One package: --one CACHE HASH URL. Written under a name with no archive
   # suffix, checked, then renamed into place, so a cut-short download never
@@ -73,8 +81,7 @@ if [[ "${1:-}" == --one ]]; then
     entries="$(tar -tzf - < "$part" 2>/dev/null | wc -l)" && (( entries > 0 )) \
       || { echo "seed: $url is not a whole tar archive" >&2; continue; }
     if [[ -n "$want" ]]; then
-      if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$part" | cut -d' ' -f1)"
-      else got="$(shasum -a 256 "$part" | cut -d' ' -f1)"; fi
+      got="$(sha256_of "$part")"
       [[ "$got" == "$want" ]] || { echo "seed: $url has sha256 $got, the lock pins $want" >&2; continue; }
     fi
     mv -f "$part" "$final"
