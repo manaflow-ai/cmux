@@ -234,7 +234,7 @@ pub(crate) fn read_pty_output(
     mut pty_drain_waiter: HostStream,
 ) {
     reader_host.wait_for_launch_owner_stream_ready();
-    let mut buffer = [0u8; PTY_READ_BYTES];
+    let mut buffer = [0u8; PTY_READ_BUFFER_BYTES];
     // File-medium Kitty images are read here, next to the program, so
     // every consumer of the stream gets in-band image data.
     let mut kitty_media = KittyMediaRewriter::new();
@@ -276,8 +276,19 @@ pub(crate) fn read_pty_output(
     let _ = reader_host.parser_commands.send(ParserCommand::Drain);
 }
 
-/// Bytes per PTY read, and the most one Output frame carries.
+/// The most one Output frame carries; a rewritten Kitty image can be larger
+/// than the read it came from.
 const PTY_READ_BYTES: usize = 64 * 1024;
+
+/// The PTY reader's buffer, zero-filled on its thread's stack. A PTY read
+/// returns at most 1 KiB on macOS and 4 KiB on Linux (the tty layer's read
+/// buffer), so 16 KiB holds every read; a 64 KiB buffer kept 48 KiB more of
+/// every host's stack dirty for no read. A ConPTY pipe read returns up to
+/// the buffer, so Windows keeps the frame size.
+#[cfg(unix)]
+const PTY_READ_BUFFER_BYTES: usize = 16 * 1024;
+#[cfg(not(unix))]
+const PTY_READ_BUFFER_BYTES: usize = PTY_READ_BYTES;
 
 /// Publishes PTY output to viewers and the parser in frames of at most one
 /// read; a rewritten Kitty image can be larger than the read it came from.
