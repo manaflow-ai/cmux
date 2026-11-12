@@ -713,7 +713,7 @@ fn stamp_made(held: &std::fs::File, root: &Path) -> Option<String> {
     let stamp: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     // A relative one is relative to the worktree's folder (`worktree.useRelativePaths`).
     let admin = root.join(held_gitdir(held)?);
-    let mut file = std::fs::OpenOptions::new()
+    let mut file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(admin.join(MADE_STAMP))
