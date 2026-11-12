@@ -235,7 +235,8 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           const page = await open(name, above, below);
           const box = await geometry(page);
           expect(box.lower.top).toBeGreaterThan(box.upper.bottom);
-          const nearestRow = box.gapY - box.upper.bottom <= box.lower.top - box.gapY ? "upper" : "lower";
+          const distance = { upper: box.gapY - box.upper.bottom, lower: box.lower.top - box.gapY };
+          const nearest = Math.min(distance.upper, distance.lower);
           // Consecutive tool rows can have zero row padding: their content owns the center.
           for (const x of [...(box.hasRowPadding ? [box.center] : []), box.left, box.right]) {
             await drag(page, { x, y: box.gapY }, box.after);
@@ -248,8 +249,11 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                 length: s.anchorNode?.textContent?.length,
               };
             });
-            expect(anchor.row).toBe(nearestRow);
-            expect(anchor.offset).toBe(nearestRow === "upper" ? (anchor.length ?? -1) : 0);
+            expect(anchor.row === "upper" || anchor.row === "lower").toBe(true);
+            // Midpoint rounding within one layout unit can resolve equally near carets to either row.
+            const anchored = anchor.row as "upper" | "lower";
+            expect(distance[anchored] - nearest).toBeLessThanOrEqual(1 / 64);
+            expect(anchor.offset).toBe(anchored === "upper" ? (anchor.length ?? -1) : 0);
             // Restart from an existing selection, then a plain gap click must clear it.
             await drag(page, { x, y: box.gapY }, box.lower);
             expect((await selected(page)).length).toBeGreaterThan(0);
@@ -274,7 +278,8 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           const midpoint = (box.upperRowBottom + box.lowerRowTop) / 2;
           expect(midpoint).toBeGreaterThan(box.upperRowBottom);
           expect(midpoint).toBeLessThan(box.lowerRowTop);
-          const nearestRow = midpoint - box.upper.bottom <= box.lower.top - midpoint ? "upper" : "lower";
+          const distance = { upper: midpoint - box.upper.bottom, lower: box.lower.top - midpoint };
+          const nearest = Math.min(distance.upper, distance.lower);
           for (const x of [box.center, box.left, box.right]) {
             // The press belongs to empty transcript space, never to a tool disclosure or another
             // row control. Those surfaces keep their ownership in the existing control regression.
@@ -299,8 +304,11 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                 length: selection.anchorNode?.textContent?.length,
               };
             });
-            expect(anchor.row).toBe(nearestRow);
-            expect(anchor.offset).toBe(nearestRow === "upper" ? (anchor.length ?? -1) : 0);
+            expect(anchor.row === "upper" || anchor.row === "lower").toBe(true);
+            // Midpoint rounding within one layout unit can resolve equally near carets to either row.
+            const anchored = anchor.row as "upper" | "lower";
+            expect(distance[anchored] - nearest).toBeLessThanOrEqual(1 / 64);
+            expect(anchor.offset).toBe(anchored === "upper" ? (anchor.length ?? -1) : 0);
             await drag(page, { x, y: midpoint }, box.lower);
             expect((await selected(page)).length).toBeGreaterThan(0);
             await page.mouse.click(x, midpoint);

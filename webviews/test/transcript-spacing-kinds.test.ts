@@ -186,6 +186,8 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       await page.locator('[data-row-id="kinds-run"] button.cv-tool', { hasText: "Ran 2 commands" }).first().click();
     if (variant === "working-bottom") {
       // Finished work starts closed. Open it before measuring its last call against the next row.
+      const messages = page.locator('[data-row-id="messageRun-status-work"] button[data-message-run]');
+      if (await messages.count()) await messages.click();
       const closed = page.locator(
         '[data-row-id="status-work"] button:is([data-tool-run], [data-tool-group])[aria-expanded="false"]',
       );

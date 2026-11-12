@@ -452,7 +452,7 @@ await requireBrowserLane("agent-pane-turn-end-keeps-place.test.ts", async () => 
     ["turn", false, "yields"],
   ] as const)
     test.each(engines.map(([name]) => name))(
-      `%s: ${streams ? "a turn that streams calls, a message and its end" : mid === "finishes" ? "a running earlier command that finishes, then the turn's end" : mid === "yields" ? "a running earlier command a newer call takes the line from, then gives it back" : mid ? "a turn that ends with an earlier command still running" : "a turn that ends"} while the reader is scrolled up (${where}): ${where === "history" ? "history stays still" : "the work closes and the final reply stays"}`,
+      `%s: ${streams ? "a turn that streams calls, a message and its end" : mid === "finishes" ? "a running earlier command that finishes, then the turn's end" : mid === "yields" ? "a running earlier command a newer call takes the line from, then gives it back" : mid ? "a turn that ends with an earlier command still running" : "a turn that ends"} while the reader is scrolled up (${where}): ${where === "history" || streams ? "the earlier stretch stays still" : "the work closes and the final reply stays"}`,
       async (name) => {
         const page = await open(name, mid !== undefined);
         await scrollTo(page, where);
@@ -481,7 +481,10 @@ await requireBrowserLane("agent-pane-turn-end-keeps-place.test.ts", async () => 
           `${name} ${where}${streams ? " streaming" : ""}${mid ? ` mid-${mid}` : ""}: shift score ${result.score}, first row ${result.first} moved ${result.maxMove}px, ` +
             `lost rows ${JSON.stringify(result.lost)}, flickers ${JSON.stringify(result.flickers)}, moves ${JSON.stringify(result.moves.slice(0, 6))}`,
         );
-        if (where === "history") {
+        // The streaming case delivers another agent's prompt before the end. That opens a new
+        // turn, leaving the preceding unsummarized stretch intact (settledWithoutSummary), so the
+        // reader is no longer inside the turn that ends. Preserve its no-shift checks too.
+        if (where === "history" || streams) {
           expect(result.lost).toEqual([]);
           expect(result.maxMove).toBeLessThanOrEqual(1);
           expect(result.flickers).toEqual([]);

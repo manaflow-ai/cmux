@@ -329,9 +329,14 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       timeout: 60_000,
     });
     await settled(page);
+    // The control-hold branch applies only after the row's top scrolls above the view. The
+    // collapsed call defaults make this fixture shorter, so use a viewport its log exceeds.
+    await page.setViewportSize({ width: 900, height: 400 });
     const scrollToEnd = async () => {
       await page.locator(".acpmux-scroll").evaluate((node) => {
+        node.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
         node.scrollTop = node.scrollHeight;
+        node.dispatchEvent(new Event("scroll"));
       });
       await settled(page);
     };
@@ -360,6 +365,14 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     const PROBE = "[data-more-probe]";
     const before = (await watchOpen(page, PROBE, 0, false))[0]!;
     expect(before.fromEnd).toBeLessThanOrEqual(2);
+    const aboveView = await page
+      .locator(PROBE)
+      .evaluate(
+        (node) =>
+          node.closest(".acpmux-row")!.getBoundingClientRect().top <
+          node.closest(".acpmux-scroll")!.getBoundingClientRect().top - 0.5,
+      );
+    expect(aboveView).toBe(true);
     const frames = await watchOpen(page, PROBE);
     await settled(page);
     const after = (await watchOpen(page, PROBE, 0, false))[0]!;
