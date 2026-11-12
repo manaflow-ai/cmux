@@ -3,7 +3,7 @@ import XCTest
 /// The agent chat composer's pickers, as the Mac's: a model button whose menu nests the models
 /// under the harness (Claude > the model), then Mode and Effort as their own buttons. One shot
 /// per state in light and dark (see `UIStateCapture.swift`), including a large text size where
-/// mode and effort drop to icons.
+/// the chips scroll sideways.
 final class AgentComposerPickersCaptureUITests: UIStateCaptureCase {
     typealias C = UIStateCaptureCase
     private static let chat = ["-cmux-mobile-demo", "disclosure-chat"]
@@ -67,6 +67,15 @@ final class AgentComposerPickersCaptureUITests: UIStateCaptureCase {
                 ])
             },
             Scene(group: g, id: "large-text-rest", args: Self.chat + Self.largeText, settle: 6) { app in Self.openComposer(app) },
+            Scene(group: g, id: "large-text-chips-scrolled", args: Self.chat + Self.largeText, settle: 6) { app in
+                C.steps([
+                    { Self.openComposer(app) },
+                    { let model = Self.chip(app, "model")
+                      model.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+                          .press(forDuration: 0.05, thenDragTo: model.coordinate(withNormalizedOffset: CGVector(dx: -1.5, dy: 0.5)))
+                      return nil },
+                ])
+            },
             Scene(group: g, id: "large-text-effort-menu", args: Self.chat + Self.largeText, settle: 6) { app in
                 C.steps([{ Self.openComposer(app) }, { C.tap(Self.chip(app, "effort"), "effort button") }])
             },

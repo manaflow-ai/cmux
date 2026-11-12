@@ -354,25 +354,21 @@ struct ChatComposer: View {
 
     /// The controls after +, as the Mac composer's chips: the model button (its menu nests the
     /// models under the harness, "Claude > Opus"), then the permission mode and the effort, each
-    /// its own button. When the row is narrow (large text sizes) mode and effort drop to icons.
+    /// its own button naming its value. When they don't fit beside the context ring and Send (a
+    /// phone's width, large text sizes) the chips scroll sideways rather than truncate.
     private var pickerChips: some View {
-        ViewThatFits(in: .horizontal) {
-            pickerChipRow(compactMode: false, compactEffort: false)
-            pickerChipRow(compactMode: true, compactEffort: false)
-            pickerChipRow(compactMode: true, compactEffort: true)
+        ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+                // The model button is there whenever the agent offers models, even when the
+                // current one is not among them (a default the account lacks, D4).
+                if store.currentModelName != nil || !store.models.isEmpty { modelButton }
+                if !store.modes.isEmpty { modeButton }
+                if let effort = store.effortOption, !effort.options.isEmpty { effortButton(effort) }
+            }
         }
-    }
-
-    private func pickerChipRow(compactMode: Bool, compactEffort: Bool) -> some View {
-        HStack(spacing: 6) {
-            // The model button is there whenever the agent offers models, even when the current
-            // one is not among them (a default the account lacks, D4).
-            if store.currentModelName != nil || !store.models.isEmpty { modelButton }
-            if !store.modes.isEmpty { modeButton(compact: compactMode) }
-            if let effort = store.effortOption, !effort.options.isEmpty { effortButton(effort, compact: compactEffort) }
-        }
-        // The narrowest row may shrink, so a long model name truncates rather than overflowing.
-        .fixedSize(horizontal: !(compactMode && compactEffort), vertical: false)
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// The harness the chat runs ("Claude", "Codex"): the model menu's top level, as on the Mac.
@@ -417,7 +413,7 @@ struct ChatComposer: View {
     /// still ask before running tools, and the harness's Full access mode when this phone's
     /// Full-access setting covers it (`ACPMode.phoneChoices`); a refused one comes back as the
     /// chat's error line.
-    private func modeButton(compact: Bool) -> some View {
+    private var modeButton: some View {
         Menu {
             Section("Mode") {
                 ForEach(store.modes) { mode in
@@ -425,11 +421,7 @@ struct ChatComposer: View {
                 }
             }
         } label: {
-            if compact {
-                chipLabel(Image(systemName: "lock.shield"), iconOnly: true)
-            } else {
-                chipLabel(Text(currentModeName ?? "Mode"))
-            }
+            chipLabel(Text(currentModeName ?? "Mode"))
         }
         .padding(.vertical, -5)
         // The agent's order, not the reversed order of a menu opened near the bottom of the screen.
@@ -440,7 +432,7 @@ struct ChatComposer: View {
     }
 
     /// The agent's thought-level option, always called Effort (an agent may name it "Reasoning").
-    private func effortButton(_ effort: ACPConfigOption, compact: Bool) -> some View {
+    private func effortButton(_ effort: ACPConfigOption) -> some View {
         let current = effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
         return Menu {
             Section("Effort") {
@@ -451,11 +443,7 @@ struct ChatComposer: View {
                 }
             }
         } label: {
-            if compact {
-                chipLabel(Image(systemName: "gauge.with.dots.needle.50percent"), iconOnly: true)
-            } else {
-                chipLabel(Text(current ?? "Effort"))
-            }
+            chipLabel(Text(current ?? "Effort"))
         }
         .padding(.vertical, -5)
         .menuOrder(.fixed)
@@ -464,13 +452,14 @@ struct ChatComposer: View {
         .accessibilityIdentifier("agentChat.composer.effort")
     }
 
-    private func chipLabel(_ content: some View, iconOnly: Bool = false) -> some View {
+    private func chipLabel(_ content: some View) -> some View {
         content
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.primary)
             .lineLimit(1)
-            .padding(.horizontal, iconOnly ? 0 : 12)
-            .frame(minWidth: iconOnly ? 34 : nil, minHeight: 34)
+            .fixedSize()
+            .padding(.horizontal, 10)
+            .frame(minHeight: 34)
             .background(Color.cmuxMobileFill, in: .capsule)
             // 44 pt high target around the 34 pt chip.
             .frame(minHeight: 44)
