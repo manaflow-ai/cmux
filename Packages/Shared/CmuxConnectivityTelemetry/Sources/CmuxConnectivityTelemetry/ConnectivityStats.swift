@@ -56,7 +56,12 @@ public final class ConnectivityStats: Sendable {
 
     private struct State: Sendable {
         var audience: ConnectivityAudience = .everyone
-        var pending: [ConnectivityStat] = []
+        /// Waiting stats, oldest first, each with its number (an upload removes what it sent by
+        /// number: the queue may be trimmed or cleared while it runs).
+        var pending: [(seq: UInt64, stat: ConnectivityStat)] = []
+        var nextSeq: UInt64 = 0
+        /// Bumped each time the app goes to the background (``ConnectivityTabTimer``).
+        var backgrounds = 0
         var client: Client?
         var upload: Upload?
         var flushing = false
@@ -83,6 +88,24 @@ public final class ConnectivityStats: Sendable {
             state.upload = upload
         }
     }
+
+    /// No more uploads (signed out): waiting stats go, so none is sent with the next account's
+    /// token. ``configure(client:upload:)`` starts them again.
+    public func stopUploads() {
+        state.withLock { state in
+            state.upload = nil
+            state.pending.removeAll()
+        }
+    }
+
+    /// The app went to the background (iOS may suspend it): a tab still opening then would hold
+    /// the suspension, so ``ConnectivityTabTimer`` reports it cancelled.
+    public func appWentToBackground() {
+        state.withLock { $0.backgrounds += 1 }
+    }
+
+    /// How many times the app went to the background so far.
+    public var backgrounds: Int { state.withLock { $0.backgrounds } }
 
     /// The audience stats are kept for. Leaving the team drops waiting stats, which may hold
     /// the team's detail.
@@ -116,7 +139,8 @@ public final class ConnectivityStats: Sendable {
                 state.keptThisHour += 1
                 stat.fields = stat.fields.filter { $0.value.isFixedVocabulary }
             }
-            state.pending.append(stat)
+            state.pending.append((state.nextSeq, stat))
+            state.nextSeq += 1
             if state.pending.count > configuration.capacity {
                 state.dropped += state.pending.count - configuration.capacity
                 state.pending.removeFirst(state.pending.count - configuration.capacity)
@@ -149,22 +173,22 @@ public final class ConnectivityStats: Sendable {
     /// calls share one flush.
     public func flush() async {
         while true {
-            let next = state.withLock { state -> (Data, Int, Upload)? in
+            let next = state.withLock { state -> (Data, UInt64, Upload)? in
                 guard !state.flushing, let client = state.client, let upload = state.upload, !state.pending.isEmpty else {
                     return nil
                 }
                 state.flushing = true
-                let count = min(configuration.batchSize, state.pending.count)
-                let batch = Array(state.pending.prefix(count))
-                return (Self.body(batch, client: client, audience: state.audience), count, upload)
+                let batch = state.pending.prefix(configuration.batchSize)
+                let last = batch.last?.seq ?? 0
+                return (Self.body(batch.map(\.stat), client: client, audience: state.audience), last, upload)
             }
-            guard let (body, count, upload) = next else { return }
+            guard let (body, last, upload) = next else { return }
             let result = await upload(body)
             let more = state.withLock { state -> Bool in
                 state.flushing = false
                 switch result {
                 case .sent, .discard:
-                    state.pending.removeFirst(min(count, state.pending.count))
+                    state.pending.removeAll { $0.seq <= last }
                     return !state.pending.isEmpty
                 case .retryLater:
                     return false

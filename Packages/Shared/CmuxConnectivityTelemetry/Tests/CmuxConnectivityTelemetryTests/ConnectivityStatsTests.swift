@@ -156,6 +156,60 @@ struct ConnectivityStatsTests {
         #expect(telemetry.stats.waiting.pending == 1)
     }
 
+    /// Stats cleared while an upload runs (leaving the team) and new ones added then: the
+    /// finished upload removes only what it sent, so the new stat waits for the next one.
+    @Test func anUploadRemovesOnlyWhatItSent() async {
+        let stats = ConnectivityStats()
+        stats.setAudience(.team)
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        stats.configure(client: client) { _ in
+            entered.continuation.yield()
+            for await _ in release.stream { break }
+            return .sent
+        }
+        stats.add(connect())
+        stats.add(connect(1))
+        async let flushed: Void = stats.flush()
+        for await _ in entered.stream { break }
+        stats.setAudience(.everyone)
+        stats.add(connect(2))
+        release.continuation.yield()
+        await flushed
+        #expect(stats.waiting.pending == 1)
+    }
+
+    @Test func signingOutStopsUploadsAndDropsWaitingStats() async {
+        let stats = ConnectivityStats()
+        let log = UploadLog()
+        stats.configure(client: client, upload: log.upload)
+        stats.add(connect())
+        stats.stopUploads()
+        await stats.flush()
+        stats.add(connect(1))
+        await stats.flush()
+        #expect(log.bodies.isEmpty)
+        #expect(stats.waiting.pending == 1)
+    }
+
+    @Test func aTabStillOpeningAtTheBackgroundIsCancelled() async throws {
+        let telemetry = ConnectivityTelemetry()
+        let open = ConnectivityTabTimer(kind: "terminal", cached: false, telemetry: telemetry)
+        let other = ConnectivityTabTimer(kind: "agent", cached: false, telemetry: telemetry)
+        other.finish(cached: true, telemetry: telemetry)
+        telemetry.stats.appWentToBackground()
+        open.finish(telemetry: telemetry)
+        let log = UploadLog()
+        telemetry.stats.configure(client: client, upload: log.upload)
+        await telemetry.stats.flush()
+        let sent = try #require(log.bodies.first?["stats"] as? [[String: Any]])
+        #expect(sent.count == 2)
+        #expect(sent[0]["outcome"] as? String == "success")
+        #expect((sent[0]["fields"] as? [String: Any])?["cached"] as? Bool == true)
+        #expect(sent[1]["outcome"] as? String == "cancelled")
+        #expect((sent[1]["fields"] as? [String: Any])?["cause"] as? String == "background")
+    }
+
     @Test func stopwatchMeasuresMilliseconds() {
         let start = ContinuousClock.now
         let watch = ConnectivityStopwatch(start: start)
