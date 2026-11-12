@@ -104,6 +104,11 @@ direct push, and cmux-app-ffi's lock failed --locked on every pull request until
 own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
 feat-cmux-next (base-autofix.sh --locks).
 
+Also on every local run, the same way: "Port drift" (ffi_caller_ratchet.py): every function a cmux-tui crate exports
+in cmux-tui/crates/*/include/*.h has a caller in Packages/**/*.swift outside test targets, or is listed in
+scripts/cmux-next/ffi-caller-baseline.txt, which only shrinks. A push that adds an uncalled export, removes its last
+caller, or gives a listed one a caller without `--update` is refused; it runs only when the push changes a header,
+the baseline, the checker or a Swift line naming a cmux_/acpmux_ function. The fast gates' --advisory pass warns.
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
 test code), judged per crate over the files the push changes: a crate whose count rises in those files is refused
@@ -172,6 +177,15 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
@@ -289,6 +303,14 @@ end
 FALLBACKS_CHECK = "Runs-on variables declare their single-host fallback (.github/single-host-fallbacks.json)"
 FALLBACKS_SCRIPT = "scripts/cmux-next/check-single-host-fallbacks.py"
 FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
+# A Rust port that stops at step A: a C ABI function with no Swift caller (cmuxterm-hq
+# docs/architecture/consolidation-2026-11-12.md: 0 of 28 cmux-daemon-conn-core functions called). Local only, like
+# the workflow parse (CLAUDE.md: no new CI gates); the fast gates' --advisory pass names it as a warning.
+PORT_DRIFT_CHECK = "Port drift (ffi_caller_ratchet.py: every exported cmux-tui C function has a Swift caller)"
+PORT_DRIFT_SCRIPT = SCRIPTS + "/ffi_caller_ratchet.py"
+PORT_DRIFT_HEADER = re.compile(r"^cmux-tui/crates/[^/]+/include/[^/]+\.h$")
+PORT_DRIFT_NAME = re.compile(r"\b(?:cmux|acpmux)_\w+")
+PORT_DRIFT_TIP = "refs/remotes/origin/feat-cmux-next"  # drift already here is not a push's (port_drift)
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
@@ -297,7 +319,12 @@ FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (vari
 REDEFINITION_CHECK = "Test redefinitions (scripts/cmux-next/check-test-redefinitions.py)"
 REDEFINITION_SCRIPT = SCRIPTS + "/check-test-redefinitions.py"
 REDEFINITION_FILE = re.compile(r"^tests/.+\.py$")
-REDEFINITION_LINE = re.compile(r"^(?P<path>[^:]+):\d+: (?P<what>.+?) redefines line \d+")
+# What follows `<path>:` on a checker line. The path is never read from the text (a test path may hold `:`, and a
+# `[^:]+` path pattern then matched nothing, so a finding or an older checker's parse error with exit 1 read as clean:
+# #41827 review, F1); it is the one of the files the gate passed that the line starts with (redefinition_record).
+REDEFINITION_REST = re.compile(r"^\d+: (?:(?P<what>.+?) redefines line \d+|(?P<unparsed>does not parse): )")
+# The checker's own stderr summaries; any other line on a run that exits 1 is output the gate cannot read.
+REDEFINITION_SUMMARY = re.compile(r"^\d+ redefinition\(s\) in tests/ |^a tests/ file does not parse")
 REDEFINITION_HINT = ("Keep one definition of each name: Python keeps only the last `def` of a name in a class or module, "
                      "so the earlier one never runs (a lock it held, a fixture it set up, a test it was). Merge what "
                      "the two did into the one that stays, then push.")
@@ -886,7 +913,8 @@ class NoVerdict(str):
 
 
 # Output that says a check stopped instead of judging: a Python traceback, or run()'s timeout line.
-NO_VERDICT = re.compile(r"Traceback \(most recent call last\)|^timed out after \d+s$|^ast-grep failed: ", re.M)
+NO_VERDICT = re.compile(r"Traceback \(most recent call last\)|^timed out after \d+s$|^ast-grep failed: |"
+                        r"^(?:SwiftFormat|SwiftLint|rustfmt) gave no verdict: ", re.M)
 
 
 def no_verdict(code: int, out: str, codes: tuple[int, ...] | None = None) -> str | None:
@@ -959,16 +987,38 @@ def escaped(tree: Path, rel: str, index: int, rule: str) -> bool:
     return False
 
 
+def ast_grep_shape_fault(matches) -> str | None:
+    """Why MATCHES (ast-grep's parsed `--json=compact` output) is not a list of matches, or None when it is: each a dict
+    with a str `file`, an int `range.start.line`, and str `ruleId` and `message`. Valid JSON of another shape (an
+    `{"error": ...}` object) made the reads below raise and crash the gate instead of refusing (#41827 review, F1)."""
+    if not isinstance(matches, list):
+        return f"a {type(matches).__name__}, not a list"
+    for index, m in enumerate(matches):
+        start = m.get("range", {}).get("start", {}) if isinstance(m, dict) and isinstance(m.get("range"), dict) else None
+        if (not isinstance(m, dict) or not isinstance(m.get("file"), str) or not isinstance(start, dict)
+                or not isinstance(start.get("line"), int) or isinstance(start.get("line"), bool)
+                or not isinstance(m.get("ruleId"), str) or not isinstance(m.get("message"), str)):
+            return f"match {index} has no file, range.start.line, ruleId and message"
+    return None
+
+
 def ast_grep(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
     result = subprocess.run([str(binary), "scan", "-c", str(config), "--json=compact", *present],
                             cwd=tree, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    # Its verdicts exit 0 (no error-level match) or 1 (one, and the list holds it). A config error exits 1 with no
+    # list, a crash otherwise; `stdout or "[]"` read either as "no matches" and passed the push.
+    if result.returncode not in (0, 1) or (result.returncode != 0 and not result.stdout.strip()):
+        return f"ast-grep failed: exit {result.returncode}: {result.stderr.strip()[-300:] or 'no output'}"
     try:
-        matches = json.loads(result.stdout or "[]")
+        matches = json.loads(result.stdout)
     except json.JSONDecodeError:
         return f"ast-grep failed: {result.stderr.strip()}"
+    fault = ast_grep_shape_fault(matches)
+    if fault:
+        return f"ast-grep failed: printed JSON of the wrong shape ({fault}): {result.stdout.strip()[:200]}"
     lines = []
     for m in matches:
         rel, index = m["file"], m["range"]["start"]["line"]
@@ -991,8 +1041,17 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     # rewriting it, even for one file. Linting the changed files takes milliseconds without it.
     # No --quiet: with it SwiftFormat 0.64 prints only "Source input did not pass lint check." and no finding, so this
     # layer never refused anything. Its findings are `<path>:<line>:<col>: error: (<rule>) <message>` lines.
-    _, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", *present], tree)
-    return "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
+    code, out = run([str(binary), "--lint", "--config", str(config), "--cache", "ignore", *present], tree)
+    # Its verdicts exit 0 (clean) or 1 (findings). A file it cannot parse, a bad config or a crash exits otherwise
+    # (70), and keeping only the finding lines of that run passed a push it never read.
+    if code not in (0, 1):
+        return f"SwiftFormat gave no verdict: exit {code}: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    found = "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
+    # Exit 1 is "the lint failed": with no line the gate reads as a finding (a changed output format), it is no verdict,
+    # never "clean" (#41827 review: unrecognized checker output must not count as a pass).
+    if code == 1 and not found:
+        return f"SwiftFormat gave no verdict: exit 1 with no finding line: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    return found
 
 
 RUST_SCOPE = "cmux-tui/"
@@ -1045,13 +1104,26 @@ def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
     return rust_edition(repo)
 
 
+# rustup's answers when the toolchain rust-toolchain.toml pins, or its rustfmt component, is not installed
+# (RUSTUP_AUTO_INSTALL=0): `error: 'rustfmt' is not installed for the toolchain 'T'` (newer: `... 'T'.`, `... for
+# the custom toolchain 'T'`), `error: toolchain 'T' is not installed`, `error: override toolchain 'T' is not
+# installed`, and `error: the 'rustfmt' binary, normally provided by the 'rustfmt' component, is not applicable to the
+# 'T' toolchain`, each a whole line.
+RUSTUP_MISSING = re.compile(
+    rb"(?m)^error: (?:'rustfmt(?:\.exe)?' is not installed for the (?:custom )?toolchain '[^'\n]+'\.?"
+    rb"|(?:override )?toolchain '[^'\n]+' is not installed"
+    rb"|the 'rustfmt(?:\.exe)?' binary, normally provided by the 'rustfmt' component, is not applicable to the "
+    rb"'[^'\n]+' toolchain)\r?(?:\n|$)")
+
+
 def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     """One finding per changed cmux-tui Rust file that rustfmt would change: `<path>: not rustfmt-clean ...`.
 
     Each file goes through rustfmt's stdin mode, so only that file is judged (a path argument would also format the
     files its `mod` lines name). The rustfmt is the one the cmux-tui checkout pins (rust-toolchain.toml, run in
-    cmux-tui/), never installed for this check; with no such rustfmt the layer warns and finds nothing. The tip's
-    `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    cmux-tui/), never installed for this check; with no rustfmt on PATH, or rustup's own answer that the pinned
+    toolchain or its rustfmt is not installed, the layer warns and finds nothing; a rustfmt that will not start is no
+    verdict. The tip's `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
     present = [p for p in rust if (tree / p).is_file()]
     if not present or not config.is_file():
         return ""
@@ -1065,17 +1137,32 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         source = (tree / path).read_bytes()
         try:
             done = subprocess.run(args, cwd=repo / RUST_SCOPE, input=source, env=env, capture_output=True, timeout=60)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            log(f"prepush-gate: WARNING: rustfmt did not run ({type(error).__name__}); Rust formatting NOT checked")
+        except subprocess.TimeoutExpired:
+            # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
+            return f"rustfmt gave no verdict: timed out after 60s on {path}"
+        except FileNotFoundError:
+            # No rustfmt (and no rustup proxy) on PATH: not available here, which warns.
+            log("prepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked")
             return ""
+        except OSError as error:
+            # A rustfmt that is there and would not start (not executable, a bad interpreter): no verdict (#41888
+            # review).
+            return f"rustfmt gave no verdict: it could not be started on {path} ({type(error).__name__}: {error})"
         if done.returncode != 0:
-            if b"error[" in done.stderr or (b"error:" in done.stderr and b"toolchain" not in done.stderr and b"not installed" not in done.stderr):
+            # Only rustup's own "no such toolchain or component" answer is "not available here" and warns, matched in
+            # its exact forms, each a whole line: a rustfmt diagnostic quotes the source, which can say "toolchain"
+            # or "not installed" anywhere (#41888 review). Then a parse error is a finding; any other failure (a panic,
+            # a crash) is no verdict, never a pass (#41827 review).
+            if RUSTUP_MISSING.search(done.stderr):
+                log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
+                    f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
+                return ""
+            if b"error[" in done.stderr or b"error:" in done.stderr:
                 findings.append(f"{path}: rustfmt cannot parse it: "
                                 f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
                 continue
-            log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
-                f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
-            return ""
+            tail = " ".join(done.stderr.decode(errors="replace").strip().splitlines()[-2:])[:300] or "no output"
+            return f"rustfmt gave no verdict: exit {done.returncode} on {path}: {tail}"
         if done.stdout != source:
             findings.append(f"{path}: not rustfmt-clean; run `cargo fmt` in cmux-tui/ (the pre-commit hook does this)")
     return "\n".join(findings)
@@ -1085,9 +1172,17 @@ def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
         return ""
-    _, out = run([str(binary), "lint", "--config", str(config), "--quiet", "--no-cache", "--reporter", "xcode",
-                  *present], tree)
-    return "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    code, out = run([str(binary), "lint", "--config", str(config), "--quiet", "--no-cache", "--reporter", "xcode",
+                     *present], tree)
+    # Its verdicts exit 0, 2 (serious violations) or 3 (strict warnings). A config it cannot read or a crash exits 1
+    # or a signal, and keeping only the located lines of that run passed a push it never read.
+    if code not in (0, 2, 3):
+        return f"SwiftLint gave no verdict: exit {code}: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    found = "\n".join(l for l in out.splitlines() if LOCATION.search(l))
+    # Exit 2 or 3 says it found violations: with no located line the gate reads, that is no verdict, never "clean".
+    if code in (2, 3) and not found:
+        return f"SwiftLint gave no verdict: exit {code} with no located finding: {' '.join(out.strip().splitlines()[-2:])[:300]}"
+    return found
 
 
 # ---------------------------------------------------------------- gate
@@ -1412,8 +1507,11 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
                 (work / "base-list.json").write_bytes(base_list)
                 cmd += ["--base-reserved", str(work / "base-list.json")]
             code, out = run(cmd, work)
-            # Its verdicts exit 0 (none) or 1 (findings); anything else, a traceback or a timeout is no verdict.
-            return [line for line in out.splitlines() if line.strip()], no_verdict(code, out, (0, 1))
+            # Its verdicts exit 0 (none) or 1 (findings); anything else, a traceback or a timeout is no verdict, and so
+            # is an exit 1 that prints no finding.
+            lines = [line for line in out.splitlines() if line.strip()]
+            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
+                                                            else None)
 
         head_lines, head_stopped = findings(head, blob(base, RESERVED_LIST)) or ([], None)
         base_lines, base_stopped = findings(base, None) or ([], None)
@@ -1462,8 +1560,10 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
             lines = [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
-            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict.
-            return lines, no_verdict(code, out, (0, 1))
+            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1 that
+            # prints no finding (only its `ui font:` summary).
+            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
+                                                            else None)
 
         head_lines, head_stopped = findings("--rev", head, "--base", base)
         # A guard stop (a read outside the check's INPUTS) prints the same line on both passes, so the diff below
@@ -1478,6 +1578,74 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         base_lines, base_stopped = findings("--rev", base)
         # A base pass with no verdict never subtracts: every head finding counts.
         return [line for line in head_lines if base_stopped or line not in set(base_lines)]
+
+
+def port_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """What head adds to the port-drift ratchet (PORT_DRIFT_CHECK) over base: an exported cmux-tui C function with
+    no Swift caller that the baseline does not list, or a baseline line whose function gained a caller.
+
+    It runs only when base..head changes a header, the baseline, the checker, or a Swift line under Packages that
+    names an exported-looking function (cmux_*, acpmux_*): a caller is gained or lost only on such a line, so a
+    Swift change that names none cannot move the verdict, and most pushes skip both passes (each reads every
+    Packages Swift file at its commit, about 3 s). The head pass runs first; the base pass only when it found
+    something, and subtracts what the base already had."""
+    script = check_script(repo, head, PORT_DRIFT_SCRIPT, trusted_scripts)
+    if script is None:
+        return []  # a commit older than this check
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode(
+        "utf-8", "surrogateescape").split("\0") if n]
+    if not any(PORT_DRIFT_HEADER.match(n) or n in (PORT_DRIFT_SCRIPT, SCRIPTS + "/ffi-caller-baseline.txt")
+               for n in names):
+        swift = [n for n in names if n.startswith("Packages/") and n.endswith(".swift")]
+        if not swift:
+            return []
+        diff = git(repo, "diff", "--no-renames", "--no-ext-diff", "-U0", base, head, "--", *swift,
+                   check=False).decode("utf-8", "replace")
+        # A comment opened or closed on a changed line can hide or reveal an unchanged caller below it.
+        if not any(PORT_DRIFT_NAME.search(line) or "/*" in line or "*/" in line for line in diff.splitlines()
+                   if line[:1] in "+-" and not line.startswith(("+++", "---"))):
+            return []
+    with tempfile.TemporaryDirectory(prefix="cmux-port-drift-") as tmp:
+        check = Path(tmp) / "check.py"
+        check.write_bytes(script)
+
+        def findings(rev: str) -> tuple[list[str], str | None]:
+            code, out = run(["python3", "-I", str(check), "--repo", str(repo), "--rev", rev], Path(tmp), timeout=300)
+            lines = [line for line in out.splitlines() if line.startswith("ffi-caller-ratchet: ")
+                     and not line.startswith("ffi-caller-ratchet: ok:")]
+            # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1
+            # that prints no finding.
+            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
+                                                            else None)
+
+        head_lines, head_stopped = findings(head)
+        if head_stopped:
+            return [NoVerdict(f"{PORT_DRIFT_SCRIPT} {head_stopped} at the pushed head instead of judging it, so the "
+                              f"push is refused: {out_tail(head_lines)}")]
+        if not head_lines:
+            return []
+        base_lines, base_stopped = findings(base)
+        fresh = [line for line in head_lines if base_stopped or line not in set(base_lines)]
+        # Drift already on the integration branch is not the push's: a branch that merged it in would otherwise be
+        # refused for a finding it cannot fix (the baseline never takes a line back), e.g. two PRs that each passed,
+        # one dropping a baseline entry and one removing that function's last caller. That is a base red for its
+        # owner, not a refusal of every later push.
+        tip = rev_or_none(repo, PORT_DRIFT_TIP)
+        if fresh and tip and tip not in (base, head):
+            tip_lines, tip_stopped = findings(tip)
+            if not tip_stopped:
+                fresh = [line for line in fresh if line not in set(tip_lines)]
+        return fresh
+
+
+def rev_or_none(repo: Path, ref: str) -> str | None:
+    result = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", ref + "^{commit}"],
+                            capture_output=True, text=True)
+    return result.stdout.strip() or None
+
+
+def out_tail(lines: list[str]) -> str:
+    return " ".join(lines[-2:])[:300]
 
 
 def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
@@ -1522,7 +1690,18 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
     if code == 124:
         log(f"prepush-gate: Cargo.lock check skipped: {out}")
         return []
-    return [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
+    # A traceback is the checker crashing, not cargo answering: no verdict on any lock, so it refuses (its own
+    # handled failures, no cargo or an uncached index, print no traceback and still let the push through).
+    if NO_VERDICT.search(out) and code != 0:
+        return [NoVerdict(f"{CARGO_LOCKS_SCRIPT} crashed instead of judging the locks, so the push is refused: "
+                          f"{' '.join(out.strip().splitlines()[-2:])[:300]}")]
+    stale = [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
+    # Its exit 1 means "a lock is stale" and comes with the `stale:` lines; an exit 1 the gate cannot read one from is
+    # no verdict, never a pass (#41827 review: unrecognized checker output).
+    if code == 1 and not stale:
+        return [NoVerdict(f"{CARGO_LOCKS_SCRIPT} exited 1 but named no stale lock, so the push is refused: "
+                          f"{' '.join(out.strip().splitlines()[-2:])[:300] or 'no output'}")]
+    return stale
 
 
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
@@ -1556,13 +1735,61 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
+def redefinition_record(line: str, files: list[str]) -> tuple[str, str, bool] | None:
+    """(path, dotted name, whether it is a parse error) for one checker line about one of FILES, else None. The longest
+    file the line starts with wins, so `tests/a:1.py` is never read as `tests/a` line 1."""
+    for path in sorted(files, key=len, reverse=True):
+        if line.startswith(path + ":"):
+            rest = REDEFINITION_REST.match(line[len(path) + 1:])
+            if rest:
+                return path, rest["what"] or "", bool(rest["unparsed"])
+    return None
+
+
+def redefinition_verdict(code: int, out: str, files: list[str]) -> tuple[list[tuple[str, tuple[str, str]]], str | None]:
+    """([(finding line, (path, name))], why the run gave no verdict or None) for one checker run over FILES.
+
+    No verdict: run()'s timeout, a signal, a crash or an exit outside 0 and 1 (no_verdict); a file the checker could
+    not parse, whatever the exit; an exit 1 that names no finding or prints a line the gate cannot read; an exit 0 that
+    names a finding or prints a line the gate cannot read. Exit 1 is the checker's "findings" verdict only when its
+    output says which."""
+    found, unread, unparsed = [], [], None
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        record = redefinition_record(line, files)
+        if record is None:
+            if not REDEFINITION_SUMMARY.match(line):
+                unread.append(line)
+        elif record[2]:
+            unparsed = unparsed or line
+        else:
+            found.append((line, record[:2]))
+    if unparsed and code in (1, 2):  # its parse-error exit, or 1 from a copy older than it
+        return [], f"could not parse {unparsed}"
+    stopped = no_verdict(code, out, (0, 1))
+    if stopped:
+        return [], stopped
+    if unparsed:
+        return [], f"could not parse {unparsed}"
+    if code == 1 and (unread or not found):
+        return [], (f"exited 1 with output it cannot read: {unread[0][:200]}" if unread
+                    else "exited 1 but named no redefinition")
+    if code == 0 and found:
+        return [], "exited 0 but named a redefinition"
+    if code == 0 and unread:  # a line in no shape it reads: nothing it can trust, whatever the exit (#41888 review)
+        return [], f"exited 0 with output it cannot read: {unread[0][:200]}"
+    return found, None
+
+
 def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
                                restrict: set[str] | None = None) -> list[str]:
     """Each name a tests/**/*.py file the push changes defines twice in one class or module body at HEAD and not at
     BASE (REDEFINITION_CHECK). A finding is keyed by file and dotted name, not line, so moved code is not new.
 
     The checker is the installed reviewed copy on a hook run, HEAD's own on a plain run; a checker that gives no
-    verdict (a crash, a timeout, an exit other than 0 or 1) refuses."""
+    verdict (a crash, a timeout, an exit other than 0 or 1, a file it could not parse) refuses, and its refusal is a
+    NoVerdict, so gate_own never takes it off against an upstream range that failed alike."""
     names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head,
                             "--", "tests/").decode().split("\0") if n and REDEFINITION_FILE.match(n)]
     if restrict is not None:
@@ -1582,7 +1809,7 @@ def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts
         work = Path(tmp)
         (work / "check.py").write_bytes(script)
 
-        def findings(rev: str) -> tuple[list[str], str | None]:
+        def findings(rev: str) -> tuple[list[tuple[str, tuple[str, str]]], str | None]:
             tree = work / rev[:12]
             files = []
             for name in names:
@@ -1595,19 +1822,16 @@ def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts
             if not files:
                 return [], None
             code, out = run(["python3", "-I", str(work / "check.py"), "--root", str(tree), *files], tree)
-            return [line for line in out.splitlines() if REDEFINITION_LINE.match(line)], no_verdict(code, out, (0, 1))
+            return redefinition_verdict(code, out, files)
 
         head_lines, stopped = findings(head)
         if stopped:
-            return [f"{REDEFINITION_SCRIPT} {stopped}; no verdict, so the push is refused"]
+            return [NoVerdict(f"{REDEFINITION_SCRIPT} {stopped} at the pushed head instead of judging it, so the "
+                              "push is refused")]
         base_lines, base_stopped = findings(base)
 
-    def key(line: str) -> tuple[str, str]:
-        match = REDEFINITION_LINE.match(line)
-        return (match["path"], match["what"]) if match else (line, "")
-
-    old = set() if base_stopped else {key(line) for line in base_lines}
-    return [line for line in head_lines if key(line) not in old]
+    old = set() if base_stopped else {key for _, key in base_lines}
+    return [line for line, key in head_lines if key not in old]
 
 
 def yaml_problem(text: str) -> tuple[bool, str | None]:
@@ -1883,7 +2107,9 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
 
     The validator is the release-notary test's (HIGHLIGHTS_CODE): for the hook (TRUSTED_SCRIPTS) the one at this
     clone's origin/feat-cmux-next, so a pushed edit to it cannot pass its own highlight; for a plain run the head's.
-    It fails open: no validator at that ref, or one that does not run, prints a warning and refuses nothing."""
+    No validator at that ref (a clone without the base, a validator older than the rules) prints a warning and refuses
+    nothing: CI's release-notary test still judges it. A validator that ran and crashed, exited non-zero or wrote no
+    result gave no verdict on the highlight, and refuses (a NoVerdict): a highlight that crashes it passed before."""
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head, "--",
                 HIGHLIGHTS_DIR).decode()
     files = sorted(n for n in names.split("\0") if n.endswith(".md") and "/" not in n[len(HIGHLIGHTS_DIR):]
@@ -1908,11 +2134,20 @@ def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path |
             result = work / "result.json"
             code, out = run([sys.executable, "-I", "-c", HIGHLIGHTS_PROGRAM, str(work), str(result), *args], work,
                             timeout=60)
-            # The exit code and the result file are the answer; the output is only for the warning below.
-            if code != 0 or not result.is_file():
-                raise ValueError(f"exit {code}: {out.strip().splitlines()[-1] if out.strip() else 'no output'}")
-            problems = json.loads(result.read_text(encoding="utf-8"))
-    except (Exception, SystemExit) as error:  # noqa: BLE001 - fail open: CI's release-notary test still runs it
+            # The exit code and the result file are the answer; the output is only for the refusal below.
+            try:
+                problems = json.loads(result.read_text(encoding="utf-8")) if code == 0 else None
+            except (OSError, ValueError):
+                problems = None
+            # A dict of highlight name to a list of problem strings; any other shape (a value that is not a list, a
+            # problem that is not a string) raised in the loop below and crashed the gate (#41827 review).
+            if not isinstance(problems, dict) or not all(
+                    isinstance(v, list) and all(isinstance(x, str) for x in v) for v in problems.values()):
+                tail = out.strip().splitlines()[-1] if out.strip() else "no output"
+                shape = "" if problems is None else ", wrote a result of the wrong shape"
+                return [NoVerdict(f"the What's New validator gave no verdict on {', '.join(files)} (exit {code}{shape}: "
+                                  f"{tail[:300]}), so the push is refused; run python3 scripts/whats-new/test_digest.py")]
+    except (Exception, SystemExit) as error:  # noqa: BLE001 - no validator here: CI's release-notary test still runs it
         log(f"prepush-gate: WARNING: the What's New highlights were not validated ({type(error).__name__}: {error}); "
             "run python3 scripts/whats-new/test_digest.py before pushing a highlight.")
         return []
@@ -2166,6 +2401,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
         if redefined:
             reserved.append((REDEFINITION_CHECK, redefined))
+    # Local only, like the workflow parse (CLAUDE.md: no new CI gates): the fast gates' --advisory pass warns.
+    if (highlights_layer if only is None else "port-drift" in only) and restrict is None:
+        drift = port_drift(repo, base, head, trusted_scripts)
+        if drift:
+            reserved.append((PORT_DRIFT_CHECK, drift))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -2409,9 +2649,11 @@ def gate_own(repo: Path, own, only: set[str] | None, timings: bool,
                  highlights_layer=highlights_layer)
     if not own.before or not found:
         return found
-    changed = set(changed_files(repo, own.base, own.head)) | set(deleted_package_swift(repo, own.base, own.head))
-    changed |= {p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", own.base, own.head, "--",
-                               HIGHLIGHTS_DIR).decode().split("\0") if p}
+    # Every path the own range changes, added or deleted, in any folder: each restricted layer keeps only its own
+    # files from it. A list cut to SCOPES left tests/ and .github/ out, so the upstream runs of the redefinition and
+    # workflow layers read nothing, subtracted nothing, and blamed the push for upstream's debt (#41818 review, F1).
+    changed = {p for p in git(repo, "diff", "--name-only", "--no-renames", "-z", own.base, own.head)
+               .decode("utf-8", "surrogateescape").split("\0") if p}
     before = [dict(gate(repo, b, a, only, timings, trusted_scripts, restrict=changed, swiftformat_layer=swiftformat_layer,
                         highlights_layer=highlights_layer))
               for b, a in own.before]
@@ -2647,7 +2889,7 @@ Never --no-verify: CI names every commit that adds a violation (step "Pushed com
 # ---------------------------------------------------------------- advisory (CI: named, never a gate)
 
 # The pull request's fast gates pass --advisory (scripts/ci/cmux_next_fast_gates.py, its existing "prepush gate").
-# The four layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
+# The five layers below never run on CI otherwise, so a push that skipped the hook landed what they would have
 # refused and nobody saw it. Here they run on the same range and each finding is a `::warning file=,line=` annotation
 # plus a row in the step summary. They never change the exit code: the step passes or fails exactly as it did
 # without them. AGENTS.md / CLAUDE.md: "Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI
@@ -2657,7 +2899,8 @@ ADVISORY_ARCH = "arch ratchet"
 ADVISORY_GUARDRAILS = "guardrails line rules"
 ADVISORY_SWIFTFORMAT = "SwiftFormat"
 ADVISORY_PICTURES = "What's New pictures"
-ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES)
+ADVISORY_PORT_DRIFT = "port drift"
+ADVISORY_LAYERS = (ADVISORY_ARCH, ADVISORY_GUARDRAILS, ADVISORY_SWIFTFORMAT, ADVISORY_PICTURES, ADVISORY_PORT_DRIFT)
 # The whole advisory pass, in its own process group (advisory_supervise): past it the group is killed and one
 # "timed out" warning is printed. CMUX_PREPUSH_ADVISORY_SECONDS sets it (a test's short deadline); it skips nothing.
 ADVISORY_SECONDS = 240.0
@@ -2801,6 +3044,13 @@ def advisory_pictures(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], 
     return _record_findings(ADVISORY_PICTURES, repo, found), []
 
 
+def advisory_port_drift(repo: Path, ranges: list) -> tuple[list[AdvisoryFinding], list[str]]:
+    found = []
+    for own in ranges:
+        found += gate_own(repo, own, {"port-drift"}, False, None)
+    return _record_findings(ADVISORY_PORT_DRIFT, repo, found), []
+
+
 def _summary(summary: str | None, rows: list[tuple[str, str]]) -> None:
     if not summary:
         return
@@ -2825,7 +3075,8 @@ def advisory_run(repo: Path, ranges: list, summary: str | None) -> None:
     findings: list[AdvisoryFinding] = []
     diagnostics: list[tuple[str, str]] = []
     layers = ((ADVISORY_ARCH, advisory_arch), (ADVISORY_GUARDRAILS, advisory_guardrails),
-              (ADVISORY_SWIFTFORMAT, advisory_swiftformat), (ADVISORY_PICTURES, advisory_pictures))
+              (ADVISORY_SWIFTFORMAT, advisory_swiftformat), (ADVISORY_PICTURES, advisory_pictures),
+              (ADVISORY_PORT_DRIFT, advisory_port_drift))
     for name, fn in layers:
         t0 = time.monotonic()
         try:
@@ -2907,14 +3158,14 @@ def advisory_finish(started, summary: str | None, seconds: float) -> None:
             process.wait(timeout=GRACE_SECONDS + 5)
         except subprocess.TimeoutExpired:
             pass
-        print(f"::warning title=prepush advisory timed out::the hook-only checks gave no result in {seconds:g}s and "
-              "were stopped; this step's result is unchanged. Run the pre-push hook (or prepush-gate.py) locally.",
-              flush=True)
+        safe_print(f"::warning title=prepush advisory timed out::the hook-only checks gave no result in {seconds:g}s and "
+                   "were stopped; this step's result is unchanged. Run the pre-push hook (or prepush-gate.py) locally.",
+                   flush=True)
         _summary(summary, [(name, f"incomplete: timed out after {seconds:g}s") for name in ADVISORY_LAYERS])
         return
     if code != 0:
-        print(f"::warning title=prepush advisory incomplete::the advisory pass exited {code}; this step's result is "
-              "unchanged.", flush=True)
+        safe_print(f"::warning title=prepush advisory incomplete::the advisory pass exited {code}; this step's result is "
+                   "unchanged.", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2932,7 +3183,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
-                                       "single-host-fallbacks,redefinitions")
+                                       "single-host-fallbacks,redefinitions,port-drift")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child

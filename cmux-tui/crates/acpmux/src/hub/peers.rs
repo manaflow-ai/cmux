@@ -1543,22 +1543,11 @@ impl Hub {
         keep: impl Fn(&RemoteSession) -> bool,
         mut visit: impl FnMut(Value),
     ) {
-        let states: HashMap<String, &'static str> = self
-            .peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .map(|p| (p.name.clone(), p.state().as_str()))
-            .collect();
+        let states = self.peer_link_states();
         let mut emit = |r: &RemoteSession| {
             #[cfg(test)]
             self.remote_rows_copied.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let mut summary = r.summary.clone();
-            summary.set("stale", Value::Bool(summary["stale"] == true));
-            if let Some(state) = states.get(&r.peer) {
-                summary.set("peerState", Value::String((*state).to_owned()));
-            }
-            visit(summary);
+            visit(listed_remote_row(r, &states));
         };
         // One snapshot, held through the walk: no row is copied first, and a write meanwhile
         // (even one the visitor makes) leaves what this walk sees unchanged.
@@ -1571,6 +1560,17 @@ impl Hub {
         for r in self.mesh_book_rows(&keep) {
             emit(&r);
         }
+    }
+
+    /// Each peer's link state by its name: what a listed peer row says as `peerState`
+    /// ([`listed_remote_row`]).
+    pub(super) fn peer_link_states(&self) -> HashMap<String, &'static str> {
+        self.peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .map(|p| (p.name.clone(), p.state().as_str()))
+            .collect()
     }
 
     /// This daemon's own sessions' summaries, without retaining the JSON trees: each closed row
@@ -1708,6 +1708,20 @@ fn remote_segment(r: &RemoteSession, key: &str) -> bool {
                 rest,
             )
     })
+}
+
+/// A peer's mirrored row as a session list lists it: `stale` always set, and `peerState` its
+/// link's state (`states`, [`Hub::peer_link_states`]).
+pub(super) fn listed_remote_row(
+    r: &RemoteSession,
+    states: &HashMap<String, &'static str>,
+) -> Value {
+    let mut summary = r.summary.clone();
+    summary.set("stale", Value::Bool(summary["stale"] == true));
+    if let Some(state) = states.get(&r.peer) {
+        summary.set("peerState", Value::String((*state).to_owned()));
+    }
+    summary
 }
 
 /// Whether `key` names the peer's session `r` (listed under `id`): its name, a prefix of its id,
