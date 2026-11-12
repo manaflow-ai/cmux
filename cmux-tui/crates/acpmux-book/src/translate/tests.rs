@@ -193,6 +193,7 @@ struct Stretch {
     replies: Vec<String>,
     takeaways: Vec<bool>,
     stepped: bool,
+    worked: bool,
     steered: bool,
 }
 struct Chat {
@@ -250,7 +251,7 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                         format!("Note {seed}-{t}-{step}: checking.")
                     };
                     stretch.stepped = false;
-                    if !open {
+                    if !open || stretch.replies.is_empty() {
                         message = format!("msg-{seed}-{t}-{step}");
                         stretch.replies.push(words.clone());
                         stretch.takeaways.push(full);
@@ -272,7 +273,8 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     c.update(&format!(r#"{{"sessionUpdate":"tool_call","toolCallId":"c{calls}","title":"{title}","kind":"execute","status":"in_progress"}}"#));
                     c.update(&format!(r#"{{"sessionUpdate":"tool_call_update","toolCallId":"c{calls}","status":"completed"}}"#));
                     stretch.stepped = true;
-                    open = false;
+                    stretch.worked = true;
+                    open = true;
                 }
                 4 => c.progress(false),
                 5 => c.progress(true),
@@ -282,7 +284,6 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     stretch.steered = true;
                     stretches.push(stretch);
                     stretch = Stretch::default();
-                    open = false;
                 }
             }
         }
@@ -313,7 +314,7 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
         assert_eq!(view, split_view);
         let mut floor = 0;
         for stretch in stretches {
-            let answer = if stretch.stepped && !stretch.steered {
+            let answer = if stretch.worked && !stretch.steered {
                 stretch
                     .replies
                     .iter()

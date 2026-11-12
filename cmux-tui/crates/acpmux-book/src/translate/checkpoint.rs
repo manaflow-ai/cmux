@@ -22,6 +22,7 @@ impl State {
         if state.prompts.len() > 32
             || state.settled_prompts.len() > 32
             || state.forced_tools.len() > 64
+            || state.forced_order.len() > 64
             || state
                 .open_rows()
                 .filter(|r| {

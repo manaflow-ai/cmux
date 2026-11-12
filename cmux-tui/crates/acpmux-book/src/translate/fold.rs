@@ -5,6 +5,7 @@ pub(super) struct Run(pub u64, pub u64);
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Reply {
     pub runs: Vec<Run>,
+    pub wide: bool,
     chars: u64,
     lines: u64,
     nonempty: bool,
@@ -31,6 +32,7 @@ impl Reply {
             if let Some(last) = self.runs.last_mut() {
                 last.1 = id;
             }
+            self.wide = true;
             return Ok(());
         }
         self.runs.push(Run(id, id));

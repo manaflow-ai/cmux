@@ -15,7 +15,7 @@ use crate::row::{Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 pub const MAX_STATE_BYTES: usize = 32 * 1024;
 const MAX_KEY_BYTES: usize = 256;
 
@@ -113,6 +113,7 @@ struct Stream {
     row: OwnedRow,
     block: blocks::Block,
     facts: fold::Reply,
+    deferred_cut: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Prompt {
@@ -156,6 +157,7 @@ pub struct State {
     invalid_records: u64,
     dropped_tool_updates: u64,
     forced_tools: BTreeMap<u64, u64>,
+    forced_order: Vec<u64>,
     turn_start_ms: u64,
     at_ms: u64,
 }
@@ -178,18 +180,16 @@ impl std::error::Error for Error {}
 /// A complete JSON line. Errors leave state unchanged. The actor advances its raw
 /// cursor only after successfully applying the returned operations in order.
 pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
-    let mut next = state.clone();
     let mut out = input::Output::new(bytes);
     let result = match harness {
-        Harness::V1 => v1::line(&mut next, bytes, &mut out),
-        Harness::Claude => claude::line(&mut next, bytes, &mut out),
+        Harness::V1 => v1::line(state, bytes, &mut out),
+        Harness::Claude => claude::line(state, bytes, &mut out),
     };
     if result.is_err() {
         state.invalid_records = state.invalid_records.saturating_add(1);
         return Ok(Vec::new());
     }
-    next.bound_open_rows(&mut out);
-    *state = next;
+    state.bound_open_rows(&mut out);
     Ok(out.ops)
 }
 fn bounded(s: &str) -> Result<(), Error> {
@@ -327,7 +327,12 @@ impl State {
         }
         if let Some(mut stream) = self.reply.take() {
             self.fold.forget(&stream.facts.runs);
-            for run in &stream.facts.runs {
+            for (index, run) in stream.facts.runs.iter().enumerate() {
+                // The ninth-run fallback widens the eighth range only to keep
+                // the bounded fold safe. It is not an exact reply range.
+                if stream.facts.wide && index == 7 {
+                    continue;
+                }
                 for id in run.0..=run.1 {
                     if id == stream.row.id && stream.row.open {
                         continue;
@@ -568,11 +573,15 @@ impl State {
                 row,
                 block: blocks::Block::default(),
                 facts,
+                deferred_cut: false,
             }
         };
         let mut start = 0;
         for (offset, ch) in text.char_indices() {
-            if !stream.row.open {
+            if stream.deferred_cut {
+                stream.deferred_cut = false;
+                self.continue_text(&mut stream, false, out)?;
+            } else if !stream.row.open {
                 let inside_line = stream.block.line_bytes() != 0;
                 self.continue_text(&mut stream, inside_line, out)?;
             }
@@ -614,10 +623,14 @@ impl State {
                 out.text(stream.row.id, &text[start..end], start);
                 start = end;
             }
-            if cut && (ch != '\n' || end < text.len()) {
-                // Reserve the continuation now, even at the end of an event, so a
-                // notice arriving before the next chunk cannot take its place.
-                self.continue_text(&mut stream, ch != '\n', out)?;
+            if cut {
+                if ch != '\n' || end < text.len() {
+                    self.continue_text(&mut stream, ch != '\n', out)?;
+                } else {
+                    // Start the continuation when the next event supplies a byte;
+                    // never emit an empty row at the end of this event.
+                    stream.deferred_cut = true;
+                }
             }
         }
         if start < text.len() {
@@ -667,12 +680,7 @@ impl State {
         loop {
             let mut ids: Vec<_> = self
                 .open_rows()
-                .filter(|r| {
-                    !matches!(
-                        r.kind,
-                        RowKind::User | RowKind::Group | RowKind::Text | RowKind::Thinking
-                    )
-                })
+                .filter(|r| matches!(r.kind, RowKind::Tool | RowKind::Sub))
                 .map(|r| r.id)
                 .collect();
             if ids.len() <= limit {
@@ -697,26 +705,33 @@ impl State {
             } else if self.compaction.as_ref().is_some_and(|r| r.id == id) {
                 Self::close_row(&mut self.compaction, out);
             } else {
-                for rows in [&mut self.tools, &mut self.subs] {
-                    let key = rows.iter().find(|(_, r)| r.id == id).map(|(k, _)| k.clone());
-                    if let Some(key) = key {
-                        if let Some(mut row) = rows.remove(&key) {
-                            row.open = false;
-                            if row.kind == RowKind::Tool {
-                                if self.forced_tools.len() == 64 {
-                                    if let Some(old) = self.forced_tools.keys().next().copied() {
-                                        self.forced_tools.remove(&old);
-                                    }
-                                }
-                                self.forced_tools.insert(prompt_hash(&key), row.id);
-                            }
-                            out.row(&row);
-                        }
+                let key =
+                    self.tools.iter().find(|(_, r)| r.id == id).map(|(k, _)| k.clone()).or_else(
+                        || self.subs.iter().find(|(_, r)| r.id == id).map(|(k, _)| k.clone()),
+                    );
+                if let Some(key) = key {
+                    let mut row = self.tools.remove(&key).or_else(|| self.subs.remove(&key));
+                    if let Some(mut row) = row.take() {
+                        row.open = false;
+                        self.remember_forced(&key, row.id);
+                        out.row(&row);
                     }
                 }
             }
             self.forced_rows = self.forced_rows.saturating_add(1);
         }
+    }
+    fn remember_forced(&mut self, key: &str, row_id: u64) {
+        let hash = prompt_hash(key);
+        if let Some(pos) = self.forced_order.iter().position(|h| *h == hash) {
+            self.forced_order.remove(pos);
+        }
+        if self.forced_order.len() == 64 {
+            let old = self.forced_order.remove(0);
+            self.forced_tools.remove(&old);
+        }
+        self.forced_order.push(hash);
+        self.forced_tools.insert(hash, row_id);
     }
     fn end_session(&mut self, out: &mut input::Output<'_>) {
         for rows in [&mut self.tools, &mut self.subs] {
@@ -738,6 +753,16 @@ impl State {
     fn sub(&mut self, key: &str, status: &str, out: &mut input::Output<'_>) -> Result<(), Error> {
         bounded(key)?;
         if key.is_empty() {
+            return Ok(());
+        }
+        if !self.subs.contains_key(key) && self.forced_tools.contains_key(&prompt_hash(key)) {
+            self.dropped_tool_updates = self.dropped_tool_updates.saturating_add(1);
+            return Ok(());
+        }
+        if !self.subs.contains_key(key)
+            && matches!(status, "completed" | "failed" | "cancelled" | "stopped")
+        {
+            self.dropped_tool_updates = self.dropped_tool_updates.saturating_add(1);
             return Ok(());
         }
         let mut row = if let Some(row) = self.subs.remove(key) {
@@ -769,15 +794,13 @@ impl State {
         out: &mut input::Output<'_>,
     ) -> Result<(), Error> {
         bounded(key)?;
-        let hash = prompt_hash(key);
+        if starts {
+            // A tool call is a work boundary: the currently streaming reply
+            // settles above the call and remains the candidate before it.
+            self.close_text(out);
+        }
         if !starts && !self.tools.contains_key(key) {
-            if self.forced_tools.contains_key(&hash) {
-                self.dropped_tool_updates = self.dropped_tool_updates.saturating_add(1);
-            } else {
-                // An update for an unknown id retains the historical behavior:
-                // it may establish a row when no cap tombstone exists.
-                return self.tool(key, metadata, parts, ended, true, out);
-            }
+            self.dropped_tool_updates = self.dropped_tool_updates.saturating_add(1);
             return Ok(());
         }
         if !self.tools.contains_key(key) {
