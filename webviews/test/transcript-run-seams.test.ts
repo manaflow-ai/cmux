@@ -114,3 +114,9 @@ test("two runs with nothing drawn between them are one run, keeping the first ru
   // No quiet note line for words nobody can see.
   expect(joined[0]!.items?.some((item) => item.kind === "note")).toBe(false);
 });
+
+test("a run of a turn the agent ran on its own never joins the chat's own run beside it", () => {
+  const background = { ...activity([run("gh run list")], "bg-run"), inBackground: "scheduled-1" };
+  const joined = mergeShortNotes([background, activity([run("gh workflow run")], "own-run")]);
+  expect(joined.map((r) => r.id)).toEqual(["bg-run", "own-run"]);
+});

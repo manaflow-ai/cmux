@@ -2716,7 +2716,13 @@ export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<s
     const note = to === index && isShortNote(row) && !keep?.has(row.id);
     if (note) to += 1;
     // A stretch being joined is a run already (`items`): its first run is not read again per note.
-    if ((items !== undefined || run(previous)) && (note || to > index || run(row)) && run(rows[to])) {
+    // A run of a turn the agent ran on its own never joins another turn's run (backgroundTurns.ts).
+    if (
+      (items !== undefined || run(previous)) &&
+      (note || to > index || run(row)) &&
+      run(rows[to]) &&
+      rows[to]!.inBackground === previous!.inBackground
+    ) {
       const next = rows[to]!;
       items ??= [...(previous!.items ?? [])];
       joined ??= [...(previous!.joined ?? [previous!.id])];
