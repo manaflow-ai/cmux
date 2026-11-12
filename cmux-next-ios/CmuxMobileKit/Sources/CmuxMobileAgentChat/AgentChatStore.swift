@@ -263,6 +263,14 @@ public final class AgentChatStore {
     public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
+    /// What the chat says when the Mac refused a send for this phone's Full-access setting
+    /// (acpmux `remote.full_access_required`): the mobile host asks for it only for what makes a
+    /// chat act without asking first (a message to a chat in such a mode, or a switch to one).
+    /// It goes once a later connection says Full access covers this phone (`.fullAccess(true)`).
+    public static let fullAccessOffNotice = "Full access is off for this iPhone, so from it a chat runs only in a mode that asks before changes. Turn it on in Settings > Devices on the Mac."
+    /// ``fullAccessOffNotice`` for a message to a chat whose mode does not ask (the Mac's
+    /// fleet lanes run in Bypass permissions): what to change to send it.
+    public static let fullAccessOffPromptNotice = "Not sent: this chat runs in a mode that doesn't ask before changes, and Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac, or switch the chat to a mode that asks."
     /// The allow option on its way (nil otherwise).
     public private(set) var approvingOptionID: String?
     /// A prompt that was not sent, for the composer to put back (then cleared).
@@ -1059,6 +1067,8 @@ public final class AgentChatStore {
             fillGap(events, done: done)
         case .fullAccess(let on):
             fullAccess = on
+            // The refusal said Full access was off; a connection that says it is on ends it.
+            if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
             summary.status = status

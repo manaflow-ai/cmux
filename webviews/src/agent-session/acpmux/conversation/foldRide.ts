@@ -130,10 +130,9 @@ export class FoldRide {
     const placedBottom = last.node.getBoundingClientRect().bottom - worn;
     const reach = Math.min(placedBottom, placedBottom + shiftOf(last.index));
     if (reach < view.bottom) return this.release();
-    // The transcript's last row within a screen of the view's end: the end's room and its hold on
-    // the latest row are the transcript's to place.
-    if (Number(last.node.getAttribute("aria-setsize")) === last.index && reach < view.bottom + view.height)
-      return this.release();
+    // A transcript end that stays below the view's end shows none of the end's room or bottom pin,
+    // however near it is. Keep riding until the frame the last row would enter the view; the guard
+    // above then gives placement back to the transcript exactly when the end becomes visible.
     // A row still playing its own animation (a live row's entry) may set its translate itself, over
     // the one the ride would write: the transcript places the rows while it plays.
     if (rows.some(({ node, index }) => Math.abs(shiftOf(index)) >= 0.01 && animating(node))) return this.release();

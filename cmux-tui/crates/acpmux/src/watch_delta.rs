@@ -40,10 +40,6 @@ fn digest_text(text: &str) -> String {
     Sha256::digest(text.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect()
 }
 
-fn id_of(row: &Value) -> Option<&str> {
-    row.get("sessionId").and_then(Value::as_str)
-}
-
 /// A row's `sessionId`, read from its text without building the row.
 fn id_of_text(text: &str) -> Option<String> {
     #[derive(serde::Deserialize)]
