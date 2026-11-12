@@ -347,13 +347,12 @@ fn valid_id(id: &str) -> bool {
 
 fn lock(dir: &Path) -> Result<File> {
     crate::config::private_state_dir(dir)?;
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
+    // Made in the held home (`home_fs`): a home replaced after the check above never gets the
+    // lock file (#41462 review F2).
+    let mut options = crate::home_fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false).mode(0o600);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
+    options.custom_flags(libc::O_NOFOLLOW);
     let file = options.open(dir.join("record.lock"))?;
     file.lock().context("lock workflow record")?;
     Ok(file)

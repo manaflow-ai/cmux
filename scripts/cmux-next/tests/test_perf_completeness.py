@@ -24,8 +24,15 @@ pb = load("perf_budgets", ROOT / "scripts/cmux-next/perf-budgets.py")
 # The gate itself is pure, but importing the full xbench module normally loads
 # macOS's libproc counters. Keep this Linux fast-tier test independent of that
 # optional measurement backend.
-sys.modules.setdefault("procs", types.SimpleNamespace())
-xbench = load("xbench", ROOT / "scripts/perf-bench/xbench.py")
+# The stub is for this load only: left in sys.modules, a later suite's `import procs` gets it (#41653 review).
+# Only the entry this file added comes back out, so xbench's real imports (budget, pages) stay registered.
+_PROCS_STUB = types.SimpleNamespace()
+sys.modules.setdefault("procs", _PROCS_STUB)
+try:
+    xbench = load("xbench", ROOT / "scripts/perf-bench/xbench.py")
+finally:
+    if sys.modules.get("procs") is _PROCS_STUB:
+        del sys.modules["procs"]
 
 
 class XbenchGateTests(unittest.TestCase):
