@@ -86,6 +86,14 @@ afterAll(() => {
 });
 
 describe("cloud-vm-image-bake.yml", () => {
+  test("Cloud Native bakes require the desktop closure and default it on", () => {
+    expect(workflow.on.workflow_dispatch.inputs.agent_tools).toMatchObject({ type: "boolean", default: true });
+    expect((workflow.on as unknown as { workflow_call: { inputs: Record<string, { default: unknown }> } }).workflow_call.inputs.agent_tools).toMatchObject({ default: true });
+    const required = job.steps.find((s) => s.name === "Require the Cloud desktop closure");
+    expect(required?.if).toBe("inputs.mode != 'prod-copy' && !inputs.agent_tools");
+    expect(required?.run).toContain("agent_tools is required");
+  });
+
   test("there is no Native receiver image: no input and no bake flag", () => {
     expect(workflow.on.workflow_dispatch.inputs).not.toHaveProperty("native_receiver");
     expect((workflow.on as unknown as { workflow_call: { inputs: Record<string, unknown> } }).workflow_call.inputs).not.toHaveProperty("native_receiver");
@@ -178,7 +186,7 @@ describe("cloud-vm-image-bake.yml", () => {
 
       // What bake.ts and smoke.ts write into the out dir.
       const name = `cmuxnp-dev-vmimg-${tag}`;
-      writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), ...(teamVm ? { teamFilesRoot: "/srv/team root:cmux-ssh 2750" } : {}) }));
+      writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, ...(teamVm ? { teamFilesRoot: "/srv/team root:cmux-ssh 2750" } : {}) }));
       const smokeReport = path.join(bake.out, `smoke-${tag}.json`);
       writeFileSync(smokeReport, JSON.stringify({ passed: false, checks: { a: { ok: false } } }));
       const refused = await runStep("Dev channel candidate", inputs, dir);
@@ -196,6 +204,7 @@ describe("cloud-vm-image-bake.yml", () => {
         snapshot_id: "sh-test",
         source_sha: "abc123def456",
         run: 4242,
+        desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" },
         bake: `images/cmux-vm/bake.ts --agent-tools${teamVm ? " --team-vm" : ""} (CI run 4242)`,
         smoke: { result: "PASSED", detail: `smoke.ts --clones 2${teamVm ? " --team-vm" : ""} (CI run 4242): 2 checks passed` },
       });
@@ -254,7 +263,7 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
     // account-check, bake and smoke each saw a 0600 key file and no key in their environment.
     expect(readFileSync(path.join(dir, "bun.env"), "utf8")).toBe("key-in-env=0 file-mode=600\n".repeat(3));
     const name = "cmuxnp-prod-vmimg-ci-4242-1";
-    writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), teamFilesRoot: "/srv/team root:cmux-ssh 2750" }));
+    writeFileSync(path.join(bake.out, `bake-${name}.json`), JSON.stringify({ name, lockSha256: "f".repeat(64), desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" }, teamFilesRoot: "/srv/team root:cmux-ssh 2750" }));
     writeFileSync(path.join(bake.out, "smoke-ci-4242-1.json"), JSON.stringify({ passed: true, checks: { a: { ok: true } } }));
     const candidate = await runStep("Production copy candidate", PROD_COPY, dir, "sh-prod", { key: "s3cr3t-key", plan });
     expect(candidate.result.status).toBe(0);
@@ -266,6 +275,7 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
       snapshot: name,
       snapshot_id: "sh-prod",
       lock_sha256: "f".repeat(64),
+      desktop: { role: "desktop", program: "cmux-rd", version: "0.2.3", socketUnit: "cmux-agent-rd.socket", socket: "/run/cmux-rd/desktop.sock" },
       run: 4242,
       bake: "images/cmux-vm/bake.ts --prod-copy --agent-tools --team-vm (CI run 4242)",
       smoke: { result: "PASSED", detail: "smoke.ts --clones 2 --team-vm (CI run 4242): 1 checks passed" },
