@@ -395,7 +395,7 @@ final class TabContentCache {
     private func tracked(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
         browserTabs.track(entry.tab, for: tab)
         if let notice = browserTabs.fallbacks.takeNotice(machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface) {
-            entry.state.showNotice(notice)
+            cef.runtimeSource.waitingNotice.show(notice, on: entry.state)
         }
         if let notice = browserTabs.takeNotice(for: tab) { entry.state.showNotice(notice) }
         return entry

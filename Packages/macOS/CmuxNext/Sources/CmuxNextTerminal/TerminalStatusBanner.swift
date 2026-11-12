@@ -215,9 +215,12 @@ final class TerminalStatusBanner: NSView {
     }
 
     /// Whether `status` (with the daemon's `stall`) is an in-between state, shown as the mark: one that waits
-    /// out a reveal delay (``revealDelay(for:stall:)``) because it usually clears on its own.
+    /// out a reveal delay (``revealDelay(for:stall:)``) because it usually clears on its own. "Disconnected"
+    /// waits too, but says its words when it shows: the person acts on it.
     static func isInBetween(_ status: TerminalConnectionStatus, stall: TerminalShellStall?) -> Bool {
-        revealDelay(for: status, stall: stall) != nil
+        if shownStall(status, stall) == nil, case .disconnected(let cause, reconnecting: false) = status,
+           cause != .turnedOffByOrganization { return false }
+        return revealDelay(for: status, stall: stall) != nil
     }
 
     /// "Restoring…" shows only after `restoringRevealDelay`, so an attach
@@ -229,8 +232,12 @@ final class TerminalStatusBanner: NSView {
     /// of connect retries and 2 s of handshake, after up to 2 s waiting for
     /// the owner to say ready), and a dropped view re-attaches at once. Those
     /// clear within it and never show; one that lasts still shows, and the
-    /// lasting "Disconnected" and stopped states show at once.
+    /// stopped states show at once.
     static let reconnectingRevealDelay: CFTimeInterval = 5
+    /// "Disconnected: …" shows only after `disconnectedRevealDelay`: a daemon restart drops every
+    /// pane's link, and a click, a key or the link back re-attaches within it, so a drop that heals
+    /// at once never flashes the label on every pane.
+    static let disconnectedRevealDelay: CFTimeInterval = 1.5
     /// A new pane's "Starting…" mark shows only after `startingRevealDelay`: the daemon confirms a
     /// split or a tab well within it, so the usual one never shows a mark.
     static let startingRevealDelay: CFTimeInterval = 1
@@ -249,7 +256,8 @@ final class TerminalStatusBanner: NSView {
         case .starting: return startingRevealDelay
         case .disconnected(.turnedOffByOrganization, _): return nil
         case .disconnected(_, reconnecting: true): return reconnectingRevealDelay
-        case .connected, .disconnected, .exited: return nil
+        case .disconnected(_, reconnecting: false): return disconnectedRevealDelay
+        case .connected, .exited: return nil
         }
     }
 
