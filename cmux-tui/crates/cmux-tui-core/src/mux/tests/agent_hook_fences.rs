@@ -975,3 +975,62 @@ fn hook_seq_an_event_with_no_boot_id_applies_in_arrival_order() {
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn hook_seq_a_late_event_after_a_restart_goes_through_the_real_ingest() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("restart-ingest");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    // A restart reloads the agent rows' fences from the store: replace the
+    // fences in memory with exactly what a start restores, and keep the
+    // terminal live so the late event reaches the agent rows.
+    let projections = mux.workspace_registry.lock().unwrap().public_projections().unwrap();
+    let restored = mux
+        .with_state(|state| {
+            crate::mux::public_projections::restore_public_projections(state, projections)
+        })
+        .unwrap();
+    *mux.agent_hook_fences.lock().unwrap() = restored.agent_hook_fences;
+    // The prompt the hooks sent before the Stop arrives after the restart,
+    // through the real ingest (journal, agent rows, roster).
+    append_clocked(&mux, &terminal_id, &[("UserPromptSubmit", 2_000, 2_000)]);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Idle));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_an_unstamped_event_keeps_the_order_of_stamped_ones() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("unstamped-between");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    // An event with no stamp applies in journal order.
+    append_hook(&mux, &terminal_id, "UserPromptSubmit", None);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    // A stamped event sent before the Stop still comes late: the unstamped
+    // event did not reset the session's order.
+    append_clocked(&mux, &terminal_id, &[("Stop", 2_000, 2_000)]);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_a_too_long_boot_id_is_dropped() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("long-boot-id");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    // A remote hook sends a boot id longer than any real one (Linux and
+    // macOS send a 36-character UUID). It is dropped: the event has no
+    // monotonic stamp and applies in journal order.
+    let long_boot_id = "b".repeat(4_096);
+    append_clocked_hook(&mux, &terminal_id, "UserPromptSubmit", &long_boot_id, 2_000, 4_000);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    // The session's order is still boot `boot-a` at 3 s: a Stop sent before
+    // the first Stop is late. Had the long id been kept as a new boot, it
+    // would apply.
+    append_clocked(&mux, &terminal_id, &[("Stop", 2_500, 2_500)]);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
