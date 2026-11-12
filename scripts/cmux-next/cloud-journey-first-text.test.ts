@@ -53,8 +53,8 @@ describe("create to streamed first text", () => {
   }
 
   test("streams split JSON and UTF-8, ignores thoughts/tools/empty text, returns before end", () => {
-    const ignored = [chunk("agent_thought_chunk"), chunk("tool_call"), chunk("agent_message_chunk", ""), { kind: "turn_end" }];
-    const lines = [{ kind: "turn_started" }, ...ignored.slice(0, 3)].map((v) => JSON.stringify(v)).join("\n") + "\n";
+    const ignored = [chunk("agent_thought_chunk"), chunk("tool_call"), chunk("agent_message_chunk", "")];
+    const lines = [{ kind: "turn_started" }, ...ignored].map((v) => JSON.stringify(v)).join("\n") + "\n";
     const text = JSON.stringify(chunk("agent_message_chunk", "héllo")) + "\n";
     const result = runTail(`assert sys.argv[1:] == ['acp', 'tail', 'fresh-session', '--since', '0', '--follow']
 os.write(1, ${JSON.stringify(lines)}.encode())

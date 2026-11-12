@@ -962,7 +962,7 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
  * was read back, with the existing ms from send to completed reply; otherwise fail with the first failed step.
  * Real-model runs separately carry create-to-streamed-first-text and cumulative phase marks.
  */
-export function probeRow(probe: string, steps: Step[], run?: string, at = new Date(), context?: { backend: string; model: "real" | "stub" }): Record<string, unknown> {
+export function probeRow(probe: string, steps: Step[], run?: string, at = new Date(), context?: { backend: string; model: "real" | "stub"; run_attempt?: number }): Record<string, unknown> {
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
@@ -1988,7 +1988,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
-    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined, new Date(), { backend: backend.name, model: modelStub || gatewayStub ? "stub" : "real" }))}\n`);
+    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined, new Date(), { backend: backend.name, model: modelStub || gatewayStub ? "stub" : "real", run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) }))}\n`);
   };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
@@ -2727,7 +2727,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
         const chaosOut = argValue("--chaos-probe-out", argv);
-        if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined, new Date(), { backend: backend.name, model: modelStub || gatewayStub ? "stub" : "real" }))}\n`);
+        if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined, new Date(), { backend: backend.name, model: modelStub || gatewayStub ? "stub" : "real", run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) }))}\n`);
       }
     }
 
