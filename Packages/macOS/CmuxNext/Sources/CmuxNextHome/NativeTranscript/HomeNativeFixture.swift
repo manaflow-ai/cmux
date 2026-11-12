@@ -30,6 +30,10 @@ public final class HomeNativeFixture {
     /// The mock behind a gate (capture only): with ``TranscriptLoad`` the first transcript read is
     /// held or fails, so the real view shows its load state (ui-state-fixes M1).
     private let gate: GatedHomeSource
+    /// What the gate was set to (captures read it back): reads held, reads failing.
+    private var gateHolds = false, gateFails = false
+    /// The gate's returned reads when it last stopped failing: reads returned since could carry a page.
+    private var returnedWhenFailingStopped = 0
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
     /// Each transcript this fixture shows (the one shown now too), once its `onStartAgent` is set: the fixture page and
@@ -100,6 +104,8 @@ public final class HomeNativeFixture {
         case .failed: gate.failReads(true)
         case nil: break
         }
+        gateHolds = holdReads || transcriptLoad == .loading
+        gateFails = transcriptLoad == .failed
         store = HomeStore(source: gate, cache: cacheURL.map { HomeCache(url: $0) })
         if let column {
             column.autoresizingMask = [.width, .height]
@@ -180,6 +186,7 @@ public final class HomeNativeFixture {
 
     /// Lets the held transcript reads go (a late first page lands, after its deadline too).
     public func debugReleaseReads() {
+        gateHolds = false
         gate.release()
     }
 
@@ -192,6 +199,8 @@ public final class HomeNativeFixture {
     /// Try Again on the shown transcript's load-state panel, with reads answering again (the owner is back).
     public func debugRetry() -> Bool {
         guard let view, !view.loadState.retry.isHidden else { return false }
+        returnedWhenFailingStopped = gateFails ? returnedReads : returnedWhenFailingStopped
+        (gateFails, gateHolds) = (false, false)
         gate.failReads(false)
         gate.release()
         view.loadState.retry.performClick(nil)
@@ -203,10 +212,38 @@ public final class HomeNativeFixture {
         await store.flushCache()
     }
 
+    /// Transcript reads that returned from the gate so far (failed ones too).
+    private var returnedReads: Int { gate.journal.filter { if case .readReturned = $0 { true } else { false } }.count }
+
+    /// The gate's configuration and read counts (captures check a still against them: a held or
+    /// failing gate with no served read cannot have drawn a loaded page). `served`: reads that
+    /// returned while the gate was not failing, the only ones that can carry a page.
+    public func debugGateState() -> [String: Any] {
+        let returned = returnedReads
+        return ["holds": gateHolds, "fails": gateFails, "started": gate.snapshots.count, "returned": returned,
+                "held": gate.waiting, "served": gateFails ? 0 : max(0, returned - returnedWhenFailingStopped)]
+    }
+
+    /// The load state's band and chip over drawn rows, in the window's coordinates (top-left origin).
+    private func debugBand() -> [String: Any] {
+        guard let view, let window = view.window, let content = window.contentView else { return ["shown": false] }
+        let state = view.loadState
+        func rect(_ r: CGRect, in v: NSView) -> [String: Double] {
+            let w = v.convert(r, to: nil), h = content.bounds.height
+            return ["x": Double(w.minX), "y": Double(h - w.maxY), "w": Double(w.width), "h": Double(w.height)]
+        }
+        var out: [String: Any] = ["shown": !state.isHidden, "band": Double(state.overRowsBand), "chip_shown": !state.chip.isHidden,
+                                  "label": state.label.stringValue, "label_frame": rect(state.label.bounds, in: state.label),
+                                  "scale": Double(window.backingScaleFactor)]
+        if !state.chip.isHidden { out["chip_frame"] = rect(state.chip.bounds, in: state.chip) }
+        if !state.retry.isHidden { out["retry_frame"] = rect(state.retry.bounds, in: state.retry) }
+        return out
+    }
+
     /// The shown conversation, its first page's state, the transcript items it draws now and the
     /// transcript reads held by the gate.
     public func debugLoadState() -> [String: Any] {
-        guard let shown else { return ["shown": false, "held_reads": gate.waiting] }
+        guard let shown else { return ["shown": false, "held_reads": gate.waiting, "gate": debugGateState()] }
         let page: String
         switch store.transcriptFirstPage(shown.conversation) {
         case .loaded: page = "loaded"
@@ -217,7 +254,9 @@ public final class HomeNativeFixture {
                 "items": store.transcript(for: shown.conversation).count, "held_reads": gate.waiting,
                 "reads": gate.snapshots.count, "panel": view?.debugTranscriptLoadState ?? "none",
                 "first_run_shown": view.map { !$0.firstRun.isHidden } ?? false,
-                "retry_shown": view.map { !$0.loadState.isHidden && !$0.loadState.retry.isHidden } ?? false]
+                "retry_shown": view.map { !$0.loadState.isHidden && !$0.loadState.retry.isHidden } ?? false,
+                "gate": debugGateState(), "load_state_view": debugBand(),
+                "in_window": view?.window != nil, "view_hidden": view.map { $0.isHiddenOrHasHiddenAncestor } ?? true]
     }
 
     /// True when `view` is this fixture's transcript.

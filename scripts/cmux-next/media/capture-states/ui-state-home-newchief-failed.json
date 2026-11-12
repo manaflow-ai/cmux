@@ -13,7 +13,8 @@
         "params": {
           "transcript": "failed",
           "chief": "new",
-          "hold": true
+          "hold": true,
+          "new": true
         }
       },
       "wait": 2,
@@ -24,11 +25,66 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "loading",
+            "panel": "loading",
+            "served": 0
+          }
         }
       },
       "wait": 0.5,
       "record": true,
+      "shot": false
+    },
+    {
+      "title": "Mid-run still, light: Before it answers: loading",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 2.5,
+      "shot": false
+    },
+    {
+      "title": "Mid-run still, dark: Before it answers: loading",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2.5,
+      "shot": false
+    },
+    {
+      "title": "The same state after both mid-run frames",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state",
+          "expect": {
+            "first_page": "loading",
+            "panel": "loading",
+            "served": 0
+          }
+        }
+      },
+      "wait": 0.3,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Back to light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 1,
       "shot": false
     },
     {
@@ -48,7 +104,12 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "failed",
+            "panel": "failed",
+            "served": 0
+          }
         }
       },
       "wait": 0.5,

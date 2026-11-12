@@ -12,7 +12,8 @@
         "method": "debug.home_native_fixture.open",
         "params": {
           "transcript": "loading",
-          "chief": "new"
+          "chief": "new",
+          "new": true
         }
       },
       "wait": 3,
@@ -23,7 +24,12 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "loading",
+            "panel": "loading",
+            "served": 0
+          }
         }
       },
       "wait": 0.5,

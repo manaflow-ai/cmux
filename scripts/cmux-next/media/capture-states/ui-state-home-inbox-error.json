@@ -12,7 +12,8 @@
         "method": "debug.home_native_fixture.open",
         "params": {
           "transcript": "failed",
-          "after_inbox": true
+          "after_inbox": true,
+          "new": true
         }
       },
       "wait": 3,
@@ -23,7 +24,12 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "failed",
+            "panel": "failed",
+            "served": 0
+          }
         }
       },
       "wait": 3,
@@ -35,7 +41,12 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "failed",
+            "panel": "failed",
+            "served": 0
+          }
         }
       },
       "wait": 1,

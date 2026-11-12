@@ -12,7 +12,8 @@
         "method": "debug.home_native_fixture.open",
         "params": {
           "transcript": "loading",
-          "after_inbox": true
+          "after_inbox": true,
+          "new": true
         }
       },
       "wait": 1.5,
@@ -23,7 +24,12 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "loading",
+            "panel": "loading",
+            "served": 0
+          }
         }
       },
       "wait": 0.5,
@@ -40,11 +46,66 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "failed",
+            "panel": "failed",
+            "served": 0
+          }
         }
       },
       "wait": 0.5,
       "record": true,
+      "shot": false
+    },
+    {
+      "title": "Mid-run still, light: After the deadline: first page failed, the read still held",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 2.5,
+      "shot": false
+    },
+    {
+      "title": "Mid-run still, dark: After the deadline: first page failed, the read still held",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2.5,
+      "shot": false
+    },
+    {
+      "title": "The same state after both mid-run frames",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state",
+          "expect": {
+            "first_page": "failed",
+            "panel": "failed",
+            "served": 0
+          }
+        }
+      },
+      "wait": 0.3,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Back to light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 1,
       "shot": false
     },
     {
@@ -64,7 +125,11 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "loaded",
+            "panel": "none"
+          }
         }
       },
       "wait": 0.5,

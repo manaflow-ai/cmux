@@ -12,7 +12,8 @@
         "method": "debug.home_native_fixture.open",
         "params": {
           "transcript": "failed",
-          "after_inbox": true
+          "after_inbox": true,
+          "new": true
         }
       },
       "wait": 3,
@@ -23,11 +24,66 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "failed",
+            "panel": "failed",
+            "served": 0
+          }
         }
       },
       "wait": 0.5,
       "record": true,
+      "shot": false
+    },
+    {
+      "title": "Mid-run still, light: First page failed: what the transcript draws, the panel, first-run and Try Again",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 2.5,
+      "shot": false
+    },
+    {
+      "title": "Mid-run still, dark: First page failed: what the transcript draws, the panel, first-run and Try Again",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2.5,
+      "shot": false
+    },
+    {
+      "title": "The same state after both mid-run frames",
+      "rpc": {
+        "method": "debug.home_native_fixture.capture",
+        "params": {
+          "action": "state",
+          "expect": {
+            "first_page": "failed",
+            "panel": "failed",
+            "served": 0
+          }
+        }
+      },
+      "wait": 0.3,
+      "record": true,
+      "shot": false
+    },
+    {
+      "title": "Back to light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 1,
       "shot": false
     },
     {
@@ -47,7 +103,11 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "loaded",
+            "panel": "none"
+          }
         }
       },
       "wait": 0.5,
