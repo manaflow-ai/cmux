@@ -218,11 +218,8 @@ impl State {
     }
     fn finish(&mut self, out: &mut Vec<Change>) {
         self.close_text(out);
-        for (_, mut row) in std::mem::take(&mut self.tools) {
-            row.open = false;
-            row.field("status", "interrupted");
-            out.push(Change::Row(row));
-        }
+        // A background call can finish after the prompt's turn. Its original row and
+        // turn remain live until its result arrives, as in the v1 seed fold.
         Self::close_row(&mut self.plan, out);
         Self::close_row(&mut self.compaction, out);
         if let Some(group) = &mut self.group {

@@ -156,7 +156,7 @@ fn th1_th2_th4_th5_ten_thousand_random_splits_replay_and_interleavings() {
         assert_eq!(split, ops, "split {case}");
         assert_eq!(part, whole);
         assert_eq!(replay, whole);
-        assert_eq!(whole.open_rows().count(), 0);
+        assert!(whole.open_rows().all(|r| r.kind == RowKind::Tool));
         let mut mirror = Mirror::default();
         for op in &ops {
             mirror.apply(op);
@@ -286,4 +286,28 @@ fn claude_string_content_is_a_visible_reply_too() {
         br#"{"type":"assistant","message":{"content":"Final reply","stop_reason":"end_turn"}}"#;
     let ops = translate(&mut s, Harness::Claude, line).unwrap();
     assert!(ops.iter().any(|op|matches!(&op.change,Change::Row(r) if r.text=="Final reply" && !r.open && r.group.is_none())));
+}
+
+#[test]
+fn background_tool_result_keeps_its_original_row_after_the_turn_ends() {
+    let mut s = State::default();
+    let mut mirror = Mirror::default();
+    let lines = [
+        mux(1, "user_message", r#"{"text":"question","turnId":"person"}"#),
+        update(2, r#"{"sessionUpdate":"tool_call","toolCallId":"bg","status":"running"}"#),
+        mux(3, "turn_result", r#"{"turnId":"person"}"#),
+        mux(4, "user_message", r#"{"text":"next","turnId":"next"}"#),
+        update(
+            5,
+            r#"{"sessionUpdate":"tool_call_update","toolCallId":"bg","status":"completed","content":{"type":"text","text":"result"}}"#,
+        ),
+    ];
+    for op in run(&mut s, Harness::V1, &lines) {
+        mirror.apply(&op);
+    }
+    let tools: Vec<_> = mirror.rows.values().filter(|r| r.kind == RowKind::Tool).collect();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].turn, Some(1));
+    assert_eq!(tools[0].text, "result");
+    assert!(!tools[0].open);
 }
