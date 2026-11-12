@@ -263,6 +263,15 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     { promptId: "q-2", prompt: "Then write up what changed" },
     { promptId: "q-3", prompt: "And open the pull request" },
   ];
+  /// A turn still streaming when the chat opens cold: records it streams once the attach read its
+  /// page and before it answers, sent live on that socket first (acpmux subscribes the attach, then
+  /// replies), for the next attach only.
+  let liveOnAttach: (() => Event[]) | undefined;
+  /// Older history pages go unanswered (a turn opener's read still answers): what the open draws is
+  /// what its attach laid in, with no later page filling a hole it left.
+  let holdOlder = false;
+  /// The daemon fails an attach that asks for its settled view (a view it cannot read), naming it.
+  let failSettled = false;
   /// The attach requests the pane made, as asked (their `settled` flag and page bounds).
   const attachesAsked: Record<string, any>[] = [];
   /// Initialize requests: one per connection the pane made.
@@ -382,10 +391,37 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
             prompted?.({ id: message.id!, promptId });
             return;
           }
-          if (message.id !== undefined)
+          if (message.id === undefined) return;
+          if (
+            holdOlder &&
+            message.method === "_acpmux/events" &&
+            message.params?.beforeSeq !== undefined &&
+            JSON.stringify(message.params?.kinds) !== JSON.stringify(["user_message"])
+          )
+            return;
+          if (message.method === "_acpmux/attach" && failSettled && message.params?.settled === true) {
+            attachesAsked.push(message.params);
             ws.send(
-              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                error: { code: -32603, message: "settled view unreadable" },
+              }),
             );
+            return;
+          }
+          const result = answer(message.method, message.params ?? {});
+          const reply = JSON.stringify({ jsonrpc: "2.0", id: message.id, result });
+          if (message.method === "_acpmux/attach" && liveOnAttach) {
+            const live = liveOnAttach();
+            liveOnAttach = undefined;
+            for (const event of live)
+              ws.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
+            // The settled read takes a moment: the live records are on the page before the reply.
+            setTimeout(() => ws.send(reply), 400);
+            return;
+          }
+          ws.send(reply);
         },
       },
     });
@@ -1113,4 +1149,148 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         }
       },
     );
+  // A cold open after a restart of a chat whose turn is still streaming (#41760 review): live
+  // records of that turn land while the settled attach is out, past the rows drawn before it (a kept
+  // tail) or with nothing drawn. The settled page must still fill everything between those rows and
+  // the live turn: the turn that ended while the pane was closed, and the live turn's prompt.
+  const BETWEEN_PROMPT = "Between turn: check the retry backoff once more";
+  const BETWEEN_REPLY = "The backoff doubles up to the cap, as the spec asks.";
+  const LIVE_PROMPT = "Live turn: now run the whole suite";
+  const LIVE_CHUNK = "Running the suite now, the first file passes.";
+  /// The chat went on while the pane was closed: a turn ended, then one started that still streams.
+  const goOnWhileClosed = () => {
+    record("mux", "user_message", { text: BETWEEN_PROMPT, promptId: "p-between" });
+    record("mux", "turn_started", { turnId: "t-between", promptId: "p-between" });
+    record(
+      "in",
+      "agent_message_chunk",
+      update({
+        sessionUpdate: "agent_message_chunk",
+        messageId: "m-between",
+        content: { type: "text", text: BETWEEN_REPLY },
+      }),
+    );
+    record("mux", "turn_result", { status: "completed" });
+    record("mux", "user_message", { text: LIVE_PROMPT, promptId: "p-live2" });
+    record("mux", "turn_started", { turnId: "t-live2", promptId: "p-live2" });
+    status = "running";
+  };
+  const streamsDuringAttach = () => [
+    record(
+      "in",
+      "agent_message_chunk",
+      update({
+        sessionUpdate: "agent_message_chunk",
+        messageId: "m-live2",
+        content: { type: "text", text: LIVE_CHUNK },
+      }),
+    ),
+  ];
+  const shownText = (page: Page) =>
+    page.evaluate(() => [...document.querySelectorAll(".acpmux-row")].map((row) => row.textContent ?? "").join("\n"));
+  for (const kept of [true, false] as const)
+    test.each(engines.map(([name]) => name))(
+      `%s: a streaming chat opened cold draws the settled page under live records that came first (${kept ? "kept tail" : "nothing kept"})`,
+      async (name) => {
+        events.length = fixtureEnd;
+        liveAt = fixtureLiveAt;
+        record("mux", "turn_result", { status: "completed" });
+        status = "idle";
+        settledServed = true;
+        attachesAsked.length = 0;
+        const keptTail = { tails: {}, anchors: {} };
+        try {
+          if (kept) {
+            const before = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+            try {
+              await before.addInitScript((value) => {
+                (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+              }, keptTail);
+              await installPaintedFrames(before);
+              await installRecorder(before);
+              await before.goto(url());
+              await before.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+              await settle(before);
+              await before.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false })));
+              Object.assign(
+                keptTail,
+                await before.evaluate(() =>
+                  JSON.parse(JSON.stringify((globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept)),
+                ),
+              );
+            } finally {
+              await before.close();
+            }
+            expect(Object.keys(keptTail.tails).length).toBeGreaterThan(0);
+          }
+          goOnWhileClosed();
+          liveOnAttach = streamsDuringAttach;
+          holdOlder = true;
+          attachesAsked.length = 0;
+          const page = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+          try {
+            await page.addInitScript(
+              ([value, withTail]) => {
+                if (withTail) (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+                (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
+              },
+              [keptTail, kept] as const,
+            );
+            await installPaintedFrames(page);
+            await installRecorder(page);
+            await page.goto(url());
+            await page.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+            await page.getByText(LIVE_CHUNK).first().waitFor({ timeout: 30_000 });
+            await settle(page);
+            const text = await shownText(page);
+            expect(liveOnAttach).toBeUndefined();
+            expect(attachesAsked.some((asked) => asked.settled === true)).toBe(true);
+            expect({
+              between_prompt: text.includes(BETWEEN_PROMPT),
+              between_reply: text.includes(BETWEEN_REPLY),
+              live_prompt: text.includes(LIVE_PROMPT),
+              live_chunk: text.includes(LIVE_CHUNK),
+            }).toEqual({ between_prompt: true, between_reply: true, live_prompt: true, live_chunk: true });
+          } finally {
+            await page.close();
+          }
+        } finally {
+          liveOnAttach = undefined;
+          holdOlder = false;
+          settledServed = false;
+        }
+      },
+    );
+
+  // The daemon fails the settled read (#41760 review): the page asks once more without `settled`
+  // and the chat opens from the plain page.
+  test.each(engines.map(([name]) => name))(
+    "%s: a chat whose settled read fails opens from a plain attach",
+    async (name) => {
+      events.length = fixtureEnd;
+      liveAt = fixtureLiveAt;
+      record("mux", "turn_result", { status: "completed" });
+      goOnWhileClosed();
+      settledServed = true;
+      failSettled = true;
+      attachesAsked.length = 0;
+      const page = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+      try {
+        await page.addInitScript(() => {
+          (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
+        });
+        await installRecorder(page);
+        await page.goto(url());
+        await page.getByText(LIVE_PROMPT).first().waitFor({ timeout: 60_000 });
+        const text = await shownText(page);
+        expect(text.includes(BETWEEN_REPLY)).toBe(true);
+        expect(attachesAsked.findIndex((asked) => asked.settled === true)).toBe(0);
+        expect(attachesAsked.slice(1).some((asked) => asked.settled !== true)).toBe(true);
+      } finally {
+        failSettled = false;
+        settledServed = false;
+        await page.close();
+      }
+    },
+  );
 });

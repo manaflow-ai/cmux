@@ -523,11 +523,6 @@ export function attachedLocalRow(result: unknown, sessionId: string): Session | 
   return typeof row.peer === "string" || typeof reply?.peer === "string" ? undefined : row;
 }
 
-/// The chat's detail an attach reply carries, naming the machine it runs on. A reply acpmux forwarded
-/// from a peer names that peer at its top level only (`server/peer_forward.rs`): its `session` is the
-/// peer daemon's own detail, with no `peer`, so the detail alone read as this Mac's chat and Session
-/// Info named this Mac for a peer's chat (Leo, 2026-11-07: "hmm is the session info not accurately
-/// describing machine provenance?").
 /// The settled view an attach answered with (`settled`, acpmux `settled-attach-v1`): where its frame
 /// ends and the turn ends a fork can go through. Undefined for a plain attach reply (`settled: null`,
 /// an older acpmux, or a reply that does not say).
@@ -544,21 +539,43 @@ export function settledView(result: unknown): SettledView | undefined {
   return { lastSeq: view.lastSeq, forkSeqs };
 }
 
-/// The records of a settled attach page that go on from the rows already drawn (a kept tail, a
-/// reconnect's own records): those after `drawnThrough`, when the page meets it. Undefined when the
-/// page does not meet the rows (a gap), when nothing is drawn, or when the reply is no settled view:
-/// the caller then lays the page in as before.
+/// The records of a settled attach page that go on from the rows drawn before the attach was asked
+/// (a kept tail, the Mac's copy, a reconnect's own records): those after `drawnThrough`, when the
+/// page meets it. `heldThrough` is the newest seq held now (0 for none). A live record applied while
+/// the attach was out (`takeEarly`, `apply` during its awaits) past `drawnThrough` was reduced before
+/// the page's records under it, so the page is not laid on top of it. Undefined, and the caller
+/// merges the page and folds it all again (`rebuild`), when the page does not meet the rows (a gap),
+/// nothing is held, a live record came past the rows, the page adds nothing past them, or the reply
+/// is no settled view. Never empty: an empty append would read as met while it drew none of the page.
 export function settledAppend(
   page: readonly EventRecord[],
   drawnThrough: number,
+  heldThrough: number,
   view: SettledView | undefined,
 ): EventRecord[] | undefined {
-  if (!view || drawnThrough <= 0 || page.length === 0) return undefined;
+  if (!view || drawnThrough <= 0 || heldThrough <= 0 || heldThrough > drawnThrough || page.length === 0)
+    return undefined;
   const oldest = Math.min(...page.map((event) => event.seq));
   if (oldest > drawnThrough + 1) return undefined;
-  return page.filter((event) => event.seq > drawnThrough).sort((a, b) => a.seq - b.seq);
+  const after = page.filter((event) => event.seq > drawnThrough).sort((a, b) => a.seq - b.seq);
+  return after.length > 0 ? after : undefined;
 }
 
+/// Whether an attach failed over its settled view (`settled: true`, `settled-attach-v1`): its error
+/// names `settled` (its message, code or reason). Any other failure (the session gone, the socket
+/// closed) fails a plain attach too.
+export function settledAttachFailed(error: unknown): boolean {
+  const failure = error as { message?: unknown; code?: unknown; reason?: unknown } | undefined;
+  return [failure?.message, failure?.code, failure?.reason].some(
+    (said) => typeof said === "string" && /settled/i.test(said),
+  );
+}
+
+/// The chat's detail an attach reply carries, naming the machine it runs on. A reply acpmux forwarded
+/// from a peer names that peer at its top level only (`server/peer_forward.rs`): its `session` is the
+/// peer daemon's own detail, with no `peer`, so the detail alone read as this Mac's chat and Session
+/// Info named this Mac for a peer's chat (Leo, 2026-11-07: "hmm is the session info not accurately
+/// describing machine provenance?").
 export function attachedDetail(result: unknown): Record<string, any> {
   const reply = result as { session?: unknown; peer?: unknown } | undefined;
   const detail = reply?.session && typeof reply.session === "object" ? (reply.session as Record<string, any>) : {};
@@ -6543,35 +6560,44 @@ export class AcpmuxDirectClient {
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip.
   private sendAttach(sessionId: string, generation: number, reads: boolean): SentAttach {
     const visible = readerHere();
-    const attaching = this.typed("_acpmux/attach", {
-      sessionId,
-      // The visible page must not wait for the daemon's restart-time full-log restoration. The
-      // attach page can read the newest records directly; queue/status restoration continues in
-      // the daemon and arrives on the attached event stream (Leo: the window must be well under 1 s).
-      waitLogs: false,
-      // The chat's settled view first (cmuxterm-hq#9655): acpmux keys it on these page bounds, which
-      // stay the same on every open of the pane; it carries the queue a restarted acpmux has not read.
-      ...(this.capabilities?.has(SETTLED_ATTACH_CAPABILITY) ? { settled: true } : {}),
-      limit: 400,
-      // The most opening a chat downloads, however large its tool output (a remote session's open).
-      maxBytes: OPEN_PAGE_BYTES,
-      // At most 8 kinds: a remote cmux-tui before cx-kpd0v refuses more. Session offers come with
-      // "transcript" (acpmux paging.rs, since offers exist). The queue's live kinds go only to a
-      // local acpmux, which takes any number; a remote chat's queue follows its session changes.
-      kinds: [
-        "transcript",
-        COMMANDS_KIND,
-        USAGE_KIND,
-        CONFIG_KIND,
-        BOOKMARKS_KIND,
-        ...SECRET_KINDS,
-        // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
-        SUBSESSION_KIND,
-        ...(this.localOrigin ? [...QUEUE_KINDS, ...ELEVATION_KINDS, ...PRESET_APPROVAL_KINDS] : []),
-      ],
-      eventStream: true,
-      visible,
-    });
+    const ask = (settled: boolean) =>
+      this.typed("_acpmux/attach", {
+        sessionId,
+        // The visible page must not wait for the daemon's restart-time full-log restoration. The
+        // attach page can read the newest records directly; queue/status restoration continues in
+        // the daemon and arrives on the attached event stream (Leo: the window must be well under 1 s).
+        waitLogs: false,
+        // The chat's settled view first (cmuxterm-hq#9655): acpmux keys it on these page bounds, which
+        // stay the same on every open of the pane; it carries the queue a restarted acpmux has not read.
+        ...(settled ? { settled: true } : {}),
+        limit: 400,
+        // The most opening a chat downloads, however large its tool output (a remote session's open).
+        maxBytes: OPEN_PAGE_BYTES,
+        // At most 8 kinds: a remote cmux-tui before cx-kpd0v refuses more. Session offers come with
+        // "transcript" (acpmux paging.rs, since offers exist). The queue's live kinds go only to a
+        // local acpmux, which takes any number; a remote chat's queue follows its session changes.
+        kinds: [
+          "transcript",
+          COMMANDS_KIND,
+          USAGE_KIND,
+          CONFIG_KIND,
+          BOOKMARKS_KIND,
+          ...SECRET_KINDS,
+          // The chat's sub-session records: its running limit's `limits` changes (the eighth kind).
+          SUBSESSION_KIND,
+          ...(this.localOrigin ? [...QUEUE_KINDS, ...ELEVATION_KINDS, ...PRESET_APPROVAL_KINDS] : []),
+        ],
+        eventStream: true,
+        visible,
+      });
+    // acpmux answers a settled view it cannot read with a plain page; one that fails the attach over
+    // it instead (its error names `settled`) is asked once more without it, so the chat still opens.
+    const attaching = this.capabilities?.has(SETTLED_ATTACH_CAPABILITY)
+      ? ask(true).catch((error: unknown) => {
+          if (!settledAttachFailed(error)) throw error;
+          return ask(false);
+        })
+      : ask(false);
     const out = { sessionId };
     this.attachOut = out;
     const settled = () => {
@@ -6949,8 +6975,12 @@ export class AcpmuxDirectClient {
     // A settled view that goes on from the rows drawn (a kept tail, a reconnect's records) is laid
     // on them as live records are: no replay of what is on screen, and nothing drawn is swapped
     // for a page (cmuxterm-hq#9655 stage 1). Records it holds from before the rows are left to the
-    // older pages, as the history above a kept tail is.
-    const append = replaced ? undefined : settledAppend(page, this.events.length > 0 ? this.lastSeq : 0, view);
+    // older pages, as the history above a kept tail is. Measured against the rows drawn before the
+    // attach was asked: a live record of a turn still running that landed while it was out (after a
+    // restart) is past them, so the page is merged under it and everything folds again instead.
+    const append = replaced
+      ? undefined
+      : settledAppend(page, drawnThrough, this.events.length > 0 ? this.lastSeq : 0, view);
     if (append) {
       this.events = mergeEventRecords(append, this.events);
       this.sawPrompts(append);
