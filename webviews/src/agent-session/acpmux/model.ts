@@ -1333,6 +1333,10 @@ export type AcpmuxSnapshot = {
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
   /// in one frame (AgentPaneView+Loading.swift).
   drewKeptTail?: true;
+  /// The chat on screen was opened from acpmux's settled view of it (`settled-attach-v1`,
+  /// cmuxterm-hq#9655): where that frame ends and the turn ends a fork can go through. The page tells
+  /// the host once the frame is drawn (`pane.painted` with `settled: true`).
+  settled?: { lastSeq: number; forkSeqs: readonly number[] };
   /// The selected peer chat is drawn from the Mac's copy of it (peerCopy.ts), not yet read from its
   /// machine; `offline` while that machine does not answer, when the pane marks it possibly stale.
   peerCopy?: import("./peerCopy").PeerCopyState;

@@ -252,7 +252,7 @@ impl Hub {
         let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
         peer.seed_send_attach(true);
         self.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
-        self.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(rows));
+        self.apply_peer_notice(name, peer.generation, PeerNotice::sessions_from_values(rows));
         self.apply_peer_notice(name, peer.generation, PeerNotice::Disconnected("down".into()));
         peer
     }
@@ -262,7 +262,7 @@ impl Hub {
     pub(crate) fn seed_peer_back(&self, peer: &crate::peer::Peer, rows: Vec<Value>) {
         use crate::peer::PeerNotice;
         peer.connected.store(true, std::sync::atomic::Ordering::SeqCst);
-        self.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Sessions(rows));
+        self.apply_peer_notice(&peer.name, peer.generation, PeerNotice::sessions_from_values(rows));
         self.apply_peer_notice(&peer.name, peer.generation, PeerNotice::Connected);
     }
 
@@ -361,7 +361,7 @@ mod tests {
         hub.apply_peer_notice(
             "huge-blue",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         let fresh = hub.remote_sessions();
         assert_eq!(fresh.len(), 1);
@@ -400,7 +400,7 @@ mod tests {
         again.apply_peer_notice(
             "huge-blue",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         let back = again.remote_sessions();
         assert_eq!(back[0]["stale"], false, "{back:?}");
@@ -427,7 +427,12 @@ mod tests {
         hub.apply_peer_notice(
             "huge-blue",
             peer.generation,
-            PeerNotice::Sessions(vec![json!("x"), json!(7), json!([1]), remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![
+                json!("x"),
+                json!(7),
+                json!([1]),
+                remote("m1", "lane"),
+            ]),
         );
         let listed = hub.remote_sessions();
         assert_eq!(listed.len(), 1, "{listed:?}");
@@ -463,7 +468,7 @@ mod tests {
         hub.apply_peer_notice(
             "huge-blue",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         hub.apply_peer_notice(
             "huge-blue",
@@ -512,12 +517,16 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         for at in 0..32 {
             let mut row = remote("m1", "lane");
             row["updatedAt"] = json!(at + 10);
-            hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![row]));
+            hub.apply_peer_notice(
+                "builder",
+                peer.generation,
+                PeerNotice::sessions_from_values(vec![row]),
+            );
         }
         let writes = hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst);
         assert!(writes < 32, "writes={writes}");
@@ -533,7 +542,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         for _ in 0..100_000 {
             if hub.cache_test_write_started.load(std::sync::atomic::Ordering::SeqCst) {
@@ -544,7 +553,11 @@ mod tests {
         for at in 0..32 {
             let mut row = remote("m1", "lane");
             row["updatedAt"] = json!(at + 10);
-            hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![row]));
+            hub.apply_peer_notice(
+                "builder",
+                peer.generation,
+                PeerNotice::sessions_from_values(vec![row]),
+            );
         }
         assert_eq!(hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst), 1);
         hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
@@ -563,7 +576,11 @@ mod tests {
         hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
         let mut changed = remote("m1", "lane");
         changed["status"] = json!("running");
-        hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![changed]));
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::sessions_from_values(vec![changed]),
+        );
         assert!(peer.cache_is_dirty());
         // This is the notice loop's shutdown flush: it only visits dirty peers, then waits for
         // the ordered writer before returning from shutdown.
@@ -584,7 +601,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("old", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("old", "lane")]),
         );
         for _ in 0..100_000 {
             if hub.cache_test_write_started.load(std::sync::atomic::Ordering::SeqCst) {
@@ -595,7 +612,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("new", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("new", "lane")]),
         );
         hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
         for _ in 0..100_000 {
@@ -622,7 +639,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("old", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("old", "lane")]),
         );
         entered_rx
             .recv_timeout(std::time::Duration::from_secs(2))
@@ -637,7 +654,7 @@ mod tests {
                 hub.apply_peer_notice(
                     "builder",
                     generation,
-                    PeerNotice::Sessions(vec![remote("new", "lane")]),
+                    PeerNotice::sessions_from_values(vec![remote("new", "lane")]),
                 );
                 done_tx.send(()).unwrap();
             })
@@ -674,7 +691,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         for _ in 0..100_000 {
             if hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire)
@@ -689,7 +706,11 @@ mod tests {
         let mut changed = remote("m1", "lane");
         changed["status"] = json!("running");
         changed["turnCount"] = json!(7);
-        hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![changed]));
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::sessions_from_values(vec![changed]),
+        );
         hub.apply_peer_notice("builder", peer.generation, PeerNotice::Disconnected("down".into()));
         // The throttled change reached disk. Its stale marking need not: a load marks every row
         // stale itself (`peer_cache_disk::still_on_disk`).
@@ -714,11 +735,15 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             old.generation,
-            PeerNotice::Sessions(vec![remote("old", "old-lane")]),
+            PeerNotice::sessions_from_values(vec![remote("old", "old-lane")]),
         );
         let replacement = add_idle_peer(&hub, "builder");
         let stale = remote("stale", "stale-lane");
-        hub.apply_peer_notice("builder", old.generation, PeerNotice::Sessions(vec![stale]));
+        hub.apply_peer_notice(
+            "builder",
+            old.generation,
+            PeerNotice::sessions_from_values(vec![stale]),
+        );
         let rows = hub.remote_sessions();
         assert_eq!(replacement.generation, hub.peer("builder").unwrap().generation);
         assert_eq!(rows.len(), 1);
@@ -732,7 +757,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("old", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("old", "lane")]),
         );
         hub.cache_test_writes.store(0, std::sync::atomic::Ordering::SeqCst);
         hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -750,7 +775,11 @@ mod tests {
         }
         let mut newer = remote("new", "lane");
         newer["updatedAt"] = json!(99);
-        hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![newer]));
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::sessions_from_values(vec![newer]),
+        );
         hub.save_peer_cache("builder", peer.generation, true);
         saving.join().unwrap();
         hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
@@ -766,7 +795,11 @@ mod tests {
         hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
         let mut listed = remote("m1", "lane");
         listed["createdAt"] = json!(5);
-        hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![listed]));
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::sessions_from_values(vec![listed]),
+        );
         for _ in 0..100_000 {
             if hub.cache_test_write_started.load(std::sync::atomic::Ordering::Acquire) {
                 break;
@@ -818,7 +851,7 @@ mod tests {
             hub.apply_peer_notice(
                 name,
                 peer.generation,
-                PeerNotice::Sessions(vec![remote("m1", name)]),
+                PeerNotice::sessions_from_values(vec![remote("m1", name)]),
             );
         }
         hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -852,19 +885,23 @@ mod tests {
         hub.apply_peer_notice(
             "slow",
             slow.generation,
-            PeerNotice::Sessions(vec![remote("m1", "slow")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "slow")]),
         );
         hub.apply_peer_notice(
             "fast",
             fast.generation,
-            PeerNotice::Sessions(vec![remote("m1", "fast")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "fast")]),
         );
         hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
         hub.cache_test_write_delay_ms.store(200, std::sync::atomic::Ordering::SeqCst);
         *hub.cache_test_delay_peer.lock().unwrap() = Some("slow".into());
         let mut changed = remote("m1", "slow");
         changed["updatedAt"] = json!(99);
-        hub.apply_peer_notice("slow", slow.generation, PeerNotice::Sessions(vec![changed]));
+        hub.apply_peer_notice(
+            "slow",
+            slow.generation,
+            PeerNotice::sessions_from_values(vec![changed]),
+        );
         for _ in 0..100_000 {
             if hub.cache_test_write_started.load(std::sync::atomic::Ordering::SeqCst) {
                 break;
@@ -875,7 +912,7 @@ mod tests {
         hub.apply_peer_notice(
             "fast",
             fast.generation,
-            PeerNotice::Sessions(vec![remote("m1", "fast")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "fast")]),
         );
         assert!(started.elapsed() < std::time::Duration::from_millis(150));
         hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
@@ -889,7 +926,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "builder")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "builder")]),
         );
         hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
         hub.cache_test_write_delay_ms.store(100, std::sync::atomic::Ordering::SeqCst);
@@ -912,7 +949,7 @@ mod tests {
                 hub.apply_peer_notice(
                     "builder",
                     generation,
-                    PeerNotice::Sessions(vec![remote("m1", "builder")]),
+                    PeerNotice::sessions_from_values(vec![remote("m1", "builder")]),
                 );
                 done_tx.send(()).unwrap();
             })
@@ -968,7 +1005,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         assert_eq!(hub.remote_sessions().len(), 1);
         hub.held_peer_asks.hold(
@@ -1000,7 +1037,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         hub.cache_test_write_started.store(false, std::sync::atomic::Ordering::SeqCst);
         hub.cache_test_write_delay_ms.store(100, std::sync::atomic::Ordering::SeqCst);
@@ -1053,7 +1090,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         until("the first list is saved", &settled, std::time::Duration::from_secs(10));
         assert_eq!(saved_status(dir.path(), "builder"), "idle");
@@ -1061,7 +1098,11 @@ mod tests {
         let mut changed = remote("m1", "lane");
         changed["status"] = json!("running");
         let changed_at = std::time::Instant::now();
-        hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![changed]));
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::sessions_from_values(vec![changed]),
+        );
         assert!(peer.cache_is_dirty(), "the change was not put off");
         until(
             "the put-off change is saved",
@@ -1095,7 +1136,7 @@ mod tests {
         hub.apply_peer_notice(
             "builder",
             peer.generation,
-            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+            PeerNotice::sessions_from_values(vec![remote("m1", "lane")]),
         );
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst) == 0 {
