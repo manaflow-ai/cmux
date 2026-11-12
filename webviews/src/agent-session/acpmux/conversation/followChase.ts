@@ -38,6 +38,7 @@ import { MAX_FRAME_STEP_MS } from "../threadMinimap/scrollMotion";
 import { cssTimeMs } from "./fold";
 import { FOLLOW_GLIDE_OFF } from "./followGlide";
 import type { FollowMotionArm } from "./followMotion.experiment";
+import { drawPinned } from "./pinnedLiveLine";
 
 /// The spring's response: the motion scale's standard step (180 ms, the glide it replaces), damping 1
 /// (critically damped), as the native `move` spring (motion.md, 150 ms) is.
@@ -226,6 +227,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       thread.style.willChange = "translate";
       thread.style.translate = `0 ${x}px`;
     }
+    // The live line held at the bottom moves against the thread in the same frame (pinnedLiveLine.ts).
+    drawPinned(thread, x);
   };
   const stop = () => {
     cancelRecheck();
