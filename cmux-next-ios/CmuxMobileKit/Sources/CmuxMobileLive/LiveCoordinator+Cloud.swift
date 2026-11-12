@@ -151,12 +151,11 @@ extension LiveCoordinator {
 
     /// Every terminal of `session` releases its size, together, before its link closes.
     static func releaseTerminals(_ session: MacSession) async {
-        let terminals = session.terminals.compactMap(\.session)
-        await withTaskGroup(of: Void.self) { group in
-            for terminal in terminals {
-                group.addTask { @MainActor in await terminal.releaseBeforeLinkCloses() }
-            }
+        // Started together, so the whole release takes one 2 s bound, not one per terminal.
+        let releases = session.terminals.compactMap(\.session).map { terminal in
+            Task { @MainActor in await terminal.releaseBeforeLinkCloses() }
         }
+        for release in releases { await release.value }
     }
 
     /// A Cloud machine's daemon is serving its workspaces on this phone now.
