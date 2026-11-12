@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43171578740",
+  "recorded_at": "2026-11-12T07:03:15Z",
+  "reason": "cmux-tui 99a6d8f4bb61 changes the image's cmux-tui (pinned eef1188edd1e)",
+  "dry_run": false,
+  "cmux_tui": "99a6d8f4bb6192c58585cd82ed4aa4f0812cca82",
+  "fixes": [
+    {
+      "sha": "99a6d8f4bb6192c58585cd82ed4aa4f0812cca82",
+      "mergedAt": "2026-11-12T00:41:48-06:00",
+      "subject": "acpmux: the passwordless-sudo test reads the command's stdin without od"
+    },
+    {
+      "sha": "24d415df95bfe298b348ee00d9abd068e5732e24",
+      "mergedAt": "2026-11-12T00:41:47-06:00",
+      "subject": "acpmux: the hello-budget test binds its socket under SUN_LEN on any TMPDIR"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T07:03:15Z",
+    "snapshot_id": "sh-20d354ffdb3241bda2906094bca07fed",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43171578740): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9e90fba57566ba989c4f7d1f6430989e9069f1b4",
+    "image": "cloud-native-auto-99a6d8f4-43171578740-1",
+    "revision": "ci-43171578740-1",
+    "at": "2026-11-12T07:03:15Z"
+  },
+  "rolled_back": false
+}
