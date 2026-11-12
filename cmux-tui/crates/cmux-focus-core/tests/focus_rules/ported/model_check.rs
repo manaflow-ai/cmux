@@ -557,10 +557,12 @@ fn explore_tabs(rule: TabRule) -> (usize, Vec<String>) {
                 && let Some(i) = tabs.iter().position(|t| *t == closed)
                 && !shown.is_empty()
             {
-                let expected = tabs[i + 1..]
+                // The shown tab before it, else the shown tab after it.
+                let expected = tabs[..i]
                     .iter()
+                    .rev()
                     .find(|t| shown.contains(t))
-                    .or_else(|| tabs[..i].iter().rev().find(|t| shown.contains(t)))
+                    .or_else(|| tabs[i + 1..].iter().find(|t| shown.contains(t)))
                     .copied();
                 if picked != expected {
                     bad.push(format!("TR expected {expected:?} got {picked:?}"));
@@ -590,30 +592,31 @@ fn explore_tabs(rule: TabRule) -> (usize, Vec<String>) {
 }
 
 #[test]
-fn tab_rule_holds_for_every_close_sequence() {
+fn tab_close_selects_before_for_every_close_sequence() {
     let (sequences, violations) = explore_tabs(&|selected, old, surviving, shown| {
-        tab(selected.as_ref(), old, surviving, shown, &HashMap::new())
+        tab(selected.as_ref(), old, surviving, shown)
     });
     assert!(violations.is_empty(), "{violations:?}");
     println!("close_focus::tab: {sequences} close sequences");
 }
 
 #[test]
-fn tab_mutants_are_caught() {
-    // The old rule ignored hidden tabs; another picks the left neighbor first.
+fn tab_close_selects_before_mutants_are_caught() {
+    // The old rule ignored hidden tabs; another picks the right neighbor
+    // first (the rule before 2026-11-08).
     let (_, ignores_hidden) = explore_tabs(&|selected, old, surviving, _| {
         let all: HashSet<Id> = surviving.iter().copied().collect();
-        tab(selected.as_ref(), old, surviving, &all, &HashMap::new())
+        tab(selected.as_ref(), old, surviving, &all)
     });
     assert!(!ignores_hidden.is_empty());
-    let (_, left_first) = explore_tabs(&|selected, old, surviving, shown| {
+    let (_, right_first) = explore_tabs(&|selected, old, surviving, shown| {
         let selected = selected?;
         if surviving.contains(&selected) {
             return Some(selected);
         }
-        neighbor(&selected, old, false, |t| shown.contains(t)).or(surviving.first()).copied()
+        neighbor(&selected, old, true, |t| shown.contains(t)).or(surviving.first()).copied()
     });
-    assert!(!left_first.is_empty());
+    assert!(!right_first.is_empty());
 }
 
 #[test]

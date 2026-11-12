@@ -527,6 +527,11 @@ impl Mux {
             &notification,
             numeric_id,
         ) {
+            self.report_resource_effect_indeterminate(
+                idempotency_key,
+                OPERATION,
+                &format!("the outcome commit failed: {error:#}"),
+            );
             let _ = self.mark_resource_effect_indeterminate(idempotency_key);
             return Err(error.context("notification effect commit failed"));
         }

@@ -8,7 +8,18 @@ const t = (key: string) => en[key] ?? key;
 const NOW = Date.UTC(2026, 9, 31, 12, 0);
 const machine = (patch: Partial<CloudMachine>): CloudMachine => ({
   id: "vm_a1",
+  team: "team_personal",
+  creator: "user_dev1",
+  name: null,
+  size: {},
   status: "running",
+  image: { id: "img_base1", daemon_version: null },
+  host: null,
+  classic: false,
+  created_at: 0,
+  last_active_at: null,
+  idle_policy: { idle_seconds: 0 },
+  error: null,
   revision: "1",
   ...patch,
 });

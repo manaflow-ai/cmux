@@ -3,6 +3,7 @@ import AVFoundation
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
+import CmuxSpinner
 import PhotosUI
 import QuickLookThumbnailing
 import SwiftUI
@@ -72,13 +73,13 @@ struct TerminalComposer: View {
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.composerCardHeightChanged(height)
         }
-        .animation(.smooth(duration: 0.3), value: model.attachments.count)
+        .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
         // Shown with a fade; gone at once when following starts (a Jump to
         // bottom tap: qa11 wt-fling-c, the row still drawn after the page
         // reached the bottom, and the card shrinking over 0.2 s moved the
         // page's inset on every frame of the jump).
-        .animation(model.isScrolledUp ? .smooth(duration: 0.2) : nil, value: model.isScrolledUp)
+        .animation(model.isScrolledUp ? Animation.smooth(duration: 0.2).unlessReduceMotion : nil, value: model.isScrolledUp)
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in
@@ -181,7 +182,7 @@ struct TerminalComposer: View {
         } label: {
             ZStack {
                 if model.isUploading {
-                    ProgressView().controlSize(.small).tint(Color.cmuxMobileOnAccent)
+                    CmuxSpinner(tint: Color.cmuxMobileOnAccent).controlSize(.small)
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .bold))
@@ -196,7 +197,7 @@ struct TerminalComposer: View {
             .glassEffect(failed ? .regular.tint(.red).interactive()
                          : canSend || model.isUploading ? .regular.tint(Color.cmuxMobileAccent).interactive()
                          : .regular, in: .circle)
-            .animation(.smooth(duration: 0.2), value: canSend)
+            .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.plain)
         .disabled(model.isUploading || !canSend)

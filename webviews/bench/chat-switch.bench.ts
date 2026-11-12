@@ -572,7 +572,15 @@ try {
       floor: 0.5,
     });
     if (quiet.cpuMs !== null)
-      perfRow({ name: `chat_switch.${key}.idle_cpu_ms`, p50: quiet.cpuMs, p95: quiet.cpuMs, target: 5, floor: 2 });
+      perfRow({
+        name: `chat_switch.${key}.idle_cpu_ms`,
+        p50: quiet.cpuMs,
+        p95: quiet.cpuMs,
+        target: 5,
+        floor: 2,
+        clock: "cpu",
+        version: 3,
+      });
   }
 } finally {
   await release();

@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextBrowserImport
 @testable import CmuxNextImportCards
 @testable import CmuxNextImportSuggestions
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -60,7 +61,7 @@ struct ImportSuggestionsCenterClassicTests {
 
     private static func center(_ runs: ClassicRuns, ledger: URL = FileManager.default.temporaryDirectory
         .appending(path: "import-jobs-\(UUID().uuidString).json")) async throws -> ImportSuggestionsCenter {
-        let defaults = try #require(UserDefaults(suiteName: "import-center-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(testSuiteName: "import-center-\(UUID().uuidString)"))
         let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger, now: { Self.now })
         center.scanThisMac = { _ in [Self.classic] }
         center.host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] },

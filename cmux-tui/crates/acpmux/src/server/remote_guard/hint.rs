@@ -1,5 +1,6 @@
 //! A peer's refusal of a `session/new` this daemon forwarded (`acpmux new --host HOST`) says
-//! what works instead: `data.try` is a command to copy, and the message ends with it (Leo,
+//! what works instead: `data.try` is a command to copy, and the message names it between a
+//! first and a last line that both say `refused by HOST` (`refused_by`) (Leo,
 //! 2026-10-24: "we improve the instructions and the error messages and the hints"). The
 //! peer's rules (`remote_guard.rs`) stay as they are; only the way out is named:
 //!
@@ -70,6 +71,8 @@ pub(in crate::server) async fn new_on(
     // live start remains well beyond the old local 90-second budget.
     // Match `peer::send_request`: the forwarded request must outlive both the
     // generic peer budget and the peer's pooled-start hazard envelope.
+    // The start as sent, for a refusal of full access (`try_asking`).
+    let asked = p.clone();
     let timings = peer.timings();
     let budget = timings.request.max(timings.start);
     let start_timeout = || {
@@ -91,6 +94,11 @@ pub(in crate::server) async fn new_on(
         return Err(start_timeout());
     }
     result.map_err(|e| {
+        // Full access refused: the way out is asking there, not this start on HOST (`explain`).
+        let e = crate::hub::full_access_children::refused_by(&peer.name, &asked, e);
+        if e.data.as_ref().is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) {
+            return try_asking(&peer.name, params, e);
+        }
         let (build, served_peer) =
             (peer.remote_build(), peer.served_as().as_deref() == Some("peer"));
         update_first(&e, &peer.name, build.as_deref(), served_peer && !web, params)
@@ -150,7 +158,7 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
             )
         }
     };
-    let message = format!("{}{why}; instead: {command}", e.message);
+    let message = refused_by(&peer.name, &format!("{}{why}", e.message), &command);
     let mut data = match e.data {
         Some(Value::Object(o)) => Value::Object(o),
         _ => json!({}),
@@ -162,6 +170,44 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
         data.set("runOn", json!(host));
     }
     RpcError::new(e.code, message).with_data(data)
+}
+
+/// `e`, a refusal of full access by `host` (`hub/full_access_children.rs` `refused_by`, which
+/// sets `data.fullAccessRefusedBy`), with `data.try` the same start there asking
+/// (`--policy ask`), also at the end of its message, as its message says; any other error
+/// unchanged.
+fn try_asking(host: &str, params: &Value, mut e: RpcError) -> RpcError {
+    let Some(data) = e.data.as_mut().filter(|d| d.get("fullAccessRefusedBy").is_some()) else {
+        return e;
+    };
+    let mut p = params.clone();
+    crate::hub::merge_mux_meta(&mut p, json!({"policy": "ask"}));
+    if let Some(argv) = p.pointer_mut("/_meta/acpmux/argv").and_then(Value::as_array_mut) {
+        let mut words: Vec<String> =
+            argv.iter().filter_map(Value::as_str).map(str::to_owned).collect();
+        if !change_option(&mut words, "--policy", Some("ask")) {
+            // After the subcommand (the first word that is no global switch, such as `--json`),
+            // before any prompt words: acpmux takes `--policy` only as a `new` option.
+            let sub = words.iter().position(|w| !w.starts_with('-')).unwrap_or(words.len());
+            words.insert((sub + 1).min(words.len()), "--policy=ask".to_owned());
+        }
+        *argv = words.into_iter().map(Value::String).collect();
+    }
+    let start = Start { mode: None, ..Start::of(&p) };
+    let command = command(&p, &start, Some(host), false).render(None);
+    data.set("try", json!(command));
+    e.message = refused_by(host, &e.message, &command);
+    e
+}
+
+/// A forwarded start's refusal by `host`, as its message reads: `refused by HOST: REASON` on the
+/// first line, then the command that works, then the refusal again, so a caller that reads only
+/// the first line or only the last (`| tail -1`) still sees nothing started. A command with a
+/// prompt file spans lines (`Retry::render`), which is why the last line says it once more.
+fn refused_by(host: &str, reason: &str, command: &str) -> String {
+    format!(
+        "refused by {host}: {reason}; nothing was started. Instead:\n{command}\nrefused by {host}: nothing was started; the command above runs it"
+    )
 }
 
 /// A start with no folder that `peer_name` refused as outside its roots, from a peer of
@@ -488,6 +534,26 @@ mod tests {
         assert_eq!(odd.command(None), r"acpmux new --cwd '/tmp/a b/it'\''s' -d");
     }
 
+    /// A refusal reads `refused by HOST: REASON` on its first line and again on its last, so a
+    /// caller piping through `tail -1` sees it failed, not only the end of a multi-line command.
+    #[test]
+    fn a_refusal_says_refused_by_its_host_first_and_last() {
+        let command = "printf %s 'line one\nline two' | (ssh -- vm 'acpmux new -d')";
+        let message = refused_by("vm", "a permission policy other than ask", command);
+        let lines: Vec<&str> = message.lines().collect();
+        assert_eq!(
+            lines.first().copied(),
+            Some(
+                "refused by vm: a permission policy other than ask; nothing was started. Instead:"
+            )
+        );
+        assert_eq!(lines[1..lines.len() - 1].join("\n"), command);
+        assert_eq!(
+            lines.last().copied(),
+            Some("refused by vm: nothing was started; the command above runs it")
+        );
+    }
+
     fn peer(try_cwd: Option<&str>) -> Found<'_> {
         Found { served: Some("peer"), try_cwd, cause: None }
     }
@@ -612,6 +678,32 @@ newlines')"#
             ["new", "--machine=x", "hi"].into_iter().map(str::to_owned).collect();
         assert!(change_option(&mut words, "--host", None));
         assert_eq!(words, ["new", "hi"]);
+    }
+
+    /// A full-access refusal's way out names `--policy` after the subcommand, also when a global
+    /// switch comes first (`acpmux --json new ...`).
+    #[test]
+    fn try_asking_puts_the_policy_after_the_subcommand() {
+        let refused =
+            || RpcError::invalid_params("refused").with_data(json!({"fullAccessRefusedBy": "b"}));
+        for (argv, want) in [
+            (
+                json!(["--json", "new", "--machine", "b", "-d", "hi"]),
+                "acpmux --json new --policy=ask --machine=b -d hi",
+            ),
+            (json!(["new", "--machine=b", "hi"]), "acpmux new --policy=ask --machine=b hi"),
+            (
+                json!(["new", "--policy", "approve-all", "--machine=b", "hi"]),
+                "acpmux new --policy=ask --machine=b hi",
+            ),
+        ] {
+            let params = json!({"_meta": {"acpmux": {"argv": argv}}});
+            let e = try_asking("b", &params, refused());
+            assert_eq!(e.data.as_ref().unwrap()["try"], want, "{argv}");
+        }
+        // Any other refusal is left as it was.
+        let other = RpcError::invalid_params("other");
+        assert!(try_asking("b", &json!({}), other).data.is_none());
     }
 
     #[test]

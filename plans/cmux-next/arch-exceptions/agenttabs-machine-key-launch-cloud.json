@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-05",
+  "row": "app_lines",
+  "allow": 4,
+  "why": "Launch deferral, restored-page, Cloud move, and lifecycle callbacks retain machine-qualified AgentTabs state through teardown.",
+  "author": "lane/agenttabs-machine-key",
+  "owner": "p0-machines-r3",
+  "receipt": "Review (codex gpt-6.1-sol xhigh; follow-up fixes): SHIP at e9113db2de25527105d2f35ac372e1ff0eccaa31",
+  "expiry": "2026-12-05"
+}

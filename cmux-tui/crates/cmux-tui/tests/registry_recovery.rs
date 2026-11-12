@@ -100,9 +100,11 @@ fn stop_and_reap(dir: &Path, session: &str, child: &mut Child) {
     }
 }
 
+/// A plain stop: the next start reads the session's saved state (a stop
+/// with `--end-terminals` removes it). These owners run no terminal.
 fn stop_owner(dir: &Path, session: &str) -> Output {
     command(dir)
-        .args(["server", "stop", "--session", session, "--end-terminals", "--socket"])
+        .args(["server", "stop", "--session", session, "--socket"])
         .arg(dir.join("mux.sock"))
         .stdin(Stdio::null())
         .output()

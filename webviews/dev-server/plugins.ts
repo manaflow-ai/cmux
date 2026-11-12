@@ -77,6 +77,9 @@ import {
   splitStyles,
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
+import { perfLintOnSave } from "./perfLint";
+import { devEntrySrc } from "./devEntrySrc";
+import { liveRecoveryScript } from "./liveRecovery";
 import { viteCacheDir } from "./viteCacheDir.mjs";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -90,6 +93,9 @@ export function cmuxDevServer(): Plugin[] {
     devServerToken(),
     appHostServer(),
     devServerShell(),
+    perfBudgetsDevEntry(),
+    liveRecoveryDevEntry(),
+    directStylesheets(),
     agentPaneHost(),
     pagesHost(),
     viewerEmptyHost(),
@@ -99,7 +105,70 @@ export function cmuxDevServer(): Plugin[] {
     editorHost(),
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
+    perfLintOnSave(),
   ];
+}
+
+/// The runtime perf budgets (src/devkit/perfBudgets.ts) as the first script of every HTML page this
+/// server serves: warnings in the console while you edit under `cmux live`. Serve only, so no built
+/// bundle carries them; `CMUX_PERF_BUDGETS=off` leaves them out (a page can also turn them off, see
+/// perfBudgets.dev.ts).
+export function perfBudgetsDevEntry(): Plugin {
+  const entry = path.join(webviewsRoot, "src/devkit/perfBudgets.dev.ts");
+  let src = "/src/devkit/perfBudgets.dev.ts";
+  return {
+    name: "cmux-dev-perf-budgets",
+    apply: "serve",
+    configResolved(config) {
+      src = devEntrySrc(config, entry);
+    },
+    transformIndexHtml() {
+      if (process.env.CMUX_PERF_BUDGETS === "off") return [];
+      return [{ tag: "script", attrs: { type: "module", src }, injectTo: "head-prepend" }];
+    },
+  };
+}
+
+/// cmux Live's guard on every page this server serves (dev-server/liveRecovery.ts): inline first, so
+/// a page whose modules stop loading (a stopped or restarting server) shows a note and loads again
+/// instead of staying blank, then src/devkit/liveNote.dev.ts, its note while the HMR socket is down.
+export function liveRecoveryDevEntry(): Plugin {
+  const entry = path.join(webviewsRoot, "src/devkit/liveNote.dev.ts");
+  let src = "/src/devkit/liveNote.dev.ts";
+  return {
+    name: "cmux-dev-live-recovery",
+    apply: "serve",
+    configResolved(config) {
+      src = devEntrySrc(config, entry);
+    },
+    transformIndexHtml() {
+      return [
+        { tag: "script", children: liveRecoveryScript, injectTo: "head-prepend" },
+        { tag: "script", attrs: { type: "module", src }, injectTo: "head" },
+      ];
+    },
+  };
+}
+
+/// A page's `<link rel="stylesheet">` asks for its sheet with `?direct`. Vite answers a `.css` path as
+/// CSS only when the request accepts `text/css`, else as the JS module an `import` gets; the app
+/// fetches a page's files with no `Accept` of the page's (PageDevServer.request), so in the app the
+/// Settings page's styles.css came back as JavaScript and was refused.
+export function directStylesheets(): Plugin {
+  return {
+    name: "cmux-dev-direct-stylesheets",
+    apply: "serve",
+    transformIndexHtml: {
+      order: "post",
+      handler: (html) => html.replace(/<link\b[^>]*>/gi, directStylesheetLink),
+    },
+  };
+}
+
+/// `tag` with `?direct` on its `.css` href when it is a stylesheet link without a query.
+export function directStylesheetLink(tag: string): string {
+  if (!/\brel=["']?stylesheet\b/i.test(tag)) return tag;
+  return tag.replace(/(\bhref=["'])([^"'?#]+\.css)(["'])/i, "$1$2?direct$3");
 }
 
 /// How this server proves to a cmux app that it is the user's (PageDevServer.token in CmuxNextPages):
@@ -156,6 +225,19 @@ function devServerToken(): Plugin {
         }
         next();
       });
+      // After Vite's own middleware: its SPA fallback rewrote a file it does not have to the root
+      // index.html (the diff viewer) with a 200. cmux, which sends the nonce, takes a 200 and falls
+      // back to the overlay or bundled copy only on a 4xx, so a bundled page's chunk, stylesheet or
+      // JSON became HTML (the page's React content went blank) and a page missing from this checkout
+      // was the diff viewer. cmux gets a 404; a browser keeps the fallback (the guest page's routes).
+      return () => {
+        server.middlewares.use((request, response, next) => {
+          const asked = new URL(request.originalUrl ?? "/", "http://localhost").pathname;
+          const fellBack = request.url === "/index.html" && asked !== "/" && asked !== "/index.html";
+          if (fellBack && request.headers[DEV_NONCE_HEADER]) return send(response, 404, "text/plain", "");
+          next();
+        });
+      };
     },
   };
 }
@@ -207,12 +289,7 @@ function appHostServer(): Plugin {
           fs: config.server?.fs?.allow
             ? undefined
             : {
-                allow: [
-                  webviewsRoot,
-                  path.join(webviewsRoot, "..", "schemas/settings"),
-                  // The UI font's WOFF2 (src/gallery/frame/uiFont.ts).
-                  path.join(webviewsRoot, "..", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts"),
-                ],
+                allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")],
               },
         },
       };
@@ -263,6 +340,7 @@ const indexPage = `<!doctype html>
 <li><a href="/markdown">/markdown</a>: markdown editor, <code>?file=&lt;path&gt;</code>; <a href="/markdown?pick">/markdown?pick</a>: its empty state; <a href="/markdown/viewer">/markdown/viewer</a>: the classic viewer shell</li>
 <li><a href="/editor">/editor</a>: code editor (Monaco), <code>?file=&lt;absolute path&gt;</code>; <a href="/editor?pick">/editor?pick</a>: its empty state</li>
 <li><a href="/history/?mock">/history/?mock</a>: History page against the in-page mock provider</li>
+<li><a href="/stash/?mock">/stash/?mock</a>: Stashed Tabs page against the in-page mock provider</li>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>
@@ -293,6 +371,8 @@ const devEntries = [
   "src/pages/editor/devBridge.ts",
   "src/pages/editor/main.tsx",
   "src/pages/editor/view.ts",
+  // The React pages (pagesHost), which the app opens first after `cmux live start`.
+  "src/pages/*/main.tsx",
   ...galleryOptimizeDeps.entries,
 ];
 
@@ -315,6 +395,12 @@ function devServerShell(): Plugin {
         // Every surface's entry, so the first scan finds all dependencies instead of a page
         // discovering one late and triggering an optimizer reload.
         optimizeDeps: { entries: devEntries, exclude: galleryOptimizeDeps.exclude },
+        // A path this server lacks is a 404, never the index page: the app asks it for a page's
+        // bundled file names first (`assets/x-hash.js`) and serves its own copy only on a miss,
+        // so an HTML 200 ran as a script and left the page blank. Only the servers rooted at
+        // webviews/ (the ones the app loads from); a single-page app of its own (the guest page,
+        // Chief web) keeps its client routes.
+        ...(config.root === undefined || path.resolve(config.root) === webviewsRoot ? { appType: "mpa" as const } : {}),
       };
     },
     configureServer(server) {

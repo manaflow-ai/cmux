@@ -89,8 +89,12 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
     }
     out ??= rows.slice(0, index);
     const folded = rows.slice(index, end);
-    const id = backgroundRunRowId(first.id);
-    const open = expanded.has(id);
+    // Open under any member's key, as a message run is (messageRuns.ts): two runs a reply that draws
+    // nothing joins, or a run whose first member changed, keep the open the reader gave one of them.
+    // Its id is that key, so a click closes it by the same key. Keyed lookups, one per member.
+    const opened = folded.find((row) => expanded.has(backgroundRunRowId(row.id)));
+    const id = backgroundRunRowId((opened ?? first).id);
+    const open = opened !== undefined;
     const run: AcpmuxBackgroundRun = { ...counts, rows: folded.map((row) => row.id) };
     out.push({
       id,
@@ -109,7 +113,7 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
 }
 
 /// The open background-run lines among a turn's rows `rows[start..end)`, which a cached turn
-/// compares. A line's id is its first member's.
+/// compares. A line's id is the member's it was opened under (`foldBackgroundRuns`).
 export function openBackgroundRuns(rows: readonly AcpmuxRow[], start: number, end: number, expanded: Folds): string {
   if (expanded.size === 0) return "";
   let open = "";

@@ -46,7 +46,7 @@ open(os.path.join(home, "helper.pid"), "w").write(str(helper.pid))
 # record under HOME names it, so cleanup must stop it by that record's host_pid.
 host = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", "__terminal-host"], cwd="/",
                         start_new_session=True)
-records = os.path.join(home, "Library", "Application Support", "cmux", "tags", "stub", "tui", "terminal-hosts-0")
+records = os.path.join(home, "Library", "Application Support", "cmux-next", "tags", "stub", "tui", "terminal-hosts-0")
 os.makedirs(records, exist_ok=True)
 open(os.path.join(records, "abc.json"), "w").write(json.dumps({"terminal_id": "abc", "host_pid": host.pid}))
 # Outside the run's root, so the test can read it after cleanup removed the root.
@@ -321,7 +321,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_a_recorded_pid_that_is_not_a_terminal_host_is_left_alone(self):
         with tempfile.TemporaryDirectory() as d:
-            records = Path(d) / "h/Library/Application Support/cmux/tags/x/tui/terminal-hosts-0"
+            records = Path(d) / "h/Library/Application Support/cmux-next/tags/x/tui/terminal-hosts-0"
             records.mkdir(parents=True)
             other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
             self.addCleanup(other.wait)
@@ -334,6 +334,16 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             self.addCleanup(host.wait)
             self.addCleanup(host.kill)
             (records / "c.json").write_text(json.dumps({"host_pid": host.pid}))
+            self.assertEqual(smoke.terminal_host_pids(Path(d)), [host.pid])
+
+    def test_a_build_from_before_the_next_folder_records_its_hosts_under_cmux_tags(self):
+        with tempfile.TemporaryDirectory() as d:
+            records = Path(d) / "h/Library/Application Support/cmux/tags/x/tui/terminal-hosts-0"
+            records.mkdir(parents=True)
+            host = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "__terminal-host"])
+            self.addCleanup(host.wait)
+            self.addCleanup(host.kill)
+            (records / "a.json").write_text(json.dumps({"host_pid": host.pid}))
             self.assertEqual(smoke.terminal_host_pids(Path(d)), [host.pid])
 
     def test_a_signing_keychain_in_the_job_means_it_cannot_run(self):

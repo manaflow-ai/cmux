@@ -2,11 +2,12 @@ import Foundation
 
 /// Text the page asks to save where the user picks, through the pane's save panel
 /// (``AgentPaneSavePanel``): the ACP inspector's export (`pane.saveLog`, JSON Lines) or a side
-/// panel document (`pane.saveFile {text, suggestedName, kind}`, cx-ncc.75: HTML, SVG or Markdown).
+/// panel document (`pane.saveFile {text, suggestedName, kind}`, cx-ncc.75: HTML, SVG or Markdown),
+/// and the Costs page's export (CSV or JSON).
 /// At most ``AgentPaneRequest/maximumLogBytes`` UTF-8 bytes.
 public nonisolated struct AgentPaneSave: Equatable, Sendable {
     public enum Kind: String, Sendable {
-        case log, html, svg, markdown
+        case log, html, svg, markdown, csv, json
 
         /// The extension the saved file gets.
         public var fileExtension: String {
@@ -15,6 +16,8 @@ public nonisolated struct AgentPaneSave: Equatable, Sendable {
             case .html: "html"
             case .svg: "svg"
             case .markdown: "md"
+            case .csv: "csv"
+            case .json: "json"
             }
         }
     }

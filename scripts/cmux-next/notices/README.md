@@ -57,6 +57,16 @@ fails a js/vendor file without a reviewed row in `browser-host-js.json`, a new u
 version (marker), a changed text, or a section that lacks a path or text.
 install-cmux-tui-client.sh installs the binary only while bundle-map.json maps it.
 
+Agent screen-detection plugin: `bin/cmux-agent-screen-detection`
+(`cmux-tui/bindings/examples/rust-agent-screen-detection`, its own Cargo workspace,
+GPL-3.0-or-later AND Apache-2.0) has its own Rust section
+(`rust-cmux-agent-screen-detection`, from that workspace's Cargo.lock) and the
+hand-written section "herdr agent-detection plugin" for the herdr-derived manifests
+and sources (Apache-2.0, `manifests/LICENSE`). install-cmux-tui-client.sh installs it
+only while bundle-map.json maps it, like the browser host. The npm platform packages
+for macOS and Linux carry the same binary as `bin/cmux-agent-screen-detection`; their
+notice (package_notices.py) has its crates and the herdr Apache-2.0 text.
+
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 

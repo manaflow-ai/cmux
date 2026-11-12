@@ -29,7 +29,7 @@ impl Mux {
             idempotency_key,
             operation_name,
             fingerprint,
-            move |state| self.effect_slots_in_state(state, &path),
+            move |state, _| self.effect_slots_in_state(state, &path),
         )
     }
 
@@ -50,7 +50,7 @@ impl Mux {
             idempotency_key,
             operation_name,
             fingerprint,
-            move |state| {
+            move |state, _| {
                 anyhow::ensure!(state.surfaces.contains_key(&surface), "content disappeared");
                 let pane = state.pane_of(surface).context("content has no pane")?;
                 let (workspace_index, screen_index) =
@@ -69,12 +69,18 @@ impl Mux {
         Ok(self.finish_resource_close(committed))
     }
 
+    /// `terminal.close`. With [`TerminalCloseGuard::UnplacedAndNotKept`]
+    /// (`if_unplaced`) a terminal that has a view or is marked `keep` fails
+    /// with [`TerminalCloseGuardFailed::PlacedOrKept`] and nothing changes;
+    /// the check runs under the commit's registry lock, so no placement can
+    /// land between the check and the close.
     pub(crate) fn commit_resource_terminal_close_effect(
         &self,
         terminal_id: &TerminalPublicId,
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
+        guard: TerminalCloseGuard,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let _creation_handoff = self.resource_creation_handoff.write().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
@@ -85,7 +91,20 @@ impl Mux {
             idempotency_key,
             operation_name,
             fingerprint,
-            move |_| {
+            move |state, registry| {
+                if guard.requires_unplaced() {
+                    // A terminal with no durable host has no keep mark to
+                    // read, so the guarded close leaves it alone.
+                    let retained = match registry.terminal_host_id(&terminal_id)? {
+                        Some(host) => {
+                            terminal_placed_or_kept(state, registry, &terminal_id, &host)?
+                        }
+                        None => true,
+                    };
+                    if retained {
+                        return Err(TerminalCloseGuardFailed::PlacedOrKept.into());
+                    }
+                }
                 Ok(EffectSlots {
                     workspace: None,
                     screen: None,
@@ -136,18 +155,20 @@ impl Mux {
             return Ok(None);
         };
         let mut state = self.lock_state_pinned(&registry).unwrap();
-        if guard == TerminalCloseGuard::UnplacedAndNotKept {
-            // The registry lock serializes placement commits and the creation
-            // fence excludes a creation between runtime and placement, so
-            // this check cannot race a new view of the terminal.
-            let placed = !state
-                .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
-                .is_empty()
-                || state.terminal_catalog.get(&public_id).is_some_and(|runtime| {
-                    state.surfaces.values().any(|view| view.shares_terminal_runtime(runtime))
-                });
-            if placed || registry.terminal_keep(terminal_id)? {
-                return Err(TerminalCloseGuardFailed.into());
+        // The registry lock serializes placement commits and the creation
+        // fence excludes a creation between runtime and placement, so this
+        // check cannot race a new view of the terminal.
+        if guard.requires_unplaced() {
+            if terminal_placed_or_kept(&state, &registry, &public_id, terminal_id)? {
+                return Err(TerminalCloseGuardFailed::PlacedOrKept.into());
+            }
+            if guard.requires_detached()
+                && state
+                    .terminal_catalog
+                    .get(&public_id)
+                    .is_some_and(|runtime| self.terminal_view_attached(runtime.id))
+            {
+                return Err(TerminalCloseGuardFailed::Attached.into());
             }
         }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
@@ -506,14 +527,14 @@ impl Mux {
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
-        resolve_slots: impl FnOnce(&State) -> anyhow::Result<EffectSlots>,
+        resolve_slots: impl FnOnce(&State, &WorkspaceRegistry) -> anyhow::Result<EffectSlots>,
     ) -> anyhow::Result<CommittedResourceClose> {
         let lifecycle = workspace.map(|workspace| self.workspace_lifecycle(workspace));
         let workspace_lifecycle = lifecycle.as_ref().map(|lifecycle| lifecycle.lock().unwrap());
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
-        let slots = resolve_slots(&state)?;
+        let slots = resolve_slots(&state, &registry)?;
         if let Some(workspace) = workspace {
             anyhow::ensure!(
                 slots.workspace == Some(workspace),
@@ -893,4 +914,21 @@ fn live_close_workspace(
         _ => return None,
     };
     state.workspaces.get(workspace_index).map(|workspace| workspace.id)
+}
+
+/// Whether terminal `public_id` (durable host `host_id`) has a view in
+/// `state` or is marked `keep`: the [`TerminalCloseGuard::UnplacedAndNotKept`]
+/// check. Callers hold the registry lock, which serializes placement commits.
+fn terminal_placed_or_kept(
+    state: &State,
+    registry: &WorkspaceRegistry,
+    public_id: &TerminalPublicId,
+    host_id: &str,
+) -> anyhow::Result<bool> {
+    let placed =
+        !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
+            || state.terminal_catalog.get(public_id).is_some_and(|runtime| {
+                state.surfaces.values().any(|view| view.shares_terminal_runtime(runtime))
+            });
+    Ok(placed || registry.terminal_keep(host_id)?)
 }

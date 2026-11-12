@@ -18,6 +18,7 @@ import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, ty
 import { stackLowReadPace, stackReadPace, stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
+import { revokePairMachineJoin } from "./pair-machine-join.ts"
 import { revokeInstallCerts, sshExternal, type SshCaDeps } from "./team-ssh-ca.ts"
 import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import { memberAdminExternal } from "./team-member-admin.ts"
@@ -594,7 +595,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   async enrollServer(
     entity: string,
     principal: Principal,
-    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type },
+    params: { install: string; name: string; platform: string; wg_public_key: string; network?: typeof ServerNetworkReservation.Type; machine_join_token?: string },
     idempotencyKey: string
   ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
     this.bind(entity)
@@ -614,6 +615,9 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */
   userOwner = (user: string): { revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<unknown> } =>
     this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+
+  /** The platform revoke of a paired server's machine (pair-machine-join.ts); tests replace it. */
+  machineJoins = (team: string, joinTokenId: string): Promise<"done" | "retry"> => revokePairMachineJoin(this.env, { team, join_token_id: joinTokenId })
 
   /** Backoff after a failed revocation push (in memory: a restart retries at once). */
   private revokeRetryAt: number | null = null
@@ -648,6 +652,22 @@ export class TeamDO extends OwnerDO<TeamState> {
         continue
       }
       if (!res.ok) console.error(JSON.stringify({ msg: "server install revocation refused", install: r.install, code: res.code }))
+      // The machine its approval minted goes too (as `cmux machine revoke`); an outage keeps the item for the retry.
+      if (r.machine_join_token) {
+        let machine: "done" | "retry"
+        try {
+          machine = await this.machineJoins(entity, r.machine_join_token)
+        } catch {
+          machine = "retry"
+        }
+        if (machine === "retry") {
+          this.revokeAttempts += 1
+          this.revokeRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.revokeAttempts)
+          console.error(JSON.stringify({ msg: "server machine revocation failed", install: r.install }))
+          if (res.ok) revoked.push(r.install)
+          continue
+        }
+      }
       this.requireCommitted(this.submitSystem("server.install_revoked", { install: r.install }, `server-install-revoked:${r.install}`))
       if (res.ok) revoked.push(r.install)
     }

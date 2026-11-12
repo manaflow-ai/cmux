@@ -51,6 +51,22 @@ fn args(getenv: &dyn Fn(&str) -> Option<OsString>) -> Vec<&'static str> {
     if all_tools { vec!["mcp", "serve", "--all-tools"] } else { vec!["mcp", "serve"] }
 }
 
+/// The Computer Use bridge's session env (acpmux `computer_use::mcp::SESSION_ENV`).
+const SESSION_ENV: &str = "ACPMUX_COMPUTER_USE_SESSION";
+
+/// The Computer Use session of the agent this launch starts: its terminal and
+/// its pid (the wrapper execs into the agent, so this process's pid is the
+/// agent's). It is the same across the agent's MCP reconnects, so the person's
+/// Stop (the menu bar) holds for that agent instead of a new random session
+/// each time the bridge restarts. Without a terminal id: none, and the bridge
+/// picks its own.
+fn session(getenv: &dyn Fn(&str) -> Option<OsString>, pid: u32) -> Option<String> {
+    let terminal = getenv("CMUX_TUI_TERMINAL_ID")
+        .and_then(|v| v.into_string().ok())
+        .filter(|v| !v.is_empty())?;
+    Some(format!("terminal:{terminal}:{pid}"))
+}
+
 /// The server's env: the pane's socket, the terminal-agent mark, the Computer
 /// Use bridge as its folded server, and the pane's routing env that is set.
 fn env(
@@ -60,11 +76,16 @@ fn env(
 ) -> Option<Vec<(String, String)>> {
     let executable = executable.to_str()?;
     let socket = socket.to_str()?;
+    let mut bridge_env = serde_json::Map::new();
+    bridge_env.insert("CMUX_TUI_SOCKET".into(), json!(socket));
+    if let Some(session) = session(getenv, std::process::id()) {
+        bridge_env.insert(SESSION_ENV.into(), json!(session));
+    }
     let upstreams = json!([{
         "name": COMPUTER_USE_SERVER,
         "command": executable,
         "args": ["computer-use", "mcp"],
-        "env": {"CMUX_TUI_SOCKET": socket},
+        "env": bridge_env,
         "callTimeoutSecs": COMPUTER_USE_CALL_TIMEOUT_SECS,
     }]);
     let mut env = vec![
@@ -158,7 +179,18 @@ mod tests {
         assert_eq!(only[0]["command"], executable);
         assert_eq!(only[0]["args"], json!(["computer-use", "mcp"]));
         assert_eq!(only[0]["env"]["CMUX_TUI_SOCKET"], socket);
+        assert_eq!(
+            only[0]["env"][SESSION_ENV],
+            format!("terminal:term_7:{}", std::process::id()),
+            "a session stable across the agent's reconnects"
+        );
         assert_eq!(only[0]["callTimeoutSecs"], COMPUTER_USE_CALL_TIMEOUT_SECS);
+    }
+
+    #[test]
+    fn the_session_is_the_terminal_and_the_agent_pid_or_none() {
+        assert_eq!(session(&pane, 42).as_deref(), Some("terminal:term_7:42"));
+        assert_eq!(session(&|_| None, 42), None, "no terminal: the bridge picks its own");
     }
 
     #[test]

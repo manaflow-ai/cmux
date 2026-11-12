@@ -303,6 +303,7 @@ impl Mux {
     /// frame waits behind it: the stream has ended.
     pub(crate) fn settle_terminal_publications(&self, surface: &Arc<Surface>) {
         let jobs = self.terminal_publisher.settle(surface);
+        self.forget_terminal_tail(surface);
         surface.publish_pending_directory();
         surface.publish_pending_state();
         // The latest state is published above: a queued publication of the

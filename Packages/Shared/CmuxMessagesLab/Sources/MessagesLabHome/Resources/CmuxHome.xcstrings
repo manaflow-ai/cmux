@@ -1,6 +1,540 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.turnFailure.limit": {"comment":"Home: a Chief turn failed because the agent hit its usage limit; the raw error is under Details.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"وصل Chief إلى حدّ الاستخدام."}},"bs":{"stringUnit":{"state":"needs_review","value":"Chief je dostigao ograničenje korištenja."}},"da":{"stringUnit":{"state":"needs_review","value":"Chief har nået sin forbrugsgrænse."}},"de":{"stringUnit":{"state":"needs_review","value":"Chief hat sein Nutzungslimit erreicht."}},"en":{"stringUnit":{"state":"translated","value":"The Chief reached its usage limit."}},"es":{"stringUnit":{"state":"needs_review","value":"Chief alcanzó su límite de uso."}},"fr":{"stringUnit":{"state":"needs_review","value":"Chief a atteint sa limite d'utilisation."}},"it":{"stringUnit":{"state":"needs_review","value":"Chief ha raggiunto il limite di utilizzo."}},"ja":{"stringUnit":{"state":"translated","value":"Chief が利用上限に達しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"Chief បានដល់ដែនកំណត់ការប្រើប្រាស់ហើយ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Chief가 사용 한도에 도달했습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Chief har nådd bruksgrensen."}},"pl":{"stringUnit":{"state":"needs_review","value":"Chief osiągnął limit użycia."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O Chief atingiu o limite de uso."}},"ru":{"stringUnit":{"state":"needs_review","value":"Chief достиг лимита использования."}},"th":{"stringUnit":{"state":"needs_review","value":"Chief ใช้งานถึงขีดจำกัดแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Chief kullanım sınırına ulaştı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Chief досяг ліміту використання."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chief đã đạt giới hạn sử dụng."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Chief 已达到用量上限。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Chief 已達到用量上限。"}}}},
+    "home.turnFailure.signedOut": {"comment":"Home: a Chief turn failed because its agent is not signed in; the raw error is under Details.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"وكيل Chief غير مسجّل الدخول."}},"bs":{"stringUnit":{"state":"needs_review","value":"Agent Chiefa je odjavljen."}},"da":{"stringUnit":{"state":"needs_review","value":"Chiefs agent er logget ud."}},"de":{"stringUnit":{"state":"needs_review","value":"Der Agent von Chief ist abgemeldet."}},"en":{"stringUnit":{"state":"translated","value":"The Chief's agent is signed out."}},"es":{"stringUnit":{"state":"needs_review","value":"El agente de Chief cerró sesión."}},"fr":{"stringUnit":{"state":"needs_review","value":"L'agent de Chief est déconnecté."}},"it":{"stringUnit":{"state":"needs_review","value":"L'agente di Chief non ha effettuato l'accesso."}},"ja":{"stringUnit":{"state":"translated","value":"Chief のエージェントがサインアウトしています。"}},"km":{"stringUnit":{"state":"needs_review","value":"ភ្នាក់ងាររបស់ Chief បានចាកចេញហើយ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Chief의 에이전트가 로그아웃되었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Chiefs agent er logget ut."}},"pl":{"stringUnit":{"state":"needs_review","value":"Agent Chiefa jest wylogowany."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O agente do Chief está desconectado."}},"ru":{"stringUnit":{"state":"needs_review","value":"Агент Chief вышел из аккаунта."}},"th":{"stringUnit":{"state":"needs_review","value":"เอเจนต์ของ Chief ออกจากระบบอยู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Chief'in ajanının oturumu kapalı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Агент Chief вийшов з облікового запису."}},"vi":{"stringUnit":{"state":"needs_review","value":"Tác nhân của Chief đã đăng xuất."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Chief 的代理已退出登录。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Chief 的代理已登出。"}}}},
+    "home.turnFailure.network": {"comment":"Home: a Chief turn failed because it could not reach its model over the network; the raw error is under Details.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر على Chief الوصول إلى نموذجه."}},"bs":{"stringUnit":{"state":"needs_review","value":"Chief nije mogao doći do svog modela."}},"da":{"stringUnit":{"state":"needs_review","value":"Chief kunne ikke nå sin model."}},"de":{"stringUnit":{"state":"needs_review","value":"Chief konnte sein Modell nicht erreichen."}},"en":{"stringUnit":{"state":"translated","value":"The Chief couldn't reach its model."}},"es":{"stringUnit":{"state":"needs_review","value":"Chief no pudo conectar con su modelo."}},"fr":{"stringUnit":{"state":"needs_review","value":"Chief n'a pas pu joindre son modèle."}},"it":{"stringUnit":{"state":"needs_review","value":"Chief non è riuscito a raggiungere il modello."}},"ja":{"stringUnit":{"state":"translated","value":"Chief がモデルに接続できませんでした。"}},"km":{"stringUnit":{"state":"needs_review","value":"Chief មិនអាចភ្ជាប់ទៅម៉ូដែលរបស់វាបានទេ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Chief가 모델에 연결할 수 없었습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Chief kunne ikke nå modellen sin."}},"pl":{"stringUnit":{"state":"needs_review","value":"Chief nie mógł połączyć się ze swoim modelem."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O Chief não conseguiu acessar o modelo."}},"ru":{"stringUnit":{"state":"needs_review","value":"Chief не удалось связаться с моделью."}},"th":{"stringUnit":{"state":"needs_review","value":"Chief เชื่อมต่อกับโมเดลไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Chief modeline ulaşamadı."}},"uk":{"stringUnit":{"state":"needs_review","value":"Chief не вдалося зв’язатися з моделлю."}},"vi":{"stringUnit":{"state":"needs_review","value":"Chief không kết nối được với mô hình."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Chief 无法连接到它的模型。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Chief 無法連線到它的模型。"}}}},
+    "home.turnFailure.service": {"comment":"Home: a Chief turn failed because the model service returned an error (overloaded, internal error); the raw error is under Details.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"واجهت خدمة النموذج مشكلة."}},"bs":{"stringUnit":{"state":"needs_review","value":"Usluga modela je imala problem."}},"da":{"stringUnit":{"state":"needs_review","value":"Modeltjenesten havde et problem."}},"de":{"stringUnit":{"state":"needs_review","value":"Beim Modelldienst ist ein Problem aufgetreten."}},"en":{"stringUnit":{"state":"translated","value":"The model service had a problem."}},"es":{"stringUnit":{"state":"needs_review","value":"El servicio del modelo tuvo un problema."}},"fr":{"stringUnit":{"state":"needs_review","value":"Le service du modèle a rencontré un problème."}},"it":{"stringUnit":{"state":"needs_review","value":"Il servizio del modello ha avuto un problema."}},"ja":{"stringUnit":{"state":"translated","value":"モデルのサービスで問題が発生しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"សេវាម៉ូដែលមានបញ្ហា។"}},"ko":{"stringUnit":{"state":"needs_review","value":"모델 서비스에 문제가 발생했습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Modelltjenesten hadde et problem."}},"pl":{"stringUnit":{"state":"needs_review","value":"Usługa modelu napotkała problem."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O serviço do modelo teve um problema."}},"ru":{"stringUnit":{"state":"needs_review","value":"В сервисе модели произошла ошибка."}},"th":{"stringUnit":{"state":"needs_review","value":"บริการโมเดลมีปัญหา"}},"tr":{"stringUnit":{"state":"needs_review","value":"Model hizmetinde bir sorun oluştu."}},"uk":{"stringUnit":{"state":"needs_review","value":"У сервісі моделі сталася помилка."}},"vi":{"stringUnit":{"state":"needs_review","value":"Dịch vụ mô hình gặp sự cố."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"模型服务出现问题。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"模型服務發生問題。"}}}},
+    "home.turnFailure.generic": {"comment":"Home: a Chief turn failed for a reason not named here; the raw error is under Details.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"فشل ردّ Chief."}},"bs":{"stringUnit":{"state":"needs_review","value":"Chiefov odgovor nije uspio."}},"da":{"stringUnit":{"state":"needs_review","value":"Chiefs svar mislykkedes."}},"de":{"stringUnit":{"state":"needs_review","value":"Die Antwort von Chief ist fehlgeschlagen."}},"en":{"stringUnit":{"state":"translated","value":"The Chief's reply failed."}},"es":{"stringUnit":{"state":"needs_review","value":"La respuesta de Chief falló."}},"fr":{"stringUnit":{"state":"needs_review","value":"La réponse de Chief a échoué."}},"it":{"stringUnit":{"state":"needs_review","value":"La risposta di Chief non è riuscita."}},"ja":{"stringUnit":{"state":"translated","value":"Chief の返信に失敗しました。"}},"km":{"stringUnit":{"state":"needs_review","value":"ការឆ្លើយតបរបស់ Chief បរាជ័យ។"}},"ko":{"stringUnit":{"state":"needs_review","value":"Chief의 답장이 실패했습니다."}},"nb":{"stringUnit":{"state":"needs_review","value":"Chiefs svar mislyktes."}},"pl":{"stringUnit":{"state":"needs_review","value":"Odpowiedź Chiefa nie powiodła się."}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"A resposta do Chief falhou."}},"ru":{"stringUnit":{"state":"needs_review","value":"Ответ Chief не удался."}},"th":{"stringUnit":{"state":"needs_review","value":"การตอบกลับของ Chief ล้มเหลว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Chief'in yanıtı başarısız oldu."}},"uk":{"stringUnit":{"state":"needs_review","value":"Відповідь Chief не вдалася."}},"vi":{"stringUnit":{"state":"needs_review","value":"Phản hồi của Chief thất bại."}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Chief 的回复失败了。"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Chief 的回覆失敗了。"}}}},
+    "home.turnFailure.retry": {"comment":"Home: a failed Chief turn's card; the Chief answers the person's message again.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pokušaj ponovo"}},"da":{"stringUnit":{"state":"needs_review","value":"Prøv igen"}},"de":{"stringUnit":{"state":"needs_review","value":"Erneut versuchen"}},"en":{"stringUnit":{"state":"translated","value":"Retry"}},"es":{"stringUnit":{"state":"needs_review","value":"Reintentar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réessayer"}},"it":{"stringUnit":{"state":"needs_review","value":"Riprova"}},"ja":{"stringUnit":{"state":"translated","value":"再試行"}},"km":{"stringUnit":{"state":"needs_review","value":"ព្យាយាមម្តងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"재시도"}},"nb":{"stringUnit":{"state":"needs_review","value":"Prøv igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ponów"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Tentar novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"Повторить"}},"th":{"stringUnit":{"state":"needs_review","value":"ลองใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Yeniden dene"}},"uk":{"stringUnit":{"state":"needs_review","value":"Повторити"}},"vi":{"stringUnit":{"state":"needs_review","value":"Thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"重試"}}}},
+    "home.turnFailure.copy": {"comment":"Home: a failed Chief turn's card; copies the raw failure line.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"نسخ الخطأ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopiraj grešku"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopiér fejl"}},"de":{"stringUnit":{"state":"needs_review","value":"Fehler kopieren"}},"en":{"stringUnit":{"state":"translated","value":"Copy error"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiar error"}},"fr":{"stringUnit":{"state":"needs_review","value":"Copier l'erreur"}},"it":{"stringUnit":{"state":"needs_review","value":"Copia errore"}},"ja":{"stringUnit":{"state":"translated","value":"エラーをコピー"}},"km":{"stringUnit":{"state":"needs_review","value":"ចម្លងកំហុស"}},"ko":{"stringUnit":{"state":"needs_review","value":"오류 복사"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopier feil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Kopiuj błąd"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiar erro"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скопировать ошибку"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกข้อผิดพลาด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Hatayı kopyala"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скопіювати помилку"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sao chép lỗi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"复制错误"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"複製錯誤"}}}},
+    "home.turnFailure.copied": {"comment":"Home: a failed Chief turn's card, after Copy error copied the raw failure line.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تم النسخ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Kopirano"}},"da":{"stringUnit":{"state":"needs_review","value":"Kopieret"}},"de":{"stringUnit":{"state":"needs_review","value":"Kopiert"}},"en":{"stringUnit":{"state":"translated","value":"Copied"}},"es":{"stringUnit":{"state":"needs_review","value":"Copiado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Copié"}},"it":{"stringUnit":{"state":"needs_review","value":"Copiato"}},"ja":{"stringUnit":{"state":"translated","value":"コピーしました"}},"km":{"stringUnit":{"state":"needs_review","value":"បានចម្លង"}},"ko":{"stringUnit":{"state":"needs_review","value":"복사됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Kopiert"}},"pl":{"stringUnit":{"state":"needs_review","value":"Skopiowano"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Copiado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скопировано"}},"th":{"stringUnit":{"state":"needs_review","value":"คัดลอกแล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kopyalandı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скопійовано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã sao chép"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已复制"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已複製"}}}},
+    "home.turnFailure.details": {"comment":"Home: a failed Chief turn's card; shows the raw failure line under the card.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"التفاصيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Detalji"}},"da":{"stringUnit":{"state":"needs_review","value":"Detaljer"}},"de":{"stringUnit":{"state":"needs_review","value":"Details"}},"en":{"stringUnit":{"state":"translated","value":"Details"}},"es":{"stringUnit":{"state":"needs_review","value":"Detalles"}},"fr":{"stringUnit":{"state":"needs_review","value":"Détails"}},"it":{"stringUnit":{"state":"needs_review","value":"Dettagli"}},"ja":{"stringUnit":{"state":"translated","value":"詳細"}},"km":{"stringUnit":{"state":"needs_review","value":"ព័ត៌មានលម្អិត"}},"ko":{"stringUnit":{"state":"needs_review","value":"세부 정보"}},"nb":{"stringUnit":{"state":"needs_review","value":"Detaljer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Szczegóły"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Detalhes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Подробности"}},"th":{"stringUnit":{"state":"needs_review","value":"รายละเอียด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ayrıntılar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Подробиці"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chi tiết"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"详细信息"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"詳細資訊"}}}},
+    "home.turnFailure.hideDetails": {"comment":"Home: a failed Chief turn's card, Details open; hides the raw failure line.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء التفاصيل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sakrij detalje"}},"da":{"stringUnit":{"state":"needs_review","value":"Skjul detaljer"}},"de":{"stringUnit":{"state":"needs_review","value":"Details ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Hide details"}},"es":{"stringUnit":{"state":"needs_review","value":"Ocultar detalles"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer les détails"}},"it":{"stringUnit":{"state":"needs_review","value":"Nascondi dettagli"}},"ja":{"stringUnit":{"state":"translated","value":"詳細を隠す"}},"km":{"stringUnit":{"state":"needs_review","value":"លាក់ព័ត៌មានលម្អិត"}},"ko":{"stringUnit":{"state":"needs_review","value":"세부 정보 숨기기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Skjul detaljer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ukryj szczegóły"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ocultar detalhes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть подробности"}},"th":{"stringUnit":{"state":"needs_review","value":"ซ่อนรายละเอียด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ayrıntıları gizle"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати подробиці"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn chi tiết"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"隐藏详细信息"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"隱藏詳細資訊"}}}},
+    "home.slashSkills.noMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No skills match “%@”"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد مهارات تطابق “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedna vještina ne odgovara “%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen færdigheder matcher “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Skills passen zu „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguna habilidad coincide con «%@»"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune compétence ne correspond à « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna skill corrisponde a “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」に一致するスキルはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានជំនាញត្រូវនឹង “%@” ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”와 일치하는 스킬이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen ferdigheter samsvarer med «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak umiejętności pasujących do „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma habilidade corresponde a “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет навыков, подходящих к «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีทักษะที่ตรงกับ “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” ile eşleşen beceri yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає навичок, що відповідають «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có kỹ năng nào khớp với “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有与“%@”匹配的技能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有與「%@」相符的技能"
+          }
+        }
+      }
+    },
+    "home.slashSkills.source.chief": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief"
+          }
+        }
+      }
+    },
+    "home.slashSkills.source.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude"
+          }
+        }
+      }
+    },
+    "home.slashSkills.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skills"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المهارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vještine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Færdigheder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skills"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Habilidades"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compétences"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skill"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スキル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជំនាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스킬"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ferdigheter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umiejętności"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Habilidades"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Навыки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทักษะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beceriler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Навички"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kỹ năng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "技能"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "技能"
+          }
+        }
+      }
+    },
     "home.approval.allow": {
       "extractionState": "manual",
       "localizations": {
@@ -11217,6 +11751,138 @@
         }
       }
     },
+    "home.picture.rowSwitch": {
+      "comment": "VoiceOver label: the picture viewer switch between the rows of a Before/After comparison (for example Light and Dark).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Picture Set"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مجموعة الصور"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skup slika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Billedsæt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildsatz"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conjunto de imágenes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeu d’images"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Set di immagini"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像セット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំណុំរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사진 세트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildesett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zestaw obrazów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conjunto de imagens"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Набор изображений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชุดภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Resim Seti"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Набір зображень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bộ ảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "图片组"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "圖片組"
+          }
+        }
+      }
+    },
     "home.picture.compare": {
       "comment": "Button: shows a table's Before and After pictures side by side with a slider.",
       "extractionState": "manual",
@@ -12137,6 +12803,534 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無法載入此圖片。"
+          }
+        }
+      }
+    },
+    "home.picture.style": {
+      "comment": "Picture viewer: VoiceOver name of the control that picks how a Before and After pair shows (side by side, flip, slider).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparison Style"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نمط المقارنة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stil poređenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sammenligningsstil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vergleichsstil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo de comparación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Style de comparaison"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stile di confronto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "比較の表示方法"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបប្រៀបធៀប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "비교 방식"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sammenligningsstil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Styl porównania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estilo de comparação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Способ сравнения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รูปแบบการเปรียบเทียบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karşılaştırma Stili"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спосіб порівняння"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kiểu so sánh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "比较方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "比較方式"
+          }
+        }
+      }
+    },
+    "home.picture.style.sideBySide": {
+      "comment": "Picture viewer: tooltip of the comparison style that shows Before and After whole, next to each other.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Side by Side"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جنبًا إلى جنب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jedno pored drugog"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Side om side"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nebeneinander"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En paralelo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Côte à côte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiancati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "並べて表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចំហៀងគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "나란히"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Side om side"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obok siebie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lado a lado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рядом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคียงกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yan Yana"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поруч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cạnh nhau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "并排"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "並排"
+          }
+        }
+      }
+    },
+    "home.picture.style.flip": {
+      "comment": "Picture viewer: tooltip of the comparison style that shows one picture large and flips it to its pair in the same place; Space flips, B shows Before, A shows After (keys stay as written).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flip in Place (Space, B, A)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تبديل في المكان (Space، B، A)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamijeni na mjestu (Space, B, A)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skift på stedet (Space, B, A)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "An Ort und Stelle wechseln (Leertaste, B, A)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar en el sitio (Espacio, B, A)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Basculer sur place (Espace, B, A)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alterna sul posto (Spazio, B, A)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "その場で切り替え（Space、B、A）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្តូរនៅកន្លែងដដែល (Space, B, A)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "제자리에서 전환(Space, B, A)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bytt på stedet (Mellomrom, B, A)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przełączaj w miejscu (Spacja, B, A)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alternar no lugar (Espaço, B, A)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переключать на месте (Пробел, B, A)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สลับในที่เดิม (Space, B, A)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yerinde Değiştir (Boşluk, B, A)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемикати на місці (Пробіл, B, A)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lật tại chỗ (Space, B, A)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "原位切换（空格、B、A）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "原位切換（空白鍵、B、A）"
+          }
+        }
+      }
+    },
+    "home.picture.style.slider": {
+      "comment": "Picture viewer: tooltip of the comparison style with a divider dragged between Before and After.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slider"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شريط تمرير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klizač"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skyder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schieberegler"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Control deslizante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Curseur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cursore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スライダー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របាររំកិល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "슬라이더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glidebryter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suwak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Controle deslizante"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ползунок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบเลื่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kaydırıcı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Повзунок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh trượt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "滑块"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "滑桿"
           }
         }
       }

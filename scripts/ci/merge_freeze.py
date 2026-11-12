@@ -204,8 +204,9 @@ def check_authority(freeze: Freeze, labeler: str | None, role: str | None, label
 
 
 # The gh error text of a spent or throttled quota: a primary or secondary rate limit, GraphQL's
-# RATE_LIMITED, or the HTTP 403/429 GitHub answers them with.
-RATE_LIMIT = re.compile(r"rate.?limit|RATE_LIMITED|secondary|HTTP 4(?:03|29)", re.I)
+# RATE_LIMITED, the HTTP 403/429 GitHub answers them with, or the gh quota shim's own refusal of a
+# tool's hourly budget ("gh-quota: refused for tool:..."), which names no rate limit.
+RATE_LIMIT = re.compile(r"rate.?limit|RATE_LIMITED|secondary|HTTP 4(?:03|29)|gh-quota: refused", re.I)
 
 ISSUES_QUERY = (
     "query($owner:String!,$name:String!,$label:String!){repository(owner:$owner,name:$name){"

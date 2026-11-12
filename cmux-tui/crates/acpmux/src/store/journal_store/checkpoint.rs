@@ -88,13 +88,53 @@ fn write_home_file(home: &Path, name: &str, bytes: &[u8]) -> Result<()> {
 }
 
 impl Inner {
-    /// One checkpoint ([module docs](self)); ten failures in a row ask the daemon to stop.
+    /// One checkpoint ([module docs](self)); ten failures in a row ask the daemon to stop. Nothing
+    /// once the store is sealed ([`Inner::last_checkpoint`]).
     pub(super) fn checkpoint(&self) -> Result<()> {
         let _one = self.checkpointing.lock_or_recover();
+        self.checkpoint_counted()
+    }
+
+    /// The shutdown's last checkpoint (`Store::seal`), then the store sealed. Under the
+    /// one-checkpoint lock throughout: no checkpoint is under way when the seal hands the home to
+    /// the next daemon, and every later one does nothing. Sealed under the folders' lock too: an
+    /// image write under way (`Inner::write_through`) ends first, and none starts after. A
+    /// checkpoint that succeeds here synced `sessions/`, so the new chats' folders are durable
+    /// ([`super::new_folders::NewFolders::synced_at_seal`]).
+    pub(super) fn last_checkpoint(&self) {
+        let _one = self.checkpointing.lock_or_recover();
+        if self.order.lock_or_recover().sealed {
+            return;
+        }
+        match self.checkpoint_counted() {
+            Ok(()) => self.new_folders.synced_at_seal(),
+            Err(error) => tracing::warn!("the event journal's last checkpoint: {error:#}"),
+        }
+        let _folders = self.folders.lock_or_recover();
+        self.order.lock_or_recover().sealed = true;
+    }
+
+    /// A checkpoint and its count of failures in a row; the caller holds `checkpointing`. A sealed
+    /// store runs none (its home is the next daemon's) and answers as its last checkpoint did: an
+    /// error while that one left work undone (a frozen store, a failed sync), so a flush after the
+    /// seal never says the logs are durable when they are not.
+    fn checkpoint_counted(&self) -> Result<()> {
+        {
+            let order = self.order.lock_or_recover();
+            if order.sealed {
+                anyhow::ensure!(
+                    !order.frozen && !order.has_work(),
+                    "the event journal's last checkpoint did not complete: the next start replays the journal"
+                );
+                return Ok(());
+            }
+        }
         let result = self.checkpoint_once();
         let mut order = self.order.lock_or_recover();
         match &result {
             Ok(()) => order.failures = 0,
+            // Slow, not failing: neither a failure in a row nor a success.
+            Err(error) if error.is::<SlowJournal>() => {}
             Err(error) if !order.frozen => {
                 order.failures = order.failures.saturating_add(1);
                 if order.failures >= CHECKPOINT_FAILURES_TO_STOP {
@@ -143,6 +183,13 @@ impl Inner {
             && let Err(error) = self.journal.wait_durable(lsn, SEAL_WAIT)
         {
             self.order.lock_or_recover().dirty.extend(dirty);
+            // A slow disk (the wait timed out and the writer reports no failure) is not a failure:
+            // the next checkpoint tries again, and it never counts toward the stop.
+            if matches!(error, cmux_journal::WaitError::Timeout)
+                && self.journal.stats().failing.is_none()
+            {
+                return Err(anyhow::Error::new(SlowJournal { lsn }));
+            }
             anyhow::bail!("the event journal did not sync through {lsn}: {error}");
         }
         // Each chat's newest image through `lsn` (the overlay held it when `lsn` was read): the
@@ -596,3 +643,24 @@ fn frozen_reason(why: &str) -> &[u8] {
     }
     why.get(..end).unwrap_or_default().as_bytes()
 }
+
+/// A checkpoint that waited [`SEAL_WAIT`] for the journal to sync while its writer reported no
+/// failure: a slow disk (huge-blue, 2026-11-08: a 10.4 s fdatasync at 35-50% iowait). It is retried
+/// at the next checkpoint and never counts toward [`CHECKPOINT_FAILURES_TO_STOP`]: a slow disk
+/// makes the daemon slower, never makes it restart.
+#[derive(Debug)]
+pub(super) struct SlowJournal {
+    lsn: u64,
+}
+
+impl std::fmt::Display for SlowJournal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the event journal did not sync through {} within {SEAL_WAIT:?} on a slow disk; the next checkpoint tries again",
+            self.lsn
+        )
+    }
+}
+
+impl std::error::Error for SlowJournal {}

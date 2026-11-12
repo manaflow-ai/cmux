@@ -18,6 +18,41 @@ public final class ScreenSharingService {
         case failed(String)
     }
 
+    /// What the Macs list can truthfully say: one state, so the page never shows "No Macs"
+    /// while it is still looking, nor a spinner next to an error.
+    public enum Discovery: Equatable, Sendable {
+        /// Registering this phone, connecting, or waiting for the first device list.
+        case finding
+        /// The hub or the device list can't be reached; the message says why.
+        case failed(String)
+        /// The device list was read: `macs` is the account's Macs, empty or not.
+        case listed
+    }
+
+    public var discovery: Discovery {
+        Self.discovery(status: status, listed: hub?.devicesListed ?? false,
+                       listError: hub?.devicesListError?.description, connection: hub?.connection ?? .disconnected)
+    }
+
+    /// `ready` only means this phone registered; the list arrives once the socket connects
+    /// and reads it, so until then an empty list is "finding", not "no Macs".
+    nonisolated static func discovery(status: Status, listed: Bool, listError: String?,
+                                      connection: DeviceHubSocket.State) -> Discovery {
+        switch status {
+        case let .failed(message): return .failed(message)
+        case .idle, .starting: return listed ? .listed : .finding
+        case .ready:
+            if listed { return .listed }
+            if let listError { return .failed(listError) }
+            switch connection {
+            case .replaced: return .failed(String(localized: "Another connection of this iPhone took over."))
+            case .removed: return .failed(String(localized: "This iPhone was removed from your devices."))
+            case .signedOut: return .failed(String(localized: "This iPhone is signed out of your devices."))
+            case .disconnected, .connecting, .connected, .reconnecting: return .finding
+            }
+        }
+    }
+
     /// The hub's state once it loaded (it follows the hub: a removed or replaced socket fails it).
     public var status: Status { hub.map { Self.status(of: $0.status) } ?? loadStatus }
     /// Before the hub loaded: starting, or why loading this phone's identity failed.
@@ -180,7 +215,9 @@ public final class ScreenSharingService {
     /// Refetches everything (pull to refresh).
     public func refresh() async {
         guard let hub else { return start() }
-        if case .failed = status { await hub.start() } else { await hub.refreshAll() }
+        // A failed list (the hub, the list read, or a socket replaced or signed out) starts over;
+        // otherwise everything is read again.
+        if case .failed = discovery { await hub.start() } else { await hub.refreshAll() }
     }
 
     private func attach(_ hub: DeviceHub) {

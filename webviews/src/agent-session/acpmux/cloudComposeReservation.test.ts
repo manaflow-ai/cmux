@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
+import { CloudComposeReservation, RESERVATION_SEND_WAIT_MS, reservedCloudCall } from "./cloudComposeReservation";
 import { cloudStartKeys, oneCloudStart } from "./cloudRun";
 import { RELEASE_AFTER_MS } from "./newChatPrewarm";
 
 function harness(reserve: () => Promise<unknown> = async () => ({})) {
   const calls: [string, Record<string, unknown>][] = [];
-  const timers: { run: () => void; live: boolean }[] = [];
+  const timers: { run: () => void; live: boolean; ms: number }[] = [];
   let sequence = 0;
   const call = async (method: string, params: Record<string, unknown>) => {
     calls.push([method, params]);
@@ -17,8 +17,8 @@ function harness(reserve: () => Promise<unknown> = async () => ({})) {
     {
       now: () => 0,
       schedule(run, ms) {
-        expect(ms).toBe(RELEASE_AFTER_MS);
-        const timer = { run, live: true };
+        expect([RELEASE_AFTER_MS, RESERVATION_SEND_WAIT_MS]).toContain(ms);
+        const timer = { run, live: true, ms };
         timers.push(timer);
         return () => (timer.live = false);
       },
@@ -29,9 +29,10 @@ function harness(reserve: () => Promise<unknown> = async () => ({})) {
     reservation,
     calls,
     start: oneCloudStart(reservedCloudCall(call, reservation)),
-    expire() {
+    /// Runs the live timers (only those of `ms`, when given).
+    expire(ms?: number) {
       for (const timer of timers) {
-        if (!timer.live) continue;
+        if (!timer.live || (ms !== undefined && timer.ms !== ms)) continue;
         timer.live = false;
         timer.run();
       }
@@ -135,6 +136,51 @@ test("a reservation that settles after the live 30-second gesture still reaches 
     "cloud.startChat",
     { task: "slow warm", key: "send-slow", reservationKey: "compose-1", gestureTicket: "ticket-1" },
   ]);
+});
+
+test("Send waits for a slow reserve only briefly: the start goes without it, and the late reservation is released once", async () => {
+  // Leo, 2026-11-09: "it seems like it's not actually properly starting": a reserve the platform
+  // held for up to 125 s held the Send, with nothing in the log, the whole time.
+  let ready!: () => void;
+  const h = harness(() => new Promise<void>((resolve) => (ready = resolve)));
+  h.reservation.selected();
+  const sent = h.start({ task: "hello", home: true, reservationKey: h.reservation.handoff() }, "send-1");
+  await settle();
+  expect(h.calls.map(([method]) => method)).toEqual(["transport.gesture", "cloud.reserve"]);
+  h.expire(RESERVATION_SEND_WAIT_MS);
+  expect(await sent).toEqual({ ok: true });
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "hello", home: true, key: "send-1", gestureTicket: "ticket-1" },
+  ]);
+  // Nothing is released while the reserve is out: a DELETE before its create would leak the machine.
+  expect(h.calls.map(([method]) => method)).not.toContain("cloud.releaseReservation");
+  ready();
+  await settle();
+  expect(h.calls.filter(([method]) => method === "cloud.releaseReservation")).toEqual([
+    ["cloud.releaseReservation", { composeKey: "compose-1" }],
+  ]);
+  // The next compose reserves afresh; the late one is never handed off again.
+  h.reservation.selected();
+  await settle();
+  expect(h.reservation.handoff()).toBe("compose-2");
+});
+
+test("a reserve that answers within the wait is still used, and its wait timer is cleared", async () => {
+  let ready!: () => void;
+  const h = harness(() => new Promise<void>((resolve) => (ready = resolve)));
+  h.reservation.selected();
+  const sent = h.start({ task: "quick", reservationKey: h.reservation.handoff() }, "send-1");
+  await settle();
+  ready();
+  expect(await sent).toEqual({ ok: true });
+  h.expire(RESERVATION_SEND_WAIT_MS);
+  await settle();
+  expect(h.calls.at(-1)).toEqual([
+    "cloud.startChat",
+    { task: "quick", key: "send-1", reservationKey: "compose-1", gestureTicket: "ticket-1" },
+  ]);
+  expect(h.calls.map(([method]) => method)).not.toContain("cloud.releaseReservation");
 });
 
 test("abandon while reserve is in flight releases after allocation, only once", async () => {

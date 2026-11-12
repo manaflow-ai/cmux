@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextCloud
@@ -15,7 +16,7 @@ struct CloudSignedDEVAuthPersistenceTests {
             selection.authNamespace = "production-fixture"
             selection.legacyStorage = true
             selection.authStorageNamespace = nil
-            configuration.runtimeSelection = selection
+            configuration = configuration.selecting(selection)
         }
         configuration.isProductionAuth = true
         configuration.stackProjectID = "production-fixture"
@@ -58,7 +59,7 @@ struct CloudSignedDEVAuthPersistenceTests {
         var selection = try #require(switched.runtimeSelection)
         selection.legacyStorage = false
         selection.authNamespace = "explicit-backend-switch"
-        switched.runtimeSelection = selection
+        switched = switched.selecting(selection)
         let isolated = FileStackTokenStore(directory: switched.credentialsDirectory(homeDirectory: home))
         #expect(await isolated.getStoredAccessToken() == nil)
         #expect(await isolated.getStoredRefreshToken() == nil)
@@ -68,7 +69,7 @@ struct CloudSignedDEVAuthPersistenceTests {
 
     @MainActor @Test func productionIdentityDoesNotPrimeDevelopmentAndDevelopmentIdentitySurvivesRelaunch() throws {
         let name = "CloudSignedDEVAuth-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: name))
+        let defaults = try #require(UserDefaults(testSuiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         try saveIdentity(project: previousProduction, defaults: defaults, user: "production-user", team: "production-team")
 

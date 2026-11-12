@@ -241,7 +241,9 @@ async fn a_peer_that_cannot_check_uploads_is_refused_before_anything_is_sent() {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let counted = counted.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };
@@ -277,4 +279,75 @@ async fn a_peer_that_cannot_check_uploads_is_refused_before_anything_is_sent() {
     let finished = c.call(method::MUX_FILE_PUT_FINISH, finish).await;
     assert_eq!(reason(&finished), "filePut.unsupported", "{finished}");
     assert_eq!(sent.load(Ordering::SeqCst), 0, "no upload call reached the old peer");
+}
+
+/// The same file uploaded again, in the same chat or another, is stored once (Leo, 2026-11-05:
+/// "am I just getting infinitely stored things?"): every finish answers its own path, each path
+/// opens the bytes, and they are one file on disk. Deleting one chat keeps the other's file; a
+/// chat's uploads can be kept past the age cap (pinned or starred), never from a Web client.
+#[tokio::test]
+async fn the_same_upload_is_stored_once_and_each_chat_keeps_its_own_path() {
+    use std::os::unix::fs::MetadataExt;
+    let hub = hub();
+    let mut c = Client::new(&hub, Origin::Local);
+    c.call(method::INITIALIZE, json!({"protocolVersion": 1})).await;
+    let chat = async || {
+        let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+        let made = Client::new(&hub, Origin::Local).call(method::SESSION_NEW, new).await;
+        made["result"]["sessionId"].as_str().unwrap().to_owned()
+    };
+    let (a, b) = (chat().await, chat().await);
+    let bytes: Vec<u8> = (0..CHUNK + 7).map(|i| (i % 13) as u8).collect();
+    let mut put = async |session: &str| {
+        let upload = id_of(&c.begin(session, "image.png", bytes.len() as u64).await);
+        for (n, part) in bytes.chunks(CHUNK).enumerate() {
+            c.chunk(session, &upload, n * CHUNK, part).await;
+        }
+        let finish = json!({"sessionId": session, "uploadId": upload, "fileName": "image.png",
+            "size": bytes.len()});
+        let done = c.call(method::MUX_FILE_PUT_FINISH, finish).await;
+        PathBuf::from(done["result"]["path"].as_str().unwrap_or_else(|| panic!("{done}")))
+    };
+    let first = put(&a).await;
+    let again = put(&a).await;
+    let other = put(&b).await;
+    assert!(first != again && first != other, "each upload keeps its own path");
+    let ino = |p: &Path| std::fs::metadata(p).unwrap().ino();
+    assert_eq!(ino(&first), ino(&again));
+    assert_eq!(ino(&first), ino(&other));
+    for path in [&first, &again, &other] {
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    // Its record names it, its hash and when it came.
+    let record: Value =
+        serde_json::from_slice(&std::fs::read(other.with_file_name(".record")).unwrap()).unwrap();
+    assert_eq!(record["name"], "image.png", "{record}");
+    assert_eq!(record["sha256"], json!(sha(&bytes)), "{record}");
+    // The status of a stored upload still answers it.
+    let upload = other.parent().unwrap().file_name().unwrap().to_str().unwrap().to_owned();
+    let at = c.status(&b, &upload).await;
+    assert_eq!(at["result"]["finished"], true, "{at}");
+
+    // Chat A is deleted: B's file stays and opens.
+    let kill = c.call(method::MUX_KILL, json!({"sessionId": a, "purge": true})).await;
+    assert!(kill.get("error").is_none(), "{kill}");
+    let gone = tokio::time::Instant::now() + Duration::from_secs(10);
+    while first.exists() && tokio::time::Instant::now() < gone {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(!first.exists() && !again.exists());
+    assert_eq!(std::fs::read(&other).unwrap(), bytes);
+
+    // B is kept (pinned or starred), then not; a Web client may not keep a chat's uploads.
+    let keep = c.call(method::MUX_UPLOADS_KEEP, json!({"sessionId": b, "keep": true})).await;
+    assert_eq!(keep["result"]["keep"], true, "{keep}");
+    let chat_dir = other.parent().unwrap().parent().unwrap();
+    assert!(chat_dir.join(".keep").is_file());
+    let keep = c.call(method::MUX_UPLOADS_KEEP, json!({"sessionId": b, "keep": false})).await;
+    assert_eq!(keep["result"]["keep"], false, "{keep}");
+    assert!(!chat_dir.join(".keep").exists());
+    let mut web = Client::new(&hub, Origin::Web);
+    let refused = web.call(method::MUX_UPLOADS_KEEP, json!({"sessionId": b, "keep": true})).await;
+    let why = reason(&refused);
+    assert!(why == "filePut.remote" || why.starts_with("remote."), "{refused}");
 }

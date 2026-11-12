@@ -4,8 +4,9 @@
 Leo, 2026-10-31, after Blacksmith cut us off at about $10k a day: "y'know, we'll have to be
 more self-reliant and size the stuff better" and "i mean the linux things cant our minis just
 run them". Some jobs need neither Linux nor Blacksmith: stdlib Python, bash and bun checks
-(cmux-next checks, the cmux-next CI guard group, the release-notary guard group, the tooling
-tests) and the cmux-tui macOS targets, which are Mac builds. They took Blacksmith Linux 16 or
+(cmux-next checks, the release-notary guard group, the tooling tests) and the cmux-tui macOS
+targets, which are Mac builds. The cmux-next CI guard group is not one: on a mini 24 of its steps
+red (no python3.9 or node, temp-cwd scripts), so it runs on Linux only. They took Blacksmith Linux 16 or
 32 vCPU on every pull request and push (about 1.17M vCPU-minutes a day, 2026-10-31).
 
 A workflow's placement step runs this before those jobs, on attempt 1 (and the rescue bot's

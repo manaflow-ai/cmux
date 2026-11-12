@@ -55,6 +55,20 @@ import Testing
         #expect(WorkerControl(line: ["type": "nope", "id": 9]) == .unknown(id: 9, type: "nope"))
     }
 
+    @Test func theMenuBarsStopResumeShowCursorAndShowWindowLines() {
+        #expect(WorkerControl(line: ["type": "session", "id": 7, "action": "stop", "session": "s1", "label": "Claude"])
+            == .session(id: 7, SessionControl(action: .stop, session: "s1", label: "Claude")))
+        #expect(WorkerControl(line: ["type": "session", "action": "resume", "session": "s1"])
+            == .session(id: nil, SessionControl(action: .resume, session: "s1")))
+        #expect(WorkerControl(line: ["type": "session", "id": 8, "action": "pause", "session": "s1"]) == .unknown(id: 8, type: "session"))
+        #expect(WorkerControl(line: ["type": "session", "id": 9, "action": "stop", "session": ""]) == .unknown(id: 9, type: "session"))
+        #expect(WorkerControl(line: ["type": "session", "action": "stop", "session": String(repeating: "x", count: 257)])
+            == .unknown(id: nil, type: "session"))
+        #expect(WorkerControl(line: ["type": "cursor/spotlight", "id": 2, "session": "s1"]) == .spotlight(id: 2, session: "s1"))
+        #expect(WorkerControl(line: ["type": "cursor/spotlight", "id": 3]) == .unknown(id: 3, type: "cursor/spotlight"))
+        #expect(WorkerControl(line: ["type": "window/raise", "id": 4, "session": "s1"]) == .raiseWindow(id: 4, session: "s1"))
+    }
+
     @Test func thePolicyFlagsDefaultToTheContractDefaults() {
         let flags = PolicyFlags(Data("{}".utf8))
         #expect(flags.mode == "fullAccess")

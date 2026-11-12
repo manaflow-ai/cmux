@@ -120,7 +120,7 @@ mod apps {
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .collect();
         names.sort();
-        assert_eq!(names, ["command-button", "pane", "sidebar-section", "starter"]);
+        assert_eq!(names, ["command-button", "pane", "sidebar-section", "starter", "threads"]);
         for name in names {
             let dir = root.join(&name);
             let report = validate_package(&dir);

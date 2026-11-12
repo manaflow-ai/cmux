@@ -75,7 +75,8 @@ describe("the experiment flag", () => {
         .replace("{meshId}", "mesh_00000000000000000000000000")
         .replace("{deviceId}", "dev_00000000000000000000000000")
         .replace("{tunnelId}", "tun_00000000000000000000000000")
-        .replace("{vmId}", "vm_00000000000000000000000000");
+        .replace("{vmId}", "vm_00000000000000000000000000")
+        .replace("{intentId}", "intent-1");
       const body =
         endpoint.name === "enrollDevice" || endpoint.name === "enrollOverlayServer" || endpoint.name === "createOverlayServerCode"
           ? await signedEnroll("mesh_00000000000000000000000000", "laptop", KEY_1)
@@ -469,7 +470,7 @@ describe("tenant isolation", () => {
   };
 
   const pathFor = (template: string, ids: { meshId: string; vmId: string; deviceId: string; tunnelId: string }) =>
-    template.replace("{meshId}", ids.meshId).replace("{vmId}", ids.vmId).replace("{deviceId}", ids.deviceId).replace("{tunnelId}", ids.tunnelId);
+    template.replace("{meshId}", ids.meshId).replace("{vmId}", ids.vmId).replace("{deviceId}", ids.deviceId).replace("{tunnelId}", ids.tunnelId).replace("{intentId}", "intent-1");
 
   const bodyFor = async (name: string, ids: { meshId: string; deviceId: string }) =>
     name === "enrollDevice" || name === "enrollOverlayServer" || name === "createOverlayServerCode"

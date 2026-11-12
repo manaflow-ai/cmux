@@ -1,6 +1,6 @@
 // The new tab screen's actions as host requests (plans/cmux-next/new-tab.md section 5). An agent
 // row starts the chat in this page; everything else asks the host to replace the tab.
-import type { AllChatsPage } from "./AllChatsList";
+import type { AllChatsPage } from "./allChatsListModel";
 import type { NewTabScreenActions } from "./NewTabScreen";
 import { savedEnvironmentHost } from "../environments";
 import { rememberStartedProject } from "./startedProject";
@@ -33,6 +33,8 @@ export function newTabScreenActions(deps: {
   startsHere?(): boolean;
   /// Captures the page/selection owning this attempt, before any asynchronous work.
   startScope?(allowReconnect: boolean): () => boolean;
+  clearError?(): void;
+  showError?(error: unknown): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -123,6 +125,29 @@ export function newTabScreenActions(deps: {
         } else start(deps.chatCwd);
       });
     },
+    onFixFromLink: (url, selectedCwd, harness, model) => {
+      const current = deps.startScope?.(false) ?? (() => true);
+      deps.clearError?.();
+      return callNative("chat.fix_from_link", {
+        url,
+        ...(selectedCwd ? { cwd: selectedCwd } : {}),
+        ...(harness ? { harness } : {}),
+        ...(model ? { model } : {}),
+      })
+        .then((result) => {
+          if (!current()) throw startCancelled();
+          const sessionId =
+            result && typeof result === "object" && typeof (result as { sessionId?: unknown }).sessionId === "string"
+              ? (result as { sessionId: string }).sessionId
+              : undefined;
+          // l10n-allow: internal transport shape failure; the user sees the host error surface.
+          if (!sessionId) throw new Error("fix-from-link did not return a session");
+          deps.selectSession(sessionId);
+        })
+        .catch((error) => {
+          if (!isStartCancelled(error)) deps.showError?.(error);
+        });
+    },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {
       if (url.startsWith("file://"))
@@ -161,11 +186,14 @@ export function newTabScreenActions(deps: {
     onTouched: () => ignore(callNative("newTab.touched")),
     onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
+    // `inPlace`: it takes this page's tab, never a split (picks still go where links do).
     onCreate: (kind) =>
       ignore(
         callNative(
           "tab.open",
-          kind === "terminal" ? { kind, text: "", run: false, ...(cwd ? { cwd } : {}) } : { kind, text: "" },
+          kind === "terminal"
+            ? { kind, text: "", run: false, inPlace: true, ...(cwd ? { cwd } : {}) }
+            : { kind, text: "", inPlace: true },
         ),
       ),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),

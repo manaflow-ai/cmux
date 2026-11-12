@@ -155,3 +155,44 @@ fn protocol_keyed_params_are_closed_and_name_the_request_meta() {
     assert_eq!(keys, listed);
     assert!(keys.contains("localAppToken") && keys.contains("personKey"), "{keys:?}");
 }
+
+/// Every `_meta.acpmux` key acpmux's own clients put in a request (the CLI, the hand, the TUI, a peer's
+/// `initialize`) is one [`super::params::AcpmuxRequestMeta`] lists, so the closed type accepts acpmux's own
+/// requests: `acpmux send --class/--thread`, `run --effort/--tag`, a peer's `compression` offer.
+#[test]
+fn protocol_request_meta_lists_every_key_acpmux_clients_send() {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let writes = [
+        r#"\b(?:mux|meta)\s*\[\s*"(\w+)"\s*\]\s*="#,
+        r#"\b(?:mux|meta)\.set\(\s*"(\w+)""#,
+        r#"set_path\(\s*&\["_meta",\s*"acpmux",\s*"(\w+)""#,
+    ]
+    .map(|pattern| regex::Regex::new(pattern).expect("pattern"));
+    let listed: BTreeSet<&str> = super::params::ACPMUX_REQUEST_META.iter().copied().collect();
+    let mut files = vec![src.join("client.rs"), src.join("peer.rs"), src.join("prompt_class.rs")];
+    let mut dirs = vec![src.join("cli"), src.join("hand"), src.join("tui")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).expect("source dir").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                files.push(path);
+            }
+        }
+    }
+    let mut missing = BTreeSet::new();
+    for path in files.iter().filter(|path| !path.to_string_lossy().contains("test")) {
+        let text = std::fs::read_to_string(path).expect("source file");
+        // A file's own `#[cfg(test)]` module writes test fixtures, not requests.
+        let text = text.split("#[cfg(test)]").next().unwrap_or_default();
+        for pattern in &writes {
+            for key in pattern.captures_iter(text).filter_map(|captures| captures.get(1)) {
+                if !listed.contains(key.as_str()) {
+                    missing.insert(format!("{}: {}", path.display(), key.as_str()));
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "add these request keys to ACPMUX_REQUEST_META: {missing:?}");
+}

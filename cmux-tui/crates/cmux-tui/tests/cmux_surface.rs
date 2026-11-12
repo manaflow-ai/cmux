@@ -66,7 +66,7 @@ fn cmux_help_lists_only_the_curated_scopes() {
     {
         assert!(help.contains(&format!("  {scope} ")), "{scope} missing:\n{help}");
     }
-    for hidden in ["raw", "provider", "pairing", "projection", "sidebar", "client"] {
+    for hidden in ["raw", "provider", "pairing", "projection", "sidebar"] {
         assert!(!help.contains(&format!("  {hidden} ")), "{hidden} listed:\n{help}");
     }
     assert!(help.contains("--idempotency-key"), "{help}");
@@ -81,7 +81,6 @@ fn cmux_refuses_hidden_scopes_before_touching_a_socket() {
     let socket = names.missing("mux.sock");
     for args in [
         vec!["raw", "command", "--request-json", "{\"cmd\":\"identify\"}"],
-        vec!["session", "current", "snapshot"],
         vec!["projection", "show"],
         vec!["provider", "authority", "install"],
     ] {

@@ -112,7 +112,7 @@ function startTop(fold: TurnFold, id: string): number | undefined {
 }
 
 /// A copy of `row` that can sit in the thread for a moment: no ids, nothing focusable or found.
-function ghostOf(row: HTMLElement): HTMLElement {
+export function ghostOf(row: HTMLElement): HTMLElement {
   const copy = row.cloneNode(true) as HTMLElement;
   for (const node of [copy, ...copy.querySelectorAll<HTMLElement>("[id], [data-row-id], [tabindex]")]) {
     node.removeAttribute("id");

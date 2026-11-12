@@ -7,6 +7,10 @@
 // install the whole table there. The language is the first of the app's languages
 // (`navigator.languages`, which follows the app's preferred localizations) that is loaded.
 //
+// A page whose head scripts did not install English by the time this module runs (a locale file
+// that failed to load) re-requests the same files itself (`recoverStrings`) and re-renders every
+// `useT()` caller when they arrive, so it never keeps showing raw keys.
+//
 // The language is a reactive value: a small store that follows the page window's
 // `languagechange` (and `setPaneLanguage`). Components read strings through `useT()`, so a language change
 // re-renders them under either React Compiler; a module-level function read during render
@@ -42,6 +46,9 @@ export function paneLanguage(languages: readonly string[] = globalThis.navigator
   return resolveLanguage(languages, Object.keys(tables()));
 }
 
+// The language the head's loader picked (it sets <html lang> before it loads that table), read
+// before this module sets it: the file to ask for again when the tables are missing.
+const headLanguage = globalThis.document?.documentElement?.lang ?? "";
 let active: PaneLanguage = paneLanguage();
 setDocumentLanguage(active);
 const listeners = new Set<() => void>();
@@ -82,6 +89,62 @@ export function subscribeLanguage(listener: () => void): () => void {
   followWindow();
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** Tables arrived after this module loaded: the language is resolved again and every translator is
+ *  new, so components that memoized a missing string render it again. */
+function stringsArrived(): void {
+  translators.clear();
+  const next = paneLanguage();
+  setDocumentLanguage(next);
+  active = next;
+  for (const listener of listeners) listener();
+}
+
+/** The `locales/<code>.js` script tags the head loads, as written there (`locales/en.js`, or a
+ *  page's own prefix such as `/g/locales/en.js`). */
+const ENGLISH_SCRIPT = /(^|\/)locales\/en\.js(\?.*)?$/;
+const LANGUAGE_CODE = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+/** Retry delays after a failed load; the third failure gives up (the page keeps raw keys). */
+const RETRY_MS = [250, 1000];
+
+/**
+ * When the page module runs without the English table (the head's `locales/en.js` failed to load),
+ * loads it again, plus the language the head's loader picked, by the same paths the head names.
+ * Each arrival re-renders every `useT()` caller (``stringsArrived``). `<html data-strings-recovery>`
+ * records what happened (`loading`, `loaded`, `failed`) for a probe. Returns whether it started.
+ */
+export function recoverStrings(doc: Document | undefined = globalThis.document, language = headLanguage): boolean {
+  if (!doc?.head || tables().en) return false;
+  const english = Array.from(doc.querySelectorAll<HTMLScriptElement>("script[src]"))
+    .map((script) => script.getAttribute("src") ?? "")
+    .find((src) => ENGLISH_SCRIPT.test(src));
+  if (!english) return false;
+  const sources = [english];
+  if (language && language !== "en" && LANGUAGE_CODE.test(language))
+    sources.push(english.replace(/en\.js(\?.*)?$/, `${language}.js$1`));
+  const root = doc.documentElement;
+  root.dataset.stringsRecovery = "loading";
+  const load = (src: string, attempt: number) => {
+    const script = doc.createElement("script");
+    script.src = src;
+    script.addEventListener("load", () => {
+      if (src === english) root.dataset.stringsRecovery = tables().en ? "loaded" : "failed";
+      stringsArrived();
+    });
+    script.addEventListener("error", () => {
+      script.remove();
+      const delay = RETRY_MS[attempt];
+      if (delay === undefined) {
+        if (src === english) root.dataset.stringsRecovery = "failed";
+        return;
+      }
+      (doc.defaultView ?? globalThis).setTimeout(() => load(src, attempt + 1), delay);
+    });
+    doc.head.appendChild(script);
+  };
+  for (const src of sources) load(src, 0);
+  return true;
 }
 
 const pluralRules = new Map<PaneLanguage, Intl.PluralRules>();
@@ -129,10 +192,18 @@ export function usePaneLanguage(): PaneLanguage {
   return useSyncExternalStore(subscribeLanguage, currentLanguage, currentLanguage);
 }
 
-/** The translator for the pane's current language; re-renders the caller when it changes. */
+/** The translator for the pane's language now; a new one after the language or the tables change. */
+export function currentTranslator(): Translate {
+  return translatorFor(currentLanguage());
+}
+
+/** The translator for the pane's current language; re-renders the caller when it or the tables change. */
 export function useT(): Translate {
-  return translatorFor(usePaneLanguage());
+  return useSyncExternalStore(subscribeLanguage, currentTranslator, currentTranslator);
 }
 
 /** Every loaded language's table, for tests that keep the tables complete. */
 export const STRING_TABLES: Record<string, Record<string, string>> = tables() as Record<string, Record<string, string>>;
+
+// Last, so every store above exists before a recovered table arrives.
+recoverStrings();

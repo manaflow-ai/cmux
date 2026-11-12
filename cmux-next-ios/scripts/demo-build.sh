@@ -105,7 +105,8 @@ ghostty_sha=$(git -C "$repo" ls-tree "$sha" ghostty-next | awk '{print $3}')
 # --- CmuxMobileLinkFFI.xcframework (gitignored; keyed on the Rust sources) -----------
 key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cmux-next-ios/rust")" \
   "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-wg")" \
-  "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-transport")" | shasum | cut -c1-16)
+  "$(git -C "$repo" rev-parse "$sha:cmux-tui/crates/cmux-transport")" \
+  "$(git -C "$repo" rev-parse "$sha:cmux-tui/vendor/smoltcp")" | shasum | cut -c1-16)
 xcf_dest="$work/src/cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework"
 mkdir -p "$(dirname "$xcf_dest")"
 if [[ -n "${CMUX_MOBILE_XCFRAMEWORK:-}" ]]; then

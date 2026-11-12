@@ -173,7 +173,7 @@ public struct CmuxMobileCapsuleButtonStyle: ButtonStyle {
             .background(background, in: .capsule)
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.cmuxMobileSnap, value: configuration.isPressed)
+            .animation(.cmuxMobileSnap.unlessReduceMotion, value: configuration.isPressed)
             // 40 pt capsules keep a 44 pt hit target (HIG): 2 pt of invisible margin above and below.
             .padding(.vertical, height < 44 ? (44 - height) / 2 : 0)
             .contentShape(.rect)

@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextSettings
+import CmuxNextCompat
 import CmuxNextDesign
 public import Foundation
 import AppKit
@@ -258,8 +259,7 @@ extension PageWebView {
                                               windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0) else { return false }
             // The view's ordinary overrides record input before WebKit handles it.
             // Direct native delivery is needed when a capture window never becomes key.
-            webView.mouseDown(with: down)
-            webView.mouseUp(with: up)
+            SyntheticInput.click(webView, down: down, up: up)
             return true
         }
         for type in ["mousePressed", "mouseReleased"] {

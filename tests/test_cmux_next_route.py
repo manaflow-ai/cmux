@@ -165,7 +165,10 @@ class GraphCoversThePackage(unittest.TestCase):
         graph target whose directory still exists, or it could let a stray directory through."""
         declared = manifest_target_paths()
         for name, target in GRAPH["targets"].items():
-            if target["path"] and (ROOT / target["path"]).is_dir():
+            directory = ROOT / target["path"] if target["path"] else None
+            # A folder with no Swift sources left (a fixture another language reads) is not a
+            # target, as above: a deleted target's leftover fixture waits for the graph's regeneration.
+            if directory and directory.is_dir() and any(directory.rglob("*.swift")):
                 with self.subTest(target=name):
                     self.assertIn(target["path"], declared)
 
@@ -417,7 +420,7 @@ class PullRequestTiers(unittest.TestCase):
         selected = result["swift_targets"].split()
         # The targets that ship a bundle are pinned here, so dropping one from the router
         # fails this test instead of moving the expectation with it.
-        bundles = {"CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette"}
+        bundles = {"CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity"}
         self.assertEqual(set(route_module.BUNDLE_TARGETS), bundles)
         self.assertLessEqual(bundles, set(GRAPH["targets"]))
         self.assertEqual(selected, sorted(graph_readers(path)))

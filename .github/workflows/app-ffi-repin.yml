@@ -1,0 +1,82 @@
+# Re-pins the app FFI to the newest published release when the pin changes on
+# feat-cmux-next, with no FFI build. app-ffi-release.yml re-pins after each
+# publish; scripts/cmux-next/publish-app-ffi-repin.sh keeps an open re-pin PR's
+# head while its checks run instead of moving it on every publish (each move
+# cancelled the checks, and on 2026-11-09 nothing landed for 6 hours). The
+# releases published while a head was held are pinned here: the held PR's
+# merge changes Package.swift, and this run opens the next re-pin PR at once,
+# without waiting for another FFI push. A Package.swift change by any other PR
+# runs it too; with nothing newer published, or a head still held, it changes
+# nothing. app-ffi-pin.json is listed for when the pin moves there (#37645).
+name: app FFI re-pin
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "Packages/macOS/CmuxNext/Package.swift"
+      - "Packages/macOS/CmuxNext/app-ffi-pin.json"
+  # No schedule: a scheduled run starts from the default branch (main), where
+  # neither this job's ref check nor the ffi-release environment admits it.
+  # The landers merge with an App token or a person's token, whose pushes start
+  # this workflow; a merge whose push starts nothing is re-pinned by the next
+  # FFI publish (app-ffi-release.yml), as before this workflow existed.
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  repin:
+    name: open the re-pin pull request
+    if: github.ref == 'refs/heads/feat-cmux-next'
+    environment: ffi-release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+      statuses: read
+    # One group with app-ffi-release.yml's repin job: re-pins run one at a time
+    # on the same pull request.
+    concurrency:
+      group: app-ffi-repin
+      cancel-in-progress: false
+    steps:
+      # The same two tokens as app-ffi-release.yml's repin job (see there).
+      - name: Mint the release App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Mint the release App token for the pull request
+        id: pr-token
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_FFI_RELEASE_APP_ID }}
+          private-key: ${{ secrets.CMUX_FFI_RELEASE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-pull-requests: write
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          token: ${{ steps.app-token.outputs.token }}
+          persist-credentials: true
+          fetch-depth: 0
+          filter: tree:0
+
+      - name: Pin the newest published release and open or update the pull request
+        env:
+          GH_TOKEN: ${{ steps.pr-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          READ_TOKEN: ${{ github.token }}
+        shell: bash
+        run: bash scripts/cmux-next/publish-app-ffi-repin.sh

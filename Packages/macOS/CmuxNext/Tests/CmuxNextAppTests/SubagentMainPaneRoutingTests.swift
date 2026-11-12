@@ -24,14 +24,14 @@ struct SubagentMainPaneRoutingTests {
     private func chat(_ chat: String, width: CGFloat, placed: Bool?) -> (model: AgentPaneModel, asked: Asked, tabs: AgentTabStore) {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
         let asked = Asked()
-        tabs.openInMainPane = { target, focus, _, made, _ in
-            asked.mainPane.append((chat: target, focus: focus))
+        tabs.openInMainPaneScoped = { target, focus, _, made, _ in
+            asked.mainPane.append((chat: target.key, focus: focus))
             if placed == true { made?("subagent-tab") }
             return placed
         }
-        tabs.locate = { _ in nil }
+        tabs.locateScoped = { _ in nil }
         // Nothing on the chat's right yet: the column RightColumnPlacement reads has only the chat's width.
-        tabs.rightColumn = { _ in .init(sourceWidth: width) }
+        tabs.rightColumnScoped = { _ in .init(sourceWidth: width) }
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         tabs.wireHeader(model, key: chat)
         return (model, asked, tabs)

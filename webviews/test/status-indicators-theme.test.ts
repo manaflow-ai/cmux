@@ -56,3 +56,21 @@ test("focus ring setting gates transcript response outlines and defaults off", a
   applyAgentTheme(theme as Parameters<typeof applyAgentTheme>[0]);
   expect(root.dataset.focusRingEnabled).toBeUndefined();
 });
+
+test("Reduce Motion's zero move duration marks the root, so the fold's chevron snaps (conversation.css)", async () => {
+  const { applyAgentTheme } = await import("../src/agent-session/shared/theme");
+  const root = document.documentElement;
+  const motion = { hover: 0.1, hoverOut: 0.1, focus: 0.1, fadeIn: 0.12, fadeOut: 0.12 };
+  applyAgentTheme({ ...theme, motion: { ...motion, move: 0 } } as never);
+  expect(root.dataset.agentMove).toBe("instant");
+  applyAgentTheme({ ...theme, motion: { ...motion, move: 0.18 } } as never);
+  expect(root.dataset.agentMove).toBeUndefined();
+  applyAgentTheme(theme as never);
+  expect(root.dataset.agentMove).toBeUndefined();
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
+  ).text();
+  expect(css).toMatch(
+    /:root:is\(\[data-agent-move="instant"\], \[data-agent-motion="off"\]\) \.cv-rotor \{\s*transition: none;/,
+  );
+});

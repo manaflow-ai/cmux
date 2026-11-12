@@ -100,15 +100,17 @@ fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
 
-/// The file the reply names: its bytes, owner-only in an owner-only folder of its own under the
-/// session's uploads.
+/// The file the reply names: its bytes, owner-only and read-only in an owner-only folder of its
+/// own under the session's uploads.
 fn assert_saved(reply: &Value, session: &str, name: &str, bytes: &[u8]) -> PathBuf {
     let path = PathBuf::from(reply["result"]["path"].as_str().unwrap_or_else(|| panic!("{reply}")));
     assert_eq!(path.file_name().unwrap().to_str(), Some(name), "{reply}");
     let folder = path.parent().unwrap();
     assert_eq!(folder.parent().unwrap(), home().join("uploads").join(session), "{reply}");
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
-    assert_eq!(mode(&path), 0o600);
+    // Owner-only and read-only: the path is another hard link to the bytes stored once by
+    // content (#38190), which every upload of them shares.
+    assert_eq!(mode(&path), 0o400);
     assert_eq!(mode(folder), 0o700);
     assert_eq!(mode(folder.parent().unwrap()), 0o700);
     path
@@ -398,7 +400,9 @@ async fn older_peer(puts: Arc<AtomicUsize>) -> u16 {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let puts = puts.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };

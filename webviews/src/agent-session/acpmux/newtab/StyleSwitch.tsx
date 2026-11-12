@@ -11,7 +11,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { ChoiceGroup } from "../../../ui/ChoiceGroup";
 import { type IndicatorTravel, useSlidingIndicator } from "../../../ui/motion/SlidingIndicator";
-import { FOCUS_LOCATION_EVENT } from "../NewTabPage";
+import { FOCUS_LOCATION_EVENT } from "../newTabModel";
 import { useNt } from "./strings";
 import { PAGE_STYLES, type PageStyle } from "./templates";
 

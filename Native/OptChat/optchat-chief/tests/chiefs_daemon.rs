@@ -296,6 +296,8 @@ fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
             chief: Some(chief),
             turn: Some(binding()),
             peers: None,
+            fork: None,
+            mcp: None,
         },
     )
     .unwrap();
@@ -353,6 +355,7 @@ fn a_chief_makes_and_edits_chiefs_through_its_tool_and_only_its_own_turn_may() {
             "profile",
             "chiefs",
             "version",
+            "mcp",
             "react",
             "reply",
             "send",

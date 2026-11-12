@@ -1012,6 +1012,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "composite",
         "route": "frontend prompt + client-local machine connector",
     },
+    "FocusAttention": {
+        "classification": "presentation-only",
+        "route": "frontend attention list + client focus",
+    },
 }
 
 

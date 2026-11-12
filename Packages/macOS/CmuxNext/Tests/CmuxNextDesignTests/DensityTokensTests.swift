@@ -52,8 +52,10 @@ import Testing
         #expect(DensityPreset.compact.tokens.tokens.isEmpty && DensityPreset.compact.tokens.fontSize == nil)
     }
 
-    @Test func comfortableIsTodaysComfortable() {
-        DensityTokens.$scoped.withValue(DensityPreset.comfortable.tokens) {
+    /// Level 1 is the tunables' comfortable pair. The Comfortable preset sits above it since
+    /// Default took the middle (Austin 2026-11-05), so this pins the level, not the preset.
+    @Test func levelOneIsTheComfortablePair() {
+        DensityTokens.$scoped.withValue(DensityTokens(id: "comfortable", name: "Comfortable", level: 1)) {
             for metric in MetricTunables.metrics {
                 #expect(metric.value == metric.comfortable, "\(metric.name) at Comfortable")
             }
@@ -84,8 +86,9 @@ import Testing
             #expect(zip(series, series.dropFirst()).allSatisfy { $0 < $1 }, "strictly larger at each step: \(series)")
         }
         #expect(radii.allSatisfy { $0 >= 0 }, "corner radii are never negative: \(radii)")
-        #expect(bodies == [11.5, 12, 12.5, 13, 14])
-        #expect(rows == [20, 24, 28, 32, 38])
+        // Default is 13 pt on 28 pt rows (Austin 2026-11-05); Comfortable and Spacious sit above it.
+        #expect(bodies == [11.5, 12, 13, 13.5, 14.5])
+        #expect(rows == [20, 24, 28, 34, 42])
     }
 
     /// Leo 2026-11-04: "ofc we'll want to be doing proportion/scales per compact/comfortable/whatever
@@ -99,7 +102,7 @@ import Testing
             }
         }
         #expect(icons == [12, 14, 16, 16, 20])
-        #expect(small == [12, 12, 14, 14, 16])
+        #expect(small == [12, 12, 14, 16, 16])
         for level in stride(from: DensityTokens.levelRange.lowerBound, through: DensityTokens.levelRange.upperBound, by: 0.25) {
             let tokens = DensityTokens(id: "l", name: "L", level: level)
             #expect(DensityTokens.iconScale.contains(tokens.resolveGlyph(compact: 14, comfortable: 16)), "level \(level)")

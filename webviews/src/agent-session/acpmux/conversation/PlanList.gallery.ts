@@ -6,8 +6,8 @@
 // the latest message instead (`pinned-setting`). Once the turn ends it folds, where it stood, to its
 // "3 of 3 tasks done" line. With Debug Settings agent.sessionStatus on, the activity line under it names what
 // the agent is doing now (ActivityLine.tsx, cx-ncc.102). A new prompt whose turn has no list of its
-// own yet keeps the earlier list with steps left in sight, "From before your last message", as Claude
-// desktop does (`earlier-*`; turns.ts earlierTurnPlan; Leo, 2026-11-05: "i like these plans too...").
+// own yet keeps the earlier list with steps left in sight, "From before your last message"
+// (`earlier-*`; turns.ts earlierTurnPlan; Leo, 2026-11-05: "i like these plans too...").
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxPlanEntry } from "../model";

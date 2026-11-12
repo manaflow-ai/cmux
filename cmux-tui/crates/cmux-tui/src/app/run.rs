@@ -18,6 +18,7 @@ use ghostty_vt::KeyEncoder;
 use ratatui::Terminal as RatatuiTerminal;
 use ratatui::backend::CrosstermBackend;
 
+use crate::app::daemon_reconnect::DaemonReconnect;
 use crate::app::events::{AppEvent, OwnerReloadWorker};
 use crate::app::frame_geometry::{
     SidebarWidthOverrides, content_size_for_rect, sidebar_layout_for,
@@ -73,6 +74,9 @@ pub struct RunRequest {
     pub machine_ui: Option<MachineUiState>,
     pub machine_controller: Option<Box<dyn MachineController>>,
     pub startup_config: crate::config::StartupConfigSnapshot,
+    /// Connects to the same session again after its daemon is replaced
+    /// (`cmux daemon restart`); `None` keeps the old exit.
+    pub session_reconnector: Option<crate::app::SessionReconnector>,
 }
 
 pub fn run_with_machine_updates(request: RunRequest) -> anyhow::Result<RunOutcome> {
@@ -115,6 +119,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         machine_ui,
         machine_controller,
         startup_config,
+        session_reconnector,
     } = request;
     if let Session::Local(mux) = &session {
         install_mux_diagnostic_logger(mux);
@@ -192,6 +197,11 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
             let _ = failure_tx.try_send(AppEvent::PtyFailuresReady);
         }
     })?;
+    // An older session server, or a staged build that waits for its restart
+    // (staged_update.rs): said once in the status line.
+    if let Some(notice) = crate::staged_update::startup_notice() {
+        let _ = tx.try_send(AppEvent::Mux(MuxEvent::Status(notice.to_owned())));
+    }
     let session_generation = 1;
     let (session, session_event_worker, mux_titles, mux_recovery_generation) =
         start_ordered_session(
@@ -371,6 +381,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         machine_deleted_rail_index: None,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
+        daemon_reconnect: DaemonReconnect::new(session_reconnector),
         pending_machine_replacement: None,
         machine_update_pump: None,
         machine_update_generation: 0,
@@ -424,6 +435,7 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         pending_size_releases: HashSet::new(),
         geometry_authority_surface: None,
         prefix_armed: false,
+        copy_mode: None,
         session_label,
         surface_only,
         sidebar_visible: surface_only.is_none(),
@@ -447,6 +459,9 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
         projection_order_cache: AgentOrderCache::default(),
+        sidebar_status: crate::sidebar_status::SidebarStatus::default(),
+        agent_section_scroll: 0,
+        done_tab_ack_sent: None,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -481,6 +496,10 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         shortcut_help: None,
         omnibar: None,
         toast: None,
+        host_notify: crate::host_notify::HostNotifyGate::new(
+            crate::host_notify::HostTerminalInfo::detect(|name| std::env::var(name).ok()),
+        ),
+        host_focused: true,
         shake_frames: 0,
         selection: None,
         selection_generation: 0,
@@ -559,6 +578,10 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         (Err(error), Err(restore_error)) => {
             return Err(terminal_restore_error(error, restore_error));
         }
+    }
+    // Said on the restored terminal: why the TUI left (its session stopped).
+    if let Some(notice) = app.daemon_reconnect.exit_notice.take() {
+        eprintln!("{notice}");
     }
     let outcome = app
         .machine_ui

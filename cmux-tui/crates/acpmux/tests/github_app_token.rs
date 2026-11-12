@@ -182,7 +182,11 @@ async fn lane_asking(action: Value) -> (u16, oneshot::Receiver<Value>) {
         let (tcp, _) = l.accept().await.unwrap();
         let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
         let mut tx = Some(tx);
-        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+        // The Mac's link pings every 2 s and drops after 6 s with no byte back (#38015): read
+        // past each ping (tungstenite answers it as it reads), as a real machine does, and
+        // end only when the link closes. A slow mint keeps the action out past the first ping.
+        while let Some(Ok(frame)) = ws.next().await {
+            let Ws::Text(text) = frame else { continue };
             let v: Value = serde_json::from_str(&text).unwrap();
             if v["id"] == "lane-1" {
                 let _ = tx.take().map(|tx| tx.send(v));

@@ -25,6 +25,7 @@ use crate::rpc::RpcError;
 use crate::server::Origin;
 
 /// Start to answer: the app-server starts in about a second and asks ChatGPT once.
+// timeout: a Codex app-server that never answers fails this usage read, not the page.
 const READ_TIMEOUT: Duration = Duration::from_secs(15);
 /// A read this recent answers again: a page refresh after each gesture starts no new Codex.
 const FRESH: Duration = Duration::from_secs(60);
@@ -57,7 +58,8 @@ pub(super) async fn handle(
         .to_owned();
     let (dir, configured) = {
         let config = hub.config.read().await;
-        (routes::places(&config).0, codex_path(&config))
+        let home = dirs::home_dir().unwrap_or_default();
+        (routes::places(&config).0, codex_path(&config, &home))
     };
     let lookup = id.clone();
     let target = tokio::task::spawn_blocking(move || target(dir.as_deref(), &lookup))
@@ -125,12 +127,19 @@ fn readable(home: &Path) -> Target {
 
 /// The Codex a Codex harness profile runs (`CODEX_PATH` of the profile, else of its defaults
 /// (`defaults.codex.env`), as its launch and its model list pick it; the `codex` profile first),
-/// or None for the one on PATH.
-fn codex_path(config: &crate::config::Config) -> Option<String> {
+/// or None for the one on PATH. `${home}`, `${model}` and `~/` expand as a chat launch expands
+/// them (`hub::expand_env_value`) with `home` and the family's default model; a read at rest has
+/// no directory, so a `${cwd}` one, or one with a variable left over, is not a path.
+fn codex_path(config: &crate::config::Config, home: &Path) -> Option<String> {
     let own = |name: &str, profile: &crate::config::HarnessProfile| {
-        let defaults = config.defaults_for(name).env;
-        let path = profile.env.get("CODEX_PATH").or_else(|| defaults.get("CODEX_PATH"))?;
-        (!path.is_empty() && !path.contains("${")).then(|| path.clone())
+        let defaults = config.defaults_for(name);
+        let path = profile.env.get("CODEX_PATH").or_else(|| defaults.env.get("CODEX_PATH"))?;
+        if path.contains("${cwd}") {
+            return None;
+        }
+        let model = defaults.model.unwrap_or_default();
+        let path = crate::hub::expand_env_value(path, home, home, &model);
+        (!path.is_empty() && !path.contains("${")).then_some(path)
     };
     let mut codex = config.harnesses.iter().filter(|(name, profile)| {
         profile.kind == crate::config::HarnessKind::Acp
@@ -205,9 +214,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn the_codex_a_codex_profile_names_is_the_one_that_reads() {
-        let acp = |argv: &[&str], env: &[(&str, &str)]| crate::config::HarnessProfile {
+    fn acp(argv: &[&str], env: &[(&str, &str)]) -> crate::config::HarnessProfile {
+        crate::config::HarnessProfile {
             kind: crate::config::HarnessKind::Acp,
             argv: argv.iter().map(|s| s.to_string()).collect(),
             env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
@@ -218,23 +226,28 @@ mod tests {
             model: None,
             effort: None,
             policy: None,
-        };
+        }
+    }
+
+    #[test]
+    fn the_codex_a_codex_profile_names_is_the_one_that_reads() {
+        let home = Path::new("/Users/someone");
         let mut config = crate::config::Config::default();
-        assert_eq!(codex_path(&config), None, "no profile: the one on PATH");
+        assert_eq!(codex_path(&config, home), None, "no profile: the one on PATH");
         config.harnesses.insert(
             "codex-work".into(),
             acp(&["codex", "app-server"], &[("CODEX_PATH", "/opt/b")]),
         );
-        assert_eq!(codex_path(&config).as_deref(), Some("/opt/b"));
+        assert_eq!(codex_path(&config, home).as_deref(), Some("/opt/b"));
         config
             .harnesses
             .insert("codex".into(), acp(&["codex", "app-server"], &[("CODEX_PATH", "/opt/a")]));
-        assert_eq!(codex_path(&config).as_deref(), Some("/opt/a"), "the codex profile first");
+        assert_eq!(codex_path(&config, home).as_deref(), Some("/opt/a"), "the codex profile first");
         config
             .harnesses
             .insert("codex".into(), acp(&["codex", "app-server"], &[("CODEX_PATH", "${X}")]));
         assert_eq!(
-            codex_path(&config).as_deref(),
+            codex_path(&config, home).as_deref(),
             Some("/opt/b"),
             "an unresolved one is not a path"
         );
@@ -243,9 +256,29 @@ mod tests {
         let mut family = crate::config::SessionDefaults::default();
         family.env.insert("CODEX_PATH".into(), "/opt/family".into());
         config.defaults.insert("codex".into(), family);
-        assert_eq!(codex_path(&config).as_deref(), Some("/opt/family"), "defaults.codex.env");
+        assert_eq!(codex_path(&config, home).as_deref(), Some("/opt/family"), "defaults.codex.env");
         config.harnesses.remove("codex");
-        assert_eq!(codex_path(&config).as_deref(), Some("/opt/b"), "the profile's own wins");
+        assert_eq!(codex_path(&config, home).as_deref(), Some("/opt/b"), "the profile's own wins");
+    }
+
+    #[test]
+    fn an_interpolated_codex_path_expands_as_a_chat_launch_expands_it() {
+        let home = Path::new("/Users/someone");
+        let codex = |path: &str| {
+            let mut config = crate::config::Config::default();
+            let mut family = crate::config::SessionDefaults::default();
+            family.env.insert("CODEX_PATH".into(), path.into());
+            family.model = Some("gpt-5".into());
+            config.defaults.insert("codex".into(), family);
+            config.harnesses.insert("codex".into(), acp(&["codex", "app-server"], &[]));
+            codex_path(&config, home)
+        };
+        assert_eq!(codex("${home}/bin/codex").as_deref(), Some("/Users/someone/bin/codex"));
+        assert_eq!(codex("~/bin/codex").as_deref(), Some("/Users/someone/bin/codex"));
+        assert_eq!(codex("/opt/${model}/codex").as_deref(), Some("/opt/gpt-5/codex"));
+        // No directory at rest, and an unknown variable stays unresolved: the one on PATH.
+        assert_eq!(codex("${cwd}/codex"), None);
+        assert_eq!(codex("${X}/codex"), None);
     }
 
     #[cfg(unix)]

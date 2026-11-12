@@ -7,23 +7,20 @@ import QuartzCore
 import Testing
 
 /// FRAME OWNER REFACTOR S5 (cmux-ad m14, Lawrence 2026-11-05: "during key resizes AND divider drags, in every frame every
-/// browser shows live pixels rendered at that frame's pane size"). With `motion.frameOwner.pages` on, a Chromium page is
+/// browser shows live pixels rendered at that frame's pane size"). A Chromium page (the only path since 2026-11-06) is
 /// hosted in the window's own layer tree (fork API 26) and never keeps an old size through a pane resize: in every step of
 /// a key resize and of a divider drag its host view takes the pane's page area. The main thread never waits for the page
 /// (lead, cmux-ad m14): Chromium's resize wait runs on its UI thread, the app's main thread, so S5 gives every page window
 /// a deadline of 0 (fork API 27: no pre-commit wait, no GPU transaction, no post-commit wait). Before S5 a key resize held
-/// the page at its start size (the old frame, anchored and clipped) and no page was hosted unless
-/// `browserResize.layerHosting` was set.
+/// the page at its start size (the old frame, anchored and clipped) and no page was hosted.
 @MainActor @Suite(.serialized, .closesItsWindows) struct CEFPageFrameOwnerTests {
     /// The main thread's budget for a page's wait in one resize frame: none (cmux-ad m14, lead: the main thread never waits
     /// for a page).
     static let mainThreadWaitBudgetMs: Int32 = 0
 
-    /// A key resize with the switch on: the page follows its pane's page area in every step at the step's size (never the
+    /// A key resize: the page follows its pane's page area in every step at the step's size (never the
     /// start size, never scaled), and no page window is asked to hold a commit for its frame.
     @Test func aKeyResizeShowsThePageAtThePanesSizeInEveryStep() throws {
-        Self.set(pages: true)
-        defer { Self.set(pages: nil) }
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first) = try Self.liveHost(runtime)
@@ -59,11 +56,50 @@ import Testing
         #expect(!host.hostView.layerHosting.inPaneDrag, "the page sync ends with the key resize")
     }
 
-    /// A divider drag with the switch on and `browserResize.dragResize` at its default: the page is hosted, lays out at every
+    /// RESIZE P0 5 (cmux21, macOS 27.0, 120 Hz, 3 films per arm): a key resize keeps the page window attached. Detached
+    /// (fork API 30, `cmux_browser_set_detached_hosting`) the key spring's first tick paid 1-4 ms for the detach and the
+    /// landing paid it again, and the page in a pane that grew upward showed at its old place for about 25 frames (page
+    /// foreign 25/26/26 of the m20 judge); attached it showed at its pane's size in every frame (0/0/0) with the same
+    /// missed refreshes (3/4/4 against 3/3/4). A divider drag still detaches (each of its frames moves the page window).
+    @Test func aKeyResizeKeepsThePageWindowAttached() throws {
+        PageSpyShim.forkAPI = 30
+        PageSpyShim.hostingContext = 7
+        defer { (PageSpyShim.forkAPI, PageSpyShim.hostingContext) = (27, 0) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)
+        window.contentView?.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        // The hosting request of a new page window runs at the end of the run-loop turn: run that one pass.
+        CFRunLoopRunInMode(.defaultMode, 0, true)
+        let hosting = host.hostView.layerHosting
+        try #require(hosting.page != nil, "SETUP: the page is not hosted")
+        PageSpyShim.detachAsks = []
+
+        first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
+        for dx in stride(from: CGFloat(10), through: 120, by: 10) {
+            first.container.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
+            first.container.layoutSubtreeIfNeeded()
+        }
+        first.container.holdPage(for: nil)
+        first.container.layoutSubtreeIfNeeded()
+        #expect(PageSpyShim.detachAsks.isEmpty, "a key resize detached the page window: \(PageSpyShim.detachAsks)")
+        #expect(!hosting.isDetached)
+
+        // The control: the same rig sees a divider drag's detach and its landing's attach.
+        first.container.paneResizeGestureDidChange(active: true)
+        #expect(hosting.isDetached, "SETUP: a divider drag no longer detaches, so this rig sees no detach")
+        first.container.paneResizeGestureDidChange(active: false)
+        #expect(PageSpyShim.detachAsks.map(\.enabled) == [true, false])
+    }
+
+    /// A divider drag: the page is hosted, lays out at every
     /// drag size, and no page window holds a commit for its frame.
     @Test func aDividerDragShowsTheHostedPageAtThePanesSizeInEveryStep() throws {
-        Self.set(pages: true)
-        defer { Self.set(pages: nil) }
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first) = try Self.liveHost(runtime)
@@ -93,11 +129,201 @@ import Testing
         #expect(!host.hostView.layerHosting.inPaneDrag)
     }
 
-    /// The switch on hosts every new page window in the window's layer tree, with `browserResize.layerHosting` at its
-    /// default (off): the page's pixels commit with its pane.
+    /// A split's, close's or zoom's spring resizes the pane in every frame, as a key resize does: its start
+    /// (`PaneHostView.announceRest` tells the content its rest, ``PaneMotionTargeting``) begins the key resize's page
+    /// sync, so the page follows its pane's page area at each frame's size, and its landing (`notifyPaneMotionSettled`)
+    /// ends it, with the page at the final size. The page window stays attached all along, as in a key resize (RESIZE P0
+    /// 5): detached (#37754), a page in a pane that grew upward showed at its old place, clipped or blank, and snapped at
+    /// the landing (Leo 2026-11-08, ask-1cbd6386ac, softened: "the upwards thing ... shit doesn't look right, shit is not
+    /// smooth, shit lags"). The main thread never waits for it.
+    @Test func aSplitOrCloseSpringShowsThePageAtThePanesSizeInEveryFrameWithItsWindowAttached() throws {
+        PageSpyShim.forkAPI = 30
+        PageSpyShim.hostingContext = 7
+        defer { (PageSpyShim.forkAPI, PageSpyShim.hostingContext) = (27, 0) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = NSRect(x: 0, y: 0, width: 1000, height: 300)
+        window.contentView?.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        // The hosting request of a new page window runs at the end of the run-loop turn: run that one pass.
+        CFRunLoopRunInMode(.defaultMode, 0, true)
+        let page = host.hostView
+        let hosting = page.layerHosting
+        try #require(hosting.page != nil && page.superview === first.container && page.frame.width > 0 && !hosting.inResizeMotion,
+                     "SETUP: the page is not hosted and shown at a size, or is already in a resize motion")
+        PageSpyShim.detachAsks = []
+        PageSpyShim.resizeSyncs = []
+
+        // The spring's start: the pane above closed, so this pane grows upward, 300 pt taller.
+        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 0, height: 300))
+        #expect(hosting.inPaneDrag, "the spring's start began no page sync: the page would lay out only at the landing")
+        var misses: [String] = []
+        var detached: [Int] = []
+        for step in 1...12 {
+            let dy = CGFloat(step) * 300 / 12
+            first.container.frame = NSRect(x: 0, y: 0, width: 1000, height: 300 + dy)
+            first.container.layoutSubtreeIfNeeded()
+            if page.frame != first.container.bounds { misses.append("step \(step): page \(page.frame), pane page area \(first.container.bounds)") }
+            if hosting.inResizeMotion || hosting.isDetached { detached.append(step) }
+        }
+        #expect(misses.isEmpty, "\(misses.count) of 12 spring frames do not show the page at its pane's size: \(misses.prefix(3))")
+        #expect(detached.isEmpty, "the page window left its window in spring frames \(detached): it shows its old place until the landing")
+        #expect(PageSpyShim.detachAsks.isEmpty, "a split's or close's spring detached the page window: \(PageSpyShim.detachAsks)")
+        #expect(PageSpyShim.resizeSyncs.isEmpty, "a page window was asked to hold the main thread's commit: \(PageSpyShim.resizeSyncs)")
+
+        // The landing: the page sync ends, with the page at the final size.
+        first.container.notifyPaneMotionSettled()
+        #expect(!hosting.inPaneDrag, "the page sync outlived the spring")
+        #expect(PageSpyShim.detachAsks.isEmpty, "the spring's landing asked for a detach or attach: \(PageSpyShim.detachAsks)")
+        #expect(page.frame == first.container.bounds)
+    }
+
+    /// A spring that starts and retargets (a second close mid-motion tells the content a new rest) is one motion: one page
+    /// sync, ended once at the landing; a container that leaves its window mid-spring ends it.
+    @Test func aRetargetedSpringIsOneMotionAndAContainerLeavingItsWindowEndsIt() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)
+        window.contentView?.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        let hosting = host.hostView.layerHosting
+
+        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 200, height: 0))
+        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 300, height: 0))
+        #expect(hosting.paneDragHolders == 1, "a retarget began a second page sync: \(hosting.paneDragHolders) holders")
+        #expect(!hosting.inResizeMotion, "the spring took the page window out of its window")
+        first.container.notifyPaneMotionSettled()
+        #expect(!hosting.inPaneDrag, "one landing did not end the retargeted spring")
+
+        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: -100, height: 0))
+        #expect(hosting.inPaneDrag)
+        first.container.removeFromSuperview()
+        #expect(!hosting.inPaneDrag, "a container that left its window mid-spring kept its page sync")
+        #expect(!hosting.inResizeMotion)
+    }
+
+    /// Leo's case (2026-11-07): a close hands the keys to the page beside the closing pane, in the close's own turn, before
+    /// the spring's first frame. That page's window holds the keys, so it cannot leave the window for the motion
+    /// (`CEFLayerHosting.motionChanged`: ordering a key window out moves the keys, #24913), and it used to resize that
+    /// attached window in every frame, Chromium's frames at the new sizes coming after the pane had moved: the
+    /// shift-then-expand. Now the spring's start lays the page out once, at the size it rests at, and its pixels ride the
+    /// pane's top-left corner, clipped by the pane, through the whole spring: one motion, no resize of the key window after
+    /// the first frame, no key change, and the first responder and the focus ask stay where they were.
+    @Test func aFocusedPageBesideAClosingPaneRidesItsPaneAtItsRestSizeAndKeepsTheKeys() throws {
+        // A hosted page on a fork that can detach (API 30): only the keys keep its window in.
+        PageSpyShim.forkAPI = 30
+        PageSpyShim.hostingContext = 7
+        defer { (PageSpyShim.forkAPI, PageSpyShim.hostingContext) = (27, 0) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)
+        window.contentView?.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        // The hosting request of a new page window runs at the end of the run-loop turn: run that one pass.
+        CFRunLoopRunInMode(.defaultMode, 0, true)
+        let page = host.hostView
+        let hosting = page.layerHosting
+        try #require(hosting.page != nil && !hosting.isDetached, "SETUP: the page is not hosted, or not in the window")
+        PageSpyShim.detachAsks = []
+        // The close gave this page the keys: its focus ask (the window being key reads the same, `CEFPaneHost`).
+        first.keepFocusAsk()
+        try #require(window.makeFirstResponder(page), "SETUP: the page's host view did not take the first responder")
+        try #require(hosting.holdsFocus() && !hosting.inResizeMotion, "SETUP: the page does not hold the keys, or is in a motion")
+        var keyChanges = 0
+        first.keyWindows = CEFKeyWindows(keyWindow: { window }, makeKey: { _ in keyChanges += 1 })
+
+        // The spring's start: the left neighbour closed, so the pane rests 200 pt wider, its leading edge 200 pt left.
+        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 200, height: 0))
+        #expect(first.container.pageRestHold, "the focused page did not wait at its rest")
+        #expect(!hosting.isDetached, "the key page window left the window: the keys moved")
+        var sizes: [CGSize] = []
+        var off: [String] = []
+        for step in 1...12 {
+            let dx = CGFloat(step) * 200 / 12
+            first.container.frame = NSRect(x: 200 - dx, y: 0, width: 600 + dx, height: 500)
+            first.container.layoutSubtreeIfNeeded()
+            if sizes.last != page.frame.size { sizes.append(page.frame.size) }
+            // The top-left corner of the page on the pane's (not flipped: the top is maxY).
+            if page.frame.minX != 0 || page.frame.maxY != first.container.bounds.maxY { off.append("step \(step): \(page.frame)") }
+        }
+        #expect(sizes == [CGSize(width: 800, height: 500)],
+                "the key page window took \(sizes.count) sizes in the spring (Chromium lays out at each, after its pane): \(sizes)")
+        #expect(off.isEmpty, "the page's pixels left its pane's top-left corner: \(off.prefix(3))")
+        #expect(first.container.layer?.masksToBounds == true, "the page at its rest size is not clipped by its smaller pane")
+
+        // A retarget mid-spring (a key press that caught it, a second close) ends the hold: the page follows its pane's
+        // page area at each frame's size from here, as every page does.
+        first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 100, height: 0))
+        #expect(!first.container.pageRestHold, "a retarget kept the rest hold")
+        first.container.frame = NSRect(x: 50, y: 0, width: 850, height: 500)
+        first.container.layoutSubtreeIfNeeded()
+        #expect(page.frame == first.container.bounds, "after a retarget the page does not follow its pane: \(page.frame)")
+        first.container.frame = NSRect(x: 0, y: 0, width: 900, height: 500)
+        first.container.layoutSubtreeIfNeeded()
+
+        first.container.notifyPaneMotionSettled()
+        first.container.layoutSubtreeIfNeeded()
+        #expect(!first.container.pageRestHold, "the spring's landing did not end the page's rest hold")
+        #expect(page.frame == first.container.bounds, "the page is not at its pane's page area after the landing")
+        #expect(first.container.heldPageSize == nil, "the page keeps a held size after the landing")
+        #expect(window.firstResponder === page, "the motion moved the first responder off the page")
+        #expect(first.pendingFocus && hosting.holdsFocus(), "the motion dropped the page's focus ask")
+        #expect(keyChanges == 0, "the motion changed the key window \(keyChanges) times")
+        #expect(PageSpyShim.detachAsks.isEmpty, "the key page window was asked to leave the window: \(PageSpyShim.detachAsks)")
+    }
+
+    /// A key press while a close's spring runs (RESIZE P0 5: a key resize keeps the page attached) takes the pane over: a
+    /// focused page's rest hold ends, the page follows the key resize, and both landings leave it on its page area, in the
+    /// window, with no held size and no motion running.
+    @Test func aKeyResizeThatCatchesASpringLandsThePageOnItsPane() throws {
+        PageSpyShim.forkAPI = 30
+        PageSpyShim.hostingContext = 7
+        defer { (PageSpyShim.forkAPI, PageSpyShim.hostingContext) = (27, 0) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first) = try Self.liveHost(runtime)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)
+        window.contentView?.addSubview(first.container)
+        first.container.layoutSubtreeIfNeeded()
+        CFRunLoopRunInMode(.defaultMode, 0, true)
+        let hosting = host.hostView.layerHosting
+        try #require(hosting.page != nil && !hosting.isDetached, "SETUP: the page is not hosted, or not in the window")
+
+        for focused in [false, true] {
+            if focused { first.keepFocusAsk() } else { first.dropFocusAsk() }
+            first.container.notifyPaneMotionWillRest(sizeChange: CGSize(width: 200, height: 0))
+            try #require(first.container.pageRestHold == focused, "SETUP: the spring's rest hold (focused \(focused))")
+            first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
+            first.container.frame = NSRect(x: 150, y: 0, width: 650, height: 500)
+            first.container.layoutSubtreeIfNeeded()
+            #expect(first.container.heldPageSize == nil, "the key resize kept the spring's held page (focused \(focused))")
+            first.container.notifyPaneMotionSettled()
+            first.container.holdPage(for: nil)
+            first.container.layoutSubtreeIfNeeded()
+            #expect(!hosting.inResizeMotion, "the key resize's landing left a motion running (focused \(focused))")
+            #expect(!first.container.pageRestHold, "the key resize's landing left the rest hold (focused \(focused))")
+            #expect(!hosting.isDetached, "the page stayed out of the window after both motions landed (focused \(focused))")
+            #expect(host.hostView.frame == first.container.bounds)
+        }
+    }
+
+    /// Every new page window is hosted in the window's layer tree (no switch): the page's pixels commit with its pane.
     @Test func aNewPageWindowIsHostedInTheWindowsLayers() throws {
-        Self.set(pages: true)
-        defer { Self.set(pages: nil) }
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         defer { withExtendedLifetime(view) {} }
         let (hosting, fork, turn) = Self.hosting(over: view, intervals: [1.0 / 120])
@@ -110,13 +336,10 @@ import Testing
 
     /// The page misses every frame (Chromium never draws at the new size in time). Chromium's resize wait runs inside the
     /// app's commit on the main thread for the deadline the fork holds, so that deadline is the main thread's wait per
-    /// frame. With S5 on it is 0 in a drag, a key resize's page sync and the window's live resize, also with every pre-S5
-    /// wait tunable set to 50 ms, so the main thread commits each frame at once; S5 off with those tunables waits (the
-    /// half-frame cap). `motion.frameOwner.pagesWait` above 0 (measurement only) stays under half a frame.
+    /// frame. It is 0 in a drag, a key resize's page sync and the window's live resize, so the main thread commits each
+    /// frame at once.
     @Test func aPageThatMissesItsFrameNeverHoldsTheMainThread() throws {
         func waitIfThePageMisses(_ fork: FakeFork) -> Int32 { fork.syncs.last?.timeoutMs ?? 0 }
-        Self.set(pages: true, syncDeadline: 0.05, dragDeadline: 0.05, liveDeadline: 0.05)
-        defer { Self.set(pages: nil) }
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         defer { withExtendedLifetime(view) {} }
         let (hosting, fork, turn) = Self.hosting(over: view, intervals: [1.0 / 120])
@@ -133,33 +356,13 @@ import Testing
         #expect(waits.values.allSatisfy { $0 <= Self.mainThreadWaitBudgetMs }, "the main thread waits for the page: \(waits)")
         #expect(fork.syncs.isEmpty, "the fork was given a main-thread wait: \(fork.syncs)")
 
-        // The same tunables with S5 off: a hosted page's frame holds the commit (capped at half a 120 Hz frame).
-        Self.set(pages: false, syncDeadline: 0.05, dragDeadline: 0.05, liveDeadline: 0.05)
-        hosting.paneResizeDrag(active: true)
-        #expect(waitIfThePageMisses(fork) == 4, "SETUP: the fake fork does not see the pre-S5 wait")
-        hosting.paneResizeDrag(active: false)
-
-        // S5 on again: 0. The measurement knob: a wait, never past half the shortest display frame (4 ms at 120 Hz).
-        Self.set(pages: true)
-        hosting.displaysChanged()
-        #expect(waitIfThePageMisses(fork) == 0)
-        Self.set(pages: true, pagesWait: 0.016)
-        hosting.displaysChanged()
-        #expect(waitIfThePageMisses(fork) == 4)
-        Self.set(pages: true)
-        hosting.displaysChanged()
-        #expect(waitIfThePageMisses(fork) == 0)
         hosting.stop()
     }
 
     /// A tab moved to another pane in the same window during a key resize (BrowserPageArea.show adds its page to the
     /// other chrome; AppKit sends no window change, so `viewDidMoveToWindow` does not run): the page lets go of that
-    /// resize. Its old pane's page window gives back its wait share (S5 on), and the page holds no size and no hold
-    /// (both arms). The new pane gives the page a hold again only if it is in a key resize itself (BrowserChromeView.attach).
-    @Test(arguments: [true, false])
-    func aTabMovedToAnotherPaneDuringAKeyResizeLetsThatResizeGo(_ pages: Bool) throws {
-        Self.set(pages: pages)
-        defer { Self.set(pages: nil) }
+    /// resize. Its old pane's page window gives back its wait share, and the page holds no size and no hold. The new pane gives the page a hold again only if it is in a key resize itself (BrowserChromeView.attach).
+    @Test func aTabMovedToAnotherPaneDuringAKeyResizeLetsThatResizeGo() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first) = try Self.liveHost(runtime)
@@ -174,11 +377,7 @@ import Testing
         paneA.addSubview(first.container)
         first.container.layoutSubtreeIfNeeded()
         first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
-        if pages {
-            try #require(host.hostView.layerHosting.inPaneDrag, "SETUP: the key resize gives the page window no share")
-        } else {
-            try #require(first.container.heldPageSize != nil, "SETUP: the page does not hold through the key resize")
-        }
+        try #require(host.hostView.layerHosting.inPaneDrag, "SETUP: the key resize gives the page window no share")
 
         // The move: the other pane's page area adds the page; it never leaves the window.
         paneB.addSubview(first.container)
@@ -186,44 +385,10 @@ import Testing
         first.container.layoutSubtreeIfNeeded()
 
         #expect(!host.hostView.layerHosting.inPaneDrag, "the old pane's page window keeps waiting for a resize the page left")
+        #expect(!host.hostView.layerHosting.inResizeMotion, "the moved page's window stays detached (no clicks) for a motion it left")
         #expect(first.container.heldPageSize == nil, "the moved page keeps its old pane's size")
         #expect(first.container.pageMotionHold == nil, "the moved page keeps its old pane's key resize")
         #expect(host.hostView.frame == first.container.bounds, "the moved page is not at its new pane's size")
-    }
-
-    /// Lead (cmux-ad m14, STATUS 13602): the S5 films had no hosted page in their ON arm (hosted_pages 0 in all 16 reads),
-    /// because the switch applied only at a page's next show and the kit flipped it after the page was up. A Debug switch a
-    /// person flips must reach the shown pages at once: flipping `motion.frameOwner.pages` with a page shown asks the fork to
-    /// host it, without another show, and the page is hosted; flipping it back gives the page its window again. Driven
-    /// through a real runtime and pane host (no new type named here), so the suite compiles on the base and fails there on
-    /// behavior. The test waits for the fork's ask itself (a signal), never a count of turns.
-    @Test func flippingTheSwitchHostsAShownPageAtOnce() async throws {
-        Self.set(pages: false)
-        PageSpyShim.hostingContext = 7
-        defer {
-            Self.set(pages: nil)
-            PageSpyShim.hostingContext = 0
-        }
-        let (runtime, root) = try Self.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (host, first) = try Self.liveHost(runtime)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        defer { window.closeAfterTest() }
-        first.container.frame = NSRect(x: 0, y: 0, width: 600, height: 500)
-        window.contentView?.addSubview(first.container)
-        first.container.layoutSubtreeIfNeeded()
-        // With the switch off the new page window made no hosting request (`pageWindowCreated` asks only when wanted).
-        try #require(host.hostView.layerHosting.page == nil && PageSpyShim.hostingAsks.isEmpty, "SETUP: hosted with the switch off")
-
-        let on = await Self.nextHostingAsk { Self.set(pages: true) }
-        #expect(on == true, "flipping the switch on did not ask the fork to host the shown page")
-        #expect(host.hostView.layerHosting.page?.contextID == 7, "the shown page is not hosted after the flip")
-        #expect(PageSpyShim.hostingAsks.map(\.enabled) == [true], "the flip did not make one hosting call: \(PageSpyShim.hostingAsks)")
-
-        let off = await Self.nextHostingAsk { Self.set(pages: false) }
-        #expect(off == false, "flipping the switch off did not give the page its window back")
-        #expect(host.hostView.layerHosting.page == nil)
     }
 
     /// Lead (cmux-ad m14, STATUS 13849; m18): with DevTools docked, S5 ON missed 40 frames in the held-key film (main p50
@@ -232,8 +397,6 @@ import Testing
     /// in it, no layout of anything under it), and the page and DevTools hosts take their part of the pane's size in every
     /// step. No hold: S5 has none.
     @Test func aPageWithDockedDevToolsFollowsItsPaneWithGeometryOnly() throws {
-        Self.set(pages: true)
-        defer { Self.set(pages: nil) }
         LayoutPassGuard.shared.install()
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -275,8 +438,6 @@ import Testing
     /// pixels never pass its host view's edge. The hosted view fills the host and clips its context's layers (the fork's
     /// root takes the page window's size, which can be larger than the pane for a frame while it shrinks).
     @Test func aHostedPageNeverDrawsPastItsPane() throws {
-        Self.set(pages: true)
-        defer { Self.set(pages: nil) }
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         defer { withExtendedLifetime(view) {} }
         let (hosting, fork, turn) = Self.hosting(over: view, intervals: [1.0 / 120])
@@ -311,26 +472,6 @@ import Testing
         // No page color known yet (before the first real page): the pane ground, as before.
         host.pageBackdrop = nil
         #expect(host.layer?.backgroundColor != nil && host.layer?.backgroundColor != pageColor)
-    }
-
-    /// The switch off (the default) changes nothing: a key resize still holds the page's size (S3 and the interim rule).
-    @Test func theSwitchOffKeepsTodaysKeyResizeHold() throws {
-        Self.set(pages: false)
-        defer { Self.set(pages: nil) }
-        let (runtime, root) = try Self.runtime()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let (host, first) = try Self.liveHost(runtime)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: .borderless, backing: .buffered, defer: true)
-        window.isReleasedWhenClosed = false
-        defer { window.closeAfterTest() }
-        first.container.frame = NSRect(x: 200, y: 0, width: 600, height: 500)
-        window.contentView?.addSubview(first.container)
-        first.container.layoutSubtreeIfNeeded()
-        let held = host.hostView.frame.size
-        first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
-        #expect(first.container.heldPageSize == held)
-        #expect(!host.hostView.layerHosting.inPaneDrag)
-        first.container.holdPage(for: nil)
     }
 
     // MARK: Fixtures
@@ -372,24 +513,6 @@ import Testing
         return (hosting, fork, turn)
     }
 
-    /// The fork's next hosting ask (true: host, false: unhost) after `change`, or nil when none comes. The bound only ends a
-    /// failing run; a passing run returns at the ask.
-    private static func nextHostingAsk(after change: () -> Void) async -> Bool? {
-        let (asks, ask) = AsyncStream.makeStream(of: Bool.self)
-        PageSpyShim.onHostingAsk = { ask.yield($0) }
-        let bound = Task {
-            try? await Task.sleep(for: .seconds(10))
-            ask.finish()
-        }
-        defer {
-            bound.cancel()
-            PageSpyShim.onHostingAsk = nil
-        }
-        change()
-        for await enabled in asks { return enabled }
-        return nil
-    }
-
     /// Layout calls so far, by view class (`LayoutPassGuard`).
     private static func layoutCalls() -> LayoutCalls {
         LayoutCalls(byClass: Dictionary(LayoutPassGuard.shared.passesByClass.map { ($0.viewClass, $0.passes) }, uniquingKeysWith: +))
@@ -410,24 +533,6 @@ import Testing
                 if delta > 0 { out[entry.key] = delta }
             })
         }
-    }
-
-    /// Sets the S5 switch (nil: every tunable here at its default) and the waits it overrides.
-    private static func set(pages: Bool?, syncDeadline: Double? = nil, dragDeadline: Double? = nil, liveDeadline: Double? = nil,
-                            pagesWait: Double? = nil) {
-        let tunables = BrowserResizeTunables.self
-        TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register(tunables.all)
-        TunableStore.shared.set(tunables.dragResize.key, nil)
-        // Hosting follows S5 alone here: `browserResize.layerHosting` is on by default since #36311 (hosting is wanted
-        // when either is on), so pin it off with S5 set, and reset it with S5.
-        TunableStore.shared.set(tunables.layerHosting.key, pages.map { _ in .bool(false) })
-        // By key: the S5 tunables are not on the base, where a set is refused and the suite fails on behavior.
-        TunableStore.shared.set("motion.frameOwner.pages", pages.map { .bool($0) })
-        TunableStore.shared.set(tunables.syncDeadline.key, syncDeadline.map { .number($0) })
-        TunableStore.shared.set(tunables.dragResizeDeadline.key, dragDeadline.map { .number($0) })
-        TunableStore.shared.set(tunables.liveResizeDeadline.key, liveDeadline.map { .number($0) })
-        TunableStore.shared.set("motion.frameOwner.pagesWait", pagesWait.map { .number($0) })
     }
 
     /// A runtime that outlives the test (a shown tab schedules work that reads it after the test returned).
@@ -455,8 +560,9 @@ import Testing
     }
 }
 
-/// Stand-in shim: `cmux_shim_create_window` reports the browser started, `cmux_shim_fork_api_version` reports fork API 27
-/// (layer hosting and resize sync), `cmux_shim_browser_set_resize_sync` records the browser and deadline and takes it,
+/// Stand-in shim: `cmux_shim_create_window` reports the browser started, `cmux_shim_fork_api_version` reports `forkAPI`
+/// (27 by default: layer hosting and resize sync; 30: `cmux_shim_browser_set_detached_hosting` records each ask in
+/// `detachAsks` and takes it), `cmux_shim_browser_set_resize_sync` records the browser and deadline and takes it,
 /// `cmux_shim_browser_set_layer_hosting` records the ask and answers `hostingContext` (0 by default: refused, the page stays in
 /// its window, as the fork does before Chromium put the page in its window); every other function does nothing and returns 0.
 private nonisolated enum PageSpyShim {
@@ -464,6 +570,10 @@ private nonisolated enum PageSpyShim {
     nonisolated(unsafe) static var hostingAsks: [(browser: Int32, enabled: Bool)] = []
     /// The context id a hosting ask gets (0: refused, the default).
     nonisolated(unsafe) static var hostingContext: UInt32 = 0
+    /// The fork API the shim reports (27 by default; 30 adds `cmux_shim_browser_set_detached_hosting`).
+    nonisolated(unsafe) static var forkAPI: Int32 = 27
+    /// Detach and attach asks (`cmux_shim_browser_set_detached_hosting`), all taken.
+    nonisolated(unsafe) static var detachAsks: [(browser: Int32, enabled: Bool)] = []
     /// Told of each hosting ask (enabled), on the main thread.
     nonisolated(unsafe) static var onHostingAsk: (@Sendable (Bool) -> Void)?
 
@@ -478,7 +588,11 @@ private nonisolated enum PageSpyShim {
             PageSpyShim.onHostingAsk?(enabled != 0)
             return enabled != 0 ? PageSpyShim.hostingContext : 0
         }
-        let forkAPIVersion: @convention(c) () -> Int32 = { 27 }
+        let forkAPIVersion: @convention(c) () -> Int32 = { PageSpyShim.forkAPI }
+        let detachedHosting: @convention(c) (Int32, Int32) -> Int32 = { browser, enabled in
+            PageSpyShim.detachAsks.append((browser, enabled != 0))
+            return 1
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
             switch name {
@@ -486,6 +600,7 @@ private nonisolated enum PageSpyShim {
             case "cmux_shim_browser_set_resize_sync": unsafeBitCast(resizeSync, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_browser_set_layer_hosting": unsafeBitCast(layerHosting, to: UnsafeMutableRawPointer.self)
             case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_browser_set_detached_hosting": unsafeBitCast(detachedHosting, to: UnsafeMutableRawPointer.self)
             default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
             }
         }

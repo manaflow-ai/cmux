@@ -125,6 +125,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             AgentPaneClosedItem.push(view.recentlyClosed, to: view)
             AgentPaneNowPlaying.shared.push(to: view)
             view.model.attentionTabs?.push(to: view)
+            view.model.attentionTabs?.places.push(to: view)
             view.announceSessionInfo()
             view.model.readAloud?.push(to: view)
             view.pushPaneNotices()

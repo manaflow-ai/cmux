@@ -155,6 +155,9 @@ def cmd_check(stub_dir: Path, binaries: list[str], system: Path | None = None) -
 
 
 def cmd_install(stub_dir: Path, sysroot: Path) -> int:
+    headers = stub_dir / "include"
+    if headers.is_dir():
+        shutil.copytree(headers, sysroot / "usr/include", dirs_exist_ok=True)
     for path in sorted(stub_dir.glob("*.tbd")):
         install, _ = read_stub(path)
         framework = re.match(r"^/System/Library/Frameworks/([^/]+)\.framework/", install)

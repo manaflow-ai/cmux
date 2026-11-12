@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 
@@ -259,6 +260,108 @@ inline std::vector<std::pair<std::string, std::string>> PageRangeHeaders(const s
     else if (lower == "accept-ranges") out.emplace_back("Accept-Ranges", value);
   }
   return out;
+}
+
+// A page host's Content-Type as CEF takes it: the bare type for SetMimeType and the charset for
+// SetCharset. CEF hands Chromium the MIME type string unparsed, so `text/html; charset=utf-8` as a
+// type is no HTML type, and a `text/` type Chromium does not know is drawn as plain text: a dev
+// server's page showed its own source. Parameters other than charset are dropped.
+inline void SplitPageMimeType(const std::string& content_type, std::string* mime, std::string* charset) {
+  auto trim = [](std::string value) {
+    const size_t first = value.find_first_not_of(" \t");
+    if (first == std::string::npos) return std::string();
+    return value.substr(first, value.find_last_not_of(" \t") - first + 1);
+  };
+  auto lower = [](std::string value) {
+    for (char& c : value) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    return value;
+  };
+  charset->clear();
+  size_t semi = content_type.find(';');
+  *mime = lower(trim(content_type.substr(0, semi)));
+  while (semi != std::string::npos) {
+    const size_t start = semi + 1;
+    semi = content_type.find(';', start);
+    const std::string parameter = trim(content_type.substr(start, semi == std::string::npos ? std::string::npos : semi - start));
+    const size_t equals = parameter.find('=');
+    if (equals == std::string::npos || lower(trim(parameter.substr(0, equals))) != "charset") continue;
+    std::string value = trim(parameter.substr(equals + 1));
+    if (value.size() >= 2 && value.front() == '"' && value.back() == '"') value = value.substr(1, value.size() - 2);
+    *charset = lower(value);
+  }
+}
+
+// A `Content-Range: bytes first-last/total` value; false for `*/total` or anything else.
+inline bool ParseContentRange(const std::string& value, int64_t* first, int64_t* last, int64_t* total) {
+  long long a = 0, b = 0, n = 0;
+  char tail = 0;
+  if (sscanf(value.c_str(), "bytes %lld-%lld/%lld%c", &a, &b, &n, &tail) != 3) return false;
+  if (a < 0 || b < a || n <= b) return false;
+  *first = a;
+  *last = b;
+  *total = n;
+  return true;
+}
+
+// A media answer that goes to Chromium as the rest of the file, one chunk from the page host at a
+// time. For a URL that is not http or https (cmux-page://), Chromium's media loader never reads
+// Content-Range: it takes the file's length as the answer's length plus where it starts
+// (ResourceMultiBufferDataProvider::DidReceiveResponse), and it asks for `bytes=N-`. The page host
+// answers at most 8 MiB (AgentPaneSchemeHandler.mediaChunk), so a longer video looked 8 MiB long: a
+// screen recording, whose index is at its end, never played in place or in the large viewer (Leo,
+// 2026-11-03: "i can neither preview a vid in place nor have it pop up anymore"). The shim answers
+// with the rest of the file's length and asks the page host for each next chunk as Chromium reads.
+struct PageRangedStream {
+  int64_t length = 0;  // the answer's length: from its first byte to the end of the file
+  int64_t next = 0;    // the first byte not yet received from the page host
+  int64_t total = 0;   // the file's size
+  std::vector<std::pair<std::string, std::string>> headers;  // the answer's range headers
+};
+
+// Whether a page host's first answer (`status`, `headers` from PageRangeHeaders, `body_size` bytes)
+// to a request with Range `request_range` is a chunk of an open-ended range that stops before the
+// file's end; then *stream is how the shim answers instead. A closed or suffix range, a whole file,
+// a 416 or a chunk that does not match its own Content-Range are answered as they are.
+inline bool PlanRangedStream(const std::string& request_range, int status,
+                             const std::vector<std::pair<std::string, std::string>>& headers, int64_t body_size,
+                             PageRangedStream* stream) {
+  if (status != 206 || body_size <= 0) return false;
+  long long start = 0;
+  char tail = 0;
+  if (!request_range.empty() && (sscanf(request_range.c_str(), "bytes=%lld-%c", &start, &tail) != 1 || start < 0))
+    return false;
+  int64_t first = 0, last = 0, total = 0;
+  bool ranged = false;
+  for (const auto& [name, value] : headers)
+    if (name == "Content-Range") ranged = ParseContentRange(value, &first, &last, &total);
+  if (!ranged || first != start || last - first + 1 != body_size || last >= total - 1) return false;
+  stream->length = total - first;
+  stream->next = last + 1;
+  stream->total = total;
+  stream->headers.clear();
+  stream->headers.emplace_back("Content-Range",
+                               "bytes " + std::to_string(first) + "-" + std::to_string(total - 1) + "/" + std::to_string(total));
+  stream->headers.emplace_back("Accept-Ranges", "bytes");
+  return true;
+}
+
+// The Range the shim asks the page host for next.
+inline std::string PageRangedStreamNextRange(const PageRangedStream& stream) {
+  return "bytes=" + std::to_string(stream.next) + "-";
+}
+
+// Takes the page host's next chunk when it is the next part of the same file, and moves the stream
+// past it; false (the stream fails) for anything else: a refusal, another place, another size.
+inline bool AcceptRangedChunk(PageRangedStream* stream, int status,
+                              const std::vector<std::pair<std::string, std::string>>& headers, int64_t body_size) {
+  if (status != 206 || body_size <= 0 || stream->next >= stream->total) return false;
+  int64_t first = 0, last = 0, total = 0;
+  bool ranged = false;
+  for (const auto& [name, value] : headers)
+    if (name == "Content-Range") ranged = ParseContentRange(value, &first, &last, &total);
+  if (!ranged || first != stream->next || total != stream->total || last - first + 1 != body_size) return false;
+  stream->next = last + 1;
+  return true;
 }
 
 // The reason phrase a dynamic answer's status carries.

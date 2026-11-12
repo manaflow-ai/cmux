@@ -103,21 +103,26 @@ struct ChiefWire {
         // Chief and agents write Markdown links; the bubble shows each label as
         // a link. My own text stays as typed (Edit must get it back verbatim).
         let shownMentions = retracted == nil ? mentions(parts: parts) : []
+        // Their `**bold**` draws bold, as on the Mac (CMUX-20), after the links.
         let linked: (text: String, links: [ConversationTextLink], mentions: [ConversationMention]) = mine
             ? (shown, [], shownMentions)
             : ConversationMarkdownLinks.extract(shown, mentions: shownMentions)
+        let styled = mine
+            ? ChiefMarkdownBold.Rendered(text: linked.text, runs: [], links: linked.links, mentions: linked.mentions)
+            : ChiefMarkdownBold.render(linked.text, links: linked.links, mentions: linked.mentions)
         return ConversationMessage(
             id: id, seq: seq, clientMessageID: object["client_msg_id"] as? String, senderID: author,
             sentAt: date(object["created_at"]) ?? Date(),
-            text: linked.text,
+            text: styled.text,
             replyToID: (object["reply_to"] as? [String: Any])?["message_id"] as? String,
             editedAt: date(object["edited_at"]),
             unsentAt: retracted,
             reactions: reactions,
             attachments: retracted == nil ? parts.compactMap { attachment($0, bytes: ($0["hash"] as? String).flatMap { bytes[$0] }) } : [],
             delivery: mine ? (seq <= peerReadSeq ? .read(nil) : .delivered) : nil,
-            mentions: linked.mentions,
-            links: linked.links
+            mentions: styled.mentions,
+            textRuns: styled.runs,
+            links: styled.links
         )
     }
 

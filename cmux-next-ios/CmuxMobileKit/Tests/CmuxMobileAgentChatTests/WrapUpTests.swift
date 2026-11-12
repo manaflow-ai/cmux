@@ -113,6 +113,26 @@ import Testing
         #expect(!card.2)
     }
 
+    // Leo, 2026-11-08, on a bare "Not now" bubble: "wait this thing should've shown that it was a
+    // reply to an ask from you". A tap sends the answer quoting the ask, as the Mac's card does.
+    @Test func anAnswerQuotesTheAskAndWhoAsked() throws {
+        let ask = try #require(NextStepAsk.wrapUp(Self.wrapUpCall(["recap": .string("Done."), "ask": .string("Push it?")])))
+        let sent = ask.answerPrompt("Not now", asker: "Claude Code")
+        #expect(sent == "> Claude Code: Push it?\n\nNot now")
+        #expect(ask.chosenAnswer(sent) == "Not now")
+        #expect(ask.chosenAnswer("> Something else\n\nNot now") == "> Something else")
+        let split = try #require(NextStepAsk.replyQuote(sent))
+        #expect(split.quote == "Claude Code: Push it?")
+        #expect(split.body == "Not now")
+        #expect(NextStepAsk.replyQuote("Not now") == nil)
+    }
+
+    @Test func aQuotedReplyFoldsTheBoxToItsAnswer() throws {
+        let rows = Self.rows(answer: "Done.", call: Self.wrapUpCall(["recap": .string("Fixed it."), "ask": .string("Merge?"), "actions": .array([.string("Merge"), .string("Hold")])]),
+                             then: "> Codex: Merge?\n\nHold")
+        #expect(try #require(NewMacRowsTests.nextStep(rows)).1 == "Hold")
+    }
+
     @Test func theWrapUpGoesBeforeATaggedAsk() throws {
         let rows = Self.rows(answer: "Done.\n\n[taste] Which icon?\n- Folder\n- Stack", call: Self.wrapUpCall(["recap": .string("Fixed it.")]))
         let card = try #require(NewMacRowsTests.nextStep(rows))

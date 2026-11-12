@@ -1,7 +1,8 @@
 //! The owner's side of the one-time output cleanup
 //! (`workspace_registry::output_cleanup`): a low-priority thread that waits
-//! a while after start, stages the registry's sealed segments (Phase A), and
-//! holds back journal sealing while a cleanup is pending. The swap itself
+//! a while after start, stages the registry's sealed segments and builds the
+//! new registry from them (Phase A), keeps it current while the owner serves,
+//! and holds back journal sealing while a cleanup is pending. The swap itself
 //! runs at the next owner start, in `WorkspaceRegistry::open`.
 
 use super::*;
@@ -12,6 +13,10 @@ use crate::workspace_registry::output_cleanup::{
 /// How long after start the cleanup waits, so it never competes with
 /// session restore.
 const START_DELAY: Duration = Duration::from_secs(60);
+
+/// How often the built registry takes in the records appended since, so the
+/// swap at the next start packs only a short tail.
+const CATCH_UP_INTERVAL: Duration = Duration::from_secs(30);
 
 /// How long a stop waits for the worker. Its last step (recording "not
 /// needed") takes the registry and its connection locks, which a stalled
@@ -171,7 +176,8 @@ impl Mux {
 /// stored output, so the caller records that the cleanup is done.
 fn run_output_cleanup(db_path: &Path, control: &Arc<Control>, pending: &AtomicBool) -> bool {
     let pause = env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_PAUSE_MS");
-    let started = Instant::now();
+    let catch_up =
+        env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_CATCH_UP_MS").unwrap_or(CATCH_UP_INTERVAL);
     let stop_control = control.clone();
     let outcome = stage_registry(
         db_path,
@@ -181,6 +187,7 @@ fn run_output_cleanup(db_path: &Path, control: &Arc<Control>, pending: &AtomicBo
                 Some(pause) => control.wait(pause),
                 None => !control.is_stopped(),
             },
+            catch_up: &|| control.wait(catch_up),
             stopped: Arc::new(move || stop_control.is_stopped()),
         },
     );
@@ -189,17 +196,16 @@ fn run_output_cleanup(db_path: &Path, control: &Arc<Control>, pending: &AtomicBo
             pending.store(false, Ordering::Release);
             return true;
         }
-        Ok(StageOutcome::Complete { segments, kept }) => eprintln!(
-            "cmux-tui: output cleanup: phase A complete in {:.2} s: {segments} segments \
-             staged, {kept} records kept; the registry is swapped at the next start ({})",
-            started.elapsed().as_secs_f64(),
-            output_cleanup::staging_path(db_path).display()
-        ),
+        Ok(StageOutcome::Built) => {}
         Ok(StageOutcome::Refused(reason)) => {
             pending.store(false, Ordering::Release);
             eprintln!(
                 "cmux-tui: output cleanup: not enough free space, retried at the next start: {reason}"
             );
+        }
+        Ok(StageOutcome::Skipped(reason)) => {
+            pending.store(false, Ordering::Release);
+            eprintln!("cmux-tui: output cleanup: skipped, the registry is unchanged: {reason}");
         }
         Ok(StageOutcome::Stopped) => {
             eprintln!("cmux-tui: output cleanup: stopped; it resumes at the next start");

@@ -3,8 +3,9 @@
 // before the matrix screenshots it. The same function runs in the shell (on open and on Replay)
 // and in the matrix runner. Each ctx action is one step; around each step the stage measures:
 //   - anchors: the entry's named elements; one the step did NOT target must not move or resize;
-//   - layout shift: the CLS sum of the step and each shift with its source node, and the box shift
-//     (shift.ts): the tracked rows' boxes frame by frame, which also sees scroll-made moves;
+//   - layout shift: the CLS sum of the step and each shift with its source node, less the shifts
+//     that are the step's own expansion (shift.ts `isExpansionShift`), and the box shift (shift.ts):
+//     the tracked rows' boxes frame by frame, which also sees scroll-made moves;
 //   - long frames: Long Animation Frames where the engine has them (Chromium), else rAF intervals;
 //     frames over 16.7 ms are reported, and a frame over 33 ms fails ONLY from Long Animation
 //     Frames data. rAF timing (headless WebKit on a CPU-only VM: software rendering) measures the

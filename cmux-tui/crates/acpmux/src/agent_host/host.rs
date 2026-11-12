@@ -537,6 +537,9 @@ impl Started {
             });
         }
 
+        // This process never sees the daemon's `_acpmux/chat_settings` push: the forced
+        // `agents.promptSuggestions` comes with the spec, before either translator reads it.
+        crate::claude_stdio::prompt_suggestions::set_managed(spec.prompt_suggestions_managed);
         let translator = spec.translator.as_ref().map(|t| {
             let tr = Translator::new(t.acp_session_id.clone(), &t.mode, &t.model, &t.effort);
             if t.fast

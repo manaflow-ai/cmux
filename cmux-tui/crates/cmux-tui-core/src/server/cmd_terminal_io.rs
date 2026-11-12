@@ -30,7 +30,6 @@ use ghostty_vt::KeyEncoder;
 use ghostty_vt::KeyInput;
 use ghostty_vt::key_input_from_chord;
 use ghostty_vt::rows_to_runs;
-use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -48,6 +47,7 @@ pub(super) fn paste_image(
     upload_id: String,
     op: String,
     mime: Option<String>,
+    filename: Option<String>,
     size: Option<usize>,
     offset: Option<usize>,
     data: Option<String>,
@@ -59,6 +59,7 @@ pub(super) fn paste_image(
         upload_id,
         op,
         mime,
+        filename,
         size,
         offset,
         data,
@@ -214,6 +215,16 @@ pub(super) fn send(
         }
     }
     if let Some(expected) = expect_agent {
+        // While the start's roster replay runs in the background, the roster holds older states
+        // (an `idle` from before the agent's last prompt) next to the current session id, so the
+        // check below could pass for an agent that works or asks. Refused until the replay and its
+        // reconcile are done: nothing was written, and the same send succeeds then.
+        if mux.agent_roster_settling() {
+            return Err(DeliveryClassifiedError::known_not_delivered(anyhow::anyhow!(
+                "agent roster replay in progress: agent states are still being restored; retry \
+                 the send shortly"
+            )));
+        }
         // Only this surface's own terminal's record: a surface with no terminal id fails closed
         // (an unfiltered roster would name another terminal's agent).
         let agent = surface.terminal_public_id().cloned().and_then(|terminal| {
@@ -346,7 +357,8 @@ pub(super) fn wait_for(
     }
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
-    let regex = Regex::new(&pattern).map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
+    let regex = crate::wait_pattern::compile(&pattern)
+        .map_err(|err| anyhow::anyhow!("bad regex: {err}"))?;
     let start = Instant::now();
     let check = || -> anyhow::Result<Option<String>> {
         let text = surface.try_with_terminal(|t| t.active_text())??;

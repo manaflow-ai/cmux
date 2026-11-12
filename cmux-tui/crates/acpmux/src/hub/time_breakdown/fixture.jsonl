@@ -1,0 +1,14 @@
+{"seq":1,"at":1000,"dir":"mux","kind":"user_message","msg":{"text":"Inspect and test"}}
+{"seq":2,"at":1000,"dir":"mux","kind":"turn_started","msg":{"turnSeq":7,"turnId":"t7"}}
+{"seq":3,"at":2000,"dir":"in","kind":"tool_call","msg":{"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","toolCallId":"read-1","kind":"read","status":"in_progress"}}}}
+{"seq":4,"at":3000,"dir":"in","kind":"agent_thought_chunk","msg":{"params":{"_meta":{"acpmux":{"subagent":"child"}},"update":{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"child thinking"}}}}}
+{"seq":5,"at":5000,"dir":"in","kind":"tool_call_update","msg":{"params":{"update":{"sessionUpdate":"tool_call_update","toolCallId":"read-1","status":"completed"}}}}
+{"seq":6,"at":6000,"dir":"mux","kind":"permission_request","msg":{"permissionId":"p1","agentRequestId":42}}
+{"seq":7,"at":7000,"dir":"mux","kind":"permission_reissued","msg":{"permissionId":"p1","agentRequestId":42}}
+{"seq":8,"at":8000,"dir":"mux","kind":"permission_request","msg":{"permissionId":"p2","agentRequestId":43}}
+{"seq":9,"at":9000,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"p2"}}
+{"seq":10,"at":10000,"dir":"mux","kind":"permission_withdrawn","msg":{"agentRequestId":42}}
+{"seq":11,"at":11000,"dir":"in","kind":"tool_call","msg":{"params":{"update":{"toolCallId":"test-1","kind":"execute","status":"in_progress"}}}}
+{"seq":12,"at":21000,"dir":"in","kind":"tool_call_update","msg":{"params":{"update":{"toolCallId":"test-1","status":"completed"}}}}
+{"seq":13,"at":22000,"dir":"mux","kind":"turn_end","msg":{"turnId":"t7","turnSeq":7}}
+{"seq":14,"at":99000,"dir":"mux","kind":"turn_result","msg":{"turnId":"t7","turnSeq":7,"inputTokens":5,"outputTokens":7,"cacheReadTokens":10,"cacheWriteTokens":2,"inputExcludesCache":true}}

@@ -1155,14 +1155,17 @@ fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoe
 
     let list = world.json(&["setup", "list"]);
     let task = list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == "mcp").unwrap();
-    assert_eq!(task["setup"], "cmux setup mcp [claude|codex ...] [--dry-run]", "{task}");
+    assert_eq!(task["setup"], "cmux setup mcp [claude|codex ...] [--dry-run] [--remove]", "{task}");
     let status = world.json(&["setup", "status"]);
     let check = &status["checks"][3];
     assert_eq!(check["task"], "mcp", "{status}");
-    assert_eq!(check["state"], "needs_setup", "{check}");
+    // Nobody answered the cmux Tools question yet: waiting on the person.
+    assert_eq!(check["state"], "needs_user", "{check}");
     assert_eq!(check["enabled"], false, "{check}");
     assert_eq!(check["fix"], "cmux setup mcp", "{check}");
 
+    // The person says yes (the onboarding step or Settings writes the answer).
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}));
     // The switch is the person's: setup names it and writes nothing.
     let off = world.follow(check["fix"].as_str().unwrap());
     assert_eq!(off["state"], "needs_user", "{off}");
@@ -1178,7 +1181,7 @@ fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoe
     assert!(!claude_json.exists() && !codex_toml.exists());
 
     // The person turns it on. A dry run plans and runs no CLI.
-    world.settings(&json!({"mcp": {"enabled": true}}));
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": true}}));
     let planned = world.json(&["setup", "mcp", "--dry-run"]);
     assert_eq!(planned["state"], "planned", "{planned}");
     assert_eq!(planned["dry_run"], true);
@@ -1267,7 +1270,7 @@ fn cmux_setup_mcp_with_neither_harness_installed_is_ok() {
 fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
     let world = World::new("mcpold").with_fake_mcp_clients();
     let cmux = env!("CARGO_BIN_EXE_cmux-tui");
-    world.settings(&json!({"mcp": {"enabled": true}}));
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": true}}));
     let gone = "/Applications/gone.app/Contents/Resources/bin/cmux";
     let claude_json = world.home.join(".claude.json");
     let old = json!({"mcpServers": {"cmux": {"type": "stdio", "command": gone, "args": ["mcp", "serve"]}}});
@@ -1307,6 +1310,84 @@ fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
     let back: Value =
         serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
     assert_eq!(back["mcpServers"]["cmux"]["command"], gone, "{back}");
+}
+
+/// The person's answer to "may cmux add its tools to your coding agents?"
+/// (`agents.cmuxMcp`): `off` writes nothing and names the answer, and status
+/// is content; `on` is the opt-in, so setup writes with no `mcp.enabled`;
+/// `--remove` takes cmux's own entry out whatever the answer, and leaves a
+/// server of the person's.
+#[test]
+fn cmux_setup_mcp_follows_the_persons_answer_and_removes_cmux_on_request() {
+    let world = World::new("mcpchoice").with_fake_mcp_clients();
+    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    let claude_json = world.home.join(".claude.json");
+    let codex_toml = world.home.join(".codex").join("config.toml");
+
+    // No: nothing written, even with the switch on; the answer is the setting to change.
+    world.settings(&json!({"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}));
+    let declined = world.json(&["setup", "mcp"]);
+    assert_eq!(declined["state"], "needs_user", "{declined}");
+    assert_eq!(declined["choice"], "off", "{declined}");
+    assert_eq!(declined["user_action"]["kind"], "setting", "{declined}");
+    assert_eq!(declined["user_action"]["command"], "cmux settings set agents.cmuxMcp on");
+    let text = declined["user_action"]["text"].as_str().unwrap();
+    assert!(text.contains("Settings > Agents"), "{text}");
+    assert!(world.take_mcp_calls().is_empty(), "setup wrote after the person said no");
+    assert!(!claude_json.exists() && !codex_toml.exists());
+    let check = &world.json(&["setup", "status"])["checks"][3];
+    assert_eq!((&check["state"], &check["choice"]), (&json!("ok"), &json!("off")), "{check}");
+    assert_eq!(check["fix"], Value::Null, "{check}");
+    let states =
+        check["clients"].as_array().unwrap().iter().map(|c| &c["state"]).collect::<Vec<_>>();
+    assert_eq!(states, [&json!("off"), &json!("off")], "{check}");
+
+    // Yes: the answer is the opt-in; setup writes with no `mcp.enabled`.
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}}));
+    let added = world.json(&["setup", "mcp"]);
+    assert_eq!(added["state"], "changed", "{added}");
+    assert_eq!((&added["enabled"], &added["choice"]), (&json!(true), &json!("on")), "{added}");
+    assert_eq!(
+        world.take_mcp_calls(),
+        [
+            format!("claude mcp add --scope user cmux -- {cmux} mcp serve"),
+            format!("codex mcp add cmux -- {cmux} mcp serve"),
+        ]
+    );
+    assert_eq!(world.json(&["setup", "status"])["checks"][3]["state"], "ok");
+
+    // The person's own switch still wins over the answer.
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}));
+    assert_eq!(world.json(&["setup", "mcp"])["enabled"], false);
+
+    // Remove: a dry run plans and runs nothing; the run takes cmux out of
+    // both and names the undo, whatever the answer.
+    world.settings(&json!({"agents": {"cmuxMcp": "off"}}));
+    let plan = world.json(&["setup", "mcp", "--remove", "--dry-run"]);
+    assert_eq!((&plan["state"], &plan["action"]), (&json!("planned"), &json!("remove")), "{plan}");
+    assert!(world.take_mcp_calls().is_empty(), "a dry run ran a CLI");
+    let removed = world.json(&["setup", "mcp", "--remove"]);
+    assert_eq!(removed["state"], "changed", "{removed}");
+    assert_eq!(
+        world.take_mcp_calls(),
+        ["claude mcp remove --scope user cmux".to_owned(), "codex mcp remove cmux".to_owned()]
+    );
+    assert_eq!(
+        removed["undo"],
+        format!(
+            "claude mcp add --scope user cmux -- {cmux} mcp serve && codex mcp add cmux -- {cmux} mcp serve"
+        )
+    );
+    let again = world.json(&["setup", "mcp", "--remove"]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert!(world.take_mcp_calls().is_empty(), "nothing left to remove ran a CLI");
+
+    // A server named `cmux` that is the person's stays.
+    std::fs::write(&codex_toml, "[mcp_servers.cmux]\ncommand = \"/bin/echo\"\nargs = [\"hi\"]\n")
+        .unwrap();
+    let kept = world.json(&["setup", "mcp", "--remove", "codex"]);
+    assert_eq!(kept["state"], "ok", "{kept}");
+    assert!(world.take_mcp_calls().is_empty(), "remove touched the person's server");
 }
 
 /// Answers the app control requests on `listener` with `answer(method,
@@ -1566,4 +1647,43 @@ fn cmux_setup_trust_forgets_a_decision_recorded_under_another_spelling() {
     assert_eq!(forgot["state"], "changed", "{forgot}");
     assert_eq!(forgot["after"]["level"], "unknown", "{forgot}");
     assert_eq!(world.record(), Some(json!({})));
+}
+
+/// While the person has not answered the cmux Tools question (`agents.cmuxMcp`
+/// unset or `ask`), `cmux setup mcp` writes nothing into their agents, even
+/// with `"mcp": {"enabled": true}` (which is no answer: it is not a user-only
+/// key, so an agent can write it): it plans, names the question, and runs no
+/// CLI; `setup status` reports it as waiting on the person.
+#[test]
+fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
+    let world = World::new("mcp-ask").with_fake_mcp_clients();
+    let claude_json = world.home.join(".claude.json");
+    let codex_toml = world.home.join(".codex").join("config.toml");
+    for settings in [
+        json!({"mcp": {"enabled": true}}),
+        json!({"mcp": {"enabled": true}, "agents": {"cmuxMcp": "ask"}}),
+    ] {
+        world.settings(&settings);
+        let run = world.json(&["setup", "mcp"]);
+        let states =
+            run["clients"].as_array().unwrap().iter().map(|c| &c["state"]).collect::<Vec<_>>();
+        assert_eq!(states, [&json!("planned"), &json!("planned")], "{run}");
+        assert_eq!(run["state"], "needs_user", "{run}");
+        let text = run["user_action"]["text"].as_str().unwrap();
+        assert!(text.contains("agents.cmuxMcp"), "{text}");
+        assert!(!text.contains("\"mcp\": {\"enabled\": true}"), "{text}");
+        assert!(
+            world.take_mcp_calls().is_empty(),
+            "setup wrote before the person answered: {settings}"
+        );
+        assert!(!claude_json.exists() && !codex_toml.exists());
+        let status = world.json(&["setup", "status"]);
+        let check =
+            status["checks"].as_array().unwrap().iter().find(|c| c["task"] == "mcp").unwrap();
+        assert_eq!(check["state"], "needs_user", "{check}");
+        assert!(
+            check["clients"].as_array().unwrap().iter().all(|c| c["state"] == "ask"),
+            "{check}"
+        );
+    }
 }

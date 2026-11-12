@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -31,7 +32,7 @@ import Testing
     /// `updates.downloadAutomatically`; downloads, installs and cancels are counted.
     static func make(_ identity: UpdateBuildIdentity, optIn: Bool? = nil) -> (UpdaterService, Effects) {
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
-                                     defaults: UserDefaults(suiteName: "UpdateAsksBeforeInstallTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "UpdateAsksBeforeInstallTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false
         updater.notesLoader = { _ in nil }

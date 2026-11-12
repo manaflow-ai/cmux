@@ -19,8 +19,10 @@ STAGING_API = "https://cloud-api-staging.cmux.dev"
 
 class CloudChatProofTests(unittest.TestCase):
     def run_proof(self, *, backend_name="staging", backend=None, environment=None, wrong_bundle=False,
-                  signed_in=True, reply="CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain", cleanup_exit=0, app_exits=True):
+                  signed_in=True, reply="CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain", cleanup_exit=0, app_exits=True,
+                  from_folder=False, folder_reply=True):
         calls = []
+        folders = []
         clock = 0.0
         auth_reads = 0
         expected_api = STAGING_API if backend_name == "staging" else "https://cloud-api.cmux.dev"
@@ -63,10 +65,25 @@ class CloudChatProofTests(unittest.TestCase):
                 elif words[:2] == ["cloud", "start-chat"]:
                     self.assertEqual(words[0:3], ["cloud", "start-chat", "--prompt"])
                     self.assertIn("https://example.com/?cmux_browser_proof=", words[3])
-                    self.assertEqual(words[4:], ["--agent", "claude", "--name", "proof-test", "--wait",
-                                                 "--timeout", "600", "--json"])
+                    rest = words[4:]
+                    answer = reply
+                    if from_folder:
+                        # A plain folder outside home, holding only the one file whose word the prompt never names.
+                        self.assertEqual(rest[2], "--from-folder")
+                        folder = Path(rest[3])
+                        folders.append(folder)
+                        self.assertEqual([path.name for path in folder.iterdir()], ["cmux-folder-proof.txt"])
+                        self.assertFalse(str(folder).startswith(str(Path.home()) + "/"))
+                        word = (folder / "cmux-folder-proof.txt").read_text().strip()
+                        self.assertNotIn(word, words[3])
+                        self.assertIn("cmux-folder-proof.txt", words[3])
+                        if reply and folder_reply:
+                            answer = f"{reply} folder={word}"
+                        rest = rest[:2] + rest[4:]
+                    self.assertEqual(rest, ["--agent", "claude", "--name", "proof-test", "--wait",
+                                            "--timeout", "600", "--json"])
                     value = {"machine_id": "machine-proof", "session_id": "session-proof",
-                             "host": "guest.example.test", "reply": reply,
+                             "host": "guest.example.test", "reply": answer,
                              "turn": {"toolCalls": 1}}
                 elif words[:2] == ["cloud", "exec"]:
                     start_words = next(words for words in reversed(calls[:-1]) if words[:2] == ["cloud", "start-chat"])
@@ -91,7 +108,7 @@ class CloudChatProofTests(unittest.TestCase):
             argv = [str(SCRIPT), "--app", str(app), "--tag", "proof-test",
                     "--prompt", "Return the marker.", "--agent", "claude",
                     "--cloud-backend", backend_name, "--expected-api-origin", expected_api,
-                    "--evidence", str(evidence_path)]
+                    "--evidence", str(evidence_path)] + (["--from-folder"] if from_folder else [])
             with patch.object(sys, "argv", argv), patch("subprocess.run", side_effect=run), \
                     patch("subprocess.Popen", return_value=launcher) as launch, \
                     patch("time.monotonic", side_effect=lambda: clock), \
@@ -103,6 +120,8 @@ class CloudChatProofTests(unittest.TestCase):
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             launcher.wait.assert_called_once_with(timeout=60)
             self.assertTrue(evidence_path.is_file(), "Every terminal outcome must write its evidence")
+            for folder in folders:
+                self.assertFalse(folder.exists(), "The proof removes the folder it made")
             return stopped.exception.code, json.loads(evidence_path.read_text()), calls
 
     def assert_no_cloud_work(self, calls):
@@ -139,6 +158,21 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertEqual(calls[-1], ["app", "quit", "--json"])
                 self.assertEqual(steps["app exited"]["exit"], 0)
                 self.assertFalse(any(words[:2] == ["cloud", "env"] for words in calls))
+
+    def test_from_folder_reply_must_hold_the_word_only_the_folder_has(self):
+        code, evidence, _ = self.run_proof(from_folder=True)
+        self.assertEqual(code, 0, evidence)
+        self.assertEqual(evidence["result"], "pass")
+        self.assertTrue(evidence["from_folder"])
+        chat = next(step for step in evidence["steps"] if step["step"] == "cloud start-chat")
+        self.assertTrue(chat["folder_proof"]["word_in_reply"])
+        self.assertTrue(chat["reply"].startswith("CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain folder=folder"))
+
+    def test_from_folder_fails_when_the_reply_lacks_the_folder_word(self):
+        code, evidence, calls = self.run_proof(from_folder=True, folder_reply=False)
+        self.assertEqual(code, 1)
+        self.assertEqual(evidence["result"], "fail: the reply does not hold the word from the chat's folder (not copied, or not read)")
+        self.assertIn(["cloud", "kill-machine", "--target", "machine:machine-proof", "--confirm", "--json"], calls)
 
     def test_configured_staging_does_not_pass_with_actual_development_backend(self):
         code, evidence, calls = self.run_proof(backend="https://cmux-api-development.debussy.workers.dev")

@@ -4,11 +4,13 @@
 //! the caller sends it again after a crash or a daemon restart (the id is
 //! also looked up in the session's log).
 
+use crate::attach::Say;
 use crate::cli::output::{PromptId, queue_prompt};
 use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// A running daemon, or an error: delivering a message never starts one.
@@ -49,6 +51,30 @@ pub async fn deliver(
     steer: bool,
     provenance: Option<&Value>,
 ) -> Result<Value> {
+    deliver_attached(client, session, text, prompt_id, steer, provenance, &[], &|_| {}).await
+}
+
+/// [`deliver`] with the files at `paths` added to the prompt as `acpmux send --attach` adds them
+/// (`attach::blocks_for`: inline when they fit one message with the text, else uploaded to the
+/// chat first and named by reference, whatever their size or type). A file that cannot be read,
+/// or an upload the daemon refuses, fails it before the prompt goes. `say` gets the uploads'
+/// progress lines.
+#[allow(clippy::too_many_arguments)]
+pub async fn deliver_attached(
+    client: Arc<Client>,
+    session: &str,
+    text: &str,
+    prompt_id: &str,
+    steer: bool,
+    provenance: Option<&Value>,
+    paths: &[PathBuf],
+    say: Say<'_>,
+) -> Result<Value> {
+    let attachments = if paths.is_empty() {
+        Vec::new()
+    } else {
+        crate::attach::blocks_for(&client, session, text, paths, say).await?
+    };
     let prompt = PromptId {
         id: prompt_id.to_owned(),
         resend: true,
@@ -58,8 +84,13 @@ pub async fn deliver(
         pr: None,
         thread: None,
         cli_host: None,
-        attachments: Vec::new(),
+        from_harness: None,
+        attachments,
         notice: None,
+        relay: None,
+        sender_harness: None,
+        subagent: None,
+        wake_or_fail: false,
     };
     queue_prompt(client, session, text, steer, provenance, &prompt).await
 }

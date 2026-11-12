@@ -36,6 +36,7 @@ fn ctx(call: &str) -> CallContext {
         label: "Claude".into(),
         call_id: Some(call.into()),
         origin: OriginKind::Local,
+        tag: None,
     }
 }
 

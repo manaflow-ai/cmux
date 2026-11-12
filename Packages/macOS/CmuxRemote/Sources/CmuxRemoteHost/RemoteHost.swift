@@ -371,6 +371,16 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             }
             reply["id"] = id ?? NSNull()
             return RemoteWire.line(reply)
+        case "computer_use.session":
+            // The person's menu bar, through the daemon (Stop and Show Cursor from any local
+            // connection; Resume from the verified app only, checked there).
+            guard let line = Self.computerUseSessionLine(params) else {
+                return RemoteWire.failure(id: id, code: "bad_request",
+                                          message: "computer_use.session needs a session and action stop, resume, spotlight or raise_window")
+            }
+            var reply = await host.computerUse.request(line)
+            reply["id"] = id ?? NSNull()
+            return RemoteWire.line(reply)
         case "drain":
             lock.withLock { draining = true }
             statusChanged()
@@ -383,6 +393,20 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
                 return RemoteWire.line(reply)
             }
             return RemoteWire.failure(id: id, code: "unknown_method", message: "unknown method \(method)")
+        }
+    }
+
+    /// The worker's control line for a `computer_use.session` request, nil when it is malformed.
+    static func computerUseSessionLine(_ params: [String: Any]) -> [String: Any]? {
+        guard let session = params["session"] as? String, !session.isEmpty, session.utf8.count <= 256 else { return nil }
+        switch params["action"] as? String {
+        case let action? where action == "stop" || action == "resume":
+            var line: [String: Any] = ["type": "session", "action": action, "session": session]
+            if let label = params["label"] as? String { line["label"] = String(label.prefix(80)) }
+            return line
+        case "spotlight": return ["type": "cursor/spotlight", "session": session]
+        case "raise_window": return ["type": "window/raise", "session": session]
+        default: return nil
         }
     }
 

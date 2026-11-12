@@ -214,8 +214,17 @@ pub(crate) fn is_catalog_error_code(code: &str) -> bool {
     RESOURCE_ERROR_CODES.contains(&code)
 }
 
-pub(super) fn error_catalog() -> &'static Value {
-    static CATALOG: OnceLock<Value> = OnceLock::new();
+/// The catalog's `errors` and `types`, the only parts the error checks read. Its
+/// `operations` are most of its 1.2 MB, and as parsed values they took about 3.5 MB of
+/// every daemon's idle heap for nothing.
+#[derive(Deserialize)]
+pub(super) struct ErrorCatalog {
+    pub(super) errors: Value,
+    pub(super) types: Value,
+}
+
+pub(super) fn error_catalog() -> &'static ErrorCatalog {
+    static CATALOG: OnceLock<ErrorCatalog> = OnceLock::new();
     CATALOG.get_or_init(|| {
         serde_json::from_str(include_str!("../../../../spec/resource-operations-v2.json"))
             .expect("checked-in resource operation catalog")
@@ -223,7 +232,7 @@ pub(super) fn error_catalog() -> &'static Value {
 }
 
 pub(super) fn catalog_error_contract_matches(code: &str, details: &Value, retryable: bool) -> bool {
-    let Some(error) = error_catalog()["errors"].get(code) else { return false };
+    let Some(error) = error_catalog().errors.get(code) else { return false };
     error["retryable"].as_bool() == Some(retryable)
         && catalog_value_matches(details, &error["details"])
 }
@@ -287,7 +296,7 @@ pub(super) fn catalog_value_matches(value: &Value, descriptor: &Value) -> bool {
         }
         Some("ref") => descriptor["name"]
             .as_str()
-            .and_then(|name| error_catalog()["types"].get(name))
+            .and_then(|name| error_catalog().types.get(name))
             .is_some_and(|descriptor| catalog_value_matches(value, descriptor)),
         _ => false,
     }

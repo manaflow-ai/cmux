@@ -27,6 +27,7 @@ const AUTH_ENV: &[&str] = &[
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CONFIG_DIR",
     "OPENAI_API_KEY",
+    "CODEX_API_KEY",
     "CODEX_HOME",
     "XDG_DATA_HOME",
     "OPENCODE_CONFIG",

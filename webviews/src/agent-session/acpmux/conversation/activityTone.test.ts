@@ -5,16 +5,21 @@ import { join } from "node:path";
 const css = readFileSync(join(import.meta.dir, "conversation.css"), "utf8");
 const gallery = readFileSync(join(import.meta.dir, "transcript.gallery.ts"), "utf8");
 
-test("background activity has one secondary tone and lifts on hover or focus; a step row only on focus; a received message never", () => {
+test("background activity has one secondary tone; a row's words light on hover or keyboard focus, never its glyph; a received message never", () => {
   expect(css).toContain("--cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);");
-  // The lift skips a row whose session link chip has the focus: the chip lights alone (AgentTag.css).
-  // A tool run's or group's summary line (`is-run`) is left out: it lights on hover only. A sent
-  // message's row keeps one steady tone, as a received one's does.
-  expect(css).toContain(
-    ".cv-tool:not(.is-run, .cv-sent, .cv-agent-activity__control):focus-within:not(:has(.cv-agent-tag.is-open:focus)),",
+  // Codex parity (Lucas, 2026-11-06): only the words light, under the pointer or keyboard focus; a
+  // click or an opened row leaves no white behind. A sent message's row keeps one steady tone. An
+  // activity row's words light by the same rule, all the way through (Leo, 2026-11-09: "this
+  // scheduled check thing isn't highlighted all the way through like other tool calls are").
+  expect(css).toMatch(
+    /button\.cv-tool:not\(\.cv-sent, :disabled\):is\(:hover, :focus-visible\):not\(:has\(\.cv-agent-tag\.is-open:is\(:hover, :focus\)\)\)\s*> :is\(\.cv-tool__text, \.cv-command__text, \.cv-agent-activity__sentence\),[\s\S]*?\{\s*color: var\(--cv-text\);/,
   );
   expect(css).not.toContain(".cv-tool:focus-within");
+  expect(css).not.toMatch(/\.cv-tool:not\([^)]*\):focus-within:not/);
   expect(css).toMatch(/\.cv-tool\.is-run:hover > \.cv-tool__text \{\s*color: var\(--cv-text\);/);
+  // A thought's button ends with its chevron: the pointer on the empty line after an opened
+  // thought's words is not on the button, so the words go back to their rest tone (Lucas, 2026-11-06).
+  expect(css).toMatch(/\.cv-thought\.is-toggle \{[^}]*width: fit-content;\s*max-width: 100%;/);
   // A step row draws nothing more on hover (agent-pane-step-rows.test.ts).
   expect(css).not.toMatch(/\.cv-tool:hover(,| \.cv-tool__(chevron|detail))/);
   // Only the "Worked for" button lifts; the live line has nothing behind it (transcript-row-hover-scope.test.ts).

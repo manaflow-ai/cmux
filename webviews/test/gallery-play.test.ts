@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { runPlay, selectTextWithDriver, syntheticKey } from "../src/gallery/frame/playRunner";
+import { runPlay, selectTextWithDriver, syntheticKey, syntheticPointer } from "../src/gallery/frame/playRunner";
 import { isSubpixelLayoutShift } from "../src/gallery/play";
 
 const scope = globalThis as Record<string, unknown>;
@@ -12,6 +12,8 @@ const keys = [
   "HTMLInputElement",
   "ShadowRoot",
   "KeyboardEvent",
+  "MouseEvent",
+  "PointerEvent",
   "getComputedStyle",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
@@ -27,6 +29,8 @@ beforeAll(() => {
     HTMLInputElement: dom.window.HTMLInputElement,
     ShadowRoot: dom.window.ShadowRoot,
     KeyboardEvent: dom.window.KeyboardEvent,
+    MouseEvent: dom.window.MouseEvent,
+    PointerEvent: dom.window.PointerEvent ?? dom.window.MouseEvent,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   });
 });
@@ -142,6 +146,42 @@ describe("gallery shell keyboard emulation", () => {
     } finally {
       if (descriptor) Object.defineProperty(rangePrototype, "getClientRects", descriptor);
       else delete (rangePrototype as { getClientRects?: unknown }).getClientRects;
+    }
+  });
+});
+
+describe("gallery shell pointer emulation", () => {
+  test("a press holds the button through its moves and carries screen coordinates, as a person's does", () => {
+    const root = document.getElementById("root")!;
+    root.innerHTML = '<div id="card"></div><div id="row"></div>';
+    const card = document.getElementById("card")!;
+    const row = document.getElementById("row")!;
+    card.getBoundingClientRect = () => ({ x: 0, y: 400, width: 200, height: 40 }) as DOMRect;
+    row.getBoundingClientRect = () => ({ x: 0, y: 100, width: 200, height: 20 }) as DOMRect;
+    const seen: string[] = [];
+    const log = (event: Event) => {
+      const pointer = event as PointerEvent;
+      seen.push(
+        `${event.type} ${pointer.buttons} ${pointer.screenX - pointer.clientX},${pointer.screenY - pointer.clientY} ${pointer.screenY}`,
+      );
+    };
+    for (const type of ["pointerdown", "pointermove", "pointerup"]) root.addEventListener(type, log);
+    try {
+      syntheticPointer(row, "hover");
+      syntheticPointer(card, "down");
+      syntheticPointer(row, "move");
+      syntheticPointer(row, "up");
+      syntheticPointer(row, "move");
+      const origin = `${window.screenX},${window.screenY}`;
+      expect(seen).toEqual([
+        `pointermove 0 ${origin} ${110 + window.screenY}`,
+        `pointerdown 1 ${origin} ${420 + window.screenY}`,
+        `pointermove 1 ${origin} ${110 + window.screenY}`,
+        `pointerup 0 ${origin} ${110 + window.screenY}`,
+        `pointermove 0 ${origin} ${110 + window.screenY}`,
+      ]);
+    } finally {
+      for (const type of ["pointerdown", "pointermove", "pointerup"]) root.removeEventListener(type, log);
     }
   });
 });

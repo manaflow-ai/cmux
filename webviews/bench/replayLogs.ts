@@ -23,7 +23,10 @@ import { REPLAY_SESSION, replayFixtureEvents } from "../src/agent-session/acpmux
 
 /// A measured run of records inside a log: from `fromSeq` to `toSeq` (inclusive), each a token (a reply chunk) or a
 /// streamed tool output update, played one per painted frame when the transcript already holds `rows` rows.
-export type Burst = { kind: "token" | "tool_output"; fromSeq: number; toSeq: number; rows: number };
+export type Burst = { kind: BurstKind; fromSeq: number; toSeq: number; rows: number };
+/// What a burst streams: reply tokens, thought tokens, a shell call's output updates, or tool calls that start and end.
+export type BurstKind = "token" | "thought" | "tool_output" | "tool_call";
+export const BURST_KINDS: readonly BurstKind[] = ["token", "thought", "tool_output", "tool_call"];
 export type ReplayLog = {
   name: string;
   sessionId: string;
@@ -136,7 +139,14 @@ export function tokens(turn: number, count: number): string[] {
 /// `outputUpdates` updates of 40 lines each (acpmux sends a call's whole content each time, so each update is
 /// longer). The records are 1 minute of wall clock per turn apart, a second per streamed burst.
 export function longLog(
-  opts: { turns?: number; checkpoints?: number[]; tokenCount?: number; outputUpdates?: number } = {},
+  opts: {
+    turns?: number;
+    checkpoints?: number[];
+    tokenCount?: number;
+    outputUpdates?: number;
+    thoughtCount?: number;
+    toolCalls?: number;
+  } = {},
 ): ReplayLog {
   const turns = opts.turns ?? 600;
   const checkpoints = new Set(
@@ -144,6 +154,8 @@ export function longLog(
   );
   const tokenCount = opts.tokenCount ?? 80;
   const outputUpdates = opts.outputUpdates ?? 30;
+  const thoughtCount = opts.thoughtCount ?? 40;
+  const toolCalls = opts.toolCalls ?? 12;
   const sessionId = "replay-long";
   const start = Date.UTC(2026, 10, 3, 9, 0, 0);
   const events: EventRecord[] = [];
@@ -157,6 +169,15 @@ export function longLog(
     }
     push(at, { mux: "user_message", msg: { text: `Turn ${turn}: stream the fix and rerun the suite` } });
     push(at, { mux: "turn_started" });
+    // The turn thinks first, a thought token at a time, as Claude streams its thinking.
+    const thoughtRows = rowsIn(events);
+    const fromThought = events.length + 1;
+    tokens(turn, thoughtCount).forEach((token, index) =>
+      push(at + 200 + index * 10, {
+        update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: token } },
+      }),
+    );
+    bursts.push({ kind: "thought", fromSeq: fromThought, toSeq: events.length, rows: thoughtRows });
     const rows = rowsIn(events);
     const fromToken = events.length + 1;
     tokens(turn, tokenCount).forEach((token, index) => push(at + 1000 + index * 25, { update: text(token) }));
@@ -192,6 +213,32 @@ export function longLog(
     push(at + 7000, {
       update: { sessionUpdate: "tool_call_update", toolCallId, status: "completed", rawOutput: { exit_code: 0 } },
     });
+    // Then reads, each one a call that starts and ends: a new row for the pane, the bulk of an agent's turn.
+    const callRows = rowsIn(events);
+    const fromCall = events.length + 1;
+    for (let call = 0; call < toolCalls; call += 1) {
+      const readId = `replay-read-${turn}-${call}`;
+      const file = `src/feature${(turn + call) % 40}/step${turn}-${call}.ts`;
+      push(at + 7100 + call * 20, {
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: readId,
+          kind: "read",
+          title: `Read ${file}`,
+          status: "in_progress",
+          locations: [{ path: `/mock/project/${file}` }],
+        },
+      });
+      push(at + 7110 + call * 20, {
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: readId,
+          status: "completed",
+          content: [{ type: "content", content: { type: "text", text: sourceFile(turn + call, 12) } }],
+        },
+      });
+    }
+    bursts.push({ kind: "tool_call", fromSeq: fromCall, toSeq: events.length, rows: callRows });
     push(at + 7500, { update: text("\n\nThe suite passes.") });
     push(at + 8000, { mux: "turn_result", msg: { status: "completed" } });
   }

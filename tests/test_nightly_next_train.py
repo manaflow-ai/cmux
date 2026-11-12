@@ -539,7 +539,7 @@ class OwnedRefusal(unittest.TestCase):
         import yaml
         jobs = yaml.safe_load((ROOT / ".github/workflows/nightly-next-train.yml").read_text(encoding="utf-8"))["jobs"]
         pick = jobs["pick-train-runner"]
-        self.assertEqual(pick["environment"], "ci-routing-agent")
+        self.assertEqual(pick["environment"], {"name": "ci-routing-agent", "deployment": False})
         self.assertIn("nightly_build_runner.py", pick["steps"][-1]["run"])
         self.assertNotIn("DEDICATED_LABEL", pick["steps"][-1]["env"])
         # vars.NIGHTLY_NEXT_TRAIN_RUNNER reaches only OWNED_LABELS, and the picker offers no hosted Mac from it.

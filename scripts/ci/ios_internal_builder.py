@@ -386,8 +386,12 @@ def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, forc
                     since_failure=since_failure, drift=drift, force=force)
     _write_outputs(decision)
     if decision.reason.startswith("BLOCKED"):
-        # An annotation on the decide run; the builder's own newest run stays red, which is what alerts read.
+        # An annotation on the decide run; for a failure backoff the builder's own newest run stays red.
         print(f"::error title=cmux INTERNAL builder held::{decision.reason}")
+    if drift and not decision.build:
+        # Drift starts no builder run at all, so nothing else turns red: fail this run, on every push,
+        # until the packages are synced (check-tabskit-sync.sh). A green skip hid 26 hours of no uploads.
+        return 1
     return 0
 
 

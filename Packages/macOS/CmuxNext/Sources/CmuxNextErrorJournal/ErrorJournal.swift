@@ -22,13 +22,16 @@ public actor ErrorJournal {
     private let normalizer: ErrorNormalizer
     private let redactor: ErrorRedactor
     private var store: ErrorSegmentStore
-    private var table: [String: ErrorEntry]
+    private var table: [String: ErrorEntry] = [:]
+    /// Whether ``openIfNeeded()`` read what earlier launches kept.
+    private var opened = false
     private var dirty: Set<String> = []
     private let flushTimer: DemandTimer
     private var newFingerprints: [String: (minute: Int64, count: Int)] = [:]
     private var lastWriteError: String?
 
-    /// Opens (or creates) the journal in `directory` and reads what earlier launches kept.
+    /// Opens (or creates) the journal in `directory`. Cheap: what earlier launches kept is read on
+    /// the first call on the actor, never on the caller's thread.
     /// - Parameters:
     ///   - directory: The journal's own folder.
     ///   - limits: Disk, memory and storm bounds.
@@ -36,20 +39,46 @@ public actor ErrorJournal {
     ///   - now: The current date; tests pass a fixed one.
     public init(directory: URL, limits: ErrorJournalLimits = ErrorJournalLimits(),
                 clock: any Clock<Duration> = ContinuousClock(), now: @escaping @Sendable () -> Date = { Date() }) {
+        // Nothing here reads the journal: the app opens it on the main thread at launch, and
+        // reading and re-redacting up to 4 MiB there held it 3.1 s. The first call on the actor reads it.
         self.directory = directory
         self.limits = limits
         flushTimer = DemandTimer(owner: "error-journal.flush", clock: clock)
         self.now = now
-        let normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)
+        normalizer = ErrorNormalizer(maxBytes: limits.maxMessageBytes)
         let redactor = ErrorRedactor()
-        self.normalizer = normalizer
         self.redactor = redactor
-        var store = ErrorSegmentStore(directory: directory, segmentBytes: limits.segmentBytes)
-        let snapshots = store.load()
+        store = ErrorSegmentStore(directory: directory, segmentBytes: limits.segmentBytes, redaction: redactor.rulesDigest)
+    }
+
+    /// Reads what earlier launches kept, once, on the actor. A line stamped with today's rules
+    /// (``ErrorRedactor/rulesDigest``) was redacted by them when it was written, so it is only
+    /// decoded. Otherwise (a line from before the stamp, an older build, or other rules) the newest
+    /// line per fingerprint is re-redacted with today's rules, entries whose fingerprints now agree
+    /// merge, and the file is rewritten with every line stamped, which drops shadowed history too.
+    /// Re-redacting every line on every open cost ~18 s of CPU for a 2 MB journal in a debug build.
+    /// Every isolated entry point calls it first.
+    private func openIfNeeded() {
+        guard !opened else { return }
+        opened = true
+        // The newest line per fingerprint wins (lines come oldest first); only winners are redacted.
+        var newest: [String: StoredErrorEntry] = [:]
+        var stale = false
+        for line in store.load() {
+            if line.redaction != redactor.rulesDigest { stale = true }
+            newest[line.entry.fingerprint] = line
+        }
+        guard stale else {
+            table = newest.mapValues(\.entry)
+            return
+        }
         var latestByOriginalFingerprint: [String: ErrorEntry] = [:]
-        var changed = false
-        for var entry in snapshots {
-            let original = entry
+        for (originalFingerprint, line) in newest {
+            guard line.redaction != redactor.rulesDigest else {
+                latestByOriginalFingerprint[originalFingerprint] = line.entry
+                continue
+            }
+            var entry = line.entry
             let template = redactor.redact(entry.template).utf8Prefix(limits.maxMessageBytes)
             let sample = redactor.redact(entry.sample).utf8Prefix(limits.maxMessageBytes)
             let topFrame = entry.topFrame.map { redactor.redact($0).utf8Prefix(256) }
@@ -65,22 +94,16 @@ public actor ErrorJournal {
                 template: template,
                 topFrame: topFrame
             ).hex
-            if entry != original { changed = true }
-            latestByOriginalFingerprint[original.fingerprint] = entry
+            latestByOriginalFingerprint[originalFingerprint] = entry
         }
         var loaded: [String: ErrorEntry] = [:]
         for originalFingerprint in latestByOriginalFingerprint.keys.sorted() {
             guard let entry = latestByOriginalFingerprint[originalFingerprint] else { continue }
             loaded[entry.fingerprint] = Self.mergeLoaded(loaded[entry.fingerprint], with: entry)
         }
-        var migrationError: String?
-        if changed {
-            do { try store.compact(loaded.values.sorted { $0.lastMs < $1.lastMs }) }
-            catch { migrationError = String(describing: error) }
-        }
+        do { try store.compact(loaded.values.sorted { $0.lastMs < $1.lastMs }) }
+        catch { lastWriteError = String(describing: error) }
         table = loaded
-        self.store = store
-        lastWriteError = migrationError
     }
 
     private static func mergeLoaded(_ existing: ErrorEntry?, with incoming: ErrorEntry) -> ErrorEntry {
@@ -98,12 +121,14 @@ public actor ErrorJournal {
 
     /// Folds one occurrence into its entry and schedules the write.
     public func record(_ event: ErrorEvent) {
+        openIfNeeded()
         fold(event)
         scheduleFlush()
     }
 
     /// Folds many occurrences and schedules one write.
     public func record(contentsOf events: [ErrorEvent]) {
+        openIfNeeded()
         for event in events { fold(event) }
         scheduleFlush()
     }
@@ -124,6 +149,7 @@ public actor ErrorJournal {
 
     /// The entries `query` selects, in its order.
     public func entries(_ query: ErrorQuery = ErrorQuery()) -> [ErrorEntry] {
+        openIfNeeded()
         let matching = table.values.filter(query.matches)
         let sorted: [ErrorEntry] = switch query.order {
         case .recent: matching.sorted { ($0.lastMs, $0.count) > ($1.lastMs, $1.count) }
@@ -133,18 +159,25 @@ public actor ErrorJournal {
     }
 
     /// Distinct fingerprints kept.
-    public var entryCount: Int { table.count }
+    public var entryCount: Int {
+        openIfNeeded()
+        return table.count
+    }
 
     /// Bytes of the segment files on disk.
     public var diskBytes: Int { store.diskBytes() }
 
     /// The last write failure, or nil when the last write worked.
-    public var writeError: String? { lastWriteError }
+    public var writeError: String? {
+        openIfNeeded()
+        return lastWriteError
+    }
 
     /// Forgets the given fingerprints (all of them when nil) and rewrites the file.
     /// - Returns: How many entries were removed.
     @discardableResult
     public func clear(fingerprints: [String]? = nil) -> Int {
+        openIfNeeded()
         var candidate = table
         let removed: Int
         if let fingerprints {
@@ -175,6 +208,7 @@ public actor ErrorJournal {
     /// - Returns: New occurrences per source id.
     @discardableResult
     public func harvest(_ sources: [any ErrorHarvestSource]) async -> [String: Int] {
+        openIfNeeded()
         var cursors = loadCursors()
         var found: [String: Int] = [:]
         for source in sources {

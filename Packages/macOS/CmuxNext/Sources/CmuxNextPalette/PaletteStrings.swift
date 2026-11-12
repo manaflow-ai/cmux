@@ -32,6 +32,20 @@ nonisolated enum PaletteStrings {
         String(localized: "palette.toggle.titleWithState", defaultValue: "\(title) · \(state)", bundle: .module)
     }
     static var noResults: String { String(localized: "palette.noResults", defaultValue: "No Results", bundle: .module) }
+    static var create: String { String(localized: "palette.command.create", defaultValue: "Create", bundle: .module) }
+    static var sectionNoMatch: String { String(localized: "palette.section.noMatch", defaultValue: "Use What You Typed", bundle: .module) }
+    static func noMatchAskAgent(_ text: String) -> String {
+        String(localized: "palette.noMatch.askAgent", defaultValue: "Ask Agent “\(text)”", bundle: .module)
+    }
+    static func noMatchSearchWeb(_ text: String) -> String {
+        String(localized: "palette.noMatch.searchWeb", defaultValue: "Search the Web for “\(text)”", bundle: .module)
+    }
+    static func noMatchNewWorkspace(_ text: String) -> String {
+        String(localized: "palette.noMatch.newWorkspace", defaultValue: "New Workspace “\(text)”", bundle: .module)
+    }
+    static func noMatchRunCommand(_ text: String) -> String {
+        String(localized: "palette.noMatch.runCommand", defaultValue: "Run “\(text)” in a New Workspace", bundle: .module)
+    }
     static var noResultsHint: String { String(localized: "palette.noResults.hint", defaultValue: "Try a different search, or press Esc to go back.", bundle: .module) }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .module) }
     static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .module) }
@@ -138,6 +152,10 @@ nonisolated enum PaletteStrings {
     }
     static func chooseArgument(_ name: String) -> String {
         String(localized: "palette.chooseArgument", defaultValue: "Choose \(name)…", bundle: .module)
+    }
+    /// The empty prompt of an optional argument the palette asks for (`isAskedInPalette`).
+    static func optionalArgument(_ name: String) -> String {
+        String(localized: "palette.optionalArgument", defaultValue: "\(name) (optional)", bundle: .module)
     }
     static func submitTextFormat(title: String, text: String) -> String {
         String(localized: "palette.submitText", defaultValue: "\(title) “\(text)”", bundle: .module)

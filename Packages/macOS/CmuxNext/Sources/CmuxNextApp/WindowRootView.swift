@@ -41,6 +41,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// `sidePins`); their constants are the main pane's gutter.
     var mainPaneEdges: [NSLayoutConstraint] = []
     private var mainPaneObservation: Task<Void, Never>?
+    let cornerFlush = CornerFlushChrome(frame: .zero)
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
     var sidebarSide: SidebarSide = .left {
@@ -88,6 +89,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// Opens the collapsed band while the top-left corner is hovered.
     let collapsedBand: CollapsedBandReveal
+    let sidebarFloat: SidebarFloat // the hidden sidebar floats from the window's edge (`sidebar.floatOnHover`)
     /// The right sidebar (`WindowController+RightSidebar`), on the edge
     /// opposite the sidebar; nil until it first shows.
     var rightPanel: RightSidebarView? {
@@ -132,6 +134,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
          revealClock: any Clock<Duration> = ContinuousClock()) {
         (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
         collapsedBand = CollapsedBandReveal(clock: revealClock)
+        sidebarFloat = SidebarFloat(container: sidebar, clock: revealClock)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
         super.init(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
@@ -176,12 +179,14 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         applyTokens()
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
+        sidebarFloat.install(in: self) { [weak self] in self?.applySidebarRail() }
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
                                            TitlebarBandButton.side, TitlebarToolbarBand.width, Metrics.space2, Metrics.space3,
                                            DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
+                                           DesignSettings.shared.sidebarSections.floatOnHover ? 1 : 0,
                                            DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
                 self?.applyTokens()
                 self?.applyTitlebarButtonsMode()
@@ -249,6 +254,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
     var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    /// Swift live mode's "Live mode" mark, last in the top row (`layoutTitlebarAccessories`).
+    var liveModeBadge: NSView? { didSet { oldValue?.removeFromSuperview(); liveModeBadge.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under
@@ -301,7 +308,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             lightsMaxX = local.maxX
-            midY = local.midY
+            midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
         let bandHeight = TitlebarBandButton.side
@@ -320,8 +327,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
+        sidebarFloat.layout(in: self, rowHeight: rowHeight, sidebarHidden: sidebarHidden, side: sidebarSide, cornerRadius: mainPaneCornerRadius)
         layoutRightPanel(rowHeight: rowHeight)
         layoutTitlebarAccessories(midY: midY)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        // Pixel-aligned titlebar frames depend on the window's current scale. A
+        // display move can change it without changing the view bounds, so mark
+        // the whole chrome for a fresh layout instead of leaving half-point
+        // edges until the next unrelated token update.
+        needsLayout = true
     }
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
@@ -380,6 +397,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
         onContentChange?()
+        sidebarFloat.reconcile() // Home may have come or gone
     }
 
     /// Takes `view` off screen: a workspace hides in place, sized only when shown again (no layout
@@ -408,6 +426,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         paintBackground()
+        applyMainPane() // the window's lit rim (`Metrics.windowEdgeInset`) depends on the window
     }
 
     /// A later subview must not cover the window's agent cursor while it

@@ -23,7 +23,14 @@ pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
 mod connection_leases;
+mod disk_usage;
 pub use connection_leases::{ConnectionLease, PeerClosed};
+#[cfg(test)]
+pub(crate) use disk_usage::journal_bytes_by_kind;
+pub use disk_usage::{
+    DEFAULT_JOURNAL_KIND_BUDGET, DiskUsageCache, DiskUsageSnapshot, JOURNAL_KIND_BUDGETS,
+    REGISTRY_BYTES_PER_SESSION_PER_DAY, bytes_per_day, journal_kind_budget, read_disk_usage,
+};
 mod hook_queue;
 mod write_path;
 pub use hook_queue::{
@@ -822,6 +829,10 @@ pub struct ServerStatsSnapshot {
     /// session serves a socket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hook_queue: Option<HookQueueSnapshot>,
+    /// Present only when the request names `disk` in `include` and the
+    /// session keeps its registry on disk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disk: Option<DiskUsageSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

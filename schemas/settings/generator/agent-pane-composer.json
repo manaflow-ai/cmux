@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/agent-pane-composer.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentPaneComposer.generated.swift",
+  "type": "AgentPaneComposerSettingsSchema",
+  "lists": {
+    "composer": ["descriptors", "AgentPaneComposerSetting"]
+  }
+}

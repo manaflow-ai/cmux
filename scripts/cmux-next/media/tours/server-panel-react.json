@@ -1,0 +1,91 @@
+{
+  "title": "The server's menu bar panel and Health on the React server card page (#37321); display shots need a whole capture host (--whole-host)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Open Server Status",
+      "cmux": [
+        "action",
+        "run",
+        "server.showPanel"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Dark: the menu bar item's panel",
+      "display": true,
+      "wait": 1,
+      "optional": "a display shot needs a whole capture host"
+    },
+    {
+      "title": "Open Server Health",
+      "cmux": [
+        "action",
+        "run",
+        "server.showHealth"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Dark: Health in the same popover",
+      "display": true,
+      "wait": 1,
+      "optional": "a display shot needs a whole capture host"
+    },
+    {
+      "title": "Light",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
+      },
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Open Server Status",
+      "cmux": [
+        "action",
+        "run",
+        "server.showPanel"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Light: the menu bar item's panel",
+      "display": true,
+      "wait": 1,
+      "optional": "a display shot needs a whole capture host"
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}

@@ -73,7 +73,7 @@ public nonisolated struct KeyBindingDefaults {
     ]
 
     /// The Chief chat's zoom: every key of theirs (a default, a cmux.json or a Settings rebind) runs only
-    /// where ``onHome`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
+    /// where ``onChiefZoom`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
     public static let homeScoped: Set<ActionID> = ["home.zoomIn", "home.zoomOut", "home.zoomReset"]
 
     /// The tab keys on Home: the keys that cycle a pane's tabs move through Home's chat list in
@@ -133,11 +133,12 @@ public nonisolated struct KeyBindingDefaults {
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
         // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
         KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
-        // Cmd-= / Cmd-+ / Cmd-- / Cmd-0 on Home zoom the Chief chat, as they zoom an agent chat or a page.
-        KeyBinding(keys: [Shortcut("=", modifiers: [.command])], command: "home.zoomIn", when: onHome),
-        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "home.zoomIn", when: onHome),
-        KeyBinding(keys: [Shortcut("-", modifiers: [.command])], command: "home.zoomOut", when: onHome),
-        KeyBinding(keys: [Shortcut("0", modifiers: [.command])], command: "home.zoomReset", when: onHome),
+        // Cmd-= / Cmd-+ / Cmd-- / Cmd-0 on Home and on Bring your history zoom the Chief chat, as they
+        // zoom an agent chat or a page.
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command])], command: "home.zoomIn", when: onChiefZoom),
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "home.zoomIn", when: onChiefZoom),
+        KeyBinding(keys: [Shortcut("-", modifiers: [.command])], command: "home.zoomOut", when: onChiefZoom),
+        KeyBinding(keys: [Shortcut("0", modifiers: [.command])], command: "home.zoomReset", when: onChiefZoom),
         // Cmd-W in the sidebar with several rows selected closes them, as Chrome's Cmd-W closes its
         // selected tabs (Leo 2026-10-20); with one row selected it still closes the shown tab.
         KeyBinding(keys: [Shortcut("w", modifiers: [.command])], command: "closeWorkspace", when: sidebarMultiSelection),
@@ -151,6 +152,23 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.topPage, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home-dock")),
+    ])
+
+    /// The `topPage` of a window that shows Bring your history on top (the first-run import over Home).
+    public static let historyImportTopPage = "import-history"
+
+    /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms), and Bring your history
+    /// (`cmux.import-history`) as the window's top page or with the keyboard in a pane, whose page
+    /// zooms with the Chief chat (`PageWebView.followsChatZoom`; issue 38049: Cmd-= / Cmd-- did
+    /// nothing on the first-run import). As on Home, the top page takes the zoom keys wherever the
+    /// window's keyboard is (a sidebar click leaves it shown). One flat `or`, the tree its text
+    /// parses back to, so the Rust catalog's text form (`bindings.rs`) gives this clause.
+    public static let onChiefZoom = WhenClause.or([
+        .equals(KeyContext.topPage, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home-dock")),
+        .equals(KeyContext.topPage, .string(historyImportTopPage)),
+        .equals(KeyContext.pageID, .string("cmux.import-history")),
     ])
 
     /// The arrow aliases for pane resize. These are defaults in addition to
@@ -180,9 +198,17 @@ public nonisolated struct KeyBindingDefaults {
     /// user's Ghostty config still wins over them. In a web page, the Markdown
     /// viewer and other surfaces with their own Back / Forward, the more
     /// specific catalog entry on the same key comes later and wins.
+    ///
+    /// Ctrl-- / Ctrl-Shift-- (VS Code's Go Back / Forward, the catalog keys before Opt-Cmd-, /
+    /// Opt-Cmd-.) stay everywhere but a focused terminal, where Ctrl-_ is readline/emacs undo.
+    /// The catalog keys Opt-Cmd-, / Opt-Cmd-. run the titlebar's Back / Forward in every pane, a web
+    /// page and a terminal included (Lawrence 2026-11-07: "we need a new shortcut for back and forth
+    /// by default for top left one not browser one").
     public static let focusHistoryAliases: [KeyBinding] = [
         KeyBinding(keys: [Shortcut("[", modifiers: [.command])], command: "focusHistoryBack", when: notWebPage),
         KeyBinding(keys: [Shortcut("]", modifiers: [.command])], command: "focusHistoryForward", when: notWebPage),
+        KeyBinding(keys: [Shortcut("-", modifiers: [.control])], command: "focusHistoryBack", when: notTerminal),
+        KeyBinding(keys: [Shortcut("-", modifiers: [.control, .shift])], command: "focusHistoryForward", when: notTerminal),
     ]
     /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
     /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
@@ -201,11 +227,15 @@ public nonisolated struct KeyBindingDefaults {
     public static var actionAliases: [KeyBinding] { tabCycleAliases + paneResizeAliases + paneFocusAliases + focusHistoryAliases + zoomAliases + spaceAliases }
 
     /// The space keys (plans/cmux-next/spaces-overhaul-DESIGN.md "Keys"). Previous / Next Space's catalog
-    /// keys are Ctrl-Opt-Cmd-Left / Right; Opt-Cmd-[ / ] stay as aliases (not in the code editor, whose keys they are). Select Space 1…9 keeps its
+    /// keys are Ctrl-Opt-Cmd-H / L, vim's left / right (Lawrence, 2026-11-07); Ctrl-Opt-Cmd-Left / Right
+    /// (the catalog keys before) and Opt-Cmd-[ / ] stay as aliases (the brackets not in the code editor,
+    /// whose keys they are). Select Space 1…9 keeps its
     /// catalog Ctrl-Opt-1…9 (the Number Keys card's scheme, ``ShortcutDigitScheme``) and adds
     /// Ctrl-Opt-Cmd-1…9. Ctrl-Cmd-arrows and Ctrl-Cmd-digits were asked for, but they are Ghostty's
     /// reserved pane resize and Focus Pane by Number; Ctrl-arrows and Ctrl-digits are Mission Control's.
     public static let spaceAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .option, .command])], command: "space.previous", when: .not(.has(KeyContext.codeEditorFocusedKey))),
+        KeyBinding(keys: [Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .option, .command])], command: "space.next", when: .not(.has(KeyContext.codeEditorFocusedKey))),
         KeyBinding(keys: [Shortcut("[", modifiers: [.option, .command])], command: "space.previous", when: .not(.has(KeyContext.codeEditorFocusedKey))),
         KeyBinding(keys: [Shortcut("]", modifiers: [.option, .command])], command: "space.next", when: .not(.has(KeyContext.codeEditorFocusedKey))),
     ] + (1...9).map { KeyBinding(keys: [Shortcut(String($0), modifiers: [.control, .option, .command])], command: "space.selectByNumber", argument: String($0)) }
@@ -219,14 +249,13 @@ public nonisolated struct KeyBindingDefaults {
     public static let yieldsToCodeEditor: Set<ActionID> = [
         "splitRight", "openBrowser", "focusUp", "focusDown",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-        "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
+        "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "home.openChiefDock", "focusLocation", "groupSelectedWorkspaces",
         // VS Code's Insert Line Below / Above (Cmd-Return, Shift-Cmd-Return; Lawrence 2026-10-19:
         // "all common vscode shortcuts").
         "toggleChecklistItemComplete", "toggleSplitZoom",
     ]
 
-    /// Actions whose default key a terminal program also uses (Ctrl-_ is
-    /// readline/emacs undo): their default binding applies everywhere but a
+    /// Actions whose default key a terminal program also uses: their default binding applies everywhere but a
     /// focused terminal (`notTerminal`, like Ctrl-Tab under K-T1;
     /// PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS amendment 3). A user
     /// binding keeps its own `when`.
@@ -235,7 +264,6 @@ public nonisolated struct KeyBindingDefaults {
     /// Cmd-Return (checklist item) reaches the terminal program, as in the shipping cmux
     /// (plans/cmux-next/terminal-shortcuts.md).
     public static let yieldsToTerminal: Set<ActionID> = [
-        "focusHistoryBack", "focusHistoryForward",
         "increaseWorkspaceTerminalFontSize", "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
         "groupSelectedWorkspaces", "toggleChecklistItemComplete",
     ]

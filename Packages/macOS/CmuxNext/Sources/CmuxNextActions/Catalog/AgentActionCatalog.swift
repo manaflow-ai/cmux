@@ -51,11 +51,13 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
-                keywords: ["agent", "chat", "ai", "acpmux"], defaultShortcut: Shortcut("i", modifiers: [.command]),
+                // Cmd-I moved to Show/Hide Chief (user 2026-11-05: "make cmd + i open the chief dock from now
+                // on"); New Agent Chat keeps the leader chord Cmd-J S (`LeaderLayer`) and the palette.
+                keywords: ["agent", "chat", "ai", "acpmux"],
                 category: .agents, symbol: "bubble.left.and.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                // These optional values are one schema for Cmd-I extensions, the palette chooser,
-                // CLI and MCP. With none present the handler keeps Cmd-I's inherited seed.
+                // These optional values are one schema for keyboard extensions, the palette chooser,
+                // CLI and MCP. With none present the handler keeps the keyboard's inherited seed.
                 arguments: [
                     ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module), kind: .string, isRequired: false),
                     ActionArgument(name: "harness", title: String(localized: "argument.agent.harness", defaultValue: "Harness", bundle: .module), kind: .string, isRequired: false),
@@ -74,6 +76,16 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // Destination selection is the palette action's only step; it resolves the
                 // destination's focused pane rather than capturing the local palette context.
                 arguments: [CatalogArgument.agentHostMachine], targets: [],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            // New Cloud Chat: a new agent chat whose composer has Cloud picked, the Where menu's own
+            // Cloud row (the page runs the pick; Leo 2026-11-08 on teammates starting a Cloud chat:
+            // "how would they know?"). The CLI starts Cloud chats with `cmux cloud move` or a send.
+            ActionDescriptor(
+                id: "palette.newCloudChat",
+                title: String(localized: "action.palette.newCloudChat", defaultValue: "New Cloud Chat", bundle: .module),
+                keywords: ["agent", "chat", "new", "cloud", "vm", "remote", "machine", "sleep"],
+                category: .agents, symbol: "cloud", surfaces: [.palette], targets: [],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
@@ -293,6 +305,21 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
+            // The floating mini (the Chief pet) stands for the focused chat (Leo 2026-11-07); run while
+            // it does, it gives the mini back to the Chief (its palette title says so). Person-only:
+            // with the mini managed off it opens the mini's reply box, which takes the keyboard.
+            {
+                var showInMini = ActionDescriptor(
+                    id: "agentPane.showInMini",
+                    title: String(localized: "action.agentPane.showInMini", defaultValue: "Show in Mini", bundle: .module),
+                    keywords: ["agent", "chat", "mini", "pet", "chief", "floating", "avatar", "coordinator"],
+                    category: .agents, symbol: "pip", surfaces: [.palette],
+                    requires: [.agentPaneFocused], targets: [.pane],
+                    surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+                )
+                showInMini.isPersonOnly = true
+                return showInMini
+            }(),
             ActionDescriptor(
                 id: "agentPane.archiveChat",
                 title: String(localized: "action.agentPane.archiveChat", defaultValue: "Archive Chat", bundle: .module),

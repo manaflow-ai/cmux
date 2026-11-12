@@ -65,7 +65,7 @@ extension AppActions {
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG || CMUX_BENCH_HOOKS
-        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel))
+        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, homes: services.home.chiefHomes))
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
@@ -99,8 +99,9 @@ extension AppActions {
         bindHomeConversations(services)
         bindHomeGroups(services)
         bindHomeMessaging(services)
+        services.home.chiefHomes.bind(into: registry)  // Start now on a queued agent: its pill's menu, the palette, the CLI
         // Debug > Save Last 10 Seconds (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).
-        HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? []).bind(into: registry)
+        HomeDebugActions(flightRecorderOff: RefusalStrings.homeFlightRecorderOff, themeFolders: Bundle.main.resourceURL.map { [$0.appending(path: "ghostty/themes")] } ?? [], homes: services.home.chiefHomes).bind(into: registry)
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
@@ -242,7 +243,7 @@ extension AppActions {
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
         // The unpinned group this close may empty (cx-rcby), read before the workspace leaves; `deleteIfEmpty` rechecks.
         let personalGroup = PersonalGroupLife(machines: services.machines).groupsClosing([id]).first
-        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
+        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
@@ -280,6 +281,10 @@ extension AppActions {
                     if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     if failure == nil, let personalGroup {
                         PersonalGroupLife(machines: services.machines).deleteIfEmpty(personalGroup, failed: { _ in controller?.sidebar.resync() })
+                    }
+                    // A person's close of a Cloud workspace keeps its machine (Leo, 2026-11-08): say so, and until when.
+                    if failure == nil, invocation.origin == .user, let machine = services.machines.session(daemon.machineID)?.machine, let shown = controller?.window ?? services.windows.active?.window {
+                        CmuxToastCenter.shared.show(CmuxToast(id: "cloud-close-keeps-machine", message: CloudStrings.closeKeepsMachine(until: machine.evictAt), duration: .seconds(8)), in: shown)
                     }
                     guard hidden else { return failure }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, reason: WorkspaceClose.shownReason(failure), in: controller?.window)

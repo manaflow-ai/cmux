@@ -32,22 +32,21 @@ import CmuxNextScreenshots
 /// not its child; another of the app's titled windows in front at the same
 /// level, with its own child windows and sheets, is left out. The window, its
 /// child windows and those windows are one window server composite
-/// (``NSWindow/compositedSnapshotWithOverlays()``), so a glass popover or menu
+/// (``NSWindow/compositedImageWithOverlays(cuttingOverlays:capture:)``), so a glass popover or menu
 /// blurs the window under it, as on screen (composited apart, it came out grey). The
 /// async verb also paints each engine's own image of every shown page
 /// (`webviews`, `chromium_pages`, with `_composited` and `_failed` counts),
+/// and of their docked DevTools (`devtools_not_captured`: striped, Chromium gave no image),
 /// since the window server
 /// leaves out page content other processes draw unless the app has the
 /// Screen Recording grant. `webviews: false` skips the page images (the
 /// window server's image alone).
 ///
-/// A refusal (`RefusalHUD`) shows as a toast that fades in and ends after
-/// 4 s (later while the pointer is on it), so its pixels are not a reliable
-/// assertion: a capture may land before the fade or after it ends. Every
-/// reply therefore carries `refusal_hud`: the message the refusal toast
-/// shows now (null when none) and `refusal_hud_count`, the messages shown so
-/// far. Check those (or `debug.toast`) instead of looking for the toast in
-/// the PNG.
+/// A refusal (`RefusalHUD`) shows as a toast that fades in and ends after 4 s (later while the
+/// pointer is on it), so its pixels are not a reliable assertion: a capture may land before the
+/// fade or after it ends. Every reply therefore carries `refusal_hud`: the message the refusal
+/// toast shows now (null when none) and `refusal_hud_count`, the messages shown so far. Check
+/// those (or `debug.toast`) instead of looking for the toast in the PNG.
 enum DebugWindowSnapshot {
     /// How long `debug.window_snapshot` may take, instead of the 2 s control-plane deadline. The
     /// capture runs on the main actor and takes about 50 ms once it runs, but on a capture mini
@@ -73,10 +72,10 @@ enum DebugWindowSnapshot {
         do {
             // The window with its child windows and the app's menus, cards and popovers over it,
             // composited together as on screen; else AppKit drawing (no child windows).
-            let together = window.compositedSnapshotWithOverlays()
-            let snapshot = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) } ?? window.snapshotImage()
-            // Read before the encode's await: a sheet may close meanwhile.
+            // Read before the capture's await: a sheet may close meanwhile.
             let children = window.visibleChildWindows.count
+            let together = await window.compositedImageWithOverlays()
+            let snapshot = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) } ?? window.snapshotImage()
             let output = snapshot.image
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
@@ -128,20 +127,19 @@ enum DebugWindowSnapshot {
             // without it, AppKit drawing with the live web views hidden, so the
             // page snapshots below fill each rectangle exactly once, and the
             // overlay panels painted on top at the end.
-            let together = window.compositedSnapshotWithOverlays()
+            // The overlays are cut from the composite in the same capture, before the page images' awaits: a popover
+            // that opened meanwhile is not in the composite, and its cut would be the window under it.
+            // The child windows each layer brings, read with the capture's plan, so the result counts
+            // only the ones the image includes (none from a missing layer).
+            let children = window.visibleChildWindows
+            let together = await window.compositedImageWithOverlays(cuttingOverlays: { !WindowOverlayHost.isPageWindow($0) })
             let base = try together.map { (image: $0.image, method: WindowSnapshotMethod.composited) }
                 ?? window.renderSnapshot(hiding: webViews)
-            // The overlays cut from the composite now, before the page images' awaits: a popover
-            // that opened meanwhile is not in the composite, and its cut would be the window under it.
-            let overlays = base.method == .composited
-                ? window.overlays(cutFrom: base.image, includeChild: { !WindowOverlayHost.isPageWindow($0) }) : nil
+            let overlays = together?.overlays
             var layers: [WindowImageLayer] = []
-            // The child windows each layer brings, so the result counts only
-            // the ones the image includes (none from a missing layer).
-            let children = window.visibleChildWindows
             let pageChildren = children.filter(WindowOverlayHost.isPageWindow).count
             var childrenIncluded = base.method == .composited ? children.count : 0
-            if base.method == .appkit, let pageWindows = window.childWindowsSnapshot(includeChild: WindowOverlayHost.isPageWindow) {
+            if base.method == .appkit, let pageWindows = await window.childWindowsImage(includeChild: WindowOverlayHost.isPageWindow) {
                 layers.append(.window(pageWindows))
                 childrenIncluded += pageChildren
             }
@@ -162,22 +160,16 @@ enum DebugWindowSnapshot {
             let pages = chromiumPages(in: window, services: services)
             var pagesFailed = 0
             for (page, rect) in pages {
-                do {
-                    // The page window's holes (find bar, prompt bar, error
-                    // page, the whole New Tab page) show the window there, as
-                    // on screen.
-                    let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
-                    let clip = WindowImageClip(page.pageWindowClip)
-                    layers.append(.page(try await page.snapshot(), rect, holes: holes, clip: clip))
-                } catch {
-                    pagesFailed += 1
-                }
+                guard let image = try? await page.snapshot() else { pagesFailed += 1; continue }
+                // The page window's holes (find bar, prompt bar, error page, the whole New Tab page) show the window there, as on screen.
+                let holes = page.pageWindowHoles.map { page.contentView.convert($0, to: nil) }
+                layers += WindowImageLayer.chromiumPage(image, rect, holes: holes, clip: page.pageWindowClip, devTools: await page.dockedDevToolsPicture())
             }
             // React pages on the Chromium engine (the agent page, Settings) draw the same way.
             let reactPages = PageRegistry.shownChromiumPages(in: window)
             for (page, rect) in reactPages {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
-                layers.append(.page(image, rect, holes: page.chromiumWindowHoles, clip: WindowImageClip(page.chromiumWindowClip))) // a chat leaves its pane's tabs uncovered
+                layers += WindowImageLayer.chromiumPage(image, rect, holes: page.chromiumWindowHoles, clip: page.chromiumWindowClip, devTools: await page.chromiumDevTools()) // a chat leaves its pane's tabs uncovered
             }
             var floatingCount = together?.floating ?? 0
             if base.method == .composited {
@@ -187,19 +179,19 @@ enum DebugWindowSnapshot {
                     layers.append(.window(overlays))
                 }
             } else {
-                if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+                if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
                     layers.append(.window(panels))
                     childrenIncluded += children.count - pageChildren
                 }
                 // Menus, and cards or popovers not attached to the window, go on top.
-                let floating = window.floatingWindowsSnapshot()
+                let floating = await window.floatingWindowsImage()
                 if let floating { layers.append(.window(floating.image)) }
                 floatingCount = floating?.count ?? 0
             }
-            let painted = WindowImageLayer.composite(base: base.image, window: window, layers: layers)
+            let painted = await WindowImageLayer.compositedOffMain(base: base.image, windowSize: window.frame.size, layers: layers)
             let output = painted ?? base.image
-            // AppKit/WebKit capture and compositing stay on the main actor;
-            // PNG compression and the file write run off-main.
+            // The window server captures, the overlay mask, the paint, the PNG compression and
+            // the file write run off the main actor; main reads only AppKit state.
             try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
                 "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
@@ -211,6 +203,7 @@ enum DebugWindowSnapshot {
                 "chromium_pages": JSONValue(pages.count + reactPages.count),
                 "chromium_pages_composited": JSONValue(pages.count + reactPages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
+                "devtools_not_captured": JSONValue(layers.count(where: { if case .notCaptured = $0 { true } else { false } })),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
@@ -249,7 +242,7 @@ enum DebugWindowSnapshot {
     }
 
     /// The Chromium pages shown in `window`'s panes, with the page area in
-    /// window coordinates (beside a docked DevTools, which is not painted).
+    /// window coordinates (beside a docked DevTools, which has its own layer).
     @MainActor
     static func chromiumPages(in window: NSWindow, services: AppServices) -> [(CEFTab, NSRect)] {
         guard let controller = services.windows.controllers.first(where: { $0.window === window }) else { return [] }

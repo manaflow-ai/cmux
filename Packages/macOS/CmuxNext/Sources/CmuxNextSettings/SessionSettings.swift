@@ -7,6 +7,8 @@
 /// works on adapter power unless the user picks otherwise; phone access is off until turned on.
 public nonisolated struct SessionSettings: Sendable, Equatable {
     public var keepAwake = SessionSettings.keepAwakeDefault
+    /// `sessions.keepAwakeForCommands`: a long terminal command keeps the Mac awake too, as `keepAwake` allows.
+    public var keepAwakeForCommands = SessionSettings.keepAwakeForCommandsDefault
     /// `sessions.resumeAgents`: a terminal brought back after a crash or restart resumes its agent.
     /// The daemon reads the key from the file itself at each respawn.
     public var resumesAgents = SessionSettings.resumeAgentsDefault
@@ -31,6 +33,7 @@ public nonisolated struct SessionSettings: Sendable, Equatable {
         var settings = Self()
         if var reader = ConfigFieldReader(root, at: ["sessions"], diagnostics: &diagnostics) {
             if let value = reader.choice("keepAwake", SessionKeepAwakeSetting.self) { settings.keepAwake = value }
+            if let value = reader.bool("keepAwakeForCommands") { settings.keepAwakeForCommands = value }
             if let value = reader.bool("resumeAgents") { settings.resumesAgents = value }
             if let value = reader.bool("allowFullAccess") { settings.allowsFullAccess = value }
             if let value = reader.bool("promptSuggestions") { settings.promptSuggestions = value }

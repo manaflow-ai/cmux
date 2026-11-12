@@ -38,6 +38,8 @@ public struct ComputerUseWorker: Sendable {
 final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state is behind `lock`; the AppKit parts are touched on the main actor only
     let channel: LineChannel
     let tap = TakeoverTap()
+    /// Which agent sessions act, for the host (the app's menu bar badge and Computer Use row).
+    let activity: ComputerUseActivityReporter
     private let lock = NSLock()
     private var engine: ComputerUseEngine?
     private var server: ServerHandle?
@@ -52,6 +54,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
 
     init(output: LineChannel) {
         channel = output
+        activity = ComputerUseActivityReporter(write: { line in _ = output.write(line) })
     }
 
     @MainActor func start() {
@@ -115,6 +118,43 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
                 return
             }
             if let id { channel.write(RemoteWire.answer(id: id, result: engine.savedApprovals())) }
+        case .session(let id, let control):
+            guard let engine = lock.withLock({ self.engine }) else {
+                if let id { channel.write(RemoteWire.failure(id: id, code: "worker_unavailable", message: "the engine is not running")) }
+                return
+            }
+            // Before a stop, so the engine's red Stopped cursor event is not counted as an action.
+            if control.action == .stop { activity.noteStopped(control.session, true) }
+            let result = engine.apply(control)
+            if control.action == .resume, result != .refused { activity.noteStopped(control.session, false) }
+            guard result != .refused else {
+                if control.action == .stop { activity.noteStopped(control.session, false) }
+                if let id { channel.write(RemoteWire.failure(id: id, code: "bad_request", message: "the engine refused \(control.action.rawValue)")) }
+                return
+            }
+            logger.notice("Computer Use: the person chose \(control.action.rawValue, privacy: .public) for an agent session")
+            if let id {
+                channel.write(RemoteWire.answer(id: id, result: ["session": control.session, "stopped": control.action == .stop,
+                                                                 "changed": result == .changed]))
+            }
+        case .spotlight(let id, let session):
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    let shown = self.overlay?.spotlight(session: session) ?? false
+                    if let id { self.channel.write(RemoteWire.answer(id: id, result: ["shown": shown])) }
+                }
+            }
+        case .raiseWindow(let id, let session):
+            // The control thread (never main): accessibility calls may wait on the target app.
+            guard let place = activity.window(of: session) else {
+                if let id { channel.write(RemoteWire.failure(id: id, code: "no_window", message: "this agent has not worked in a window yet")) }
+                return
+            }
+            guard let pid = WindowRaise.raise(window: place.window, pid: place.pid) else {
+                if let id { channel.write(RemoteWire.failure(id: id, code: "no_window", message: "the agent's window is gone")) }
+                return
+            }
+            if let id { channel.write(RemoteWire.answer(id: id, result: ["raised": true, "pid": Int(pid)])) }
         case .unknown(let id, let type):
             if let id { channel.write(RemoteWire.failure(id: id, code: "unknown_method", message: "unknown control line \(type)")) }
         }
@@ -180,6 +220,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     fileprivate func capture(_ target: Data, frame: UnsafeMutablePointer<CmuxCuFrame>, error: UnsafeMutablePointer<UInt8>?,
                              errorCapacity: Int) -> Int32 {
         guard let target = CaptureTarget(json: target) else { return Self.fail("bad capture target", error, errorCapacity) }
+        activity.noteCapture(target)
         switch ScreenCapture().capture(target) {
         case .failure(let failure):
             return Self.fail(failure.description, error, errorCapacity)
@@ -206,6 +247,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     }
 
     fileprivate func cursor(_ json: Data) {
+        activity.noteCursor(json)
         guard let event = AgentCursorEvent(json: json) else { return }
         DispatchQueue.main.async { MainActor.assumeIsolated { self.overlay?.show(event) } }
     }
@@ -214,6 +256,7 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
     fileprivate func ask(_ json: Data) -> Int32 {
         guard let question = ApprovalQuestion(json: json),
               !lock.withLock({ stopping }) else { return ApprovalAnswer.unavailable.rawValue }
+        activity.noteQuestion(question)
         let box = OSAllocatedUnfairLock(initialState: ApprovalAnswer.unavailable)
         let answered = DispatchSemaphore(value: 0)
         DispatchQueue.main.async {

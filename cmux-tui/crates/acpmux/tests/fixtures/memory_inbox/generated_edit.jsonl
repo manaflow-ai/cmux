@@ -1,0 +1,3 @@
+{"prompt":"Don't edit generated/*, change the schema source and regenerate instead"}
+{"update":{"sessionUpdate":"tool_call","toolCallId":"w1","title":"mcp__acpmux__wrap_up","rawInput":"{\"recap\":\"Regenerated.\",\"learned\":[\"- Never edit generated/*; change schemas/ and run make gen.\"]}","status":"completed"}}
+{"turn_end":true,"expect_taught":true,"expect_learned":["Never edit generated/*; change schemas/ and run make gen."]}

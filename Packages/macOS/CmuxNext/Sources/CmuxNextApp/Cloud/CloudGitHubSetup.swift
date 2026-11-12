@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextPages
 import CmuxNextCloud
 import Foundation
 
@@ -15,9 +16,8 @@ import Foundation
 /// No token leaves this Mac either way. The result carries only `ok`, `method`, `fallback_reason`,
 /// `user_name`, `user_email`, `gh_status` and, while a sign-in waits, `device_code` and `verification_uri`.
 ///
-/// The command runs through the Cloud API's exec (`POST /api/vm/{id}/exec`). The provider runs a
-/// public exec as the machine's work user (uid 1000, `cmux` on current images; root on images older
-/// than the work user), the account terminals and agents run as, so `--global` git config and gh's
+/// The command runs through the Worker's exec (`POST /v1/cloud/machines/{id}/exec`, ``run(_:app:machine:on:)``),
+/// as the machine's work user (`cmux`), the account terminals and agents run as, so `--global` git config and gh's
 /// config land in that user's home. The API takes one shell string, so the two values from this Mac
 /// are the only caller data in it: ``validated(_:)`` refuses control characters, and
 /// ``shellQuote(_:)`` single-quotes each value. One shell parses the string once and nothing parses
@@ -281,6 +281,12 @@ nonisolated enum CloudGitHubSetup {
         if let email = identity.email { sets.append("git config --global user.email \(shellQuote(email))") }
         guard !sets.isEmpty else { return "echo 'cmux-git: skipped'" }
         return "if \(sets.joined(separator: " && ")); then echo 'cmux-git: set'; else echo 'cmux-git: failed'; fi"
+    }
+
+    /// Runs the setup on `machine` through `api`, the Worker machines client (`CloudService.machineAPI`).
+    static func run(_ identity: GitIdentity, app: Bool, machine: String, on api: CloudAPIClient) async throws -> Outcome {
+        let ran = try await api.exec(machine, command: command(identity, app: app), timeoutMs: timeoutMs)
+        return parse(exitCode: ran.exitCode, stdout: ran.stdout)
     }
 
     // MARK: Reading the answer

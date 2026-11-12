@@ -771,3 +771,120 @@ fn ls_renders_each_delivery_and_json_carries_the_policy() {
     assert_eq!(value["entries"][2]["allowedHosts"], json!(["kept.example.com"]));
     assert_eq!(value["entries"][3]["allowedHosts"], json!(["ok.example.com"]));
 }
+
+#[test]
+fn the_platforms_no_host_warning_is_printed_and_carried_in_json() {
+    let warning =
+        "MY_TOKEN has no allowed hosts, so agents get a placeholder that is never replaced.";
+    let answer = move |request: &str| {
+        if request.starts_with("PUT /v1/vault/env/MY_TOKEN/policy ") {
+            let mut answer = body_of(request);
+            answer["name"] = json!("MY_TOKEN");
+            answer["revision"] = json!(3);
+            answer["warning"] = json!(format!("{warning}\u{1b}[31m"));
+            return (200, answer.to_string());
+        }
+        if request.starts_with("PUT /v1/vault/env/MY_TOKEN ") {
+            return (
+                200,
+                json!({"name": "MY_TOKEN", "revision": 3, "warning": warning}).to_string(),
+            );
+        }
+        (404, "{}".to_owned())
+    };
+    let (origin, _requests) = fake(Arc::new(answer));
+    let ran =
+        run_vault(&["machine", "vault", "set", "MY_TOKEN"], &origin, OutputMode::Human, VALUE);
+    assert_eq!(ran.code, Ok(0));
+    no_value(&ran.out);
+    assert_eq!(
+        ran.out,
+        format!("MY_TOKEN saved to your vault (revision 3).\nWarning: {warning}\n")
+    );
+    let (origin, _requests) = fake(Arc::new(answer));
+    let ran = run_vault(&["machine", "vault", "set", "MY_TOKEN"], &origin, OutputMode::Json, VALUE);
+    assert_eq!(
+        serde_json::from_str::<Value>(ran.out.trim()).unwrap(),
+        json!({"name": "MY_TOKEN", "revision": 3, "warning": warning})
+    );
+    // The policy route too; a control character in it never reaches the terminal.
+    let (origin, _requests) = fake(Arc::new(answer));
+    let ran = run_vault(
+        &["machine", "vault", "policy", "MY_TOKEN", "--no-hosts"],
+        &origin,
+        OutputMode::Human,
+        VALUE,
+    );
+    assert_eq!(ran.code, Ok(0));
+    assert!(ran.out.ends_with(&format!("Warning: {warning}[31m\n")), "{:?}", ran.out);
+    assert!(!ran.out.contains('\u{1b}'));
+}
+
+#[test]
+fn claude_and_codex_keys_are_vault_names_and_base_urls_are_not() {
+    for name in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY"] {
+        assert!(vault_name_ok(name), "{name}");
+    }
+    for name in ["ANTHROPIC_BASE_URL", "OPENAI_BASE_URL", "anthropic_api_key"] {
+        assert!(!vault_name_ok(name), "{name}");
+    }
+    // The platform keeps a model key a placeholder: `--env` is refused, and says so.
+    let (origin, _requests) =
+        fake(Arc::new(|_: &str| (400, json!({"code": "vault.model_key_proxy_only"}).to_string())));
+    let failure = run_vault(
+        &["machine", "vault", "set", "ANTHROPIC_API_KEY", "--env"],
+        &origin,
+        OutputMode::Human,
+        VALUE,
+    )
+    .code
+    .unwrap_err();
+    assert_eq!(failure.code, "machine_vault.proxy_only");
+    assert!(failure.message.contains("never with --env"), "{}", failure.message);
+    no_value(&failure.message);
+}
+
+#[test]
+fn a_base_url_left_in_the_vault_is_listed_as_not_delivered_and_can_be_removed() {
+    // `set` refuses it, `rm` takes it.
+    assert!(parsed(&["machine", "vault", "set", "ANTHROPIC_BASE_URL"]).is_some_and(|r| r.is_err()));
+    assert_eq!(
+        vault_of(&["machine", "vault", "rm", "ANTHROPIC_BASE_URL"]),
+        VaultVerb::Rm { name: "ANTHROPIC_BASE_URL".into() }
+    );
+    let listed = json!({"entries": [
+        {"name": "ANTHROPIC_BASE_URL", "revision": 4, "delivery": "env", "allowedHosts": []},
+        {"name": "GITHUB_TOKEN", "revision": 1, "delivery": "proxy", "allowedHosts": ["api.github.com"]},
+    ]});
+    let answer = move |request: &str| {
+        if request.starts_with("GET /v1/vault/env ") {
+            return (200, listed.to_string());
+        }
+        if request.starts_with("DELETE /v1/vault/env/ANTHROPIC_BASE_URL ") {
+            return (200, json!({"name": "ANTHROPIC_BASE_URL", "revision": 5}).to_string());
+        }
+        (404, "{}".to_owned())
+    };
+    let (origin, _requests) = fake(Arc::new(answer.clone()));
+    let ran = run_vault(&["machine", "vault", "ls"], &origin, OutputMode::Human, VALUE);
+    assert_eq!(ran.code, Ok(0));
+    let first = ran.out.lines().next().unwrap();
+    assert!(first.starts_with("ANTHROPIC_BASE_URL  r4  not delivered"), "{first}");
+    assert!(first.contains("cmux machine vault rm ANTHROPIC_BASE_URL"), "{first}");
+    let (origin, _requests) = fake(Arc::new(answer.clone()));
+    let ran = run_vault(&["machine", "vault", "ls"], &origin, OutputMode::Json, VALUE);
+    let value: Value = serde_json::from_str(ran.out.trim()).unwrap();
+    assert_eq!(value["entries"][0]["delivered"], false);
+    assert!(value["entries"][1].get("delivered").is_none());
+    let (origin, requests) = fake(Arc::new(answer));
+    let ran = run_vault(
+        &["machine", "vault", "rm", "ANTHROPIC_BASE_URL"],
+        &origin,
+        OutputMode::Human,
+        VALUE,
+    );
+    assert_eq!(ran.code, Ok(0));
+    assert!(requests.recv().unwrap().starts_with("DELETE /v1/vault/env/ANTHROPIC_BASE_URL "));
+    // A machine's consent never names it.
+    assert!(!vault_name_ok("ANTHROPIC_BASE_URL") && listed_name_ok("anthropic_base_url"));
+}

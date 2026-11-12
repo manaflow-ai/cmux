@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 import os
 
 private let computerUseLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cmux-remote")
@@ -24,8 +25,19 @@ public final class CmuxRemoteComputerUseState {
     public internal(set) var workerPID: pid_t?
     /// The saved approvals (`computer-use-approvals list`): app id to "always" or "never", sorted by id.
     public internal(set) var approvals: [(appID: String, decision: String)] = []
+    /// The worker's agent sessions that acted, newest action first (`computer-use-activity`, the
+    /// daemon's event, or `workers["computer-use"].activity` of a status read).
+    public internal(set) var sessions: [CmuxRemoteComputerUseSession] = []
+    /// An agent acted through Computer Use within the last 2 s (the menu bar badge).
+    public internal(set) var acting = false
+    /// The end of ``acting``: one deadline, replaced by the next activity.
+    let actingClear: DemandTimer
+    /// Now (wall clock, as the worker stamps its actions; a test passes its own).
+    @ObservationIgnored var now: @Sendable () -> Date = { Date() }
 
-    nonisolated init() {}
+    nonisolated init(clock: any Clock<Duration> = ContinuousClock()) {
+        actingClear = DemandTimer(owner: "computer-use.acting", clock: clock)
+    }
 
     /// Takes the host's own status object (`remote-host-status`'s `host`, or a host call's answer).
     func take(host: [String: Any]?) {
@@ -40,6 +52,10 @@ public final class CmuxRemoteComputerUseState {
         if workerState != state { workerState = state }
         let workerPID = (worker?["pid"] as? Int).map { pid_t($0) }
         if self.workerPID != workerPID { self.workerPID = workerPID }
+        // No host: no session acts. An answer without the worker's fields (a config reply) changes nothing.
+        if host == nil || worker != nil {
+            take(activity: CmuxRemoteComputerUseSession.sessions(from: worker?["activity"] as? [Any]))
+        }
     }
 
     /// Takes a `list` answer: `{"saved":{"always":[...],"never":[...]}}` (ids, or `{"app_id"|"id"}` objects).
@@ -179,6 +195,44 @@ extension CmuxRemoteService {
     /// Ends every agent session of the Computer Use worker (`revoke_sessions`): their grants end.
     public func stopComputerUseSessions() async throws {
         _ = try await daemonRequest(ComputerUseApprovalsRequest(action: "revoke_sessions"))
+    }
+
+    /// The person's per-agent rows of the menu bar's Computer Use row, for cmux Remote's worker.
+    public enum ComputerUseSessionAction: String, Sendable {
+        /// Stop: the agent's Computer Use calls end and are refused with `stopped_by_person`.
+        case stop
+        /// Resume: a stopped agent may act again.
+        case resume
+        /// Show Cursor: ring the agent's cursor where it is.
+        case spotlight
+        /// Show Window: raise the window the agent works in (within its app; the caller activates the app).
+        case raiseWindow = "raise_window"
+    }
+
+    /// Sends `action` for agent session `session` to cmux Remote's Computer Use worker through the
+    /// daemon (`remote-host-call computer_use.session`); returns the worker's answer.
+    @discardableResult
+    public func computerUseSession(_ action: ComputerUseSessionAction, session: String, label: String? = nil) async throws -> [String: Any] {
+        var params: [String: CmuxNextDaemon.JSONValue] = ["action": .string(action.rawValue), "session": .string(session)]
+        if let label { params["label"] = .string(label) }
+        let answer = Self.object(try await call("computer_use.session", .object(params))) ?? [:]
+        switch action {
+        case .stop: computerUse.mark(session, stopped: true)
+        case .resume: computerUse.mark(session, stopped: false)
+        case .spotlight, .raiseWindow: break
+        }
+        return answer
+    }
+
+    /// ``computerUseSession(_:session:label:)`` for a menu row, which returns at once: a refusal is
+    /// logged, not thrown.
+    public func sendComputerUseSession(_ action: ComputerUseSessionAction, session: String) {
+        // task-owner: one request to cmux Remote's worker through the daemon; the menu has closed.
+        Task { [weak self] in
+            do { try await self?.computerUseSession(action, session: session) } catch {
+                computerUseLogger.notice("cmux Remote Computer Use \(action.rawValue, privacy: .public) refused: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     /// Asks macOS for `permission` ("accessibility" or "screen-recording") in cmux Remote, so the

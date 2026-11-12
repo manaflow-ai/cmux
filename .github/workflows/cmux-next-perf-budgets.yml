@@ -539,7 +539,7 @@ jobs:
 
       # The web UI benches drive headless Chromium and WebKit (the measured commit's Playwright).
       - name: Install Playwright browsers
-        if: ${{ needs.plan.outputs.linux_part == 'web-ui' }}
+        if: ${{ needs.plan.outputs.linux_part == 'web-ui' || needs.plan.outputs.linux_part == 'web-ui-scale' }}
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 

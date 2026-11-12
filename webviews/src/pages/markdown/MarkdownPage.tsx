@@ -42,6 +42,8 @@ export interface MarkdownPageProps {
   onForward?(): void;
   /** The Reading Settings popover's writes (no popover button without them). */
   reading?: ReadingSettingsActions;
+  /** Run all: the runbook to an agent chat (no button without it, or without shell blocks). */
+  onRunAll?(): void;
   /** Find in the document (Cmd-F, the `find` page commands): its pill shows over the document. */
   find?: EditorFind;
 }
@@ -55,6 +57,7 @@ export function MarkdownPage({
   onBack,
   onForward,
   reading,
+  onRunAll,
   find,
 }: MarkdownPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
@@ -139,6 +142,13 @@ export function MarkdownPage({
           >
             {state.phase === "ready" ? status : ""}
           </span>
+          {/* The editor says after each load whether its document has a runnable block, never per
+              keystroke: a block typed into the open document counts from the next load. */}
+          {onRunAll && state.runnable && state.phase === "ready" && state.mode === "rich" ? (
+            <ToolbarButton className="md-run-all-button" label={t(L.runAllTitle)} onPress={onRunAll}>
+              {t(L.runAll)}
+            </ToolbarButton>
+          ) : null}
           {!state.readOnly && state.mode !== "source" ? (
             <ToolbarButton className="md-edit-button" label={t(L.edit)} onPress={() => store.setMode("source")}>
               {t(L.edit)}

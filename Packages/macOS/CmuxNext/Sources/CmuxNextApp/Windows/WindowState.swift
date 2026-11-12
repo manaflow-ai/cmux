@@ -35,6 +35,9 @@ final class WindowState {
     var docks = WindowDocks()
     /// The workspace the frame's stage shows (W5): `workspaceID` unless that one is docked. Persisted.
     var stageWorkspaceID: String?
+    /// The Chief panel (`WindowController+ChiefPanel`): the Chief chat floating or docked over the workspaces this
+    /// window shows, never over Home. Persisted in the record.
+    var chiefPanel = ChiefPanel()
     /// The top page this window shows in place of its workspace
     /// (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the workspace. Selecting a
     /// workspace clears it (`showWorkspace(_:)`). Persisted in the record.
@@ -129,6 +132,7 @@ extension WindowState {
         viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }
         docks = WindowDocks(record: record)
         stageWorkspaceID = record.stageKey?.rawValue
+        chiefPanel = ChiefPanel(record: record.chiefPanel)
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth
@@ -136,10 +140,9 @@ extension WindowState {
         activeScreenID = record.screenID?.rawValue
         savedFocusedPane = record.focusedPane
         restoresFullScreen = record.isFullScreen
+        selection.restoreFocus(record.focusedPanes, shown: workspaceID, pane: record.focusedPane)
         if let workspaceID, let pane = record.focusedPane { focus.send(.restoredPane(pane, workspace: workspaceID)) }
-        for (workspace, pane) in record.focusedPanes.sorted(by: { $0.key < $1.key }) where workspace != workspaceID {
-            focus.send(.restoredPane(pane, workspace: workspace))
-        }
+        for (workspace, pane) in record.focusedPanes.sorted(by: { $0.key < $1.key }) where workspace != workspaceID { focus.send(.restoredPane(pane, workspace: workspace)) }
         profileID = record.profile ?? .defaultProfile
         profileWorkspaces = Dictionary(record.profileWorkspaces.map { (ProfileID(rawValue: $0.key), $0.value.rawValue) },
                                        uniquingKeysWith: { first, _ in first })

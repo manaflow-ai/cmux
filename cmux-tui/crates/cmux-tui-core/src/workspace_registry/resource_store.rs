@@ -1450,6 +1450,12 @@ impl WorkspaceRegistry {
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
+        #[cfg(test)]
+        if self.topology_snapshot_failures_remaining.get() > 0 {
+            self.topology_snapshot_failures_remaining
+                .set(self.topology_snapshot_failures_remaining.get() - 1);
+            anyhow::bail!("injected topology snapshot failure");
+        }
         load_resource_topology(
             &self.connection.get(),
             self.session_id.clone(),
@@ -2100,6 +2106,8 @@ pub(crate) fn resource_patch_replay(
     let Some((stored_operation, stored_fingerprint, result, revision)) = stored else {
         return Ok(None);
     };
+    let ids = StoredIds::load(transaction)?;
+    let (stored_fingerprint, result) = (ids.fingerprint(stored_fingerprint)?, ids.text(result));
     if stored_operation != operation || stored_fingerprint != fingerprint {
         anyhow::bail!(
             "idempotency.conflict: key {} committed_operation {} from {} was reused with different input",

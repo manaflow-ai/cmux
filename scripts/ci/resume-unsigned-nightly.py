@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Recover trusted nightly-next compile outputs without running their contents.
 
-plan validates a completed protected push and its exact producer attempt.
+plan validates a completed protected push and its exact producer attempt. A sign
+stage (NIGHTLY_NEXT_SIGN_STAGE=true, dispatched by that push run itself once its
+producers succeeded) may read the push run while it is still finishing: the
+producers below must have succeeded, and the artifacts are immutable and
+digest-checked, so nothing it reads can still change.
 restore repeats that validation, downloads immutable artifact IDs, verifies
 GitHub's SHA256 digests, and restores inputs for the existing signing jobs.
 Only workflow_dispatch on nightly-next may use this path. No signing secret
@@ -46,15 +50,16 @@ def require(condition, message):
         raise SystemExit(message)
 
 
-def validate(run, jobs, artifacts, repo, run_id, attempt):
+def validate(run, jobs, artifacts, repo, run_id, attempt, live_ok=False):
     require(repo == "manaflow-ai/cmux", "unsigned resume is restricted to manaflow-ai/cmux")
     require(run.get("repository", {}).get("full_name") == repo and
             run.get("head_repository", {}).get("full_name") == repo, "source repository mismatch")
     require(run.get("id") == int(run_id) and run.get("run_attempt") == int(attempt), "source run/attempt mismatch")
     require(run.get("path") == ".github/workflows/nightly.yml" and run.get("event") == "push" and
             run.get("head_branch") == "nightly-next", "source must be a protected nightly-next push")
-    require(run.get("status") == "completed" and run.get("conclusion") in {"failure", "success"},
-            "source must have completed; never race a live run")
+    require(run.get("status") == "completed" and run.get("conclusion") in {"failure", "success"} or
+            live_ok and run.get("status") == "in_progress",
+            "source must have completed; never race a live run (only its own sign stage reads it live)")
     producers = {}
     for name in {owner for owner, _ in ARTIFACTS.values()}:
         candidates = [job for job in jobs if job.get("name") == name]
@@ -108,7 +113,8 @@ def plan(run_id, attempt):
     artifacts = download.api_json(f"{prefix}/actions/runs/{run_id}/artifacts?per_page=100", token)
     require(jobs.get("total_count", 101) <= 100 and artifacts.get("total_count", 101) <= 100,
             "source exceeds bounded lookup; refusing partial provenance")
-    result = validate(run, jobs["jobs"], artifacts["artifacts"], repo, run_id, attempt)
+    live_ok = os.environ.get("NIGHTLY_NEXT_SIGN_STAGE") == "true"
+    result = validate(run, jobs["jobs"], artifacts["artifacts"], repo, run_id, attempt, live_ok=live_ok)
     for base, head in ((result["head_sha"], os.environ["GITHUB_SHA"]),
                        (result["build_sha"], result["head_sha"])):
         comparison = download.api_json(f"{prefix}/compare/{base}...{head}", token)

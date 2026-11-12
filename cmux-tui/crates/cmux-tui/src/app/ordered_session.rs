@@ -478,4 +478,9 @@ impl OrderedSession {
     pub(super) fn transport_disconnect_reason(&self) -> Option<String> {
         self.inner.transport_disconnect_reason()
     }
+
+    /// What the daemon's shutdown notice said, if one came.
+    pub(super) fn daemon_shutdown_notice(&self) -> Option<crate::session::DaemonShutdownNotice> {
+        self.inner.daemon_shutdown_notice()
+    }
 }

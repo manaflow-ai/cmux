@@ -200,7 +200,7 @@ import CmuxNextTestSupport
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-ready-card-style", shortVersion: shortVersion,
                                            build: build, minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
-        let defaults = UserDefaults(suiteName: "UpdateReadyCardStyleTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "UpdateReadyCardStyleTests.\(UUID().uuidString)")!
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false

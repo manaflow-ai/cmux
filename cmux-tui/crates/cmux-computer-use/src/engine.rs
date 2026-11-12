@@ -39,6 +39,7 @@ use crate::policy::{
     self, Access, Decision, OriginKind, PolicyConfig, Refusal, Request, SettleMode, TargetApp,
 };
 use crate::session::{Prior, Sessions};
+use crate::stop::{self, Stops};
 use crate::tools;
 
 pub use crate::policy::OriginKind as Origin;
@@ -53,6 +54,9 @@ pub struct CallContext {
     /// Set by the bridge per MCP request; a retry reuses it.
     pub call_id: Option<String>,
     pub origin: OriginKind,
+    /// The agent cursor's tag: the agent's `cursor_tag`, else its cmux workspace name; None
+    /// shows none (`computerUse.cursorTag` decides when it shows).
+    pub tag: Option<String>,
 }
 
 /// A tool's result.
@@ -146,6 +150,7 @@ fn refusal_caption(code: &str) -> Option<&'static str> {
         "foreground_not_allowed" => "Foreground input is off",
         "person_in_control" => "You're in control",
         "approval_denied" | "approval_unavailable" => "Not approved",
+        stop::STOPPED_CODE => stop::STOPPED_CAPTION,
         _ => return None,
     })
 }
@@ -271,6 +276,9 @@ pub struct EngineParts {
     /// ceiling with (tests pass a pair that only advances on sleep).
     pub sleep: Arc<dyn Fn(Duration) + Send + Sync>,
     pub clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    /// The sessions the person stopped ([`crate::stop`]); shared so a test
+    /// can stop a session from inside a running call.
+    pub stops: Arc<Stops>,
 }
 
 /// Time since the first call, from the monotonic clock.
@@ -292,6 +300,7 @@ impl EngineParts {
             settle: Settle::default(),
             sleep: Arc::new(std::thread::sleep),
             clock: Arc::new(monotonic),
+            stops: Arc::new(Stops::default()),
         }
     }
 }
@@ -315,6 +324,7 @@ pub struct Engine {
     settle: Settle,
     sleep: Arc<dyn Fn(Duration) + Send + Sync>,
     clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    stops: Arc<Stops>,
 }
 
 /// What a capture checks before it reads a window.
@@ -386,6 +396,7 @@ impl Engine {
             settle: parts.settle,
             sleep: parts.sleep,
             clock: parts.clock,
+            stops: parts.stops,
         }
     }
 
@@ -421,15 +432,19 @@ impl Engine {
         // The label reaches the person (approval panel, cursor, notifications):
         // any caller with the socket secret sets it, so it is bounded here.
         let safe;
-        let ctx = if safe_label(&ctx.label) == ctx.label {
+        let tag = ctx.tag.as_deref().and_then(tools::safe_tag);
+        let ctx = if safe_label(&ctx.label) == ctx.label && tag == ctx.tag {
             ctx
         } else {
-            safe = CallContext { label: safe_label(&ctx.label), ..ctx.clone() };
+            safe = CallContext { label: safe_label(&ctx.label), tag, ..ctx.clone() };
             &safe
         };
         let Some(tool) = tools::find(name) else {
             return ToolOutput::error("unknown_tool", format!("unknown tool {name:?}"));
         };
+        if self.stops.is_stopped(&ctx.session) {
+            return self.refuse_stopped(ctx, tool, name);
+        }
         // An acting call is recorded on disk before it acts and again with its
         // result, so a retry (same call_id), even after a worker restart,
         // never acts twice.
@@ -509,8 +524,73 @@ impl Engine {
         if let Some(report) = &focus {
             report.attach(&mut out);
         }
+        let out = self.end_if_stopped(ctx, out);
         self.write_audit_with(ctx, name, app.as_ref(), &out, focus.as_ref());
         out
+    }
+
+    /// The person stopped this session ([`Self::stop_session`]): the agent
+    /// cursor goes red with "Stopped" (then hides on its own) and the cursor
+    /// glides nowhere.
+    pub fn stop_session(&self, session: &str, label: &str) -> bool {
+        let added = self.stops.stop(session);
+        if added {
+            self.cursor.show(CursorEvent::Refused {
+                session: session.to_string(),
+                label: safe_label(label),
+                at: None,
+                reason: stop::STOPPED_CAPTION.to_string(),
+            });
+        }
+        added
+    }
+
+    /// Undoes [`Self::stop_session`]: the session's next call runs.
+    pub fn resume_session(&self, session: &str) -> bool {
+        self.stops.resume(session)
+    }
+
+    pub fn is_stopped(&self, session: &str) -> bool {
+        self.stops.is_stopped(session)
+    }
+
+    /// The stopped sessions, sorted.
+    pub fn stopped_sessions(&self) -> Vec<String> {
+        self.stops.list()
+    }
+
+    /// A stopped session's call: refused before it does anything (no
+    /// retry record, so a resumed agent's retry runs).
+    fn refuse_stopped(&self, ctx: &CallContext, tool: &tools::Tool, name: &str) -> ToolOutput {
+        let out = stop::stopped();
+        if tool.acts() {
+            self.cursor.show(CursorEvent::Refused {
+                session: ctx.session.clone(),
+                label: ctx.label.clone(),
+                at: None,
+                reason: stop::STOPPED_CAPTION.to_string(),
+            });
+        }
+        self.write_audit(ctx, name, None, &out);
+        out
+    }
+
+    /// A call the person stopped while it ran ends with the stopped error,
+    /// saying whether it acted before its checkpoint.
+    fn end_if_stopped(&self, ctx: &CallContext, out: ToolOutput) -> ToolOutput {
+        if out.code.as_deref() == Some(stop::STOPPED_CODE) || !self.stops.is_stopped(&ctx.session) {
+            return out;
+        }
+        let acted = !out.is_error && out.body.get("completed") != Some(&json!(0));
+        let mut stopped = stop::stopped_in_flight(acted);
+        // A batch says how far it got, and the focus guard's report (a focus it
+        // put back) stays with the call.
+        for key in ["completed", "of", "focus"] {
+            if let Some(value) = out.body.get(key) {
+                stopped.body[key] = value.clone();
+            }
+        }
+        stopped
     }
 
     fn dispatch(
@@ -631,7 +711,7 @@ impl Engine {
                 });
                 let element = args_str(args, "element_id");
                 let out = if self.settle_mode(args) == SettleMode::Anthropic {
-                    self.type_paced(&window.id, element, text, delivery)?
+                    self.type_paced(&ctx.session, &window.id, element, text, delivery)?
                 } else {
                     self.desktop
                         .type_text(&window.id, element, text, delivery)
@@ -1131,6 +1211,7 @@ impl Engine {
     /// the rest follow at the caret.
     fn type_paced(
         &self,
+        session: &str,
         window_id: &str,
         element: Option<&str>,
         text: &str,
@@ -1143,6 +1224,8 @@ impl Engine {
                 if i > 0 {
                     (self.sleep)(ANTHROPIC_TYPING_DELAY);
                 }
+                // Checkpoint: the person's Stop ends the typing between two keys.
+                self.stops.check(session)?;
                 let first = group_index == 0 && i == 0;
                 last = self
                     .desktop
@@ -1241,6 +1324,11 @@ impl Engine {
         let mut acted_on: Option<TargetApp> = None;
         let mut failed: Option<ToolOutput> = None;
         for (index, action) in actions.iter().enumerate() {
+            // Checkpoint: the person's Stop ends the batch between two steps.
+            if let Err(stopped) = self.stops.check(&ctx.session) {
+                failed = Some(stopped);
+                break;
+            }
             let Some(name) = action.get("action").and_then(Value::as_str) else {
                 failed = Some(ToolOutput::error(
                     "invalid_arguments",
@@ -1354,6 +1442,10 @@ impl Engine {
             SettleMode::Adaptive => {
                 (self.sleep)(s.floor);
                 loop {
+                    // Checkpoint: the person's Stop ends the settle wait.
+                    if let Err(stopped) = self.stops.check(&ctx.session) {
+                        break Err(stopped);
+                    }
                     let config = self.config();
                     captures += 1;
                     match self.capture_for(&config, ctx, &args, false, Check::StillAllowed(app)) {

@@ -224,4 +224,24 @@ struct AgentPaneConnectActionTests {
         #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "cloudBringBack", "session": 7]])
             == .unsupported("action.run"))
     }
+
+    /// The composer's Environment chip, New Cloud machine: its Cloud environment goes with the action
+    /// as `environment` (the setup dialog starts on it). Only New Cloud Machine takes one, and only an
+    /// `env_…` id; anything else is refused, never dropped.
+    @Test func newCloudMachineCarriesTheChipsEnvironment() async {
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "newCloudMachine", "environment": "env_abc123"]])
+            == .runAction("newCloudMachine", environment: "env_abc123"))
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "remote.connect", "environment": "env_abc123"]])
+            == .unsupported("action.run"))
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "newCloudMachine", "environment": "prod"]])
+            == .unsupported("action.run"))
+        #expect(AgentPaneRequest(body: ["method": "action.run", "params": ["id": "newCloudMachine", "environment": "env_a b"]])
+            == .unsupported("action.run"))
+        let model = AgentPaneModel(host: NoHost())
+        var arguments: [[String: String]] = []
+        model.onRunAction = { _, args in arguments.append(args); return true }
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("newCloudMachine", environment: "env_abc123"))["ok"] as? Bool == true)
+        #expect(arguments == [["environment": "env_abc123"]])
+    }
 }

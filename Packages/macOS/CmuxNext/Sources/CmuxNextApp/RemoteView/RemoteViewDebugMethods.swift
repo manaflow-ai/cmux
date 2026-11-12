@@ -15,10 +15,10 @@ struct RemoteViewDebugMethods {
     let services: AppServices
 
     func register(on router: ControlRouter?) {
-        router?.register(["state", "mode"].map { action in
-            .async("remote_view.\(action)") { call in
+        router?.register(RemoteViewTabsControl.releaseMethods.map { method in
+            .async(method) { call in
                 var params = call.params
-                params["action"] = .string(action)
+                params["action"] = .string(String(method.dropFirst("remote_view.".count)))
                 return await RemoteViewTabsControl.answer(params, cloudOnly: true)
             }
         })

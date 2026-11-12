@@ -14,8 +14,8 @@ struct ChatQuoteDelivery {
 
     func deliver(_ quote: ChatQuote, from window: NSWindow?) {
         let tabs = services.agentTabs
-        let target = services.chatQuoteOpeners.target(for: quote.source) { tabs.views[tabs.resolve($0)]?.model.hasHandshake == true }
-        if case .agentTab(let key) = target, let view = tabs.views[tabs.resolve(key)] {
+        let target = services.chatQuoteOpeners.target(for: quote.source) { tabs.existingView(tabs.resolve($0))?.model.hasHandshake == true }
+        if case .agentTab(let key) = target, let view = tabs.existingView(tabs.resolve(key)) {
             AgentPaneDesignSelection(id: "quote-" + UUID().uuidString, name: quote.title, text: quote.markdown, png: nil).push(to: view)
             return
         }

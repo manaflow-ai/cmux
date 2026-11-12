@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ import Testing
 @MainActor @Suite(.serialized) struct RecentFontsTests {
     static func defaults() -> (UserDefaults, String) {
         let suite = "cn-recent-fonts-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: suite)!, suite)
+        return (UserDefaults(testSuiteName: suite)!, suite)
     }
 
     @Test func aPickMovesTheFamilyToTheFrontOnceAndTheListKeepsItsLimit() {

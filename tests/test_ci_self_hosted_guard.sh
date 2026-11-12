@@ -1151,6 +1151,10 @@ SIGNER_BUILD_ROUTE
     "nightly.yml:$publish_route"
     "nightly.yml:$signer_build_route"
     "cmux-next-dev-daily.yml:$signer_pick_route"
+    # republish-nightly-deltas: nightly-next takes the trusted signing runner (the whole Mac); the other tracks
+    # keep the signer route's hosted Ubuntu, as their release uploads may wait out the rate limit for up to 6 h,
+    # which must not hold the signing Mac.
+    "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref != 'refs/heads/nightly-next' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}"
     # The visual gate's runner pick holds secrets and has no claim gate: the reserved nightly-only mini on a
     # nightly-next first attempt (the guarded bootstrap selector), else hosted Ubuntu, never Blacksmith.
     "nightly.yml:    runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || 'ubuntu-24.04' }}"

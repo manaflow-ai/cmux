@@ -1,6 +1,7 @@
 public import CmuxNextDesign
 public import CmuxNextDictation
 public import CmuxNextSettings
+import CryptoKit
 public import Foundation
 
 /// One push from the host to the agent page on the shared page host, an event of the stream
@@ -22,11 +23,15 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// The stream event: `{kind, value}`.
     public var data: JSONValue { ["kind": .string(kind), "value": value] }
 
-    /// The shared web theme for `surface` (`web`, `--cmux-*`) and the pane's own values (`agent`).
+    /// The shared web theme for `surface` (`web`, `--cmux-*`) and the pane's own values (`agent`),
+    /// and `key`, a digest of both: a chat's drawn copy is drawn only under the theme it was drawn in
+    /// (``AgentPaneChatSnapshots``, chatSnapshot/shared.ts), which the page knows only by this key.
     @MainActor public static func theme(_ tokens: ThemeTokens, surface: SurfaceKind) -> AgentPageEvent? {
         guard let web = try? JSONValue.parse(Data(AgentPaneTheme.webTheme(tokens, surface: surface).payloadJSON.utf8)),
               let agent = JSONValue(foundation: AgentPaneTheme.values(tokens, surface: surface)) else { return nil }
-        return AgentPageEvent(kind: "theme", value: ["web": web, "agent": agent])
+        let theme: JSONValue = ["web": web, "agent": agent]
+        let digest = SHA256.hash(data: Data(theme.compactText.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        return AgentPageEvent(kind: "theme", value: ["web": web, "agent": agent, "key": .string(digest)])
     }
 
     /// The shortcut labels the page shows.
@@ -63,6 +68,28 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
         JSONValue(foundation: AgentPaneDictation.payload(update)).map { AgentPageEvent(kind: "dictation", value: $0) }
     }
 
+    /// Another app's use of the microphone, for the composer's mark (webviews outsideDictation.ts):
+    /// `{active, bundleId?, name?, metered?}`, `metered: true` only while the host meters its level.
+    public static func micActivity(_ state: MicrophoneActivity.State) -> AgentPageEvent {
+        var value: [String: JSONValue] = ["active": .bool(state.active)]
+        if let bundleId = state.bundleId { value["bundleId"] = .string(bundleId) }
+        if let name = state.name { value["name"] = .string(name) }
+        if state.metered { value["metered"] = .bool(true) }
+        return AgentPageEvent(kind: "micActivity", value: .object(value))
+    }
+
+    /// The outside dictation's input level while metered: `{level}`, in `0...1` to 3 decimals.
+    public static func micLevel(_ level: Float) -> AgentPageEvent {
+        let rounded = (Double(min(1, max(0, level))) * 1000).rounded() / 1000
+        return AgentPageEvent(kind: "micLevel", value: ["level": .number(rounded.isFinite ? rounded : 0)])
+    }
+
+    /// A hand-off from the Toggle Dictation shortcut that did not happen (`{code}`): the composer
+    /// shows why, as for the mic's click (webviews dictation.ts).
+    public static func dictationHandoff(failure code: String) -> AgentPageEvent {
+        AgentPageEvent(kind: "dictationHandoff", value: ["code": .string(code)])
+    }
+
     /// Shows the turn a `#turn-<id>` link names.
     public static func revealTurn(_ turnId: String) -> AgentPageEvent {
         AgentPageEvent(kind: "revealTurn", value: .string(turnId))
@@ -88,6 +115,23 @@ public nonisolated struct AgentPageEvent: Equatable, Sendable {
         AgentPageEvent(kind: "transport", value: JSONValue(foundation: event.object) ?? .null)
     }
 
+    /// A newly listening port on the Cloud machine running this chat.
+    public static func cloudPreviewPort(port: Int, process: String?, machineID: String? = nil,
+                                        state: String = "up", known: Bool = false) -> AgentPageEvent {
+        var value: [String: Any] = ["port": port]
+        if let process, !process.isEmpty { value["process"] = process }
+        if let machineID, !machineID.isEmpty { value["machineID"] = machineID }
+        value["state"] = state
+        value["known"] = known
+        return AgentPageEvent(kind: "cloudPreviewPort", value: JSONValue(foundation: value) ?? .null)
+    }
+
+    /// The old host's script for a ``cloudPreviewPort(port:process:machineID:state:known:)`` event.
+    var cloudPreviewPortScript: String { "window.cmuxAcpmuxCloudPreviewPort?.(\(value.compactText));" }
+
     /// Focus Location Bar on a new tab page.
     public static let focusLocation = AgentPageEvent(kind: "focusLocation")
+
+    /// Write the chat's drawn copy now: the page was hidden (``AgentPaneChatSnapshots``).
+    public static let chatSnapshotWrite = AgentPageEvent(kind: "chatSnapshot.write")
 }

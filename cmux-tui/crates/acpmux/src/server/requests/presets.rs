@@ -4,7 +4,9 @@
 use super::*;
 
 /// Read or change presets: {name?, set?: {harness, model, effort, policy, env, args, mode}, clear?: bool,
-/// approveMode?: bool} (`approveMode: true` is the person's own, `hub/person.rs` (b)).
+/// approveMode?: bool, approveDigest?, sessionId?} (`approveMode: true` is the person's own,
+/// `hub/person.rs` (b); `approveDigest` and `sessionId` answer a chat's approval card,
+/// `hub/unattended_presets.rs`).
 pub(super) async fn handle(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -21,6 +23,7 @@ pub(super) async fn handle(
             .clone()
             .ok_or_else(|| RpcError::invalid_params("name is required to change a preset"))?;
         let mut cfg = hub.config.write().await;
+        let mut logged = None;
         // REMOTE-FLOOR v3: a remote-origin client builds its settings
         // from scratch, so it never sets, changes or clears a preset
         // that shapes the harness command line (args, systemPrompt).
@@ -196,12 +199,43 @@ pub(super) async fn handle(
                 }
                 None => {}
             }
+            // An answer to a chat's approval card (`hub/unattended_presets.rs`) counts only for
+            // the contents the card showed.
+            if let Some(shown) = str_param(params, "approveDigest")
+                && p.approval_digest().as_deref() != Some(shown)
+            {
+                return Err(RpcError::invalid_params(format!(
+                    "preset {name:?} changed since this card was shown; nothing was approved"
+                )));
+            }
             // The person's approval binds these contents (`hub/person.rs` (b)).
             p.apply_mode_approval(approve).map_err(RpcError::invalid_params)?;
+            // A no-prompt preset's approval or withdrawal goes in the unattended runs log, once
+            // it is saved (#39916).
+            if let Some(approve) = approve
+                && p.policy_skips_asking()
+            {
+                logged = Some((
+                    if approve { "approved" } else { "withdrawn" },
+                    json!({"preset": name, "digest": p.approval_digest(), "person": conn.is_person(),
+                           "caller": conn.caller(), "sessionId": str_param(params, "sessionId")}),
+                ));
+            }
             cfg.presets.insert(name.clone(), p);
         }
         if let Err(e) = cfg.save() {
             return Err(RpcError::internal(format!("save config: {e}")));
+        }
+        drop(cfg);
+        if let Some((event, fields)) = logged {
+            crate::hub::unattended_presets::log(event, fields);
+        }
+        // Only the person's answer closes a card: an agent's `approveMode: false` narrows, but
+        // must not hide the card from the person (review 3 F3 of #39333).
+        if let Some(approve) = approve
+            && conn.is_person()
+        {
+            hub.close_preset_card(params, &name, approve);
         }
     }
     let cfg = hub.config.read().await;
@@ -210,7 +244,7 @@ pub(super) async fn handle(
             Ok(x) => (Some(x), None),
             Err(e) => (None, Some(e)),
         };
-        json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description, "mode": p.mode, "modeApproved": p.mode_approved()})
+        json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "args": p.args, "systemPromptSha256": p.system_prompt_sha256, "description": p.description, "mode": p.mode, "modeApproved": p.mode_approved(), "policyApproved": p.policy_approved()})
     };
     match name {
         Some(n) if !clear => cfg

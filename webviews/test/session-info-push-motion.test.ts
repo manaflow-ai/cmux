@@ -1,11 +1,9 @@
 // Lawrence: "animation at end is jumpy" (the chat's right-hand panel, Session Info, as it opens or
-// closes). Pushing the chat aside (Settings Push always, session-info/SessionInfo.tsx `pushes`), the panel slid by `translate` while the chat laid out once: the chat narrowed on the
-// first frame of the open, the panel still off to the right, and widened again only on the frame
-// after the close ended, when the panel unmounted. The chat's column, its composer and the header's
-// tools jumped the panel's width (328px in a 900px pane) right as the slide finished. Now the room
-// the panel takes travels with it (sessionInfo.css: its right margin runs from minus its width), so on
-// every frame of the open and the close the panel's left edge is the chat's right edge, and the frame
-// the panel leaves is the chat's full width.
+// closes). Pushing the chat aside, the panel slid by `translate` while the chat laid out once: the
+// chat's column, its composer and the header's tools jumped the panel's width right as the slide
+// finished. Now the chat keeps the pane's full width and only its column moves, on the chat's own
+// transition (sessionInfo.css --acpmux-session-info-shift) as the panel slides in or out, so no frame of
+// the open or the close jumps, and none lays the column under the panel.
 //
 // Each transition is paused and seeked (Web Animations) to fixed points of the slide, with the motion
 // tokens long enough that the presence's unmount timer never fires while a point is held. The page is
@@ -16,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
-import { sessionInfoPushes } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { sessionInfoPushes } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 
 await requireBrowserLane("session-info-push-motion.test.ts", async () => {
@@ -71,16 +69,17 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
     return toggle;
   };
 
-  /// At each point of the panel's running slide (a fraction of its transitions), the gap between the
-  /// chat's right edge and the panel's left edge and the chat's width, in px; then lets the slide
-  /// finish. `moving` names the properties its transitions animate.
+  /// At each point of the open's or the close's running slide (a fraction of its transitions: the
+  /// panel's and the chat column's shift on the chat, sessionInfo.css --acpmux-session-info-shift), the
+  /// chat's width, the column's left edge and width (the composer card's), and the panel's left edge, in
+  /// px; then lets the slide finish. `moving` names what animates, the panel's and the chat's.
   const slide = (page: Page, points: number[]) =>
     page.evaluate(async (fractions) => {
       const panel = document.querySelector<HTMLElement>("aside.acpmux-session-info")!;
       const chat = document.querySelector<HTMLElement>(".acpmux-main")!;
-      const slides = panel.getAnimations();
-      const gaps: number[] = [];
-      const widths: number[] = [];
+      const column = () => document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect();
+      const slides = [...panel.getAnimations(), ...chat.getAnimations()];
+      const frames: { chat: number; left: number; right: number; width: number; panel: number }[] = [];
       for (const running of slides) running.pause();
       for (const fraction of fractions) {
         for (const running of slides) {
@@ -89,73 +88,87 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
         }
         // Read after the seeked point has painted (support/paintedFrames.ts, which papercutPane installs).
         await window.cmuxPaintFrame();
-        const box = chat.getBoundingClientRect();
-        gaps.push(Math.round(Math.abs(panel.getBoundingClientRect().left - box.right)));
-        widths.push(box.width);
+        const box = column();
+        frames.push({
+          chat: chat.getBoundingClientRect().width,
+          left: box.left,
+          right: box.right,
+          width: box.width,
+          panel: panel.getBoundingClientRect().left,
+        });
       }
       for (const running of slides) running.finish();
       const moving = slides
         .map((running) => (running as Animation & { transitionProperty?: string }).transitionProperty ?? "")
         .sort();
-      return { moving, gaps, widths };
+      return { moving, frames };
     }, points);
 
-  /// The chat's width now.
-  const chatWidth = (page: Page) =>
-    page.evaluate(() => document.querySelector(".acpmux-main")!.getBoundingClientRect().width);
+  /// The composer card's left edge now: where the chat's column sits.
+  const columnLeft = (page: Page) =>
+    page.evaluate(() => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().left);
 
   const points = [0.03, 0.5, 0.85, 0.97];
 
+  // Lucas, 2026-11-06: pushing keeps the chat the pane's full width (its scrollbar at the pane's edge,
+  // right of the panel) and slides only its column, centered beside the panel, as the panel comes in.
+  // On every frame of the open and the close the chat keeps its width, the column keeps its width (no
+  // line rewraps) and never lies under the panel, and it moves steadily, never at once at either end.
   for (const name of browsers.keys())
-    test(`${name}: pushing, the chat narrows and widens with the panel, and neither end jumps`, async () => {
+    test(`${name}: pushing, the column slides with the panel, the chat keeps its width, and neither end jumps`, async () => {
       current = browsers.get(name)!;
-      // A 1100px pane's gutter has no room for the 320px panel, and Push always's whole room keeps the
-      // transcript's column at its width there (SessionInfo.tsx pushKeepsColumn): it pushes.
-      const page = await pane!.open({ width: 1100, height: 600 });
+      const page = await pane!.open({ width: 1200, height: 600 });
       try {
         const toggle = await ready(page);
         const shell = await page.evaluate(() => document.querySelector(".acpmux-shell")!.clientWidth);
+        const rest = await columnLeft(page);
 
         await toggle.click({ force: true });
         await page.locator('aside.acpmux-session-info[data-placement="push"]').waitFor({ timeout: 10_000 });
         const open = await slide(page, points);
         await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
-        // The room the open panel takes from the chat.
-        const room = shell - (await chatWidth(page));
+        // How far the open panel moved the column.
+        const moved = rest - (await columnLeft(page));
 
         await toggle.click({ force: true });
         await page.locator('aside.acpmux-session-info[data-presence="leaving"]').waitFor({ timeout: 10_000 });
         const close = await slide(page, points);
         await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 15_000 });
-        const after = await chatWidth(page);
+        const after = await columnLeft(page);
 
-        /// The share of the room the panel takes at each point.
-        const taken = (widths: number[]) => widths.map((width) => (shell - width) / room);
+        /// The share of the move the column has made at each point.
+        const share = (frames: { left: number }[]) => frames.map((frame) => (rest - frame.left) / moved);
         const rising = (values: number[]) => values.every((value, index) => index === 0 || value > values[index - 1]!);
-        const opening = taken(open.widths);
-        const closing = taken(close.widths);
+        const opening = share(open.frames);
+        const closing = share(close.frames);
+        const all = [...open.frames, ...close.frames];
+        const width = all[0]!.width;
         expect({
-          room: room > 300,
-          // The room itself moves (sessionInfo.css: the panel's right margin), not only the panel's paint.
-          marginMoves: open.moving.includes("margin-right") && close.moving.includes("margin-right"),
-          openGaps: open.gaps,
-          closeGaps: close.gaps,
-          // The chat gives up its room over the open and gets it back over the close, never at once.
+          moved: moved > 100,
+          // The column moves on the chat (sessionInfo.css), and the panel slides in and out.
+          columnMoves:
+            open.moving.includes("--acpmux-session-info-shift") && close.moving.includes("--acpmux-session-info-shift"),
+          panelSlides: open.moving.includes("translate") && close.moving.includes("translate"),
+          chatKeepsWidth: all.every((frame) => Math.abs(frame.chat - shell) < 0.5),
+          columnKeepsWidth: all.every((frame) => Math.abs(frame.width - width) < 0.5),
+          neverUnderPanel: all.every((frame) => frame.right <= frame.panel + 0.5),
           openTakes: rising(opening),
-          closeGives: rising(closing.map((share) => -share)),
-          openStartsWide: opening[0]! < 0.5,
-          closeEndsWide: closing[closing.length - 1]! < 0.25,
-          fullWidthAfter: Math.abs(after - shell) < 0.5,
+          closeGives: rising(closing.map((value) => -value)),
+          openStartsNear: opening[0]! < 0.5,
+          closeEndsNear: closing[closing.length - 1]! < 0.25,
+          backAfter: Math.abs(after - rest) < 0.5,
         }).toEqual({
-          room: true,
-          marginMoves: true,
-          openGaps: points.map(() => 0),
-          closeGaps: points.map(() => 0),
+          moved: true,
+          columnMoves: true,
+          panelSlides: true,
+          chatKeepsWidth: true,
+          columnKeepsWidth: true,
+          neverUnderPanel: true,
           openTakes: true,
           closeGives: true,
-          openStartsWide: true,
-          closeEndsWide: true,
-          fullWidthAfter: true,
+          openStartsNear: true,
+          closeEndsNear: true,
+          backAfter: true,
         });
       } finally {
         await page.close();
@@ -163,13 +176,13 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
     });
 
   // Floating and pushing keep the same right margin (the inset), so a switch between the two (Settings
-  // Push always) moves the panel to its new place at once, with no margin sliding after.
-  // Since #31423 the default (Overlay) floats only where the pane's right gutter holds the panel; in a
-  // narrower pane (900px) it pushes too, so Push always changes nothing there. The switch is made in a
-  // pane wide enough that Overlay really floats (SessionInfo.tsx sessionInfoPushes, at the panel's
-  // opening width), at 1800px, where Push always's whole room still keeps the transcript's column at its
-  // width (SessionInfo.tsx pushKeepsColumn).
-  const floatingPane = { width: 1800, height: 600 };
+  // Push always) moves the panel to its new place at once, with no slide after: not the panel's and not
+  // the chat column's (sessionInfo.css slides it only as the panel comes in or leaves).
+  // The default (Overlay) now pushes wherever the column fits beside the whole panel (Lucas,
+  // 2026-11-06), and floats in the gutter only in a short pane (SessionInfo.tsx POPOVER_BELOW_HEIGHT,
+  // 520px). The switch is made in a wide, short pane, where Overlay really floats and Push always's whole
+  // room still keeps the transcript's column at its width (SessionInfo.tsx pushKeepsColumn).
+  const floatingPane = { width: 1800, height: 500 };
   test("the switch's pane floats with Overlay and pushes with Push always", () => {
     expect({
       overlay: sessionInfoPushes("overlay", floatingPane, SESSION_INFO_WIDTH.fallback),
@@ -199,9 +212,10 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
           switched.push(
             ...(await page.evaluate(() => {
               const panel = document.querySelector("aside.acpmux-session-info")!;
-              return panel
-                .getAnimations()
-                .map((running) => (running as Animation & { transitionProperty?: string }).transitionProperty ?? "");
+              const chat = document.querySelector(".acpmux-main")!;
+              return [...panel.getAnimations(), ...chat.getAnimations()].map(
+                (running) => (running as Animation & { transitionProperty?: string }).transitionProperty ?? "",
+              );
             })),
           );
         }

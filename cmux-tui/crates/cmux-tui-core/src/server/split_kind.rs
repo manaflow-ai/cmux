@@ -41,9 +41,20 @@ pub(super) struct SplitParams {
     /// `split-client-split-id-v1`: caller-minted public id of the new split.
     #[serde(default)]
     split_id: Option<String>,
+    /// `split-before-v1`: the new pane goes before `pane` on the split axis
+    /// (Split Left with `dir: "right"`, Split Up with `dir: "down"`).
+    #[serde(default)]
+    before: bool,
     #[serde(flatten)]
     content: PaneContentParams,
 }
+
+/// `split` takes `before: true`, which puts the new pane before the target on
+/// the split axis (left of it for `right`, above it for `down`) in the one
+/// split commit, so a client that shows Split Left or Split Up before the
+/// daemon has it (`split-client-keys-v1`) gets the layout it already shows,
+/// with no `swap-pane` after it.
+pub(super) const SPLIT_BEFORE_CAPABILITY: &str = "split-before-v1";
 
 /// `split` takes a client-minted `split_id` for the split it makes, and every
 /// layout split node carries its public id as `split_id`, so a client that
@@ -195,10 +206,7 @@ pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> any
         if let Some(split_id) = params.split_id {
             fields.insert(crate::mux::CLIENT_SPLIT_ID_FIELD.into(), Value::String(split_id));
         }
-        let direction = match dir {
-            SplitDir::Right => "right",
-            SplitDir::Down => "down",
-        };
+        let direction = crate::mux::split_direction_field(dir, params.before);
         let surface = mux.split_browser_pane_with_fields_as(
             &origin_gate::connection_actor(mux, client),
             params.pane,
@@ -212,10 +220,11 @@ pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> any
     let keep = params.content.keep;
     let mut spawn = params.content.spawn(mux, client)?;
     spawn.split_id = params.split_id;
-    let created = mux.split_with_options_as(
+    let created = mux.split_placed_with_options_as(
         &origin_gate::connection_actor(mux, client),
         params.pane,
         dir,
+        params.before,
         spawn,
         size,
     )?;

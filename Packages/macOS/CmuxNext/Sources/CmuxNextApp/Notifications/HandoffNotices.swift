@@ -226,7 +226,7 @@ final class HandoffNotices {
     /// The agent tab showing chat `session`, on this Mac or any machine the app reaches.
     private func tab(showing session: String) -> String? {
         guard let tabs = services?.agentTabs else { return nil }
-        return tabs.listTabs().first { (tabs.sessions[$0.key] ?? $0.record.session) == session }?.key
+        return tabs.listTabsScoped().first { (tabs.sessions[tabs.tabKey($0.key, machine: $0.machine)] ?? $0.record.session) == session }?.key
             ?? AgentPriorityChats.app.remoteTab(showing: session)
     }
 }

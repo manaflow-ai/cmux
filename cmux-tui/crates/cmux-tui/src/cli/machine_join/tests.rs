@@ -643,6 +643,26 @@ fn a_name_on_two_machines_needs_its_id() {
 }
 
 #[test]
+fn joined_online_follows_the_platform_and_falls_back_to_the_heartbeat() {
+    let now = now_ms();
+    // The platform's `online` wins over the local clock either way: it follows the hub's row TTL.
+    let fresh_but_down =
+        joined(&json!({"machineId": "m_1", "lastHeartbeat": now, "online": false})).unwrap();
+    assert_eq!(fresh_but_down.state(now), "offline");
+    let old_but_up =
+        joined(&json!({"machineId": "m_2", "lastHeartbeat": now - 600_000, "online": true}))
+            .unwrap();
+    assert_eq!(old_but_up.state(now), "online");
+    let revoked = joined(&json!({"machineId": "m_3", "online": true, "revoked": true})).unwrap();
+    assert_eq!(revoked.state(now), "revoked");
+    // A platform without the field: the heartbeat within the legacy window.
+    let legacy =
+        |ago: u64| joined(&json!({"machineId": "m_4", "lastHeartbeat": now - ago})).unwrap();
+    assert_eq!(legacy(LEGACY_ONLINE_WITHIN_MS - 1_000).state(now), "online");
+    assert_eq!(legacy(LEGACY_ONLINE_WITHIN_MS + 1_000).state(now), "offline");
+}
+
+#[test]
 fn joined_rows_degrade_when_optional_fields_are_missing() {
     let now = now_ms();
     let full = joined(&entry("jt_1")).unwrap();

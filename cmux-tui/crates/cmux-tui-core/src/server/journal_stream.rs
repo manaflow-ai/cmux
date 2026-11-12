@@ -140,7 +140,9 @@ pub(super) fn handle_journal_extension_request(
                     Some((terminal, previous))
                 });
             // A finished turn's last message rides the same way, for its banner's preview: the
-            // commit's notification event takes it, and whatever it did not take goes.
+            // commit's notification event takes it, and whatever it did not take goes. It is
+            // the terminal's last reply only after a new commit: a failed or replayed append
+            // puts the one before it back.
             let reply = request
                 .fields
                 .get("live_reply")
@@ -154,7 +156,8 @@ pub(super) fn handle_journal_extension_request(
                         .and_then(|subject| {
                             crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
                         })?;
-                    mux.note_agent_reply(&terminal, reply).then_some(terminal)
+                    let noted = mux.note_agent_reply(&terminal, reply)?;
+                    Some((terminal, noted))
                 });
             // A question hook's question rides the same way, for the phone's answer card.
             let question = request
@@ -179,8 +182,13 @@ pub(super) fn handle_journal_extension_request(
             {
                 mux.restore_agent_prompt(&terminal, previous);
             }
-            if let Some(terminal) = reply {
+            if let Some((terminal, noted)) = reply {
                 mux.forget_agent_reply(&terminal);
+                // A replayed append is a hook's retry of an older turn: its reply is not the
+                // terminal's last one.
+                if !appended.as_ref().is_ok_and(|commit| !commit.replayed) {
+                    mux.restore_agent_reply(&terminal, noted);
+                }
             }
             if let Some(terminal) = question {
                 mux.forget_noted_agent_question(&terminal);

@@ -1,3 +1,5 @@
+import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
+
 /// Where a chat runs, as the environment picker (EnvironmentPicker.tsx) lists it: this computer, an
 /// SSH machine (an `ssh://` acpmux peer) or a Cloud machine (any other peer, or a Cloud chat's host).
 /// The machines are the composer's computers (ComposerContext availableComputers): acpmux's peers
@@ -74,6 +76,20 @@ export function peerConnectedFromStatus(status: unknown): Record<string, boolean
 
 /// Each peer's link state from `_acpmux/status` (the relay keeps it as a string;
 /// AcpmuxPaneMethods.replyShapes). A peer with no state, or one that is not a string, is left out.
+/// Each peer's whole link state from `_acpmux/status` or `_acpmux/peers` rows (`link`, linkState.ts),
+/// from a daemon that sends it.
+export function peerLinksFromStatus(status: unknown): Record<string, PeerLinkDetail> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  const links: Record<string, PeerLinkDetail> = {};
+  for (const peer of peers) {
+    const row = (peer ?? {}) as { name?: unknown; link?: unknown };
+    const detail = row.link === undefined ? undefined : readPeerLinkDetail(row);
+    if (typeof row.name === "string" && row.name && detail) links[row.name] = detail;
+  }
+  return links;
+}
+
 export function peerStatesFromStatus(status: unknown): Record<string, string> {
   const peers = (status as { peers?: unknown } | undefined)?.peers;
   if (!Array.isArray(peers)) return {};

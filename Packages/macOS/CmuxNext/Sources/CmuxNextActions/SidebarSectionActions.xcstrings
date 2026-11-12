@@ -10929,6 +10929,58 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "恢復側邊欄漸隱"}}
       }
     },
+    "action.sidebar.floatOnHover.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار الشريط الجانبي المخفي عائمًا عند التمرير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Plutajuća skrivena bočna traka pri prelasku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel svævende ved markør"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ausgeblendete Seitenleiste beim Überfahren schwebend zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Float Hidden Sidebar on Hover"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar la barra lateral oculta flotando al pasar el puntero"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher la barre latérale masquée en survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra la barra laterale nascosta fluttuante al passaggio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "非表示のサイドバーをポインタでフロート表示"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញរបារចំហៀងដែលលាក់ជាអណ្ដែតពេលដាក់ទស្សន៍ទ្រនិច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "호버 시 숨긴 사이드바를 떠 있게 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel flytende ved peker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj ukryty pasek boczny jako pływający po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar a barra lateral oculta flutuando ao passar o ponteiro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать скрытую боковую панель поверх при наведении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงแถบด้านข้างที่ซ่อนแบบลอยเมื่อวางเมาส์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gizli kenar çubuğunu üzerine gelince yüzer göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати приховану бічну панель поверх при наведенні"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiện thanh bên đã ẩn dạng nổi khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "悬停时浮动显示隐藏的侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "懸停時浮動顯示隱藏的側邊欄"}}
+      }
+    },
+    "action.sidebar.floatOnHover.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عدم إظهار الشريط الجانبي المخفي عائمًا"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nikad ne prikazuj plutajuću skrivenu bočnu traku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis aldrig skjult sidepanel svævende"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ausgeblendete Seitenleiste nie schwebend zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Never Float Hidden Sidebar"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No mostrar nunca la barra lateral oculta flotando"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ne jamais afficher la barre latérale masquée en survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Non mostrare mai la barra laterale nascosta fluttuante"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "非表示のサイドバーをフロート表示しない"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កុំបង្ហាញរបារចំហៀងដែលលាក់ជាអណ្ដែត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "숨긴 사이드바를 떠 있게 표시하지 않음"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis aldri skjult sidepanel flytende"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nigdy nie pokazuj ukrytego paska bocznego jako pływającego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nunca mostrar a barra lateral oculta flutuando"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Никогда не показывать скрытую боковую панель поверх"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่แสดงแถบด้านข้างที่ซ่อนแบบลอย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gizli kenar çubuğunu asla yüzer gösterme"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ніколи не показувати приховану бічну панель поверх"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không bao giờ hiện thanh bên đã ẩn dạng nổi"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "从不浮动显示隐藏的侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "永不浮動顯示隱藏的側邊欄"}}
+      }
+    },
     "action.sidebar.controlsOnHover.on": {
       "extractionState": "manual",
       "localizations": {

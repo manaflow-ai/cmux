@@ -105,7 +105,9 @@ pub(crate) fn paths_for(daemon_socket: &Path, state_root: &Path) -> Paths {
     if !crate::server::unix_socket_path_fits(&runtime.join("w-screen.sock")) {
         runtime = crate::platform::fallback_runtime_dir().join(leaf);
     }
-    let scope_digest = digest(state_root.as_os_str().as_encoded_bytes());
+    // The name from before NEXT's folder move: the build keeps its Keychain items, so its device.
+    let scope_root = cmux_agent_pane_policy::build_identity::path_identity(state_root);
+    let scope_digest = digest(scope_root.as_os_str().as_encoded_bytes());
     Paths {
         runtime,
         state: state_root.join("remote"),
@@ -132,7 +134,15 @@ struct Inner {
     unavailable: Mutex<Option<String>>,
     /// A newer embedded build waits for the running host to become idle.
     upgrade_pending: Mutex<bool>,
+    /// The Computer Use worker's activity the host reported last
+    /// (`workers["computer-use"].activity`), and where a change goes (the
+    /// mux's `computer-use-activity` event, set by `configure_remote_host`).
+    activity: Mutex<Value>,
+    on_activity: Mutex<Option<ActivitySink>>,
 }
+
+/// Where the Computer Use worker's activity goes (any thread; must not block).
+type ActivitySink = Arc<dyn Fn(Value) + Send + Sync>;
 
 #[derive(Default)]
 enum State {
@@ -172,6 +182,11 @@ impl RemoteHostSupervisor {
                 }
             });
         }
+    }
+
+    /// Where the Computer Use worker's activity goes from now on.
+    fn on_activity(&self, sink: ActivitySink) {
+        *lock(&self.inner.on_activity) = Some(sink);
     }
 
     /// The person's choices changed (the app's settings): saved, sent to the
@@ -346,7 +361,7 @@ impl Inner {
                 start_sec,
                 start_usec,
                 secret,
-                bundle_digest: staged.digest.clone(),
+                bundle_digest: staged.digest,
                 socket: paths.supervisor_socket(),
             };
             write_record(&paths.record(), &record);
@@ -438,6 +453,9 @@ impl Inner {
             if message.get("event").and_then(Value::as_str) == Some("status") {
                 let status = message.get("status").cloned().unwrap_or(Value::Null);
                 let idle = !status.get("busy").and_then(Value::as_bool).unwrap_or(false);
+                if let Some(inner) = this.upgrade() {
+                    Self::note_activity(&inner, &status);
+                }
                 *lock(&connection.status) = status;
                 if idle && this.upgrade().is_some_and(|inner| *lock(&inner.upgrade_pending)) {
                     // Never a call here: only this thread reads the answer.
@@ -452,6 +470,25 @@ impl Inner {
         Self::host_gone(&inner, connection);
     }
 
+    /// Sends the worker's activity on when it changed since the last status
+    /// (a status event comes for any change of the host, most of them not
+    /// Computer Use's).
+    fn note_activity(this: &Arc<Self>, status: &Value) {
+        let activity =
+            status.pointer("/workers/computer-use/activity").cloned().unwrap_or_else(|| json!([]));
+        {
+            let mut last = lock(&this.activity);
+            if *last == activity || (last.is_null() && activity == json!([])) {
+                return;
+            }
+            *last = activity.clone();
+        }
+        let sink = lock(&this.on_activity).clone();
+        if let Some(sink) = sink {
+            sink(json!({"event": "computer-use-activity", "sessions": activity}));
+        }
+    }
+
     /// The host's connection ended (it exited, crashed or drained): forget it,
     /// and start a new one after the backoff delay while one is wanted.
     fn host_gone(this: &Arc<Self>, connection: &Arc<Connection>) {
@@ -463,6 +500,8 @@ impl Inner {
                 return;
             }
         }
+        // No host, no agent acting through it.
+        Self::note_activity(this, &json!({}));
         let upgraded = std::mem::take(&mut *lock(&this.upgrade_pending));
         if let Some(paths) = lock(&this.paths).clone()
             && read_record(&paths.record()).is_some_and(|record| record == connection.record)
@@ -640,6 +679,12 @@ impl crate::mux::Mux {
         else {
             return;
         };
+        let mux = Arc::downgrade(self);
+        self.control_clients.remote_host.on_activity(Arc::new(move |payload| {
+            if let Some(mux) = mux.upgrade() {
+                mux.emit(crate::MuxEvent::ComputerUseActivity(Arc::new(payload)));
+            }
+        }));
         self.control_clients.remote_host.configure(paths_for(daemon_socket, &state_root));
     }
 }
