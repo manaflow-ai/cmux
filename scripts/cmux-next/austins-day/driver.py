@@ -46,6 +46,15 @@ import subprocess
 import sys
 import threading
 import time
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STALL_MS = 100.0
@@ -836,7 +845,7 @@ def main():
     short = {"agents": len(AGENTS), "hooked": sum(1 for r in agents if r.get("kind") == "start" and r.get("hooked")),
              "hooks": sum(1 for r in agents if r.get("kind") == "hook"), "app_no_reply": log_summary["no_reply_within"],
              "stalls_cmux": sum(1 for s in run["stalls"] if s["cmux_frame"])}
-    print("AUSTINS-DAY " + json.dumps(short), flush=True)
+    safe_print("AUSTINS-DAY " + json.dumps(short), flush=True)
 
 
 for _sig in (signal.SIGTERM, signal.SIGHUP):

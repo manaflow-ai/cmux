@@ -289,6 +289,25 @@ impl Hub {
                             child.fail_pending_if_unheard().await;
                         }
                         self.idle_wake.notify_one();
+                    } else if let Some(child) = session
+                        .child
+                        .lock()
+                        .await
+                        .clone()
+                        .filter(|c| c.generation == agent && !c.is_broken())
+                    {
+                        // A lost link of a live host: reached again at once, and its open requests
+                        // get their real answers (`ChildAgent::start_reader` kept them). Not
+                        // reached: they fail now, as before. Off this loop, which the reattach's
+                        // replay comes through.
+                        // One reattach try per lost link, bounded by its host's hello and the
+                        // 2 s death proof; the hub's scope owns it and ends it at shutdown.
+                        let (hub, s) = (self.clone(), session.clone());
+                        self.scope.spawn_named("lost-link-reattach", async move {
+                            if !hub.reach_lost_link(&s, &child).await {
+                                child.fail_pending_if_unheard().await;
+                            }
+                        });
                     }
                 }
                 Inbound::Exited { pid, code, host_seq } => {
@@ -557,42 +576,19 @@ impl Hub {
     }
 
     /// Whether `child`, the agent an answer was written to, is alive: now, or for a hosted agent
-    /// whose link to its host is down, once its host is reached again (`readopt` under the spawn
-    /// lock, as the next request reaches it), which the person who just answered must not wait
-    /// for: the agent waits on that answer. Once it is reached, an answer the link did not take
-    /// is asked again when it was cut (by the caller, under the bound now) and otherwise sent
-    /// again by the agent itself (`ChildAgent::reattach`), never both: a cut answer is never sent
-    /// again unchecked. (CROSS-LANE Q3 from c-turns: the answer was lost and the agent waited for
-    /// ever.) False for an agent that exited, ended, or another agent took the session from.
+    /// whose link to its host is down, once its host is reached again (`reach_lost_link`), which
+    /// the person who just answered must not wait for: the agent waits on that answer. Once it is
+    /// reached, an answer the link did not take is asked again when it was cut (by the caller,
+    /// under the bound now) and otherwise sent again by the agent itself (`ChildAgent::reattach`),
+    /// never both: a cut answer is never sent again unchecked. (CROSS-LANE Q3 from c-turns: the
+    /// answer was lost and the agent waited for ever.) False for an agent that exited, ended, or
+    /// another agent took the session from.
     async fn reach_hosted_again(
         self: &Arc<Self>,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
     ) -> bool {
-        if child.is_alive().await {
-            return true;
-        }
-        if child.host_record().is_none()
-            || child.has_exited()
-            || self.shutting_down()
-            || !Self::host_record_live(&session.id)
-        {
-            return false;
-        }
-        let _spawning = session.spawn_lock.lock().await;
-        // Another request may have reached it while this one waited for the lock.
-        if child.is_alive().await {
-            return true;
-        }
-        let still_asked =
-            session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, child));
-        if !still_asked {
-            return false;
-        }
-        match self.readopt(session).await {
-            Some(now) => Arc::ptr_eq(&now, child) && now.is_alive().await,
-            None => false,
-        }
+        self.reach_lost_link(session, child).await
     }
 
     /// [`Self::on_agent_request_in`], where an ancestor's answer finds the fence of its write

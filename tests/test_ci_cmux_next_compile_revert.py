@@ -22,6 +22,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
+
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next.yml"
 
 
@@ -146,7 +149,8 @@ class WorkflowJob(unittest.TestCase):
             self.assertIn(needle, job_["if"])
         # No write permission on the workflow token: the App token pushes and opens the revert.
         self.assertEqual(job_["permissions"], {"actions": "read", "contents": "read", "pull-requests": "read"})
-        self.assertEqual(job_["environment"], {"name": "ci-routing-agent", "deployment": False})
+        self.assertEqual(workflow_jobs.resolve(job_, "release-compile-revert").environment,
+                         {"name": "ci-routing-agent", "deployment": False})
         run = "\n".join(step.get("run", "") for step in job_["steps"])
         self.assertIn("cmux_next_compile_revert.py", run)
         self.assertIn("git revert --no-edit", run)

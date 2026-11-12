@@ -18,6 +18,15 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 REGISTRY = "workspace-registry.sqlite3"
 
@@ -145,9 +154,9 @@ def start(args, label, bumped):
                 # Frames only: symbol names and sample counts, no paths or arguments.
                 text = line.split(" (in ")[0].rstrip()
                 if text.strip():
-                    print("DRS-SAMPLE " + text[:200], flush=True)
+                    safe_print("DRS-SAMPLE " + text[:200], flush=True)
         except (subprocess.TimeoutExpired, OSError) as error:
-            print(f"DRS-SAMPLE failed: {error}", flush=True)
+            safe_print(f"DRS-SAMPLE failed: {error}", flush=True)
     laps = None
     timings = sdir / "startup-timings.jsonl"
     if timings.is_file():
@@ -172,7 +181,7 @@ def start(args, label, bumped):
     if exited is not None:
         # The daemon's own last word (an error, never row contents); the log goes with the scratch.
         lines = Path(log.name).read_text(errors="replace").splitlines()
-        print(f"DRS-OWNER-EXIT {label} {exited}: {lines[-1] if lines else ''}", file=sys.stderr, flush=True)
+        safe_print(f"DRS-OWNER-EXIT {label} {exited}: {lines[-1] if lines else ''}", file=sys.stderr, flush=True)
     ms = lambda value: None if value is None else round(value * 1000, 1)  # noqa: E731
     result = {
         "label": label,
@@ -189,7 +198,7 @@ def start(args, label, bumped):
         else round(laps["at_ms"] - laps["total_ms"] - spawned_at_ms, 1),
         **before,
     }
-    print("DRS " + json.dumps(result), flush=True)
+    safe_print("DRS " + json.dumps(result), flush=True)
     return result
 
 

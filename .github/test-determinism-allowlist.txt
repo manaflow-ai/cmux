@@ -378,3 +378,9 @@ tests/test_ci_noclobber_sweep.py	assert-on-duration	the bash timeout is the beha
 tests/test_lint_process_gone_checks.py	sleep-then-assert	both hits are source text of fixture tests that the linter under test reads; this test does not sleep
 tests/test_lint_process_gone_checks.py	assert-on-duration	died(within=5) must find an unreaped child and not run to its timeout; the 4 s bound tells found from timed out, which is the behavior under test
 tests/git_history.py	git-write-without-fixture	fetches missing commits into the real checkout from origin, not a fixture; needs the user's git config for auth
+# Absence checks: each waits a fixed time for something that must NOT happen (a page made by a pointer that only
+# crossed a tab; a second thread started for a wedged probe). No event marks "nothing happened", so the wait stays
+# until the tab dwell and the gate's thread start take an injected clock or a start hook. Found when the full scan
+# ran on base (cmux-next CI guard group, 07:36Z 2026-11-12, after #41805).
+Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HoverLoadsTabTests.swift	sleep-then-assert	absence check: a pointer that only crosses a tab makes no page; needs an injected dwell clock
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/WebKitSetupGateRecheckTests.swift	sleep-then-assert	absence check: a wedged probe starts no second thread; needs a thread-start hook
