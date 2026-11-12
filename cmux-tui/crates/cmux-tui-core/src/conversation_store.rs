@@ -951,3 +951,7 @@ pub(crate) struct ConversationHost {
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
+
+#[cfg(test)]
+#[path = "conversation_spill_tests.rs"]
+mod spill_tests;
