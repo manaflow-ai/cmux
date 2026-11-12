@@ -72,7 +72,13 @@ describe("toast avoidance", () => {
     place("form.acpmux-composer", { left: 20, top: 640, width: 860, height: 110 });
     resized.forEach((callback) => callback());
     flush();
-    expect(sent.at(-1)).toEqual({ left: 20, top: 640, right: 880, bottom: 750 });
+    expect(sent.at(-1)).toEqual({ left: 20, top: 640, right: 880, bottom: 750, zoom: 1 });
+    // Cmd +: the same CSS box sits elsewhere in the App's points, so it is sent again at the new zoom.
+    dom.window.document.documentElement.style.setProperty("--cmux-ui-scale", "1.25");
+    view.dispatchEvent(new dom.window.Event("cmux-ui-scale-change"));
+    flush();
+    expect(sent.length).toBe(3);
+    expect(sent.at(-1)).toEqual({ left: 20, top: 640, right: 880, bottom: 750, zoom: 1.25 });
     stop();
     expect(sent.at(-1)).toBeUndefined();
   });
@@ -145,7 +151,7 @@ describe("toast avoidance", () => {
       place("body > div", { left: 40, top: 600, width: 820, height: 100 });
       const stop = reportToastAvoidance(card, elementBox);
       flush();
-      const box = [{ left: 40, top: 600, right: 860, bottom: 700 }];
+      const box = [{ left: 40, top: 600, right: 860, bottom: 700, zoom: 1 }];
       expect(hostBox).toEqual(box);
       // The handshake retries in the same document; the card has not moved.
       await postNative("ready", { reconnect: true });
