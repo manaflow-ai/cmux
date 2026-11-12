@@ -543,7 +543,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         uiScaleObservation?.cancel()
         let chatZoom = followsChatZoom
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }

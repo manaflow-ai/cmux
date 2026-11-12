@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9045becabf1427b7c6927f308478e6847bba2656c9bfc23ca6596ff6e98274ed";
+inline constexpr std::string_view kProtocolIrSha256 = "808c9812c05a29c17e91371199dc53b27af1cc09ebec158f188795c60f73a605";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -287,6 +287,8 @@ struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
+struct CancelCreatingInputRequest;
+struct CancelCreatingInputResult;
 struct ChiefInspectRequest;
 struct ChiefInspectResult;
 struct ChiefWorkRequest;
@@ -1238,6 +1240,16 @@ struct BrowserWheelRequest {
     double x_px{};
     double y_px{};
     friend bool operator==(const BrowserWheelRequest&, const BrowserWheelRequest&) = default;
+};
+
+struct CancelCreatingInputRequest {
+    std::string terminal_id{};
+    friend bool operator==(const CancelCreatingInputRequest&, const CancelCreatingInputRequest&) = default;
+};
+
+struct CancelCreatingInputResult {
+    bool cancelled{};
+    friend bool operator==(const CancelCreatingInputResult&, const CancelCreatingInputResult&) = default;
 };
 
 struct CellPixelFailure {
@@ -8167,6 +8179,18 @@ template <>
 struct Codec<BrowserWheelGuardedRequest> {
     static Result<Json> encode(const BrowserWheelGuardedRequest& value);
     static Result<BrowserWheelGuardedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelCreatingInputRequest> {
+    static Result<Json> encode(const CancelCreatingInputRequest& value);
+    static Result<CancelCreatingInputRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelCreatingInputResult> {
+    static Result<Json> encode(const CancelCreatingInputResult& value);
+    static Result<CancelCreatingInputResult> decode(const Json& value);
 };
 
 template <>

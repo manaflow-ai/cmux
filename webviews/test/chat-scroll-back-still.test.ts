@@ -9,10 +9,15 @@
 // just scrolled to. Once they are at the latest row and the page draws nothing new, nothing moves.
 //
 // The page is send-stream-motion's (browser/send-stream-motion.harness.tsx) on the frames' own clock.
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the follow motion the
+// reader's wheel holds is that of a finished call's row landing in a turn that still runs, which only
+// `runs` draws (support/liveTurnRuns.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import type { Sample } from "./browser/send-stream-motion.harness";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
+import { LIVE_TURN_RUNS_QUERY } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { FRAME_MS } from "./support/rowArrivalReport";
@@ -63,9 +68,12 @@ await requireBrowserLane("chat-scroll-back-still.test.ts", async () => {
     "wheeling up %i px and back down to the latest row after reading moves no row the reader sees",
     async (px) => {
       const { port } = vite!.httpServer!.address() as { port: number };
-      const frames = await open120Hz(`http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}`, {
-        clock: "frames",
-      });
+      const frames = await open120Hz(
+        `http://127.0.0.1:${port}${PAGE}?clock=frames&rows=1&history=${HISTORY}${LIVE_TURN_RUNS_QUERY}`,
+        {
+          clock: "frames",
+        },
+      );
       let out: Sample[];
       try {
         await frames.page.waitForFunction(() => "__sendStream" in window);

@@ -8,11 +8,18 @@ The source snippets live in tests/fixtures/lint_connection_lifetimes/cases.txt, 
 import contextlib
 import importlib.util
 import io
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LINTER = REPO_ROOT / "scripts" / "lint-connection-lifetimes.py"
@@ -119,7 +126,7 @@ class BaselineTests(unittest.TestCase):
             src = root / RS
             src.parent.mkdir(parents=True)
             src.write_text(CASE["baseline_one"]["text"], encoding="utf-8")
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            git_fixture_env.init_repo(root)
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
             baseline = root / "baseline.txt"
             baseline.write_text(lint.BASELINE_HEADER, encoding="utf-8")

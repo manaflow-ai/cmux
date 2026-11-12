@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "9045becabf1427b7c6927f308478e6847bba2656c9bfc23ca6596ff6e98274ed";
+pub const ir_sha256 = "808c9812c05a29c17e91371199dc53b27af1cc09ebec158f188795c60f73a605";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4159,6 +4159,27 @@ pub fn browserWheelGuarded(client: anytype, request: BrowserWheelGuardedRequest)
             .authority = "frontend",
             .since = 10,
             .capability = "browser-pointer-frame-guard-v1",
+        },
+        request,
+    );
+}
+
+pub const CancelCreatingInputRequest = struct {
+    terminal_id: []const u8,
+};
+
+pub const CancelCreatingInputResult = struct {
+    cancelled: bool,
+};
+
+pub fn cancelCreatingInput(client: anytype, request: CancelCreatingInputRequest) !wire.Decoded(CancelCreatingInputResult) {
+    return client.callTyped(
+        CancelCreatingInputResult,
+        .{
+            .name = "cancel-creating-input",
+            .authority = "control",
+            .since = 12,
+            .capability = "creating-input-cancel-v1",
         },
         request,
     );
@@ -12422,7 +12443,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 300;
+pub const command_count: usize = 301;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12444,6 +12465,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-reload", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
+    .{ .name = "cancel-creating-input", .authority = "control", .since = 12, .capability = "creating-input-cancel-v1", .stream = null },
     .{ .name = "chief-inspect", .authority = "local-admin", .since = 12, .capability = "chief-inspect-v1", .stream = null },
     .{ .name = "chief-work", .authority = "frontend", .since = 12, .capability = "chief-work-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
