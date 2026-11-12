@@ -427,6 +427,41 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         # is none; that is "no rustfmt here", which warns, not a launch failure.
         self.assertEqual(self.rustfmt_from_path(".", in_scope=False, in_gate_cwd=True), "")
 
+    def test_rustfmt_launch_paths_are_absolute_with_a_relative_repo(self) -> None:
+        """dep-fleet-6 F1: --repo . must not make a PATH binary or rustfmt config relative to cmux-tui/."""
+        from unittest import mock  # noqa: PLC0415
+        tree = Path(self.tmp.name) / "tree"
+        source_path = tree / "cmux-tui/crates/x/src/lib.rs"
+        source_path.parent.mkdir(parents=True)
+        source = b"fn a() {}\n"
+        source_path.write_bytes(source)
+        (self.repo / "cmux-tui/crates/x").mkdir(parents=True)
+        config = self.repo / "cmux-tui/rustfmt.toml"
+        config.write_text("", encoding="utf-8")
+        fake = self.repo / "cmux-tui/rustfmt"
+        fake.write_text("fixture\n", encoding="utf-8")
+        fake.chmod(0o644)
+        caller = Path(self.tmp.name) / "caller"
+        caller.mkdir()
+        saved = Path.cwd()
+        try:
+            os.chdir(caller)
+            relative_repo = Path(os.path.relpath(self.repo, caller))
+            relative_config = Path(os.path.relpath(config, caller))
+            done = subprocess.CompletedProcess([], 0, stdout=source, stderr=b"")
+            with mock.patch.dict(os.environ, {"PATH": "."}), mock.patch.object(
+                    self.gate.subprocess, "run", return_value=done) as launched:
+                out = self.quiet(self.gate.rustfmt, relative_repo, relative_config, tree,
+                                 ["cmux-tui/crates/x/src/lib.rs"])
+        finally:
+            os.chdir(saved)
+        self.assertEqual(out, "")
+        call_args, kwargs = launched.call_args
+        command = call_args[0]
+        self.assertTrue(Path(command[0]).is_absolute(), command)
+        self.assertTrue(Path(command[command.index("--config-path") + 1]).is_absolute(), command)
+        self.assertTrue(Path(kwargs["cwd"]).is_absolute(), kwargs)
+
     def test_a_cargo_locks_exit_1_with_no_stale_line_refuses(self) -> None:
         from unittest import mock  # noqa: PLC0415
         self.install(self.gate.CARGO_LOCKS_SCRIPT, "print('checking 30 workspaces')\nraise SystemExit(1)\n")

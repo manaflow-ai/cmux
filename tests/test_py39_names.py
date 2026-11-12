@@ -643,6 +643,13 @@ class UnderPython39(unittest.TestCase):
                   "    else:\n"
                   "        value = ast.match_case  # bare: ast.match_case\n")
 
+    def test_a_local_shadow_does_not_hide_a_module_level_alias(self):
+        """dep-fleet-6 F2: a parameter shadows an import only in its function's lexical scope."""
+        self.scan("import ast\n"
+                  "def f(ast):\n"
+                  "    return ast\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
     def test_an_exit_gate_protects_what_follows_it(self):
         """devbuild's `if sys.version_info < (3, 11): ... raise SystemExit(...)`, codex-review-box's sys.exit, a return."""
         self.scan("import sys, ast\n"
