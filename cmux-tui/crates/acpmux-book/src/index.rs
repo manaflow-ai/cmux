@@ -425,7 +425,7 @@ impl IndexLog {
         index: &SummaryIndex,
     ) -> io::Result<()> {
         self.sync()?;
-        let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
+        let parent = self.path.parent().unwrap_or_else(|| Path::new(".")).to_owned();
         let stem = self.path.file_name().and_then(|name| name.to_str()).unwrap_or("index.log");
         let generation = parent.join(format!("{stem}.{}", index.seq()));
         let generation_file =
@@ -446,7 +446,7 @@ impl IndexLog {
         if old_path != self.path {
             let _ = fs::remove_file(old_path);
         }
-        if let Ok(dir) = File::open(parent) {
+        if let Ok(dir) = File::open(&parent) {
             dir.sync_all()?;
         }
         Ok(())
@@ -455,7 +455,7 @@ impl IndexLog {
 
 /// Reads the log's tail into a persistent index. A malformed or partial final
 /// line is ignored so a torn append does not hide earlier summaries.
-pub fn replay_log(path: impl AsRef<Path>, mut index: SummaryIndex) -> io::Result<SummaryIndex> {
+pub fn replay_log(path: impl AsRef<Path>, index: SummaryIndex) -> io::Result<SummaryIndex> {
     replay_log_from(path, 0, index)
 }
 
@@ -676,7 +676,7 @@ mod tests {
         let mut log = IndexLog::open(&log_path).unwrap();
         log.append(summary("a", 1, "{}")).unwrap();
         log.sync().unwrap();
-        std::fs::OpenOptions::new()
+        OpenOptions::new()
             .append(true)
             .open(&log_path)
             .unwrap()
