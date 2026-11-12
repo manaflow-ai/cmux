@@ -1503,6 +1503,19 @@ def map_faults(asked, rows, runs, failed, skipped, untimed_errors):
     return faults
 
 
+def bench_workspace(app):
+    """The id of a new workspace for map's rows: `workspace.newAtBottom` made it (made_workspace.py reads the answer)."""
+    try:
+        from made_workspace import made_workspace  # noqa: PLC0415  (only map needs it)
+    except ImportError:  # a copy of this script with no made_workspace.py beside it
+        raise SystemExit("session_real: map needs made_workspace.py (scripts/perf-bench) beside this file") from None
+    made = app.act("workspace.newAtBottom")
+    bench = made_workspace(made, app.topology)
+    if not bench:
+        raise SystemExit(f"session_real: workspace.newAtBottom made no workspace: {str(made)[:300]}")
+    return bench
+
+
 def map_rows(args):
     """The first map of the app at this session: 20 runs per action, the app's own clocks."""
     wanted = set(args.rows.split(",")) if args.rows else None
@@ -1556,14 +1569,7 @@ def map_rows(args):
     real = sorted(name for name in ids if name and NAME.match(name))
     if len(real) < 44:
         raise SystemExit(f"session_real: the app shows {len(real)} workspaces of a `make` session; map needs it")
-    try:
-        from made_workspace import made_workspace  # noqa: PLC0415  (only this command needs it)
-    except ImportError:  # a copy of this script with no made_workspace.py beside it
-        raise SystemExit("session_real: map needs made_workspace.py (scripts/perf-bench) beside this file") from None
-    made = app.act("workspace.newAtBottom")
-    bench = made_workspace(made, app.topology)
-    if not bench:
-        raise SystemExit(f"session_real: workspace.newAtBottom made no workspace: {str(made)[:300]}")
+    bench = bench_workspace(app)
     app.step("goToWorkspace", workspace=bench)
     time.sleep(1.5)
 

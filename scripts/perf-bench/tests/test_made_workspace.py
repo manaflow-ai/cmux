@@ -120,8 +120,14 @@ def appclock_arm(socket):
     return arm
 
 
+def session_real_driver(socket):
+    driver = object.__new__(sr.AppDriver)
+    driver.rpc = lambda method, params=None, timeout=60: socket.answer(method, params)
+    return driver
+
+
 class ToolsMakeAWorkspace(unittest.TestCase):
-    """`workspace()` of both parity tools, and the read that session_real.py's map gives the helper."""
+    """`workspace()` of both parity tools, and the workspace that session_real.py's map makes for its rows."""
 
     def test_both_parity_tools_go_to_the_workspace_of_each_answer(self):
         for make in (chrome_parity_arm, appclock_arm):
@@ -138,12 +144,17 @@ class ToolsMakeAWorkspace(unittest.TestCase):
                 make(socket).workspace()
             self.assertEqual(socket.went_to(), [], make.__name__)
 
-    def test_session_real_reads_the_topology_through_its_driver(self):
-        socket = Socket(NEW, NEW_TOPOLOGY)
-        driver = object.__new__(sr.AppDriver)
-        driver.rpc = lambda method, params=None, timeout=60: socket.answer(method, params)
-        self.assertEqual(made_workspace(NEW, driver.topology), MADE)
-        self.assertEqual(socket.reads(), 1)
+    def test_session_real_map_takes_its_workspace_from_each_answer(self):
+        for reply, want, reads in ((OLD, OLD["created"][0], 0), (NEW, MADE, 1)):
+            socket = Socket(reply, NEW_TOPOLOGY)
+            self.assertEqual(sr.bench_workspace(session_real_driver(socket)), want)
+            self.assertEqual(socket.reads(), reads)
+
+    def test_session_real_map_stops_when_the_app_made_no_workspace(self):
+        socket = Socket(NEW, topology(OPEN))
+        with self.assertRaises(SystemExit) as stop:
+            sr.bench_workspace(session_real_driver(socket))
+        self.assertIn("made no workspace", str(stop.exception))
 
 
 if __name__ == "__main__":
