@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Point the cmux VM image lock at one published cmux-tui build (the cloud agent template's
-// cmux + acpmux, which are one binary), the first step of the nightly template bake (M1 of the 2026-10-18 plan, cmux 99dea7b3734:PLAN.md):
+// cmux + acpmux, which are one binary), the first step of the nightly template bake (PLAN.md M1):
 //   bun images/cmux-vm/pin-cmux-tui.ts --commit <40-hex> [--lock <path>] [--write]
 //   bun images/cmux-vm/pin-cmux-tui.ts --latest [--write]
 // Reads only files.cmux.com (the build's manifest.json for the sha256, a HEAD for the size). It
