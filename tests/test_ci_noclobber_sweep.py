@@ -580,6 +580,93 @@ class NoclobberSweep(unittest.TestCase):
         self.assertTrue(raised.exception.skipped, raised.exception.reason)
         self.assertIn("setsid", raised.exception.reason)
 
+    def test_a_reaper_that_crashes_leaves_no_process_it_adopted(self):
+        """A review of #41862, F1: `setsid sh -c ... & exit 0` leaves a process in a session of its own, and the
+        child subreaper adopts it once bash exits. When the reaper then crashed, that process was init's: stop_run()
+        kills only what is below bash and bash's group, so it ran on. A reaper that fails kills every process it
+        holds, adopted ones included, before it exits."""
+        if not shutil.which("setsid") or not os.path.isdir("/proc/self"):
+            self.skipTest("needs setsid, and the reaper adopts an orphan as a Linux child subreaper")
+        roots = self.own_runs()
+        crash = shell_tree.REAPER.replace("kids = reap(False)\n", "kids = reap(False) if group() else crash()\n")
+        self.assertEqual(shell_tree.REAPER.count("kids = reap(False)\n"), 1)
+        crash = "def crash():\n    raise RuntimeError('injected')\n" + crash
+        text = "setsid sh -c 'x=0; while [ $x -lt 3000000 ]; do x=$((x+1)); done' & exit 0"
+        with mock.patch.object(shell_tree, "REAPER", crash):
+            with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                shell_tree.bash_writes(text, timeout=30)
+        self.assertIn("reaper exited 1", raised.exception.reason)
+        self.assertEqual(left(roots), [], "a process the reaper adopted outlived its crash")
+
+    def test_a_reaper_that_fails_before_it_writes_the_pid_stops_bash(self):
+        """A review of upstream #4657, F2: the reaper starts bash, then writes its pid. A failure between the two
+        (here the write raises) left bash running in a session of its own, and bash_writes() had no pid to stop it
+        by. The reaper owns bash from its start: it stops bash and what it left before it exits."""
+        roots = self.own_runs()
+        self.assertEqual(shell_tree.REAPER.count('open(sys.argv[2], "w")'), 1)
+        broken = shell_tree.REAPER.replace('open(sys.argv[2], "w")', 'open(sys.argv[2] + "/injected", "w")')
+        with mock.patch.object(shell_tree, "REAPER", broken):
+            with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                shell_tree.bash_writes("x=0; while ((x < 3000000)); do ((x++)); done", timeout=30)
+        self.assertIn("reaper exited 1", raised.exception.reason)
+        self.assertEqual(left(roots), [], "bash outlived a reaper that wrote no pid")
+
+    def test_job_control_in_any_quoting_needs_the_subreaper(self):
+        """A review of upstream #4657, F1: `set '-m'` turns job control on as `set -m` does, and LEAVES_GROUP read
+        only the bare word, so the reaper was not told a process may leave bash's group. Quotes, backslashes, a
+        continued line, an ANSI-C string and a shell's own -m or -o monitor are read as bash reads them; a set or eval
+        whose words only a run can tell, or a shell whose options it cannot, is no answer where the reaper is no
+        subreaper."""
+        tell = "import os\nos._exit(126 if os.environ.get('SHELL_TREE_NEEDS_SUBREAPER') else 0)\n"
+        rows = {"set '-m'; : > /tmp/out.$$": True, 'set "-m"': True, "set -\\m": True, "s'e't -m": True,
+                "set -o 'mon'itor": True, "set \\\n  -m": True, "set $'-m'": True, "set $'\\x2dm'": True,
+                "o=-m; set $o": True, "eval \"$o\"": True, "bash -m -c :": True, "bash -o monitor -c :": True,
+                "bash -e '-m' -c :": True, "bash --norc -i -c :": True, "set -e; : > /tmp/out.$$": False,
+                ": > /tmp/out.$$": False, "bash -c ': > /tmp/out.$$'": False}
+        with mock.patch.object(shell_tree, "REAPER", tell):
+            for text, leaves in rows.items():
+                with self.subTest(text=text), self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                    shell_tree.bash_writes(text, timeout=10)
+                self.assertEqual(raised.exception.skipped, leaves, raised.exception.reason)
+
+    def test_a_pid_file_not_as_the_reaper_writes_it_is_no_pid(self):
+        """A review of #41925, F1: read_pid() took the first word as bash's pid and any second word as the subreaper
+        flag, so `123 nope` and `123 0 extra` named pid 123, and stop_run() would kill what is below it. The reaper
+        writes "PID SUBREAPER" and nothing else; any other text is no pid."""
+        folder = tempfile.mkdtemp(prefix="read-pid-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        pidfile = os.path.join(folder, "pid")
+        rows = {"123 1\n": (123, True), "123 0": (123, False), "123 nope": (None, None), "123 0 extra": (None, None),
+                "123": (None, None), "123 2": (None, None), "+123 1": (None, None), "123 1\n456 0\n": (None, None),
+                "0 1": (None, None), "-5 1": (None, None), "": (None, None), "\u0661\u0662\u0663 1": (None, None)}
+        for text, want in rows.items():
+            with open(pidfile, "w") as f:
+                f.write(text)
+            with self.subTest(text=text):
+                self.assertEqual(shell_tree.read_pid(pidfile), want)
+
+    def test_an_env_split_across_a_continued_line_is_read(self):
+        """A review of #41925, F2: CAPABILITY_WORDS read a row the tree cannot parse line by line, so `env \\`
+        with -S on the next line named no env-split, and a host without it ran the row. The words are read on the
+        joined logical line, as bash joins it."""
+        for text in ("env \\\n  -S 'bash -c c1'", "env -u X \\\n--split-string='bash -c c1'"):
+            with self.subTest(text=text), \
+                    mock.patch.object(shell_tree, "programs", side_effect=shell_tree.Unparsed("injected")), \
+                    mock.patch.object(shell_tree, "bash_writes", side_effect=AssertionError("ran")):
+                with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                    shell_tree.oracle(text, missing=lambda c: "absent here" if c == "env-split" else None)
+                self.assertTrue(raised.exception.skipped, raised.exception.reason)
+                self.assertIn("env-split", raised.exception.reason)
+
+    def test_the_macos_reaper_runs_where_signal_has_no_sigtimedwait(self):
+        """A review of #41862, F2 (and upstream #4657, F3): the macOS reaper this test builds deleted
+        signal.sigtimedwait as it is, and on macOS, which has none, that raised AttributeError before the reaper
+        ran. On a host that already lacks it the reaper still answers."""
+        self.own_runs()
+        reaper = "import signal\ndel signal.sigtimedwait\n" + self.no_subreaper_reaper()
+        with mock.patch.object(shell_tree, "REAPER", reaper):
+            self.assertIs(shell_tree.bash_writes(": > /tmp/out.$$", timeout=10), True)
+
     def test_bash_source_in_a_sourced_file_is_that_file(self):
         """A review of this copy, F1: a test for "0" in the argument took ${BASH_SOURCE[0]} for $0, so a source inside
         a sourced file resolved against the script's folder. $0 is the script's in every file; each BASH_SOURCE form

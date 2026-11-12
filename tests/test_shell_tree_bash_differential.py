@@ -462,6 +462,21 @@ class NoOracleIsNoVerdict(unittest.TestCase):
                                          (1, 1, [], []))
                         self.assertIn(hidden, result.skipped[0][1])
 
+    def test_each_hidden_program_is_the_only_one_missing(self):
+        """A review of #41862, F3: the hidden-program row asked the host for every other program, so on a host
+        that lacks one too (stock macOS has no setsid, timeout or stdbuf) the skip named that one, and the row for the
+        hidden program failed. Every other program is present to the row, so each hides one program alone."""
+        which = shutil.which
+        for absent in REAL:
+            def host(name, *args, **kwargs):
+                return None if name == absent else which(name, *args, **kwargs)
+
+            result = unittest.TestResult()
+            with mock.patch.object(shutil, "which", host):
+                NoOracleIsNoVerdict("test_a_host_without_an_oracle_program_skips").run(result)
+            with self.subTest(absent=absent):
+                self.assertEqual((result.testsRun, result.failures, result.errors), (1, [], []))
+
     def test_an_oracle_that_raises_is_no_answer(self):
         """#41862 review, F1's sweep: an error of one line's run (here Popen) is that line's answer, a string
         differences() reports, never an exception that stops every line."""
