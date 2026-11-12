@@ -122,6 +122,23 @@ const PATH_READS: &[&str] = &[
     "read_link",
 ];
 
+/// [`PATH_READS`] a `File` or a `Metadata` has too: a read only on a receiver that is a path by
+/// its shape ([`Scope::path_shaped`]), since a file opened through `home_fs` is tainted too.
+const SHARED_READS: &[&str] = &["metadata", "is_file", "is_dir", "is_symlink"];
+
+/// Methods and functions whose value is a path.
+const PATH_MAKERS: &[&str] = &[
+    "join",
+    "with_extension",
+    "with_file_name",
+    "parent",
+    "path",
+    "to_path_buf",
+    "as_path",
+    "cold_path",
+    "dir",
+];
+
 /// The files whose reads by path from the home are checked: a read there decides a write in the
 /// held home (#41697 review F1). Elsewhere a read by path is not yet checked.
 const READ_CHECKED: &[&str] = &["src/store/cold.rs"];
@@ -933,6 +950,9 @@ struct Scope<'i, 'a> {
     /// Locals bound to an `OpenOptions` (true) or a `DirBuilder` (false), and the methods called
     /// on them anywhere in the function.
     builders: HashMap<String, (bool, HashSet<String>)>,
+    /// Locals and parameters that hold a path by their shape (a path-typed parameter, or a
+    /// local bound to a path's method).
+    paths: HashSet<String>,
 }
 
 /// What a builder chain's receiver is: an `OpenOptions` (true) or a `DirBuilder` (false), and
@@ -975,6 +995,28 @@ fn builder_root(scope: &Scope<'_, '_>, mut expr: &syn::Expr) -> Option<(bool, Ha
 }
 
 impl Scope<'_, '_> {
+    /// Whether `expr` is a path by its shape: a path-making method (`join`, `parent`, ...),
+    /// `Path::new` or `PathBuf::from`, or a local or parameter that holds one.
+    fn path_shaped(&self, expr: &syn::Expr) -> bool {
+        match expr {
+            syn::Expr::Reference(r) => self.path_shaped(&r.expr),
+            syn::Expr::Paren(p) => self.path_shaped(&p.expr),
+            syn::Expr::MethodCall(m) => PATH_MAKERS.contains(&m.method.to_string().as_str()),
+            syn::Expr::Call(c) => {
+                let syn::Expr::Path(p) = &*c.func else { return false };
+                let segments = path_segments(&p.path);
+                let n = segments.len();
+                let tail: Vec<&str> =
+                    segments[n.saturating_sub(2)..].iter().map(String::as_str).collect();
+                matches!(tail.as_slice(), ["Path", "new"] | ["PathBuf", "from"])
+            }
+            syn::Expr::Path(p) => {
+                p.path.get_ident().is_some_and(|i| self.paths.contains(&i.to_string()))
+            }
+            _ => false,
+        }
+    }
+
     fn methods_of(&self, name: &str, on_self: bool) -> Vec<usize> {
         let Some(candidates) = self.index.by_name.get(name) else { return Vec::new() };
         let methods: Vec<usize> =
@@ -1251,6 +1293,7 @@ impl<'ast> Visit<'ast> for Walk<'_, '_, '_> {
         }
         if m.args.is_empty()
             && PATH_READS.contains(&method.as_str())
+            && (!SHARED_READS.contains(&method.as_str()) || self.scope.path_shaped(&m.receiver))
             && self.scope.taint(&m.receiver)
         {
             self.read_row(m.span(), format!("Path::{method}"));
@@ -1321,7 +1364,34 @@ fn read_func<'a>(index: &Index<'a>, state: &State, at: usize, with_params: bool)
     bindings.visit_block(func.body);
     let types =
         local_types(func).into_iter().filter(|(_, ty)| index.structs.contains(ty)).collect();
-    let mut scope = Scope { index, state, func, env, types, builders: HashMap::new() };
+    let mut scope = Scope {
+        index,
+        state,
+        func,
+        env,
+        types,
+        builders: HashMap::new(),
+        paths: func
+            .params
+            .iter()
+            .filter(|(_, pathy)| *pathy)
+            .flat_map(|(names, _)| names.clone())
+            .collect(),
+    };
+    loop {
+        let before = scope.paths.len();
+        for (names, value) in &bindings.0 {
+            if let [name] = names.as_slice()
+                && !scope.paths.contains(name)
+                && scope.path_shaped(value)
+            {
+                scope.paths.insert(name.clone());
+            }
+        }
+        if scope.paths.len() == before {
+            break;
+        }
+    }
     // Builder locals, and every method called on them.
     for (names, value) in &bindings.0 {
         if let [name] = names.as_slice()
@@ -1555,7 +1625,11 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
                         return Ok(());
                     }
                     let _ = dir.join("events").exists();
-                    let _ = std::fs::File::open(dir.join("cold.zst"));
+                    let kept = dir.join("kept");
+                    let _ = kept.is_file();
+                    // A file's own metadata is no read by path.
+                    let file = std::fs::File::open(dir.join("cold.zst"))?;
+                    let _ = file.metadata();
                     let _ = crate::home_fs::exists_nofollow(dir.join("cold.zst"));
                     let _ = std::path::Path::new("/tmp/not-the-home").exists();
                     for entry in std::fs::read_dir(&dir)? {
@@ -1663,6 +1737,7 @@ fn the_detector_finds_each_shape_of_a_home_write_by_path() {
     let want_reads = [
         "src/store/cold.rs LocalStore::rehydrate: File::open",
         "src/store/cold.rs LocalStore::rehydrate: Path::exists",
+        "src/store/cold.rs LocalStore::rehydrate: Path::is_file",
         "src/store/cold.rs LocalStore::rehydrate: fs::read_dir",
         "src/store/cold.rs LocalStore::rehydrate: fs::symlink_metadata",
         "src/workflow_runs.rs read: OpenOptions::open (read)",
