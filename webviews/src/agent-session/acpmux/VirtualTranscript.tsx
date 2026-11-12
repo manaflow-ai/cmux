@@ -2209,8 +2209,12 @@ function TranscriptView({
     let olderLate: boolean | undefined;
     // The chat still loads (or its read just landed): what arrives fills a blank or partly blank
     // view, so it fades in rather than popping. A cold open's first rows fade with the whole
-    // transcript instead (fadeInOpenedChat), so they take no row fade on top of it.
-    const loadArrival = loadFade.current.open && coldOpen === undefined;
+    // transcript instead (fadeInOpenedChat), so they take no row fade on top of it. Once the reader
+    // is moving, history pages are part of that gesture and must draw whole: a page published by
+    // the short-open fill path can otherwise start an opacity animation under an upward scrub, which
+    // reads as a blank/flicker and makes the next frame harder to follow.
+    const readerIsMoving = performance.now() - readerAt.current <= READER_SCROLL_MS;
+    const loadArrival = loadFade.current.open && coldOpen === undefined && !readerIsMoving;
     // The running turn's live line keeps one id from turn to turn (turns.ts LIVE_THINKING): a line
     // the last rows did not end with came now, with the prompt that opened it, so it enters on the
     // send's clock with the prompt (conversation.css SEND-ENTRANCE). O(1): the last rows' tail only.
