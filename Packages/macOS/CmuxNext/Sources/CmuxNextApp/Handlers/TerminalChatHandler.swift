@@ -44,7 +44,7 @@ enum TerminalChatHandler {
         let facts = WindowRules.ToggleFacts(terminal: terminal, chat: !terminal && tabs.isAgentTab(tab.id),
                                             agent: terminal ? tab.agent?.agent : adopted?.harness,
                                             session: terminal ? tab.agent?.harnessSessionID : adopted?.agentSessionId, running: !terminals.isEmpty,
-                                            busy: tab.agentSession.map { AgentTurnStateStore.shared.isWorking($0, isChatMachine: { _ in false }) } ?? false,
+                                            busy: tab.agentSession.map(turnOpen) ?? false,
                                             handOff: handOff, handOffOpen: handOff?.tab.map { services.locateTabOnAnyMachine($0) != nil } ?? false,
                                             now: Date().timeIntervalSince1970)
         // The route is Rust's (cmux-window-rules `tabs::terminal_chat_toggle`).
@@ -91,6 +91,12 @@ enum TerminalChatHandler {
         }
     }
 
+    /// Whether chat `ref` has a turn open: working, or waiting on a permission or a question.
+    private static func turnOpen(_ ref: AgentSessionRef) -> Bool {
+        let store = AgentTurnStateStore.shared
+        return store.state(for: ref) == .needsInput || store.isWorking(ref, isChatMachine: { _ in false })
+    }
+
     /// A chat no terminal runs: its acpmux run stops (the transcript kept), the harness's resume
     /// command opens the session in a new terminal beside it, and the chat closes, so Toggle goes
     /// back and forth both ways (Leo, 2026-11-12: "that's the whole joy of the thing").
@@ -109,6 +115,8 @@ enum TerminalChatHandler {
                 tabs.terminalHandOffs[key] = nil
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
+            // A prompt sent since the click is a turn too: it is never cut off.
+            if tab.agentSession.map(turnOpen) == true { return fail(MiscHandlerStrings.terminalChatBusy) }
             do { try await acpmux.stopSession(id: run) } catch { return fail(MiscHandlerStrings.terminalChatStopFailed) }
             // The chat's pane, else its workspace's focused one when the pane closed meanwhile.
             guard let target = services.paneController(for: chat.pane.pane)
