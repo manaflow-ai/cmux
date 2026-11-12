@@ -6,6 +6,9 @@
 // file it keeps only the baseline items the file still leaves: an item it leaves alone stays as is;
 // one it leaves only after the other files is kept with the detector's " (with other files)" mark.
 // It never adds an item: raising a file's baseline is a hand edit to the JSON, which shows in review.
+// A file whose run failed (a test failed, it timed out or crashed) or that wrote no record left an
+// unknown state, never "nothing": its entries are kept as they are, it is named, and the script
+// exits 1 once it has written the files it could read.
 //
 //   bun scripts/leak-baseline.ts                 every agent-session test file
 //   bun scripts/leak-baseline.ts FILE...         only these (paths relative to webviews/), each alone
@@ -31,6 +34,8 @@ const scratch = mkdtempSync(join(tmpdir(), "leak-baseline-"));
 /// Per file: the items it left run alone, and the ones it left run with the other files.
 const aloneSeen = new Map<string, Set<string>>();
 const togetherSeen = new Map<string, Set<string>>();
+/// Files whose run did not finish cleanly or wrote no record: what they leave is unknown.
+const unknown = new Map<string, string>();
 
 function readRecord(path: string): void {
   if (!existsSync(path)) return;
@@ -44,15 +49,26 @@ function readRecord(path: string): void {
   }
 }
 
-async function run(operands: string[], record: string): Promise<void> {
+/// Runs `bun test` on `operands`; each of `covers` (the files it runs) that the run did not finish
+/// cleanly for, or that it wrote no record for, is marked unknown.
+async function run(
+  operands: string[],
+  record: string,
+  covers: string[],
+  seen: Map<string, Set<string>>,
+): Promise<void> {
   const child = Bun.spawn(["bun", "test", ...operands], {
     cwd: root,
     env: { ...process.env, CMUX_TEST_LEAKS: "report", CMUX_TEST_LEAKS_RECORD: record },
     stdout: "ignore",
     stderr: "ignore",
   });
-  await child.exited;
+  const code = await child.exited;
   readRecord(record);
+  for (const file of covers) {
+    if (code !== 0) unknown.set(file, `bun test ${operands.join(" ")} exited ${code}`);
+    else if (!seen.has(file)) unknown.set(file, `bun test ${operands.join(" ")} wrote no record for it`);
+  }
 }
 
 // Each file alone, as CI runs them.
@@ -61,12 +77,12 @@ let next = 0;
 async function worker(): Promise<void> {
   while (next < files.length) {
     const index = next++;
-    await run([`./${files[index]}`], join(scratch, `alone-${index}.jsonl`));
+    await run([`./${files[index]}`], join(scratch, `alone-${index}.jsonl`), [files[index]], aloneSeen);
   }
 }
 await Promise.all(Array.from({ length: width }, worker));
 // The folder in one process, as `bun test src/agent-session/` runs it (same order).
-if (!named.length) await run(["src/agent-session/"], join(scratch, "together.jsonl"));
+if (!named.length) await run(["src/agent-session/"], join(scratch, "together.jsonl"), files, togetherSeen);
 rmSync(scratch, { recursive: true, force: true });
 
 /// What each file leaves now, in the baseline's form.
@@ -79,19 +95,32 @@ function observedItems(file: string): Set<string> {
 
 const count = (record: Record<string, string[]>) => Object.values(record).reduce((sum, items) => sum + items.length, 0);
 
+/// Names the files whose state is unknown and exits 1; nothing when every file was read.
+function failOnUnknown(): void {
+  if (!unknown.size) return;
+  process.stderr.write(
+    `leak baseline: ${unknown.size} files kept their entries; what they leave is unknown:\n` +
+      [...unknown].map(([file, why]) => `  ${file}: ${why}\n`).join(""),
+  );
+  process.exit(1);
+}
+
 if (observedOnly) {
   const out: Record<string, string[]> = {};
   for (const file of [...files].sort()) {
+    if (unknown.has(file)) continue;
     const items = [...observedItems(file)].sort();
     if (items.length) out[file] = items;
   }
   process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+  failOnUnknown();
   process.exit(0);
 }
 
 const baseline = JSON.parse(readFileSync(baselinePath, "utf8")) as Record<string, string[]>;
 const before = count(baseline);
 for (const file of files) {
+  if (unknown.has(file)) continue; // its entries stay as they are (named below)
   const now = observedItems(file);
   const bare = (item: string) => (item.endsWith(WITH_OTHERS) ? item.slice(0, -WITH_OTHERS.length) : item);
   const kept = new Set<string>();
@@ -113,3 +142,4 @@ const sorted = Object.fromEntries(
 );
 writeFileSync(baselinePath, `${JSON.stringify(sorted, null, 2)}\n`);
 process.stdout.write(`agent-session leak baseline: ${before} -> ${count(sorted)}\n`);
+failOnUnknown();
