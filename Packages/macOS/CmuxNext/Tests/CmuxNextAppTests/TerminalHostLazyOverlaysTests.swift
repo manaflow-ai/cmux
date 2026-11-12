@@ -44,6 +44,9 @@ import Testing
         host.showStatus(.disconnected(.connectionLost, reconnecting: true))
         host.showStatus(.disconnected(.turnedOffByOrganization, reconnecting: false))
         #expect(Self.buttons(in: host).isEmpty)
+        // From a connected pane: "turned off by your organization" shows at once, so a failed attach right
+        // after it is already in view and has nothing to wait for.
+        host.showStatus(.connected)
         host.showStatus(.disconnected(.attachFailed, reconnecting: false))
         let retry = Self.buttons(in: host).compactMap { $0 as? TerminalRetryButton }
         #expect(retry.count == 1)
