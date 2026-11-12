@@ -536,7 +536,9 @@ public struct ScreenSessionView: View {
             let prepared = await Task.detached(priority: .userInitiated) { photo.flatMap(PastedImage.init(photo:)) }.value
             preparingPhoto = false
             guard let prepared else {
-                session.reportImagePasteFailure("This photo could not be read.")
+                session.reportImagePasteFailure(
+                    String(localized: "paste.photo.unreadable", defaultValue: "This photo could not be read.", bundle: .module)
+                )
                 return
             }
             session.pasteImage(prepared.data, type: prepared.type)
