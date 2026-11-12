@@ -85,7 +85,21 @@ impl Events {
         };
         let mut rows = self.rows.lock().unwrap_or_else(|e| e.into_inner());
         event.list_seq = rows.stamp(key, gone);
+        let rec = &event.record;
+        if event.remote.is_none()
+            && rec.kind != "created"
+            && reaches_other_rows(&rec.dir, &rec.kind)
+        {
+            rows.floor_all();
+        }
         self.tx.send(event)
+    }
+
+    /// Stamps `session`'s row, which changed with no notice a watcher hears (a streamed chunk's
+    /// preview, an attach): a follow after it sends the row as it is now.
+    fn stamp_own(&self, session: &str) {
+        let key = super::row_log::RowKey::Own(session.to_owned());
+        self.rows.lock().unwrap_or_else(|e| e.into_inner()).stamp(key, false);
     }
 
     pub(super) fn list_head(&self) -> u64 {
@@ -125,6 +139,7 @@ impl Events {
         event: HubEvent,
     ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
         self.changes.fetch_add(1, Ordering::SeqCst);
+        self.stamp_own(&event.session_id);
         self.tx.send(event)
     }
 
@@ -154,6 +169,7 @@ impl Events {
     /// list is built anew, with only `session`'s cached closed row stale.
     pub(super) fn row_changed(&self, session: &Session) {
         self.changes.fetch_add(1, Ordering::SeqCst);
+        self.stamp_own(&session.id);
         session.summary_gen.fetch_add(1, Ordering::SeqCst);
     }
 

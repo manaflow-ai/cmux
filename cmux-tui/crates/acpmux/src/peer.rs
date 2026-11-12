@@ -2380,8 +2380,11 @@ impl Peer {
         // meanwhile: published once the last page is in, the list first. A link that drops
         // before then publishes neither, so the hub keeps its last whole list.
         let mut paged: Option<(Vec<Value>, Vec<PeerNotice>)> = None;
-        // The position the watch list read so far is current to (`list_position`).
+        // The position the watch list read so far is current to (`list_position`), and whether
+        // this link's list reached the hub: until it does, a change moves no cursor, since the
+        // hub holds the last link's list and misses what changed while no link was up.
         let mut list_at: Option<(String, u64)> = None;
+        let mut listed = false;
         // A reply to this daemon's request: a watch list's (`watch_key`) is published here, before
         // the next frame is read.
         macro_rules! watch_reply {
@@ -2421,6 +2424,7 @@ impl Peer {
                         Ok(None) => {
                             let mut stopped = false;
                             *self.list_cursor.lock_or_recover() = list_at.take();
+                            listed = true;
                             let list = if follow {
                                 PeerNotice::SessionsPatch { rows, gone: gone_ids(list) }
                             } else {
@@ -2694,6 +2698,12 @@ impl Peer {
                             if m == REATTACHED_NOTICE {
                                 continue;
                             }
+                            // The peer left out notices (a full queue, one too large, a lagging
+                            // reader): the hub's copy is no longer current to any position, so
+                            // the next link reads the whole list.
+                            if m == "_acpmux/lagged" {
+                                *self.list_cursor.lock_or_recover() = None;
+                            }
                             let notice = if m == method::MUX_SESSION_CHANGED {
                                 let session = p.get("session").cloned().unwrap_or(Value::Null);
                                 // Remote session_changed notifications carry the
@@ -2704,9 +2714,10 @@ impl Peer {
                                 {
                                     continue;
                                 }
-                                // The hub's copy of the list is current to here (a held change
-                                // during a paged list moves no cursor: none is set yet).
-                                if let Some(seq) = p.get("listSeq").and_then(Value::as_u64)
+                                // The hub's copy of the list is current to here, once this link's
+                                // list reached it (`listed`).
+                                if listed
+                                    && let Some(seq) = p.get("listSeq").and_then(Value::as_u64)
                                     && let Some((_, at)) = self.list_cursor.lock_or_recover().as_mut()
                                 {
                                     *at = (*at).max(seq);

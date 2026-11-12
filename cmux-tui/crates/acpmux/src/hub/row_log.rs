@@ -68,6 +68,12 @@ impl RowLog {
         seq
     }
 
+    /// A change that may reach rows it does not name (a parent's tags fold its children): no
+    /// cursor before it can be followed, so each reads the list again (`reset`).
+    pub(crate) fn floor_all(&mut self) {
+        self.floor = self.floor.max(self.head);
+    }
+
     pub(crate) fn head(&self) -> u64 {
         self.head
     }
@@ -168,14 +174,24 @@ impl Hub {
                 (RowKey::Own(id), false) => self.resolve(id).ok().map(|s| {
                     if tools { self.session_summary(&s) } else { self.session_list_summary(&s) }
                 }),
-                (RowKey::Peer { peer, mux }, false) => remote.find_mux(peer, mux).map(|(_, r)| {
-                    let mut summary = r.summary.clone();
-                    summary.set("stale", Value::Bool(summary["stale"] == true));
-                    if let Some(state) = states.get(peer) {
-                        summary.set("peerState", Value::String((*state).to_owned()));
-                    }
-                    if tools { summary } else { super::views::without_summary_tools(summary) }
-                }),
+                (RowKey::Peer { peer, mux }, false) => {
+                    let held = remote.find_mux(peer, mux).map(|(_, r)| r.clone());
+                    // A row of this person's other machines lives in the mesh book, not the
+                    // peers' rows (`mesh_book.rs`), as a whole list reads it too.
+                    let held = held.or_else(|| {
+                        let mine =
+                            |r: &RemoteSession| r.peer == *peer && r.receipt.mux_session_id == *mux;
+                        self.mesh_book_rows(mine).into_iter().next()
+                    });
+                    held.map(|r| {
+                        let mut summary = r.summary.clone();
+                        summary.set("stale", Value::Bool(summary["stale"] == true));
+                        if let Some(state) = states.get(peer) {
+                            summary.set("peerState", Value::String((*state).to_owned()));
+                        }
+                        if tools { summary } else { super::views::without_summary_tools(summary) }
+                    })
+                }
             };
             let (text, removal) = match row {
                 Some(row) => (row.to_string(), None),

@@ -290,3 +290,26 @@ async fn a_reconnect_storm_of_30_links_never_pages_or_refuses_a_list() {
     );
     assert!(bytes / 600 < list / 5, "a follow reads the changes, not the list");
 }
+
+#[tokio::test]
+async fn a_change_that_reaches_other_rows_resets_older_cursors() {
+    let hub = hub_with(3, 0, 0).await;
+    let (head, epoch) = {
+        let (h, e) = hub.list_cursor();
+        (h, e.to_owned())
+    };
+    // A parent's tags fold its children: rows no record names change with it.
+    record(&hub, "chat-0", "tags");
+    let mut app = Client::new(&hub, Origin::Local).await;
+    let reply = app
+        .call(method::MUX_WATCH, json!({"enabled": true, "afterSeq": head, "listEpoch": epoch}))
+        .await;
+    assert_eq!(reply["reset"], true, "{reply}");
+    // A cursor at or after it follows.
+    let at = reply["listSeq"].as_u64().unwrap();
+    record(&hub, "chat-1", "renamed");
+    let follow = app
+        .call(method::MUX_WATCH, json!({"enabled": true, "afterSeq": at, "listEpoch": epoch}))
+        .await;
+    assert_eq!(ids(&follow["sessions"]), ["chat-1"], "{follow}");
+}

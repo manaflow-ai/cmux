@@ -252,20 +252,51 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     let own_only = conn.origin == super::Origin::Peer;
     if on && let Some(after) = follow_cursor(hub, params)? {
         // Rows changed after the client's cursor, never the list: its cost is the changes.
-        let raw = conn.raw_text;
-        let follow = within_limit(raw, LIST_PAGE_BYTES, |budget| {
-            hub.list_follow(after, own_only, tools, budget)
-                .map(|follow| follow.text)
-                .ok_or_else(|| RpcError::internal("reset"))
-        });
-        if let Ok(text) = follow {
-            return serde_json::from_str(&text).map_err(|e| RpcError::internal(e.to_string()));
+        if let Some(done) = follow(hub, conn, after, own_only, tools).await {
+            return done;
         }
         // The log cannot follow it (another run, or older than its oldest removal): the list, as
         // on a first watch, marked `reset`.
         return watch_list(hub, conn, params, tools, Cursor { head, reset: true }).await;
     }
     watch_list(hub, conn, params, tools, Cursor { head, reset: false }).await
+}
+
+/// The follow from `after`, sent as a list reply is: never after a `session_changed` it may lack
+/// (its rows are built when read; a change stamped meanwhile may go out as a notice before it),
+/// so it is read once more, then sent followed by a lag ([`reply`]). None: the log cannot follow
+/// `after`.
+async fn follow(
+    hub: &Hub,
+    conn: &Conn,
+    after: u64,
+    own_only: bool,
+    tools: bool,
+) -> Option<Result<Value, RpcError>> {
+    let raw = conn.raw_text;
+    for reads in 0..=REBUILDS {
+        let seen = conn.notices.load(Ordering::SeqCst);
+        let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
+            hub.list_follow(after, own_only, tools, budget)
+                .map(|follow| follow.text)
+                .ok_or_else(|| RpcError::internal("reset"))
+        })
+        .ok()?;
+        let Ok((id, method, claim)) = REPLY.try_with(|r| {
+            let r = r.borrow();
+            (r.id.clone(), r.method, r.claim.clone())
+        }) else {
+            return Some(
+                serde_json::from_str(&text).map_err(|e| RpcError::internal(e.to_string())),
+            );
+        };
+        let last = reads == REBUILDS;
+        if let Some(whole) = conn.send_serialized(&id, method, claim.as_ref(), text, seen, last) {
+            REPLY.with(|r| r.borrow_mut().sent = Some(whole));
+            break;
+        }
+    }
+    Some(Ok(Value::Null))
 }
 
 /// `afterSeq` of a watch: a cursor of another run (its `listEpoch` is not this run's) is read as
