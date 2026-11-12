@@ -229,13 +229,13 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
     let host = "cloud-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
 
-    static func list(_ machines: [(String, String)]) -> String {
+    nonisolated static func list(_ machines: [(String, String)]) -> String {
         let items = machines.map { #"{"id":"\#($0.0)","name":"\#($0.0)","status":"\#($0.1)","size":{},"idle_policy":{"idle_seconds":0}}"# }
         return #"{"value":{"machines":[\#(items.joined(separator: ","))],"next_cursor":null}}"#
     }
 
     /// The op of a `/v1/ops` or `/v1/read` body.
-    static func op(_ request: URLRequest) -> String? {
+    nonisolated static func op(_ request: URLRequest) -> String? {
         var body = request.httpBody
         if body == nil, let stream = request.httpBodyStream {
             stream.open()
