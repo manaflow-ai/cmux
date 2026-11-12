@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup` instaluje obsługiwanych agentów, których może znaleźć, i wypisuje podsumowanie dla pominiętych agentów. Obsługiwane integracje wznawiania obejmują Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory i Qoder. Claude Code jest obsługiwany przez wrapper Claude cmux, gdy integracja Claude jest włączona w Ustawieniach.
+`cmux hooks setup` instaluje obsługiwanych agentów, których może znaleźć, i wypisuje podsumowanie dla pominiętych agentów. Obsługiwane integracje wznawiania obejmują Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, Qoder i Qwen Code. Claude Code jest obsługiwany przez wrapper Claude cmux, gdy integracja Claude jest włączona w Ustawieniach.
 
 Zaawansowani użytkownicy i integracje mogą przypiąć własne polecenie wznowienia do bieżącej terminal surface. Przydaje się to narzędziom z własnym trwałym stanem, takim jak sesje tmux lub niestandardowe agent CLI:
 

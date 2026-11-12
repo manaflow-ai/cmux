@@ -287,7 +287,7 @@ cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
 
-`cmux hooks setup`は見つかった対応エージェントをインストールし、スキップしたエージェントのサマリーを表示します。対応する復元連携には、Claude Code、Codex、Grok、OpenCode、Pi、Amp、Cursor CLI、Gemini、Rovo Dev、Copilot、CodeBuddy、Factory、Qoderが含まれます。Claude Codeは、設定でClaude連携が有効な場合、cmuxのClaudeラッパーが処理します。
+`cmux hooks setup`は見つかった対応エージェントをインストールし、スキップしたエージェントのサマリーを表示します。対応する復元連携には、Claude Code、Codex、Grok、OpenCode、Pi、Amp、Cursor CLI、Gemini、Rovo Dev、Copilot、CodeBuddy、Factory、Qoder、Qwen Codeが含まれます。Claude Codeは、設定でClaude連携が有効な場合、cmuxのClaudeラッパーが処理します。
 
 上級ユーザーや連携機能は、現在のターミナルサーフェスにカスタム復元コマンドを紐づけられます。tmuxセッションやカスタムエージェントCLIのように、独自の永続状態を持つツールに使います：
 
