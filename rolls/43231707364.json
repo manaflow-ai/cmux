@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43231707364",
+  "recorded_at": "2026-11-12T14:02:57Z",
+  "reason": "cmux-tui 62fef3883660 changes the image's cmux-tui (pinned b41886855ab4)",
+  "dry_run": false,
+  "cmux_tui": "62fef38836600852a0ea8bce0a90d7479d9fecd1",
+  "fixes": [
+    {
+      "sha": "62fef38836600852a0ea8bce0a90d7479d9fecd1",
+      "mergedAt": "2026-11-12T05:37:10-08:00",
+      "subject": "acpmux: god and small homes, a heap profile of the daemon over them, and gauges in daemon status (#41882)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T14:02:57Z",
+    "snapshot_id": "sh-7a0b5729f1e84dd7863e5dcd3fb7ba29",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43231707364): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7819cbf98bcdcc9d42485742a443038dc9b75510",
+    "image": "cloud-native-auto-62fef388-43231707364-1",
+    "revision": "ci-43231707364-1",
+    "at": "2026-11-12T14:02:57Z"
+  },
+  "rolled_back": false
+}
