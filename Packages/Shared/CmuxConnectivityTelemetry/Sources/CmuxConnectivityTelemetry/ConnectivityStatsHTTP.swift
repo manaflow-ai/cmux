@@ -1,9 +1,8 @@
-public import CmuxConnectivityTelemetry
-public import Foundation
+import Foundation
 
 /// Sends connectivity stat batches to the Cloud service (`POST /v1/telemetry/connectivity`),
-/// as the signed-in account (the account's access token, refreshed once after a 401). The
-/// service decides the tier from that account and logs one line per stat.
+/// as the signed-in account (the phone's account token, the Mac's install token; refreshed once
+/// after a 401). The service decides the tier from that account and logs one line per stat.
 public struct ConnectivityStatsHTTP: Sendable {
     public let base: URL
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String

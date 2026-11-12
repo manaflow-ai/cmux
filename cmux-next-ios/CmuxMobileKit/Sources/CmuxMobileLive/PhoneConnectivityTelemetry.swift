@@ -12,18 +12,8 @@ extension ConnectivityTelemetry {
         guard PhoneConnectivityStart.claim() else { return }
         setJournal(.applicationSupport())
         addSink(Self.unifiedLogSink(subsystem: "dev.cmux.mobile"))
-        // task-owner: the process's stat flush timer; runs for the life of the app (suspended with it).
-        Task.detached(priority: .utility) { [stats] in
-            let clock = ContinuousClock()
-            while !Task.isCancelled {
-                try? await clock.sleep(for: Self.statsFlushEvery)
-                await stats.flush()
-            }
-        }
+        stats.flushPeriodically()
     }
-
-    /// Waiting stats go up at least this often while the app runs (and when it goes to the background).
-    static let statsFlushEvery: Duration = .seconds(60)
 
     /// Sends this phone's stats to the Cloud service at `base` as the signed-in account.
     public func uploadStats(to base: URL, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {

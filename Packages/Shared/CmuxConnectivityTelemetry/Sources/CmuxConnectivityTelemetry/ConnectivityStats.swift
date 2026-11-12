@@ -60,6 +60,7 @@ public final class ConnectivityStats: Sendable {
         var client: Client?
         var upload: Upload?
         var flushing = false
+        var flushTimer = false
         var hourStart: Date?
         var keptThisHour = 0
         var dropped = 0
@@ -125,6 +126,23 @@ public final class ConnectivityStats: Sendable {
         }
         // task-owner: one flush, ended when the queue is empty or an upload is refused.
         if start { Task.detached(priority: .utility) { [self] in await flush() } }
+    }
+
+    /// Flushes every `interval` for the life of the process (the first call starts it; later
+    /// calls do nothing). The app also flushes when it goes to the background.
+    public func flushPeriodically(every interval: Duration = .seconds(60), clock: any Clock<Duration> = ContinuousClock()) {
+        let start = state.withLock { state -> Bool in
+            defer { state.flushTimer = true }
+            return !state.flushTimer
+        }
+        guard start else { return }
+        // task-owner: the process's flush timer; runs for the life of the app (suspended with it).
+        Task.detached(priority: .utility) { [self] in
+            while !Task.isCancelled {
+                do { try await clock.sleep(for: interval) } catch { return }
+                await flush()
+            }
+        }
     }
 
     /// Sends waiting stats in batches until none are left or an upload asks to wait. Concurrent
