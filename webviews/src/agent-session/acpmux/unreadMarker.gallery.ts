@@ -90,6 +90,58 @@ const lineInView: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-since"));
 };
 
+/// Jump up while it goes to unread turns (the person was away from the chat on screen: attention.ts,
+/// acpmux hub/seen.rs). `look` draws a compared look over the chosen dot: an accent rim (`ring`) or
+/// an accent arrow (`tint`), set here on the page alone so only the chosen look ships (jumpPair.css).
+const unreadUp =
+  (look: "dot" | "ring" | "tint" = "dot"): Play =>
+  async (ctx) => {
+    await display({ "agentPane.display.unreadBanner": "off" });
+    await settle(ctx);
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown][data-unread]"));
+    if (look === "dot") return;
+    const style = ctx.document.createElement("style");
+    style.textContent =
+      look === "ring"
+        ? ".acpmux-jump-up[data-unread]::after{opacity:0!important}.acpmux-jump-up[data-unread]{--glass-edge:var(--cmux-app-accent)}"
+        : ".acpmux-jump-up[data-unread]::after{opacity:0!important}.acpmux-jump-up[data-unread] .acpmux-jump-latest__arrow{color:var(--cmux-app-accent)}";
+    ctx.document.head.append(style);
+  };
+
+/// Nothing unread: the chat the person read through, scrolled to the latest message after reading
+/// above. Jump up has no dot and goes to their own last prompt (the fallback).
+const readThrough = chat([
+  ...turns(1, 12, 120),
+  ...Array.from({ length: 6 }, (_, index) =>
+    assistant(
+      `Step ${index + 1} of the long run: the fuzz corpus case passes, the request id holds, the retry stops. `.repeat(
+        4,
+      ),
+      40 - index,
+    ),
+  ),
+]);
+const fallbackUp: Play = async (ctx) => {
+  await settle(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
+  if (ctx.document.querySelector(".acpmux-jump-up[data-unread]")) throw new Error("no unread: no dot");
+};
+
+/// Pressed from the latest message: the line lands near the top of the view, the first unseen turn
+/// under it.
+const landedNearTop: Play = async (ctx) => {
+  await unreadUp()(ctx);
+  await ctx.click({ selector: ".acpmux-jump-up" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-back]"));
+  await ctx.waitFor(() => {
+    const line = ctx.document.querySelector(".cv-since");
+    const scroller = ctx.document.querySelector(".acpmux-scroll");
+    if (!line || !scroller) return false;
+    const from = line.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    return from >= 0 && from < scroller.clientHeight / 5;
+  });
+};
+
 const sessionInfo: Play = async (ctx) => {
   const { setHeaderState } = await import("./header/headerState");
   const { setSessionInfoOpen } = await import("./session-info/sessionInfoState");
@@ -116,7 +168,7 @@ export default agentPaneEntry({
   height: 640,
   widths: { narrow: 420, normal: 900, wide: 1600 },
   covers: ["agent-session/acpmux/conversation/SinceDivider.tsx", "agent-session/acpmux/VirtualTranscript.tsx#JumpUp"],
-  keywords: ["unread", "new since", "jump up", "jump to bottom", "banner"],
+  keywords: ["unread", "new since", "jump up", "jump to bottom", "banner", "idle", "attention"],
   variants: {
     "banner-expanded": {
       note: "Chosen: back in a chat that kept working, the banner at the top left reads 9 new turns since the time, with Mark read; Jump up waits over the composer.",
@@ -155,6 +207,31 @@ export default agentPaneEntry({
       note: "The banner pressed: the New line in the message rhythm (one control row, its recap under it), the banner gone.",
       snapshot,
       play: lineInView,
+    },
+    "unread-dot": {
+      note: "Chosen: away from the chat on screen while it worked (no input for 60 s), back at the latest message: Jump up carries the theme's accent dot, the sidebar's unread dot, and goes to the New line.",
+      snapshot,
+      play: unreadUp("dot"),
+    },
+    "unread-ring": {
+      note: "Compared: the disc's rim in the accent instead of a dot. Reads as focus or selection, not news.",
+      snapshot,
+      play: unreadUp("ring"),
+    },
+    "unread-tint": {
+      note: "Compared: the arrow in the accent. Too quiet at 14 pt on glass, and lost over an image.",
+      snapshot,
+      play: unreadUp("tint"),
+    },
+    "unread-landed": {
+      note: "Pressed from the latest message: the New line near the top of the view, the first turn the person did not see right under it; the button points down to go back.",
+      snapshot,
+      play: landedNearTop,
+    },
+    "nothing-unread": {
+      note: "Nothing unread (read through while attending): no dot; Jump up goes to the person's own last prompt or where they last stopped scrolling.",
+      snapshot: readThrough,
+      play: fallbackUp,
     },
     "with-session-info": {
       note: "Session Info pushes at the end edge; the banner keeps to the column's start, the pair to its center: no overlap.",

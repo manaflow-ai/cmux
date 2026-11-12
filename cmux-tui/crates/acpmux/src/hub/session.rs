@@ -360,6 +360,13 @@ pub struct Session {
     pub(super) attached: std::sync::atomic::AtomicUsize,
     /// Of those, the ones that do not show the chat (`hub/seen.rs`).
     pub(super) hidden: std::sync::atomic::AtomicUsize,
+    /// Of the ones that show it, those whose person is not attending: idle past the client's
+    /// window, or its window not key (`_acpmux/view` `attending`, `hub/seen.rs`). They keep the
+    /// chat shown (its process, recap and presence) but see nothing: read state skips them.
+    pub(super) idle: std::sync::atomic::AtomicUsize,
+    /// The log seq right after the last turn ended (`turns.rs`): a person who stopped attending
+    /// before it did not see that turn end (`Hub::left_off`).
+    pub(super) turn_ended_seq: AtomicU64,
     /// Last stderr lines of the current turn, quoted when the agent
     /// process dies without an answer ("Not logged in", a launcher error).
     pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
