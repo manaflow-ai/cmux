@@ -54,6 +54,8 @@ public nonisolated struct AgentPageOps {
             // The page's flicker detector (``AgentPageFlickerLog``): answered by ``onFlicker`` before
             // the model, never logged. Without it the page host's pages wrote no line of their own.
             AgentPageFlickerLog.method,
+            // A chat's unsent prompts (``AgentPaneUnsentPrompts``): answered before the model, never logged.
+            "chat.unsentPrompt.put", "chat.unsentPrompt.remove", "chat.unsentPrompts.get",
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
@@ -410,6 +412,12 @@ public final class AgentPageProvider: PageProvider {
             return .object(["ok": .bool(true)])
         }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
+        if AgentPaneUnsentPrompts.handles(method: method) {
+            switch await AgentPaneUnsentPrompts.reply(to: method, params: params) {
+            case .success(let value): return value
+            case .failure(let error): throw PageError(code: error.code, message: error.message)
+            }
+        }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

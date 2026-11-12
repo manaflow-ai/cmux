@@ -90,6 +90,12 @@ extension Metrics {
     /// standard titlebar strip the pane's top corners sit below it, against
     /// the window's straight side, so the pane is square there (the window
     /// still rounds its own corners). A Debug Settings override wins.
+    ///
+    /// With no radius the person set and no outline, the card a pill strip nests in rounds from its
+    /// tabs instead (Lawrence 2026-11-11, "same roundness as chrome";
+    /// ``chromeRowConcentricCardRadius(windowCornerRadius:)``): 10 pt at Compact, as before, and at
+    /// most the window's own radius. The flush corner keeps its window-concentric card: its strip sits
+    /// on the frame above the card, not inside it.
     public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
         guard mainPaneCurved, !floatingPanes, ChromeTunables.mainPaneCornerRadius.override == nil else { return mainPaneCornerRadius }
         // The flush corner: concentric with the window across its 4 pt gap (12 pt in a 16 pt window).
@@ -97,8 +103,28 @@ extension Metrics {
         if flush.isOn { return windowCornerRadius > 0 ? max(0, windowCornerRadius - flush.gap) : flush.cardRadius }
         let gutter = mainPaneGutter
         if gutter == 0 { return DesignSettings.shared.titlebar == .standard ? 0 : max(0, windowCornerRadius - PaneTabRowRim.height) }
+        // Chrome's tab radius sizes the card the strip nests in, so the first pill stays concentric with it.
+        if mainPaneRoundsFromTabs { return chromeRowConcentricCardRadius(windowCornerRadius: windowCornerRadius) }
         return windowConcentricCornerRadius(windowCornerRadius: windowCornerRadius, edgeInset: max(gutter, PaneTabRowRim.height),
                                             setting: DesignSettings.shared.paneChrome.cornerRadius.map(scale))
+    }
+
+    /// Whether the curved main pane rounds from its tabs (``chromeRowConcentricCardRadius(windowCornerRadius:)``):
+    /// Chrome's tab radius applies (``usesChromeRowCorner``), the card has a gutter, no outline and no
+    /// Debug Settings radius, and the flush corner is off (its strip sits on the frame, not in the card).
+    public static var mainPaneRoundsFromTabs: Bool {
+        guard usesChromeRowCorner, mainPaneCurved, ChromeTunables.mainPaneCornerRadius.override == nil,
+              !CornerFlush.current.isOn, paneBorder == .none else { return false }
+        return mainPaneGutter > 0
+    }
+
+    /// The radius of the card a top-row pill strip nests in, concentric with its tabs: Chrome's tab
+    /// radius (``chromeRowCornerRadius(height:)`` at ``tabHeight``) plus the pill's inset from the
+    /// card's corner (``tabStripCardInset``), at most the window's radius (the titled window's when
+    /// `windowCornerRadius` is 0), so the card never rounds more than the window it sits in.
+    public static func chromeRowConcentricCardRadius(windowCornerRadius: CGFloat) -> CGFloat {
+        let window = windowCornerRadius > 0 ? windowCornerRadius : standardWindowCornerRadius
+        return min(chromeRowCornerRadius(height: tabHeight) + tabStripCardInset, window)
     }
 
     /// The radius of a card `edgeInset` points inside a window whose corners have
