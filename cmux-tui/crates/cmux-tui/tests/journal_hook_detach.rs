@@ -80,6 +80,77 @@ fn detached_hook_exits_before_the_server_answers() {
     let _ = std::fs::remove_file(&socket);
 }
 
+/// The process at the other end of `stream`.
+#[cfg(target_os = "macos")]
+fn peer_pid(stream: &UnixStream) -> libc::pid_t {
+    use std::os::fd::AsRawFd;
+    let mut pid: libc::pid_t = 0;
+    let mut length = libc::socklen_t::try_from(size_of::<libc::pid_t>()).unwrap();
+    // SAFETY: `pid` is a valid buffer of `length` bytes for this option of an open socket.
+    let result = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            (&raw mut pid).cast(),
+            &raw mut length,
+        )
+    };
+    assert_eq!(result, 0, "{}", std::io::Error::last_os_error());
+    pid
+}
+
+/// The process at the other end of `stream`.
+#[cfg(target_os = "linux")]
+fn peer_pid(stream: &UnixStream) -> libc::pid_t {
+    use std::os::fd::AsRawFd;
+    let mut peer = libc::ucred { pid: 0, uid: 0, gid: 0 };
+    let mut length = libc::socklen_t::try_from(size_of::<libc::ucred>()).unwrap();
+    // SAFETY: `peer` is a valid buffer of `length` bytes for this option of an open socket.
+    let result = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&raw mut peer).cast(),
+            &raw mut length,
+        )
+    };
+    assert_eq!(result, 0, "{}", std::io::Error::last_os_error());
+    peer.pid
+}
+
+/// The daemon's accept loop knows a terminal's processes by their process session (`getsid`,
+/// cmux-tui-core `server/terminal_sessions.rs`). The child that sends the report is NOT in the
+/// session of the hook the provider ran: it leads its own (`detach_session`), so that neither
+/// the provider nor a closed terminal ends a report on its way. So the daemon cannot place a
+/// hook connection at accept, and places it by its first line (the terminal lane, #27698).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn the_child_that_sends_the_report_leads_its_own_process_session() {
+    let socket = socket_path("session");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let child = spawn_hook(&socket, "Stop");
+    // The hook is this test's child and starts no session: it is in this test's process
+    // session. Read from this process, because the hook may have exited already.
+    // SAFETY: getsid only reads kernel process metadata.
+    let hook_session = unsafe { libc::getsid(0) };
+    let (stream, _) = listener.accept().unwrap();
+    let sender = peer_pid(&stream);
+    // SAFETY: as above.
+    let sender_session = unsafe { libc::getsid(sender) };
+    let request = read_request(&stream);
+
+    assert!(hook_session > 0 && sender_session > 0, "{hook_session} {sender_session}");
+    assert_ne!(sender, libc::pid_t::try_from(child.id()).unwrap(), "the hook itself sent");
+    assert_eq!(sender_session, sender, "the sending child does not lead a process session");
+    assert_ne!(sender_session, hook_session, "the sending child is in the hook's session");
+
+    reply(&stream, &request);
+    let _ = wait_with_output(child, Duration::from_secs(3));
+    let _ = std::fs::remove_file(&socket);
+}
+
 #[test]
 fn detached_hook_writes_the_request_before_exiting_even_when_the_server_is_not_accepting() {
     let socket = socket_path("order");
