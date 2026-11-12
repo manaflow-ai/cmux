@@ -237,17 +237,6 @@ jobs:
               echo "::error title=Signing runner::This owned Mac did not give the job the whole mini; this run's Blacksmith job signs instead."
               exit 1
             fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists; this run's Blacksmith job signs instead."
-              exit 1
-            fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
 
@@ -1064,7 +1053,7 @@ jobs:
     environment: release
     needs: [build-ghostty-cli-helper, resolve-release-cmux-tui-client, pick-sign-runner, build-sign-notarize]
     # The same run signs on Blacksmith when the owned Mac took build-sign-notarize but its claim gate never passed
-    # (glaeda refused the job, or a hook scripts/ci/glaeda-signing-hooks.txt does not list admitted it).
+    # (glaeda refused the job).
     if: "!cancelled() && github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned != '' && needs.build-sign-notarize.result != 'skipped' && needs.build-sign-notarize.result != 'cancelled' && needs.build-sign-notarize.outputs.claim != 'owned'"
     # Blacksmith only: this run's sign when the owned Mac refused the job (its claim gate).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}

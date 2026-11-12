@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { runPlay, selectTextWithDriver, syntheticKey, syntheticPointer } from "../src/gallery/frame/playRunner";
-import { isSubpixelLayoutShift } from "../src/gallery/play";
+import { isSubpixelLayoutShift, longFramePart } from "../src/gallery/play";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -35,12 +36,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 describe("gallery shell keyboard emulation", () => {
@@ -192,6 +189,206 @@ describe("gallery layout-shift measurement", () => {
     expect(isSubpixelLayoutShift([{ previousRect: rect(10), currentRect: rect(10.49) }])).toBe(true);
     expect(isSubpixelLayoutShift([{ previousRect: rect(10), currentRect: rect(10.5) }])).toBe(false);
     expect(isSubpixelLayoutShift([{ previousRect: rect(10) }])).toBe(false);
+  });
+});
+
+describe("where a long frame's time went", () => {
+  test("a frame that the step's own handler made says the handler, and the layout it forced", () => {
+    // A click at 1000 ms: its handler runs 40 ms, 12 of them a forced layout; the render is 22 ms more.
+    const part = longFramePart(
+      {
+        startTime: 1002,
+        duration: 62,
+        renderStart: 1042,
+        styleAndLayoutStart: 1045,
+        scripts: [
+          { invoker: "DOMWindow.requestAnimationFrame", duration: 3, sourceURL: "" },
+          {
+            invoker: "BUTTON.onclick",
+            sourceFunctionName: "stop",
+            sourceURL: "http://127.0.0.1:4173/assets/Composer-abc.js?v=1#x",
+            duration: 37,
+            forcedStyleAndLayoutDuration: 12,
+          },
+        ],
+      },
+      1000,
+    );
+    expect(part).toBe(
+      "62.0 ms: 40.0 ms before its render, 3.0 ms frame callbacks, 19.0 ms from style and layout on; " +
+        "began 2.0 ms after the step's start; " +
+        "scripts 40.0 ms: BUTTON.onclick (stop in Composer-abc.js) 37.0 ms, 12.0 ms of it forced style and layout, " +
+        "DOMWindow.requestAnimationFrame 3.0 ms",
+    );
+  });
+
+  test("a frame that began before the step, with no script, says both", () => {
+    // Nothing of the page ran: the time is the wait for the frame, which is not the step's work.
+    expect(longFramePart({ startTime: 990, duration: 55, renderStart: 1044, styleAndLayoutStart: 1044.5 }, 1000)).toBe(
+      "55.0 ms: 54.0 ms before its render, 0.5 ms frame callbacks, 0.5 ms from style and layout on; " +
+        "began 10.0 ms before the step's start; no script of 5 ms or more",
+    );
+  });
+
+  test("a frame that rendered nothing gives all its time to the part before a render", () => {
+    expect(longFramePart({ startTime: 0, duration: 51, renderStart: 0, styleAndLayoutStart: 0 }, 0)).toBe(
+      "51.0 ms: 51.0 ms before its render, 0.0 ms frame callbacks, 0.0 ms from style and layout on; " +
+        "began 0.0 ms after the step's start; no script of 5 ms or more",
+    );
+  });
+
+  test("names the three longest scripts of many, sums them all, and keeps a caller short", () => {
+    // The engine names a whole script by its URL and a listener by its element's `src`: no path of
+    // the machine and no image's bytes go into a CI line.
+    const part = longFramePart(
+      {
+        startTime: 100,
+        duration: 80,
+        renderStart: 178,
+        styleAndLayoutStart: 179,
+        scripts: [
+          { duration: 6 },
+          { invoker: "http://127.0.0.1:5173/@fs/home/runner/work/cmux/webviews/src/main.tsx?t=17", duration: 30 },
+          { invoker: `IMG[src=data:image/png;base64,${"iVBOR/w0+".repeat(4000)}].onload`, duration: 20 },
+          { invoker: "IMG[src=https://example.test/shots/one.png?size=2].onload", duration: 10 },
+          { invoker: `${"Deep.".repeat(40)}then`, duration: 5 },
+        ],
+      },
+      100,
+    );
+    expect(part).toBe(
+      "80.0 ms: 78.0 ms before its render, 1.0 ms frame callbacks, 1.0 ms from style and layout on; " +
+        "began 0.0 ms after the step's start; " +
+        "scripts 71.0 ms: main.tsx 30.0 ms, IMG[src=data:…].onload 20.0 ms, IMG[src=one.png].onload 10.0 ms",
+    );
+    // A caller with no URL in it is cut at its bound.
+    const long = longFramePart(
+      { startTime: 0, duration: 60, scripts: [{ invoker: "x".repeat(200), duration: 60 }] },
+      0,
+    );
+    expect(long).toContain(`scripts 60.0 ms: ${"x".repeat(80)}… 60.0 ms`);
+  });
+});
+
+describe("which long frames are a step's", () => {
+  // The engine reports a Long Animation Frame after the frame ends, and a step's observer hears each
+  // report that comes while the step runs. A frame that ENDED before the step began was counted in
+  // the step and failed it: on a CI shard the gallery entry's own module load, a 52.0 ms frame that
+  // began 56.8 ms before `click .acpmux-summary-button` and so ended 4.8 ms before it (job
+  // 130436819024). The step's own frame begins a little before the step (a step with no driver
+  // starts inside the frame callback that ended the last settle) and ends in it: that one is the
+  // step's. The frames here end 40 ms before the step, so a slow machine does not change the case.
+  //
+  // A report can also be late the other way: the engine has queued it and has not delivered it when
+  // the step ends. Only `takeRecords()` gives it then, and a step that drops it reads green with a
+  // long frame or a layout shift in it.
+  type Heard = (list: { getEntries(): unknown[] }) => void;
+  /// One focus step on a stage whose engine reports `type` entries. `entry` is made when the step's
+  /// observer starts, right after the step's start. "delivered": its report comes in a later task.
+  /// "queued": it is still in the observer's queue when the step ends.
+  const stepWithReport = async (
+    type: "long-animation-frame" | "layout-shift",
+    how: "delivered" | "queued",
+    entry: (stepStart: number) => unknown,
+  ) => {
+    const root = document.getElementById("root")!;
+    root.innerHTML = '<div id="row">Row</div><button id="plain">Plain</button>';
+    const restore = ["requestAnimationFrame", "PerformanceObserver", "Element", "innerWidth", "innerHeight"].map(
+      (key) => [key, key in scope, scope[key]] as const,
+    );
+    Object.assign(scope, {
+      requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+      Element: dom.window.Element,
+      innerWidth: 800,
+      innerHeight: 600,
+      PerformanceObserver: class {
+        static supportedEntryTypes = [type];
+        private readonly heard: Heard;
+        private queued: unknown[] = [];
+        constructor(heard: Heard) {
+          this.heard = heard;
+        }
+        observe(options: { type?: string }) {
+          if (options.type !== type) return;
+          const made = entry(performance.now());
+          if (how === "queued") this.queued.push(made);
+          else setTimeout(() => this.heard({ getEntries: () => [made] }), 0);
+        }
+        takeRecords() {
+          const taken = this.queued;
+          this.queued = [];
+          return taken;
+        }
+        disconnect() {}
+      },
+    });
+    Object.defineProperty(dom.window, "innerWidth", { configurable: true, value: 800 });
+    Object.defineProperty(dom.window, "innerHeight", { configurable: true, value: 600 });
+    try {
+      const report = await runPlay((ctx) => ctx.focus({ selector: "#plain" }), {});
+      return report.steps[0]!;
+    } finally {
+      for (const [key, had, value] of restore) {
+        if (had) scope[key] = value;
+        else delete scope[key];
+      }
+      delete (dom.window as unknown as Record<string, unknown>).innerWidth;
+      delete (dom.window as unknown as Record<string, unknown>).innerHeight;
+    }
+  };
+  const stepWithFrame = (
+    frame: (stepStart: number) => { startTime: number; duration: number },
+    how: "delivered" | "queued" = "delivered",
+  ) => stepWithReport("long-animation-frame", how, frame);
+
+  test("a long frame that ended before the step began is not counted in the step", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start - 92, duration: 52 }));
+    expect(step.frameSource).toBe("long-animation-frame");
+    expect(step.longFrames).toEqual([]);
+    expect(step.longFrameParts).toBeUndefined();
+    expect(step.problems.join("\n")).not.toMatch(/frame\(s\) over/);
+  });
+
+  test("a long frame that began before the step and ended in it is the step's, and fails it", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start - 1.9, duration: 71.4 }));
+    expect(step.longFrames).toEqual([71.4]);
+    expect(step.longFrameParts?.length).toBe(1);
+    expect(step.status).toBe("fail");
+    expect(step.problems.join("\n")).toMatch(/1 frame\(s\) over 33 ms \(longest 71\.4 ms\)/);
+  });
+
+  test("a long frame whose report is still queued when the step ends is the step's, and fails it", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start + 2, duration: 71.4 }), "queued");
+    expect(step.frameSource).toBe("long-animation-frame");
+    expect(step.longFrames).toEqual([71.4]);
+    expect(step.longFrameParts?.length).toBe(1);
+    expect(step.status).toBe("fail");
+    expect(step.problems.join("\n")).toMatch(/1 frame\(s\) over 33 ms \(longest 71\.4 ms\)/);
+  });
+
+  test("a queued report of a long frame that ended before the step is not counted in the step", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start - 92, duration: 52 }), "queued");
+    expect(step.longFrames).toEqual([]);
+    expect(step.problems.join("\n")).not.toMatch(/frame\(s\) over/);
+  });
+
+  test("a layout shift whose report is still queued when the step ends is the step's, and fails it", async () => {
+    // The row before the button moved 40 px down: not the focused button's own expansion.
+    const step = await stepWithReport("layout-shift", "queued", () => ({
+      value: 0.2,
+      hadRecentInput: false,
+      sources: [
+        {
+          node: document.getElementById("row"),
+          previousRect: { x: 0, y: 0, width: 100, height: 20 },
+          currentRect: { x: 0, y: 40, width: 100, height: 20 },
+        },
+      ],
+    }));
+    expect(step.layoutShift).toBeCloseTo(0.2, 6);
+    expect(step.shifts.map((shift) => shift.sources)).toEqual([["div [0 40 0 0]"]]);
+    expect(step.status).toBe("fail");
+    expect(step.problems.join("\n")).toMatch(/layout shift 0\.2000/);
   });
 });
 

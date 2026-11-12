@@ -50,10 +50,15 @@ ALLOWED_LISTENERS = {
     "the page hides, so they don't replay on return; reads no data",
     (f"{ACPMUX}/conversation/sendTuck.ts", "visibilitychange"): "ends a send's tuck animation and "
     "removes its copies as the page hides; reads no data",
+    (f"{ACPMUX}/chatPerfCapture.ts", "visibilitychange"): "`cmux app chat perf` notes when the "
+    "page hid during a capture, only while one runs (removed after); reads no data",
     (f"{ACPMUX}/composerFocus.ts", "focus"): "focus claim when the window is focused (the composer "
     "focus lane); reads no data",
     (f"{ACPMUX}/newtab/NewTabScreen.tsx", "focus"): "the field takes the keyboard back when the "
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
+    (f"{ACPMUX}/newtab/inputReady.ts", "focus"): "a New Tab field's readiness after Cmd-T waits "
+    "for the page's first focus, so the keys the app replays then are not lost; once per opening, "
+    "removed when it fires; reads no data",
     (f"{ACPMUX}/session-info/stepAside.ts", "visibilitychange"): "Session Info comes back when "
     "the tab an Outputs row opened over the chat closes (the page shows again); reads no data",
     (f"{ACPMUX}/threadMinimap/scrollMotion.ts", "visibilitychange"): "cancels the wheel's own "

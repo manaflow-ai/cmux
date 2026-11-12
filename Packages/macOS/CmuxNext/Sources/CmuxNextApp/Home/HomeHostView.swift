@@ -25,7 +25,7 @@ import ImageIO
 /// home-mac.md) over the shared `HomeStore` of the local conversation owner,
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
-final class HomeHostView: PaneMotionFollowingView {
+final class HomeHostView: NSView {
     let transcript: HomeNativeTranscriptView
     private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
@@ -82,7 +82,7 @@ final class HomeHostView: PaneMotionFollowingView {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
-                                              widgets: services.sidebarCustomization.chatWidgets, openPanel: services.openPanel)
+                                              openPanel: services.openPanel)
         let approvals = ChiefApprovalDecider(home: service.chief.home, app: QuitAgents.environment(services),
                                              work: services.work, environment: ChiefHomeAcpmux.environment)
         transcript.approvals = approvals
@@ -555,9 +555,9 @@ final class HomeHostView: PaneMotionFollowingView {
     var headerHeight: CGFloat { transcript.headerHeight }
 
     /// The view that takes the keyboard when the tab's pane is focused.
-    /// Home's primary input: the message box itself. Focusing the transcript
-    /// view would leave it the responder after it forwards to the box.
-    var focusTarget: NSView { transcript.primaryInput }
+    /// Home's message box (focusing the transcript would leave it the responder
+    /// after it forwards), or the picture viewer while it is open over the chat.
+    var focusTarget: NSView { transcript.keyboardTarget }
 
     /// The person opened this conversation from Home (a click, Return, a switch key): the message
     /// box takes the keyboard, at once or once its first page installs it.

@@ -22,6 +22,7 @@ on:
       - "scripts/cmux-next/rust-panic-baseline.json"
       - "plans/cmux-next/rust-panic-free.md"
       - "scripts/ci/cargo_test_verdict.py"
+      - "scripts/ci/git_tree.py"
       - "scripts/ci/test_reds.py"
       - "tests/test_cargo_test_verdict.py"
       # Files outside cmux-tui that acpmux or its path dependencies include_str!
@@ -31,6 +32,8 @@ on:
       - "schemas/link-token/keyset-vectors.json"
       - "schemas/link-token/native.json"
       - "schemas/link-token/vectors.json"
+      - "schemas/settings/retired-keys.json"
+      - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
       - "schemas/settings/source/agent-retry.json"
       - "schemas/settings/source/subsessions.json"

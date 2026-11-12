@@ -193,7 +193,11 @@ class WorkflowTests(unittest.TestCase):
             step = next(s for s in helper["steps"] if s.get("name") == name)
             self.assertIn("needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'", step["if"])
         lookup = jobs["resolve-nightly-ghostty-cli-helper"]
-        self.assertEqual(lookup["if"], helper["if"])
+        # The build adds only conjuncts to the lookup's gate: !cancelled() and its needs' success, so a timed-out
+        # continue-on-error pick-nightly-build-runner cannot skip it (2026-11-12).
+        self.assertTrue(helper["if"].endswith(f"&& {lookup['if']}"), helper["if"])
+        self.assertTrue(helper["if"].startswith("!cancelled() && "), helper["if"])
+        self.assertIn("needs.resolve-nightly-ghostty-cli-helper.result == 'success'", helper["if"])
         # Every step that can fail is a miss, and a hit needs this run's own artifact.
         for step in lookup["steps"]:
             if "Record" not in step["name"]:

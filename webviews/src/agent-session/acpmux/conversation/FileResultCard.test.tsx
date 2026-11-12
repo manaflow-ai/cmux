@@ -14,6 +14,7 @@ import { activityText } from "./chatFind";
 import { TranscriptReadOnly } from "./readOnly";
 import { ToolRow } from "./ToolRow";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -38,6 +39,7 @@ afterEach(async () => {
   setChipHost(undefined);
   resetLinkStore();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

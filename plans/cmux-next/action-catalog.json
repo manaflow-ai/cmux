@@ -26430,7 +26430,10 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "left"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26509,7 +26512,10 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "right"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26588,7 +26594,12 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "up",
+        "top",
+        "upper"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26667,7 +26678,12 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "down",
+        "bottom",
+        "lower"
       ],
       "mainMenu" : "file",
       "opensWorkspaceContent" : false,
@@ -26905,7 +26921,9 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "detach"
+        "detach",
+        "send",
+        "new workspace"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -35415,7 +35433,13 @@
       "keywords" : [
         "group",
         "move",
-        "pane"
+        "pane",
+        "split",
+        "send",
+        "right",
+        "down",
+        "left",
+        "up"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -35705,7 +35729,9 @@
       "keywords" : [
         "group",
         "move",
-        "window"
+        "window",
+        "pop out",
+        "detach"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -45142,6 +45168,293 @@
         "pane"
       ],
       "title" : "Open Link by Hint in New Split",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser scroll-down",
+      "computed" : {
+        "canonical_action_id" : "browserScrollDown",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "j",
+        "modifiers" : [
+
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browserScrollDown",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "scroll",
+        "down",
+        "vim",
+        "vimium",
+        "keyboard"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "liveInput",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.down",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Scroll Down",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser scroll-up",
+      "computed" : {
+        "canonical_action_id" : "browserScrollUp",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "k",
+        "modifiers" : [
+
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browserScrollUp",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "scroll",
+        "up",
+        "vim",
+        "vimium",
+        "keyboard"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "liveInput",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.up",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Scroll Up",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser scroll-to-top",
+      "computed" : {
+        "canonical_action_id" : "browserScrollToTop",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browserScrollToTop",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "scroll",
+        "top",
+        "vim",
+        "vimium",
+        "gg"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "liveInput",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.up.to.line",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Scroll to Top",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "browser scroll-to-bottom",
+      "computed" : {
+        "canonical_action_id" : "browserScrollToBottom",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "g",
+        "modifiers" : [
+          "shift"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserActionCatalog",
+      "hint" : null,
+      "id" : "browserScrollToBottom",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "scroll",
+        "bottom",
+        "end",
+        "vim",
+        "vimium"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+        "browserFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "liveInput",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.down.to.line",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Scroll to Bottom",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -72833,7 +73146,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy acpmux Session File",
+      "title" : "Copy cmux Session File",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -74954,7 +75267,7 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
-      "description" : "Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine machine:<id>, else a connected one, else any, else a new one): pulls its folder to this Mac, copies it to that machine, moves the chat there with the old machine's last changes, opens it there and closes the old machine's tab. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is refused.",
+      "description" : "Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine machine:<id>, else a connected one, else any, else a new one): its folder goes machine to machine and never into this Mac's folder (as git when it can: the new machine clones from GitHub and gets only the folder's own changes), the chat moves there with the old machine's last changes, opens there, and the old machine's tab closes. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is refused.",
       "focuses" : false,
       "group" : "CloudActionCatalog",
       "hint" : null,
@@ -92909,7 +93222,13 @@
       "keywords" : [
         "tab",
         "split",
-        "pane"
+        "pane",
+        "send",
+        "right",
+        "down",
+        "left",
+        "up",
+        "side by side"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -92978,7 +93297,9 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "column"
+        "column",
+        "send",
+        "scroll"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -93059,7 +93380,10 @@
       "isPersonOnly" : false,
       "keywords" : [
         "tab",
-        "workspace"
+        "workspace",
+        "send",
+        "other",
+        "another"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -93123,9 +93447,9 @@
 
         ],
         "is_palette_visible" : true,
-        "palette_family" : null,
+        "palette_family" : "tab.move",
         "palette_suggestion_rank" : null,
-        "palette_tier" : "standard"
+        "palette_tier" : "niche"
       },
       "defaultChord" : null,
       "defaultShortcut" : null,
@@ -93202,7 +93526,10 @@
       "keywords" : [
         "tab",
         "window",
-        "detach"
+        "detach",
+        "pop out",
+        "tear off",
+        "send"
       ],
       "mainMenu" : null,
       "opensWorkspaceContent" : false,
@@ -93237,6 +93564,184 @@
         "tab"
       ],
       "title" : "Move Tab to New Window",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "target" : "window"
+          },
+          "name" : "window",
+          "suggestions" : null,
+          "title" : "Window"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "tab move-to-window",
+      "computed" : {
+        "canonical_action_id" : "tab.moveToWindow",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "tab.move",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "hint" : null,
+      "id" : "tab.moveToWindow",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tab",
+        "window",
+        "other",
+        "another",
+        "send"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "macwindow.and.cursorarrow",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Move Tab to Window…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : false,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Right",
+                "value" : "right"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Down",
+                "value" : "down"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Left",
+                "value" : "left"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Up",
+                "value" : "up"
+              }
+            ]
+          },
+          "name" : "direction",
+          "suggestions" : null,
+          "title" : "Direction"
+        }
+      ],
+      "category" : "tab",
+      "cliName" : "tab duplicate-to-new-split",
+      "computed" : {
+        "canonical_action_id" : "tab.duplicateToNewSplit",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : "tab.move",
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "niche"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "hint" : null,
+      "id" : "tab.duplicateToNewSplit",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "tab",
+        "copy",
+        "clone",
+        "split",
+        "pane",
+        "side by side"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "plus.square.on.square",
+      "targets" : [
+        "tab"
+      ],
+      "title" : "Duplicate Tab to New Split",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -116095,8 +116600,41 @@
       "browserTheme" : [
         "theme"
       ],
+      "moveSurfaceToPaneDown" : [
+        "move to split below",
+        "move to bottom split",
+        "move to lower split",
+        "move tab to split below",
+        "move tab down a split",
+        "send tab down"
+      ],
+      "moveSurfaceToPaneLeft" : [
+        "move to left split",
+        "move to split left",
+        "move tab to left split",
+        "move tab to split left",
+        "send tab left"
+      ],
+      "moveSurfaceToPaneRight" : [
+        "move to right split",
+        "move to split right",
+        "move tab to right split",
+        "move tab to split right",
+        "send tab right"
+      ],
+      "moveSurfaceToPaneUp" : [
+        "move to split above",
+        "move to top split",
+        "move to upper split",
+        "move tab to split above",
+        "send tab up"
+      ],
       "newCloudMachine" : [
         "machine"
+      ],
+      "palette.moveTabToNewWorkspace" : [
+        "move to new workspace",
+        "send tab to new workspace"
       ],
       "pane.setBackground" : [
         "background"
@@ -116104,6 +116642,47 @@
       "remote.connect" : [
         "machine",
         "ssh"
+      ],
+      "tab.duplicateToNewSplit" : [
+        "duplicate to split",
+        "duplicate to new split",
+        "duplicate tab to split",
+        "clone to split"
+      ],
+      "tab.moveToNewColumn" : [
+        "move to new column",
+        "send tab to new column"
+      ],
+      "tab.moveToNewSplit" : [
+        "move to new split",
+        "move tab to new split"
+      ],
+      "tab.moveToNewWindow" : [
+        "pop out",
+        "pop out tab",
+        "tear off tab",
+        "move to new window",
+        "detach tab"
+      ],
+      "tab.moveToWindow" : [
+        "move to window",
+        "move to other window",
+        "move to another window",
+        "move tab to other window",
+        "send tab to window"
+      ],
+      "tab.moveToWorkspace" : [
+        "move to workspace",
+        "move to other workspace",
+        "send tab to workspace"
+      ],
+      "tabGroup.moveToNewSplit" : [
+        "move group to new split",
+        "move group to split"
+      ],
+      "tabGroup.moveToNewWindow" : [
+        "move group to new window",
+        "pop out group"
       ],
       "terminal.decreaseFontSize" : [
         "font"
@@ -116277,8 +116856,11 @@
           "tab.moveToNewColumn",
           "tab.moveToNewDockColumn",
           "tab.moveToNewWindow",
+          "tab.moveToWindow",
           "tab.moveToWorkspace",
-          "palette.moveTabToNewWorkspace"
+          "palette.moveTabToNewWorkspace",
+          "tab.moveToSpace",
+          "tab.duplicateToNewSplit"
         ],
         "parent" : null,
         "symbol" : "arrow.left.arrow.right",

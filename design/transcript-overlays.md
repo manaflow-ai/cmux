@@ -75,14 +75,47 @@ Leo, 2026-11-10: "having a jump up button, like jumping up since like the last t
 seems like very good. Because it's like, okay, you get jump to bottom, but then jump to, like, the last
 thread."
 
-- **Jump to latest** (unchanged): a glass disc on the composer's center line while the reader is scrolled up.
-- **Jump up** stands one control and one gap above it (`jumpPair.css`): the same disc, size, glass, focus and
+- **Jump to latest**: a glass control on the composer's center line while the reader is scrolled up.
+- **Jump up** stands one control and one gap above it (`jumpPair.css`): the same look, size, glass, focus and
   fade, its arrow up. The two read as one column, and neither moves for the other.
+- **The look** is the `jump-pair-look` experiment (`jumpPair.experiment.ts`; gallery
+  `agent-pane.jump-pair-look`, view Compare arms). Leo, 2026-11-12, of the fisheye disc: "I feel like this
+  jump to top button is a little bit strange-looking, no?" Prior art: the common chat apps draw a small
+  frosted or solid circle with a down arrow, centered over the composer, a hairline rim and a soft shadow;
+  the messaging apps a small chevron button in the same material as their bars. None bends the page under it.
+  - `frosted` (ships): a 32 px disc at the composer's glass level (the popover level, glass.css GLASS
+    LEVELS), the arrow. The words under it frost; nothing bends.
+  - `labeled`: the same glass as a rounded rectangle with the arrow and its words, the Needs you pill's
+    shape and type.
+  - `stacked`: frosted rounded squares in the Needs you pill's radius, a hairline (`--ds-space-1`) apart.
+  - `lens`: the fisheye disc before (Leo, 2026-10-21: "I want more fisheye!"); gallery
+    `agent-pane.jump-latest-lens` keeps its strengths and glass levels.
+  Every arm keeps the glass (never opaque; Lens and Spectrum glass keep their own tint), the 32 px height
+  (so Jump up stands over the Needs you pill as over Jump to latest), the center line, the fade in place
+  and the behavior. Try one in the app: `cmux.experiments` = `{"jump-pair-look":"labeled"}` in the pane's
+  web inspector, then reload.
 - It goes to where the reader left off (`jumpUp.ts`): the New line while it is unread, else the newer of the
   person's last sent prompt and where they last stopped scrolling by hand.
 - It shows only while that place is off screen.
 - Pressed, it holds where the view was and points down: a second press, or Esc, goes back there. A scroll by
   hand lets go of the way back. Esc that something else takes (the composer's Stop, a menu) is left to it.
+
+## Putting a waiting card away
+
+Leo, 2026-11-11, on the composer hat holding a started chat's question: "there's no close button :(".
+Every card over the composer that waits on the person can be put away (the composer hat's questions,
+`question/HatQuestions.tsx`; the shared notice, `ui/Notice.tsx`):
+
+- One control: the shared × (`ui/DismissButton.tsx`), a 12 pt glyph in a `--ds-control-icon` box.
+  Escape with the focus inside the card does the same; Esc that a control inside used first is left to it.
+- The hat's × fades in while the pointer is over the band or the focus is in it, and keeps its room at
+  rest: the head's text is laid out beside it either way, so revealing it moves nothing. With no hover
+  (touch) it shows at rest. Never over the card's corner in no room of its own (it would cover the pager).
+- Dismissing marks the question seen in that chat, on this device (`question/hatSeen.ts`, kept with the
+  pinned asks' dismissals in `waitingAskStore.ts`): it leaves the hat; the ask itself still waits where it
+  was asked (its card, its chat, the sidebar's Needs you dot).
+- A started chat's name has the head's line to itself and its question the line under it, so neither is
+  cut at a fixed share of the band.
 
 ## Tokens only
 

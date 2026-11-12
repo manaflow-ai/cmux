@@ -39,6 +39,26 @@ SOURCES = PKG + "/Sources/"
 APP = "CmuxNextApp"
 OUT = "plans/cmux-next/codebase-health.md"
 UPSTREAM = "origin/feat-cmux-next"
+
+
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    import importlib.util
+    push_range = HERE / "push_range.py"
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(Path(root), ref)
+    if note:
+        print(f"codebase-health: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
+
 # What the report reads besides the app sources: every Swift file (section 6), the plans, the scripts, the workflows.
 MEASURED = ("*.swift", "plans/cmux-next/", "scripts/cmux-next/", ".github/workflows/", f":(exclude){OUT}")
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
@@ -575,6 +595,7 @@ def measured_at(repo: Path) -> str:
     """Where the numbers come from, by a sha that survives a rebase: the merge base with origin/feat-cmux-next,
     plus the measured files the working tree changes over it (the local commits and edits a rebase rewrites)."""
     head = git(repo, "rev-parse", "--short=11", "HEAD").strip()
+    refresh_base(repo, UPSTREAM)
     found = subprocess.run(["git", "-C", str(repo), "merge-base", "HEAD", UPSTREAM], capture_output=True, text=True)
     if found.returncode != 0:
         return f"at `{head}` (this repository has no `{UPSTREAM}`)"

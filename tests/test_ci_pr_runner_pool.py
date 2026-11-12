@@ -24,12 +24,11 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 
 def load(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    assert path.stem == name, (name, path)
+    if str(path.parent) not in sys.path:
+        sys.path.insert(0, str(path.parent))
+    return importlib.import_module(name)
 
 
 pool = load("pr_runner_pool", ROOT / "scripts/ci/pr_runner_pool.py")
@@ -4457,7 +4456,8 @@ class SharedRunnerStateTests(unittest.TestCase):
             "ios-internal-nightly.yml": ("ios_internal_runner.py",),
             "cmux-next-guards.yml": ("portable_job_placement.py",),
             "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
-            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py"),
+            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py",
+                            "nightly_runner_preflight.py"),
         }
 
         def mappings(value):
@@ -4504,6 +4504,8 @@ class SharedRunnerStateTests(unittest.TestCase):
             "signing_runner.py", "nightly_build_runner.py", "nightly_sign_runner.py",
             "cmux_next_media_runner.py", "admission_placement.py", "late_placement.py",
             "dev_landing_place.py", "ios_internal_runner.py",
+            # Reads the census to fail a nightly whose routing label has no online runner (#40992).
+            "nightly_runner_preflight.py",
         }
         for workflow in WORKFLOWS.glob("*.yml"):
             doc = yaml.safe_load(workflow.read_text())
