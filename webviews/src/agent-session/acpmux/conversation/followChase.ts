@@ -183,6 +183,11 @@ export type FollowChase = {
 };
 
 /// The send motion's length (ms, `--agent-motion-send`), at the host's `scale` when it sets none.
+/// The send motion's length (ms) the bubble's entrance plays on (`--agent-motion-send`).
+export function sendMotionMs(node: HTMLElement): number {
+  return sendMsOf(node, 1);
+}
+
 function sendMsOf(node: HTMLElement, scale: number): number {
   const token = cssTimeMs(
     node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-send") ?? "",
@@ -638,11 +643,11 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       const sending = sent || (arrival?.sent === true && moved < 0);
       // Joining a send's step keeps its progress: the rows' offset is rescaled to the share of the
       // curve still to play, so the rise goes on at the bubble's pace instead of the curve's fast start.
-      const joining = timed && sending && arrival?.sent === true && arrival.at > 0;
-      const rest = joining ? 1 - arrival.ease(Math.min(1, arrival.at / arrival.duration)) : 0;
+      const joining = timed && sending && arrival?.sent === true && arrival.at > 0 ? arrival : undefined;
+      const rest = joining ? 1 - joining.ease(Math.min(1, joining.at / joining.duration)) : 0;
       arrival =
         joining && rest > 1e-6
-          ? { ...arrival, from: x / rest }
+          ? { ...joining, from: x / rest }
           : timed && sending
             ? {
                 from: x,
