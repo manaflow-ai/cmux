@@ -677,16 +677,19 @@ public struct WorkspacesList: View {
     /// Opens a confirmation pointing at the row or group header it came from:
     /// the anchor moves to that item's frame, then `present` sets the state.
     func presentConfirmation(at source: ConfirmSource, _ present: @escaping () -> Void) {
-        let point = {
-            confirmFrame = rowFrames.frame(of: source.probeID) ?? .zero
-            present()
-        }
+        let frame = rowFrames.frame(of: source.probeID)
         // At accessibility sizes the popover is about as tall as the screen
         // and fits only under an item near the top: bring the item up first,
         // then point at it where it is (round 2 review: it pointed 80 pt off).
         // An item that has scrolled off screen is brought back the same way.
-        guard typeSize.isAccessibilitySize || rowFrames.frame(of: source.probeID) == nil else { return point() }
-        listControl.scrollTo(source.itemID, atTop: true, animated: true, completion: point)
+        guard typeSize.isAccessibilitySize || (frame == nil && rowFrames.anchor != nil) else {
+            confirmFrame = frame ?? .zero
+            return present()
+        }
+        listControl.scrollTo(source.itemID, atTop: true, animated: true) {
+            confirmFrame = rowFrames.frame(of: source.probeID) ?? .zero
+            present()
+        }
     }
 
     /// The close popover's anchor: a view over the list at the row's place.

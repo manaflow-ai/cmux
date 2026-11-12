@@ -114,9 +114,8 @@ enum CloseConfirmAnchor {
     static func openRowClose(_ app: XCUIApplication, row: XCUIElement, kind: String) -> String? {
         UIStateCaptureCase.steps([
             { UIStateCaptureCase.longPress(row, "\(row.identifier)") },
-            { UIStateCaptureCase.scrollDown(app, times: 2) },
-            { UIStateCaptureCase.tap(app.buttons["Close"].firstMatch, "Close folder") },
-            { UIStateCaptureCase.tap(app.buttons[kind].firstMatch, kind) },
+            { menuTap(app.buttons["Close"].firstMatch, "Close folder") },
+            { menuTap(app.buttons[kind].firstMatch, kind) },
             { UIStateCaptureCase.wait(dialogTitle(app), "confirmation title", timeout: 8) },
         ])
     }
@@ -145,15 +144,9 @@ enum CloseConfirmAnchor {
     static func moveToNewGroup(_ app: XCUIApplication, rowID: String, name: String) -> String? {
         UIStateCaptureCase.steps([
             { UIStateCaptureCase.longPress(app.buttons["workspace.row.\(rowID)"], rowID) },
-            { UIStateCaptureCase.scrollDown(app, times: 2) },
-            { UIStateCaptureCase.tap(app.buttons["Group"].firstMatch, "Group folder") },
-            { UIStateCaptureCase.tap(UIStateCaptureCase.label(app, contains: "Move Workspace to Group"), "Move Workspace to Group…") },
-            {
-                // With no group yet the new-group item is the folder's only child.
-                let item = UIStateCaptureCase.label(app, contains: "Move Workspace to New Group")
-                return item.waitForExistence(timeout: 3) && !app.alerts.firstMatch.exists
-                    ? UIStateCaptureCase.tap(item, "Move Workspace to New Group") : nil
-            },
+            { menuTap(app.buttons["Group"].firstMatch, "Group folder") },
+            { menuTap(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Move Workspace to Group'")).firstMatch, "Move Workspace to Group…") },
+            { menuTap(app.buttons["Move Workspace to New Group"].firstMatch, "Move Workspace to New Group") },
             {
                 let alert = app.alerts["Move Workspace to New Group"]
                 guard alert.waitForExistence(timeout: 8) else { return "no new-group alert" }
@@ -178,13 +171,19 @@ enum CloseConfirmAnchor {
     static func openHeaderItem(_ app: XCUIApplication, header: XCUIElement, item: String) -> String? {
         UIStateCaptureCase.steps([
             { UIStateCaptureCase.longPress(header, "group header") },
-            {
-                let button = app.buttons[item].firstMatch
-                if !button.waitForExistence(timeout: 3) { _ = UIStateCaptureCase.scrollDown(app, times: 2) }
-                return UIStateCaptureCase.tap(button, item)
-            },
+            { menuTap(app.buttons[item].firstMatch, item) },
             { UIStateCaptureCase.wait(dialogTitle(app), "confirmation title", timeout: 8) },
         ])
+    }
+
+    /// Taps a context menu item. An element tap (not a coordinate one) lets
+    /// XCTest scroll a long menu to the item; a drag beside a short menu would
+    /// dismiss it.
+    @MainActor
+    static func menuTap(_ element: XCUIElement, _ what: String) -> String? {
+        guard element.waitForExistence(timeout: 8) else { return "no \(what)" }
+        element.tap()
+        return nil
     }
 
     /// "Close 3 workspaces?", "Close “cmux.com”?" or "Delete “beta”?".
@@ -221,13 +220,13 @@ enum CloseConfirmAnchor {
         shot.name = what
         shot.lifetime = .keepAlways
         test.add(shot)
-        guard let popover = popover(app, button: button) else {
+        guard let rect = popover(app, button: button) else {
             XCTFail("\(what): no popover with \(button)\n\(app.debugDescription)", file: file, line: line)
             return
         }
-        let gap = gap(popover, from: source.frame)
-        print("CLOSE-ANCHOR \(what): source \(source.frame) popover \(popover) gap \(gap)")
-        XCTAssertLessThanOrEqual(gap, maxGap, "\(what): the popover \(popover) is \(gap) pt from its source \(source.frame)",
+        let distance = gap(rect, from: source.frame)
+        print("CLOSE-ANCHOR \(what): source \(source.frame) popover \(rect) gap \(distance)")
+        XCTAssertLessThanOrEqual(distance, maxGap, "\(what): the popover \(rect) is \(distance) pt from its source \(source.frame)",
                                  file: file, line: line)
     }
 }
