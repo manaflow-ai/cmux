@@ -12,10 +12,17 @@ public struct WindowAppearanceResolver {
     }
 
     /// Resolves window appearance from explicit user settings.
+    ///
+    /// While a background image shows, the window is filled with the opaque
+    /// terminal color under the image, so the terminal is resolved as opaque:
+    /// chrome contrast and readability colors are computed against that fill,
+    /// not against a desktop that is no longer visible.
     public func current(settings: WindowAppearanceUserSettingsSnapshot) -> WindowAppearanceSnapshot {
+        let showsBackgroundImage = settings.backgroundImage.isEnabled && !settings.reduceTransparency
+        let terminalOpacity = showsBackgroundImage ? 1 : terminalAppearance.backgroundOpacity
         return WindowAppearanceSnapshot(
             terminalBackgroundColor: terminalAppearance.backgroundColor,
-            terminalBackgroundOpacity: WindowAppearanceSnapshot.clampedOpacity(terminalAppearance.backgroundOpacity),
+            terminalBackgroundOpacity: WindowAppearanceSnapshot.clampedOpacity(terminalOpacity),
             terminalBackgroundBlur: terminalAppearance.backgroundBlur,
             terminalRenderingMode: WindowAppearanceSnapshot.terminalRenderingMode(
                 usesHostLayerBackground: terminalAppearance.usesHostLayerBackground
@@ -42,17 +49,18 @@ public struct WindowAppearanceResolver {
                 tintOpacity: settings.bgGlassTintOpacity,
                 terminalBackgroundBlur: terminalAppearance.backgroundBlur,
                 terminalGlassTintColor: terminalAppearance.backgroundColor.withAlphaComponent(
-                    WindowAppearanceSnapshot.clampedOpacity(terminalAppearance.backgroundOpacity)
+                    WindowAppearanceSnapshot.clampedOpacity(terminalOpacity)
                 )
             ),
             resolvedColorScheme: WindowAppearanceSnapshot.resolvedChromeColorScheme(
                 terminalScheme: terminalAppearance.resolvedColorScheme,
                 backgroundColor: terminalAppearance.backgroundColor,
-                opacity: terminalAppearance.backgroundOpacity,
+                opacity: terminalOpacity,
                 ambientScheme: settings.colorScheme
             ),
             reducesTransparency: settings.reduceTransparency,
-            ambientColorScheme: settings.colorScheme
+            ambientColorScheme: settings.colorScheme,
+            backgroundImage: settings.backgroundImage
         )
     }
 
@@ -89,7 +97,8 @@ public struct WindowAppearanceResolver {
             bgGlassEnabled: defaults.object(forKey: "bgGlassEnabled") as? Bool ?? false,
             bgGlassTintHex: defaults.string(forKey: "bgGlassTintHex") ?? "#000000",
             bgGlassTintOpacity: defaults.object(forKey: "bgGlassTintOpacity") as? Double ?? 0.03,
-            reduceTransparency: reduceTransparency
+            reduceTransparency: reduceTransparency,
+            backgroundImage: WindowBackgroundImageSettings.load(from: defaults)
         ))
     }
 }

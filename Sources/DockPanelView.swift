@@ -51,7 +51,7 @@ struct DockPanelView: View {
     }
 
     private var appearance: PanelAppearance {
-        PanelAppearance.fromConfig(appearanceConfig)
+        PanelAppearance.fromConfig(appearanceConfig, showsWindowBackgroundImage: windowAppearance.backgroundImage != nil)
     }
 
     private var resolvedChromeBackgroundIdentity: String {

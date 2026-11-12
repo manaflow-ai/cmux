@@ -2546,6 +2546,7 @@
 		A6AC73030000000000000001 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73030000000000000002 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift */; };
 		A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */; };
 		D5671301D5671301D5671301 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671302D5671302D5671302 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift */; };
+		50FF620861A022EB98AD84F9 /* KeyboardShortcutSettingsFileStore+WindowBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71CAD9C856D9CF77947A6F72 /* KeyboardShortcutSettingsFileStore+WindowBackground.swift */; };
 		A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */; };
 		C0DEF0B30000000000000001 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */; };
 		863100000000000000000001 /* KeyboardShortcutSettingsFileStoreNoOpPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863100000000000000000002 /* KeyboardShortcutSettingsFileStoreNoOpPersistenceTests.swift */; };
@@ -4465,6 +4466,8 @@
 		F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */; };
 		9065A0020000000000000001 /* WindowAppKitCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0020000000000000002 /* WindowAppKitCapture.swift */; };
 		A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001901A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift */; };
+		C417412889E18F7F9212457A /* WindowBackgroundImageSettingsFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79A9955271E253413333BF5 /* WindowBackgroundImageSettingsFileTests.swift */; };
+		B221B27AAD454658FC8D83AA /* WindowBackgroundImageStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 266F190328F73750C2913156 /* WindowBackgroundImageStorage.swift */; };
 		F062A39C0C6A588E28F03E77 /* WindowCaptureOutputFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EF08DD705767A157DB4FC5C /* WindowCaptureOutputFile.swift */; };
 		B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */; };
 		A6D1F0200000000000000002 /* WindowCloseObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0200000000000000001 /* WindowCloseObserver.swift */; };
@@ -4490,6 +4493,7 @@
 		9065A1040000000000000001 /* WindowRecordingRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1040000000000000002 /* WindowRecordingRegistry.swift */; };
 		9065A1050000000000000001 /* WindowRecordingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1050000000000000002 /* WindowRecordingSession.swift */; };
 		9065A1060000000000000001 /* WindowRecordingWindowSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A1060000000000000002 /* WindowRecordingWindowSelection.swift */; };
+		8999A117390F2AD3A356416F /* WindowRootBackdropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2BC0396896DBD05C27FA6D3 /* WindowRootBackdropView.swift */; };
 		6042C0056042C0056042C005 /* WindowScopedShortcutHintModifierMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042D0056042D0056042D005 /* WindowScopedShortcutHintModifierMonitor.swift */; };
 		9065A0090000000000000001 /* WindowScreenshotBackendAttempt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0090000000000000002 /* WindowScreenshotBackendAttempt.swift */; };
 		9065A0050000000000000001 /* WindowScreenshotCaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0050000000000000002 /* WindowScreenshotCaptureCoordinator.swift */; };
@@ -7251,6 +7255,7 @@
 		A6AC73030000000000000002 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/KeyboardShortcutSettingsFileStore+SidebarIndicators.swift"; sourceTree = "<group>"; };
 		A5F10012A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+Template.swift"; sourceTree = "<group>"; };
 		D5671302D5671302D5671302 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift"; sourceTree = "<group>"; };
+		71CAD9C856D9CF77947A6F72 /* KeyboardShortcutSettingsFileStore+WindowBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KeyboardShortcutSettingsFileStore+WindowBackground.swift"; sourceTree = "<group>"; };
 		A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStore.swift; sourceTree = "<group>"; };
 		C0DEF0B30000000000000002 /* KeyboardShortcutSettingsFileStoreMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStoreMigrationTests.swift; sourceTree = "<group>"; };
 		863100000000000000000002 /* KeyboardShortcutSettingsFileStoreNoOpPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettingsFileStoreNoOpPersistenceTests.swift; sourceTree = "<group>"; };
@@ -9140,6 +9145,8 @@
 		F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppearanceSnapshotTests.swift; sourceTree = "<group>"; };
 		9065A0020000000000000002 /* WindowAppKitCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAppKitCapture.swift; sourceTree = "<group>"; };
 		A5001901A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowBackgroundComposition.swift; sourceTree = "<group>"; };
+		B79A9955271E253413333BF5 /* WindowBackgroundImageSettingsFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WindowBackgroundImageSettingsFileTests.swift"; sourceTree = "<group>"; };
+		266F190328F73750C2913156 /* WindowBackgroundImageStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowBackgroundImageStorage.swift; sourceTree = "<group>"; };
 		5EF08DD705767A157DB4FC5C /* WindowCaptureOutputFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowCaptureOutputFile.swift; sourceTree = "<group>"; };
 		B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowChromeMetrics.swift; sourceTree = "<group>"; };
 		A6D1F0200000000000000001 /* WindowCloseObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowCloseObserver.swift; sourceTree = "<group>"; };
@@ -9165,6 +9172,7 @@
 		9065A1040000000000000002 /* WindowRecordingRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingRegistry.swift; sourceTree = "<group>"; };
 		9065A1050000000000000002 /* WindowRecordingSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingSession.swift; sourceTree = "<group>"; };
 		9065A1060000000000000002 /* WindowRecordingWindowSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowRecordingWindowSelection.swift; sourceTree = "<group>"; };
+		E2BC0396896DBD05C27FA6D3 /* WindowRootBackdropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/WindowRootBackdropView.swift; sourceTree = "<group>"; };
 		6042D0056042D0056042D005 /* WindowScopedShortcutHintModifierMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScopedShortcutHintModifierMonitor.swift; sourceTree = "<group>"; };
 		9065A0090000000000000002 /* WindowScreenshotBackendAttempt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotBackendAttempt.swift; sourceTree = "<group>"; };
 		9065A0050000000000000002 /* WindowScreenshotCaptureCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotCaptureCoordinator.swift; sourceTree = "<group>"; };
@@ -12700,6 +12708,9 @@
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
 				17A22999A4C0E113B255C2E7 /* NotificationsPopoverView.swift */,
 				067ED4C318664E11B67921F3 /* AppDelegate+NotificationsPopoverDigits.swift */,
+				71CAD9C856D9CF77947A6F72 /* KeyboardShortcutSettingsFileStore+WindowBackground.swift */,
+				266F190328F73750C2913156 /* WindowBackgroundImageStorage.swift */,
+				E2BC0396896DBD05C27FA6D3 /* WindowRootBackdropView.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14353,6 +14364,7 @@
 				4189B3FB78ACEE79AE12B1AA /* ChiefDisabledHomeTests.swift */,
 				2E93DBA33C7287FE3D7FA1BB /* NotificationPopoverRowLayoutTests.swift */,
 				C0C7EE23B232921D28CA56FD /* NotificationsPopoverDrawnRowsTests.swift */,
+				B79A9955271E253413333BF5 /* WindowBackgroundImageSettingsFileTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16475,6 +16487,7 @@
 				A6AC73030000000000000001 /* KeyboardShortcutSettingsFileStore+SidebarIndicators.swift in Sources */,
 				A5F10013A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore+Template.swift in Sources */,
 				D5671301D5671301D5671301 /* KeyboardShortcutSettingsFileStore+TerminalScrollSpeed.swift in Sources */,
+				50FF620861A022EB98AD84F9 /* KeyboardShortcutSettingsFileStore+WindowBackground.swift in Sources */,
 				A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
 				C1713004C1713004C1713004 /* KeyboardShortcutSettingsLookup.swift in Sources */,
 				8561C0128561C0128561C012 /* KeyboardShortcutSettingsObserver.swift in Sources */,
@@ -17753,6 +17766,7 @@
 				A500120C /* WindowAccessor.swift in Sources */,
 				9065A0020000000000000001 /* WindowAppKitCapture.swift in Sources */,
 				A5001900A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift in Sources */,
+				B221B27AAD454658FC8D83AA /* WindowBackgroundImageStorage.swift in Sources */,
 				F062A39C0C6A588E28F03E77 /* WindowCaptureOutputFile.swift in Sources */,
 				B7F9A602B7F9A602B7F9A602 /* WindowChromeMetrics.swift in Sources */,
 				A6D1F0200000000000000002 /* WindowCloseObserver.swift in Sources */,
@@ -17770,6 +17784,7 @@
 				9065A1040000000000000001 /* WindowRecordingRegistry.swift in Sources */,
 				9065A1050000000000000001 /* WindowRecordingSession.swift in Sources */,
 				9065A1060000000000000001 /* WindowRecordingWindowSelection.swift in Sources */,
+				8999A117390F2AD3A356416F /* WindowRootBackdropView.swift in Sources */,
 				6042C0056042C0056042C005 /* WindowScopedShortcutHintModifierMonitor.swift in Sources */,
 				9065A0090000000000000001 /* WindowScreenshotBackendAttempt.swift in Sources */,
 				9065A0050000000000000001 /* WindowScreenshotCaptureCoordinator.swift in Sources */,
@@ -19670,6 +19685,7 @@
 				063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */,
 				A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */,
 				F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */,
+				C417412889E18F7F9212457A /* WindowBackgroundImageSettingsFileTests.swift in Sources */,
 				D6212D0C00000000000000D1 /* WindowDockLifecycleTests.swift in Sources */,
 				D6212D0C00000000000000D7 /* WindowDockRoutingSocketTests.swift in Sources */,
 				8770D0F2D2BB45359D6BE5E3 /* WindowKeyDownReplayGuardTests.swift in Sources */,

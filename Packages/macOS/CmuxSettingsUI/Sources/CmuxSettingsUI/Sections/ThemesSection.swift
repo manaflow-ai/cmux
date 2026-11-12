@@ -3,12 +3,13 @@ import CmuxSettings
 import SwiftUI
 
 /// **Themes** section: every color and appearance setting in one place.
-/// App appearance, accent color and app icon, the browser page theme, the adaptive
-/// default theme toggle, and the terminal theme gallery with every theme
-/// Ghostty ships.
+/// App appearance, accent color and app icon, the browser page theme, the
+/// window background image, the adaptive default theme toggle, and the
+/// terminal theme gallery with every theme Ghostty ships.
 @MainActor
 public struct ThemesSection: View {
     private let hostActions: SettingsHostActions
+    private let windowBackgroundCard: WindowBackgroundSettingsCard
 
     @State private var appearance: DefaultsValueModel<AppearanceMode>
     @State private var accentColor: DefaultsValueModel<CmuxAccentColorMode>
@@ -38,6 +39,7 @@ public struct ThemesSection: View {
         hostActions: SettingsHostActions
     ) {
         self.hostActions = hostActions
+        self.windowBackgroundCard = WindowBackgroundSettingsCard(defaultsStore: defaultsStore, catalog: catalog)
         _accentColorWriter = State(initialValue: AccentColorSettingsFileWriter(
             write: { value in
                 _ = try await jsonStore.setWithReceipt(value, for: AccentColorSettingsFileWriter.settingsFileKey)
@@ -62,6 +64,7 @@ public struct ThemesSection: View {
             SettingsCard {
                 browserThemeRow
             }
+            windowBackgroundCard
             // Last: the gallery lists every theme and runs long.
             SettingsCard {
                 adaptiveDefaultThemeRow

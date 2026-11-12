@@ -459,12 +459,10 @@ struct PanelAppearance {
         !usesClearContentBackground
     }
 
-    static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
-        fromConfig(
-            config,
-            usesTransparentWindow: WindowBackgroundComposition.policy
-                .shouldUseTransparentBackgroundWindow(glassEffectAvailable: false)
-        )
+    /// A window background image sits under every pane, so panes stay clear while one shows.
+    static func fromConfig(_ config: GhosttyConfig, showsWindowBackgroundImage: Bool = false) -> PanelAppearance {
+        let usesWindowGlass = WindowBackgroundComposition.policy.shouldUseTransparentBackgroundWindow(glassEffectAvailable: false)
+        return fromConfig(config, usesTransparentWindow: showsWindowBackgroundImage || usesWindowGlass)
     }
 
     static func fromConfig(_ config: GhosttyConfig, usesTransparentWindow: Bool) -> PanelAppearance {
