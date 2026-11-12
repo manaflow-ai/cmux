@@ -281,8 +281,11 @@ fn crate_module(rel: &str) -> Option<Vec<String>> {
 /// file a declaration names is the declared module, whatever its own path says, and a file whose
 /// path says it is a module some declaration moved elsewhere (a `model.rs` beside
 /// `#[path = "actual.rs"] mod model;`), or one under a moved file's folder, is no module the
-/// tree can name: its module is unknown. Not read: a `path` under `cfg_attr`, or one in a macro.
-#[derive(Default)]
+/// tree can name: its module is unknown. A declaration names its module from the module its own
+/// file is, so with lib.rs `#[path = "actual.rs"] mod model;` a `#[path = "leaf.rs"] mod child;`
+/// in actual.rs makes leaf.rs `model::child`, not `actual::child` (review of cmux#41761 F1). Not
+/// read: a `path` under `cfg_attr`, or one in a macro.
+#[derive(Default, PartialEq, Eq)]
 struct PathMods {
     /// A declared file, from the crate's folder (`src/actual.rs`), and the module it is.
     targets: HashMap<String, Vec<String>>,
@@ -291,11 +294,35 @@ struct PathMods {
 }
 
 impl PathMods {
-    /// `files`: each file's path from the crate's folder (`src/lib.rs`) and its text.
+    /// `files`: each file's path from the crate's folder (`src/lib.rs`) and its text. Each pass
+    /// reads every file's declarations from the module the previous pass gave that file (the
+    /// first, from its path), until a pass changes nothing: a chain of N nested `#[path]` files
+    /// settles in N + 1 passes. A tree that has not settled after one pass per file (a cycle of
+    /// declarations) leaves every `#[path]` file's module unknown.
     fn of(files: &[(String, String)]) -> PathMods {
+        let parsed: Vec<(&String, syn::File)> = files
+            .iter()
+            .filter_map(|(rel, text)| Some((rel, syn::parse_file(text).ok()?)))
+            .collect();
         let mut out = PathMods::default();
-        for (rel, text) in files {
-            let (Some(module), Ok(file)) = (crate_module(rel), syn::parse_file(text)) else {
+        for _ in 0..=parsed.len() {
+            let next = PathMods::pass(&parsed, &out);
+            if next == out {
+                return out;
+            }
+            out = next;
+        }
+        // Every declared file's path, and every module a declaration names, is already in
+        // `moved`; with no targets, none of those files has a module.
+        PathMods { targets: HashMap::new(), moved: out.moved }
+    }
+
+    /// One pass of [`PathMods::of`]: each file's declarations, read from the module `prev`
+    /// gives it.
+    fn pass(parsed: &[(&String, syn::File)], prev: &PathMods) -> PathMods {
+        let mut out = PathMods::default();
+        for (rel, file) in parsed {
+            let Some(module) = prev.module(rel) else {
                 continue;
             };
             let dir = rel.rsplit_once('/').map_or("", |(dir, _)| dir).to_string();
@@ -585,6 +612,9 @@ impl Names {
     /// `name`. A same-named import from any other module (`use crate::other::Lock`, a `super::`
     /// out of the file, a `self::` into an out-of-line `mod other;`) is not (review of
     /// cmux#41728 F1).
+    ///
+    /// An import is read without itself: a body's `use Lock;` names the `Lock` around the body,
+    /// not its own binding (review of cmux#41813 F2).
     fn own(&self, name: &str, full: &str) -> bool {
         let Some(defs) = self.defs.get(name) else {
             return false;
@@ -592,23 +622,25 @@ impl Names {
         let mut sites = self.imports.iter().filter(|i| i.name == name && i.path == full).peekable();
         sites.peek().is_some()
             && sites.all(|i| {
-                self.resolve(full, &i.module, &i.scopes).is_some_and(|(at, last)| {
+                self.resolve(full, &i.module, &i.scopes, i).is_some_and(|(at, last)| {
                     last == name && defs.iter().any(|d| d.module.as_ref() == Some(&at))
                 })
             })
     }
 
     /// The module, from the file's root, and the last name that path `full`, written in
-    /// `module` inside the bodies `scopes`, names; None when it leaves the file (or it starts at
-    /// `crate::` and the file's own module is not known), or when a body binds its first
-    /// segment to something the check does not follow.
+    /// `module` inside the bodies `scopes` by import `this`, names; None when it leaves the file
+    /// (an absolute `::` path always does, or one at `crate::` when the file's own module is not
+    /// known), or when a body binds its first segment to something the check does not follow.
+    /// `this` is left out of the bodies' names: an import does not name itself.
     fn resolve(
         &self,
         full: &str,
         module: &[String],
         scopes: &[usize],
+        this: &Import,
     ) -> Option<(Vec<String>, String)> {
-        self.resolve_from(full, module, scopes, 0)
+        self.resolve_from(full, module, scopes, 0, this)
     }
 
     /// `resolve`, `depth` body imports deep.
@@ -618,17 +650,20 @@ impl Names {
         module: &[String],
         scopes: &[usize],
         depth: usize,
+        this: &Import,
     ) -> Option<(Vec<String>, String)> {
         let mut segs: Vec<&str> = full.split("::").collect();
         let last = segs.pop()?.to_string();
         let root: &[String] = self.root.as_deref().unwrap_or(&[]);
         let (mut at, rest): (Vec<String>, &[&str]) = match segs.split_first() {
+            // A leading `::`: an extern crate's path, never this file's (review of cmux#41813 F1).
+            Some((&"", _)) => return None,
             Some((&"crate", _)) if self.root.is_none() => return None,
             Some((&"crate", rest)) => (Vec::new(), rest),
             Some((&first, rest)) if !matches!(first, "self" | "super") => {
                 // rustc reads a bare first segment from the bodies around the path first, the
                 // innermost first, and only then from the module (review of cmux#41792 F1).
-                match self.body_name(first, scopes) {
+                match self.body_name(first, scopes, this) {
                     BodyName::Unbound => {
                         let from =
                             self.glob_scope(first, module).unwrap_or_else(|| module.to_vec());
@@ -642,7 +677,7 @@ impl Names {
                 }
             }
             None if !matches!(last.as_str(), "crate" | "self" | "super") => {
-                match self.body_name(&last, scopes) {
+                match self.body_name(&last, scopes, this) {
                     BodyName::Unbound => (root.iter().chain(module).cloned().collect(), &[]),
                     BodyName::Import(import) if depth < 8 => {
                         return self.resolve_from(
@@ -650,6 +685,7 @@ impl Names {
                             &import.module,
                             &import.scopes,
                             depth.saturating_add(1),
+                            import,
                         );
                     }
                     BodyName::Import(_) | BodyName::Unknown => return None,
@@ -672,14 +708,16 @@ impl Names {
     /// What the bodies `scopes` (outermost first) bind `first` to, read from the innermost out,
     /// as rustc reads a body's items: wherever in the body they are written, a body's own
     /// names hide those of the bodies around it and of the module, and a block's names stay
-    /// in that block.
-    fn body_name(&self, first: &str, scopes: &[usize]) -> BodyName<'_> {
+    /// in that block. Import `this`, the one being read, is none of them: `use Lock;` in a body
+    /// reads the `Lock` around it (review of cmux#41813 F2).
+    fn body_name(&self, first: &str, scopes: &[usize], this: &Import) -> BodyName<'_> {
         for &scope in scopes.iter().rev() {
             if self.body_names.contains(&(scope, first.to_string())) {
                 return BodyName::Unknown;
             }
-            let mut imports =
-                self.imports.iter().filter(|i| i.scopes.last() == Some(&scope) && i.name == first);
+            let mut imports = self.imports.iter().filter(|i| {
+                i.scopes.last() == Some(&scope) && i.name == first && !std::ptr::eq(*i, this)
+            });
             if let Some(import) = imports.next() {
                 return if imports.all(|i| i.path == import.path) {
                     BodyName::Import(import)
@@ -706,6 +744,7 @@ impl Names {
             &import.module,
             &import.scopes,
             depth.saturating_add(1),
+            import,
         )?;
         at.push(last);
         self.modules.contains(&at).then_some(at)
@@ -896,7 +935,10 @@ impl<'ast> Visit<'ast> for Collect<'_> {
     }
     fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
         let (globs, imports) = (self.names.globs.len(), self.names.imports.len());
-        self.names.use_tree("", &i.tree, &self.module);
+        // `use ::abs::sync::RwLock` names the extern crate `abs`, whatever the module or a body
+        // binds `abs` to: the path keeps its leading `::` (review of cmux#41813 F1).
+        let prefix = if i.leading_colon.is_some() { "::" } else { "" };
+        self.names.use_tree(prefix, &i.tree, &self.module);
         if self.blocks > 0 {
             // An import or glob in a function body scopes that body, not the module's `use` paths.
             if self.names.globs.len() > globs
@@ -1438,16 +1480,25 @@ impl Resolver<'_> {
         }
         let idents: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
         // A bare `Mutex` the file does not import is taken as std's (the prelude has none, so it
-        // is an import from another file or a glob).
+        // is an import from another file or a glob). An absolute path (`::std::sync::Mutex`, or
+        // an import's `::std::sync`, kept as a first segment "") is the extern crate's.
         let is_mutex = |path: &Vec<String>| {
             matches!(
                 path.iter().map(String::as_str).collect::<Vec<_>>().as_slice(),
-                ["Mutex"] | ["std" | "tokio", "sync", "Mutex"]
+                ["Mutex"]
+                    | ["std" | "tokio", "sync", "Mutex"]
+                    | ["", "std" | "tokio", "sync", "Mutex"]
             )
         };
-        let shape = self
-            .used_paths(&idents)
-            .is_some_and(|paths| !paths.is_empty() && paths.iter().all(is_mutex));
+        // The file's names do not reach an absolute path: `::std` is the crate even beside a
+        // `use self::fake as std;` (review of cmux#41813 F1).
+        let absolute = p.path.leading_colon.is_some();
+        let shape = if absolute {
+            is_mutex(&std::iter::once(String::new()).chain(idents.iter().cloned()).collect())
+        } else {
+            self.used_paths(&idents)
+                .is_some_and(|paths| !paths.is_empty() && paths.iter().all(is_mutex))
+        };
         let args = match p.path.segments.last().map(|s| &s.arguments) {
             Some(PathArguments::AngleBracketed(a)) => Some(a),
             _ => None,
@@ -1457,6 +1508,7 @@ impl Resolver<'_> {
                 && matches!(a.args.first(), Some(GenericArgument::Type(Type::Tuple(t))) if t.elems.is_empty())
         });
         if let [name] = idents.as_slice()
+            && !absolute
             && let Some(defs) = self.names.defs.get(name)
         {
             // Every definition must be an alias of a serializer, and every import of the name a
