@@ -139,16 +139,8 @@ _process_gone_spec.loader.exec_module(process_gone)
 
 
 def alive(pid: int) -> bool:
-    """A process still running (a zombie counts as gone)."""
-    try:
-        with open(f"/proc/{pid}/stat", encoding="ascii") as stat:
-            return stat.read().rsplit(")", 1)[1].split()[0] != "Z"
-    except FileNotFoundError:
-        return False
-    except OSError:
-        pass
-    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
-    return bool(state) and not state.startswith("Z")
+    """A process still running (a zombie counts as gone), with or without /proc."""
+    return process_gone.running(pid)
 
 
 class NoProcfs:
@@ -241,14 +233,7 @@ class Fixture(unittest.TestCase):
         proc.wait(timeout=60)
 
     def assert_gone(self, pid: int, what: str, within: float = 10) -> None:
-        deadline = time.monotonic() + within
-        while alive(pid) and time.monotonic() < deadline:
-            try:
-                os.waitpid(pid, os.WNOHANG)
-            except ChildProcessError:
-                pass
-            time.sleep(0.1)
-        self.assertFalse(alive(pid), what)
+        self.assertTrue(process_gone.died(pid, within=within), what)
 
     def assert_seen_alive(self, pid: int) -> None:
         """The probe's self-check: a process this test just started must read as alive, or assert_gone proves nothing."""
