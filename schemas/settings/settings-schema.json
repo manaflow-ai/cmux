@@ -101879,7 +101879,7 @@
       },
       "help" : {
         "key" : "settings.diagnostics.usagePatterns.help",
-        "text" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page."
+        "text" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page. It also counts which packages agents install, by name."
       },
       "kept_on_reset_all" : false,
       "key" : "diagnostics.usagePatterns",
