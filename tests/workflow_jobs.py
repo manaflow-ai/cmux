@@ -806,8 +806,8 @@ def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None, re
         # Keep the base tokenizer's strict unterminated-expression behavior while retaining
         # this branch's caller tracing for every unresolved term.
         try:
-            bodies = _EXPRESSION.findall(cell)
-        except gh_expressions.Unterminated:
+            bodies = expressions(cell, strict=True)
+        except Unreadable:
             unresolved.add(cell)
             continue
         if not bodies:
