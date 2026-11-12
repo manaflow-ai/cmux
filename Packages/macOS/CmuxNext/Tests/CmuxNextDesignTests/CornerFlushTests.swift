@@ -1,11 +1,11 @@
-import CoreGraphics
+import AppKit
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
 import Testing
 
 /// The flush corner (`chrome.cornerFlush`, Thunderdome r2 A): the folder tab (`flush-goo`) by default, and the card's wedge on
 /// the sidebar's side goes while the selected first tab rises from that corner.
-@MainActor @Suite struct CornerFlushTests {
+@MainActor @Suite(.serialized) struct CornerFlushTests {
     /// Leo, 2026-11-10: the selected tab is the content's color, a folder tab, not a gray pill.
     @Test func gooIsTheDefault() {
         #expect(CornerFlush.tunable.defaultValue == .goo)
@@ -50,6 +50,56 @@ import Testing
         let right = CornerFlushChrome.wedgePath(card: card, radius: 12, squareLeading: true, sidebarOnLeft: false)
         #expect(right.contains(topLeft) && !right.contains(topRight))
     }
+
+    @Test(arguments: [true, false]) func transparentCornersReceiveOneShade(sidebarOnLeft: Bool) throws {
+        let design = DesignSettings.shared
+        let before = (design.densityTokens, design.chromeStyle, design.tabBarPosition)
+        defer { (design.densityTokens, design.chromeStyle, design.tabBarPosition) = before }
+        design.densityTokens = DensityPreset.cozy.tokens
+        design.chromeStyle = .flat
+        design.tabBarPosition = .top
+
+        let root = NSView(frame: CGRect(x: 0, y: 0, width: 600, height: 500))
+        let content = NSView(frame: CGRect(x: 100, y: 40, width: 400, height: 320))
+        content.wantsLayer = true
+        let strip = CornerStrip(frame: CGRect(x: 0, y: content.bounds.height - Metrics.tabStripHeight,
+                                             width: content.bounds.width, height: Metrics.tabStripHeight))
+        content.addSubview(strip)
+        let shade = MainPaneChromeShadeView(frame: root.bounds)
+        let chrome = CornerFlushChrome(frame: root.bounds)
+        root.addSubview(shade)
+        root.addSubview(content)
+        chrome.apply(content: content, radius: 12, isDark: true, page: false,
+                     sidebarOnLeft: sidebarOnLeft, shade: shade, in: root)
+
+        let ground = try #require(shade.layer?.sublayers?.first as? CAShapeLayer)
+        let wedges = try #require(chrome.layer?.sublayers?.first as? CAShapeLayer)
+        let top = content.frame.maxY - Metrics.tabStripHeight
+        let left = CGPoint(x: content.frame.minX + 0.5, y: top - 0.5)
+        let right = CGPoint(x: content.frame.maxX - 0.5, y: top - 0.5)
+        func coverage(at point: CGPoint) -> Int {
+            [ground, wedges].filter { $0.path?.contains(point, using: .evenOdd) == true }.count
+        }
+
+        for leading in [false, true, false] {
+            strip.selectsLeadingTab = leading
+            #expect(CornerFlushChrome.stripDidChange(strip))
+            #expect(coverage(at: left) == (leading && sidebarOnLeft ? 0 : 1))
+            #expect(coverage(at: right) == 1)
+            #expect(coverage(at: CGPoint(x: content.frame.minX - 2, y: top - 0.5)) == 1)
+            #expect(coverage(at: CGPoint(x: content.frame.midX, y: top - 0.5)) == 0)
+        }
+        strip.isHidden = true
+        #expect(CornerFlushChrome.stripDidChange(strip))
+        #expect(wedges.path == nil)
+        #expect(coverage(at: left) == 0 && coverage(at: right) == 0)
+    }
+}
+
+@MainActor private final class CornerStrip: NSView, TabStripCorner {
+    var cornerFrameInWindow: CGRect { convert(bounds, to: nil) }
+    var selectsLeadingTab = false
+    func setRunsIntoCard(_ runs: Bool) {}
 }
 
 /// The goo value's fillets: only `flush-goo` draws them.
