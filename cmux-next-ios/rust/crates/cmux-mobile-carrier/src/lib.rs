@@ -21,13 +21,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cmux_link::carrier_answer::{self, RelayAnswer};
 use cmux_remote::bridge::OpenedMuxControl;
-use cmux_remote::connection::{
-    ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectPolicy,
-};
+use cmux_remote::connection::{ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectPolicy};
 use cmux_remote::crypto::{ClientAuthMode, CryptoError, StaticIdentity};
 use cmux_remote::provider::{
-    ConnectRequest, ProviderError, RelayClientConfig, RelayCredentialSource, RelayProvider,
-    RelayTls, TransportProvider,
+    ConnectRequest, ProviderError, RelayClientConfig, RelayCredentialSource, RelayProvider, RelayTls,
+    TransportProvider,
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::session::SessionLimits;
@@ -262,13 +260,12 @@ impl Tickets {
 /// The Web PKI roots: iOS has no root store rustls-native-certs can read.
 fn web_pki() -> Result<RelayTls, CarrierError> {
     let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .map_err(|error| CarrierError::Invalid(format!("relay TLS: {error}")))?
-    .with_root_certificates(roots)
-    .with_no_client_auth();
+    let config =
+        rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .map_err(|error| CarrierError::Invalid(format!("relay TLS: {error}")))?
+            .with_root_certificates(roots)
+            .with_no_client_auth();
     Ok(RelayTls::with_client_config(Arc::new(config)))
 }
 
@@ -285,8 +282,7 @@ fn provider_error(error: &ProviderError) -> CarrierError {
     } else {
         CarrierError::Transport {
             step: "relay",
-            retryable: error.is_retryable_carrier_failure()
-                || matches!(error, ProviderError::Transport(_)),
+            retryable: error.is_retryable_carrier_failure() || matches!(error, ProviderError::Transport(_)),
             detail,
         }
     }
@@ -297,9 +293,9 @@ fn connection_error(error: &ConnectionError) -> CarrierError {
     match error {
         ConnectionError::Provider(provider) => provider_error(provider),
         // A daemon that is not the pinned one, or that refused the grant.
-        ConnectionError::Crypto(
-            CryptoError::DaemonKeyMismatch { .. } | CryptoError::Unauthorized(_),
-        ) => CarrierError::Handshake(detail),
+        ConnectionError::Crypto(CryptoError::DaemonKeyMismatch { .. } | CryptoError::Unauthorized(_)) => {
+            CarrierError::Handshake(detail)
+        }
         _ => CarrierError::Transport {
             step: "handshake",
             retryable: error.is_retryable_carrier_failure()
@@ -350,9 +346,9 @@ impl CarrierSession {
         let first = self.first.lock().unwrap_or_else(PoisonError::into_inner).take();
         let mux = match first {
             Some(mux) => mux,
-            None => OpenedMuxControl::open(&self.multiplexer).await.map_err(|error| {
-                CarrierError::transport("stream", error.to_string())
-            })?,
+            None => OpenedMuxControl::open(&self.multiplexer)
+                .await
+                .map_err(|error| CarrierError::transport("stream", error.to_string()))?,
         };
         let (ours, theirs) = tokio::io::duplex(STREAM_BUFFER);
         let (their_read, their_write) = tokio::io::split(theirs);
@@ -456,9 +452,7 @@ async fn attempt(
         Err(error) => {
             multiplexer.shutdown().await;
             let _ = connection.close().await;
-            Err(CarrierError::Handshake(format!(
-                "the daemon did not open its mux control stream: {error}"
-            )))
+            Err(CarrierError::Handshake(format!("the daemon did not open its mux control stream: {error}")))
         }
     }
 }
@@ -508,8 +502,7 @@ impl Drop for CarrierStream {
 /// A new Noise static private key for this phone (the app keeps it in its
 /// Keychain, so the daemon sees one device across launches).
 pub fn generate_private_key() -> Result<Zeroizing<[u8; 32]>, CarrierError> {
-    let identity =
-        StaticIdentity::generate().map_err(|error| CarrierError::Invalid(error.to_string()))?;
+    let identity = StaticIdentity::generate().map_err(|error| CarrierError::Invalid(error.to_string()))?;
     Ok(Zeroizing::new(*identity.private_key()))
 }
 

@@ -20,9 +20,7 @@ impl From<CarrierError> for CmuxMobileError {
                 Self::Refused { code: UNAUTHORIZED.into(), message: error.to_string() }
             }
             CarrierError::Refused { code, message, .. } => Self::Refused { code, message },
-            CarrierError::Handshake(message) => {
-                Self::Refused { code: CARRIER_HANDSHAKE.into(), message }
-            }
+            CarrierError::Handshake(message) => Self::Refused { code: CARRIER_HANDSHAKE.into(), message },
             CarrierError::Transport { .. } => Self::Transport { message: error.to_string() },
             CarrierError::Invalid(message) => Self::InvalidArgument { message },
             CarrierError::Closed => Self::Closed { message: error.to_string() },
@@ -88,8 +86,7 @@ impl CloudCarrier {
             if let Some(old) = session.take() {
                 old.close().await;
             }
-            let deadline =
-                tokio::time::Instant::now() + Duration::from_millis(u64::from(deadline_ms));
+            let deadline = tokio::time::Instant::now() + Duration::from_millis(u64::from(deadline_ms));
             let dialed = CarrierSession::dial(
                 self.platform.clone(),
                 self.identity.clone(),

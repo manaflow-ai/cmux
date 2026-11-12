@@ -122,8 +122,7 @@ fn answer() -> Value {
 #[tokio::test]
 async fn an_ask_names_the_phone_key_its_token_and_its_team() {
     let (base, server) = serve_once(200, json!({"ok": true, "value": answer()})).await;
-    let platform =
-        Platform::new(&base, Some("team_abc".into()), MACHINE, "access-1".into()).unwrap();
+    let platform = Platform::new(&base, Some("team_abc".into()), MACHINE, "access-1".into()).unwrap();
     platform.set_token("access-2".into());
     let parsed = platform.fetch(Some(&[5; 32])).await.unwrap();
     assert_eq!(parsed.daemon_key, Some([9; 32]));

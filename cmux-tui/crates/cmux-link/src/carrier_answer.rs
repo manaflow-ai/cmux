@@ -207,7 +207,8 @@ mod tests {
 
     #[test]
     fn a_refusal_says_whether_asking_again_may_pass() {
-        let body = json!({"ok": false, "error": {"code": "cloud.machine.paused", "message": "paused"}});
+        let body =
+            json!({"ok": false, "error": {"code": "cloud.machine.paused", "message": "paused"}});
         let refusal = reply_value(409, &body).expect_err("refused");
         assert_eq!((refusal.code.as_str(), refusal.retryable), ("cloud.machine.paused", false));
         let busy = json!({"ok": false, "error": {"code": "owner.unreachable"}});

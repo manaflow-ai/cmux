@@ -18,8 +18,8 @@ mod cloud_carrier;
 mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
-pub use cloud_carrier::{CARRIER_HANDSHAKE, CloudCarrier, CloudCarrierStream, cloud_carrier_new_key};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use cloud_carrier::{CARRIER_HANDSHAKE, CloudCarrier, CloudCarrierStream, cloud_carrier_new_key};
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 
 uniffi::setup_scaffolding!();
