@@ -2,6 +2,7 @@
 // within the speed limit, never past its rest, and the frame loop ends at rest. The live browser
 // behaviour at 120 Hz is in test/send-stream-motion.test.ts.
 import { expect, test } from "bun:test";
+import { bezierAt } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
 import {
   ARRIVAL_BURST_S,
@@ -451,6 +452,48 @@ test("in the earlier looks a row that arrived holds all of its move back, and is
   const other = fixture();
   growth.shift(other.node, -2 * line, line * 10);
   expect(other.drawn()).toBeCloseTo((2 - Math.min(2 - CHASE_HOLD_LINES, CHASE_LAND_LINES)) * line);
+});
+
+test("the reply draining while the turn's end fold plays: each frame of the two together keeps to the fold's bound", () => {
+  // turn-transition-jumps `thought-text` end: the fold's first frame (11.5 px of a 43 px fold on the
+  // settle) and the drain chase's (3.8 px of the reply's last line) moved the rows 15.3 px in one
+  // frame, each within its own bound.
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  const clock = node.ownerDocument.timeline as unknown as { currentTime: number };
+  const start = clock.currentTime;
+  const span = 43;
+  const easing = "cubic-bezier(0.16, 1, 0.3, 1)";
+  const duration = 180;
+  const fold = {
+    playState: "running",
+    startTime: start,
+    effect: {
+      getKeyframes: () => [{ translate: `0px ${span}px` }, { translate: "0px 0px" }],
+      getTiming: () => ({ easing }),
+      getComputedTiming: () => ({ duration, delay: 0, localTime: clock.currentTime - start }),
+    },
+  } as unknown as Animation;
+  const curve = [0.16, 1, 0.3, 1] as const;
+  const foldAt = (time: number) => span * (1 - bezierAt(curve, Math.min(1, Math.max(0, (time - start) / duration))));
+  chase.alongside(new Set([fold]));
+  chase.shift(node, -line, Number.POSITIVE_INFINITY);
+  chase.land();
+  let previous = drawn();
+  let folded = foldAt(clock.currentTime);
+  let frames = 0;
+  while (pending() > 0 && frames < 240) {
+    const at = frame();
+    const foldNow = foldAt(clock.currentTime);
+    frames += 1;
+    expect(previous - at + (folded - foldNow)).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
+    previous = at;
+    folded = foldNow;
+  }
+  expect(drawn()).toBe(0);
+  // Still home soon after the fold's fast first frames: within a few frames of BURST_S.
+  expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 4);
 });
 
 test("carry: another motion's part the reader froze is drawn by the chase, held there, and goes home when followed again", () => {
