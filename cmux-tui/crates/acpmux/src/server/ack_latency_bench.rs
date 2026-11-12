@@ -472,3 +472,153 @@ async fn pane_reconnect_bench() {
         started.elapsed().as_secs_f64()
     );
 }
+
+/// Own chats of [`peer_reconnect_ack_bench`]'s daemon, as a dogfood Mac's coordinator host had.
+const RECONNECT_CHATS: usize = 525;
+/// Peer links that reconnect at once, as about 30 do when a daemon comes back.
+const RECONNECT_PEERS: usize = 30;
+/// Times every link reconnects, one after another.
+const RECONNECT_ROUNDS: usize = 8;
+
+/// A daemon with [`RECONNECT_CHATS`] chats of its own, and with `god`, one of them degenerate: a
+/// prompt and title of 64 KB that holds a token, and the agent's 1,250 tool rows (a 1.09 MB
+/// `session.json`, 2026-11-10). A peer `box` mirrors 200 chats whose rows change during the
+/// bench, so the shared list is built anew all the while (`list_guard.rs`).
+async fn reconnect_hub(god: bool) -> Arc<crate::hub::Hub> {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    for i in 0..RECONNECT_CHATS {
+        let words = format!("ask {i}: fix the build and push ghp_{} then wait. ", "a".repeat(36));
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": format!("own-{i}"), "name": format!("own-{i}"),
+            "title": words.repeat(4), "lastPrompt": words.repeat(8), "harness": "claude",
+            "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": i + 1
+        }))
+        .unwrap();
+        if god && i == 0 {
+            meta.title = Some(words.repeat((64 << 10) / words.len()));
+            meta.last_prompt = Some(words.repeat((64 << 10) / words.len()));
+            meta.tools.rows = (0..1_250)
+                .map(|i| crate::store::ToolRow {
+                    id: format!("mcp:server-{i:05}"),
+                    name: format!("server-{i:05} with a long display name for its tools"),
+                    kind: "mcp".into(),
+                    source: "claude".into(),
+                    enabled: true,
+                    can_toggle: true,
+                    status: Some("connected".into()),
+                })
+                .collect();
+        }
+        store.save(&meta).unwrap();
+    }
+    let hub = crate::hub::Hub::new(config, store);
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
+    let mut settled = peer.settled();
+    for notice in [PeerNotice::Sessions(box_rows(0)), PeerNotice::Connected] {
+        hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
+    }
+    tokio::time::timeout(Duration::from_secs(30), settled.wait_for(|n| *n >= 1))
+        .await
+        .expect("the hub applies the notices")
+        .unwrap();
+    hub
+}
+
+fn box_rows(n: u64) -> Vec<Value> {
+    (0..200)
+        .map(|i| {
+            json!({"sessionId": format!("box-chat-{i}"), "name": "lane", "harness": "claude",
+            "cwd": "/work", "status": if n.is_multiple_of(2) { "running" } else { "idle" },
+            "updatedAt": i as u64 + 10, "lastSeq": n})
+        })
+        .collect()
+}
+
+/// A local app's small requests while [`RECONNECT_PEERS`] peer links reconnect at once, each
+/// asking its watch list with `known` (a delta), [`RECONNECT_ROUNDS`] times, while a peer's rows
+/// change: each small request's latency, for a daemon with a god chat and without. Run with
+/// `cargo test -p acpmux --release --lib peer_reconnect_ack_bench -- --ignored --nocapture`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "bench: run with --ignored --nocapture"]
+async fn peer_reconnect_ack_bench() {
+    for god in [false, true] {
+        let hub = reconnect_hub(god).await;
+        let app = Client::on(&hub, Origin::LocalApp).await;
+        let mut peers = Vec::new();
+        for _ in 0..RECONNECT_PEERS {
+            let link = Client::on(&hub, Origin::Peer).await;
+            let mut known = crate::watch_delta::Known::default();
+            let mut rows = Vec::new();
+            for (reply, _) in
+                link.whole(method::MUX_WATCH, json!({"enabled": true, "withTools": true})).await
+            {
+                rows.extend(reply["result"]["sessions"].as_array().cloned().unwrap_or_default());
+            }
+            known.listed(&rows);
+            peers.push((link, Arc::new(known.to_param())));
+        }
+        // One task runs the peers' reads, a peer's changes and the app's requests together: the
+        // daemon serves each connection on its own tasks.
+        let busy = std::sync::atomic::AtomicBool::new(true);
+        let churn = async {
+            let generation = hub.peers.lock().unwrap()["box"].generation;
+            let mut n = 0_u64;
+            while busy.load(std::sync::atomic::Ordering::SeqCst) {
+                let notice = PeerNotice::SessionChanged {
+                    session: box_rows(n).swap_remove((n % 200) as usize),
+                    kind: "status".into(),
+                    seq: n,
+                };
+                let _ = hub.peer_notices.send(("box".to_owned(), generation, notice)).await;
+                n += 1;
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        let acks = async {
+            let mut latencies = Vec::new();
+            while busy.load(std::sync::atomic::Ordering::SeqCst) {
+                let asked = Instant::now();
+                let (reply, _) = app.call(method::MUX_DEFAULTS, json!({})).await;
+                assert!(reply.get("error").is_none(), "{reply}");
+                latencies.push(asked.elapsed());
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            latencies
+        };
+        let reads = async {
+            let (started, mut rows_sent) = (Instant::now(), 0);
+            for _ in 0..RECONNECT_ROUNDS {
+                let reads = peers.iter().map(|(link, known)| {
+                    let params = json!({"enabled": true, "withTools": true, "known": **known});
+                    link.whole(method::MUX_WATCH, params)
+                });
+                for read in futures::future::join_all(reads).await {
+                    for (reply, _) in read {
+                        assert!(reply.get("error").is_none(), "{reply}");
+                        rows_sent += reply["result"]["sessions"].as_array().map_or(0, Vec::len);
+                    }
+                }
+            }
+            busy.store(false, std::sync::atomic::Ordering::SeqCst);
+            (started.elapsed(), rows_sent)
+        };
+        let ((reconnects, rows_sent), (), mut latencies) = tokio::join!(reads, churn, acks);
+        latencies.sort_unstable();
+        println!(
+            "PERF peer_reconnect_acks fixture={} chats={RECONNECT_CHATS} peers={RECONNECT_PEERS} \
+             rounds={RECONNECT_ROUNDS} rows_sent={rows_sent} reconnects_ms={:.0} acks={} \
+             ack_p50_ms={:.2} ack_p95_ms={:.2} ack_p99_ms={:.2} ack_max_ms={:.2}",
+            if god { "god" } else { "small" },
+            ms(reconnects),
+            latencies.len(),
+            ms(quantile(&latencies, 0.5)),
+            ms(quantile(&latencies, 0.95)),
+            ms(quantile(&latencies, 0.99)),
+            ms(latencies.last().copied().unwrap_or_default()),
+        );
+    }
+}
