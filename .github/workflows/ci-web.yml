@@ -406,7 +406,9 @@ jobs:
       - name: Build the web bundles
         id: bundles
         continue-on-error: true
-        run: ./scripts/cmux-next/build-web-bundles.sh --force
+        run: |
+          ./scripts/cmux-next/build-web-bundles.sh --force
+          bash scripts/cmux-next/check-web-bundle-size.sh
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so

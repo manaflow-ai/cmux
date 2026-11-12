@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -117,6 +118,62 @@ def test_unknown_variant_fails(tmp: Path) -> None:
     r = run("check", str(app), "--budget", str(budget(tmp)), "--variant", "x86_64")
     assert r.returncode == 1
     assert "no variant 'x86_64'" in r.stderr
+
+
+def test_pr_resource_guard_fails_on_growth_missing_output_and_missing_cap(tmp: Path) -> None:
+    pages = "Contents/Resources/CmuxNext_CmuxNextPages.bundle"
+    pane = "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle"
+    root = tmp / "source"
+    source = "Packages/macOS/CmuxNext/Sources"
+    write(root, f"{source}/CmuxNextPages/Resources/pages/settings/index.html", 100)
+    write(root, f"{source}/CmuxNextAgentPane/Resources/agent-pane/index.html", 100)
+    b = budget(tmp, components={pages: 110, pane: 110}, app_max_bytes=1,
+               dmg_max_bytes=1, forbidden=["**/*.map"])
+    data = json.loads(b.read_text())
+    data["web_resource_metadata_reserve_bytes"] = {pages: 10, pane: 10}
+    b.write_text(json.dumps(data))
+
+    def guard():
+        return subprocess.run(["bash", str(ROOT / "scripts/cmux-next/check-web-bundle-size.sh"),
+                               str(root), str(b)], capture_output=True, text=True)
+
+    r = guard()
+    assert r.returncode == 0, r.stderr  # Native/DMG caps do not apply to resources.
+    write(root, f"{source}/CmuxNextPages/Resources/pages/shared/chunk.js", 1)
+    r = guard()
+    assert r.returncode == 1 and f"{pages} is 101 bytes" in r.stderr, r.stderr
+    b.write_text(json.dumps({"variants": {"arm64": {"components": {pages: 102, pane: 100}}}}))
+    write(root, f"{source}/CmuxNextAgentPane/Resources/agent-pane/index.html", 0)
+    r = guard()
+    assert r.returncode == 1 and "missing generated" in r.stderr, r.stderr
+    write(root, f"{source}/CmuxNextAgentPane/Resources/agent-pane/index.html", 100)
+    b.write_text(json.dumps({"variants": {"arm64": {"components": {pages: 102}}}}))
+    r = guard()
+    assert r.returncode != 0 and "missing or invalid Pages/AgentPane" in r.stderr, r.stderr
+
+
+def test_pr_aggregate_rejects_bundle_failure_even_when_style_only_warns(tmp: Path) -> None:
+    del tmp
+    workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+    step = workflow.split("      - name: Fail on the gate checks\n", 1)[1]
+    header, body = step.split("        run: |\n", 1)
+    assert "BUNDLES: ${{ steps.bundles.outcome }}" in header
+    assert "continue-on-error:" not in header
+    lines = []
+    for line in body.splitlines():
+        if line and not line.startswith("          "):
+            break
+        lines.append(line)
+    command = textwrap.dedent("\n".join(lines))
+    env = dict(os.environ)
+    env.update({key: "success" for key in re.findall(r"^          ([A-Z_]+):", header, re.M)})
+    env.update(CMUX_NEXT_STYLE_GUARDS="warn", STYLE_GATES="EAGER_JS_BUDGET REACT_COMPILER")
+    passed = subprocess.run(["bash", "-e", "-c", command], env=env, capture_output=True, text=True)
+    assert passed.returncode == 0, passed.stderr
+    env["BUNDLES"] = "failure"
+    failed = subprocess.run(["bash", "-e", "-c", command], env=env, capture_output=True, text=True)
+    assert failed.returncode == 1, failed.stdout + failed.stderr
+    assert "Gate failed; see the step 'Build the web bundles'" in failed.stdout
 
 
 def test_real_budget_rejects_the_x86_64_snapshot(tmp: Path) -> None:

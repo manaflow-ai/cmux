@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "about": "Size budget of the cmux NEXT nightly app, checked by scripts/cmux-next/bundle-size.py check. Caps are bytes: the 2026-11-12 NIGHTLY receipt (DMG 285197892 bytes, app 909.4 MiB, CEF 352218261 bytes, Resources/bin 219 MiB, MacOS/cmux 154 MiB, Pages 40.5 MiB, AgentPane 18.4 MiB) plus about 5% headroom. Lower a cap when a cut lands; raise one only with a reason in the commit. The nightly check is blocking. Plan: plans/cmux-next/bundle-size-DESIGN.md.",
+  "about": "Size budget of the cmux NEXT nightly app, checked by scripts/cmux-next/bundle-size.py check. Full receipt: NIGHTLY 4318547490101, source 9dc6d10f0e15393120e1e9a56882cde1121a9d87, DMG 285218587 bytes, app 953605824 bytes. Overgrown caps reset with about 5% headroom. Pages and AgentPane caps require the 2026-11-12 reductions; see bundle-size-DESIGN.md for resource and metadata receipts. Lower a cap when a cut lands; raise only with a measured reason.",
   "variants": {
     "arm64": {
       "dmg_max_bytes": 300000000,
@@ -12,8 +12,8 @@
         "Contents/Resources/markdown-viewer": 28200000,
         "Contents/Resources/Extensions": 16500000,
         "Contents/Library/cmux Computer Use.app": 15000000,
-        "Contents/Resources/CmuxNext_CmuxNextPages.bundle": 45000000,
-        "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle": 21000000,
+        "Contents/Resources/CmuxNext_CmuxNextPages.bundle": 23500000,
+        "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle": 18100000,
         "Contents/Frameworks/Sentry.framework": 3400000
       },
       "forbidden": [
@@ -26,7 +26,7 @@
       ]
     },
     "arm64-cef-on-demand": {
-      "about": "Chromium on demand (bundle-size-DESIGN.md section 6): the nightly with CMUX_NEXT_CEF_ON_DEMAND=1 ships no CEF; the app downloads the runtime pack. The 630000000-byte app cap is a conservative interim estimate derived from the full receipt cap minus the 370000000-byte embedded-engine cap, with about 5% headroom; ratchet it from the first complete on-demand receipt. pack_max_bytes remains 115000000 until that receipt (publish-cef-runtime.sh checks it).",
+      "about": "Chromium on demand remains opt-in. The full nightly is 953605824 bytes; its framework, shim and five helpers total 356414370 bytes. The remaining 597191454 bytes plus 5%, rounded up, gives the 630000000-byte app cap. DMG and pack caps remain provisional until a complete on-demand publication receipt; no on-demand artifact was rebuilt here.",
       "dmg_max_bytes": 200000000,
       "app_max_bytes": 630000000,
       "pack_max_bytes": 115000000,
@@ -36,8 +36,8 @@
         "Contents/Resources/markdown-viewer": 28200000,
         "Contents/Resources/Extensions": 16500000,
         "Contents/Library/cmux Computer Use.app": 15000000,
-        "Contents/Resources/CmuxNext_CmuxNextPages.bundle": 45000000,
-        "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle": 21000000,
+        "Contents/Resources/CmuxNext_CmuxNextPages.bundle": 23500000,
+        "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle": 18100000,
         "Contents/Frameworks/Sentry.framework": 3400000
       },
       "forbidden": [
@@ -51,5 +51,9 @@
         "**/*.swiftmodule"
       ]
     }
+  },
+  "web_resource_metadata_reserve_bytes": {
+    "Contents/Resources/CmuxNext_CmuxNextPages.bundle": 150000,
+    "Contents/Resources/CmuxNext_CmuxNextAgentPane.bundle": 700000
   }
 }

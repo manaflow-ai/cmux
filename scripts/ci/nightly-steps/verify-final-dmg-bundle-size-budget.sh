@@ -3,10 +3,9 @@
 # GitHub's workflow file size limit; the step's env: still sets every input.
 # Size of the app in the final DMG, by component, against
 # scripts/cmux-next/bundle-size-budget.json (plans/cmux-next/bundle-size-DESIGN.md).
-# Writes the job summary. It does not block the publish yet: a red step
-# means a cap was crossed; cut the size or raise the cap with a reason.
-# It does not block the publish; a slow runner must not hold the job
-# (run 39481846284: 13 min, then the job hit its limit).
+# Writes the job summary and blocks publish when a cap is crossed: cut the size
+# or raise the cap with a reason. The timeout bounds the check without making
+# an over-budget artifact publishable.
 #
 # The step's notes, moved from nightly.yml:
 # Chromium on demand ships no engine in the app (bundle-size-DESIGN.md 6).
@@ -19,9 +18,9 @@ mkdir -p "$mnt"
 hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$release" >/dev/null
 trap 'hdiutil detach "$mnt" -force >/dev/null 2>&1 || true' EXIT
 app="$(find "$mnt" -maxdepth 1 -name '*.app' -print -quit)"
-budget=scripts/cmux-next/bundle-size-budget.json
 # The tool from this workflow's commit: an older build commit's copy has no `summary`.
 tool="$(dirname "$0")/../../cmux-next/bundle-size.py"
+budget="$(dirname "$tool")/bundle-size-budget.json"
 # The DMG the feed serves now is the previous nightly (this one is not published yet): its size
 # is the change's baseline. Public download, headers only; none (a fork, no network) skips it.
 previous="$(curl -sfIL --max-time 20 "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TRACK}/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg" 2>/dev/null \

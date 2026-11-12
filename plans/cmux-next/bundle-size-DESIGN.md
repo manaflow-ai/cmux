@@ -11,18 +11,59 @@ The nightly step blocks publish when the checked artifact exceeds a cap.
 
 ## 1. Where we are (measured, not estimated)
 
-The 2026-11-12 NIGHTLY receipt for arm64 measured a 285197892-byte DMG (about
-285 MB) and a 909.4 MiB app. Its largest non-engine components were
-the CEF framework at 352218261 bytes, `Resources/bin` at 219 MiB,
-`Resources/bin/cmux` at 167 MB, `MacOS/cmux` at 154 MB, Pages at 40.5 MiB and
-AgentPane at 18.4 MiB. The whole app is already
-arm64-only and stripped. The budget caps now use those measured sizes plus about
-5% headroom, rounded to stable byte caps. The arm64 nightly's **Bundle size
-budget** step is blocking: `summary` writes the report, then `check` must pass
-before the publish job can finish.
+The public arm64 NIGHTLY `4318547490101`, source
+`9dc6d10f0e15393120e1e9a56882cde1121a9d87`, measures **285,218,587 bytes DMG**
+and **953,605,824 bytes app** with `bundle-size.py report`. The feed's source
+commit agrees with the extracted app's `CMUXCommit=9dc6d10`. The Linux extraction
+uses 7-Zip 25.01; it omits one relative CEF framework symlink, which the harness
+does not count. These are regular-file bytes, not filesystem allocated blocks.
 
-The inventory below is the 2026-10-20 baseline breakdown retained for context;
-the 2026-11-12 receipt above is the source for the current caps.
+| Component | Current nightly bytes | Cap bytes |
+|---|---:|---:|
+| CEF framework | 352,218,261 | 370,000,000 |
+| Resources/bin | 229,990,735 | 242,000,000 |
+| MacOS/cmux | 161,636,096 | 170,000,000 |
+| markdown-viewer | 27,416,152 | 28,200,000 |
+| Extensions | 15,483,774 | 16,500,000 |
+| Computer Use | 14,088,505 | 15,000,000 |
+| Sentry | 3,062,714 | 3,400,000 |
+
+The current nightly's Pages and AgentPane components are 42,553,706 and
+19,298,759 bytes. The new caps **23,500,000 and 18,100,000 bytes require the
+2026-11-12 resource reductions** to land first. With the same report harness,
+Pages generated resources fell from 42,324,801 to 22,217,119 bytes; AgentPane
+fell from 18,565,857 to 17,209,155 bytes. Replacing only those resource directories
+in the extracted nightly while keeping its metadata gives 22,340,623 and
+17,865,318 bytes. That is a full-layout projection, not a rebuilt or signed app.
+All other component caps and forbidden-path rules pass on the current artifact.
+The app and DMG caps are 1,000,000,000 and 300,000,000 bytes, about 5% headroom.
+
+For the opt-in on-demand variant, the current runtime (framework, shim and five
+helper apps) is 356,414,370 bytes; subtracting it gives a 597,191,454-byte app
+before any resource reductions. The 630,000,000-byte cap leaves about 5%.
+The on-demand DMG and runtime-pack thresholds need their own publication receipt;
+this change does not turn on that variant.
+
+`check-web-bundle-size.sh` stages the generated Pages and AgentPane directories
+and invokes the existing `bundle-size.py report` and `check`. The PR's existing
+`ci-web.yml` **Build the web bundles** step runs it; **Fail on the gate checks**
+propagates that step's failure even when style checks warn. Routing includes the
+budget, harness and wrapper so changing only a cap also selects this check.
+The PR check reserves 150,000 Pages bytes and 700,000 AgentPane bytes for native
+metadata (measured 123,504 and 656,163); it cannot certify native binaries or DMGs.
+
+Silent-failure class: a measurement returning failure is ineffective when its
+caller suppresses that failure. Detectors: `test_nightly_bundle_budget_step_is_blocking`,
+`test_pr_resource_guard_fails_on_growth_missing_output_and_missing_cap`, and
+`test_pr_aggregate_rejects_bundle_failure_even_when_style_only_warns`. The last
+runs the workflow's actual aggregate shell with a failed bundle step. The nightly
+uses both tooling and caps from the workflow commit, so an older build checkout
+cannot silently select stale caps.
+
+### Historical inventory (2026-10-20)
+
+The following table and the original stage estimates below describe the
+2026-10-20 baseline, not the current artifact or caps.
 
 | Component | On disk | In DMG (xz -6 est.) | Share of DMG |
 |---|---:|---:|---:|
