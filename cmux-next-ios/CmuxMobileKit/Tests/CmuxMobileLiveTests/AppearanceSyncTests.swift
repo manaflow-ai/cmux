@@ -26,11 +26,11 @@ import UIKit
         return (disk, CmuxMobileAppearance(accentTheme: CmuxMobileAccentTheme(defaults: defaults), disk: disk))
     }
 
-    private static let nordJSON = #"""
+    private nonisolated static let nordJSON = #"""
     {"background":"#2E3440","foreground":"#D8DEE9","palette":["#3B4252","#BF616A","#A3BE8C","#EBCB8B","#81A1C1","#B48EAD","#88C0D0","#E5E9F0","#4C566A","#BF616A","#A3BE8C","#EBCB8B","#81A1C1","#B48EAD","#8FBCBB","#ECEFF4"],"cursor":"#ECEFF4","background_opacity":1,"background_blur":0}
     """#
 
-    private static func reply(revision: Int, background: String = "null", wrapped: Bool = true, accent: String = "blue") -> Data {
+    private nonisolated static func reply(revision: Int, background: String = "null", wrapped: Bool = true, accent: String = "blue") -> Data {
         let appearance = #"""
         {"revision":\#(revision),"theme":{"dark":{"name":"Nord","input":\#(nordJSON)},"light":{"name":"Nord","input":\#(nordJSON)},"follows_system":true},
          "accent":"\#(accent)","chrome_style":"two-tone","hue":0.5,"saturation":1.0,"glass_transparency":0.5,"sidebar_surface":"glass",
@@ -41,9 +41,9 @@ import UIKit
         return Data((wrapped ? #"{"ok":true,"data":{"appearance":\#(appearance)}}"# : appearance).utf8)
     }
 
-    private static let picture = Data((0..<4096).map { UInt8($0 % 251) })
-    private static var pictureHash: String { CmuxMobileAppearanceDisk.sha256(picture) }
-    private static var backgroundJSON: String {
+    private nonisolated static let picture = Data((0..<4096).map { UInt8($0 % 251) })
+    private nonisolated static var pictureHash: String { CmuxMobileAppearanceDisk.sha256(picture) }
+    private nonisolated static var backgroundJSON: String {
         #"{"sha256":"\#(pictureHash)","bytes":\#(picture.count),"width":1600,"height":1000,"luminance":0.4,"opacity":0.8,"blur":10}"#
     }
 
