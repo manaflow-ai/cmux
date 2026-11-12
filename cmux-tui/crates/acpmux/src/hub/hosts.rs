@@ -14,11 +14,10 @@ use crate::store::RecordHead;
 use cmux_json::JsonSet as _;
 use futures_util::StreamExt;
 
-/// How long adoption waits for the next replayed entry of one host to be
-/// logged before it recovers from the log as it is.
-const REPLAY_STALL: std::time::Duration = std::time::Duration::from_secs(10);
-/// The most one host's replay may hold adoption (and daemon startup).
-const REPLAY_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
+/// How long adoption waits for the next replayed entry of one host to be logged before it recovers
+/// from the log as it is (`REPLAY_STALL`), and the most one host's replay may hold adoption and
+/// daemon startup (`REPLAY_CEILING`). A reattach's resend of unlogged answers waits the same.
+use crate::agent::{REPLAY_CEILING, REPLAY_STALL};
 
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
