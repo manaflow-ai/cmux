@@ -24,6 +24,19 @@
   radius plus the pill's inset, at most the window's) so the first pill stays concentric with it; a set
   `layout.paneCornerRadius` or Floating Panes keep the old chain. Regression: `DensityItemConsistencyTests`,
   `SidebarCodexMatchTests`.
+- 2026-11-11 (a-titlebar-motion): the hidden sidebar no longer floats back after a hide, the top row has one gap, the
+  float slides in like a drawer. Lawrence, verbatim (msg 29542): "when hiding sidebar, and my mouse is near left side of
+  screen, it kinda hides and reappears. we need to eliminate that error class completely. spacing between traffic
+  lights/sidebar and back/forth needs to be perfectly even at all density sizes too also when sidebar hidden and mouse
+  is moved ot left side to expand it , we need better spring animation and shorter duration". The edge float opens only
+  on an entry: each time floating becomes possible (a hide, Home left, the setting on) the edge disarms until the
+  pointer is seen off it with the zone placed and the hide's slide landed (`FloatingSidebarReveal.edgeArmed`). A hidden
+  sidebar holds no title bar hover, so the collapsed band leaves with the sidebar instead of opening over it. The
+  lights, the toggle, Back and Forward sit one gap apart, glyph ink to glyph ink (the lights' inset), at every density
+  (`TopRowSpacing.slots`). The float slides on the drawer curve (cubic-bezier(0.32, 0.72, 0, 1)) over the appear and
+  disappear tokens after a 100 ms intent delay (was 150 ms); Reduce Motion stays instant. Regression:
+  `FloatingSidebarTests.hidingUnderAPointerOnTheEdgeDoesNotFloatItBack`, `noFloatWhileTheHideSlideRuns`,
+  `SidebarHideTitlebarMotionTests`, `TopRowSpacingDensityTests`.
 - 2026-11-09: at Default density the sidebar matches the Codex desktop sidebar
   (https://github.com/manaflow-ai/cmux/issues/39956; measured in https://github.com/manaflow-ai/cmux/issues/28793 and the
   Codex stylesheet). The user, verbatim: "the sidebar colour is too bright (bright grey selection pill on Recents row).

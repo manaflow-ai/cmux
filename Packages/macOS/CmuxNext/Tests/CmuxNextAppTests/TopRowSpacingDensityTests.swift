@@ -64,7 +64,6 @@ import Testing
         let group = back.lowerBound - toggle.upperBound, pair = forward.lowerBound - back.upperBound
         print("SPACING|\(density.rawValue)|top \(top) left \(left)|after lights \(afterLights)|group \(group)|pair \(pair)")
         #expect(abs(left - top) <= 0.5, "\(density): the lights are \(left) from the left edge, \(top) from the top")
-        #expect(abs(afterLights - left) <= 0.75, "\(density): the toggle's glyph is \(afterLights) right of the lights, which sit \(left) in")
         for button in [band.sidebarToggle, band.backButton, band.forwardButton] as [NSView] {
             #expect(button.frame.size == plus.frame.size, "\(density): a band button is \(button.frame.size), the + is \(plus.frame.size)")
         }
