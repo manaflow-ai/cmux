@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
@@ -703,12 +704,15 @@ final class StreamView: UIView, UIKeyInput, UIContextMenuInteractionDelegate {
     func done() { _ = resignFirstResponder() }
 }
 
-/// The bar above the keyboard of a streamed page.
+/// The bar above the keyboard of a streamed page. Its keys scroll under the pinned
+/// Hide Keyboard key; at either end of the scroller they fade out over 24 pt as the
+/// terminal's key row does (`ScrollEdgeFade`), instead of being cut at the edge.
 final class StreamKeyBar: UIInputView {
+    let scroll = ScrollEdgeFadeScrollView()
+
     init(target: StreamView?) {
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 46), inputViewStyle: .keyboard)
         allowsSelfSizing = true
-        let scroll = UIScrollView()
         scroll.showsHorizontalScrollIndicator = false
         let stack = UIStackView()
         stack.axis = .horizontal
