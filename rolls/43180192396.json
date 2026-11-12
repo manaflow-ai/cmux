@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43180192396",
+  "recorded_at": "2026-11-12T08:13:11Z",
+  "reason": "cmux-tui 66c56ea94fa4 changes the image's cmux-tui (pinned c3fda5942cd5)",
+  "dry_run": false,
+  "cmux_tui": "66c56ea94fa481f194c579ac7138b607f1215227",
+  "fixes": [
+    {
+      "sha": "66c56ea94fa481f194c579ac7138b607f1215227",
+      "mergedAt": "2026-11-12T07:53:49Z",
+      "subject": "chore(next): base autofix at 5f84212d82ab"
+    },
+    {
+      "sha": "5f84212d82ab292831ea503fe2b0e6b58af27b94",
+      "mergedAt": "2026-11-11T23:51:30-08:00",
+      "subject": "Cloud start: a send before the tab's check waits and goes, refusals say why; email-named default team shows as Personal (#40915)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T08:13:11Z",
+    "snapshot_id": "sh-293bea07b88c4d2dbfc037eb12e3c276",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43180192396): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "eaf7d475319b7643def68c0fe3004223826be662",
+    "image": "cloud-native-auto-66c56ea9-43180192396-1",
+    "revision": "ci-43180192396-1",
+    "at": "2026-11-12T08:13:11Z"
+  },
+  "rolled_back": false
+}
