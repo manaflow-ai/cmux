@@ -112,7 +112,7 @@ _WRAPPERS: dict[str, _Wrapper] = {
                        certain=False),
     "builtin": _Wrapper(certain=False),
 }
-_SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
+_SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
 # Shell options that keep "run the first operand as a script": the rest (-c text, -s stdin, -i interactive,
 # -n noexec, -t one command, -r restricted, -l login profile, -D, -o/-O NAME, --rcfile FILE ...) are uncertain.
 _SHELL_FLAGS = frozenset("abefhkmpuvxBCEHPT")
@@ -663,6 +663,7 @@ class _Command(NamedTuple):
     dynamic: bool  # some word, or a redirection target, holds a substitution or expansion
     nested: bool  # it runs inside a substitution
     reached: bool = False  # bash runs it whenever the script runs to its end (_Flow); False unless shown
+    stdin: bool = False  # input redirection may feed executable content to an interpreter
 
 
 # Compound commands: the keyword that opens one, and the one that closes it.
@@ -796,6 +797,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
     complete = lexed.complete
     words: list[Token] = []
     dynamic = False
+    stdin = False
     skip_target = False
     previous: Token | None = None
     tokens = lexed.tokens
@@ -814,12 +816,12 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
     def case_reached() -> bool:
         return all(case_body_active)
 
-    def close(command_words: list[Token], command_dynamic: bool) -> None:
+    def close(command_words: list[Token], command_dynamic: bool, command_stdin: bool) -> None:
         # The keywords that open, continue or close a construct (and a `for`/`case` header) are no command.
         start = flow.keywords(command_words)
         if start < len(command_words):
             found.append(_Command(command_words[start:], command_dynamic, nested,
-                                  not nested and flow.reached() and case_reached()))
+                                  not nested and flow.reached() and case_reached(), command_stdin))
         flow.ended(command_words, start)
 
     def at_command_start() -> bool:
@@ -836,7 +838,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
         if in_conditional:
             if token.kind == "word" and token.text == "]]" and not token.quoted:
                 in_conditional = False
-                words, dynamic = [], False
+                words, dynamic, stdin = [], False, False
             elif token.kind == "word":
                 nested_subs(token)  # `[[ $(cmd) ]]` runs cmd, unless an operator short-cuts it: nested
             previous = token
@@ -876,10 +878,10 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                 and token.text in ("case", "esac", "[["):
             if words:
                 flow.keywords(words)
-                words, dynamic = [], False
+                words, dynamic, stdin = [], False, False
             if token.text == "[[":
                 in_conditional = True
-                words, dynamic = [], False
+                words, dynamic, stdin = [], False, False
                 previous = token
                 continue
             if token.text == "case":
@@ -888,7 +890,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                 case_pattern_matches.append(False)
                 case_body_active.append(False)
                 case_fallthrough.append(False)
-                words, dynamic = [], False
+                words, dynamic, stdin = [], False, False
                 previous = token
                 continue
             if token.text == "esac" and cases:
@@ -897,13 +899,13 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                 case_pattern_matches.pop()
                 case_body_active.pop()
                 case_fallthrough.pop()
-                words, dynamic = [], False
+                words, dynamic, stdin = [], False, False
                 previous = token
                 continue
         if cases and token.kind == "op" and token.text in (";;", ";&", ";;&"):
             if words:
-                close(words, dynamic)
-            words, dynamic, skip_target = [], False, False
+                close(words, dynamic, stdin)
+            words, dynamic, stdin, skip_target = [], False, False, False
             cases[-1] = "pattern"
             case_pattern_matches[-1] = False
             case_fallthrough[-1] = token.text == ";&" and case_body_active[-1]
@@ -951,13 +953,14 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             if words and words[-1] is previous and previous.end == token.start and not previous.quoted \
                     and previous.text.isdigit():
                 words.pop()
+            stdin = stdin or token.text in {"<", "<<", "<<-", "<<<", "<&"}
             skip_target = True
         else:
             skip_target = False
             starts_command = not words
             if words:
-                close(words, dynamic)
-            words, dynamic = [], False
+                close(words, dynamic, stdin)
+            words, dynamic, stdin = [], False, False
             if token.kind == "nl":
                 if not joined:
                     flow.operator("\n", starts_command)
@@ -968,7 +971,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             joined = False
         previous = token
     if words:
-        close(words, dynamic or not lexed.complete)  # a command cut short is not certain
+        close(words, dynamic or not lexed.complete, stdin)  # a command cut short is not certain
     if cases or in_conditional:
         complete = False  # an unclosed `case` or `[[`: bash refuses the script
     for sub in lexed.heredoc_subs:
@@ -1003,6 +1006,30 @@ def _program_name(text: str) -> str:
 # An option that hands a program its command as text, as a shell's -c does: on an absolute program this does not
 # know, the program may run anything.
 _TEXT_OPTION = re.compile(r"-[A-Za-z]*c")
+_INTERPRETER_NAMES = frozenset({
+    "node", "nodejs", "perl", "ruby", "php", "pwsh", "powershell", "deno", "bun", "lua", "luajit",
+    "fish", "csh", "tcsh", "ash", "busybox", "tclsh", "wish", "gjs", "qjs", "quickjs", "osascript",
+})
+_INLINE_CODE_OPTIONS = frozenset({"-c", "-e", "-E", "-r", "--eval", "--execute", "--command"})
+
+
+def _is_interpreter(name: str) -> bool:
+    return name in _INTERPRETER_NAMES or name.startswith(("python", "pypy", "perl", "ruby", "php"))
+
+
+def _has_inline_interpreter_code(name: str, args: list[Token], stdin: bool) -> bool:
+    """Whether an interpreter is being handed executable text or input we cannot inspect."""
+    if not _is_interpreter(name) or name in _SHELLS:
+        return False
+    if stdin or any(word.text == "-" for word in args):
+        return True
+    for word in args:
+        text = word.text
+        if text in _INLINE_CODE_OPTIONS or text.startswith(("--eval=", "--execute=", "--command=")):
+            return True
+        if text.startswith("-") and not text.startswith("--") and any(option in text[1:] for option in "ceEr"):
+            return True
+    return False
 
 
 def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | None, bool]:
@@ -1139,6 +1166,8 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     program = words[start]
     name = _program_name(program.text)
     if _opaque(program) or program.text.startswith("$"):
+        certain, any_program = False, True
+    if _has_inline_interpreter_code(name, words[start + 1:], command.stdin):
         certain, any_program = False, True
     if name in _RUNS_ARGUMENTS or program.text in defined:
         certain, any_program = False, True
