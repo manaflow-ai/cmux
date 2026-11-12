@@ -597,7 +597,8 @@ function leakedGlobals(start: FileStart): string[] {
 /// loaded holds that file's loaded value), so an item the file leaves only after the other
 /// agent-session files (`bun test src/agent-session/`) carries WITH_OTHERS. Run alone, as CI runs
 /// each file, a file is held to its other items only.
-const BASELINE_PATH = new URL("./leak-baseline.json", import.meta.url).pathname;
+// CMUX_TEST_LEAKS_BASELINE names another baseline file (test/leak-detector-probes.test.ts).
+const BASELINE_PATH = process.env.CMUX_TEST_LEAKS_BASELINE || new URL("./leak-baseline.json", import.meta.url).pathname;
 export const WITH_OTHERS = " (with other files)";
 let baseline: Record<string, string[]> | undefined;
 function baselineOf(name: string): string[] {
