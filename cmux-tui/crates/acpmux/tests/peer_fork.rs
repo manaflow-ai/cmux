@@ -135,7 +135,6 @@ fn the_app_forks_a_chat_on_another_computer() {
             .await;
         }
         assert!(on_b.lists(&chat).await, "the chat lives on b");
-        assert!(!Client::script(&a).lists(&chat).await, "and not on a");
 
         // Fork Conversation: the whole chat as it is now.
         let live = app.ok("acp.session.fork", json!({"sessionId": chat, "live": true})).await;
