@@ -40,14 +40,19 @@ while IFS= read -r remote; do
                     )
                     # ...and everything the cmux-next checks copy is made from: the one list the installer copies
                     # and refresh_checks.py stamps from (the list itself is an input above, so a dirty list stops here).
-                    if [[ -f "$REPO_ROOT/scripts/git-hooks/checks-copy-inputs" ]]; then
-                        while IFS= read -r entry || [[ -n "$entry" ]]; do
-                            entry="${entry#"${entry%%[![:space:]]*}"}"
-                            entry="${entry%"${entry##*[![:space:]]}"}"
-                            [[ -z "$entry" || "$entry" == \#* ]] && continue
-                            trusted_inputs+=("${entry%% -> *}")  # the source of `source -> destination`
-                        done < "$REPO_ROOT/scripts/git-hooks/checks-copy-inputs"
+                    # This hook is installed once per clone and runs in every worktree, so a worktree at a trusted
+                    # commit from before the list has none: its sources (tests/workflow_jobs.py,
+                    # scripts/swift_source_mask.py) could not be compared, so nothing is installed from it.
+                    if [[ ! -f "$REPO_ROOT/scripts/git-hooks/checks-copy-inputs" ]]; then
+                        echo "warning: this checkout has no scripts/git-hooks/checks-copy-inputs, so the cmux hook installer inputs cannot be checked against trusted $trusted_branch; skipped the install. Run scripts/install-git-hooks.sh from a clean, current checkout." >&2
+                        exit 0
                     fi
+                    while IFS= read -r entry || [[ -n "$entry" ]]; do
+                        entry="${entry#"${entry%%[![:space:]]*}"}"
+                        entry="${entry%"${entry##*[![:space:]]}"}"
+                        [[ -z "$entry" || "$entry" == \#* ]] && continue
+                        trusted_inputs+=("${entry%% -> *}")  # the source of `source -> destination`
+                    done < "$REPO_ROOT/scripts/git-hooks/checks-copy-inputs"
                     if ! git diff --quiet "$trusted_sha" -- "${trusted_inputs[@]}"; then
                         echo "warning: cmux merge-driver installer inputs differ from trusted $trusted_branch; rerun from a clean checkout." >&2
                         exit 0
