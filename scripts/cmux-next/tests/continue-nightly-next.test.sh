@@ -76,4 +76,15 @@ rm -f "$TMP/api/runs.json"
 invoke
 dispatched && fail "a failed query must not request a run" "$(cat "$TMP/out")"
 
+# 7. A malformed CMUX_NOW_EPOCH (a non-number, an empty string, out of range): exit 2 with one
+#    line before any GitHub call, never the real clock and never a failure inside the inline Python.
+for bad in abc "" 99999999999999999999; do
+  : > "$TMP/gh.log"
+  status=0
+  PATH="$TMP/bin:$PATH" CMUX_NOW_EPOCH="$bad" bash "$SCRIPT" --repo manaflow-ai/cmux > "$TMP/out" 2>&1 || status=$?
+  [[ "$status" == 2 ]] || fail "CMUX_NOW_EPOCH='$bad' must exit 2, got $status" "$(cat "$TMP/out")"
+  grep -qF "error: CMUX_NOW_EPOCH='$bad' is not an epoch" "$TMP/out" || fail "CMUX_NOW_EPOCH='$bad' must say it is not an epoch" "$(cat "$TMP/out")"
+  [[ ! -s "$TMP/gh.log" ]] || fail "CMUX_NOW_EPOCH='$bad' must stop before any GitHub call" "$(cat "$TMP/gh.log")"
+done
+
 echo "PASS: continue-nightly-next requests a continuation only for a recent pending notarization, at most every 30 minutes"
