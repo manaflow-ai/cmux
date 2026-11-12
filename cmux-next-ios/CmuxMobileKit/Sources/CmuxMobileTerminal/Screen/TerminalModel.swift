@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxConnectivityTelemetry
 import CmuxMobileArtifacts
 public import CmuxMobileRealtime
 import CmuxMobileDesign
@@ -185,11 +186,23 @@ public final class TerminalModel {
     /// frame over the live one, R2-5). Throttled, the new frame is saved for
     /// the next cold launch.
     func liveOutputDrawn() {
+        if connectionState.isAttached, let openTimer {
+            // The tab's first live output on screen ends its open time (tab_open).
+            openTimer.finish(fields: ["shown_last_frame": .flag(coldFrame != nil)])
+            self.openTimer = nil
+        }
         if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
         lastDrawnOutput = CACurrentMediaTime()
         saveFrameSoon()
     }
     @ObservationIgnored private var lastDrawnOutput: CFTimeInterval = 0
+    /// From the session's start until its first live output is drawn.
+    @ObservationIgnored private var openTimer: ConnectivityTabTimer?
+
+    /// The page started its session: the tab's open time starts now.
+    func sessionStarted() {
+        openTimer = ConnectivityTabTimer(kind: "terminal", cached: coldFrame != nil)
+    }
 
     /// Saves the page's frame (for the next cold launch) at most every few
     /// seconds: called when the frame is captured, it returns the writer for

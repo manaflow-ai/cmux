@@ -255,6 +255,12 @@ public struct RootView: View {
         .onChange(of: auth.isResolved && auth.isSignedIn && !auth.isMock ? auth.user?.email : nil, initial: true) { _, email in
             ConnectivityTelemetry.shared.startOnPhone()
             ConnectivityTelemetry.shared.setAccount(email: email)
+            // Timings (connect, reconnect, tab open) go to the Cloud service as this account.
+            if email != nil, let cloud = ChiefCloudConfig.current() {
+                ConnectivityTelemetry.shared.uploadStats(to: cloud.baseURL) { [auth] in
+                    try await auth.serviceAccessToken(forceRefresh: $0)
+                }
+            }
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
@@ -767,6 +773,7 @@ private struct LinkSettingsObserver: ViewModifier {
                 // The notification preview shows these chats' last messages.
                 if phase == .background {
                     shell.live?.background()
+                    Task { await ConnectivityTelemetry.shared.stats.flush() }
                     Task { await PushSnapshots().save() }
                 }
             }

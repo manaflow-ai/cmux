@@ -40,8 +40,12 @@ public final class ConnectivityTelemetry: Sendable {
     // policy, reads the audience and yields to the stream, never I/O.
     private let state: OSAllocatedUnfairLock<State>
     private let messages: AsyncStream<Message>.Continuation
+    /// Timings sent to the Cloud service (``stat(_:)``); follows this recorder's audience.
+    public let stats: ConnectivityStats
 
-    public init(configuration: ConnectivityPolicy.Configuration = ConnectivityPolicy.Configuration()) {
+    public init(configuration: ConnectivityPolicy.Configuration = ConnectivityPolicy.Configuration(),
+                stats: ConnectivityStats = ConnectivityStats()) {
+        self.stats = stats
         state = OSAllocatedUnfairLock(initialState: State(policy: ConnectivityPolicy(configuration: configuration)))
         let (stream, continuation) = AsyncStream<Message>.makeStream()
         messages = continuation
@@ -84,6 +88,7 @@ public final class ConnectivityTelemetry: Sendable {
     /// Sets the audience directly (tests, a forced debug override).
     public func setAudience(_ next: ConnectivityAudience) {
         let messages = messages
+        stats.setAudience(next)
         state.withLock { state in
             if state.audience != next {
                 state.audience = next
@@ -121,6 +126,29 @@ public final class ConnectivityTelemetry: Sendable {
     public func record(_ area: ConnectivityEvent.Area, _ name: String, outcome: ConnectivityEvent.Outcome = .info,
                        fields: [String: ConnectivityEvent.Value] = [:], detail: String? = nil) {
         record(ConnectivityEvent(area, name, outcome: outcome, fields: fields, detail: detail))
+    }
+
+    /// Records one timing: a local record (journal, sinks) and a stat for the Cloud service.
+    public func stat(_ stat: ConnectivityStat) {
+        var fields = stat.fields
+        if let ms = stat.ms { fields["ms"] = .number(ms) }
+        let outcome: ConnectivityEvent.Outcome = switch stat.outcome {
+        case .success: .success
+        case .failure: .failure
+        case .cancelled: .info
+        }
+        record(ConnectivityEvent(Self.area(of: stat.name), "stat_\(stat.name.rawValue)", outcome: outcome,
+                                 fields: fields, date: stat.date))
+        stats.add(stat)
+    }
+
+    static func area(of name: ConnectivityStat.Name) -> ConnectivityEvent.Area {
+        switch name {
+        case .macConnect, .reconnect, .sessionEnd, .tabOpen, .linkFailure: .link
+        case .hubReady: .hub
+        case .pairing: .pairing
+        case .cloudLink: .cloudLink
+        }
     }
 
     /// Waits until every message sent before it reached the journal and sinks.

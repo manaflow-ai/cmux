@@ -88,6 +88,8 @@ let package = Package(
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileMarkdown", "CmuxMobileDiff", "CmuxMobileArtifacts", "CmuxMobileTransport",
             "CmuxMobileRealtime",
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+            .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
+            .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
         ], resources: [.process("Resources")]),
@@ -114,7 +116,7 @@ let package = Package(
         .target(name: "CmuxMobileSettings", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAuth", "CmuxMobileOnboarding", "CmuxMobileRealtime", "CmuxMobileScreenSharing", .product(name: "CmuxMobileBillingUI", package: "CmuxMobileBilling", condition: .when(platforms: [.iOS])), .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry")], resources: [.process("Resources")]),
         // Streamed browser tabs: a Mac browser page as H.264 video over the link's
         // `browser` service (VideoToolbox decode, rb input, rb.page chrome).
-        .target(name: "CmuxMobileBrowserStream", dependencies: ["CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime"]),
+        .target(name: "CmuxMobileBrowserStream", dependencies: ["CmuxMobileDesign", "CmuxMobileTransport", "CmuxMobileRealtime", .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry")]),
         // Workspaces list and the per-workspace TabsKit navigation (last tab first).
         .target(name: "CmuxMobileWorkspaces", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
@@ -154,6 +156,7 @@ let package = Package(
             // portable parts (session, detector, extractor, input) without it.
             dependencies: [
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
+                .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
                 "CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport", "CmuxMobileRealtime",
                 // Predictive local echo: the shared Rust engine (cmux-terminal-prediction).
                 .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),

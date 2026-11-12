@@ -996,6 +996,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         layoutTerminal()
         if !started, surface.surface != nil, cell.height > 0 {
             started = true
+            model.sessionStarted()
             model.session.start { [weak self] event in self?.sessionEvent(event) }
         }
     }

@@ -33,6 +33,8 @@ public final class LinkController {
     @ObservationIgnored private let clock: any Clock<Duration>
     /// Every dial, phase, probe, drop and roam, for connectivity telemetry (team: verbose).
     @ObservationIgnored private let events: LinkConnectivityEvents
+    /// Connect, reconnect and session times for the Cloud service's dashboards.
+    @ObservationIgnored private var connectStats = LinkConnectStats()
     @ObservationIgnored private var dialTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
@@ -166,7 +168,11 @@ public final class LinkController {
 
     public func send(_ event: LinkMachine.Event) {
         let wasBackgrounded = machine.isBackgrounded
+        let before = machine.phase
         let effects = machine.handle(event)
+        let now = ContinuousClock.now
+        for stat in connectStats.change(from: before, to: machine.phase, by: event, at: now) { events.stat(stat) }
+        if event == .background { for stat in connectStats.backgrounded(at: now) { events.stat(stat) } }
         quickProbe = (event == .foreground || event == .resume) && effects.contains { if case .probe = $0 { true } else { false } }
         if phase != machine.phase {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")
@@ -228,6 +234,7 @@ public final class LinkController {
             // the link and adopts it.
             let prepare = prepare
             let macDeviceID = endpoint.macDeviceID
+            let dialWatch = ConnectivityStopwatch()
             let work = Task.detached { () async throws -> (link: any MacLink, prepared: (any Sendable)?) in
                 let link = try await Self.connect(dialer: dialer, endpoint: endpoint, transport: transport,
                                                   forceRefresh: forceRefresh, events: events, accessToken: accessToken)
@@ -252,6 +259,7 @@ public final class LinkController {
                     // A dial cancelled by a newer one (re-target, foreground) is not a failure.
                     if !Task.isCancelled, !(error is CancellationError), generation == self?.machine.generation {
                         events.dialFailed(error, transport: transport)
+                        events.dialFailedStat(error, transport: transport, ms: dialWatch.elapsedMilliseconds)
                     }
                     if Self.sessionRevoked(error, afterRefresh: forceRefresh) {
                         // A fresh token was refused too: the account's session is

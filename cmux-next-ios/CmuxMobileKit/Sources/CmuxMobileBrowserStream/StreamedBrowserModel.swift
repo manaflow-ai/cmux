@@ -1,3 +1,4 @@
+import CmuxConnectivityTelemetry
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -172,6 +173,9 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// forgiven only after it stayed live a while, so two viewers evicting
     /// each other stop after two rounds (review finding 2).
     @ObservationIgnored private var liveSince: ContinuousClock.Instant?
+    @ObservationIgnored private var openTimer: ConnectivityTabTimer?
+    /// The open timed now is a reconnect of a page that was live before.
+    @ObservationIgnored private var openTimerReopen = false
     static let forgiveAfter: Duration = .seconds(20)
     /// A stream opened while hidden (it said so after its `rb.open`): the
     /// directory reminds the Mac which tab is shown, so the lane goes back.
@@ -273,6 +277,9 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard connection == nil, !connecting, screen != nil else { return }
         connecting = true
         canReopen = false
+        // Open time (tab_open): until the first decoded picture is on screen.
+        openTimer = ConnectivityTabTimer(kind: "browser", cached: false)
+        openTimerReopen = reconnecting
         phase = reconnecting ? .waiting(Self.reconnectingText) : .connecting
         let sink = Sink(model: self)
         self.sink = sink
@@ -535,6 +542,10 @@ public final class StreamedBrowserModel: BrowserTabState {
             }
         } else {
             liveSince = instant
+            if let openTimer {
+                openTimer.finish(fields: ["reopen": .flag(openTimerReopen)])
+                self.openTimer = nil
+            }
         }
         let now = connection?.nowMicros() ?? 0
         samples.append(.init(at: now, bytes: shown.bytes, latency: shown.latencyMicros, decode: shown.decodeMicros))

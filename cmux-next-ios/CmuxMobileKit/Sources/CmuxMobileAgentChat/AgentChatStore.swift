@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxConnectivityTelemetry
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
@@ -314,6 +315,7 @@ public final class AgentChatStore {
     /// The steer the latest `userMessage` put into a running turn: the one a `promptFrom` may mark.
     @ObservationIgnored private var steeredPrompt: (turnID: String, promptID: String)?
     private var task: Task<Void, Never>?
+    @ObservationIgnored private var openTimer: ConnectivityTabTimer?
     /// The chat's edit diffs, computed once each off the main thread (the transcript, its
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
@@ -322,6 +324,8 @@ public final class AgentChatStore {
         self.source = source
         self.summary = source.summary
         self.isLoadingHistory = source.loadsHistory
+        // The chat's open time (tab_open): until the Mac's history has been read.
+        if source.loadsHistory { openTimer = ConnectivityTabTimer(kind: "agent", cached: false) }
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -1023,6 +1027,11 @@ public final class AgentChatStore {
             refreshEarlierHistory()
         case .historyLoading(let loading):
             if isLoadingHistory != loading { isLoadingHistory = loading }
+            if !loading, let openTimer {
+                // Turns on screen before the history arrived came from the phone's kept copy.
+                openTimer.finish(fields: ["turns": .number(Double(turns.count))])
+                self.openTimer = nil
+            }
         case .earlierPage(let events, let hasEarlier):
             isLoadingEarlier = false
             sourceHasEarlier = hasEarlier
