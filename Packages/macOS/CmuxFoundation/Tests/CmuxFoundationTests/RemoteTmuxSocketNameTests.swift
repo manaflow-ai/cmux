@@ -26,6 +26,7 @@ struct RemoteTmuxSocketNameTests {
         #expect(!RemoteTmuxSocketName.isValid(name))
     }
 
+    /// The default server takes no arguments; a named one takes `-L <name>`.
     @Test func argumentsAreEmptyWithoutAName() {
         #expect(RemoteTmuxSocketName.arguments(for: nil) == [])
         #expect(RemoteTmuxSocketName.arguments(for: "alpha") == ["-L", "alpha"])

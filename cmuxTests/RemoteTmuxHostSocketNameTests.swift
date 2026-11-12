@@ -35,6 +35,8 @@ import Testing
         #expect(alpha.controlSocketPath != plain.controlSocketPath)
     }
 
+    /// The connection hash separates named servers under ssh and under et, and never lets the
+    /// two transports share a key for one name.
     @Test func socketNameIsPartOfIdentityOnEveryTransport() {
         let ssh = RemoteTmuxHost(destination: "dev@host", socketName: "alpha")
         let etPlain = RemoteTmuxHost(destination: "dev@host", transport: .et)
@@ -68,6 +70,8 @@ import Testing
         #expect(viaSocket == plain)
     }
 
+    /// The ssh control-mode attach puts `-L <name>` in front of the tmux arguments for a named
+    /// server and adds nothing for the default one.
     @Test func controlModeArgumentsSelectTheSocket() {
         let host = RemoteTmuxHost(destination: "dev@host", socketName: "alpha")
         let remote = host.controlModeArguments(sessionName: "work", mode: .attach).last ?? ""
@@ -78,6 +82,7 @@ import Testing
         #expect(!plainRemote.contains("-L"))
     }
 
+    /// One-shot commands built from a host (for example `list-sessions`) name its server.
     @Test func oneShotCommandsSelectTheSocket() {
         let host = RemoteTmuxHost(destination: "dev@host", socketName: "alpha")
         let command = host.tmuxRemoteCommand(arguments: ["list-sessions", "-F", "#{session_name}"])
@@ -86,6 +91,8 @@ import Testing
         #expect(!RemoteTmuxHost.tmuxRemoteCommand(arguments: ["list-sessions"]).contains("-L"))
     }
 
+    /// The et control stream runs `tmux -L <name> -CC attach-session` for a named server, and the
+    /// host-free builder keeps producing the default-server line.
     @Test func eternalTerminalControlStreamSelectsTheSocket() {
         let host = RemoteTmuxHost(destination: "dev@host", transport: .et, socketName: "alpha")
         let argv = host.transportProfile.controlStreamArgv(host: host, sessionName: "work", mode: .attach)
@@ -208,6 +215,8 @@ import Testing
             exitCode: 1, stderr: "error connecting to /tmp/tmux-501/alpha (Permission denied)"))
     }
 
+    /// The socket boundary carries a valid `socket_name` onto the host, treats its absence as the
+    /// default server, and refuses every invalid spelling with a failure message.
     @Test func socketBoundaryBuildsAndRefusesSocketNames() {
         let host = TerminalController.remoteTmuxHost(
             from: ["host": "dev@host", "socket_name": "alpha"], selectBroker: { _ in .none })
