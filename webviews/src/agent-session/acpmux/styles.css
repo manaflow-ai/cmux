@@ -139,10 +139,13 @@
 .acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh)}
 .acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);overflow-y:overlay;scrollbar-width:none;padding-inline-end:calc(var(--ui-popup-padding) + 4px)}
 .acpmux-menu.acpmux-composer-plus::-webkit-scrollbar{display:none;width:0;height:0}
+/* The rows scroll in the glass shell's inner viewport (ui/Menu.tsx .ui-popup-scroll): it hides the scrollbar, and the fade rules below target it. */
+.acpmux-menu.acpmux-composer-plus>.ui-popup-scroll{scrollbar-width:none}
+.acpmux-menu.acpmux-composer-plus>.ui-popup-scroll::-webkit-scrollbar{display:none;width:0;height:0}
 /* Keep the composer's action rows pressable at every edge (composer-chip-press.test.ts probes all
    four row edges) by leaving WebKit's hit-tested mask channel off and moving the visible edge fade
    onto pointer-transparent overlays. The unprefixed mask remains for the shared fade contract. */
-.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
+.acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
   /* Keep a computed mask for the shared edge-fade contract, but make the mask fully opaque.
      WebKit includes mask alpha in hit testing; the pointer-transparent sticky overlays below
      provide the visible fade without making a row's trailing edge unpressable. */
@@ -152,8 +155,8 @@
   -webkit-mask-image:none;
   mask-image:linear-gradient(#000,#000);
 }
-.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before,
-.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{
+.acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade::before,
+.acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade::after{
   position:sticky;
   inset-inline:0;
   z-index:var(--layer-raised,1);
@@ -163,33 +166,33 @@
   pointer-events:none;
   opacity:0;
 }
-.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before{
+.acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade::before{
   inset-block-start:0;
   height:var(--ui-scroll-fade-top);
   margin-block-end:calc(-1 * var(--ui-scroll-fade-top));
   background:linear-gradient(to bottom,var(--glass-tint),transparent);
 }
-.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{
+.acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade::after{
   inset-block-end:0;
   height:var(--ui-scroll-fade-bottom);
   margin-block-start:calc(-1 * var(--ui-scroll-fade-bottom));
   background:linear-gradient(to bottom,transparent,var(--glass-tint));
 }
-.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]::before,
-.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]::after{opacity:1}
+.acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade[data-fade-top]::before,
+.acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade[data-fade-bottom]::after{opacity:1}
 @media (prefers-reduced-transparency:reduce){
-  .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before,
-  .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{opacity:0}
+  .acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade::before,
+  .acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade::after{opacity:0}
 }
-:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before,
-:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{opacity:0}
+:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade::before,
+:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade::after{opacity:0}
 @media (prefers-reduced-transparency:reduce){
-  .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
+  .acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
     -webkit-mask-image:none;
     mask-image:none;
   }
 }
-:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
+:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus>.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
   -webkit-mask-image:none;
   mask-image:none;
 }

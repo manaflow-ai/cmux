@@ -39,7 +39,9 @@ struct SidebarCodexMatchTests {
             #expect(m.rowSpacing == 2, "2 pt between rows, so two lit fills do not touch")
             #expect(SidebarStyle.contentInset == 8, "Codex's --padding-row-x")
             #expect(SidebarStyle.horizontalInset < SidebarStyle.contentInset, "the fill sits inside the sidebar edge, the title further in")
-            #expect(SidebarStyle.rowCornerRadius == 10, "Codex's --radius-token-row")
+            // Chrome's tab corner (Lawrence 2026-11-11, "same roundness as chrome"): kVerticalTabCornerRadius 8 on 30.
+            #expect(SidebarStyle.rowCornerRadius == 8, "Chrome's kVerticalTabCornerRadius")
+            #expect(SidebarStyle.rowCornerRadius == Metrics.tabCornerRadius, "the tab's radius")
             // The row keeps Codex's 30 pt; 2 pt between rows.
             let layout = SidebarLayout.make(sections: [Self.machine(["a", "b"])], metrics: m)
             let a = try #require(layout.row(for: .workspace(WorkspaceID("a"))))

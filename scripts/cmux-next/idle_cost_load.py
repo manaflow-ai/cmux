@@ -44,6 +44,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (App, FakeChats, FAKE_AGENT_ID, process_table)
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 PEER = "bench-remote"
 
@@ -250,7 +251,7 @@ class PeerDaemon:
             try:
                 done = self.acpmux("daemon", "shutdown", "--end-agents", timeout=60)
                 if done.returncode != 0:
-                    print(f"   peer acpmux shutdown: {(done.stdout + done.stderr).strip()[:2000]}", file=sys.stderr)
+                    safe_print(f"   peer acpmux shutdown: {(done.stdout + done.stderr).strip()[:2000]}", file=sys.stderr)
                 self.process.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self.process.kill()
