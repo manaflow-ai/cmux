@@ -337,8 +337,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = CmuxMobileGhosttyApp.background
-        // The terminal theme is dark: chrome, glass and the keyboard follow it.
-        overrideUserInterfaceStyle = .dark
+        // Chrome, glass and the keyboard follow the terminal theme (dark, or the Mac theme's look).
+        overrideUserInterfaceStyle = CmuxMobileGhosttyApp.interfaceStyle
         view.clipsToBounds = true
 
         scrollView.delegate = self

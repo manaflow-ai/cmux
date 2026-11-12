@@ -1,5 +1,6 @@
 public import AppKit
 import AVFoundation
+import CmuxNextCompat
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
@@ -188,7 +189,7 @@ public final class BackdropImageStore {
     /// source file's size and modification date, so a replaced file never matches an old one.
     private func snapshotURL(_ selection: BackdropSelection, texture: BackdropTexture, dark: Bool = false) -> URL? {
         guard let snapshots, let source = selection.resolvedImageURL(dark: dark),
-              let attributes = try? FileManager.default.attributesOfItem(atPath: source.path) else { return nil }
+              let attributes = try? FileManager.checked.attributesOfItem(atPath: source.path) else { return nil }
         let modified = (attributes[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
         let bytes = (attributes[.size] as? NSNumber)?.intValue ?? 0
         let identity = "\(selection.variantID(dark: dark))|\(texture.id)|\(maxPixelSize)|\(bytes)|\(modified)"
@@ -258,5 +259,22 @@ public final class BackdropImageStore {
             hash = hash &* 0x0000_0100_0000_01b3
         }
         return String(hash, radix: 16)
+    }
+}
+
+extension BackdropImageStore {
+    /// A phone-sized JPEG of the picture at `source` (light or `dark` frame, a video's poster) in
+    /// `folder`, for the iPhone's copy of this Mac's wallpaper (ask-87d30da8e5). Named by the
+    /// source's path, size and date, so an unchanged picture is written once; nil when it does not
+    /// decode. Off the main thread: it decodes.
+    public nonisolated static func phoneCopy(of source: URL, dark: Bool, maxPixelSize: Int = 1600, in folder: URL) -> URL? {
+        let attributes = try? FileManager.checked.attributesOfItem(atPath: source.path)
+        let modified = (attributes?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let bytes = (attributes?[.size] as? NSNumber)?.intValue ?? 0
+        let file = folder.appendingPathComponent(digest("\(source.path)|\(bytes)|\(modified)|\(dark)|\(maxPixelSize)") + ".jpg")
+        if FileManager.checked.fileExists(atPath: file.path) { return file }
+        guard let image = decode(source, maxPixelSize: maxPixelSize, dark: dark) else { return nil }
+        write(image, to: file)
+        return FileManager.checked.fileExists(atPath: file.path) ? file : nil
     }
 }
