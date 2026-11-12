@@ -313,8 +313,9 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   ...pins.map((pin) => `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ${pin.binary} --version | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-nonlogin-pin-ok`),
   "systemctl show cmux-tui-daemon -p Environment | grep -q 'PATH=/usr/local/sbin:/usr/local/bin:' && echo daemon-env-path-ok",
   // Every pane inherits the daemon's terminal identity (cmux-devbox-boot):
-  // TERM_PROGRAM=ghostty and the baked Ghostty version.
-  `pid=$(pgrep -f 'cmux-tui server [s]tart' | head -1) && tr '\\0' '\\n' < /proc/$pid/environ > /tmp/daemon-env && grep -qx TERM=xterm-256color /tmp/daemon-env && grep -qx TERM_PROGRAM=ghostty /tmp/daemon-env && grep -qx "TERM_PROGRAM_VERSION=${devboxGhosttyVersion()}" /tmp/daemon-env && test "$(cat /etc/cmux/ghostty-version)" = ${devboxGhosttyVersion()} && rm -f /tmp/daemon-env && echo daemon-terminal-identity-ok`,
+  // TERM_PROGRAM=cmux and no Ghostty version (the daemon stamps cmux's own
+  // TERM_PROGRAM_VERSION on each pane). The bake still records its Ghostty pin.
+  `pid=$(pgrep -f 'cmux-tui server [s]tart' | head -1) && tr '\\0' '\\n' < /proc/$pid/environ > /tmp/daemon-env && grep -qx TERM=xterm-256color /tmp/daemon-env && grep -qx TERM_PROGRAM=cmux /tmp/daemon-env && ! grep -q '^TERM_PROGRAM_VERSION=' /tmp/daemon-env && test "$(cat /etc/cmux/ghostty-version)" = ${devboxGhosttyVersion()} && rm -f /tmp/daemon-env && echo daemon-terminal-identity-ok`,
   devboxTerminfoCheckCommand,
   `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} TERM=xterm-256color PATH=/usr/bin:/bin sh -c 'tput setaf 8 | od -An -tx1 | tr -d " \\n"' | grep -qx 1b5b33383b353b386d && echo work-user-terminfo-ok`,
   "grep -qx 'unset TERMINFO' /etc/profile.d/cmux-terminfo.sh && grep -qx 'export TERMINFO_DIRS=/etc/terminfo:' /etc/profile.d/cmux-terminfo.sh && echo terminfo-search-path-ok",
