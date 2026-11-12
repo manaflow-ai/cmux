@@ -47,7 +47,14 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
-import { QUEUED_MESSAGE, SINCE_DIVIDER, TURN_RETRY, type AcpmuxSince, type AcpmuxTurnRetry } from "./model";
+import {
+  QUEUED_MESSAGE,
+  SINCE_DIVIDER,
+  TURN_RETRY,
+  rowFrameKey,
+  type AcpmuxSince,
+  type AcpmuxTurnRetry,
+} from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
 import { HOST_ERROR_DEADLINE_MS, hostIsReconnecting } from "./hostRetry";
@@ -1852,6 +1859,20 @@ function promptImages(value: unknown): PromptImage[] {
 /// More than one slot of the kept order changed, or it was rebuilt (`OrderedRows.changedSlot`).
 const MANY_SLOTS = Symbol("many");
 
+/// Whether two texts are one message at different completeness: one holds the other's opening or
+/// ending whole (a repair read back chunks before or after it, or split a reply a lost call had
+/// joined), 40 characters of it, and the shorter is at least half as long, so a short reply is never
+/// taken for part of a long one, nor two replies for one by a common opening line. Linear in the longer; under 8 characters, only itself.
+function sameWords(a: string | undefined, b: string | undefined): boolean {
+  const [x, y] = [a?.trim() ?? "", b?.trim() ?? ""];
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < 8 || short.length * 2 < long.length) return false;
+  const holds = (text: string, other: string) => text.includes(other.slice(0, 40)) || text.includes(other.slice(-40));
+  return holds(long, short) || holds(short, long);
+}
+
 /// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
 /// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
 /// A row made without an event (a prompt sending or failed, a notice, the typing row) orders after
@@ -1995,8 +2016,72 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     }
   }
 
+  /// The frame each message a rebuild made under a new id keeps drawing in (``adoptFrames``).
+  private readonly frames = new Map<string, string>();
+
+  /// Keeps on screen, in the element it drew in, each prompt and reply a rebuild made again under a
+  /// new id. A reply's id is the first of its chunks the pane held, so a turn repaired from its
+  /// stored records after its first chunk was lost (`checkFinishedTurn`, a lag's reread), an older
+  /// page or a reconnect's replay names it anew; as a new frame it unmounted and faded in again
+  /// while the tool calls around it, keyed by their call ids, stayed (Leo, 2026-11-11: "it keeps
+  /// showing and then hiding, and then showing and then hiding your responses, or my responses").
+  /// Each message of a kind that went gives its frame to the new message of that kind whose words it
+  /// holds or that holds its words, the nearest to it in length (an older page brings many new
+  /// replies, and only the one it was cut from is it); that message's later updates keep the frame
+  /// (``set``). Gone and new messages are few beside the chat: an older page's replies are new, but
+  /// a page that names no shown message again leaves none gone, and returns at once.
+  adoptFrames(previous: ReadonlyMap<string, AcpmuxRow>): void {
+    const isMessage = (row: AcpmuxRow) => row.kind === "user" || row.kind === "assistant";
+    const gone = [...previous.values()].filter((row) => isMessage(row) && !this.has(row.id));
+    // Written outside any event: the row keeps its place and its last write.
+    const current = this.current;
+    this.current = undefined;
+    // A frame whose own row came back (a fuller read named it as before) is that row's again: two
+    // rows never draw in one frame.
+    for (const [id, frame] of this.frames) {
+      if (this.has(id) && !this.has(frame)) continue;
+      this.frames.delete(id);
+      const row = this.get(id);
+      if (row?.frame === frame) this.set(id, { ...row, frame: undefined });
+    }
+    if (gone.length === 0) {
+      this.current = current;
+      return;
+    }
+    const fresh = [...this.values()].filter(
+      (row) => isMessage(row) && row.frame === undefined && !previous.has(row.id),
+    );
+    // The frames rows draw in now. `previous` holds the rows shown before a reset too, which can name
+    // a frame a row since took: a frame in use is never given again, so no two rows share one.
+    const inUse = new Set<string>();
+    for (const row of this.values()) inUse.add(rowFrameKey(row));
+    for (const old of gone) {
+      const frame = rowFrameKey(old);
+      if (inUse.has(frame)) continue;
+      const length = old.text?.trim().length ?? 0;
+      let best: AcpmuxRow | undefined;
+      // A tie goes to the newer row: the one a rebuild named anew is the newest of its copies.
+      for (const row of fresh)
+        if (
+          row.kind === old.kind &&
+          !this.frames.has(row.id) &&
+          sameWords(old.text, row.text) &&
+          (!best ||
+            Math.abs((row.text?.trim().length ?? 0) - length) <= Math.abs((best.text?.trim().length ?? 0) - length))
+        )
+          best = row;
+      if (!best) continue;
+      inUse.add(frame);
+      this.frames.set(best.id, frame);
+      this.set(best.id, best);
+    }
+    this.current = current;
+  }
+
   // Producers identify stream progress from the event, even when its row retains settled tools.
   override set(id: string, row: AcpmuxRow, summaryChanged = !row.streaming): this {
+    const adopted = this.frames.get(id);
+    if (adopted !== undefined && row.frame !== adopted) row = { ...row, frame: adopted };
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
@@ -2154,6 +2239,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.order.clear();
     this.local.clear();
     this.lastWrite.clear();
+    this.frames.clear();
     this.latest = 0;
     this.backgroundSpans = [];
     this.backgroundEnds.clear();
@@ -6984,6 +7070,7 @@ export class AcpmuxDirectClient {
     // Rows kept from before (a prompt that failed or still sends) are newer than every replayed event.
     this.rows.placeLocalLast();
     this.rows.keepSame(previous);
+    this.rows.adoptFrames(previous);
   }
 
   /// rebuild() replays a partial event window, so keep the live summary, queue and

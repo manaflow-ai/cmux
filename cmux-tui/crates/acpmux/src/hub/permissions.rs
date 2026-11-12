@@ -539,16 +539,59 @@ impl Hub {
     ) {
         let fence = ANSWER_FENCE.try_with(|f| f.borrow_mut().0.take()).ok().flatten();
         let _ = child.respond_fenced(id.clone(), result, fence.as_ref()).await;
-        let Some(fence) = fence else { return };
+        let Some(fence) = fence else {
+            self.reach_hosted_again(session, child).await;
+            return;
+        };
         fence.taken().await;
-        // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
-        if fence.is_cut() && child.is_alive().await {
+        // A writer that stopped cuts what it still had: its agent is gone and asks nothing. A
+        // hosted agent whose link was down is reached again first, as the next request would.
+        if self.reach_hosted_again(session, child).await && fence.is_cut() {
             let (m, params, epoch, turn_id, incarnation) = again;
             let s = session.clone();
             let c = Some(child.clone());
             self.clone()
                 .on_agent_request(s, id, m, params, epoch, turn_id, None, incarnation, c)
                 .await;
+        }
+    }
+
+    /// Whether `child`, the agent an answer was written to, is alive: now, or for a hosted agent
+    /// whose link to its host is down, once its host is reached again (`readopt` under the spawn
+    /// lock, as the next request reaches it), which the person who just answered must not wait
+    /// for: the agent waits on that answer. Once it is reached, an answer the link did not take
+    /// is asked again when it was cut (by the caller, under the bound now) and otherwise sent
+    /// again by the agent itself (`ChildAgent::reattach`), never both: a cut answer is never sent
+    /// again unchecked. (CROSS-LANE Q3 from c-turns: the answer was lost and the agent waited for
+    /// ever.) False for an agent that exited, ended, or another agent took the session from.
+    async fn reach_hosted_again(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) -> bool {
+        if child.is_alive().await {
+            return true;
+        }
+        if child.host_record().is_none()
+            || child.has_exited()
+            || self.shutting_down()
+            || !Self::host_record_live(&session.id)
+        {
+            return false;
+        }
+        let _spawning = session.spawn_lock.lock().await;
+        // Another request may have reached it while this one waited for the lock.
+        if child.is_alive().await {
+            return true;
+        }
+        let still_asked =
+            session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, child));
+        if !still_asked {
+            return false;
+        }
+        match self.readopt(session).await {
+            Some(now) => Arc::ptr_eq(&now, child) && now.is_alive().await,
+            None => false,
         }
     }
 

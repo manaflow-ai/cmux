@@ -250,7 +250,7 @@ import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
 import { heldPrompts, type SendGesture } from "./heldPrompt";
 import { bindsHeldSendNow } from "./heldSendBinding";
-import { StartingSends, type StartingSend } from "./startingSends";
+import { StartingSends, startingQueueEntry, type StartingSend } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -659,7 +659,14 @@ import { FolderChoice } from "./FolderChoice";
 import { showsFolderChoice } from "./folderChoiceModel";
 import { ownMachineFolders, type ExtraFolderDraft } from "./extraFolders";
 import { WorktreeFailure } from "./startFolder";
-import { type FolderAsk, confirmFolder, newChatInWorktree, newWorktree, pickFolder } from "./startFolderModel";
+import {
+  type FolderAsk,
+  confirmFolder,
+  newChatFolder,
+  newChatInWorktree,
+  newWorktree,
+  pickFolder,
+} from "./startFolderModel";
 import { WorktreeSetupNotice, useWorktreeSetupStart } from "./worktreeSetup";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder } from "./missingFolder";
@@ -4747,7 +4754,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runHereSend.current = true;
     sandbox.setMode("persistent");
   };
-  const dismissCloudFailure = () => setCloudStart(undefined);
+  /// The card's "Start without a folder" start, until it opens or is dismissed: its Retries go without a folder too.
+  const cloudHomeStart = useRef(false);
+  const dismissCloudFailure = () => {
+    cloudHomeStart.current = false;
+    setCloudStart(undefined);
+  };
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
   /// (the team picker's switch) before it starts, under the same click.
   const [cloudSwitchTeam] = useState(() => cloudStartTeam());
@@ -4905,6 +4917,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         runCloudHere(key);
         return;
       }
+      // A folder the host refused before binding the compose's reservation: that machine is given back now.
+      if (!answer.ok && answer.code === "cloud_folder_too_big" && request.reservationKey)
+        cloudReservation.returned(request.reservationKey);
+      if (answer.ok) cloudHomeStart.current = false;
       setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartSaid(answer))
         notices.transient(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -6095,7 +6111,37 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       : Promise.resolve(false);
   /// Retry on a failed Cloud start: the composer still holds its prompt, and sending it again keys the same
   /// start (cloudRun.ts `cloudStartKeys`), so the host reaches the machine the first try made.
-  const retryCloudStart = () => sendStartPrompt();
+  /// A Retry keeps the start's own folder: a start the too-big card sent without a folder retries without one, never
+  /// from the composer's folder the preflight refused (Codex review F2 on #40957).
+  const retryCloudStart = () => {
+    if (cloudHomeStart.current) cloudFolderOnce.current = { home: true };
+    sendStartPrompt();
+  };
+  /// The folder the next Cloud send names instead of the composer's (a too-big folder's card: a repository inside
+  /// it, another folder, or none), taken once by that send.
+  const cloudFolderOnce = useRef<{ cwd: string } | { home: true } | undefined>(undefined);
+  /// The too-big card's way on: the same prompt, sent again in `folder` (a new start: another folder is another key).
+  const sendCloudIn = (folder: { cwd: string } | { home: true }) => {
+    cloudFolderOnce.current = folder;
+    cloudHomeStart.current = "home" in folder;
+    sendStartPrompt();
+  };
+  /// A repository inside the folder, or a folder the person browses to: picked as the chat's folder (granted to the
+  /// tab, shown in the composer), then sent from the pick's acceptance, so a pick the host refuses, one it only asks
+  /// to confirm, or one a newer pick replaced sends nothing (Codex review F3 on #40957).
+  const sendCloudInPicked = (cwd: string) => {
+    void chooseProject(cwd, undefined, undefined, (folder) => sendCloudIn({ cwd: folder }));
+  };
+  const cloudTooBigActions = {
+    onPickRepo: sendCloudInPicked,
+    onPickFolder: () => {
+      void callNative<{ cwd?: string }>("project.browse").then(
+        (result) => result?.cwd && sendCloudInPicked(result.cwd),
+        () => undefined,
+      );
+    },
+    onStartWithoutFolder: () => sendCloudIn({ home: true }),
+  };
   /// "This team has no Cloud plan": switch to the person's own team and send the same prompt again.
   const switchTeamAndRetry = (team: { id: string }) => {
     // The next Cloud send takes it (a send the composer holds for its files goes a moment later);
@@ -6859,11 +6905,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
     if (startingRows.length || heldRows.length)
-      withCommands.queue = [
-        ...snapshot.queue,
-        ...startingRows.map((row) => ({ id: row.id, prompt: row.text, sending: true })),
-        ...heldRows,
-      ];
+      withCommands.queue = [...snapshot.queue, ...startingRows.map(startingQueueEntry), ...heldRows];
     return withDraftFolder(withCommands, projectDraft);
   }, [
     snapshot,
@@ -7035,13 +7077,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
 
   const freshRef = useRef(false);
   freshRef.current = freshChat && !snapshot.sessionId;
+  /// The tab's own folder (a New Tab's, `~` in a fresh workspace): a terminal's folder, never a new
+  /// chat's by itself (newChatFolder).
+  const inheritedFolderRef = useRef(newTab?.cwd);
+  inheritedFolderRef.current = newTab?.cwd;
   /// The project the person picked in this pane's project picker, until they send in it: that send
   /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
   /// is no pick.
   const pickedProject = useRef<string | undefined>(undefined);
-  /// Settles once the host answered the pick; `refused` hears a path the host says is no folder.
+  /// Settles once the host answered the pick; `refused` hears a path the host says is no folder, and `accepted`
+  /// the folder once it is this pane's pick (a confirmation shown, or a reply a newer pick replaced, is neither).
   const chooseProject = useCallback(
-    (cwd: string, peer?: string, refused?: () => void): Promise<void> => {
+    (cwd: string, peer?: string, refused?: () => void, accepted?: (folder: string) => void): Promise<void> => {
       folderContinuation.invalidate();
       continuationProjectGeneration.current += 1;
       pickedProject.current = undefined;
@@ -7057,6 +7104,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           pickedProject.current = folder;
           if (freshRef.current) setProjectDraft(folder);
           else void callNative("chat.new", { cwd: folder }).catch(() => undefined);
+          accepted?.(folder);
         },
         // Only the host's refusal of the path is `refused`; a request a newer one replaced is not.
         (refusal) => {
@@ -8409,7 +8457,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               });
             }
             folderContinuation.invalidate();
-            const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
+            // One rule for every agent and every caller (startFolderModel newChatFolder): the folder the
+            // caller names unless it is only the tab's inherited one, else the start folder; a new chat
+            // with neither has none (`null`), never an earlier start's folder.
+            const chosen =
+              peer || noProject === true
+                ? cwd
+                  ? String(cwd)
+                  : undefined
+                : newChatFolder({
+                    ...(cwd ? { cwd: String(cwd) } : {}),
+                    inherited: inheritedFolderRef.current,
+                    startFolder: startFolderRef.current,
+                    fresh: freshRef.current,
+                  });
+            const folder = chosen ?? undefined;
             if (harness && !peer && noProject !== true) {
               // A new chat starts on its pick, else on acpmux's saved default, else on the model last
               // picked on that harness here. acpmux sets its start model itself (start_defaults.rs):
@@ -8430,7 +8492,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       ),
                     )
                   : {};
-              return harnessSwitch.switchTo(String(harness), folder, {
+              return harnessSwitch.switchTo(String(harness), chosen, {
                 deferred: deferred === true,
                 ...(picked ? { model: picked } : {}),
                 ...(Object.keys(held).length > 0 ? { options: held } : {}),
@@ -9046,6 +9108,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           prewarm: (harness, cwd) => client.prewarm(harness, cwd),
           // A function, not a getter: the React Compiler skips a component with a getter.
           prewarmSupported: () => client.prewarmSupported,
+          // Where a start whose folder the pane refused starts again (harnessSwitch restartFolder).
+          startFolder: () => startFolderRef.current,
         };
         // WEB-SWAP: a New Tab's prompt waits in its sender while its chat starts (screenActions.ts):
         // a web update's reload waits for the start too.
@@ -11651,11 +11715,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               if (cloudPicked) {
                 // The chat's project, copied to the machine; none: the machine's own folder (cloudStartFolder).
+                const once = cloudFolderOnce.current;
+                cloudFolderOnce.current = undefined;
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
                   {
-                    ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
+                    ...(once ?? cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd)),
                     ...heldPick(composerSnapshot),
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
                   },
@@ -12522,6 +12588,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                   onRunHere={runCloudHere}
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
+                                  {...cloudTooBigActions}
                                 />
                               ),
                             }
@@ -13061,6 +13128,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     onRunHere={runCloudHere}
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
+                    {...cloudTooBigActions}
                   />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView

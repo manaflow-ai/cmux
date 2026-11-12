@@ -809,6 +809,9 @@ pub struct Hub {
     pub(super) cache_write_gate: Arc<StdMutex<()>>,
     #[cfg(test)]
     pub(super) cache_test_writes: AtomicU64,
+    /// Peer rows `visit_remote_sessions` copied out (`peer_notice_cost_tests.rs`).
+    #[cfg(test)]
+    pub(super) remote_rows_copied: AtomicU64,
     /// Bytes the peer cache saves wrote, both files (`peer_cache_disk_tests.rs`).
     #[cfg(test)]
     pub(super) cache_test_bytes: AtomicU64,
@@ -1248,6 +1251,8 @@ impl Hub {
             cache_write_gate: Arc::new(StdMutex::new(())),
             #[cfg(test)]
             cache_test_writes: AtomicU64::new(0),
+            #[cfg(test)]
+            remote_rows_copied: AtomicU64::new(0),
             #[cfg(test)]
             cache_test_bytes: AtomicU64::new(0),
             #[cfg(test)]
@@ -1756,6 +1761,7 @@ impl Hub {
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            rehydrate_note: StdMutex::new(None),
             forum_retell: AtomicBool::new(false),
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
