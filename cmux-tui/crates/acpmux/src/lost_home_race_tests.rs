@@ -578,3 +578,44 @@ fn a_copy_or_write_never_shows_its_bytes_to_others() {
         |_, _| {},
     );
 }
+
+/// #41721 review F1: `home_fs::symlink_metadata` and `try_exists_nofollow` read the held home,
+/// not a replacement at its path, and give what `std::fs::symlink_metadata` gives there (the same
+/// file, its length and times, a symlink itself never followed); a name in neither home is
+/// `Ok(false)`.
+#[cfg(unix)]
+#[test]
+fn a_metadata_read_reads_the_held_home_not_its_replacement() {
+    isolated(
+        module_path!(),
+        "a_metadata_read_reads_the_held_home_not_its_replacement",
+        |home| {
+            use std::os::unix::fs::MetadataExt as _;
+            let dir = home.join("sessions").join("c");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("cold.zst"), b"archive").unwrap();
+            std::os::unix::fs::symlink("nowhere", dir.join("link")).unwrap();
+            crate::config::hold_home();
+            let want = std::fs::symlink_metadata(dir.join("cold.zst")).unwrap();
+            let got = crate::home_fs::symlink_metadata(dir.join("cold.zst")).unwrap();
+            assert_eq!(
+                (got.dev(), got.ino(), got.len(), got.mode(), got.mtime(), got.mtime_nsec()),
+                (want.dev(), want.ino(), want.len(), want.mode(), want.mtime(), want.mtime_nsec()),
+            );
+            assert_eq!(got.created().ok(), want.created().ok(), "the birth time");
+            let link = crate::home_fs::symlink_metadata(dir.join("link")).unwrap();
+            assert!(link.file_type().is_symlink(), "a symlink is read itself, never followed");
+            replace(home);
+            std::fs::create_dir_all(home.join("sessions").join("c")).unwrap();
+            assert!(
+                crate::home_fs::try_exists_nofollow(dir.join("cold.zst")).unwrap(),
+                "the held home's archive, though the replacement has none"
+            );
+            let held = crate::home_fs::symlink_metadata(dir.join("cold.zst")).unwrap();
+            assert_eq!(held.ino(), want.ino(), "the held home's file");
+            assert!(!crate::home_fs::try_exists_nofollow(dir.join("none")).unwrap());
+            assert!(!crate::home_fs::try_exists_nofollow(home.join("no").join("such")).unwrap());
+        },
+        |_, _| {},
+    );
+}

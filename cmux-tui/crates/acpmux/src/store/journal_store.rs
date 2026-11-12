@@ -584,7 +584,7 @@ fn open_journal(
 /// `sessions/` hold every acknowledged change on their own (`store::catch_up_journal`; DESIGN.md
 /// 3.3c, the catch-up of 3.6). Nothing to do when there is no journal.
 pub(super) fn catch_up(config: &StoreConfig, home: &Path) -> Result<()> {
-    if std::fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
+    if crate::home_fs::symlink_metadata(home.join(JOURNAL_DIR)).is_err() {
         return Ok(());
     }
     let store = JournalStore::open(

@@ -175,7 +175,7 @@ struct Stamp {
 }
 
 fn stamp(path: &Path) -> Option<Stamp> {
-    let meta = std::fs::symlink_metadata(path).ok()?;
+    let meta = crate::home_fs::symlink_metadata(path).ok()?;
     #[cfg(unix)]
     let ino = std::os::unix::fs::MetadataExt::ino(&meta);
     #[cfg(not(unix))]
