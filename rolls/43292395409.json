@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43292395409",
+  "recorded_at": "2026-11-12T19:47:46Z",
+  "reason": "cmux-tui 3030924686fa changes the image's cmux-tui (pinned 76a9067489ef)",
+  "dry_run": false,
+  "cmux_tui": "3030924686fa79501fbaa39a49cda8788522c3ca",
+  "fixes": [
+    {
+      "sha": "3030924686fa79501fbaa39a49cda8788522c3ca",
+      "mergedAt": "2026-11-12T10:54:07-08:00",
+      "subject": "fix(acpmux): feat-cmux-next compiles its watch_delta tests and lints clean after #42046 (#42122)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T19:47:46Z",
+    "snapshot_id": "sh-2d8a10bcbbac44e5b6d24564b5d37d2d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43292395409): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "db0184ade16840d22efc58e35160a457ad3e076c",
+    "image": "cloud-native-auto-30309246-43292395409-1",
+    "revision": "ci-43292395409-1",
+    "at": "2026-11-12T19:47:46Z"
+  },
+  "rolled_back": false
+}
