@@ -220136,127 +220136,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "One color or a subtle tone for the title bar, tab bar and sidebar"
+            "value": "One color or a subtle tone for the title area"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لون واحد أو درجة لونية خفيفة لشريط العنوان وشريط علامات التبويب والشريط الجانبي"
+            "value": "لون واحد أو درجة لونية خفيفة لمنطقة العنوان"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jedna boja ili blaga nijansa za naslovnu traku, traku s karticama i bočnu traku"
+            "value": "Jedna boja ili blaga nijansa za područje naslova"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Én farve eller en diskret tone til titellinjen, fanelinjen og sidepanelet"
+            "value": "Én farve eller en diskret tone til titelområdet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eine Farbe oder ein dezenter Farbton für Titelleiste, Tableiste und Seitenleiste"
+            "value": "Eine Farbe oder ein dezenter Farbton für den Titelbereich"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un color o un tono sutil para la barra de título, la barra de pestañas y la barra lateral"
+            "value": "Un color o un tono sutil para el área de título"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Une couleur ou une teinte subtile pour la barre de titre, la barre d’onglets et la barre latérale"
+            "value": "Une couleur ou une teinte subtile pour la zone de titre"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un colore o un tono tenue per la barra del titolo, la barra delle schede e la barra laterale"
+            "value": "Un colore o un tono tenue per l’area del titolo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タイトルバー、タブバー、サイドバーを単色または控えめなトーンに"
+            "value": "タイトル領域を単色または控えめなトーンに"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ពណ៌តែមួយ ឬពណ៌ស្រាលៗ សម្រាប់របារចំណងជើង របារផ្ទាំង និងរបារចំហៀង"
+            "value": "ពណ៌តែមួយ ឬពណ៌ស្រាលៗ សម្រាប់តំបន់ចំណងជើង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제목 막대, 탭 막대, 사이드바를 단색 또는 은은한 톤으로"
+            "value": "제목 영역을 단색 또는 은은한 톤으로"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Én farge eller en diskret tone for tittellinjen, fanelinjen og sidefeltet"
+            "value": "Én farge eller en diskret tone for tittelområdet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jeden kolor lub subtelny odcień dla paska tytułu, paska kart i paska bocznego"
+            "value": "Jeden kolor lub subtelny odcień obszaru tytułu"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uma cor ou um tom sutil para a barra de título, a barra de abas e a barra lateral"
+            "value": "Uma cor ou um tom sutil para a área de título"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Один цвет или мягкий тон для заголовка, панели вкладок и боковой панели"
+            "value": "Один цвет или мягкий тон для области заголовка"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สีเดียวหรือโทนอ่อนๆ สำหรับแถบชื่อเรื่อง แถบแท็บ และแถบด้านข้าง"
+            "value": "สีเดียวหรือโทนอ่อนๆ สำหรับพื้นที่ชื่อเรื่อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Başlık çubuğu, sekme çubuğu ve kenar çubuğu için tek renk veya hafif ton"
+            "value": "Başlık alanı için tek renk veya hafif ton"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Один колір або м'який тон для заголовка, панелі вкладок і бічної панелі"
+            "value": "Один колір або м'який тон для області заголовка"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Một màu hoặc tông nhẹ cho thanh tiêu đề, thanh tab và thanh bên"
+            "value": "Một màu hoặc tông nhẹ cho vùng tiêu đề"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "标题栏、标签栏和侧边栏使用单色或柔和色调"
+            "value": "标题区域使用单色或柔和色调"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "標題列、分頁列和側邊欄使用單色或柔和色調"
+            "value": "標題區域使用單色或柔和色調"
           }
         }
       }

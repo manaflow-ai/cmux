@@ -33486,7 +33486,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.appearance.titleAreaTone.summary",
-        "text" : "One color or a subtle tone for the title bar, tab bar and sidebar"
+        "text" : "One color or a subtle tone for the title area"
       },
       "surfaces" : {
         "cli" : {
