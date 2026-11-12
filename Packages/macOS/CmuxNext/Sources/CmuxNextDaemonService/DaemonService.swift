@@ -263,7 +263,7 @@ public final class DaemonService {
             }
             // Set before the app attaches, so the attach's handshake never offers a Restart.
             if case .handOffAfterPremigrate = decision {
-                await MainActor.run { weakSelf?.replacingDaemonPID = identity.pid }
+                await weakSelf?.noteReplacing(pid: identity.pid)
             }
             guard case .restart(let running, let target) = decision else {
                 if case .keep(let reason) = decision, reason != "same build" {
@@ -565,6 +565,11 @@ public final class DaemonService {
 
     /// The handshake handed an incompatible owner off to the bundled build
     /// (`DaemonLauncher.handOffIncompatible`); the next connect reaches its successor.
+    /// The launch check is handing the daemon `pid` off to the bundled build (``replacingDaemonPID``).
+    func noteReplacing(pid: Int32) {
+        replacingDaemonPID = pid
+    }
+
     /// The handoff can come after the first deadline already showed a failure, so the
     /// successor gets a fresh `.connecting` window and the old failure is dropped.
     func noteIncompatibleOwnerHandoff() {
