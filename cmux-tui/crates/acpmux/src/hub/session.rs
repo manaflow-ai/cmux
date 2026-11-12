@@ -371,6 +371,15 @@ pub struct Session {
     /// All pending client prompt ids and a bounded cache of completed outcomes,
     /// newest last: retries wait for the original prompt while it is pending.
     pub(super) prompts: StdMutex<std::collections::VecDeque<(String, PromptOutcome)>>,
+    /// Keys of every client prompt id this chat's log holds (`prompt_ledger.rs` `id_key`): read
+    /// from the log at its load (`restore_queue`) and added as prompts are taken. `prompts`
+    /// starts empty at a daemon start and keeps only the latest completed outcomes, so without
+    /// this a client that sent an id again unmarked (no `resend`), after a crash or a reboot cut
+    /// the first copy's answer, ran it a second time. A key only says "look in the log": the
+    /// log decides (`logged_prompt`), so a collision costs one log read, never a lost prompt.
+    /// `None` until read (a new chat, a closed chat whose load skips its queue, a failed scan):
+    /// the first prompt that asks reads them from the log, once (`Hub::maybe_logged`).
+    pub(super) logged_prompt_ids: StdMutex<Option<std::collections::HashSet<u64>>>,
     /// The message each recent prompt id's acceptance named (`message_events.rs` `name_message`):
     /// prompt id, message id, sender session, newest last, at most [`KEPT_MESSAGES`]. A later send
     /// of the same prompt id is answered as a duplicate, and that answer names the same kept

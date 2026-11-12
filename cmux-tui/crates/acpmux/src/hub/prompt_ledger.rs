@@ -26,6 +26,37 @@ pub(super) fn recover(session: &Session, prompt_id: &str) -> PromptOutcome {
     outcome
 }
 
+/// The key `Session::logged_prompt_ids` keeps for prompt id `prompt_id`: eight bytes a prompt,
+/// whatever the id's length. Only this process reads it.
+fn id_key(prompt_id: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    prompt_id.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Notes that `session`'s log holds (or is about to hold) these client prompt ids. While the
+/// keys were not read from the log (`None`) they stay unread: the first lookup reads them all.
+pub(super) fn note_logged<'a>(session: &Session, ids: impl IntoIterator<Item = &'a str>) {
+    let mut keys = session.logged_prompt_ids.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(keys) = keys.as_mut() {
+        keys.extend(ids.into_iter().filter(|id| !id.is_empty()).map(id_key));
+    }
+}
+
+/// The keys of `session`'s logged prompt ids, as its log load's scan read them (`restore_queue`),
+/// added to those noted meanwhile. `None` (the scan failed): unread, so the first lookup reads.
+pub(super) fn set_logged<'a>(session: &Session, ids: Option<impl IntoIterator<Item = &'a str>>) {
+    let mut keys = session.logged_prompt_ids.lock().unwrap_or_else(|e| e.into_inner());
+    match ids {
+        Some(ids) => {
+            let read = ids.into_iter().filter(|id| !id.is_empty()).map(id_key);
+            keys.get_or_insert_with(Default::default).extend(read);
+        }
+        None => *keys = None,
+    }
+}
+
 /// Only completed outcomes count against the retry cache's bound. Pending senders
 /// must stay discoverable, including restored prompts whose completion looks them up.
 pub(super) fn prune(ledger: &mut VecDeque<(String, PromptOutcome)>) {
@@ -174,6 +205,39 @@ impl Hub {
         }
     }
 
+    /// Whether `session`'s log may hold prompt id `prompt_id` already, so a copy that comes
+    /// again without `resend` is looked up there before it runs (`turns.rs`). A key collision
+    /// can say yes wrongly (one log read); an id the log holds always says yes. Keys not read
+    /// yet are read here, once (blocking: it reads the log's indexed records).
+    pub(super) fn maybe_logged(&self, session: &Session, prompt_id: &str) -> bool {
+        let key = id_key(prompt_id);
+        if let Some(keys) =
+            session.logged_prompt_ids.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+        {
+            return keys.contains(&key);
+        }
+        let mut ids = std::collections::HashSet::new();
+        let read = self.store.scan_kinds(&session.id, &["queued", "user_message"], &mut |rec| {
+            if let Some(id) = rec.msg.get("promptId").and_then(Value::as_str) {
+                ids.insert(id.to_owned());
+            }
+            true
+        });
+        if read.is_err() {
+            // Unread: every id is looked up in the log, as a resend is.
+            return true;
+        }
+        let known = ids.contains(prompt_id);
+        let mut keys = session.logged_prompt_ids.lock().unwrap_or_else(|e| e.into_inner());
+        // Prompts taken meanwhile were noted only if the keys were read: keep both.
+        let mut read: std::collections::HashSet<u64> = ids.iter().map(|id| id_key(id)).collect();
+        if let Some(noted) = keys.take() {
+            read.extend(noted);
+        }
+        *keys = Some(read);
+        known
+    }
+
     /// Whether session `session`'s log records a turn that ran `prompt_id` (its `user_message`,
     /// alone or joined with other agent messages, `digest.rs`). Blocking: it reads the log.
     pub(crate) fn ran_prompt(&self, session: &str, prompt_id: &str) -> bool {
@@ -194,7 +258,9 @@ impl Hub {
         let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
         let held = ledger.iter().any(|(id, _)| id == prompt_id);
         drop(ledger);
-        held || (resend && self.logged_prompt(session, prompt_id).is_some())
+        // An id the log may hold is looked up as a resend's is (`turns.rs` `prompt_with`).
+        let look = resend || self.maybe_logged(session, prompt_id);
+        held || (look && self.logged_prompt(session, prompt_id).is_some())
     }
 
     /// Read one trigger delivery from the durable event log. This deliberately does not use
