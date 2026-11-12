@@ -38,8 +38,12 @@ extension NewScreenWithSpecRequest: DaemonCreatingRequest {
 }
 
 extension CreateTerminalRequest: DaemonCreatingRequest {
+    /// A request that asked for its workspace too (``createWorkspace``, `create-terminal-workspace-v1`) made that
+    /// workspace: it comes first, by the key in the daemon's reply, as when `create-workspace` was its own request
+    /// before the terminal's. A script reads the new workspace's id from `action.run`'s `created`.
     public func createdObjects(in response: CreateTerminalResult) -> [DaemonCreatedObject] {
-        (response.surface.map { [DaemonCreatedObject(.tab, $0.description)] } ?? [])
+        (createWorkspace == true ? [DaemonCreatedObject(.workspace, response.key.rawValue)] : [])
+            + (response.surface.map { [DaemonCreatedObject(.tab, $0.description)] } ?? [])
             + [DaemonCreatedObject(.terminal, response.terminalID.rawValue)]
     }
 }
