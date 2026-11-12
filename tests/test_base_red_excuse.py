@@ -5916,6 +5916,52 @@ class SparseTreeReads(unittest.TestCase):
         # With no tree given it reads the repository's HEAD the same way.
         self.assertEqual(cargo.crate_inputs(self.repo, "cmux-tui/crates/a")[1], ["schemas/spec.json"])
 
+    def test_an_absolute_path_is_outside_the_tree(self):
+        """Codex on #41314 (F1): GitTree.resolve stripped a leading "/", so a path dependency `path = "/dep"` read as
+        the repository's `dep`, and a change to that unrelated crate counted as an input. An absolute path is outside
+        the tree, as Path.resolve put it: a manifest's, a workspace's or an include's."""
+        repo = self.tmp / "absolute"
+        files = {
+            "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n[workspace.dependencies]\n'
+                                   'w = { path = "/w" }\n',
+            "cmux-tui/crates/a/Cargo.toml": '[package]\nname = "a"\n[dependencies]\ndep = { path = "/dep" }\n'
+                                            'w = { workspace = true }\n',
+            "cmux-tui/crates/a/src/lib.rs": 'const S: &str = include_str!("/schemas/spec.json");\n',
+            "dep/Cargo.toml": '[package]\nname = "dep"\n',
+            "dep/src/lib.rs": "",
+            "w/Cargo.toml": '[package]\nname = "w"\n',
+            "schemas/spec.json": "{}\n",
+            "cmux-tui/Cargo.lock": 'version = 3\n[[package]]\nname = "a"\n[[package]]\nname = "dep"\n'
+                                   '[[package]]\nname = "w"\n',
+        }
+        for path, text in files.items():
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+        self.git("init", "-q", "-b", "main", str(repo), cwd=self.tmp)
+        self.git("add", ".", cwd=repo)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "tree", cwd=repo)
+        spec = importlib.util.spec_from_file_location("cargo_test_verdict", ROOT / "scripts/ci/cargo_test_verdict.py")
+        cargo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cargo)
+        with git_tree.GitTree(repo) as tree:
+            self.assertEqual(cargo.crate_inputs(repo, "cmux-tui/crates/a", tree), (["cmux-tui/crates/a"], []))
+            self.assertEqual(cargo.touches(repo, "cmux-tui/crates/a", ["dep/src/lib.rs", "w/Cargo.toml"]), [])
+            for path in ("/schemas/spec.json", "/dep/Cargo.toml", "//schemas/spec.json"):
+                with self.subTest(path=path):
+                    with self.assertRaisesRegex(git_tree.Unreadable, "outside the tree"):
+                        tree.resolve(path)
+                    with self.assertRaisesRegex(git_tree.Unreadable, "outside the tree"):
+                        tree.text(path)
+                    self.assertFalse(tree.is_file(path))
+            with self.assertRaisesRegex(git_tree.Unreadable, "outside the tree"):
+                tree.files("/schemas")
+            self.assertEqual(tree.text("schemas/spec.json"), "{}\n")  # the same path, relative, still reads
+            # The classifier's own crate walk (cargo_crates) refuses the absolute path dependency by name.
+            github = unittest.mock.Mock(blob=tree_blob(tree))
+            with self.assertRaisesRegex(excuse.Refused, r"a path crate of cmux-tui/Cargo.lock is outside the "
+                                                        r"repository \(/(dep|w)\)"):
+                excuse.cargo_crates(REPO, HEAD, "cmux-tui/Cargo.lock", github)
+
     def test_a_symlink_is_followed_inside_the_tree(self):
         self.assertEqual(self.tree.text("workspace.toml"), self.tree.text("cmux-tui/Cargo.toml"))
         self.assertTrue(self.tree.is_file("kit/Spec/spec.json"))  # through a symlinked directory
