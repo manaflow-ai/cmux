@@ -57,7 +57,10 @@ impl Drop for RootWatcher {
 
 enum Message {
     Event(notify::Result<notify::Event>),
-    /// A root watched by its folders: its entries or one of its own store files changed.
+    /// A root watched by its folders: its entries or one of its own store files changed. Only
+    /// the macOS directory watch sends it; elsewhere nothing constructs it, and clippy's dead-code
+    /// lint failed every acpmux PR's Linux clippy job on feat-cmux-next.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     RootEntries(usize),
     Stop,
 }
