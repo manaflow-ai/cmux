@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ChiefDock } from "./ChiefDock";
 import type { AcpmuxSessionEntry } from "./sessionList";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -62,6 +63,7 @@ afterEach(async () => {
       root!.unmount();
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

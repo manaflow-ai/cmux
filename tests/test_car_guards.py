@@ -35,6 +35,9 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 
 def write(root: Path, files: dict[str, str]) -> None:
     for name, text in files.items():
@@ -52,7 +55,7 @@ def repo(tmp: str, files: dict[str, str]) -> Path:
     root.mkdir()
     # The helpers the map imports, from this checkout.
     for helper in ("select_package_tests.py", "focused_tests.py", "car_guards.py", "cmux_next_route.py",
-                   "nightly-next-car-guard.sh", "car-guard-python.sh"):
+                   "ci_process_tree.py", "nightly-next-car-guard.sh", "car-guard-python.sh"):
         write(root, {f"scripts/ci/{helper}": (ROOT / "scripts/ci" / helper).read_text(encoding="utf-8")})
     write(root, files)
     git(root, "init", "-q")
@@ -489,12 +492,16 @@ class CarGuardsWorkflow(unittest.TestCase):
 
     def test_it_runs_on_ci_runners_only_and_holds_no_secret(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertNotIn("secrets.", text)
+        self.assertEqual(workflow_jobs.secret_names(text), set())
         for name, job in self.workflow()["jobs"].items():
             with self.subTest(job=name):
-                runs_on = str(job["runs-on"])
-                self.assertRegex(runs_on, r"blacksmith-|ubuntu-|macos-26")
-                self.assertNotRegex(runs_on.lower(), r"self-hosted|glaeda|cosmic|air-blue")
+                self.assertEqual(workflow_jobs.secret_names(job), set())
+                cells = workflow_jobs.runs_on_cells(job)
+                self.assertIsNotNone(cells, f"{name}: runs-on has a matrix value nothing resolves")
+                self.assertTrue(cells, f"{name}: no runs-on")
+                for runs_on in cells:
+                    self.assertRegex(runs_on, r"blacksmith-|ubuntu-|macos-26")
+                    self.assertNotRegex(runs_on.lower(), r"self-hosted|glaeda|cosmic|air-blue")
         mac_steps = self.workflow()["jobs"]["mac"]["steps"]
         restore = next(s for s in mac_steps if "cache-restore" in str(s.get("uses", "")))
         self.assertEqual(restore["env"]["CI_CACHE_R2_PUBLIC_URL"], "https://ci-cache-next.cmux.com",
@@ -626,6 +633,25 @@ class EntryTimeouts(unittest.TestCase):
     def test_a_focused_test_the_car_selected_still_fails_after_timing_out_twice(self):
         verdict = self.judge({}, {"tests/test_slow.py": self.SLOW}, {"python"}, python=["tests/test_slow.py"])
         self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("fail", "timeout"))
+
+    def test_a_timed_out_entry_leaves_no_process_behind(self):
+        """A guard's own children stop with it (cmux#41752 review F1's class): the retry and the next entries never
+        race what the timed-out run started."""
+        pid_file = Path(self.tmp.name) / "child.pid"
+        entry = {"name": "guard:sleeper", "kind": "guard",
+                 "cmd": ["sh", "-c", f"sleep 30 & echo $! > {pid_file}; wait"]}
+        result = car_guards.run_one(Path(self.tmp.name), entry)
+        self.assertEqual(result["status"], "retry")
+        pid = int(pid_file.read_text())
+        try:
+            os.kill(pid, 0)
+            state = Path(f"/proc/{pid}/stat").read_text().split()[2] if Path(f"/proc/{pid}/stat").exists() else "?"
+            alive = state != "Z"
+        except ProcessLookupError:
+            alive = False
+        if alive:
+            os.kill(pid, 9)  # the sleeper this test started
+        self.assertFalse(alive, "the timed-out guard's child is still running")
 
     def test_a_real_failure_of_an_untouched_guard_still_fails(self):
         verdict = self.judge({self.PREPUSH: "import sys\nsys.exit(1)\n"}, {"README.md": "car\n"}, {"guard"})

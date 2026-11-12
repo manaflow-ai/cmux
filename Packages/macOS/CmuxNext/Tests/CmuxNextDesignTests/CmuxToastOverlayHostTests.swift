@@ -101,9 +101,10 @@ struct CmuxToastOverlayHostTests {
         #expect(abs(frame.minY - (CmuxToastOverlayHost.overlayLift)) < 0.5)
         let surface = try #require(view.surface)
         #expect(surface.material == OverlayMaterial.select(liquidGlassAvailable: Glass.isLiquidGlassAvailable, reduceTransparency: false))
-        #expect(!surface.prefersBlurToLiquidGlass, "the toast gives up Liquid Glass for the blur")
+        #expect(surface.glassVariant == .picked, "the floating glass's gallery pick")
         #expect(surface.tone == SurfaceRole.toast.tone)
-        #expect(surface.rimView != nil)
+        // Variant 1 is Apple's Liquid Glass with its own edge: the neutral rim draws only on the blur.
+        #expect((surface.rimView != nil) == (surface.material != .liquidGlass))
         #expect(surface.cornerRadius == SurfaceRole.toast.cornerRadius)
         handle.dismiss()
     }

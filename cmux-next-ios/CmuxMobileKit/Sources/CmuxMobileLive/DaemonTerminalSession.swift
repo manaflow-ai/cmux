@@ -125,7 +125,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `send` (``drainInput()``). Keys older than `inputHoldLimit` when the
     /// terminal can take them are dropped, never sent late (termfix-r13 D5:
     /// a command typed during an outage ran 15.4 minutes later).
-    private var input: [(bytes: Data, at: TimeInterval, detached: Bool)] = []
+    /// `typed`: the person's own input; false for Ghostty's replies to
+    /// terminal queries (``sendReply(_:)``), which are never "keys not sent".
+    private var input: [(bytes: Data, at: TimeInterval, detached: Bool, typed: Bool)] = []
     /// Keys queued while detached expired: everything typed until the next
     /// attach is refused, so no fragment of a command (its last 2 s) can
     /// reach the shell after the rest was dropped (r13 review).
@@ -168,7 +170,7 @@ public final class DaemonTerminalSession: TerminalSession {
     var tailProbeArmed: Bool { tailProbe != nil }
     private var nextInputBatch = 0
     /// Batches of the failed channel, held until its sends all settle.
-    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool)] = []
+    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool, typed: Int)] = []
     private var inputDrainScheduled = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
@@ -221,7 +223,8 @@ public final class DaemonTerminalSession: TerminalSession {
         // again) shows its last screen too.
         if attached || ended { return .attached }
         if macOffline { return .offline(mac: macName) }
-        if gaveUp { return .failed(message: lastError ?? "Can't attach to this terminal") }
+        // Plain words: the transport's error (`lastError`) goes to the log only.
+        if gaveUp { return .failed(message: Self.unreachableMessage(macName)) }
         return everAttached ? .reattaching(mac: macName) : .connecting(mac: macName)
     }
 
@@ -282,7 +285,7 @@ public final class DaemonTerminalSession: TerminalSession {
             handler?(.inputNotSent(bytes: bytes.count))
             return
         }
-        input.append((bytes, now(), !attached))
+        input.append((bytes, now(), !attached, true))
         if attached {
             scheduleInputDrain()
             noteInteraction()
@@ -297,10 +300,24 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    /// A reply the terminal wrote by itself (a cursor or device report, a
+    /// focus or mouse report): sent only while attached. Held through an
+    /// outage it would be stale, and its drop is no key the person typed, so
+    /// it is never queued for a reattach, never refused and never makes the
+    /// "Keys typed while your Mac was unreachable" notice (Leo, 2026-11-12:
+    /// "thjs chatters too often with connectivity").
+    public func sendReply(_ bytes: Data) {
+        guard !bytes.isEmpty, attached, !refusingInput else { return }
+        input.append((bytes, now(), false, false))
+        scheduleInputDrain()
+    }
+
     /// The terminal is unreachable: every key still queued now waits for a
     /// detached terminal, from when it was typed.
     private func markInputDetached() {
-        input = input.map { ($0.bytes, $0.at, true) }
+        // A reply waiting to go is stale once the link drops: never sent
+        // after a reattach (the screen is replayed by then).
+        input = input.filter(\.typed).map { ($0.bytes, $0.at, true, true) }
         guard !input.isEmpty else { return }
         let limit = Self.inputHoldLimit
         Task { [weak self] in
@@ -317,8 +334,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private func expireInput() {
         let cutoff = now() - Self.inputHoldLimit
         guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
-        let bytes = input.reduce(0) { $0 + $1.bytes.count }
+        let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         input.removeAll()
+        // Only terminal replies were waiting: nothing the person typed was
+        // lost, so typing goes on and the screen says nothing.
+        guard bytes > 0 else { return }
         if !attached { refusingInput = true }
         log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
         handler?(.inputNotSent(bytes: bytes))
@@ -347,7 +367,8 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// The terminal is on screen in the foreground app (true), or it left
     /// (false: another tab, the grid, a sheet over it, the app in the
-    /// background). Leaving releases the phone's size on the Mac at once, so
+    /// background past its grace, `TerminalSizeClaimDebounce`). Leaving
+    /// releases the phone's size on the Mac at once, so
     /// the Mac's pane gets its own size back; coming back claims the last
     /// size again.
     public func setClaimsSize(_ claims: Bool) {
@@ -745,8 +766,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 draining = false
                 if handler != nil, !ended { handler?(.connection(connectionState)) }
             }
-            if everAttached, attachRetries < reattachBackoff.count, handler != nil, !ended {
-                // A reattach: keep the last frame and try again (bounded backoff).
+            if attachRetries < reattachBackoff.count, handler != nil, !ended {
+                // Keep the last frame and try again (bounded backoff). A first
+                // attach too: a fresh session (a tab back from the warm set, a cold
+                // launch) whose link blipped gave up at once and wrote the error
+                // over its cached frame (Leo's phone on LTE, 2026-11-12).
                 let delay = reattachBackoff[attachRetries]
                 attachRetries += 1
                 if let client = self.client { self.client = nil; Task { await client.close() } }
@@ -764,15 +788,13 @@ public final class DaemonTerminalSession: TerminalSession {
             eventTask = nil
             inbox?.close()
             inbox = nil
-            if everAttached {
-                // Retries ran out: say what happened and how to go on.
-                gaveUp = true
-                emitText("\r\n\u{1B}[2m[Can't reattach: \(lastError ?? "no answer from the Mac"). Type to try again.]\u{1B}[0m\r\n")
-            } else {
-                gaveUp = true
-                emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
-            }
-            // Diagnostic bytes preserve the last frame, but do not mean attach succeeded.
+            // Retries ran out. Nothing is written into the terminal: transport
+            // words ("[daemon channel closed]") are not the Mac's output, and bytes
+            // on the stream read as live content (the page dropped its cached
+            // frame for them and saved the blank page over it). The state says
+            // it instead: the composer's quiet line with Retry, and a keystroke
+            // tries again.
+            gaveUp = true
             handler?(.connection(connectionState))
         }
     }
@@ -852,6 +874,17 @@ public final class DaemonTerminalSession: TerminalSession {
         inbox?.setPaused(paused)
     }
 
+    /// What a terminal whose attach retries ran out says (the composer's
+    /// notice and quiet line), never the transport's error text.
+    nonisolated static func unreachableMessage(_ mac: String?) -> String {
+        let name = mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac"
+        return "Can't reach this terminal on \(name). Retry, or type to try again."
+    }
+
+    /// Writes a line into the terminal itself: only for facts about the
+    /// terminal (its process exited, the Mac closed it, the daemon detached
+    /// it), never for the connection to it. Transport states travel as
+    /// `.connection` events (a quiet line by the composer).
     private func emitText(_ text: String) {
         handler?(.output(Data(text.utf8)))
     }
@@ -981,6 +1014,9 @@ public final class DaemonTerminalSession: TerminalSession {
         inputWrittenAt[number] = now()
         let typedAt = input[0].at
         let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
+        // The person's own bytes in it: a failed batch of terminal replies
+        // alone is no "keys not sent".
+        let typedBytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         input.removeAll()
         let surface = surface
         let onLane = target !== client
@@ -996,7 +1032,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 let id: String
                 if onLane {
                     guard let submitted = try await Self.within(.seconds(10), submit) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, wasWriting: true)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, wasWriting: true)
                         return
                     }
                     id = submitted
@@ -1011,7 +1047,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 let reply: Data
                 if onLane {
                     guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, wasWriting: false)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, wasWriting: false)
                         return
                     }
                     reply = answer
@@ -1027,11 +1063,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 lastError = LinkController.reason(error)
                 inputRecovering = true
                 if written || target === abandonedInputLane {
-                    inputFailed.append((number, batch, typedAt, written: true))
+                    inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes))
                 } else {
                     // Never written: safe to send again (on the attach channel
                     // when the lane failed, or after the reattach).
-                    inputFailed.append((number, batch, typedAt, written: false))
+                    inputFailed.append((number, batch, typedAt, written: false, typed: typedBytes))
                 }
                 if inputClient === target {
                     dropInputLane()
@@ -1053,11 +1089,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input lane gave no answer in time (`wasWriting`: the batch's
     /// write itself hung): given up, and the batch is not sent again (the
     /// Mac may already have typed it).
-    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, wasWriting: Bool) {
+    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, typed: Int, wasWriting: Bool) {
         log.error("send on the input lane got no answer; using the attach channel")
         abandonedInputLane = lane
         inputRecovering = true
-        inputFailed.append((number, Data(count: bytes), now(), written: true))
+        inputFailed.append((number, Data(count: bytes), now(), written: true, typed: typed))
         if wasWriting { inputWriting = false }
         inputWrittenAt[number] = nil
         if inputClient === lane { dropInputLane() }
@@ -1084,15 +1120,19 @@ public final class DaemonTerminalSession: TerminalSession {
             inputRecovering = false
             let failed = inputFailed.sorted { $0.number < $1.number }
             inputFailed.removeAll()
-            if failed.contains(where: \.written) {
+            // A written batch of terminal replies alone is no part of a
+            // command: losing it costs the keys typed after it nothing.
+            if failed.contains(where: { $0.written && $0.typed > 0 }) {
                 // The keys typed since go too: no part of a command may run
                 // after an earlier part that may be lost.
-                let bytes = failed.reduce(0) { $0 + $1.bytes.count } + input.reduce(0) { $0 + $1.bytes.count }
+                let bytes = failed.reduce(0) { $0 + $1.typed } + input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
                 input.removeAll()
                 log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes not sent again (the Mac may have typed them before the channel failed)")
                 handler?(.inputNotSent(bytes: bytes))
             } else if !failed.isEmpty {
-                input.insert(contentsOf: failed.map { ($0.bytes, $0.at, true) }, at: 0)
+                // A batch of replies alone is stale after the outage (and a
+                // written one may have arrived): dropped.
+                input.insert(contentsOf: failed.filter { !$0.written && $0.typed > 0 }.map { ($0.bytes, $0.at, true, true) }, at: 0)
                 markInputDetached()
             }
         }

@@ -613,7 +613,9 @@ def _guard_fired(fired_read: int) -> bool:
 # worker's group after 4 s, and the fetch ran on (ssh with no limit, no stamp) while the next checker started another;
 # a Ctrl-C reaches only the terminal's foreground group, and subprocess.run answers it by killing its own child alone.
 # The guard says it ended the fetch at the limit by writing a byte to the fd named in argv[2] first (_guard_fired);
-# the keeper's exit is the fetch's own code, or 128 + the signal that ended it.
+# the keeper's exit is the fetch's own code, or 128 + the signal that ended it. Nothing the guard does before its kill
+# may skip it (cmux#41803 review: a caller that cancelled as the deadline hit had closed that pipe, the write raised
+# BrokenPipeError and the guard died with git and ssh still running), so the kill sits in a finally.
 # A SIGKILL runs no handler, so the keeper's guard watches a pipe instead, whose write end only the caller holds:
 # when the caller is gone or done (it closes the pipe on every way out of _fetch_upstream, an interrupt included),
 # the pipe reads EOF and the guard kills the fetch's process group (git and the ssh or helper it started). The guard
@@ -625,25 +627,30 @@ deadline = time.monotonic() + float(sys.argv[1])
 fired = int(sys.argv[2])
 fetch = subprocess.Popen(sys.argv[3:], stdin=subprocess.DEVNULL, preexec_fn=os.setpgrp)
 if os.fork() == 0:
-    null = os.open(os.devnull, os.O_RDWR)
-    os.dup2(null, 1)
-    os.dup2(null, 2)
-    while time.monotonic() < deadline:
-        if select.select([0], [], [], min(deadline - time.monotonic(), 0.2))[0] and not os.read(0, 1):
-            break
-        try:
-            os.killpg(fetch.pid, 0)
-        except ProcessLookupError:
-            os._exit(0)
-        except PermissionError:
-            pass
-    else:
-        os.write(fired, b"T")
     try:
-        os.killpg(fetch.pid, signal.SIGKILL)
-    except OSError:
-        pass
-    os._exit(0)
+        null = os.open(os.devnull, os.O_RDWR)
+        os.dup2(null, 1)
+        os.dup2(null, 2)
+        while time.monotonic() < deadline:
+            if select.select([0], [], [], min(deadline - time.monotonic(), 0.2))[0] and not os.read(0, 1):
+                break
+            try:
+                os.killpg(fetch.pid, 0)
+            except ProcessLookupError:
+                os._exit(0)
+            except PermissionError:
+                pass
+        else:
+            try:
+                os.write(fired, b"T")
+            except OSError:
+                pass
+    finally:
+        try:
+            os.killpg(fetch.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        os._exit(0)
 os.close(fired)
 code = fetch.wait()
 sys.exit(code if code >= 0 else 128 - code)
