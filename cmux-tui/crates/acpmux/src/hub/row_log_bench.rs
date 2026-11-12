@@ -44,6 +44,18 @@ async fn list_follow_bench() {
             fresh.call(method::MUX_WATCH, json!({"enabled": true})).await;
             whole.push(started.elapsed());
         }
+        // The most bytes one follow holds at once (the test allocator's count on this thread), as
+        // `watch_delta_bench.rs` measured the delta it replaced.
+        #[cfg(target_os = "linux")]
+        {
+            let before = hub.list_cursor().0;
+            record(&hub, "chat-0", "renamed");
+            let (built, peak) = crate::hub::peer_snapshot::thread_peak_bytes(|| {
+                hub.list_follow(before, true, false, 1 << 20)
+            });
+            assert!(built.is_some(), "the log follows its own head");
+            eprintln!("PERF follow peak bytes chats={chats}: {peak}");
+        }
         let (f, w) = (p95(samples), p95(whole));
         eprintln!("PERF reconnect chats={chats}: follow p95 {f:?}, whole list p95 {w:?}");
         follow.push(f);
