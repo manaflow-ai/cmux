@@ -85,12 +85,21 @@ fn call(socket: &Path, calls: &[(&str, Value)]) -> Vec<Value> {
 }
 
 fn nice_of(pid: u32) -> Option<i32> {
-    // `ps -o nice=` reads another process on both platforms.
-    let out = std::process::Command::new("ps")
-        .args(["-o", "nice=", "-p", &pid.to_string()])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    // Linux: field 19 of `/proc/<pid>/stat`, the main thread's nice (`ps` is not on the hermetic
+    // PATH of this process).
+    #[cfg(target_os = "linux")]
+    {
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        stat[stat.rfind(')')? + 2..].split(' ').nth(16)?.parse().ok()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("/bin/ps")
+            .args(["-o", "nice=", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+    }
 }
 
 #[test]
@@ -116,6 +125,9 @@ fn a_harness_starts_at_the_daemons_priority_and_yields_once_started() {
     let (daemon, socket) = start(&scratch, &home);
     // SAFETY: reads this process's own nice.
     let own = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
+    // The agent tier's nice (`qos::AGENT_NICE`); a process already at it or past it is not lowered.
+    let agent = if cfg!(target_os = "macos") { 11 } else { 5 };
+    eprintln!("this process (and the daemon) at nice {own}; the agent tier at {agent}");
 
     call(
         &socket,
@@ -139,7 +151,7 @@ fn a_harness_starts_at_the_daemons_priority_and_yields_once_started() {
     assert_eq!(at_start, own, "the harness answered session/new at nice {at_start}");
     // Once the start is over the harness yields; the daemon lowers it right after the start.
     let deadline = Instant::now() + Duration::from_secs(10);
-    let expected = if cfg!(target_os = "macos") { 11 } else { 5 };
+    let expected = own.max(agent);
     let mut now = nice_of(pid);
     while now != Some(expected) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
