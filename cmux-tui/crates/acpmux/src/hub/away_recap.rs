@@ -164,7 +164,7 @@ fn cut_end(s: &str, max: usize) -> &str {
     while !s.is_char_boundary(start) {
         start += 1;
     }
-    &s[start..]
+    s.get(start..).unwrap_or("")
 }
 
 /// The small model's recap prompt: `INSTRUCTION`, then the newest of `said` that fit in

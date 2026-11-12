@@ -129,7 +129,7 @@ the pane only draws it. Gallery: `agent-pane.recap-note`.
 - What: the goal and the next step, two sentences at most, plain text.
 - Look (`terminal`, chosen): one italic run in the dim text color, "※ recap:" leading, set where the answer's
   text starts, no card and no fill, at the detail type size. Its × keeps its slot and fades in on hover or
-  focus over `--agent-motion-hover`, so nothing moves. Under "New since you looked" it draws under the line.
+  focus on the transcript's shared action fade (`--cv-actions-in`, `--cv-actions-out`), so nothing moves. Under "New since you looked" it draws under the line.
 - Looks compared: `terminal` (chosen), `plain` (no lead: reads as the agent's own aside), `mark` (the ※
   alone: means nothing to someone who never saw the terminal), and the earlier `card`, `line` and `rule`.
 - Off: Settings > Chats > Session Recap (`agents.chats.sessionRecap`, on by default) stops the daemon making

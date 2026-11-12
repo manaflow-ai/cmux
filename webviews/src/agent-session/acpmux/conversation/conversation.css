@@ -935,7 +935,8 @@
   .cv-received__hover,
   .cv-reply-actions,
   .acpmux-turnSummary .cv-turn-actions,
-  .cv-turn-actions .cv-turn-time {
+  .cv-turn-actions .cv-turn-time,
+  .cv-recap[data-terminal] .cv-recap__close {
     transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
   }
   .cv-user:hover .cv-user__actions,
@@ -952,7 +953,10 @@
   .acpmux-turnSummary:has([data-popup-open]) .cv-turn-actions,
   .acpmux-turnSummary[data-turn-revealed] .cv-turn-time,
   .acpmux-turnSummary:hover .cv-turn-time,
-  .acpmux-assistant:hover .cv-reply-actions .cv-turn-time {
+  .acpmux-assistant:hover .cv-reply-actions .cv-turn-time,
+  .cv-recap[data-terminal]:hover .cv-recap__close,
+  .cv-recap[data-terminal]:focus-within .cv-recap__close,
+  .cv-recap[data-terminal]:has([data-popup-open]) .cv-recap__close {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
 }
@@ -5168,7 +5172,6 @@ a.cv-sha:focus-visible {
 }
 .cv-recap[data-terminal] .cv-recap__close {
   opacity: 0;
-  transition: opacity var(--agent-motion-hover) var(--agent-ease-out);
 }
 .cv-recap[data-terminal]:hover .cv-recap__close,
 .cv-recap[data-terminal]:focus-within .cv-recap__close,
