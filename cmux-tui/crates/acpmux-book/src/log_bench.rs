@@ -268,6 +268,7 @@ fn torn_open(dir: &Path) -> u64 {
 fn god_vs_small() {
     let root: PathBuf =
         std::env::var_os("ACPMUX_BOOK_BENCH_DIR").map_or_else(std::env::temp_dir, PathBuf::from);
+    std::fs::create_dir_all(&root).unwrap();
     let home = tempfile::Builder::new().prefix("acpmux-book-bench-").tempdir_in(root).unwrap();
     let small_dir = home.path().join("small");
     let god_dir = home.path().join("god");
