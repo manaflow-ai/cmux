@@ -45,7 +45,7 @@
 .acpmux-edited .acpmux-second-opinion{opacity:0}
 .acpmux-edited:hover :is(.acpmux-edited-undo,.acpmux-review-changes),
 .acpmux-edited:has([data-popup-open]) :is(.acpmux-edited-undo,.acpmux-review-changes),
-.acpmux-edited:focus-within :is(.acpmux-edited-undo,.acpmux-review-changes){opacity:1}
+:root:not([data-page-inactive]) .acpmux-edited:has(:focus-visible) :is(.acpmux-edited-undo,.acpmux-review-changes){opacity:1}
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
   .acpmux-edited :is(.acpmux-edited-undo,.acpmux-review-changes){transition:opacity var(--cv-actions-out) var(--cv-actions-out-ease),background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
   .acpmux-edited:hover :is(.acpmux-edited-undo,.acpmux-review-changes),

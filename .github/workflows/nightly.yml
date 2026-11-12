@@ -5152,12 +5152,15 @@ jobs:
   # recover-nightly-next-notarization continued and stapled with static checks
   # deferred, and records the tested bytes; publish-nightly publishes a
   # recovered build only when this job passed, and only those bytes.
+  # It takes the build pick's owned Mac (no signing key), never the recovery's signer pin (sign_owned): glaeda admits only the signing jobs
+  # on a signing mini and refused this one ("untrusted: NEXT nightly needs its exact nightly.yml signing job"),
+  # so every build whose notarization outlasted its 20 minutes was notarized and never published (run 43224144950).
   verify-recovered-nightly-next:
-    needs: [decide, recover-nightly-next-notarization, find-nightly-next-recovery]
+    needs: [decide, recover-nightly-next-notarization, find-nightly-next-recovery, pick-nightly-build-runner]
     if: "!cancelled() && needs.recover-nightly-next-notarization.outputs.accepted == 'true'"
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.find-nightly-next-recovery.outputs.attempt == github.run_attempt && needs.find-nightly-next-recovery.outputs.sign_owned && fromJSON(needs.find-nightly-next-recovery.outputs.sign_owned) || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 160 || 40 }}
     env:
       # Set only when the 6 h stapled-app fallback shipped the first DMG.
@@ -6930,7 +6933,7 @@ jobs:
           publisher=.publish-tooling/scripts/ci/publish-release-assets.py
           python3 "$publisher" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            "${deltas[@]}" --replace-feeds "${feeds[@]}"
+            ${deltas[@]+"${deltas[@]}"} --replace-feeds ${feeds[@]+"${feeds[@]}"}
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload revised appcasts to R2

@@ -84,11 +84,13 @@ export const gray = (level) => {
 };
 // The neutral glass material's tokens (glassMaterial): the overlay surface roles mix these at their
 // own opacities (the surface-roles block of ui/glass/glass.css, scripts/cmux-next/check-surface-roles.py).
+// They are opaque grays, named --ds-material-* and not --ds-glass-*: check-glass-never-opaque reads a
+// --*glass* token as a glass fill, and these are only ever mixed at an opacity.
 const materialVars = (material) => [
-  ["--ds-glass-neutral-light", gray(material.neutralLight), "the neutral veil's gray on the light side"],
-  ["--ds-glass-neutral-dark", gray(material.neutralDark), "the neutral veil's gray on the dark side"],
-  ["--ds-glass-rim-lit", gray(material.rimLit), "the lit rim: a top edge, and a dark side's bottom edge"],
-  ["--ds-glass-rim-shade", gray(material.rimShade), "the shaded rim: a light side's bottom edge"],
+  ["--ds-material-neutral-light", gray(material.neutralLight), "the neutral veil's gray on the light side"],
+  ["--ds-material-neutral-dark", gray(material.neutralDark), "the neutral veil's gray on the dark side"],
+  ["--ds-material-rim-lit", gray(material.rimLit), "the lit rim: a top edge, and a dark side's bottom edge"],
+  ["--ds-material-rim-shade", gray(material.rimShade), "the shaded rim: a light side's bottom edge"],
 ];
 const colorValue = (color) =>
   `var(${color.var}, ${color.app ? `var(${color.app}, ${color.fallback})` : color.fallback})`;

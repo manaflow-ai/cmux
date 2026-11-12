@@ -89,10 +89,10 @@ test("every overlay role's veil and rim is the design scale's glass material", (
     const channel = Math.round(level * 255);
     return `rgb(${channel} ${channel} ${channel})`;
   };
-  expect(desktop).toContain(`--ds-glass-neutral-light: ${gray(material.neutralLight)};`);
-  expect(desktop).toContain(`--ds-glass-neutral-dark: ${gray(material.neutralDark)};`);
-  expect(desktop).toContain(`--ds-glass-rim-lit: ${gray(material.rimLit)};`);
-  expect(desktop).toContain(`--ds-glass-rim-shade: ${gray(material.rimShade)};`);
+  expect(desktop).toContain(`--ds-material-neutral-light: ${gray(material.neutralLight)};`);
+  expect(desktop).toContain(`--ds-material-neutral-dark: ${gray(material.neutralDark)};`);
+  expect(desktop).toContain(`--ds-material-rim-lit: ${gray(material.rimLit)};`);
+  expect(desktop).toContain(`--ds-material-rim-shade: ${gray(material.rimShade)};`);
   const glass = source("ui/glass/glass.css");
   const block = glass.slice(glass.indexOf("/* surface-roles:begin"), glass.indexOf("/* surface-roles:end */"));
   const looks = [...block.matchAll(/(--surface-\w+-(?:veil|rim-top|rim-bottom)):\s*([^;]+);/g)];
@@ -104,10 +104,10 @@ test("every overlay role's veil and rim is the design scale's glass material", (
     for (const [, token] of mixes)
       expect(
         [
-          "--ds-glass-neutral-light",
-          "--ds-glass-neutral-dark",
-          "--ds-glass-rim-lit",
-          "--ds-glass-rim-shade",
+          "--ds-material-neutral-light",
+          "--ds-material-neutral-dark",
+          "--ds-material-rim-lit",
+          "--ds-material-rim-shade",
           "--glass-surface",
         ],
         name,

@@ -216,7 +216,7 @@ extension AppearanceSettingsSchema {
                 group: group,
                 title: SettingsText.keyed("settings.appearance.titleAreaTone", "Title Area"),
                 help: SettingsText.keyed("settings.appearance.titleAreaTone.help", "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."),
-                summary: SettingsText.keyed("settings.appearance.titleAreaTone.summary", "One color or a subtle tone for the title bar, tab bar and sidebar"),
+                summary: SettingsText.keyed("settings.appearance.titleAreaTone.summary", "One color or a subtle tone for the title area"),
                 kind: .choice([
                     SettingChoice(TitleAreaTone.oneColor.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.oneColor", "One Color")),
                     SettingChoice(TitleAreaTone.subtleTone.rawValue, SettingsText.keyed("settings.choice.titleAreaTone.subtleTone", "Subtle Tone")),

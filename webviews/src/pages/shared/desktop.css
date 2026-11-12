@@ -131,10 +131,10 @@ body {
   --ds-glass-fisheye-frost: blur(2.5px) saturate(1.15);
   --ds-glass-edge: var(--cmux-hairline);
   /* glass material: the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart */
-  --ds-glass-neutral-light: rgb(252 252 252); /* the neutral veil's gray on the light side */
-  --ds-glass-neutral-dark: rgb(28 28 28); /* the neutral veil's gray on the dark side */
-  --ds-glass-rim-lit: rgb(255 255 255); /* the lit rim: a top edge, and a dark side's bottom edge */
-  --ds-glass-rim-shade: rgb(0 0 0); /* the shaded rim: a light side's bottom edge */
+  --ds-material-neutral-light: rgb(252 252 252); /* the neutral veil's gray on the light side */
+  --ds-material-neutral-dark: rgb(28 28 28); /* the neutral veil's gray on the dark side */
+  --ds-material-rim-lit: rgb(255 255 255); /* the lit rim: a top edge, and a dark side's bottom edge */
+  --ds-material-rim-shade: rgb(0 0 0); /* the shaded rim: a light side's bottom edge */
   --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent); /* rows, cards and inline surfaces */
   --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent); /* popovers, menus, the palette, hover cards, the composer, sheets and find bars */
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */
@@ -848,6 +848,8 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
    (test/spinner-period.test.ts). */
 :root {
   --cmux-breath-period: 2.4s;
+  /* The breath's curve: in and out alike, so it never snaps at either end (the Apps skeleton's, now ui/Skeleton's). */
+  --cmux-breath-ease: ease-in-out;
   --cmux-shimmer-period: 2.8s;
 }
 @keyframes cmux-spin {

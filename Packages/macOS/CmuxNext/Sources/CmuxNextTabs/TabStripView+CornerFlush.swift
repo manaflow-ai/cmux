@@ -67,7 +67,11 @@ extension TabStripView: TabStripCorner {
         let ink = themeScope.perform { Palette.chromeDivider }
         // Every strip redraws on each chrome redraw (`markTopRow`), one per strip's report: an unchanged strip
         // stops here, so a resize under Subtle Tone stays O(strips), not O(strips²) path operations.
-        let key = InCardToneKey(bounds: bounds, folder: folder?.boundingBoxOfPath, alpha: alpha, strength: strength, ink: ink)
+        // The divider's weight and place as the top row's: a hairline just inside the strip's bottom (flipped: maxY).
+        // The weight follows `appearance.borders` (`Borders.width`), so a change of it redraws.
+        let weight = Metrics.lineWidth(Metrics.dividerThickness)
+        let key = InCardToneKey(bounds: bounds, folder: folder?.boundingBoxOfPath, alpha: alpha, strength: strength,
+                                ink: ink, weight: weight)
         guard key != inCardToneDrawn else { return }
         inCardToneDrawn = key
         CATransaction.begin()
@@ -76,8 +80,6 @@ extension TabStripView: TabStripCorner {
         tone.shade.frame = bounds
         tone.divider.frame = bounds
         var shade = CGPath(rect: bounds, transform: nil)
-        // The divider's weight and place as the top row's: a hairline just inside the strip's bottom (flipped: maxY).
-        let weight = Metrics.lineWidth(Metrics.dividerThickness)
         var line = CGPath(rect: CGRect(x: 0, y: bounds.maxY - weight, width: bounds.width, height: weight), transform: nil)
         if let folder {
             shade = shade.subtracting(folder)
@@ -144,4 +146,5 @@ struct InCardToneKey: Equatable {
     var alpha: CGFloat
     var strength: CGFloat
     var ink: NSColor
+    var weight: CGFloat
 }
