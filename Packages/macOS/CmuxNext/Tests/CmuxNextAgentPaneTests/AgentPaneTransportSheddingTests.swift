@@ -148,7 +148,16 @@ struct AgentPaneTransportSheddingTests {
         limits.ceilingQueuedFrames = 12
         let socket = try Self.socket(limits)
         // Requests to the page: never shed, and nobody takes them here.
-        for id in 1...20 { socket.receiveLocalReply(#"{"jsonrpc":"2.0","id":\#(id),"method":"x/y","params":{}}"#) }
+        // Each settled before the next, so every one counts (a frame an inbound pass is checking
+        // is in neither queue).
+        for id in 1...11 {
+            socket.receiveLocalReply(#"{"jsonrpc":"2.0","id":\#(id),"method":"x/y","params":{}}"#)
+            socket.waitForInboundPasses()
+        }
+        #expect(!socket.isClosed)
+        socket.receiveLocalReply(#"{"jsonrpc":"2.0","id":12,"method":"x/y","params":{}}"#)
+        socket.waitForInboundPasses()
+        socket.receiveLocalReply(#"{"jsonrpc":"2.0","id":13,"method":"x/y","params":{}}"#)
         socket.waitForInboundPasses()
         #expect(socket.isClosed)
     }
