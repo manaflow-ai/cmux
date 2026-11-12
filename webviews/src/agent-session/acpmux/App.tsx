@@ -689,6 +689,7 @@ import {
   type CmuxCommandResult,
   PLACED_ACTIONS,
 } from "./cmuxCommands";
+import { newChatRunsElsewhere } from "./customizeCommand";
 import {
   commandPlace,
   dropHandedCloudStart,
@@ -6829,6 +6830,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       "plan",
       "resume",
       "login",
+      "customize",
     ]);
     if (snapshot.summary) enabledCmuxActions.add("status");
     if (!quick) enabledCmuxActions.add("cd");
@@ -9265,6 +9267,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newTab: fresh,
     inCloud: snapshot.summary?.hostKind === "cloud",
     cloudStart: !quick,
+    // Before a chat starts there is no `hostKind`: the picked run mode says where it will run.
+    // A started chat on another machine (its `peer`) would customize that machine's cmux.
+    startsElsewhere: newChatRunsElsewhere({
+      started: !fresh && !!snapshot.sessionId,
+      peer: !!snapshot.summary?.peer,
+      mode: sandbox.mode,
+    }),
   });
   /// A started chat's `/side --on cloud` and `/cd --on cloud`: New Cloud Chat, on the person's
   /// gesture, with `start` handed to the tab it opens under a one-time token (commandPlace.ts). That
@@ -9378,6 +9387,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The composer sends the prompt as typed through onSend, attachments and steer included, the
     // way any other prompt goes.
     if (command.action === "passThrough") return CMUX_PASS_THROUGH;
+    // `/customize …` goes to the chat's agent as the ask it stands for (customizeCommand.ts): the
+    // composer and New Tab rewrite it where the prompt leaves.
+    if (command.action === "customize") return CMUX_PASS_THROUGH;
     // GUI-native commands are available even when a harness does not advertise an ACP command.
     // Arguments keep the harness form useful (`/model opus`, `/plan explain`). New Tab has no chat
     // to act on yet, so there they go to the harness as typed.
