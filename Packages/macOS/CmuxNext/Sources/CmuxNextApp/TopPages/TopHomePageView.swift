@@ -129,13 +129,11 @@ final class TopHomePageView: NSView {
                 HomeSidebarView.menuItem(entry.title) { entry.perform(in: registry, window: nil) }
             }
         }
-        // Delete Conversation… and a row's left swipe: asks as Messages does, then takes it off the list
-        // (`home.hideConversation`; a newer message or Show Hidden Conversations lists it again).
-        list.onDelete = { [weak self] id in
+        // Delete Conversation and a row's left swipe: off the list at once, with Undo in its toast
+        // (`home.hideConversation`; a newer message or Show Hidden Conversations lists it again too).
+        list.onDelete = { id in
             guard id != HomeSidebarView.draftRowID, home.homeStore.rows.contains(where: { $0.id == id }) else { return }
-            HomeListActions.confirmDelete(in: self?.window) {
-                _ = registry.perform("home.hideConversation", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
-            }
+            _ = registry.perform("home.hideConversation", invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
         }
         // Search: teammates with no DM yet, under the conversations; choosing one starts the DM.
         list.teammates = { [weak sidebar] query in
