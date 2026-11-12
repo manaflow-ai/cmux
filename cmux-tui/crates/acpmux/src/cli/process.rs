@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use clap::Subcommand;
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
@@ -108,9 +109,9 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
             for p in &v {
                 println!(
                     "{}  {}  {}",
-                    text(p, "id"),
+                    p.get_str("id").unwrap_or(""),
                     state_word(p, now),
-                    one_line(text(p, "command"))
+                    one_line(p.get_str("command").unwrap_or(""))
                 );
             }
             Ok(())
@@ -152,7 +153,7 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
                             process.or(tool_call).unwrap_or_default()
                         )
                     })?;
-            let id = text(&found, "id").to_owned();
+            let id = found.get_str("id").unwrap_or("").to_owned();
             let style = Style::detect();
             let interactive = follow && style.terminal;
             let mut out = std::io::stdout();
@@ -284,7 +285,7 @@ impl Source for DaemonSource {
     }
 
     async fn get(&self, id: &str) -> Result<Option<Value>> {
-        Ok(self.list_all(Some(id)).await?.into_iter().find(|p| text(p, "id") == id))
+        Ok(self.list_all(Some(id)).await?.into_iter().find(|p| p.get_str("id").unwrap_or("") == id))
     }
 
     async fn kill(&self, id: &str) -> Result<()> {
@@ -366,14 +367,14 @@ pub(crate) async fn replay<S: Source>(
     opts: ReplayOpts,
     keys: &mut mpsc::Receiver<Input>,
 ) -> Result<Outcome> {
-    let id = text(p, "id").to_owned();
+    let id = p.get_str("id").unwrap_or("").to_owned();
     let mut from = 0u64;
     let mut pause = opts.pause_min;
     let mut asking = false;
     let mut told_unsupported = false;
     let mut keys_open = true;
     let style = Style { color: false, terminal: opts.interactive };
-    if opts.interactive && text(p, "state") == "running" {
+    if opts.interactive && p.get_str("state").unwrap_or("") == "running" {
         write_now(out, style.dim("k stop · q close\r\n").as_bytes())?;
     }
     loop {
@@ -408,7 +409,10 @@ pub(crate) async fn replay<S: Source>(
                         b"This agent does not share a background process's output yet.\r\n",
                     )?;
                 }
-                let running = src.get(&id).await?.is_some_and(|q| text(&q, "state") == "running");
+                let running = src
+                    .get(&id)
+                    .await?
+                    .is_some_and(|q| q.get_str("state").unwrap_or("") == "running");
                 if !running {
                     return Ok(Outcome::Ended);
                 }
@@ -468,15 +472,18 @@ pub(crate) fn find_process<'a>(
     tool_call: Option<&str>,
 ) -> Option<&'a Value> {
     if let Some(id) = id {
-        return list.iter().find(|p| text(p, "id") == id);
+        return list.iter().find(|p| p.get_str("id").unwrap_or("") == id);
     }
     let tool_call = tool_call?;
     let in_session = |p: &Value| match session {
         None => true,
-        Some(s) => text(p, "sessionId") == s || text(p, "subagentSessionId") == s,
+        Some(s) => {
+            p.get_str("sessionId").unwrap_or("") == s
+                || p.get_str("subagentSessionId").unwrap_or("") == s
+        }
     };
     list.iter()
-        .filter(|p| text(p, "toolCallId") == tool_call && in_session(p))
+        .filter(|p| p.get_str("toolCallId").unwrap_or("") == tool_call && in_session(p))
         .max_by_key(|p| p.get("startedAt").and_then(Value::as_u64).unwrap_or(0))
 }
 
@@ -510,7 +517,7 @@ impl Style {
 /// background, and its output file.
 pub(crate) fn header(p: &Value, style: Style) -> String {
     let mut s = String::new();
-    let command = text(p, "command");
+    let command = p.get_str("command").unwrap_or("");
     s.push_str(&style.bold(&format!("$ {command}")));
     s.push('\n');
     let row = |s: &mut String, label: &str, value: &str| {
@@ -522,7 +529,7 @@ pub(crate) fn header(p: &Value, style: Style) -> String {
     };
     // The agent's own name for it (Claude's `description`, "hold"), when the
     // command is not just that name again.
-    let description = text(p, "description").trim();
+    let description = p.get_str("description").unwrap_or("").trim();
     if description != command.trim() {
         row(&mut s, "named", description);
     }
@@ -537,14 +544,14 @@ pub(crate) fn header(p: &Value, style: Style) -> String {
             &format!("{}, then wakes the agent; it runs nothing else", span(secs)),
         );
     }
-    row(&mut s, "folder", &tilde(text(p, "cwd")));
+    row(&mut s, "folder", &tilde(p.get_str("cwd").unwrap_or("")));
     let started = p.get("startedAt").and_then(Value::as_u64).map(local_time).unwrap_or_default();
-    let harness = match text(p, "harness") {
+    let harness = match p.get_str("harness").unwrap_or("") {
         "claude" => "Claude Code",
         "codex" => "Codex",
         other => other,
     };
-    let origin = match text(p, "origin") {
+    let origin = match p.get_str("origin").unwrap_or("") {
         "auto_backgrounded" => "moved to the background",
         "user_backgrounded" => "sent to the background by you",
         "background" => "background",
@@ -553,7 +560,7 @@ pub(crate) fn header(p: &Value, style: Style) -> String {
     let when: Vec<&str> =
         [started.as_str(), harness, origin].into_iter().filter(|x| !x.is_empty()).collect();
     row(&mut s, "started", &when.join(" · "));
-    row(&mut s, "log", &tilde(text(p, "outputFile")));
+    row(&mut s, "log", &tilde(p.get_str("outputFile").unwrap_or("")));
     s.push_str(&style.dim(&"─".repeat(48)));
     s.push('\n');
     lines(s, style)
@@ -566,11 +573,11 @@ pub(crate) fn footer(p: &Value, now: u64, style: Style, outcome: Outcome) -> Str
     let ended = p.get("endedAt").and_then(Value::as_u64);
     let took = human(ended.unwrap_or(now).saturating_sub(started));
     let exit = p.get("exitCode").and_then(Value::as_i64);
-    let signal = match text(p, "signal") {
+    let signal = match p.get_str("signal").unwrap_or("") {
         "" => String::new(),
         s => format!(" (signal {s})"),
     };
-    let line = match text(p, "state") {
+    let line = match p.get_str("state").unwrap_or("") {
         "running" => match outcome {
             Outcome::Closed => format!("● Still running after {took}; closed the view"),
             _ => format!("● Running for {took}"),
@@ -581,7 +588,7 @@ pub(crate) fn footer(p: &Value, now: u64, style: Style, outcome: Outcome) -> Str
             None => format!("✗ Failed after {took}{signal}"),
         },
         "killed" => {
-            let by = match text(p, "reason") {
+            let by = match p.get_str("reason").unwrap_or("") {
                 "person" => "Stopped by you",
                 "agent" => "Stopped by the agent",
                 "harness_time_limit" => "Stopped at its time limit",
@@ -599,7 +606,7 @@ pub(crate) fn footer(p: &Value, now: u64, style: Style, outcome: Outcome) -> Str
     s.push('\n');
     s.push_str(&style.bold(&line));
     s.push('\n');
-    let detail = text(p, "detail");
+    let detail = p.get_str("detail").unwrap_or("");
     if !detail.is_empty() {
         s.push_str(&style.dim(&format!("  {}", one_line(detail))));
         s.push('\n');
@@ -610,8 +617,8 @@ pub(crate) fn footer(p: &Value, now: u64, style: Style, outcome: Outcome) -> Str
 /// The tab's title: a timer as "Waiting 14m · hold", else the agent's name
 /// for the process, else its command.
 pub(crate) fn title(p: &Value) -> String {
-    let command = text(p, "command");
-    let description = text(p, "description").trim();
+    let command = p.get_str("command").unwrap_or("");
+    let description = p.get_str("description").unwrap_or("").trim();
     match timer_secs(command) {
         Some(secs) if description.is_empty() || description == command.trim() => {
             format!("Waiting {}", span(secs))
@@ -671,11 +678,7 @@ fn lines(s: String, style: Style) -> String {
 fn state_word(p: &Value, now: u64) -> String {
     let started = p.get("startedAt").and_then(Value::as_u64).unwrap_or(now);
     let ended = p.get("endedAt").and_then(Value::as_u64).unwrap_or(now);
-    format!("{} {}", text(p, "state"), human(ended.saturating_sub(started)))
-}
-
-fn text<'a>(p: &'a Value, key: &str) -> &'a str {
-    p.get(key).and_then(Value::as_str).unwrap_or("")
+    format!("{} {}", p.get_str("state").unwrap_or(""), human(ended.saturating_sub(started)))
 }
 
 fn one_line(s: &str) -> String {

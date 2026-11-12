@@ -25,6 +25,7 @@ dependencies = [
  "cmux-cloud-client",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-config",
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",
@@ -106,6 +107,15 @@ dependencies = [
  "x25519-dalek",
  "zeroize",
  "zstd",
+]
+
+[[package]]
+name = "acpmux-book"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "libc",
+ "tempfile",
 ]
 
 [[package]]
