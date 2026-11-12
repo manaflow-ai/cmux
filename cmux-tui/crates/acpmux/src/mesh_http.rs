@@ -244,6 +244,25 @@ impl HttpHub {
         })
     }
 
+    /// The hub carrier's relay ticket (`POST /v1/mesh/carrier`, `hub_carrier.rs`): a Register
+    /// ticket for this machine's own slot, or a Connect ticket for `peer`'s. Only a joined
+    /// machine's `cmm_` credential gets one.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) async fn carrier(
+        &self,
+        peer: Option<&str>,
+    ) -> Result<crate::hub_carrier::CarrierAnswer, String> {
+        let body = match peer {
+            Some(peer) => json!({"peer": peer}),
+            None => json!({}),
+        };
+        let value = self
+            .call(reqwest::Method::POST, "/v1/mesh/carrier", Some(&body), CALL_WAIT)
+            .await
+            .map_err(|e| e.to_string())?;
+        decode(value).map_err(|e| e.to_string())
+    }
+
     /// A token: the one held while it is good, else a new one from the command.
     pub(crate) async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
@@ -379,6 +398,8 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.too_large",
     "mesh.unavailable",
     "mesh.not_found",
+    "mesh.carrier_unconfigured",
+    "machine.not_found",
     "team.messaging_disabled",
     "team.forbidden",
     "team.unknown_recipient",

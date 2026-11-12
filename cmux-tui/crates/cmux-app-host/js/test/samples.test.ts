@@ -83,4 +83,38 @@ describe("samples", () => {
     await host.settle()
     expect(host.calls.find((c) => c.name === "action.run")!.params).toEqual({ id: "openBrowser", args: { url: "https://github.com/manaflow-ai/cmux/pull/42" } })
   })
+  test("pr-card shows a PR's checks five a page and keeps its page under the widget key", async () => {
+    const checks = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, name: `check-${i + 1}`, status: "completed", conclusion: i === 6 ? "failure" : "success", html_url: `https://github.com/o/r/runs/${i + 1}` }))
+    const github = (params: any) => {
+      const path = String(params.path)
+      if (path === "/repos/o/r/pulls/7") return { ok: true, body: { value: { title: "Widgets in chat", state: "open", merged_at: null, draft: false, user: { login: "octo" }, html_url: "https://github.com/o/r/pull/7", head: { sha: "abc" } } } }
+      if (path.startsWith("/repos/o/r/commits/abc/check-runs")) return { ok: true, body: { value: { check_runs: checks } } }
+      return { ok: false, body: { code: "not_found", message: path } }
+    }
+    const storage = new Map<string, unknown>()
+    const make = () => {
+      const host = new FakeHost(load("pr-card"), { app: { id: "cmux/pr-card", version: "1.0.0" }, settings: {} })
+      host.handlers["integration.request"] = github
+      host.handlers["app.storage.get"] = (p) => ({ ok: true, body: { value: storage.get(p.key) ?? null } })
+      host.handlers["app.storage.set"] = (p) => { storage.set(p.key, p.value); return { ok: true, body: { value: null } } }
+      return host
+    }
+    const ctx = { contribution: "cmux/pr-card#cmux.chat.widget/1", surface: "chatWidget", props: { repo: "o/r", number: 7 }, widget: { key: "msg_1#0" } }
+    const rows = (host: FakeHost) => [...host.tree("m").nodes.values()].filter((n) => n.type === "Row").map((n) => n.props.title)
+    const host = make()
+    expect(host.mount("m", "renderPRCard", ctx)).toBe("")
+    await host.settle(10)
+    // The failure first, then four of the six that passed; page 1 of 2.
+    expect(rows(host)).toEqual(["o/r #7", "check-7", "check-1", "check-2", "check-3", "check-4"])
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["Widgets in chat", "1 failed · 6 passed", "Page 1 of 2", "Previous", "Next"]))
+    host.dispatch("m", host.findNode("m", (n) => n.type === "Button" && n.props.title === "Next")!, "tap", {})
+    await host.settle(10)
+    expect(rows(host)).toEqual(["o/r #7", "check-5", "check-6"])
+    expect(storage.get("page:msg_1#0")).toBe(1)
+    // A new mount (a relaunch) starts on the kept page.
+    const again = make()
+    again.mount("m", "renderPRCard", ctx)
+    await again.settle(10)
+    expect(rows(again)).toEqual(["o/r #7", "check-5", "check-6"])
+  })
 })

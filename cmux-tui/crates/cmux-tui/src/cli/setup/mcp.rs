@@ -1,6 +1,7 @@
-//! `cmux setup mcp [claude|codex ...] [--dry-run]`: gives Claude Code and
-//! Codex the cmux MCP server (`cmux mcp serve`) when they run outside cmux,
-//! in a terminal or another app. Chats cmux starts already get it, and
+//! `cmux setup mcp [claude|codex ...] [--dry-run] [--remove]`: gives Claude
+//! Code and Codex the cmux MCP server (`cmux mcp serve`) when they run outside
+//! cmux, in a terminal or another app, or with `--remove` takes cmux's own
+//! entry out of their configs again. Chats cmux starts already get it, and
 //! cmux-cua, from acpmux (`agent_tools`); cmux-cua needs the app's
 //! per-session socket token, so no user config can hold it.
 //!
@@ -17,6 +18,15 @@
 //! is not a key agents set. Until it is on, setup writes nothing and the
 //! result is `needs_user` naming that switch. With neither harness installed
 //! (and none named) there is nothing to wire: `ok`, switch or not.
+//!
+//! The person's answer to "may cmux add its tools to your coding agents?"
+//! (`agents.cmuxMcp`: the onboarding step, Settings > Agents) decides too.
+//! `on` is the opt-in above (it turns the server on unless `mcp.enabled`
+//! says otherwise, `cli/mcp/config.rs`); `off` writes nothing, names that
+//! answer as the setting to change, and makes `status` content (the person
+//! declined, nothing is missing); unanswered keeps the switch's rule.
+//! `--remove` runs whatever the answer is: it only takes out an entry named
+//! `cmux` that runs `cmux mcp serve`, never a server of the person's.
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -28,6 +38,7 @@ use super::super::agents_doctor::{on_path, read_json, read_text, toml_error};
 use super::super::fix_command::quote_arg;
 use super::{Outcome, Refusal};
 use cmux_json::JsonSet as _;
+use cmux_tui_core::user_settings::AgentsCmuxMcp;
 
 const TASK: &str = "mcp";
 
@@ -221,18 +232,24 @@ enum Plan {
 struct Request {
     clients: Vec<Client>,
     dry_run: bool,
+    remove: bool,
 }
 
 pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let request = parse(args)?;
+    if request.remove {
+        return Ok(remove(&request));
+    }
     let command = this_cli()?;
     let (settings, enabled) = super::super::mcp::outside_chats();
+    let choice = AgentsCmuxMcp::from_config_file(&settings);
     let path = std::env::var_os("PATH");
     let clients =
         if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
     let mut rows = Vec::new();
     let mut undo = Vec::new();
     let off = match &enabled {
+        _ if choice == AgentsCmuxMcp::Off => Some(declined()),
         Ok(true) => None,
         Ok(false) => Some(switch(&settings, None)),
         Err(error) => Some(switch(&settings, Some(error.as_str()))),
@@ -268,9 +285,11 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                 failed = true;
                 "failed"
             }
-            // Nothing is written while the switch is off: the server would
-            // refuse the harness.
-            Plan::Add | Plan::Replace if enabled != Ok(true) || request.dry_run => {
+            // Nothing is written while the person's answer is no, or while
+            // the switch is off: the server would refuse the harness.
+            Plan::Add | Plan::Replace
+                if choice == AgentsCmuxMcp::Off || enabled != Ok(true) || request.dry_run =>
+            {
                 planned = true;
                 "planned"
             }
@@ -295,7 +314,9 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     }
     // The switch comes first, but only when a harness is there to wire:
     // with none installed there is nothing to do, or the install comes first.
-    if let Some(action) = off.filter(|_| installed) {
+    // A person's no names itself only when it kept something from being written.
+    let declined = choice == AgentsCmuxMcp::Off;
+    if let Some(action) = off.filter(|_| installed && (!declined || planned)) {
         user_action = action;
     }
     let state = if failed {
@@ -317,6 +338,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
         "server": {"name": SERVER, "command": command, "args": ["mcp", "serve"]},
         "settings": settings,
         "enabled": enabled == Ok(true),
+        "choice": choice.as_str(),
         "clients": rows,
         "undo": (!undo.is_empty()).then(|| undo.join(" && ")),
         "user_action": user_action,
@@ -324,11 +346,117 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     Ok(Outcome { report, failed })
 }
 
+/// `--remove`: takes cmux's own entry (named `cmux`, running `cmux mcp
+/// serve`, from any cmux build) out of each installed harness's config, or
+/// of each named one, through the harness's own `mcp remove`. A `cmux` entry
+/// that runs something else is the person's and stays. Runs whatever
+/// `agents.cmuxMcp` says: taking cmux out never oversteps.
+fn remove(request: &Request) -> Outcome {
+    let (settings, enabled) = super::super::mcp::outside_chats();
+    let choice = AgentsCmuxMcp::from_config_file(&settings);
+    let path = std::env::var_os("PATH");
+    let clients =
+        if request.clients.is_empty() { CLIENTS.to_vec() } else { request.clients.clone() };
+    let (mut rows, mut undo) = (Vec::new(), Vec::new());
+    let (mut failed, mut planned, mut changed) = (false, false, false);
+    for client in clients {
+        let here = on_path(path.as_deref(), client.id()).is_some();
+        let mut row = json!({
+            "id": client.id(),
+            "name": client.name(),
+            "installed": here,
+            "config": client.config(),
+            "entry": Value::Null,
+            "undo": Value::Null,
+            "user_action": Value::Null,
+            "error": Value::Null,
+        });
+        let found = if here {
+            match client
+                .config()
+                .ok_or_else(|| "no home directory".to_owned())
+                .and_then(|file| client.servers(&file))
+            {
+                Ok(entries) => Ok(entries
+                    .into_iter()
+                    .find(|entry| entry.name == SERVER && entry.serves_cmux())),
+                Err(error) => Err(error),
+            }
+        } else {
+            Ok(None)
+        };
+        let state = match found {
+            _ if !here => "not_applicable",
+            Err(error) => {
+                row.set("error", json!(error));
+                failed = true;
+                "failed"
+            }
+            Ok(None) => "ok",
+            Ok(Some(entry)) => {
+                row.set("entry", entry.json());
+                if request.dry_run {
+                    planned = true;
+                    "planned"
+                } else {
+                    match run_cli(client, &client.remove()) {
+                        Ok(()) => {
+                            let line = entry
+                                .command
+                                .as_deref()
+                                .map(|command| client.line(&client.add(command, &entry.args)));
+                            if let Some(line) = &line {
+                                row.set("undo", json!(line));
+                                undo.push(line.clone());
+                            }
+                            changed = true;
+                            "changed"
+                        }
+                        Err(error) => {
+                            row.set("error", json!(error));
+                            failed = true;
+                            "failed"
+                        }
+                    }
+                }
+            }
+        };
+        row.set("state", json!(state));
+        rows.push(row);
+    }
+    let state = if failed {
+        "failed"
+    } else if changed {
+        "changed"
+    } else if planned {
+        "planned"
+    } else {
+        "ok"
+    };
+    let report = json!({
+        "schema_version": 1,
+        "task": TASK,
+        "action": "remove",
+        "state": state,
+        "dry_run": request.dry_run,
+        "server": {"name": SERVER, "args": ["mcp", "serve"]},
+        "settings": settings,
+        "enabled": enabled == Ok(true),
+        "choice": choice.as_str(),
+        "clients": rows,
+        "undo": (!undo.is_empty()).then(|| undo.join(" && ")),
+        "user_action": Value::Null,
+    });
+    Outcome { report, failed }
+}
+
 /// The check `cmux setup status` reports: the switch, and whether each
 /// installed harness gives the cmux server outside cmux. With none
 /// installed it is `ok`, as `run` is: the switch has nothing to serve.
 pub(super) fn status() -> Value {
     let (settings, enabled) = super::super::mcp::outside_chats();
+    let choice = AgentsCmuxMcp::from_config_file(&settings);
+    let declined = choice == AgentsCmuxMcp::Off;
     let path = std::env::var_os("PATH");
     let clients: Vec<Value> = CLIENTS
         .into_iter()
@@ -337,6 +465,8 @@ pub(super) fn status() -> Value {
             let state = match next {
                 Plan::Absent => return None,
                 Plan::Ok => "ok",
+                // The person said no: nothing is missing.
+                Plan::Add | Plan::Replace | Plan::Person(_) if declined => "off",
                 Plan::Add | Plan::Replace => "needs_setup",
                 Plan::Person(_) => "needs_user",
                 Plan::Failed(_) => "failed",
@@ -344,23 +474,26 @@ pub(super) fn status() -> Value {
             Some(json!({"id": client.id(), "state": state, "entry": found.as_ref().map(Entry::json)}))
         })
         .collect();
-    let ready = (clients.is_empty() || enabled == Ok(true))
-        && clients.iter().all(|client| client["state"] == "ok");
+    let ready = declined
+        || ((clients.is_empty() || enabled == Ok(true))
+            && clients.iter().all(|client| client["state"] == "ok"));
     json!({
         "task": TASK,
         "state": if ready { "ok" } else { "needs_setup" },
         "settings": settings,
         "enabled": enabled == Ok(true),
+        "choice": choice.as_str(),
         "clients": clients,
         "fix": (!ready).then_some("cmux setup mcp"),
     })
 }
 
 fn parse(args: &[String]) -> Result<Request, Refusal> {
-    let mut request = Request { clients: Vec::new(), dry_run: false };
+    let mut request = Request { clients: Vec::new(), dry_run: false, remove: false };
     for arg in args {
         match arg.as_str() {
             "--dry-run" => request.dry_run = true,
+            "--remove" => request.remove = true,
             flag if flag.starts_with('-') => {
                 return Err(Refusal::Usage(format!("cmux: setup mcp: unknown option {flag:?}")));
             }
@@ -510,6 +643,23 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
     let text = stderr.and_then(|reader| reader.join().ok()).unwrap_or_default();
     let text: String = text.trim().chars().take(2000).collect();
     Err(format!("`{line}` failed ({status}): {text}"))
+}
+
+/// The person's answer was no (`agents.cmuxMcp` `off`): the setting to
+/// change, where the person changes it.
+fn declined() -> Value {
+    json!({
+        "kind": "setting",
+        "text": format!(
+            "You chose not to add cmux's tools to your coding agents ({} is \"off\"). \
+             To add them, choose Add to My Agents in cmux Settings > Agents > cmux Tools in \
+             Coding Agents, or run `cmux settings set {} on`; then run `cmux setup mcp` again",
+            AgentsCmuxMcp::KEY,
+            AgentsCmuxMcp::KEY
+        ),
+        "command": format!("cmux settings set {} on", AgentsCmuxMcp::KEY),
+        "url": Value::Null,
+    })
 }
 
 /// The person's switch for MCP clients outside cmux, and why the settings

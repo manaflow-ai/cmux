@@ -40,6 +40,7 @@ final class CEFRuntime {
     var hosts: [CEFPaneKey: CEFPaneHost] = [:]
     let extensionActionReads = CEFExtensionActionReads()
     /// Profiles Chromium opened in this process (their files stay open until shutdown, so a deleted one's directory waits for the next launch).
+    /// The startup profile is one from `CefInitialize` on (`noteStartupProfile`), before any pane uses it.
     var usedProfiles: Set<BrowserProfileID> = []
     /// Each proxied browser profile's proxy (#24432); a profile not here is direct.
     var profileProxies: [BrowserProfileID: BrowserProfileProxy] = [:]
@@ -53,6 +54,8 @@ final class CEFRuntime {
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
     /// The spare window and the page made ahead in it (`CEFSpareWindow`): this runtime's own.
     private(set) lazy var spareWindow = CEFSpareWindow()
+    /// Shown pages on their way to their first document: the next spare waits for them (`CEFArrivingPages`).
+    let arriving = CEFArrivingPages()
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
@@ -138,7 +141,6 @@ final class CEFRuntime {
     }
     /// The one display-change observer (`CEFLayerHosting.displaysChanged` caps each resize wait). Made when CEF is ready.
     private var displayObservation: MainActorObservation?
-    let hostingSwitch = CEFHostingSwitch() // takes a hosting switch flip to the shown pages at once
     /// True when `--load-extension` is in use (development, verification).
     private(set) var loadsUnpackedExtensions = false
     /// `browser.builtInAdBlocker`, asked at start (the App supplies it).
@@ -310,6 +312,10 @@ final class CEFRuntime {
                 startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                 observeDisplays()
                 ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }
+                ChromiumAccessibilityPress.install { [weak self] window, frame in
+                    guard let window else { return }
+                    self?.windowRequests.linkClicks.recordAccessibilityPress(in: window, frame: frame)
+                }
                 onReady?()
             }
             self.trigger = trigger
@@ -431,8 +437,10 @@ final class CEFRuntime {
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled,
             // Debug Settings (DEV and NIGHTLY), read when Chromium starts: on the first page, well after
             // the override file loaded; Release keeps the default.
-            asyncLiveResize: BrowserResizeTunables.dragResizeAtLaunch != .synced
+            asyncLiveResize: true,
+            initialProfileDirectory: storage.initialProfileDirectory
         )
+        noteStartupProfile(switchSet)
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
@@ -516,6 +524,21 @@ final class CEFRuntime {
         let keys = offTheRecordContexts.removeValue(forKey: profile) ?? []
         for key in keys { _ = key.withCString { shim?.releaseContext($0) } }
         hosts = hosts.filter { $0.key.profile != profile || !$0.value.tabs.isEmpty }
+    }
+
+    /// Chromium opens the `profile-directory` profile (the default cmux profile) during
+    /// `CefInitialize`, before any pane or the spare window exists, so it counts as opened from
+    /// here on: Clear Browsing Data must never move a live profile's cache directories aside.
+    /// Called before `CefInitialize`, so a start that fails partway still counts it.
+    func noteStartupProfile(_ switches: CEFSwitches) {
+        guard let directory = switches.initialProfileDirectory, !directory.isEmpty,
+              directory == storage.initialProfileDirectory else { return }
+        usedProfiles.insert(storage.startupProfile)
+    }
+
+    /// True when Chromium opened `profile` in this process (`CEFEngine.hasOpened`).
+    func hasOpened(_ profile: BrowserProfileID) -> Bool {
+        usedProfiles.contains(profile) || extensionStores.hasStore(for: profile)
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {

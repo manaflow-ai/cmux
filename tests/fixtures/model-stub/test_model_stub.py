@@ -244,6 +244,49 @@ class ScriptAndCliTest(unittest.TestCase):
             server.server_close()
         self.assertEqual(model_stub.render("[{{prompt}}]", "n", ["x"]), "[]")
 
+    def test_a_turn_script_counts_from_its_own_prompt(self) -> None:
+        # A counting turn in a session whose first turn already called a tool: the turn's steps start at its prompt.
+        script = {"version": 1, "steps": [{"shell": "echo first"}, {"text": "first done"}],
+                  "turns": [{"match": r"\[count (\S+)\]", "steps": [
+                      {"shell": "echo c-{{prompt~\\[count (\\S+)\\]}}-1"}, {"shell": "echo c-{{prompt~\\[count (\\S+)\\]}}-2"},
+                      {"text": "counted {{result.0}} {{result.1}}"}]}]}
+        server, _ = model_stub.serve(script, "n")
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        tool = lambda i, out: [{"role": "assistant", "content": [{"type": "tool_use", "id": i, "name": "Bash", "input": {}}]},
+                               {"role": "user", "content": [{"type": "tool_result", "tool_use_id": i, "content": out},
+                                                            {"type": "text", "text": "<system-reminder>r</system-reminder>"}]}]
+        ask = lambda msgs: json.loads(post(base + "/v1/messages", {"messages": msgs, "tools": [{"name": "Bash"}]})[1])["content"][0]
+        try:
+            first = [{"role": "user", "content": "hello"}, *tool("a", "first\n"), {"role": "assistant", "content": "first done"}]
+            self.assertEqual(ask([{"role": "user", "content": "hello"}])["input"]["command"], "echo first")
+            turn = [*first, {"role": "user", "content": "[count t7] go"}]
+            self.assertEqual(ask(turn)["input"]["command"], "echo c-t7-1")
+            self.assertEqual(ask([*turn, *tool("b", "c-t7-1\n")])["input"]["command"], "echo c-t7-2")
+            self.assertEqual(ask([*turn, *tool("b", "c-t7-1\n"), *tool("c", "c-t7-2\n")])["text"], "counted c-t7-1 c-t7-2")
+            # A second counting turn starts over at its own prompt.
+            again = [*turn, *tool("b", "c-t7-1\n"), *tool("c", "c-t7-2\n"), {"role": "assistant", "content": "x"}, {"role": "user", "content": "[count t8] go"}]
+            self.assertEqual(ask(again)["input"]["command"], "echo c-t8-1")
+            # Codex's Responses input: the same.
+            items = [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]},
+                     {"type": "function_call_output", "call_id": "x", "output": "first"},
+                     {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "[count t9]"}]},
+                     {"type": "function_call_output", "call_id": "y", "output": "c-t9-1"}]
+            _, out = post(base + "/v1/responses", {"input": items, "tools": [{"type": "function", "name": "exec_command"}]})
+            self.assertEqual(json.loads(json.loads(out)["output"][0]["arguments"])["cmd"], "echo c-t9-2")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_load_script_refuses_a_bad_turn(self) -> None:
+        for turns in ([{"match": "(", "steps": [{"text": "a"}]}], [{"match": "x", "steps": []}], [{"steps": [{"text": "a"}]}], {"x": 1}):
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+                json.dump({"version": 1, "steps": [{"text": "a"}], "turns": turns}, f)
+            try:
+                with self.assertRaises(ValueError, msg=turns):
+                    model_stub.load_script(f.name)
+            finally:
+                os.unlink(f.name)
+
     def test_cli_prints_ready_line_and_serves(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             ready = os.path.join(d, "ready.json")

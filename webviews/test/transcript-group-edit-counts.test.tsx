@@ -68,7 +68,8 @@ async function draw(items: AcpmuxActivity[], version: number) {
 const summary = () => host.querySelector<HTMLElement>(".cv-tools > .cv-tool.is-toggle")!;
 
 test("a run's summary line sums its edits: green added, red removed", async () => {
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   await draw(
     [
@@ -80,7 +81,7 @@ test("a run's summary line sums its edits: green added, red removed", async () =
   );
   const line = summary();
   expect(line.getAttribute("aria-expanded")).toBe("false");
-  expect(line.querySelector(".cv-tool__summary")?.textContent).toBe("Edited 2 files, ran a command");
+  expect(line.querySelector(".cv-tool__summary")?.textContent).toBe("Edited 2 files and ran a command");
   // a.ts: +2 -1; notes.md: +2.
   expect(line.querySelector(".cv-tool__counts .cv-edit-diff__add")?.textContent).toBe("+4");
   expect(line.querySelector(".cv-tool__counts .cv-edit-diff__del")?.textContent).toBe("-1");
@@ -105,7 +106,7 @@ test("a run with no edits draws no count", async () => {
 });
 
 test("streaming a command's output never counts the edits again", async () => {
-  const { editTotalsProbe } = await import("../src/agent-session/acpmux/conversation/EditCounts");
+  const { editTotalsProbe } = await import("../src/agent-session/acpmux/conversation/editCountsModel");
   const items: AcpmuxActivity[] = [
     edit("edit-d", "/repo/d.ts", "x\n", "y\n"),
     ...Array.from({ length: 10 }, (_, n) => command(10 + n)),
@@ -130,8 +131,9 @@ test("streaming a command's output never counts the edits again", async () => {
 });
 
 test("a folded run and an edits group inside it, both ending on one edit, keep their own counts", async () => {
-  const { editTotalsProbe } = await import("../src/agent-session/acpmux/conversation/EditCounts");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { editTotalsProbe } = await import("../src/agent-session/acpmux/conversation/editCountsModel");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   const items: AcpmuxActivity[] = [
     edit("edit-f", "/repo/f.ts", "a\n", "b\n"),
@@ -160,8 +162,9 @@ test("a folded run and an edits group inside it, both ending on one edit, keep t
 });
 
 test("a run that grows keeps one count, not every earlier prefix", async () => {
-  const { editTotalsEntries } = await import("../src/agent-session/acpmux/conversation/EditCounts");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { editTotalsEntries } = await import("../src/agent-session/acpmux/conversation/editCountsModel");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   const items: AcpmuxActivity[] = [edit("grow-0", "/repo/grow-0.ts", "", "x\n"), command(50)];
   for (let n = 1; n <= 40; n++) {
@@ -173,7 +176,7 @@ test("a run that grows keeps one count, not every earlier prefix", async () => {
 });
 
 test("editTotals: no diffs, no totals; a Write over unknown contents adds nothing", async () => {
-  const { editTotals } = await import("../src/agent-session/acpmux/conversation/EditCounts");
+  const { editTotals } = await import("../src/agent-session/acpmux/conversation/editCountsModel");
   expect(editTotals([command(30).tool!])).toBeUndefined();
   expect(editTotals([edit("edit-e", "/repo/e.ts", "a\n", "b\n").tool!])).toEqual({ additions: 1, deletions: 1 });
 });

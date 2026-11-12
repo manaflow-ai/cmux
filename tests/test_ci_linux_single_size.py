@@ -107,7 +107,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cmux-next-web.yml": 0,
     "cmux-next.yml": 0,
     "cmux-skill-contract.yml": 0,
-    "cmux-terminal-client-xcframework.yml": 0,
     "cmux-tui-artifacts-retry.yml": 0,
     "cmux-tui-nightly.yml": 0,
     "cmux-tui-release-cut.yml": 0,

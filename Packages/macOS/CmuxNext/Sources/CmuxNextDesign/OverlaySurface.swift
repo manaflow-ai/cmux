@@ -287,15 +287,16 @@ public final class OverlaySurfaceView: NSView {
                 materialView?.layer?.borderColor = nil
                 return
             }
+            let veil = tone.style.map { Palette.veil(of: $0) }
             switch material {
             case .liquidGlass:
-                (materialView as? GlassPanelView)?.tintColor = isClear ? nil : look?.veil.nsColor ?? overlayTint
+                (materialView as? GlassPanelView)?.tintColor = isClear ? nil : veil ?? overlayTint
                 if let card {
                     tintView?.layer?.backgroundColor = card.tint.nsColor.cgColor
                     tintView?.layer?.borderColor = Borders.color(card.rim.nsColor).cgColor
                 }
             case .vibrancy:
-                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? look?.veil.nsColor ?? overlayTint).cgColor
+                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? veil ?? overlayTint).cgColor
                 // The neutral glass's rim replaces the hairline.
                 materialView?.layer?.borderColor = look == nil
                     ? Borders.color(card?.rim.nsColor ?? Palette.separator).cgColor : NSColor.clear.cgColor
@@ -313,14 +314,11 @@ public final class OverlaySurfaceView: NSView {
                      minimumOpacity: ChromeTunables.cardOpacity.value)
     }
 
-    /// The theme's glass tint, its alpha scaled by the overlay tint
-    /// strength tunable (default 1.25, a little denser than the theme
-    /// tint so text over busy content stays readable; 1 is unchanged).
+    /// The theme's glass tint at the popover glass level (``GlassLevel/popover``), through the
+    /// overlay tint strength tunable that defaults to it (1.25, a little denser than the theme tint
+    /// so text over busy content stays readable; 1 is unchanged).
     private var overlayTint: NSColor {
-        let tint = Palette.glassTint
-        let strength = ChromeTunables.glassOverlayTintStrength.value
-        guard strength != 1 else { return tint }
-        return tint.withAlphaComponent(min(max(tint.alphaComponent * strength, 0), 1))
+        GlassLevel.scaled(Palette.glassTint, by: ChromeTunables.glassOverlayTintStrength.value)
     }
 }
 

@@ -28,6 +28,17 @@ pub(super) fn handle_connection_frame(
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_frame(mux, client, message, writer);
     }
+    // A carrier stream's signed role, stamped by the session host before the person's first
+    // byte (carrier_role.rs).
+    #[cfg(unix)]
+    if let Some(keep_open) = carrier_role::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    // A phone's channel reaches only what hostd's Cloud ACP adapter sends (phone_carrier.rs).
+    #[cfg(unix)]
+    if let Some(keep_open) = phone_carrier::refuse_line(mux, client, message, writer) {
+        return keep_open;
+    }
     // Before the acknowledgement the handoff can still fail (for example
     // while `end_terminals` awaits every host) and this daemon keeps
     // serving. Closing here would drop the requester's pending
@@ -186,6 +197,9 @@ pub(super) fn handle_request_with_cancellation(
     }
     if let Command::ChiefInspect(params) = cmd {
         return chief_inspect::start(mux, client, id, params, writer);
+    }
+    if let Command::ShellRead(params) = cmd {
+        return shell_wire::read(mux, client, id, params, writer);
     }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, writer);

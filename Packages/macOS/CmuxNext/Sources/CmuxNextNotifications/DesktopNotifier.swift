@@ -45,7 +45,8 @@ package final class DesktopNotifier: NSObject {
     /// A reply banner's text sent: the notification id, its tab's surface handle and the text.
     package var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
     /// An approval banner's Allow once (true) or Deny (false): the notification id, its tab's surface handle.
-    package var onApprove: ((_ id: String, _ surface: UInt64?, _ allow: Bool) -> Void)?
+    /// `always`: the banner's Always allow (an allow that lasts), where its prompt offers one.
+    package var onApprove: ((_ id: String, _ surface: UInt64?, _ allow: Bool, _ always: Bool) -> Void)?
     /// Mark as Read: the notification id and its tab's surface handle; the tab is read, not opened.
     package var onMarkRead: ((_ id: String, _ surface: UInt64?) -> Void)?
     /// The category of banners with a Reply field, and its action.
@@ -108,12 +109,13 @@ package final class DesktopNotifier: NSObject {
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     package func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
-              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, category: String? = nil,
-              incognito: Bool = false) {
+              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, alwaysAllow: Bool = false,
+              category: String? = nil, incognito: Bool = false) {
         // An incognito window's banner names nothing of it (DesktopNotifier+Incognito); `posted` records what it shows.
         let title = incognito ? Self.incognitoTitle : title, subtitle = incognito ? nil : subtitle, body = incognito ? Self.incognitoBody : body
         let attachment = incognito ? nil : attachment, approval = approval && !incognito
-        let category = category ?? (approval ? AgentApprovalBanners.category : reply ? Self.replyCategory : Self.defaultCategory)
+        let approvalCategory = alwaysAllow ? AgentApprovalBanners.alwaysCategory : AgentApprovalBanners.category
+        let category = category ?? (approval ? approvalCategory : reply ? Self.replyCategory : Self.defaultCategory)
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
                              approval: approval, category: category))
@@ -204,9 +206,10 @@ package final class DesktopNotifier: NSObject {
         onMarkRead?(id, surface)
     }
 
-    /// An approval banner's Allow once or Deny, also used by `debug.notifications` (allow, deny).
-    package func approve(id: String, surface: UInt64?, allow: Bool) {
-        onApprove?(id, surface, allow)
+    /// An approval banner's Allow once, Always allow (`always`) or Deny, also used by
+    /// `debug.notifications` (allow, always_allow, deny).
+    package func approve(id: String, surface: UInt64?, allow: Bool, always: Bool = false) {
+        onApprove?(id, surface, allow, always)
     }
 
     /// CEF embeds the same executable in helper app bundles whose identifiers
@@ -250,8 +253,8 @@ package final class DesktopNotifier: NSObject {
             center.removeAllDeliveredNotifications()
             center.removeAllPendingNotificationRequests()
         }
-        center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(), AgentApprovalBanners.notificationCategory(),
-                                          IPhonePairNotices.notificationCategory()])
+        center.setNotificationCategories(Set([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(),
+                                              IPhonePairNotices.notificationCategory()] + AgentApprovalBanners.notificationCategories()))
         self.center = center
         return center
     }
@@ -327,10 +330,12 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let markRead = response.actionIdentifier == Self.markReadAction
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)
+        let always = AgentApprovalBanners.isAlways(response.actionIdentifier)
         Task { @MainActor [weak self] in
             if isDefault { self?.open(id: id, surface: surface) }
             if let replied { self?.reply(id: id, surface: surface, text: replied) }
             if let approved { self?.approve(id: id, surface: surface, allow: approved) }
+            if always { self?.approve(id: id, surface: surface, allow: true, always: true) }
             if markRead { self?.markRead(id: id, surface: surface) }
         }
         completionHandler()

@@ -48,7 +48,9 @@ extension SidebarListViewComponents {
         let target = after.settle(from: before, offset: offset, focused: previousActive, newFocus: active,
                                   padding: SidebarLayout.revealPadding, userMoved: userMoved,
                                   extent: selectionReveal(in: layout, height: height))
-        let toNewRow = active.map { before.item($0) == nil && after.item($0) != nil } ?? false
+        // A workspace new to the model (Cmd-N). A known one the selection lists again (a collapsed group's member, a
+        // Done row out of its fold, Cmd-1…9) is a move like any other: it opens in its gap while the list scrolls.
+        let toNewRow = active.map { before.item($0) == nil && after.item($0) != nil && isNewToModel($0) } ?? false
         // Cmd-N (Lawrence 2026-10-28, sidebar-burst-motion.md): a new row the reveal shows where the list already is
         // (the list at its top, the row inserted there) needs no scroll at all. The anchor shift would move the rows
         // and the offset down together and the reveal would jump back in one frame, so the rows below would stand in
@@ -91,6 +93,13 @@ extension SidebarListViewComponents {
         // The jump ends as the instant scroll it replaces did: the old viewport's rows park, a group editor follows, the
         // hover follows the scroll. Apply already realized the rows in view, so this makes no row view.
         if jumps { realizeVisibleRows() }
+    }
+
+    /// Whether `key` stands for something the model did not hold at the last apply (`appliedSections`): a workspace
+    /// row only when the workspace is new; any other row as before.
+    private func isNewToModel(_ key: SidebarRowKey) -> Bool {
+        guard case let .workspace(id) = key else { return true }
+        return !appliedSections.contains { $0.workspaces.contains { $0.id == id } }
     }
 
     /// The identity a reveal tracks for the selection: its workspace, group or

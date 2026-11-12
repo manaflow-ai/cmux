@@ -220,9 +220,26 @@ public final class GhosttyRuntime {
         for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) + highlightLines(themeEdits.highlight) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
-        for line in fontOverrideLines(fontOverride) {
+        let fallbackFamilies = fontOverride.family == nil ? [] : GhosttyConfigFontFamily.families(
+            inFiles: finalizedLoadedFiles(of: config))
+        for line in fontOverrideLines(fontOverride, fallbackFamilies: fallbackFamilies) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
+        return finalizeConfig(config, diagnostics: &diagnostics, opacity: &opacity, theme: theme)
+    }
+
+    /// Returns Ghostty's complete loaded-file list, including theme files resolved at finalize.
+    /// The returned paths are used only for reading configured fallback families; the live config
+    /// remains unfinalized so all cmux overrides can still be loaded into it.
+    nonisolated static func finalizedLoadedFiles(of config: ghostty_config_t) -> [String] {
+        guard let probe = ghostty_config_clone(config) else { return loadedFiles(of: config) }
+        defer { ghostty_config_free(probe) }
+        ghostty_config_finalize(probe)
+        return loadedFiles(of: probe)
+    }
+
+    private static func finalizeConfig(_ config: ghostty_config_t, diagnostics: inout [String], opacity: inout Double,
+                                      theme: String?) -> ghostty_config_t {
         // cmux.json's window background replaces the files' opacity and
         // blur, so the surfaces, the window and the theme read one value.
         var configured: Double = 1

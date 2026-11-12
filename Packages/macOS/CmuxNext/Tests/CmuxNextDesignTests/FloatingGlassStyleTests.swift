@@ -11,11 +11,8 @@ struct FloatingGlassStyleTests {
         ReduceTransparency(system: { on }, changes: NotificationCenter())
     }
 
-    private static func surface(of view: NSView) throws -> OverlaySurfaceView {
-        try #require(view.subviews.compactMap { $0 as? OverlaySurfaceView }.first)
-    }
-
-    /// The veil is gray, never a theme hue, and the rim is brighter at the top than the bottom.
+    /// The look's veil is gray (the toast paints it in the theme's tint, ``Palette/veil(of:)``),
+    /// and the rim is brighter at the top than the bottom.
     @Test(arguments: [false, true])
     func theLookIsNeutralWithATopLitRim(isDark: Bool) {
         for style in [FloatingGlassStyle.toast, .dialog, .card] {
@@ -29,31 +26,10 @@ struct FloatingGlassStyleTests {
         #expect(isDark ? toast.veil.white < 0.5 : toast.veil.white > 0.5)
     }
 
-    /// The toast is glass (not the opaque surface) with the neutral tone and a rim.
-    @Test func theToastIsNeutralGlassWithARim() throws {
-        let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Restart cmux-tui to use new features"),
-                                 reduceTransparency: Self.reduceTransparency(false))
-        let surface = try Self.surface(of: view)
-        #expect(surface.material != .opaque)
-        #expect(surface.tone == .neutral)
-        #expect(surface.rimView != nil)
-        #expect(surface.cornerRadius == FloatingGlassStyle.toast.cornerRadius)
-    }
-
-    /// Reduce Transparency still gets the opaque theme surface, with no rim.
-    @Test func reduceTransparencyKeepsTheToastOpaque() throws {
-        let view = CmuxToastView(toast: CmuxToast(id: "t", message: "Saved"),
-                                 reduceTransparency: Self.reduceTransparency(true))
-        let surface = try Self.surface(of: view)
-        #expect(surface.material == .opaque)
-        #expect(surface.rimView == nil)
-    }
-
-    /// The confirm dialog uses the same neutral glass and rim.
+    /// The confirm dialog's card (the sheet glass the dialog drawing puts under the overlay page)
+    /// uses the same neutral glass and rim.
     @Test func theDialogUsesTheSharedGlass() throws {
-        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Restart cmux-tui?", lines: ["Terminals keep running."],
-                                                         buttons: [.cancel(), .ok("Restart")]))
-        let surface = try #require(dialog.surface)
+        let surface = Glass.makeSurface(.sheet, content: NSView())
         #expect(surface.tone == .neutral)
         if surface.material != .opaque { #expect(surface.rimView != nil) }
     }

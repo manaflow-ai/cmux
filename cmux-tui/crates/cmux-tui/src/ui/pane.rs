@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use cmux_tui_core::{BrowserStatus, Rect, ShownProgramStatus, SurfaceKind};
+use cmux_tui_core::{AgentStatus, BrowserStatus, Rect, ShownProgramStatus, SurfaceKind};
 use ghostty_vt::{ProgramStatusState, RenderState};
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
@@ -178,15 +178,17 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let screen = frame.area();
     let theme = app.config.theme;
     let buf = frame.buffer_mut();
-    let notification = app
-        .tree
-        .pane(area.pane)
-        .and_then(|pane| pane.tabs.get(pane.active_tab))
-        .and_then(|tab| tab.notification)
-        .filter(|notification| notification.unread);
-    let style = notification
-        .map(|notification| Style::default().fg(notification_color(&theme, notification)))
-        .unwrap_or_else(|| border_style(app, focused));
+    let active_tab = app.tree.pane(area.pane).and_then(|pane| pane.tabs.get(pane.active_tab));
+    let marked = active_tab.is_some_and(|tab| tab.attention.is_some());
+    let notification =
+        active_tab.and_then(|tab| tab.notification).filter(|notification| notification.unread);
+    let style = if marked {
+        Style::default().fg(theme.notification_warning)
+    } else {
+        notification
+            .map(|notification| Style::default().fg(notification_color(&theme, notification)))
+            .unwrap_or_else(|| border_style(app, focused))
+    };
     let glyphs = theme.border_style.glyphs();
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
@@ -275,16 +277,28 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     // A docked workspace's panes draw beside the active screen's.
     let Some(pane) = app.tree.pane(area.pane) else { return };
     let tab_cfg = app.config.tabs.clone();
-    let tabs: Vec<(String, Option<String>)> = pane
+    let tabs: Vec<(String, Option<String>, Option<AgentStatus>)> = pane
         .tabs
         .iter()
         .enumerate()
         .map(|(i, t)| {
+            let agent = app.sidebar_status.tab(t.surface);
             let mut label = tab_label(&tab_cfg, i, &t.title, t.name.as_deref());
-            if t.notification.is_some_and(|notification| notification.unread) {
+            // A done agent's glyph already says "finished, unseen".
+            if agent != Some(AgentStatus::Done)
+                && t.notification.is_some_and(|notification| notification.unread)
+            {
                 label.push_str(" •");
             }
-            (label, t.program_status.and_then(program_status_mark))
+            // An agent's `cmux attention request` mark reads like a program
+            // that waits on the user.
+            let mark = t.program_status.and_then(program_status_mark);
+            let mark = if t.attention.is_some() && mark.as_deref() != Some("!") {
+                Some(mark.map_or_else(|| "!".to_owned(), |mark| format!("{mark} !")))
+            } else {
+                mark
+            };
+            (label, mark, agent)
         })
         .collect();
     let active_tab = pane.active_tab;
@@ -377,19 +391,28 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     // Layout the tab labels: " 1 zsh " ... " + ", scrolled so the range
     // starting at tab_scroll fits; the active tab is always kept visible.
     let min_w = tab_cfg.min_width as usize;
-    let labels: Vec<String> = tabs
+    // Each label, and the cell offset of its agent status glyph.
+    let (labels, agent_glyphs): (Vec<String>, Vec<Option<(u16, AgentStatus)>>) = tabs
         .iter()
-        .map(|(t, mark)| {
-            // The status mark follows the truncated title so it always shows.
-            let label = match mark {
-                Some(mark) => format!(" {} {mark} ", truncate(t, 16)),
-                None => format!(" {} ", truncate(t, 16)),
+        .map(|(t, mark, agent)| {
+            // The agent's status leads; the program status mark follows the
+            // truncated title so both always show.
+            let glyph = agent.map(crate::sidebar_status::status_glyph);
+            let label = match (glyph, mark) {
+                (Some(glyph), Some(mark)) => format!(" {glyph} {} {mark} ", truncate(t, 16)),
+                (Some(glyph), None) => format!(" {glyph} {} ", truncate(t, 16)),
+                (None, Some(mark)) => format!(" {} {mark} ", truncate(t, 16)),
+                (None, None) => format!(" {} ", truncate(t, 16)),
             };
             // Pad to the configured minimum width, keeping the text centered-ish.
             let short = min_w.saturating_sub(label.width());
-            format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2))
+            let glyph_offset = agent.map(|agent| ((short / 2 + 1) as u16, agent));
+            (
+                format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2)),
+                glyph_offset,
+            )
         })
-        .collect();
+        .unzip();
     // Pill and slant chips wrap solid tabs in cap glyphs, one cell on each
     // side; the caps take part in layout, scrolling, and hit rects.
     let chip_caps = tab_cfg.solid_background.then(|| tab_cfg.style.caps()).flatten();
@@ -430,7 +453,9 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         }
         let is_active = i == active_tab;
         let mut style = if is_active { active_style } else { base };
-        if let Some(notification) =
+        if pane.tabs.get(i).is_some_and(|tab| tab.attention.is_some()) {
+            style = style.fg(theme.notification_warning);
+        } else if let Some(notification) =
             pane.tabs[i].notification.filter(|notification| notification.unread)
         {
             style = style.fg(notification_color(&theme, notification));
@@ -460,6 +485,15 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             buf.set_stringn(origin_x + x, origin_y, label, w as usize, style);
             if tab_cfg.solid_background && is_active {
                 buf[(origin_x + x, origin_y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+            }
+        }
+        if let Some(&Some((offset, agent))) = agent_glyphs.get(i) {
+            let glyph_x = x + u16::from(chip_caps.is_some()) + offset;
+            if glyph_x < x + w.saturating_sub(u16::from(chip_caps.is_some())) {
+                let color =
+                    super::sidebar::status_indicator(&theme, chrome.sidebar_dim_fg, agent).color;
+                buf[(origin_x + glyph_x, origin_y)]
+                    .set_style(style.fg(color).add_modifier(Modifier::BOLD));
             }
         }
         if drop_index == Some(i) && x < max_x {
@@ -531,7 +565,19 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let selection_visible = app.selection_is_visible(area.surface);
     let selection: Option<Selection> =
         app.selection.filter(|s| s.surface == area.surface && selection_visible);
-    let selection_offset = selection.map(|_| app.surface_scroll_offset(area.surface)).unwrap_or(0);
+    // Copy mode replaces the mouse selection on its pane; outside copy mode
+    // this costs one branch per frame.
+    let copy_active = app.copy_mode_active();
+    let selection_offset = if selection.is_some() || copy_active {
+        app.surface_scroll_offset(area.surface)
+    } else {
+        0
+    };
+    let copy = if copy_active {
+        app.copy_overlay(area.surface, selection_offset, rect.height)
+    } else {
+        None
+    };
     let theme = app.config.theme;
 
     let rs = app
@@ -576,8 +622,19 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         &render,
         &theme,
         &app.chrome,
-        |col, row| selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
+        |col, row| match &copy {
+            Some(copy) => copy.selected(col, row),
+            None => selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
+        },
     );
+    let cursor = match &copy {
+        Some(copy) => {
+            let rows = render.frame.styled_rows();
+            super::copy_mode::paint_overlay(frame, live, source_x, rows, &theme, copy);
+            None
+        }
+        None => cursor,
+    };
     if !focused && theme.dim_inactive {
         let screen = frame.area();
         let max_x = rect.x.saturating_add(rect.width).min(screen.width);

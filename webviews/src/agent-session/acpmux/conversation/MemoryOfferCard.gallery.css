@@ -1,0 +1,10 @@
+/* The memory card's hover look (MemoryOfferCard.gallery.tsx), compared in the gallery only: each
+   line's Accept and Dismiss show on the hovered or focused line. */
+.cv-memory[data-look="hover"] .cv-memory__actions {
+  opacity: 0;
+}
+.cv-memory[data-look="hover"] .cv-memory__line:hover .cv-memory__actions,
+.cv-memory[data-look="hover"] .cv-memory__line:has([data-popup-open]) .cv-memory__actions,
+.cv-memory[data-look="hover"] .cv-memory__line:focus-within .cv-memory__actions {
+  opacity: 1;
+}

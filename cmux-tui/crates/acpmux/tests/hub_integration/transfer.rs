@@ -562,3 +562,113 @@ async fn a_stopped_chat_whose_move_only_began_is_not_replaced_by_a_receive() {
     assert_eq!(back["moving"], false, "given back: {back}");
     assert!(back["movedTo"].is_null(), "{back}");
 }
+
+/// `git` in `dir`, which must succeed.
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let out = std::process::Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+/// A chat in a linked worktree here, moved into a fresh clone of the branch on the target (as
+/// `acpmux session move` makes it on a machine without `wt`), runs its turns there. Its
+/// linked-worktree record (the source's root and git dir) went with it and never matched, so
+/// every turn there was refused as `session.folder_missing` while its folder was there.
+#[tokio::test]
+async fn a_chat_moved_from_a_linked_worktree_into_a_fresh_clone_runs_there() {
+    let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let root = tempfile::tempdir().unwrap();
+    let main = root.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(
+        &main,
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        ],
+    );
+    let linked = root.path().join("linked");
+    git(&main, &["worktree", "add", "-q", "-b", "lane/x", &linked.to_string_lossy()]);
+    let linked = linked.canonicalize().unwrap();
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": linked, "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+    let here = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+
+    // The target's fresh clone: its own repository, not a linked worktree of the source's.
+    let clone = root.path().join("clone");
+    git(root.path(), &["clone", "-q", "--branch", "lane/x", &main.to_string_lossy(), "clone"]);
+    let clone = clone.canonicalize().unwrap();
+    let begin = src.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
+    let received =
+        dst.request("_acpmux/transfer_receive", json!({"manifest": begin})).await.unwrap();
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    copy_bundle(&mut src, &mut dst, &begin, &receive_id).await;
+    dst.request(
+        "_acpmux/transfer_finish",
+        json!({"receiveId": receive_id, "epoch": begin["epoch"], "cwd": clone}),
+    )
+    .await
+    .unwrap();
+    src.request(
+        "_acpmux/transfer_commit",
+        json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}, "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+
+    let ran = dst.request(method::SESSION_PROMPT, prompt(&id, "p-there", "there")).await;
+    assert!(ran.is_ok(), "the moved chat's turn was refused: {ran:?} (source info: {here})");
+    assert_eq!(texts(&mut dst, &id, "user_message").await, ["hi", "there"]);
+}
+
+/// A chat moved into the same linked worktree (an export and import on one machine, or two
+/// daemons sharing it) keeps a record of it: once the folder is gone, its next turn makes it
+/// again from the checkout it was a worktree of (`worktree_care/revive.rs`).
+#[tokio::test]
+async fn a_chat_moved_into_the_same_linked_worktree_can_still_recreate_it() {
+    let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let (_b, mut dst) = setup(PermissionPolicy::ApproveAll).await;
+    let root = tempfile::tempdir().unwrap();
+    let main = root.path().join("main");
+    std::fs::create_dir_all(&main).unwrap();
+    git(&main, &["init", "-q", "-b", "main"]);
+    git(
+        &main,
+        &[
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        ],
+    );
+    let linked = root.path().join("linked");
+    git(&main, &["worktree", "add", "-q", "-b", "lane/y", &linked.to_string_lossy()]);
+    let linked = linked.canonicalize().unwrap();
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": linked, "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+    let committed = move_whole(&mut src, &mut dst, &id, json!({"sessionId": id})).await;
+    assert_eq!(committed["committed"], true, "{committed}");
+
+    std::fs::remove_dir_all(&linked).unwrap();
+    let ran = dst.request(method::SESSION_PROMPT, prompt(&id, "p-back", "back")).await;
+    assert!(ran.is_ok(), "the moved chat's folder was not made again: {ran:?}");
+    assert!(linked.is_dir(), "its linked worktree is back");
+    assert_eq!(texts(&mut dst, &id, "user_message").await, ["hi", "back"]);
+}

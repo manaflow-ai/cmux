@@ -4,6 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextTabs
+import CmuxNextWindowRules
 
 /// Tab group actions (architecture.md section 7): create,
 /// membership, rename, nine colors, collapse, ungroup, close, reorder, move
@@ -15,11 +16,12 @@ enum TabGroupHandlers {
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let gate = ctx.needs(DaemonCapability.tabGroups.rawValue)
-        func bind(_ id: ActionID, _ invoke: @escaping @MainActor (ActionInvocation) -> Void) {
-            registry.bind(id, unavailable: gate, invoke: invoke)
-        }
+        func bind(_ id: ActionID, _ invoke: @escaping @MainActor (ActionInvocation) -> Void) { registry.bind(id, unavailable: gate, invoke: invoke) }
         bindMembership(bind, ctx)
         ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { run in run.target.flatMap { $0.kind == .tab ? ctx.targetTab($0.id, run) : nil }.map { $0.0.tabGroup == nil } ?? false }
+        // A pinned tab never joins a group, and Add Tab to Group… asks for another group: with neither the row says why, never refuses a click.
+        ctx.setTargetReason("tabGroup.create") { run in ctx.actionTabs(run).flatMap { TabGroupWrites.pinnedRefusal(for: $0.tabs) } }
+        ctx.setTargetReason("tabGroup.addTab") { run in ctx.actionTabs(run).flatMap { TabGroupWrites.pinnedRefusal(for: $0.tabs) } ?? (run["group"] != nil ? nil : ctx.daemonTab(run).flatMap { TabGroupWrites.joinRefusal(for: $0.tab, in: ctx.services.daemon(for: $0.pane).store) }) }
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)
         TabGroupHandlers.bindMoves(bind, ctx)
@@ -55,13 +57,15 @@ enum TabGroupHandlers {
     /// Runs a group command with a transaction, shown at once through the
     /// store's intent log when it has an `intent`; a rejection re-pushes
     /// daemon truth into the pane's strip.
-    static func run(_ label: String, pane: PaneModel?, intent: Intent? = nil, _ ctx: AppActionContext,
-                    _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
+    static func run(_ label: String, pane: PaneModel?, intent: Intent? = nil, departing group: GroupID? = nil, into target: PaneModel? = nil,
+                    _ ctx: AppActionContext, _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) {
         // The pane's own machine, not the active window's daemon.
         let daemon = pane.map { ctx.services.daemon(for: $0) } ?? ctx.services.activeDaemon
         guard daemon.connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline) != nil else { return }
+        let departed = group.map { TabGroupMoves.depart($0, into: target, services: ctx.services) { _ in } }
         Task {
             let ok = await daemon.runGroupCommand(label, intent: intent, body)
+            departed?(ok)
             if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
         }
     }
@@ -157,8 +161,8 @@ enum TabGroupHandlers {
     private static func setCollapsed(_ value: Bool?, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (group, pane) = group(invocation, ctx) else { return }
         let current = pane.tabGroups.first { $0.id == group }?.collapsed ?? false
-        let collapsed = value ?? !current
-        guard collapsed != current else { return }
+        // Nil: no change (Rust's `tabs::group_collapse`).
+        guard let collapsed = WindowRules().groupCollapse(value, current: current) else { return }
         if collapsed, let controller = ctx.services.paneController(for: pane) {
             // The collapse rule (`TabGroupOrdering`), shared with screen groups.
             let strip = controller.stripModel
@@ -194,8 +198,7 @@ enum TabGroupHandlers {
                 let surviving = ordered.filter { $0.groupID != CmuxNextTabs.TabGroupID(group.rawValue) }
                 let collapsed = Set(controller.stripModel.groups.filter(\.isCollapsed).map(\.id))
                 let hidden = Set(surviving.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id))
-                let opener = ctx.services.cache.pageRequests.openers.relations(among: pane.tabs).reduce(into: [CmuxNextTabs.TabID: CmuxNextTabs.TabID]()) { $0[CmuxNextTabs.TabID($1.key)] = CmuxNextTabs.TabID($1.value) }
-                if let next = FocusAfterClose.tab(selected: selected, old: ordered.map(\.id), surviving: surviving.map(\.id), shown: Set(surviving.map(\.id)).subtracting(hidden), opener: opener) {
+                if let next = FocusAfterClose.tab(selected: selected, old: ordered.map(\.id), surviving: surviving.map(\.id), shown: Set(surviving.map(\.id)).subtracting(hidden)) {
                     controller.select(next)
                 }
             }

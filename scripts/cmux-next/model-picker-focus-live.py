@@ -97,9 +97,11 @@ def focus():
     return state["focus"] if state else None
 
 
-state_dir = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
-if os.path.isdir(state_dir) and not os.path.islink(state_dir):
-    os.rename(state_dir, state_dir + ".old-" + str(int(time.time())))
+# NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that at launch).
+for state_dir in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}"),
+                  os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+    if os.path.isdir(state_dir) and not os.path.islink(state_dir):
+        os.rename(state_dir, state_dir + ".old-" + str(int(time.time())))
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 os.makedirs(HOME_ACP, exist_ok=True)

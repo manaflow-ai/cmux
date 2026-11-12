@@ -17,9 +17,26 @@ extension HomeStore {
 
     /// Agent `peer`'s chat with the Chief in `conversation` (the agent pane's content), or nil when no
     /// loaded run has a message with it. Reads the transcript, so an observer follows new reports.
+    /// An agent queued at its newest message that has started (the Chief's acpmux listed its session,
+    /// ``agentsStarted(_:)``, or its spawn records name one) is working.
     public func agentThread(_ peer: String, in conversation: ConversationID) -> HomeAgentThread? {
         let items = transcript(for: conversation)
-        return agentMessages[conversation]?.thread(peer: peer, in: items, me: me?.id)
+        guard var thread = agentMessages[conversation]?.thread(peer: peer, in: items, me: me?.id) else { return nil }
+        if thread.state == .queued, startedAgents.contains(peer)
+            || agentSessions[conversation]?.values.contains(where: { $0.peer == peer }) == true {
+            thread.state = .told
+        }
+        return thread
+    }
+
+    /// The agents of `conversation` still waiting for a slot, in the order the Chief starts them (lowest id
+    /// first; a `control priority` it gave one is not in Home's rows): a queued agent's chat says how many are
+    /// ahead of it. An agent whose session showed (``agentsStarted(_:)``) is not waiting. Reads the transcript's
+    /// version, so an observer follows starts.
+    public func queuedAgents(in conversation: ConversationID) -> [String] {
+        _ = transcriptVersion[conversation]
+        let started = startedAgents.union(agentSessions[conversation]?.values.map(\.peer) ?? [])
+        return agentMessages[conversation]?.queuedPeers(started: started) ?? []
     }
 
     /// The person wrote `text` to agent `peer` from the agent pane: it goes to the Chief's chat as a

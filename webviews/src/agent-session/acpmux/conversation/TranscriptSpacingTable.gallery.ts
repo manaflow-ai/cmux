@@ -215,7 +215,8 @@ const peerLines = () => {
 
 /// Leo's 2026-11-03 04:44Z captures ("this is pretty bad spacing and formatting" / "i thought we made
 /// this stuff smaller"), the bottom of a running Claude Code turn, two ways. `working-bottom`: its
-/// work folded to "Sent a message, ran 3 commands, used 3 tools", a subagent that finished, the live
+/// work in sight as it runs (a message sent, 3 commands, 3 reads; nothing folds before the turn
+/// ends, cmux#38339), a subagent that finished, the live
 /// "Thinking" line and "1 message from 1 session" waiting. `reply-received`: a finished reply, then
 /// another machine's lane's message, the turn it started sending a message on, and "Thinking". Every
 /// one of those status rows sits on the tool rows' 22 pitch, 16 from the prose around them
@@ -488,7 +489,7 @@ export default agentPaneEntry({
       ),
     },
     "working-bottom": {
-      note: 'Leo\'s 2026-11-03 capture, the bottom of a running turn: "Sent a message, ran 3 commands, used 3 tools", a finished subagent, "Thinking" and "1 message from 1 session", each on the 22 pitch.',
+      note: 'Leo\'s 2026-11-03 capture, the bottom of a running turn: its work in sight (a message sent, 3 commands, 3 reads), a finished subagent, "Thinking" and "1 message from 1 session", each on the 22 pitch.',
       snapshot: workingBottom(),
     },
     "reply-received": {

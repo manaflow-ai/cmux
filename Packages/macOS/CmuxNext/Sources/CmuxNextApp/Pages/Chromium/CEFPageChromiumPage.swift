@@ -34,6 +34,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     /// The tab's page window clip (`CEFTab.pageWindowClip`, window coordinates).
     var windowClip: CGPath? { tab.pageWindowClip }
+    var dockedDevTools: (page: CGRect, devTools: CGRect)? { tab.dockedDevToolsFrames }
+    func devToolsImage() async -> CGImage? { try? await tab.devToolsSnapshot() }
 
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
@@ -45,12 +47,12 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
                 tab.pageResources = nil
                 return
             }
-            tab.pageResources = { url, range in
-                let answer = await resources(url, range)
-                return CEFPageResponse(status: answer.status, mimeType: answer.mimeType, body: answer.body, rangeHeaders: answer.rangeHeaders,
-                                       csp: answer.csp)
-            }
+            tab.pageResources = { url, range in CEFPageResponse(await resources(url, range)) }
         }
+    }
+
+    var readyResources: (@MainActor (URL) -> PageChromiumResponse?)? {
+        didSet { tab.readyPageResource = readyResources.map { ready in { @MainActor url in ready(url).map { CEFPageResponse($0) } } } }
     }
 
     private func listen() {
@@ -152,8 +154,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         case .contextMenu(let request):
             // The page host builds the menu the WebKit page shows; Chromium's own rows do not show.
             guard let onEvent else { return request.complete(nil) }
-            onEvent(.contextMenu(PageChromiumContextMenu(location: request.location, selection: request.target.selection,
-                                                         isEditable: request.target.isEditable) { request.complete(nil) }))
+            onEvent(.contextMenu(PageChromiumContextMenu(location: request.location, selection: request.target.selection, isEditable:
+                request.target.isEditable, link: request.target.linkURL) { request.complete(nil) }))
         case .notice(let text):
             logger.info("page \(self.pageID, privacy: .public) notice: \(text, privacy: .public)")
         default:

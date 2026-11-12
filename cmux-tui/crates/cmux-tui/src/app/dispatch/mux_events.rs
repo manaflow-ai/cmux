@@ -12,6 +12,11 @@ use crate::localization;
 
 impl App {
     pub(super) fn on_mux_empty(&mut self) -> anyhow::Result<RenderAction> {
+        // A plain session client follows its daemon's announced departure:
+        // it reconnects after a restart and says so after a stop.
+        if let Some(action) = self.follow_daemon_departure() {
+            return Ok(action);
+        }
         // A genuinely emptied workspace list and a dead event
         // transport both end the event stream with this event, but
         // only the former is a clean exit. The remote reader records

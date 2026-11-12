@@ -357,6 +357,8 @@ export const GitHubTokenRequest = Schema.Struct({
   team: Schema.optionalKey(TeamId),
   repo: GitHubRepoName,
   permissions: GitHubTokenPermissions,
+  /** When selected in the repository picker, require this exact authorized connection. */
+  connection: Schema.optionalKey(ConnectionId),
   label: Schema.optionalKey(Label),
 })
 /** POST /v1/integrations/github/machine-token: the machine-only connector path may set a short TTL. */
@@ -364,6 +366,7 @@ export const GitHubMachineTokenRequest = Schema.Struct({
   team: Schema.optionalKey(TeamId),
   repo: GitHubRepoName,
   permissions: GitHubTokenPermissions,
+  connection: Schema.optionalKey(ConnectionId),
   label: Schema.optionalKey(Label),
   ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
 })

@@ -273,6 +273,7 @@ pub fn context(request: &Value) -> Result<CallContext, String> {
         label: text("label").unwrap_or("Agent").to_string(),
         call_id: text("call_id").map(str::to_string),
         origin,
+        tag: text("tag").map(str::to_string),
     })
 }
 

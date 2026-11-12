@@ -128,7 +128,7 @@ extension BrowserProfileService {
     func makeProfile(name: String?, color: String? = nil, icon: String? = nil) async throws -> String {
         let defaults = newProfileDefaults(name: name, color: color)
         let id = try await createProfile(name: defaults.name, color: defaults.color, icon: icon)
-        try await awaitReported(id, deadline: .seconds(5))
+        try await awaitReported(id, deadline: .seconds(5)) // timeout: the create succeeded; a record never mirrored refuses the open
         return id
     }
 

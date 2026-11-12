@@ -12,6 +12,8 @@
    --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
    their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
    review, the diff, Session Info) the stack is in the pane's flow under the stage. */
+/* The app's toasts take no room here: the page reports this stack's box and the host lifts the
+   toasts above it (toastAvoidance.ts), so the composer never moves for a toast (Leo 2026-11-07). */
 /* The stage holds the header (44px, styles.css) over the transcript. */
 .acpmux-main > .acpmux-stage {
   min-height: calc(44px + var(--acpmux-transcript-min, 96px));
@@ -34,7 +36,9 @@
 /* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
    gives that up first, down to 64 px above the stack, so a short pane with a queued prompt keeps the
    quiet row inside it (re-review of #22285). */
-.acpmux-main[data-dock="float"]:has(.acpmux-composer-foot) > .acpmux-dock {
+/* The dock is the `:has()` subject, never the pane: one on the pane would be checked again for every node a
+   streamed chunk inserts into the transcript (test/agent-pane-stream-composer-still.test.ts). */
+.acpmux-main[data-dock="float"] > .acpmux-dock:has(.acpmux-composer-foot) {
   max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
 }
 /* A part of the floating stack is a band the pane's width wide whose card or bar sits inset in it by
@@ -112,6 +116,55 @@
   > .acpmux-composer-box:not(.acpmux-composer-queue ~ *)::before {
   border-radius: inherit;
 }
+/* The joined stack in the shared glass material (glass.css "GLASS MATERIAL"; Leo's image of
+   2026-11-05, the composer hat over the composer): one glass is lit once, from above. The tray's top
+   takes the card's light (its specular line, the soft band into the top corners and the sheen under
+   the top edge, at the card's glint, composerStates.css), and a card right under it gives up its own
+   top light, keeping the hairline where they meet and the return along its bottom. Before, the
+   card's bright top line ran across the middle of the stack under the hat, and the hat's top had
+   only the hairline. Over a see-through window the tray's frost is the card's vivid one. Reduce
+   Transparency, Lens and Spectrum over art, and the gallery's `cards` look keep what they drew.
+   test/composer-hat-material.test.ts measures it. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+      [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
+    )
+    .acpmux-dock
+    > .acpmux-running-tray[data-card]:has(+ .acpmux-composer > .acpmux-composer-box.ui-glass-material) {
+    --acpmux-tray-glint: var(--acpmux-composer-glint, 0.5);
+    --acpmux-tray-specular: light-dark(
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(95% * var(--glass-rim)), transparent),
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(48% * var(--glass-rim) * var(--acpmux-tray-glint)), transparent)
+    );
+    --acpmux-tray-sheen: light-dark(
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(34% * var(--glass-rim)), transparent),
+      color-mix(in srgb, var(--cmux-tone-light, #fff) calc(7% * var(--glass-rim) * var(--acpmux-tray-glint)), transparent)
+    );
+    box-shadow:
+      inset 0 var(--cmux-hairline, 0.5px) 0 var(--acpmux-composer-edge, transparent),
+      inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge, transparent),
+      inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge, transparent),
+      inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-tray-specular),
+      inset 1px 1.5px 1px -1px var(--acpmux-tray-specular),
+      inset 0 16px 20px -16px var(--acpmux-tray-sheen);
+  }
+  :root[data-cmux-see-through]:not([data-reduce-transparency], [data-bottom-stack="cards"], [data-glass="lens"], [data-glass="spectrum"])
+    .acpmux-dock
+    > .acpmux-running-tray[data-card]:has(+ .acpmux-composer > .acpmux-composer-box.ui-glass-material) {
+    --acpmux-tray-frost: var(--glass-material-backdrop);
+  }
+  :root:not([data-reduce-transparency], [data-bottom-stack="cards"]):not(
+      [data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])
+    )
+    .acpmux-dock
+    > .acpmux-running-tray[data-card]
+    + .acpmux-composer
+    > .acpmux-composer-box.ui-glass-material:not(.acpmux-composer-queue ~ *) {
+    --acpmux-composer-rim:
+      inset -1px -1px 1px -1px var(--glass-material-return),
+      inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-material-return);
+  }
+}
 .acpmux-dock > .acpmux-composer {
   display: flex;
   flex: 0 1 auto;
@@ -184,4 +237,54 @@
    cut there. */
 .acpmux-composer-queue > li {
   --ui-enter-distance: 0px;
+}
+/* SEND-TUCK: a prompt sent while the transcript is scrolled up arcs over the composer and tucks
+   behind it (conversation/sendTuck.ts; Leo, 2026-11-08: "it kind of, like, waterfalls over the
+   composer if you think of the composer as a bar"). Two layers over the pane, over the composer and
+   the transcript's floating controls (Jump to latest, layer-sticky), hold a copy each; the falling
+   copy's layer ends at the composer's top edge. Neither takes the pointer; the copy is a small
+   sent-prompt pill with its chips' thumbnails. */
+.acpmux-send-tuck-layer {
+  position: absolute;
+  z-index: var(--layer-sticky);
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+.acpmux-send-tuck-layer[data-send-tuck-layer="over"] {
+  height: 0;
+}
+.acpmux-send-tuck {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(320px, 60%);
+  transform-origin: 50% 100%;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+.acpmux-send-tuck__pill {
+  overflow: hidden;
+  min-width: 0;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface, Canvas));
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+  line-height: 24px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-send-tuck__pill--chip {
+  flex: 0 1 auto;
+  max-width: 96px;
+}
+.acpmux-send-tuck__thumb {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  object-fit: cover;
 }

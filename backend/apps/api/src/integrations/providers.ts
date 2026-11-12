@@ -43,7 +43,7 @@ export const requestInstallationToken = async (env: Env, http: Http, installatio
 export const mintedToken = async (res: Response) => {
   const body = await json(res)
   const perms = (body.permissions && typeof body.permissions === "object" ? body.permissions : {}) as Record<string, unknown>
-  return { token: String(body.token ?? ""), expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000, permissions: Object.fromEntries(Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string")) }
+  return { token: String(body.token ?? ""), expires_at: Date.parse(String(body.expires_at ?? "")), permissions: Object.fromEntries(Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string")) }
 }
 
 /** DELETE /installation/token with the token itself: true when GitHub revoked it or it is already dead. */

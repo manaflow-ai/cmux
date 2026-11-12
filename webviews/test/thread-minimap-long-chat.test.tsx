@@ -159,7 +159,7 @@ test("a 2,000-turn chat draws a bounded number of ticks, and the keyboard reache
           : Number.parseFloat((child as HTMLElement).style.height) || 0),
       0,
     );
-    expect(height).toBe(TURNS * 20);
+    expect(height).toBe(TURNS * 10);
     // Each row keeps its label: its place among all 2,000 and its prompt.
     expect(tick(TURNS - 1)!.getAttribute("aria-label")).toContain(`${TURNS}`);
     expect(tick(TURNS - 1)!.getAttribute("aria-label")).toContain(`Question ${TURNS - 1}`);

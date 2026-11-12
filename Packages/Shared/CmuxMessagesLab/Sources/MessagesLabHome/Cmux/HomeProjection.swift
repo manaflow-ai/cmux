@@ -26,6 +26,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var approvals: (any HomeApprovalDeciding)?
     var approvalWrites: [HomeApprovalWriteGate] = []
     var approvalCards: [String: HomeApprovalDisplay] = [:]
+    /// Each failed-turn card's Details and Copy state, by message (HomeProjection+TurnFailure).
+    var turnFailureCards: [ID: HomeTurnFailureRowProvider.Local] = [:]
+    /// Copy error's destination: the general pasteboard; tests record it.
+    var copyText: @MainActor (String) -> Void = { text in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
     var approvalLatestEvent: TimeInterval = -1
     var isPersonApprovalEvent: (NSEvent) -> Bool = { _ in false }
     let homeStore: HomeStore
@@ -120,6 +127,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var olderRequested = false
     private var reportedRead: Seq = 0
     private(set) var stopped = false
+    /// The watch of the widget host's changes (HomeProjection+Widgets.swift).
+    var widgetWatch: Task<Void, Never>?
     /// Return was pressed while only the cache knew this conversation: the
     /// send goes once the owner confirms it (`refresh`), in the thread that
     /// was open at the Return (`deferredThread`, nil root: the conversation), answering the
@@ -181,6 +190,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func start() {
         controller.approvalDecision = { [weak self] ref, allow in _ = self?.decideApproval(ref, allow: allow) }
+        controller.turnFailureAction = { [weak self] ref, action in self?.turnFailureAction(ref, action) }
         refresh()
         noteObservedInputs()
         observe()
@@ -190,17 +200,22 @@ final class HomeProjection: @preconcurrency ChatIntents {
         approvalWrites.forEach { $0.cancel() }
         approvalWrites.removeAll()
         stopped = true
+        stopWidgets()
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
         turnPopover?.close()
         controller.intents = nil
         controller.approvalDecision = nil
+        controller.turnFailureAction = nil
     }
 
     // MARK: HomeStore -> projection
 
     func refresh() {
-        defer { refreshApprovalStates() }
+        defer {
+            refreshApprovalStates()
+            refreshTurnFailureStates()
+        }
         refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
@@ -230,6 +245,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // MessagesLab hides a sender's typing dots while its stream has text (ask 11). Whole
         // messages: each running reply is its author's typing dots until its messages post.
         var mark = CACurrentMediaTime()
+        syncWidgets(items)
         let typing = wantedTyping.union(core.replyTypists(streams))
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)

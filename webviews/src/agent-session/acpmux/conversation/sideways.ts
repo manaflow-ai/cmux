@@ -6,17 +6,26 @@
 // thumb under them at rest (scrollers.ts), so a line cut at the edge reads as one that scrolls
 // (Leo 2026-10-21, ask-d900f5acf9). Trackpad swipes and Shift-wheel scroll the box itself (WebKit's
 // own sideways scroll; the app leaves a swipe over it to the page, PageInputReadiness `sideways`).
-import { installSidewaysScrollers, SIDEWAYS_ATTRIBUTE } from "../../../scrollers";
+// A reply's table also fades its left edge once scrolled (`MORE_LEFT`, conversation.css).
+import {
+  followShownScrollerFade,
+  installSidewaysScrollers,
+  markSidewaysEdges,
+  MORE_LEFT_ATTRIBUTE,
+  MORE_RIGHT_ATTRIBUTE,
+  SIDEWAYS_ATTRIBUTE,
+  SIDEWAYS_INK,
+  SIDEWAYS_SCROLLER_ATTRIBUTE,
+} from "../../../scrollers";
 
 /// On a sideways scroller while content lies past its right edge.
-export const MORE_RIGHT = "data-more-right";
-
-/// Whether `box` has content past its right edge (a half pixel of slack for zoomed pages).
-const moreRight = (box: Element) => box.scrollLeft + box.clientWidth < box.scrollWidth - 0.5;
+export const MORE_RIGHT = MORE_RIGHT_ATTRIBUTE;
+/// On a sideways scroller while content lies past its left edge (it was scrolled).
+export const MORE_LEFT = MORE_LEFT_ATTRIBUTE;
 /// Whether `box`'s content is wider than it, scrolled or not.
 const sideways = (box: Element) => box.clientWidth < box.scrollWidth - 0.5;
 
-/// Keeps `MORE_RIGHT` and `SIDEWAYS_ATTRIBUTE` current on `container` and on every Pierre code
+/// Keeps `MORE_LEFT`, `MORE_RIGHT` and `SIDEWAYS_ATTRIBUTE` current on `container` and on every Pierre code
 /// box inside it (its sideways scrollers, `[data-code]` in the shadow roots Pierre draws in): on
 /// each scroll and size change of one, and once a frame for the boxes whose lines changed.
 ///
@@ -30,7 +39,7 @@ export function watchSideways(container: HTMLElement): () => void {
   installSidewaysScrollers(container.ownerDocument);
   const view = container.ownerDocument.defaultView;
   /// Each watched box: its update, and what of it the size observer watches.
-  const watched = new Map<Element, { update: () => void; sized: Element[] }>();
+  const watched = new Map<Element, { update: () => void; sized: Element[]; unfade: () => void }>();
   /// Boxes whose lines changed since the last frame.
   const dirty = new Set<Element>();
   /// Custom elements without their shadow root yet: Pierre attaches it as it draws.
@@ -55,11 +64,16 @@ export function watchSideways(container: HTMLElement): () => void {
   const watch = (box: Element) => {
     if (watched.has(box)) return;
     const update = () => {
-      box.toggleAttribute(MORE_RIGHT, moreRight(box));
+      markSidewaysEdges(box);
       box.toggleAttribute(SIDEWAYS_ATTRIBUTE, sideways(box));
     };
     const sized = [box, ...box.children];
-    watched.set(box, { update, sized });
+    // A page-side sideways box (a table, a Shell body) fades its thumb in and out by script: WebKit
+    // never steps a CSS transition on a scrollbar part. Pierre's shadow-root boxes keep their own.
+    const unfade = box.hasAttribute(SIDEWAYS_SCROLLER_ATTRIBUTE)
+      ? followShownScrollerFade(box as HTMLElement, SIDEWAYS_INK)
+      : () => {};
+    watched.set(box, { update, sized, unfade });
     box.addEventListener("scroll", update, { passive: true });
     for (const element of sized) resize?.observe(element);
     update();
@@ -69,6 +83,7 @@ export function watchSideways(container: HTMLElement): () => void {
     const box = watched.get(element);
     if (box) {
       element.removeEventListener("scroll", box.update);
+      box.unfade();
       for (const sized of box.sized) resize?.unobserve(sized);
       watched.delete(element);
       dirty.delete(element);
@@ -137,7 +152,10 @@ export function watchSideways(container: HTMLElement): () => void {
     for (const observer of observers.values()) observer.disconnect();
     observers.clear();
     resize?.disconnect();
-    for (const [box, { update }] of watched) box.removeEventListener("scroll", update);
+    for (const [box, { update, unfade }] of watched) {
+      box.removeEventListener("scroll", update);
+      unfade();
+    }
     watched.clear();
     dirty.clear();
     hosts.clear();

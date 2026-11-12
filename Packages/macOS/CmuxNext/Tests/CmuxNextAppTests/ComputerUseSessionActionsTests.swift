@@ -22,11 +22,16 @@ struct ComputerUseSessionActionsTests {
             if let failure { throw failure }
             return sessions
         }
-        func stop(_ id: String) async throws { stopped.append(id) }
+        private(set) var raisedWindows: [String] = []
+        func stop(_ id: String) async throws {
+            if let failure { throw failure }
+            stopped.append(id)
+        }
         func stopAll() async throws {
             if let failure { throw failure }
             stoppedAll += 1
         }
+        func raiseWindow(_ id: String) async throws { raisedWindows.append(id) }
     }
 
     /// Records what the actions bring forward.
@@ -110,9 +115,45 @@ struct ComputerUseSessionActionsTests {
 
     @Test func focusComputerUseRaisesTheNewestSessionsTarget() async {
         let focus = FakeFocus()
-        let registry = Self.registry(FakeSessions([Self.newer, Self.older]), focus)
+        let sessions = FakeSessions([Self.newer, Self.older])
+        let registry = Self.registry(sessions, focus)
         #expect(await Self.run("computerUseFocus", registry) == nil)
         #expect(focus.raisedTargets == ["cua_new"])
+        #expect(sessions.raisedWindows == ["cua_new"], "its window first, then its app")
+    }
+
+    /// Runs `id` with a `session` argument, as the menu bar's per-agent rows do.
+    static func run(_ id: ActionID, session: String, _ registry: ActionRegistry) async -> String? {
+        var work: [ActionWork] = []
+        let refusal = registry.capturingRefusal {
+            work = registry.capturingWork {
+                _ = registry.perform(id, invocation: ActionInvocation(arguments: ["session": .string(session)]))
+            }
+        }
+        var failure: String? = refusal
+        for task in work {
+            if let failed = await task.value { failure = failure ?? failed.description }
+        }
+        return failure
+    }
+
+    /// The menu bar's per-agent Stop stops that agent only.
+    @Test func stopWithASessionStopsThatSessionOnly() async {
+        let sessions = FakeSessions([Self.older, Self.newer])
+        let registry = Self.registry(sessions, FakeFocus())
+        #expect(await Self.run("computerUseStop", session: "cua_old", registry) == nil)
+        #expect(sessions.stopped == ["cua_old"])
+        #expect(sessions.stoppedAll == 0)
+    }
+
+    /// The menu bar's per-agent Show Window shows that agent's window, not the newest one's.
+    @Test func showWindowWithASessionRaisesThatSessionsWindowAndApp() async {
+        let focus = FakeFocus()
+        let sessions = FakeSessions([Self.newer, Self.older])
+        let registry = Self.registry(sessions, focus)
+        #expect(await Self.run("computerUseFocus", session: "cua_old", registry) == nil)
+        #expect(sessions.raisedWindows == ["cua_old"] && focus.raisedTargets == ["cua_old"])
+        #expect(await Self.run("computerUseFocus", session: "cua_gone", registry) == ComputerUseSessionStrings.noLiveSession)
     }
 
     @Test func focusCallingTerminalRevealsTheTerminalThatStartedIt() async {

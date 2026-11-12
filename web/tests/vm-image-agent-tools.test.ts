@@ -41,6 +41,7 @@ import {
   RD_TMPFILES,
   RD_UNIT,
   RD_USER,
+  RD_LINK_STUN,
   RD_XAUTHORITY,
   rdCookieCopy,
   rdHostPath,
@@ -425,7 +426,7 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       expect(RD_PEER_UID).toBe(DEVBOX_WORK_UID);
       // ExecStart is the start script, which execs exactly this host command (rdStartScript).
       expect(unit).toContain(`\nExecStart=${RD_START_SCRIPT}\n`);
-      expect(rdStartScript(hostBin)).toContain(`exec '${hostBin}' host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264\n`);
+      expect(rdStartScript(hostBin)).toContain(`exec '${hostBin}' host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun ${RD_LINK_STUN}\n`);
       // The cookie copy lives in the host's own runtime dir, not in the socket dir the work user can traverse.
       expect(RD_HOST_DIR).toBe("/run/cmux-rd-host");
       expect(RD_XAUTHORITY).toBe("/run/cmux-rd-host/Xauthority-99");
@@ -448,8 +449,8 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       expect(unit).toContain("StateDirectory=cmux-rd\n");
       expect(unit).toContain("Environment=XDG_DATA_HOME=/var/lib/cmux-rd\n");
       for (const line of ["NoNewPrivileges=yes", "CapabilityBoundingSet=", "AmbientCapabilities=", "ProtectHome=yes", "ProtectSystem=strict", "PrivateTmp=yes", "BindReadOnlyPaths=/tmp/.X11-unix", "PrivateDevices=yes", "RestrictSUIDSGID=yes"]) expect(unit).toContain(`\n${line}\n`);
-      // The activated socket and the X display are Unix sockets: no network family at all.
-      expect(unit).toContain("\nRestrictAddressFamilies=AF_UNIX\n");
+      // The activated socket and the X display are Unix sockets; IPv4 (UDP) and netlink only for the datagram link.
+      expect(unit).toContain("\nRestrictAddressFamilies=AF_UNIX AF_INET AF_NETLINK\n");
       // A run of failed starts never leaves the socket failed.
       expect(unit).toContain("\nStartLimitIntervalSec=0\n");
       expect(unit).not.toContain("StartLimitBurst");
@@ -521,7 +522,7 @@ print(json.dumps({"status": p.returncode, "pid": p.pid, "stderr": err.strip(), "
       expect(pid).toBe(String(r.pid));
       expect(listenPid).toBe(String(r.pid));
       expect(listenFds).toBe("1");
-      expect(argv.join(" ")).toBe(`host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264`);
+      expect(argv.join(" ")).toBe(`host --listen-systemd --peer-uid ${DEVBOX_WORK_UID} --display :99 --xauthority ${RD_XAUTHORITY} --codec openh264 --link-stun ${RD_LINK_STUN}`);
       // The stub never accepted: the connection is still open (the real host would serve it).
       expect(r.clients).toEqual(["open"]);
     });

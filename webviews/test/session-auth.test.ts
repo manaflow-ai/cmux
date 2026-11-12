@@ -17,7 +17,8 @@ test("pre-send recovery distinguishes first login from an expired or failed logi
     ["ready", "authCheck", undefined],
     ["unknown", "none", undefined],
     ["routeUnreachable", "routeProbe", "Unavailable"],
-    ["peerUnreachable", "peerLink", "Unavailable"],
+    // The machine's link, not the model: the quiet row's machine link says it (MachineLinkStatus.tsx).
+    ["peerUnreachable", "peerLink", undefined],
   ] as const) {
     expect(authChipText(readSessionAuth({ state, source, evidenceAt: 1 }))).toBe(label);
   }

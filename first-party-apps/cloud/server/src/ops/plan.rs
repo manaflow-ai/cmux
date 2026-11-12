@@ -4,8 +4,8 @@
 //! billing owner; the server computes no limit itself (contract 1.5).
 
 use crate::api::args;
-use crate::api::models::Plan;
 use crate::api::{CloudError, ControlPlane, Ctx, codes, decode_answer};
+use cmux_cloud_wire::{CloudPlanGetOp, Op};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -38,7 +38,8 @@ pub(super) fn run<C: ControlPlane>(
     match name {
         "cloud.plan.get" => {
             args::object(raw, &[])?;
-            let plan: Plan = decode_answer(name, ctx.wire(name, json!({}))?.value)?;
+            let plan: <CloudPlanGetOp as Op>::Result =
+                decode_answer(name, ctx.wire(name, json!({}))?.value)?;
             Ok(json!(plan))
         }
         "cloud.billing.checkout" => {

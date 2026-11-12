@@ -21,7 +21,11 @@
 //                                          least-squares slope over the checkpoints (0.1: no O(rows) work per token)
 //   transcript_replay.long.tool_output_ms  and .tool_output_slope_ms_per_krow: the same for a shell call's streamed
 //                                          output update
+//   transcript_replay.long.thought_ms      and .thought_slope_ms_per_krow: the same for a streamed thought token
+//   transcript_replay.long.tool_call_ms    and .tool_call_slope_ms_per_krow: the same for a read call's start or end
+//                                          (a new row, the bulk of an agent's turn)
 //   transcript_replay.long.heap_mb         JS heap after GC, the long log open, less the empty pane's (64 MB)
+//   (a check, not a row) each kind's cost at the largest checkpoint within GROWTH_FACTOR (1.5x) of the smallest's
 //   transcript_replay.long.idle_ms_per_s   main-thread ms per second once the replay has settled (1 ms/s: no idle CPU)
 // A row over its budget prints a `BUDGET MISS` line that says what broke; with --strict the bench then exits 1. The
 // suite (web-ui-suite.ts) runs it without --strict: the perf cron's advisory issue is where a regression shows.
@@ -29,7 +33,9 @@
 // PROFILE=1 builds the pane unminified, takes a CPU profile of every burst and prints, per kind, the functions whose self
 // time per record grew most from the first checkpoint to the last: where the O(rows) work is.
 // --log FILE (repeatable) plays a recorded acpmux log too: JSON lines of SessionEvents or {events: [...]}, seq-keyed.
-//   bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--log FILE]... [--strict]
+//   bun bench/transcript-replay.bench.ts [--turns 600] [--checkpoints T,T,...] [--tokens 80] [--updates 30]
+//     [--only long,recorded,mock] [--log FILE]...
+//     [--strict]
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -38,7 +44,19 @@ import { chromium, type Browser, type CDPSession, type Page } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow, TARGET_MS, type PerfRow } from "./perfRow";
-import { checkSeq, longLog, mockLogs, parseLog, recordedLog, rowsIn, slope, type ReplayLog } from "./replayLogs";
+import {
+  BURST_KINDS,
+  type BurstKind,
+  checkSeq,
+  longLog,
+  mockLogs,
+  parseLog,
+  recordedLog,
+  rowsIn,
+  slope,
+  type ReplayLog,
+} from "./replayLogs";
+import { cpuSession } from "./stability";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -49,11 +67,21 @@ const TURNS = Number(flag("--turns") ?? 600);
 const ONLY = (flag("--only") ?? "long,recorded,mock").split(",");
 const STRICT = argv.includes("--strict");
 const PROFILE = process.env.PROFILE === "1";
+/// The long log's checkpoint turns (`--checkpoints 11,110,1105`: about 50, 500 and 5,000 rows), else
+/// its default fifths.
+const CHECKPOINTS = flag("--checkpoints")?.split(",").map(Number);
+/// Tokens and output updates each checkpoint streams (`--tokens 80 --updates 30` by default): more of
+/// each measures a checkpoint with less noise.
+const TOKENS = flag("--tokens") === undefined ? undefined : Number(flag("--tokens"));
+const UPDATES = flag("--updates") === undefined ? undefined : Number(flag("--updates"));
 const LOG_FILES = argv.flatMap((arg, index) => (argv[index - 1] === "--log" ? [arg] : []));
 if (!Number.isInteger(TURNS) || TURNS < 8 || ONLY.some((name) => !["long", "recorded", "mock"].includes(name))) {
   console.error("usage: bun bench/transcript-replay.bench.ts [--turns 600] [--only long,recorded,mock] [--strict]");
   process.exit(2);
 }
+/// How much more one update may cost at the largest checkpoint than at the smallest (the same work
+/// at 5,000 rows as at 50, within run-to-run noise).
+const GROWTH_FACTOR = 1.5;
 /// Records a frame takes outside a burst: a daemon's catch-up arrives about this fast.
 const BATCH = 25;
 /// The budgets, one rule each (header).
@@ -311,21 +339,37 @@ async function openRound(ctx: Ctx, log: ReplayLog): Promise<Open> {
 
 type BurstResult = { kind: string; rows: number; msPerRecord: number; selfMs?: Map<string, number> };
 type CpuProfile = {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number } }[];
+  nodes: {
+    id: number;
+    callFrame: { functionName: string; url: string; lineNumber: number };
+    positionTicks?: { line: number; ticks: number }[];
+  }[];
   samples: number[];
   timeDeltas: number[];
 };
 /// Self time per function (ms) in a profile, each divided by `records` (pure).
-export function selfTimes(profile: CpuProfile, records: number): Map<string, number> {
+/// With `lines` (PROFILE_LINES=1), each function's self time is split over the lines it was sampled
+/// on (the profile's `positionTicks`), keyed `fn file:line@sampled-line`: where in a long function
+/// (a layout effect) the time went.
+export function selfTimes(profile: CpuProfile, records: number, lines = false): Map<string, number> {
   const byId = new Map(profile.nodes.map((node) => [node.id, node]));
   const self = new Map<string, number>();
+  const add = (key: string, ms: number) => self.set(key, (self.get(key) ?? 0) + ms);
+  const nodeMs = new Map<number, number>();
   profile.samples.forEach((id, index) => {
-    const frame = byId.get(id)?.callFrame;
-    if (!frame || frame.functionName === "(idle)" || frame.functionName === "(program)") return;
+    nodeMs.set(id, (nodeMs.get(id) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000 / records);
+  });
+  for (const [id, ms] of nodeMs) {
+    const node = byId.get(id);
+    const frame = node?.callFrame;
+    if (!frame || frame.functionName === "(idle)" || frame.functionName === "(program)") continue;
     const file = frame.url.split("/").pop() ?? "";
     const key = `${frame.functionName || "(anon)"}${file ? ` ${file}:${frame.lineNumber + 1}` : ""}`;
-    self.set(key, (self.get(key) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000 / records);
-  });
+    const ticks = lines ? (node.positionTicks ?? []) : [];
+    const total = ticks.reduce((sum, tick) => sum + tick.ticks, 0);
+    if (!total) add(key, ms);
+    else for (const tick of ticks) add(`${key}@${tick.line}`, (ms * tick.ticks) / total);
+  }
   return self;
 }
 /// The functions whose self time per record grew most from `first` to `last` (pure).
@@ -387,7 +431,7 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
           kind: burst.kind,
           rows: burst.rows,
           msPerRecord: Math.round((taskMs / records) * 1000) / 1000,
-          ...(profiled ? { selfMs: selfTimes(profiled, records) } : {}),
+          ...(profiled ? { selfMs: selfTimes(profiled, records, process.env.PROFILE_LINES === "1") } : {}),
         });
         continue;
       }
@@ -408,9 +452,13 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
     if (measureIdle) {
       // Two seconds more first: a chat's own settling (fold timers, deferred measurement) is not idle work.
       await page.waitForTimeout(2000);
-      const idleBefore = await metric(cdp, "TaskDuration");
+      // CPU time, not TaskDuration (wall time, which grows while a task waits on a busy host), from a session of its
+      // own so the per-token rows' session keeps its wall-clock domain.
+      const idleCdp = await cpuSession(page, true);
+      const idleBefore = await metric(idleCdp!, "ThreadTime");
       await page.waitForTimeout(3000);
-      idleMsPerS = (((await metric(cdp, "TaskDuration")) - idleBefore) * 1000) / 3;
+      idleMsPerS = (((await metric(idleCdp!, "ThreadTime")) - idleBefore) * 1000) / 3;
+      await idleCdp!.detach();
     }
     const heapAfter = await heapMb(cdp);
     const { shifts, long } = await page.evaluate((since) => {
@@ -434,6 +482,13 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
   }
 }
 
+/// Each burst kind as a budget line names one of its records.
+const BURST_NAMES: Record<BurstKind, string> = {
+  token: "reply token",
+  thought: "thought token",
+  tool_output: "tool output update",
+  tool_call: "tool call start or end",
+};
 const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor((values.length - 1) / 2)] ?? 0;
 const worst = (values: number[]) => Math.max(0, ...values);
 
@@ -503,7 +558,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
   }
   const longLive = lives.find((l) => l.log === "long");
   if (longLive) {
-    for (const kind of ["token", "tool_output"] as const) {
+    for (const kind of BURST_KINDS) {
       const points = longLive.bursts
         .filter((b) => b.kind === kind)
         .map((b) => ({ x: b.rows / 1000, y: b.msPerRecord }));
@@ -517,7 +572,7 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
           target: TARGET_MS.frameWork,
           floor: 0.5,
         },
-        `one ${kind === "token" ? "reply token" : "tool output update"} costs more main-thread time than a frame's work`,
+        `one ${BURST_NAMES[kind]} costs more main-thread time than a frame's work`,
       );
       const growth = Math.round(slope(points) * 1000) / 1000;
       row(
@@ -528,9 +583,19 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
           target: BUDGET.slope,
           floor: 0.05,
         },
-        `each ${kind === "token" ? "token" : "tool output update"} costs ${growth} ms more per 1000 rows already in the ` +
+        `each ${BURST_NAMES[kind]} costs ${growth} ms more per 1000 rows already in the ` +
           `transcript (${points.map((p) => `${Math.round(p.x * 1000)} rows: ${p.y} ms`).join(", ")}): O(rows) work per update`,
       );
+      // The largest checkpoint against the smallest (`--checkpoints 11,110,1105`: 5,000 rows against
+      // 50): within GROWTH_FACTOR, or each update's work grows with the transcript. A bench check
+      // (a BUDGET MISS, which --strict fails on), not a perf row.
+      const [smallest, largest] = [points[0]!, points.at(-1)!];
+      const factor = Math.round((largest.y / Math.max(smallest.y, 0.001)) * 100) / 100;
+      if (points.length > 1 && factor > GROWTH_FACTOR)
+        misses.push(
+          `BUDGET MISS ${kind} growth = ${factor}x (budget ${GROWTH_FACTOR}x): one ${BURST_NAMES[kind]} ` +
+            `costs ${largest.y} ms at ${Math.round(largest.x * 1000)} rows against ${smallest.y} ms at ${Math.round(smallest.x * 1000)} rows`,
+        );
     }
     row(
       {
@@ -549,6 +614,8 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
         p50: longLive.idleMsPerS,
         p95: longLive.idleMsPerS,
         target: BUDGET.idleMsPerS,
+        clock: "cpu",
+        version: 3,
         floor: 0.5,
       },
       `the pane keeps working (${longLive.idleMsPerS} ms each second) after the replay settled: idle CPU`,
@@ -572,7 +639,15 @@ if (import.meta.main) {
   try {
     const now = Date.now();
     const logs: ReplayLog[] = [];
-    if (ONLY.includes("long")) logs.push(longLog({ turns: TURNS }));
+    if (ONLY.includes("long"))
+      logs.push(
+        longLog({
+          turns: TURNS,
+          ...(CHECKPOINTS ? { checkpoints: CHECKPOINTS } : {}),
+          ...(TOKENS ? { tokenCount: TOKENS } : {}),
+          ...(UPDATES ? { outputUpdates: UPDATES } : {}),
+        }),
+      );
     if (ONLY.includes("recorded")) logs.push(recordedLog());
     if (ONLY.includes("mock")) logs.push(...mockLogs(now));
     for (const file of LOG_FILES) logs.push(parseLog(path.basename(file), fs.readFileSync(file, "utf8")));
@@ -654,13 +729,17 @@ if (import.meta.main) {
           if (!note.includes(" 0.0000 ")) console.log(`  ${note}`);
         for (const burst of live?.bursts ?? [])
           console.log(`  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);
-        for (const kind of ["token", "tool_output"]) {
+        for (const kind of BURST_KINDS) {
           const profiled = (live?.bursts ?? []).filter((burst) => burst.kind === kind && burst.selfMs);
           if (profiled.length < 2) continue;
           const [first, last] = [profiled[0]!, profiled.at(-1)!];
           console.log(`  ${kind}: self ms per record that grew from ${first.rows} rows to ${last.rows} rows`);
           for (const [fn, before, after] of grew(first.selfMs!, last.selfMs!))
             console.log(`    ${before.toFixed(3)} -> ${after.toFixed(3)}  ${fn}`);
+          // And where a record's time goes at the largest checkpoint, growing or not.
+          console.log(`  ${kind}: most self ms per record at ${last.rows} rows`);
+          for (const [fn, ms] of [...last.selfMs!.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15))
+            console.log(`    ${ms.toFixed(3)}  ${fn}`);
         }
       } catch (error) {
         failed += 1;

@@ -72,19 +72,25 @@ async function renderCard(d: UpdateHighlights) {
   const noop = () => undefined;
   await act(async () =>
     root!.render(
-      <UpdatedCard data={d} strings={createStrings(table)} actions={{ openChangelog: noop, dismiss: noop }} />,
+      <UpdatedCard
+        data={d}
+        strings={createStrings(table)}
+        actions={{ openChangelog: noop, dismiss: noop }}
+        previewMode="above"
+      />,
     ),
   );
 }
 
-test("the Updated card is the title, the one top change and What's New", async () => {
+test("the Updated card is the title alone on its line, and the one top change", async () => {
   await renderCard(data);
   expect(host.querySelector(".wn-card-title")?.textContent).toBe("Updated to Nightly");
   const notes = [...host.querySelectorAll(".wn-card-note")].map((n) => n.textContent);
   expect(notes).toEqual(["Composer: dictation progress is announced to VoiceOver"]);
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
-  // The version in the title is the copy button (CopyVersion), then the card's own two.
-  expect(buttons).toEqual(["Nightly", "Close", "What's New"]);
+  // The version in the title is the copy button (CopyVersion), then the x. What's New leads the open
+  // hover preview (Lawrence 2026-11-07: beside the title it cut it to "Updated to ...").
+  expect(buttons).toEqual(["Nightly", "Close"]);
   // No date, build, list or count.
   expect(host.querySelector(".wn-card-eyebrow, .wn-card-build, .wn-card-areas, .wn-card-more")).toBeNull();
   const text = host.textContent ?? "";

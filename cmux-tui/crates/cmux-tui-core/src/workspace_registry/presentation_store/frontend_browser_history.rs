@@ -61,8 +61,10 @@ impl WorkspaceRegistry {
         match history {
             Some(history) => {
                 tx.execute(
+                    // A report of the history already stored writes nothing.
                     "INSERT INTO frontend_browser_history(browser_id, history) VALUES(?1, ?2)
-                     ON CONFLICT(browser_id) DO UPDATE SET history = excluded.history",
+                     ON CONFLICT(browser_id) DO UPDATE SET history = excluded.history
+                     WHERE frontend_browser_history.history IS NOT excluded.history",
                     params![browser_id, history],
                 )?;
             }

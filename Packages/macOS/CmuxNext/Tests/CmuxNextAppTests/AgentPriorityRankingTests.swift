@@ -1,6 +1,7 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -84,6 +85,35 @@ struct AgentPriorityRankingTests {
         #expect(chats.needingInput(now: Self.now).map(\.id) == ["asks-new", "sub", "asks"])
     }
 
+    /// The menu bar's Unread and Running lists (user 2026-11-06: an "Unread" and a "Running"
+    /// section in the menu bar item) come from the lane store's unread and working indexes, kept on
+    /// every write, and leave out read, archived and snoozed chats; newest first, pinned on top.
+    @Test func theMenuBarListsUnreadAndRunningFromTheIndexes() {
+        let store = AgentLaneStore()
+        store.lanes = Dictionary(uniqueKeysWithValues: Self.lanes.map { ($0.id, $0) })
+        #expect(store.unread == ["done"])
+        #expect(store.working == ["working"])
+        store.set("idle-new", Self.lane("idle-new", .idle, ago: 0, unread: true))
+        store.set("idle-old", Self.lane("idle-old", .working, ago: 0))
+        #expect(store.unread == ["done", "idle-new"])
+        #expect(store.working == ["working", "idle-old"])
+
+        let marks = AgentPriorityMarks(defaults: nil)
+        let chats = AgentPriorityChats(marks: marks, stores: [store], checksFailing: { _ in false }, archive: { _, _ in })
+        #expect(chats.unread(now: Self.now).map(\.id) == ["idle-new", "done"])
+        #expect(chats.running(now: Self.now).map(\.id) == ["idle-old", "working"])
+        marks.togglePin("done")
+        #expect(chats.unread(now: Self.now).map(\.id) == ["done", "idle-new"])
+        #expect(chats.markRead("done"))
+        #expect(chats.unread(now: Self.now).map(\.id) == ["idle-new"])
+        marks.archive("working")
+        #expect(chats.running(now: Self.now).map(\.id) == ["idle-old"])
+        store.set("idle-new", nil)
+        #expect(store.unread == ["done"])
+        store.lanes = [:]
+        #expect(store.unread.isEmpty && store.working.isEmpty)
+    }
+
     @Test func needsYouThenUnseenResultsThenFailuresThenWorkingThenIdle() {
         let entries = AgentPriorityRanking().entries(Self.lanes, marks: .init(), now: Self.now)
         #expect(entries.map(\.id) == ["asks-new", "asks", "done", "broke", "working", "idle-new", "idle-old"])
@@ -147,7 +177,7 @@ struct AgentPriorityRankingTests {
 
     @Test func archivedChatsLeaveAndMarksSurviveARelaunch() throws {
         let suite = "AgentPriorityRankingTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let marks = AgentPriorityMarks(defaults: defaults)
         marks.archive("broke")

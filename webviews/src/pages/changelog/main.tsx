@@ -10,7 +10,16 @@ import table from "./generated/strings.json";
 import { ChangelogPage } from "./ChangelogPage";
 import { routeChipHost } from "./ChangePullRequest";
 import { MockChangelogProvider } from "./mockProvider";
-import { ChangelogStore, parseDesign, parseNewsLayout, parseSheetLayout, parseSpan } from "./store";
+import {
+  ChangelogStore,
+  parseCompareMode,
+  parseDesign,
+  parseNewsLayout,
+  parseSheetLayout,
+  parseFocus,
+  parseSheetLinks,
+  parseSpan,
+} from "./store";
 import { mountUpdateSurface, parseSurface } from "./surface";
 import "../shared/pageBase.css";
 // The enlarged picture is a ui/Dialog, and a pull request's hover card a ui/Tooltip card with an
@@ -35,6 +44,9 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
           design={parseDesign(location.hash)}
           news={parseNewsLayout(location.hash)}
           sheet={parseSheetLayout(location.hash)}
+          prs={parseSheetLinks(location.hash)}
+          compare={parseCompareMode(location.hash)}
+          focus={parseFocus(location.hash)}
         />
       </UiProvider>,
     );
@@ -43,7 +55,7 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
   // The first frame shown is the final first screen, not "Loading…" (perceived speed).
   void holdFirstPaint(store.firstScreen());
   // The host moves an open page to a new update's span (`PageWebView.open(route:)`), and the
-  // route carries the Debug Settings design.
+  // route carries the Debug Settings design and the change a click asked for (`area=`, `entry=`).
   window.addEventListener("hashchange", () => {
     render();
     void store.setSpan(parseSpan(location.hash));

@@ -75,7 +75,7 @@ public final class MockServerSource: ServerSource {
             let found = code == MockServerScenario.offerCode ? candidate : nil
             sink?(.candidate(found))
             if found == nil { reject = "No server is waiting with that code." }
-        case .approveCode, .openHealth:
+        case .approveCode:
             break
         case let .fixCheck(check):
             if let index = snapshot.alerts.firstIndex(where: { $0.check == check && $0.isOpen }) {

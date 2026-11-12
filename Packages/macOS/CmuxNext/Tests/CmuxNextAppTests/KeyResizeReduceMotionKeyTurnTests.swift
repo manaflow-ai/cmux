@@ -13,15 +13,21 @@ import Testing
 /// press moved nothing (base de82e16a37a: passes, step 7487a3eaf2de6c92df4831e4; head b89a454f689: fails, step
 /// 371efb4af257d839a96202ef).
 ///
-/// No frame is ticked here: the rig's driver is manual, so a press that waits for a tick shows that it waits.
+/// RESIZE P0 13 (KEY SNAP GRID): such a press now shows at the next frame tick, as a snapped structural change does
+/// (CLOSE MOTION 3, `ScreenContentView+SnapFrame`): its key's turn gives each resized terminal its size ahead with its grid,
+/// so the program redraws before the tick shows the press (``ReduceMotionKeyResizeGridTests``). It still never waits for
+/// a spring: the next tick shows it, and it asks for that tick.
+///
+/// The rig's driver is manual: the test steps the one frame tick.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct KeyResizeReduceMotionKeyTurnTests {
     typealias Ground = PaneGroundCoversPaneTests
 
-    /// Reduce Motion, then pane animations off: each press moves p2's host in the key's own turn, with no frame tick.
+    /// Reduce Motion, then pane animations off: each press moves p2's host at the next frame tick (not in the key's turn,
+    /// where its terminal gets its size ahead with its grid), and that one tick shows it all: nothing is left waiting.
     @Test(arguments: [true, false])
-    func aPressWithNoSpringMovesThePaneInTheKeysTurn(reduceMotion: Bool) throws {
+    func aPressWithNoSpringMovesThePaneAtTheNextFrameTick(reduceMotion: Bool) throws {
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
         defer { rig.close() }
         rig.root.context.reduceMotionOverride = reduceMotion ? true : nil
@@ -34,8 +40,11 @@ struct KeyResizeReduceMotionKeyTurnTests {
         for direction in [LayoutDirection.left, .right, .left] {
             let before = host.frame
             #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
-            #expect(host.frame != before, "a \(direction) press with no spring did not move p2 in the key's turn (\(before))")
-            #expect(!(try rig.screen.frameInput.presentationWaiting), "a \(direction) press with no spring left its presentation waiting for a tick")
+            #expect(host.frame == before, "a \(direction) press with no spring moved p2 in the key's turn, before its terminal had its grid")
+            #expect(try rig.screen.frameInput.presentationWaiting, "a \(direction) press with no spring did not wait for the next frame tick")
+            _ = rig.frame()
+            #expect(host.frame != before, "a \(direction) press with no spring did not move p2 at the next frame tick (\(before))")
+            #expect(!(try rig.screen.frameInput.presentationWaiting), "a \(direction) press with no spring left its presentation waiting after the tick")
         }
     }
 }

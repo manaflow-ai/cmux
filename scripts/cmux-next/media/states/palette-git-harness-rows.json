@@ -1,0 +1,126 @@
+{
+ "title": "Palette rows for git worktrees and checkpoints and Set Agent Icon (#38631): the rows a search finds",
+ "launch_args": [
+  "--showcase"
+ ],
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "Palette: git worktree",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.open",
+     "args": {
+      "query": "git worktree"
+     },
+     "focus": true
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Palette rows for “git worktree”",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the palette may not be open",
+   "collect": "palette-git-worktree-rows.png"
+  },
+  {
+   "title": "Close the palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "commandPalette",
+     "focus": true
+    }
+   },
+   "wait": 1,
+   "optional": "no palette"
+  },
+  {
+   "title": "Palette: git checkpoint",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.open",
+     "args": {
+      "query": "git checkpoint"
+     },
+     "focus": true
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Palette rows for “git checkpoint”",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the palette may not be open",
+   "collect": "palette-git-checkpoint-row.png"
+  },
+  {
+   "title": "Close the palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "commandPalette",
+     "focus": true
+    }
+   },
+   "wait": 1,
+   "optional": "no palette"
+  },
+  {
+   "title": "Palette: agent icon",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "palette.open",
+     "args": {
+      "query": "agent icon"
+     },
+     "focus": true
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Palette rows for “agent icon”",
+   "rpc": {
+    "method": "debug.palette.capture",
+    "params": {
+     "path": "{collect}"
+    }
+   },
+   "wait": 0.3,
+   "optional": "the palette may not be open",
+   "collect": "palette-agent-icon-row.png"
+  },
+  {
+   "title": "Close the palette",
+   "rpc": {
+    "method": "action.run",
+    "params": {
+     "action": "commandPalette",
+     "focus": true
+    }
+   },
+   "wait": 1,
+   "optional": "no palette"
+  }
+ ]
+}

@@ -110,7 +110,8 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
                 tool: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
                 command: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
                 worked: [".cv-worked__label", ".cv-worked__chevron"],
-                thought: [".cv-thought__label", ".cv-tool__chevron"],
+                // A closed thought reads its words after the brain glyph (Codex parity).
+                thought: [".cv-thought__preview", ".cv-tool__icon svg, .cv-tool__chevron"],
                 plan: [".cv-plan__text", ".cv-plan__mark"],
                 "session-info": [
                   ".acpmux-session-info-section__title",

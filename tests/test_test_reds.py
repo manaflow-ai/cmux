@@ -806,7 +806,8 @@ def web_job(*files, summary=True):
 def replay(charged=(), shared=()):
     """react-apps-base-check's log: guards_new_reds.py's verdicts on the head's reds replayed on the merge parent."""
     return log(*[f"##[error]{name}" for name in charged], *[f"##[warning]{name}" for name in shared],
-               f"{len(charged)} webview test steps red on this change, {len(shared)} red on the base too, 0 fixed")
+               f"{len(charged)} webview test steps red on this change, {len(shared)} red on the base too, 0 flaky on the base, "
+               "0 fixed")
 
 
 CAPSULES = "test/agent-pane-no-capsules.test.ts"
@@ -891,6 +892,101 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         head += "\n2026-10-28T03:40:35Z oh no: Bun has crashed"
         verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}"]), head], [head])
         self.assertTrue(verdict.own)
+
+    def test_a_replay_names_only_its_head_rerun_and_final_verdict(self):
+        # cmux#34111's replay (2): the merge parent timed out a file; the head re-run then passed one charged test.
+        named, again = f"{CAPSULES} > {CAPSULE_TEST}", "test/composer-footer-plain.test.ts > rests flat"
+        merge_parent = log("##[group]TIMEOUT test/transcript-toggle.test.ts", "##[endgroup]",
+                           "### webviews tests: 1 files", "TIMEOUT test/transcript-toggle.test.ts (limit 120s)")
+        text = "\n".join([merge_parent, replay(charged=[named, again]), log("re-running alone on the head:"),
+                          web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])),
+                          replay(charged=[named], shared=[again])])
+        found = reds.web_failures(text)
+        self.assertEqual(found.charged, {named})
+        self.assertEqual(found.timed_out, set())
+        self.assertNotIn("transcript-toggle", "".join(reds.read(reds.web_head_part(text)).truncated))
+        self.assertIn("transcript-toggle", "".join(reds.read(text).truncated))
+        self.assertFalse(reds.classify_web_window(
+            [text, web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))],
+            iter([("base run 1", [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))])])).own)
+        # A replay with no head re-run holds no run of the head.
+        self.assertEqual(reds.web_head_part("\n".join([merge_parent, replay(charged=[named])])), "")
+        self.assertEqual(reds.web_failures("\n".join([merge_parent, replay(charged=[named])])).timed_out, set())
+
+    def test_a_replay_compares_only_what_its_final_verdict_charged_in_a_shared_file(self):
+        # Review F2 on #38380: the head failed A and B in one file; the final verdict charged A only (B passed alone).
+        # B is not compared, so the base failing A alone excuses the replay; an unnamed diagnostic there still counts.
+        a, b = f"{CAPSULES} > {CAPSULE_TEST}", f"{CAPSULES} > rests flat"
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87), ("rests flat", "boom", 9)]))
+        text = "\n".join([replay(charged=[a, b]), log("re-running alone on the head:"),
+                          web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])), replay(charged=[a], shared=[b])])
+        base = [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]
+        self.assertFalse(reds.classify_web_window([text, head], iter([("run 1", base)])).own)
+        self.assertFalse(reds.classify_web([text, head], base).own)
+        unhandled = head.replace("### webviews tests:", f"##[group]FAIL {CAPSULES}\nerror: thrown outside a test\n"
+                                 "##[endgroup]\n### webviews tests:")
+        self.assertTrue(reds.classify_web_window([text, unhandled], iter([("run 1", base)])).own)
+
+    def test_a_replay_with_no_final_charged_test_verdict_is_never_judged_per_test(self):
+        # Review follow-up (1) on #38380: the head re-run ended (cut short, or its compare never ran) before
+        # guards_new_reds.py printed the final verdict. The failures it printed are no charged-test verdict: the
+        # replay is the head's own, never compared with the base per test.
+        named = f"{CAPSULES} > {CAPSULE_TEST}"
+        rerun = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        base = [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]
+        whole = "\n".join([replay(charged=[named]), log("re-running alone on the head:"), rerun,
+                           replay(charged=[named])])
+        self.assertFalse(reds.classify_web_window([whole, rerun], iter([("run 1", base)])).own)
+        for cut in ("\n".join([replay(charged=[named]), log("re-running alone on the head:"), rerun]),
+                    "\n".join([replay(charged=[named]), log("re-running alone on the head:"), rerun,
+                               log(f"##[error]{named}")]),
+                    "\n".join([log(f"##[error]{named}"), log("re-running alone on the head:"), rerun,
+                               replay(charged=[named])]).replace("1 webview test steps red", "webview test steps red")):
+            with self.subTest(log=cut[-120:]):
+                found = reds.web_failures(cut)
+                self.assertIn("no final charged-test verdict", " ".join(found.truncated))
+                verdict = reds.classify_web_window([cut, rerun], iter([("run 1", base)]))
+                self.assertTrue(verdict.own)
+                self.assertIn("no final charged-test verdict", " ".join(verdict.reasons))
+        # A replay with no head re-run needs its one verdict line too.
+        self.assertIn("no final charged-test verdict", " ".join(reds.web_failures(log(f"##[error]{named}")).truncated))
+        self.assertEqual(reds.web_failures(replay(charged=[named])).truncated, [])
+
+    def test_a_cut_off_final_verdict_line_is_no_verdict(self):
+        # Review F1 on #38434: a log cut off right after "red on the base too" printed no whole closing line.
+        named = f"{CAPSULES} > {CAPSULE_TEST}"
+        whole = "1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"
+        for line, cut in ((whole, False),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 fixed", False),
+                          ("1 webview test steps red on this change, 0 red on the base too", True),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base", True),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0", True),
+                          (whole + ", 2 more", True)):
+            with self.subTest(line=line):
+                found = reds.web_failures(log(f"##[error]{named}", line))
+                self.assertEqual("no final charged-test verdict" in " ".join(found.truncated), cut)
+
+    def test_a_window_matches_each_test_on_any_one_run_and_reads_no_further(self):
+        other = "test/composer-footer-plain.test.ts"
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]), (other, [("rests flat", "boom", 9)]))
+        read = []
+
+        def windows():
+            for label, logs in (("run 3", [web_job((CAPSULES, [(CAPSULE_TEST, "other error", 87)]))]),
+                                ("run 2", [web_job((other, [("rests flat", "boom", 9)]))]),
+                                ("run 1", [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]),
+                                ("run 0", [None])):
+                read.append(label)
+                yield label, logs
+        verdict = reds.classify_web_window([head], windows())
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(read, ["run 3", "run 2", "run 1"])
+        verdict = reds.classify_web_window([head], iter([("run 3", [web_job((CAPSULES, [(CAPSULE_TEST, "x", 87)]))])]))
+        self.assertTrue(verdict.own)
+        self.assertIn("1 failing test(s) pass or do not run on run 3: test/composer-footer-plain.test.ts > rests flat",
+                      verdict.reasons)
+        self.assertTrue(any("fail on none of run 3 the same way" in reason for reason in verdict.reasons))
+        self.assertTrue(reds.classify_web_window([head], iter([])).own)
 
     def test_retry_only_failure_cannot_be_excused_by_the_first_attempt(self):
         head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
@@ -1400,6 +1496,56 @@ class LostRunner(unittest.TestCase):
                                   capture_output=True, text=True)
         self.assertEqual(done.returncode, 1, done.stderr)
         self.assertIn("a verdict", done.stdout)
+
+
+class ReadOncePerLog(unittest.TestCase):
+    """A log is parsed once per process, however often the judge reads it (2026-11-06, cmux#36356 at 2c9f6957):
+    base_red_excuse.py's window re-classified every log each time it grew, 50 reads of six 20 to 27 MB logs, 110 s
+    of CPU, and merge_hold's 120 s bound on the classifier refused the merge."""
+
+    def setUp(self):
+        reds._parsed.clear()
+        self.addCleanup(reds._parsed.clear)
+
+    def test_a_window_parses_each_log_once(self):
+        head, base = HEAD_26346.read_text(), BASE_26346.read_text()
+        older = base + "\n"  # another base run's log: another text
+        parsed = []
+        real = reds.parse_log
+
+        def counting(log, bun=True):
+            parsed.append(log)
+            return real(log, bun)
+
+        reds.parse_log = counting
+        self.addCleanup(setattr, reds, "parse_log", real)
+        # As compare_window does as the window grows: the newest, then the newest and an older one.
+        first = reds.classify_any(head, [("feat-cmux-next run 1", base)], "cmux-next swift test")
+        grown = reds.classify_any(head, [("feat-cmux-next run 1", base), ("feat-cmux-next run 2", older)],
+                                  "cmux-next swift test")
+        self.assertEqual([parsed.count(text) for text in (head, base, older)], [1, 1, 1])
+        reds.parse_log = real
+        reds._parsed.clear()
+        fresh = reds.classify_any(head, [("feat-cmux-next run 1", base), ("feat-cmux-next run 2", older)],
+                                  "cmux-next swift test")
+        self.assertEqual((grown.own, grown.reasons, grown.shared), (fresh.own, fresh.reasons, fresh.shared))
+        self.assertIsNotNone(first)
+
+    def test_a_kept_read_is_the_callers_own_copy(self):
+        log = HEAD_26346.read_text()
+        mine = reds.read(log)
+        mine.failed.add("a test that never ran")
+        mine.crashes.append("a crash that never happened")
+        again = reds.read(log)
+        self.assertNotIn("a test that never ran", again.failed)
+        self.assertNotIn("a crash that never happened", again.crashes)
+        self.assertEqual((again.failed, again.crashes), (reds.parse_log(log).failed, reds.parse_log(log).crashes))
+
+    def test_at_most_keep_parsed_logs_are_kept(self):
+        for n in range(reds.KEEP_PARSED + 3):
+            reds.read(f"✘ Test t{n}() failed after 0.1 seconds with 1 issue.\n")
+        self.assertEqual(len(reds._parsed), reds.KEEP_PARSED)
+
 
 if __name__ == "__main__":
     unittest.main()

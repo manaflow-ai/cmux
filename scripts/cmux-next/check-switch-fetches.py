@@ -42,12 +42,20 @@ ALLOWED_LISTENERS = {
     (f"{ACPMUX}/App.tsx", "visibilitychange"): "harness health re-reads only after a Log In ran "
     "in a terminal (`healthStale`)",
     (f"{ACPMUX}/App.tsx", "focus"): "harness health, as above",
+    (f"{ACPMUX}/chatSnapshot/live.ts", "visibilitychange"): "writes the chat's drawn copy for the "
+    "next launch as the page hides (`chat.snapshot.put`, a write, not a read)",
+    (f"{ACPMUX}/snapshotCache.ts", "visibilitychange"): "writes the reload copy as the page hides "
+    "(sessionStorage, a write, not a read)",
     (f"{ACPMUX}/VirtualTranscript.tsx", "visibilitychange"): "forgets the rows still entering when "
     "the page hides, so they don't replay on return; reads no data",
+    (f"{ACPMUX}/conversation/sendTuck.ts", "visibilitychange"): "ends a send's tuck animation and "
+    "removes its copies as the page hides; reads no data",
     (f"{ACPMUX}/composerFocus.ts", "focus"): "focus claim when the window is focused (the composer "
     "focus lane); reads no data",
     (f"{ACPMUX}/newtab/NewTabScreen.tsx", "focus"): "the field takes the keyboard back when the "
     "page is focused with nothing in it focused (#22456), as composerFocus.ts does; reads no data",
+    (f"{ACPMUX}/session-info/stepAside.ts", "visibilitychange"): "Session Info comes back when "
+    "the tab an Outputs row opened over the chat closes (the page shows again); reads no data",
     (f"{ACPMUX}/threadMinimap/scrollMotion.ts", "visibilitychange"): "cancels the wheel's own "
     "motion when the page hides; reads no data",
     (f"{ACPMUX}/threadMinimap/ThreadMinimap.tsx", "visibilitychange"): "clears the occluded "
@@ -56,6 +64,10 @@ ALLOWED_LISTENERS = {
     "holds back from its throttled store write when the page hides; a write, reads no data",
     (f"{ACPMUX}/newtab/listMotion.ts", "visibilitychange"): "cancels the list's own motion when "
     "the page hides; reads no data",
+    (f"{ACPMUX}/subagents/traySeen.ts", "visibilitychange"): "pauses the composer hat's linger "
+    "clock while the page is hidden (trayLinger.ts); reads no data",
+    (f"{ACPMUX}/subagents/traySeen.ts", "focus"): "pauses the composer hat's linger clock while "
+    "the window is not focused, resumes it on focus; reads no data",
     (f"{ACPMUX}/avatars/AnimatedAvatar.tsx", "visibilitychange"): "stops the avatar's own CSS "
     "frame animation while the page hides; reads no data",
     (f"{ACPMUX}/subagents/SubagentGroup.tsx", "visibilitychange"): "`useNow` rests the running "

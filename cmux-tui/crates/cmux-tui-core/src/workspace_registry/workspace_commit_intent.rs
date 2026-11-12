@@ -207,7 +207,8 @@ impl WorkspaceCommitIntent {
             )
             .optional()?
         {
-            if stored_fingerprint != fingerprint {
+            let ids = StoredIds::load(tx)?;
+            if ids.fingerprint(stored_fingerprint)? != fingerprint {
                 anyhow::bail!(
                     "mutation {} from {} was retried with a different payload",
                     mutation.id,
@@ -218,7 +219,7 @@ impl WorkspaceCommitIntent {
                 commit: RegistryCommit {
                     revision: u64::try_from(revision)
                         .context("stored mutation revision is negative")?,
-                    result: serde_json::from_str(&stored_result)?,
+                    result: serde_json::from_str(&ids.text(stored_result))?,
                     replayed: true,
                 },
                 resource_revision: None,

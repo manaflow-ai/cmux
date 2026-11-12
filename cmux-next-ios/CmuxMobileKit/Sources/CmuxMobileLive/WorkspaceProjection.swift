@@ -134,8 +134,10 @@ public actor WorkspaceProjection {
         var surfaces = Set<Int>()
         for surface in Set(old.bySurface.keys).union(agents.bySurface.keys)
             where old.bySurface[surface] != agents.bySurface[surface] { surfaces.insert(surface) }
-        if old.pending != agents.pending || old.waitingFor != agents.waitingFor {
-            let sessions = Set(old.pending.keys).union(agents.pending.keys).union(old.waitingFor.keys).union(agents.waitingFor.keys)
+        if old.pending != agents.pending || old.waitingFor != agents.waitingFor || old.chatTitles != agents.chatTitles {
+            var sessions = Set(old.pending.keys).union(agents.pending.keys).union(old.waitingFor.keys).union(agents.waitingFor.keys)
+            for session in Set(old.chatTitles.keys).union(agents.chatTitles.keys)
+                where old.chatTitles[session] != agents.chatTitles[session] { sessions.insert(session) }
             for row in rows {
                 for tab in Self.tabs(row.value) {
                     guard let surface = tab["surface"] as? Int,

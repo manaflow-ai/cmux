@@ -49,7 +49,13 @@ struct WorkspaceFoldLineModel: Equatable {
     var typeSize: DynamicTypeSize
     var canReconnect: Bool
     var sameNames: MacNameDisambiguation
-    var now: Date
+}
+
+/// A view that reads the minute clock in its own body, so a tick redraws it and not the list
+/// that holds it (a Mac line's "Last seen 4m ago").
+struct OnMinute<Content: View>: View {
+    let content: (Date) -> Content
+    var body: some View { content(MinuteClock.shared.now) }
 }
 
 /// The Workspaces list's sections and items, as the collection shows them.
@@ -178,6 +184,9 @@ final class WorkspacesHeightCache {
     private(set) var hits = 0
 
     func height(_ key: Key, width: CGFloat) -> CGFloat? {
+        // A Mac line's "Last seen 4m ago" moves on in its own view (`OnMinute`) with no new
+        // value, so its height is measured each time, never cached (a few lines, one per Mac).
+        if case .fold = key.item { return nil }
         if let shape = shape(key.item), let known = shapes[shape], known.width == width {
             hits += 1
             return known.height
@@ -188,6 +197,7 @@ final class WorkspacesHeightCache {
     }
 
     func store(_ key: Key, width: CGFloat, height: CGFloat) {
+        if case .fold = key.item { return }
         if let shape = shape(key.item) {
             shapes[shape] = (width, height)
         } else {

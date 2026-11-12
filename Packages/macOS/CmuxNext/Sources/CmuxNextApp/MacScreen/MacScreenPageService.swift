@@ -247,6 +247,11 @@ extension AppServices {
             return CmuxRemoteComputerUsePolicy(policy: snapshot.computerUse.policyConfigJSON(), cursorAnimates: animates,
                                                cursorSpeed: speed.timeScale > 0 ? 1 / speed.timeScale : 1)
         }
+        // The worker's agent sessions: the menu bar icon's dot while one acts, and an open menu's row.
+        cmuxRemote.followComputerUseActivity(daemon.store) { [weak self] acting in
+            self?.menuBarExtra.computerUseActive = acting
+            self?.menuBarExtra.computerUseSessionsChanged()
+        }
     }
 
     /// The device hub follows the hub address (`deviceHub.url` in DEV builds) and the cmux account.

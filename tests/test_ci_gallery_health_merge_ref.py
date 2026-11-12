@@ -208,6 +208,48 @@ def tracked(*paths: str) -> list[str]:
                           capture_output=True, text=True).stdout.split()
 
 
+# The scripts a gallery render runs: the build's entry points, the scripts build-agent-pane-web.sh runs, and
+# the checker. What they reach through relative imports, and the files beside them they name in a string
+# (broken-allowlist.json), is what a render reads from those folders; the workflow lists those files by name.
+RENDER_SCRIPTS = (
+    "webviews/vite.config.ts",
+    "webviews/vite.config.gallery.ts",
+    "webviews/scripts/pages/gen-strings.mjs",
+    "webviews/scripts/pages/split-strings.mjs",
+    "webviews/scripts/agent-pane/bundle.mjs",
+    "webviews/scripts/agent-pane/tailwind-css.mjs",
+    "webviews/scripts/gallery/manifest.ts",
+    "webviews/scripts/gallery/touched.ts",
+    "scripts/gallery-matrix/health.ts",
+    "scripts/gallery-matrix/unplaced.py",
+)
+_RELATIVE = re.compile(r"""(?:\bfrom\s*|\bimport\s*\(?\s*|\bnew\s+URL\(\s*)["'](\.{1,2}/[^"'?$]+)""")
+_SIBLING = re.compile(r"""["']([\w.-]+\.(?:json|py|ts|mjs))["']""")
+
+
+def render_script_closure() -> set[str]:
+    """Repo paths reachable from RENDER_SCRIPTS: relative imports, and a sibling file named in a string."""
+    files = set(tracked("webviews", "scripts/gallery-matrix", "config/vite-plus"))
+    seen: set[str] = set()
+    queue = list(RENDER_SCRIPTS)
+    while queue:
+        name = queue.pop()
+        if name in seen or name not in files:
+            continue
+        seen.add(name)
+        text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
+        folder = os.path.dirname(name)
+        targets = [os.path.normpath(os.path.join(folder, spec)) for spec in _RELATIVE.findall(text)]
+        targets += [os.path.join(folder, sibling) for sibling in _SIBLING.findall(text)]
+        for target in targets:
+            for candidate in (target, *(target + ext for ext in (".ts", ".tsx", ".mjs", ".js")),
+                              re.sub(r"\.js$", ".ts", target)):
+                if candidate in files:
+                    queue.append(candidate)
+                    break
+    return seen
+
+
 class GalleryHealthPathRouting(unittest.TestCase):
     """A pull request runs gallery health only when a path the gallery render reads changes.
 
@@ -237,6 +279,9 @@ class GalleryHealthPathRouting(unittest.TestCase):
             "scripts/ci/test_reds.py",
             ".github/workflows/gallery-health.yml",
             "Resources/ghostty/themes/Token Dark",
+            "webviews/src/gallery/fixtures/markdown-showcase.md",
+            "scripts/gallery-matrix/broken-allowlist.json",
+            "scripts/gallery-matrix/geometry-collector.ts",
         ):
             self.assertTrue(triggered(path, paths), path)
 
@@ -250,6 +295,16 @@ class GalleryHealthPathRouting(unittest.TestCase):
             "webviews/README.md",
             "bun.lock",
             "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift",
+            # The matrix's other tools, benches, capture tools and docs: no render reads them.
+            "scripts/gallery-matrix/README.md",
+            "scripts/gallery-matrix/geometry-audit.ts",
+            "scripts/gallery-matrix/health.test.ts",
+            "webviews/scripts/agent-pane/hidden-idle-bench.ts",
+            "webviews/scripts/agent-pane/chat-load/reopen.sh",
+            "webviews/scripts/gallery/capture-window-chrome.ts",
+            "webviews/scripts/pages/layout-check.mjs",
+            "webviews/src/ui/README.md",
+            "webviews/src/gallery/ENTRIES.md",
         ):
             self.assertFalse(triggered(path, paths), path)
 
@@ -264,9 +319,51 @@ class GalleryHealthPathRouting(unittest.TestCase):
         paths = triggers()["pull_request"]["paths"]
         files = [path for path in tracked(".") if any(pattern.search(path) for pattern in broad)]
         # A unit test beside the gallery (`*.test.ts`) is never bundled, so it renders nothing either.
+        # A matrix tool or a gallery script no render runs (geometry-audit.ts, capture-window-chrome.ts) and a doc
+        # (ENTRIES.md) change no render either: of those folders, only what the render scripts reach must trigger.
+        reached = render_script_closure()
         missed = [path for path in files
-                  if path != "bun.lock" and not re.search(r"\.test\.tsx?$", path) and not triggered(path, paths)]
+                  if path != "bun.lock" and not re.search(r"\.test\.tsx?$", path) and not path.endswith(".md")
+                  and (path in reached or not path.startswith(("scripts/gallery-matrix/", "webviews/scripts/gallery/")))
+                  and not triggered(path, paths)]
         self.assertEqual(missed, [])
+
+    def test_every_script_a_render_runs_triggers_it(self) -> None:
+        # The scripts folders are routed file by file; a module the build or the checker starts importing must
+        # join the list, or a change to it would skip the check.
+        paths = triggers()["pull_request"]["paths"]
+        reached = render_script_closure()
+        self.assertGreater(len(reached), 20)
+        self.assertIn("scripts/gallery-matrix/shift-baseline.json", reached)
+        self.assertIn("webviews/scripts/pages/gen-feature-tips.mjs", reached)
+        self.assertEqual(sorted(path for path in reached if not triggered(path, paths)), [])
+
+    def test_every_routed_script_is_one_a_render_runs(self) -> None:
+        # The other way round: a file listed by name under the scripts folders is one a render reaches, so the
+        # list keeps no file nothing reads.
+        paths = triggers()["pull_request"]["paths"]
+        reached = render_script_closure()
+        folders = ("scripts/gallery-matrix/", "webviews/scripts/agent-pane/", "webviews/scripts/pages/",
+                   "webviews/scripts/gallery/", "webviews/scripts/lint/")
+        listed = [path for path in paths if path.startswith(folders) and not path.endswith("/bun.lock")]
+        self.assertTrue(listed)
+        self.assertEqual(sorted(path for path in listed if path not in reached), [])
+
+    def test_a_markdown_file_a_gallery_source_imports_triggers_it(self) -> None:
+        # webviews/src Markdown is routed only under src/gallery/fixtures/; a page that imports one from
+        # elsewhere (`?raw`) must still start the check.
+        paths = triggers()["pull_request"]["paths"]
+        pattern = re.compile(r"""["'](\.{1,2}/[^"'?]+\.md)(?:\?raw)?["']""")
+        missed = set()
+        for name in tracked("webviews/src"):
+            if not re.search(r"\.(ts|tsx|js|mjs|css)$", name) or re.search(r"\.test\.tsx?$", name):
+                continue
+            text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
+            for match in pattern.finditer(text):
+                target = os.path.normpath(os.path.join(os.path.dirname(name), match.group(1)))
+                if (ROOT / target).is_file() and not triggered(target, paths):
+                    missed.add(f"{target} (from {name})")
+        self.assertEqual(sorted(missed), [])
 
     def test_every_file_the_gallery_imports_from_outside_webviews_triggers_it(self) -> None:
         # A gallery file, a component or a stylesheet that imports a fixture, a schema or a font from outside
@@ -277,6 +374,9 @@ class GalleryHealthPathRouting(unittest.TestCase):
         for name in tracked("webviews/src", "webviews/dev-server", "webviews/scripts/gallery",
                             "webviews/scripts/agent-pane", "webviews/scripts/pages"):
             if not re.search(r"\.(ts|tsx|js|mjs|css)$", name) or re.search(r"\.test\.tsx?$", name):
+                continue
+            # A script no render runs (a bench, a capture tool) is not routed, and neither is what it imports.
+            if not triggered(name, paths):
                 continue
             text = (ROOT / name).read_text(encoding="utf-8", errors="replace")
             for match in pattern.finditer(text):

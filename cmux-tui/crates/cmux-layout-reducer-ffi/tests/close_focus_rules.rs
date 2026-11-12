@@ -47,14 +47,17 @@ mod ported {
     }
 
     #[test]
-    fn the_tab_successor_goes_back_to_the_opener_family() {
-        // A=0 B=1 C=2: B opened by A closes; back to A, not the right neighbor.
-        assert_eq!(tab(1, &[0, 1, 2], &[0, 2], &[0, 2], &[(1, 0)]), 0);
-        // No relations: the next shown tab, else the previous one.
-        assert_eq!(tab(1, &[0, 1, 2], &[0, 2], &[0, 2], &[]), 2);
+    fn tab_close_selects_before_through_the_c_abi() {
+        // A=0 B=1 C=2: the selected B closes; the tab before it, A.
+        assert_eq!(tab(1, &[0, 1, 2], &[0, 2], &[0, 2], &[]), 0);
         assert_eq!(tab(2, &[0, 1, 2], &[0, 1], &[0, 1], &[]), 1);
-        // A hidden neighbor is skipped while a shown tab survives.
-        assert_eq!(tab(1, &[0, 1, 2], &[0, 2], &[0], &[]), 0);
+        // The first tab closes: the tab after it.
+        assert_eq!(tab(0, &[0, 1, 2], &[1, 2], &[1, 2], &[]), 1);
+        // Opener relations no longer pick: Y=0 A=1 B=2, B opened by A; A
+        // closes to Y, not to its child B.
+        assert_eq!(tab(1, &[0, 1, 2], &[0, 2], &[0, 2], &[(2, 1)]), 0);
+        // A hidden tab before it is skipped while a shown tab survives.
+        assert_eq!(tab(2, &[0, 1, 2, 3], &[0, 1, 3], &[0, 3], &[]), 0);
         // A surviving selection stays; none survives: none.
         assert_eq!(tab(0, &[0, 1], &[0], &[0], &[]), 0);
         assert_eq!(tab(0, &[0], &[], &[], &[]), NONE);

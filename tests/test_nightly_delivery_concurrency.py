@@ -79,10 +79,16 @@ def test_nightly_builds_and_signers_never_share_an_evicting_group() -> None:
     # The nightly-next branch is the expression's first operand, so no other branch can win first. A
     # nightly-next push shares one group, so a waiting push run is replaced by a newer one and only the
     # newest head builds and signs (Leo, 2026-11-05: "why do multiple merges even build the f***ing
-    # nightlies anyway?"); every other nightly-next run stays run-scoped.
+    # nightlies anyway?"); the loop's own retry (nightly_next_loop_retry) joins it, and every other
+    # nightly-next run stays run-scoped, among them the tail a loop run dispatches after its GitHub release
+    # (nightly_next_post_publish), so nothing replaces that tail and it never holds the push group. A push run's
+    # sign stage (nightly_next_sign_stage) takes the sign group, which works like the push group.
     assert re.match(r"nightly-build-\$\{\{[^}]*\}\}-\$\{\{ github\.ref == 'refs/heads/nightly-next' && "
-                    r"\(github\.event_name == 'push' && 'push' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
+                    r"\(\(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch' && "
+                    r"inputs\.nightly_next_loop_retry != ''\) && 'push' \|\| github\.event_name == 'workflow_dispatch' && "
+                    r"inputs\.nightly_next_sign_stage != '' && 'sign' \|\| format\('run-\{0\}', github\.run_id\)\) \|\|",
                     top), top
+    assert "nightly_next_post_publish" not in top, top
     assert document["concurrency"]["cancel-in-progress"] is False
     for name, job in document["jobs"].items():
         concurrency = job.get("concurrency")
@@ -132,8 +138,9 @@ def test_a_publish_never_shares_a_group_with_a_non_publish_job() -> None:
     # The nightly-next delta republish leaves the publish group (its feed write is a compare-and-swap);
     # the classic and RC tracks keep the publish lock, since they replace feeds without one.
     deltas = group_of(jobs["republish-nightly-deltas"])
-    assert deltas == ("release-${{ needs.decide.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
-                      "${{ needs.decide.outputs.release_tag }}"), deltas
+    # It reads the track from published-build: it also runs in the dispatched post-publish run, where decide skips.
+    assert deltas == ("release-${{ needs.published-build.outputs.track == 'nightly-next' && 'deltas' || 'publish' }}-"
+                      "${{ needs.published-build.outputs.release_tag }}"), deltas
     for name, job in jobs.items():
         if name in PUBLISH_JOBS or name in KEEPS_PUBLISH_LOCK or name == "republish-nightly-deltas" or not group_of(job):
             continue
@@ -166,7 +173,7 @@ def test_next_feed_writers_share_no_group_on_nightly_next() -> None:
         concurrency = jobs[name].get("concurrency")
         if concurrency is None:
             # Only nightly-next jobs may drop the group: classic and RC keep theirs.
-            assert "needs.decide.outputs.track == 'nightly-next'" in str(jobs[name]["if"]), name
+            assert re.search(r"needs\.(?:decide|published-build)\.outputs\.track == 'nightly-next'", str(jobs[name]["if"])), name
             continue
         assert concurrency.get("cancel-in-progress") is False, name
         group = concurrency["group"]

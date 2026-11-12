@@ -1,5 +1,5 @@
 import type { ContextMenuItem } from "../../../ui/ContextMenu";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import { boundedNativeText, type NativeRowMenuItem } from "./nativeRowTools";
 
 export interface NativeMenuBinding {
@@ -30,6 +30,7 @@ export function nativeChatMenu(rows: readonly ChatMenuItem[]): NativeMenuBinding
       id,
       label: nativeMenuText(row.label),
       enabled: row.disabled !== true,
+      ...(row.destructive ? { role: "destructive" } : {}),
       ...(separatorBefore ? { separatorBefore: true } : {}),
     };
     separatorBefore = false;

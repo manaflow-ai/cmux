@@ -301,10 +301,12 @@ impl WorkspaceRegistry {
              ORDER BY committed_revision DESC, idempotency_key DESC
              LIMIT ?1",
         )?;
+        let ids = StoredIds::load(&db)?;
         let rows = statement
             .query_map([i64::try_from(NOTIFICATION_LEDGER_CAPACITY)?], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?
+            .map(|row| row.map(|(outcome_json, key)| (ids.text(outcome_json), key)))
             .collect::<Result<Vec<_>, _>>()?;
         let mut reads = self.durable_notification_reads()?;
         // Marks for notifications outside the retained window are dead

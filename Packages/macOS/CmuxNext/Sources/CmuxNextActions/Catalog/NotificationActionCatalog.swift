@@ -4,13 +4,6 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
-                id: "feed.show",
-                title: String(localized: "action.feed.show", defaultValue: "Show Feed", bundle: .module),
-                keywords: ["inbox", "requests", "notifications", "approvals"], defaultShortcut: Shortcut("i", modifiers: [.command, .shift]),
-                category: .notifications, symbol: "tray.full", surfaces: [.palette, .keyboard, .menu],
-                cliName: "feed show", mainMenu: .window
-            ),
-            ActionDescriptor(
                 id: "showNotifications",
                 title: String(localized: "action.showNotifications", defaultValue: "Show Notifications", bundle: .module),
                 keywords: ["inbox", "alerts"],
@@ -114,7 +107,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notifications.toggleBanners",
-                title: String(localized: "action.notifications.toggleBanners", defaultValue: "Toggle Notification Banners", bundle: .module),
+                title: String(localized: "action.notifications.toggleBanners", defaultValue: "Notification Banners", bundle: .module),
                 keywords: ["banner", "desktop", "system", "macos", "notifications"], category: .notifications, symbol: "rectangle.stack.badge.minus",
                 surfaces: [.palette, .keyboard], cliName: "notification toggle-banners"
             ),

@@ -231,10 +231,12 @@ impl Mux {
         {
             return false;
         }
-        // Until the Cloud verifier carries the VM principal through the
-        // entry stamp, require the explicit owner record. Never let a
-        // caller-provided `user_id` substitute for that source. The Cloud VM
-        // path is enabled by the follow-up verifier PR's owner stamp.
+        // This remote-entry path admits only the paired server's owner
+        // record; a caller-provided `user_id` never substitutes for it. A
+        // Cloud VM's phone channel does not come this way: it is a carrier
+        // `mux-control` stream, a unix connection the session host stamps
+        // with the grant's role (carrier_role.rs) and phone_carrier.rs holds
+        // to hostd's commands.
         match (self.remote_relay().peer_checked(client), self.remote_relay().owner_user()) {
             (Ok(Some(peer)), Ok(Some(owner))) => peer.user == owner,
             _ => false,
@@ -361,6 +363,7 @@ pub(super) fn handle_frame(
                     | "agent-session-prompt"
                     | "agent-session-cancel"
                     | "agent-session-detach"
+                    | "agent-session-context"
             )
         );
         if allowed {

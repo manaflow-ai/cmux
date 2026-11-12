@@ -6,6 +6,10 @@
 Resources/markdown-viewer/** linguist-vendored
 Resources/markdown-viewer/webviews-app/** linguist-generated
 
+# scripts/ci/_vendor/yaml is PyYAML 6.0.3's pure-Python lib/yaml, unmodified (base_red_excuse.py's
+# fallback YAML reader on hosts without PyYAML).
+scripts/ci/_vendor/** linguist-vendored
+
 # Xcode string catalogs are one large JSON object keyed by string id. Two
 # branches that each add a different key collide positionally, producing dozens
 # of conflict hunks with no semantic disagreement. scripts/merge-xcstrings.py
@@ -31,6 +35,29 @@ Resources/markdown-viewer/webviews-app/** linguist-generated
 # registration.
 cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 
+# Files that branches grow by inserting lines at the same place: owner logs,
+# `pub mod` lists and appended tests in the Rust crates, Cargo members, the
+# test registry fragments, the experiments registry. Two branches that each add
+# a different entry there collide only because a line merge cannot order the
+# two insertions. scripts/merge-insertions.py runs git's own three-way merge and
+# keeps both sides' lines (ours first) only where both sides inserted and
+# neither changed a base line; every other conflict stays for the author, and a
+# .json or .toml result that does not parse falls back to the line merge. In a
+# 7-day replay of every base merge on cmux PRs (2026-10-31..11-07) this left
+# 196 fewer conflicted merges. Same trusted registration as xcstrings-v2; the
+# generated-file lines below still win for the paths they name.
+plans/**/*.md merge=cmux-insertions-v1
+cmux-next-ios/verify/*.md merge=cmux-insertions-v1
+cmux-tui/crates/**/*.rs merge=cmux-insertions-v1
+cmux-tui/crates/*/README.md merge=cmux-insertions-v1
+cmux-tui/Cargo.toml merge=cmux-insertions-v1
+cmux-tui/crates/*/Cargo.toml merge=cmux-insertions-v1
+tests/test-execution.d/*.toml merge=cmux-insertions-v1
+webviews/src/experiments/registry.ts merge=cmux-insertions-v1
+scripts/localization-allowed-omissions.json merge=cmux-insertions-v1
+.github/design-surfaces.json merge=cmux-insertions-v1
+Packages/macOS/CmuxNext/Tests/**/*.swift merge=cmux-insertions-v1
+
 # Generated files that two branches always collide in. Line merging cannot
 # combine two builds; the only right result is a rebuild of the merged sources.
 # `cmux-generated-v1` keeps the current branch's copy so the merge finishes,
@@ -52,7 +79,6 @@ cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 # pane.js, the highlight worker and the per-locale string loaders collide too.
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/** merge=cmux-generated-v1
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/** merge=cmux-generated-v1
-Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js merge=cmux-generated-v1
 Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1
 # The React pages (build-pages-web.sh) and the strings tables it generates from the
 # xcstrings catalogs. Only generated output; the page sources merge normally.
@@ -63,6 +89,13 @@ webviews/src/**/generated/strings.json merge=cmux-generated-v1
 webviews/src/pages/home-channels/generated/pane-strings.json merge=cmux-generated-v1
 webviews/src/pages/diff/generated/locales/** merge=cmux-generated-v1
 webviews/src/pages/diff/generated/localeLoaders.ts merge=cmux-generated-v1
+# The docs reference pages' data (web/scripts/export-next-docs.ts, from the
+# action catalog and the settings schema). Every settings pull request rewrites
+# the settings reference, so two of them always collided there.
+# regenerate-web-bundles.sh rebuilds it with no build, and
+# regenerate-swift-exports.sh again after the exports it follows;
+# web/tests/next-docs.test.ts fails on a stale copy.
+web/data/next-docs/*.generated.json merge=cmux-generated-v1
 # The other exports scripts/ci/next_batch.py's merger rebuilds (its
 # SWIFT_GENERATED and SDK_GENERATED; tests/test_install_git_hooks.py checks
 # that every kept path is one of them). A kept copy that is stale fails its
@@ -114,6 +147,7 @@ scripts/lint-namespace-types-baseline.txt merge=cmux-baseline-v1
 scripts/lint-ios-package-conventions-baseline.txt merge=cmux-baseline-v1
 scripts/cmux-next/*-baseline.tsv merge=cmux-baseline-v1
 scripts/cmux-next/*-baseline.json merge=cmux-baseline-v1
+webviews/scripts/design-tokens-baseline.jsonl merge=cmux-baseline-v1
 # Upstream license texts the shared Ghostty license collector ships, pinned by
 # SHA-256 in pinned-licenses/MANIFEST.json. Never rewrite their bytes.
 cmux-tui/build-support/notices/ghostty/pinned-licenses/** -text -whitespace

@@ -55,7 +55,9 @@ import Testing
     }
 
     /// M2 (PL-burst): the screen resized while a spring runs (the sidebar sliding, the screen bar toggling) keeps
-    /// the spring going toward the new rest from where the panes show; it does not snap them to their end.
+    /// the spring going; it does not snap the panes to their end. Since one-motion (a8bcdff6c24, Leo 2026-11-05:
+    /// "everything moves as one") the springing pane rides the resize in its turn (`AnimatedFrame.rebase`): it
+    /// keeps exactly the travel it had left toward its new rest.
     @Test func aResizeDuringASpringKeepsItGoing() async throws {
         let harness = PaneMotionBench.Harness(Self.row(4), focused: PaneID("p0-0"))
         _ = await harness.frame()
@@ -63,10 +65,15 @@ import Testing
         harness.model.apply(screens: Self.row(4, without: [1]))
         harness.root.syncWithModel()
         for _ in 0..<4 { _ = harness.root.advanceFrame(PaneMotionBench.frameBudget) }
-        let shown = try #require(screen.paneFrames[PaneID("p3-0")]).rect
+        let before = try #require(screen.paneFrames[PaneID("p3-0")])
         screen.setFrameSize(NSSize(width: screen.frame.width - 200, height: screen.frame.height))
         let frame = try #require(screen.paneFrames[PaneID("p3-0")])
-        #expect(frame.rect == shown, "the resize moved a springing pane in its turn: \(shown) -> \(frame.rect)")
+        let left = { (f: AnimatedFrame) in
+            [f.targetRect.minX - f.rect.minX, f.targetRect.width - f.rect.width]
+        }
+        #expect(frame.targetRect != before.targetRect, "the resize did not move the pane's rest")
+        let kept = zip(left(before), left(frame)).allSatisfy { abs($0 - $1) < 0.001 }
+        #expect(kept, "the resize changed the travel a springing pane had left: \(left(before)) -> \(left(frame))")
         #expect(screen.hasMotion, "the resize snapped the spring to its end")
     }
 

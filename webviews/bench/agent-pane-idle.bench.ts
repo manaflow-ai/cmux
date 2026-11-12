@@ -10,12 +10,15 @@
 //   presence   acpmux repeats the same empty presence for the open chat, RATE a second.
 // A pane at rest costs about nothing; a repeat that changes nothing must cost about as little.
 // RESTS=n sits through n rest windows first, so work that grows with the time the pane is open shows.
+// MEMORY=1 then says what the settled page holds: its JS heap after a collection, and a heap snapshot's
+// self size by kind (code, strings, objects by constructor), so the share of an agent chat's renderer that
+// is the page's own (about 145 MB a chat on a Mac, plans/cmux-next/ui-perf-baseline.md) can be cut.
 //   bun bench/agent-pane-idle.bench.ts [turns=300] [others=200] [phaseMs=5000] [rate=20]
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium } from "playwright";
+import { chromium, type CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { perfRow } from "./perfRow";
 import { addStabilityProbe, cpuSession, measureIdle, settledAt } from "./stability";
@@ -25,6 +28,7 @@ const OTHERS = Number(process.argv[3] ?? 200);
 const PHASE_MS = Number(process.argv[4] ?? 5000);
 const RATE = Number(process.argv[5] ?? 20);
 const RESTS = Number(process.env.RESTS ?? 1);
+const MEMORY = process.env.MEMORY === "1";
 for (const value of [TURNS, OTHERS, PHASE_MS, RATE, RESTS])
   if (!Number.isInteger(value) || value < 0) {
     console.error("usage: bun bench/agent-pane-idle.bench.ts [turns=300] [others=200] [phaseMs=5000] [rate=20]");
@@ -138,6 +142,8 @@ try {
   await page.waitForTimeout(3000);
   await settledAt(page);
 
+  if (MEMORY && cdp) await printMemory(cdp);
+
   type Phase = { name: string; start?: () => () => void };
   const repeat = (send: (tick: number) => void) => () => {
     let tick = 0;
@@ -177,6 +183,8 @@ try {
       p95: msPerSecond,
       target: 5,
       floor: 2,
+      clock: "cpu",
+      version: 3,
     });
     // Let the last repeat's frame land before the next phase.
     await page.waitForTimeout(500);
@@ -184,4 +192,48 @@ try {
   await context.close();
 } finally {
   await release();
+}
+
+/// The settled page's JS heap after a collection, and a heap snapshot's self size summed by node kind and by
+/// the largest object constructors and code names.
+async function printMemory(cdp: CDPSession) {
+  await cdp.send("HeapProfiler.enable");
+  await cdp.send("HeapProfiler.collectGarbage");
+  const { usedSize, totalSize } = (await cdp.send("Runtime.getHeapUsage")) as { usedSize: number; totalSize: number };
+  const mb = (bytes: number) => (bytes / 1048576).toFixed(1);
+  console.log(`agent-pane-idle memory: js heap used ${mb(usedSize)} MB of ${mb(totalSize)} MB`);
+  perfRow({ name: "agent_pane_idle.js_heap_mb", p50: usedSize / 1048576, p95: usedSize / 1048576, unit: "MB" });
+  const chunks: string[] = [];
+  const onChunk = ({ chunk }: { chunk: string }) => void chunks.push(chunk);
+  cdp.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
+  await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false });
+  cdp.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
+  const snapshot = JSON.parse(chunks.join("")) as {
+    snapshot: { meta: { node_fields: string[]; node_types: [string[], ...unknown[]] } };
+    nodes: number[];
+    strings: string[];
+  };
+  const fields = snapshot.snapshot.meta.node_fields;
+  const width = fields.length;
+  const at = { type: fields.indexOf("type"), name: fields.indexOf("name"), size: fields.indexOf("self_size") };
+  const types = snapshot.snapshot.meta.node_types[0];
+  const byType = new Map<string, number>();
+  const byName = new Map<string, number>();
+  let total = 0;
+  for (let index = 0; index < snapshot.nodes.length; index += width) {
+    const type = types[snapshot.nodes[index + at.type]!] ?? "?";
+    const size = snapshot.nodes[index + at.size]!;
+    total += size;
+    byType.set(type, (byType.get(type) ?? 0) + size);
+    if (type === "object" || type === "code" || type === "closure" || type === "native") {
+      const name = `${type}:${(snapshot.strings[snapshot.nodes[index + at.name]!] ?? "").slice(0, 60)}`;
+      byName.set(name, (byName.get(name) ?? 0) + size);
+    }
+  }
+  console.log(`agent-pane-idle memory: snapshot self size ${mb(total)} MB by kind:`);
+  for (const [type, size] of [...byType].sort((a, b) => b[1] - a[1]).slice(0, 10))
+    console.log(`  ${mb(size).padStart(7)} MB  ${type}`);
+  console.log("agent-pane-idle memory: largest names:");
+  for (const [name, size] of [...byName].sort((a, b) => b[1] - a[1]).slice(0, 25))
+    console.log(`  ${mb(size).padStart(7)} MB  ${name}`);
 }

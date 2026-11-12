@@ -141,7 +141,7 @@ fn c_abi_runs_the_check_corpus() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/cases/check.json");
     let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let cases = cases.as_array().unwrap();
-    assert_eq!(cases.len(), 65, "check.json: every case runs here too");
+    assert_eq!(cases.len(), 70, "check.json: every case runs here too");
     for case in cases {
         let pane = new();
         let s = &case["state"];

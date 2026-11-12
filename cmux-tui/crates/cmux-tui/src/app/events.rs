@@ -79,6 +79,8 @@ pub(super) enum AppEvent {
         update: Box<MachineUpdate>,
     },
     MachineControllerCompleted(Box<MachineControllerCompletion>),
+    /// The outcome of reconnecting after the session daemon left.
+    DaemonReconnect(crate::app::daemon_reconnect::SessionReconnectOutcome),
 }
 
 /// Cancellation-aware sender used by every worker tied to one mux session.

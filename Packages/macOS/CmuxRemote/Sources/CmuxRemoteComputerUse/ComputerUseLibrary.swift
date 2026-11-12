@@ -14,6 +14,8 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
     typealias SetConfigFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<CmuxCuBuffer>?) -> Int32
     typealias SavedApprovalsFn = @convention(c) (OpaquePointer?) -> CmuxCuBuffer
     typealias EditApprovalsFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Int32
+    typealias SessionFn = @convention(c) (OpaquePointer?, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int,
+                                          UnsafePointer<UInt8>?, Int) -> Int32
     typealias FreeFn = @convention(c) (CmuxCuBuffer) -> Void
     /// `void *cmux_cu_serve(CmuxCuEngine *, const uint8_t *socket_path, size_t, const uint8_t *secret_hex, size_t,
     /// CmuxCuBuffer *error)`: serves the agent socket (`cmux_computer_use::server`,
@@ -43,6 +45,7 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
     let setConfig: SetConfigFn
     let savedApprovals: SavedApprovalsFn
     let editApprovals: EditApprovalsFn
+    let session: SessionFn
     let free: FreeFn
     let serve: ServeFn
     let serveStop: ServeStopFn
@@ -67,6 +70,7 @@ final class ComputerUseLibrary: @unchecked Sendable { // crash-allow: immutable 
         setConfig = try symbol("cmux_cu_engine_set_config", SetConfigFn.self)
         savedApprovals = try symbol("cmux_cu_engine_saved_approvals", SavedApprovalsFn.self)
         editApprovals = try symbol("cmux_cu_engine_edit_approvals", EditApprovalsFn.self)
+        session = try symbol("cmux_cu_engine_session", SessionFn.self)
         free = try symbol("cmux_cu_buffer_free", FreeFn.self)
         serve = try symbol("cmux_cu_serve", ServeFn.self)
         serveStop = try symbol("cmux_cu_serve_stop", ServeStopFn.self)
@@ -127,6 +131,26 @@ final class ComputerUseEngine: @unchecked Sendable { // crash-allow: the handle 
                 library.editApprovals(handle, action.baseAddress, action.count, app.baseAddress, app.count) == 0
             }
         }
+    }
+
+    /// What `cmux_cu_engine_session` did.
+    enum SessionResult: Int32, Sendable {
+        case changed = 0
+        case refused = 1
+        case unchanged = 2
+    }
+
+    /// Stops or resumes agent session `control.session` (the person's menu bar Stop and Resume).
+    func apply(_ control: SessionControl) -> SessionResult {
+        let status = Array(control.action.rawValue.utf8).withUnsafeBufferPointer { action in
+            Array(control.session.utf8).withUnsafeBufferPointer { session in
+                Array(control.label.utf8).withUnsafeBufferPointer { label in
+                    library.session(handle, action.baseAddress, action.count, session.baseAddress, session.count,
+                                    label.baseAddress, label.count)
+                }
+            }
+        }
+        return SessionResult(rawValue: status) ?? .refused
     }
 
     /// Serves the agent socket at `socket` (the library's threads); the server stops with ``stopServing(_:)``.

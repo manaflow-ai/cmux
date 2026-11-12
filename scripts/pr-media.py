@@ -120,6 +120,10 @@ class MediaError(Exception):
     """A problem worth a one-line message rather than a traceback."""
 
 
+class MediaConflict(MediaError):
+    """A path the caller's EXPECT named changed on the branch before the write: another upload got there first."""
+
+
 class PrivacyError(MediaError):
     """The privacy check refused the files or could not run; a retry gets the same answer."""
 
@@ -764,7 +768,7 @@ class MediaBranch:
                 tip = self.fetch()
                 moved = sorted(path for path, seen in (expect or {}).items() if self.blob_sha(path) != seen)
                 if moved:
-                    raise MediaError(f"{', '.join(moved)} changed on {self.branch} while this run was uploading "
+                    raise MediaConflict(f"{', '.join(moved)} changed on {self.branch} while this run was uploading "
                                      "(another upload got there first); nothing was written. Check what is "
                                      "there now, then rename the file or pass --force to replace it.")
                 tree = self.tree_with(f"{tip}^{{tree}}", blobs)
@@ -899,7 +903,7 @@ class ApiBranch:
                     raise MediaError(f"{path} is a folder on {self.branch}, not a file")
                 seen = found[1] if found else None
                 if expect is not None and path in expect and seen != expect[path]:
-                    raise MediaError(f"{path} changed on {self.branch} while this run was uploading "
+                    raise MediaConflict(f"{path} changed on {self.branch} while this run was uploading "
                                      "(another upload got there first); nothing was written. Check what is "
                                      "there now, then rename the file or pass --force to replace it.")
             commit_message = {"headline": headline}
@@ -947,7 +951,9 @@ def with_fallback(repo: str, branch: str, store: MediaBranch | None, by_git, by_
     try:
         return by_api(ApiBranch(repo, branch))
     except MediaError as error:
-        raise MediaError(f"{failed}; the GitHub API fallback failed too: {error}") from None
+        # A lost create-only race stays a MediaConflict, so its caller can keep the other copy and go on.
+        kind = MediaConflict if isinstance(error, MediaConflict) else MediaError
+        raise kind(f"{failed}; the GitHub API fallback failed too: {error}") from None
 
 
 def existing_sha(repo: str, branch: str, path: str, store: MediaBranch | None = None) -> str | None:

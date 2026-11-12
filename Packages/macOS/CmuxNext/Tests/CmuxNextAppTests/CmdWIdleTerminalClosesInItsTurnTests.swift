@@ -126,13 +126,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     /// the neighbour the hide shows, and with a program running they come back to the terminal that stays, in order,
     /// after Cancel. A Return typed during the read never presses the question's Close.
     @Test func keysTypedDuringTheReadWaitForTheAnswerAndNeverPressClose() async throws {
-        try await Self.withFocusedTerminal { t in
+        // A terminal neighbour before the tab: the hide shows it (the pane's first tab may be an agent chat).
+        try await Self.withFocusedTerminal(before: 1) { t in
             try await Self.input("cat\r", t)
             try await Self.waitRunning("cat", t)
-            // A terminal neighbour that the hide shows (the pane's first tab may be an agent chat).
-            let other = try await t.connection.newTab(in: t.pane.pane.handle).surface
-            try await PinnedPageTests.until({ t.store.tab(surface: other).map { t.pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
-            let neighbour = try #require(t.store.tab(surface: other))
+            let neighbour = try #require(t.before.last)
             t.pane.select(TabID(t.tab.id))
             try await PinnedPageTests.until({ t.pane.stripModel.selectedID?.rawValue == t.tab.id })
             let hold = t.services.daemon.closeReadHold
@@ -169,15 +167,11 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     /// neighbour the hide shows at once, and the keys held for the first close keep waiting: they never run in that
     /// neighbour, and after Cancel the line comes back whole to the terminal that stays.
     @Test func aSecondCmdWDuringTheReadKeepsTheHeldKeysForTheAnswer() async throws {
-        try await Self.withFocusedTerminal { t in
+        // Two terminals before the tab: the first hide shows the nearer one, the second Cmd-W closes it and shows the other.
+        try await Self.withFocusedTerminal(before: 2) { t in
             try await Self.input("cat\r", t)
             try await Self.waitRunning("cat", t)
-            var neighbours: [TabModel] = []
-            for _ in 0..<2 {
-                let surface = try await t.connection.newTab(in: t.pane.pane.handle).surface
-                try await PinnedPageTests.until({ t.store.tab(surface: surface).map { t.pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
-                neighbours.append(try #require(t.store.tab(surface: surface)))
-            }
+            let neighbours = t.before
             t.pane.select(TabID(t.tab.id))
             try await PinnedPageTests.until({ t.pane.stripModel.selectedID?.rawValue == t.tab.id })
             let hold = t.services.daemon.closeReadHold
@@ -208,8 +202,8 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     /// hidden close reads: that close never takes the keys typed meanwhile. They go to the terminal that has the focus
     /// (the neighbour the hide showed), never into the other terminal when its program asks and the person cancels.
     @Test func aCloseOfAnUnfocusedTerminalDuringTheReadNeverTakesTheHeldKeys() async throws {
-        try await Self.withFocusedTerminal { t in
-            let neighbour = try await Self.newTerminal(t)
+        try await Self.withFocusedTerminal(before: 1) { t in
+            let neighbour = try #require(t.before.last) // the tab before: the hide shows it
             let running = try await Self.newTerminal(t) // runs cat: its close asks
             _ = try await t.connection.request(SendInputRequest(surface: running.surface, text: "cat\r"))
             try await Self.waitRunning("cat", t, surface: running.surface)
@@ -244,8 +238,8 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     /// read ends: that close ends while the question asks, and Cancel still types only the question's own keys into the
     /// terminal it asked about. The keys typed for the focused neighbour go to it.
     @Test func aCloseThatEndsWhileAnotherTerminalAsksKeepsItsKeysForTheFocusedTerminal() async throws {
-        try await Self.withFocusedTerminal { t in
-            let neighbour = try await Self.newTerminal(t)
+        try await Self.withFocusedTerminal(before: 1) { t in
+            let neighbour = try #require(t.before.last) // the tab before: the hide shows it
             let running = try await Self.newTerminal(t) // runs cat: its close asks
             _ = try await t.connection.request(SendInputRequest(surface: running.surface, text: "cat\r"))
             try await Self.waitRunning("cat", t, surface: running.surface)
@@ -280,9 +274,9 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     /// question asks. After Cancel, the neighbour gets every key in typing order (before: the second close's keys came
     /// first, so a typed "ab" arrived "ba").
     @Test func keysHeldForTwoClosesArriveInTypingOrder() async throws {
-        try await Self.withFocusedTerminal { t in
-            let running = try await Self.newTerminal(t) // the neighbour the first hide shows; runs cat, so its close asks
-            _ = try await Self.newTerminal(t) // the neighbour the second hide shows
+        // Strip: ..., the neighbour the second hide shows, `running`, the idle terminal.
+        try await Self.withFocusedTerminal(before: 2) { t in
+            let running = try #require(t.before.last) // the neighbour the first hide shows; runs cat, so its close asks
             _ = try await t.connection.request(SendInputRequest(surface: running.surface, text: "cat\r"))
             try await Self.waitRunning("cat", t, surface: running.surface)
             t.pane.select(TabID(t.tab.id))
@@ -316,10 +310,9 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
     /// the question's: Escape through the app's key path cancels it, and the line held during the read comes back whole
     /// to the terminal that stays.
     @Test func escapeAtTheQuestionCancelsItAndTheHeldLineComesBack() async throws {
-        try await Self.withFocusedTerminal { t in
+        try await Self.withFocusedTerminal(before: 1) { t in // the terminal before: the neighbour the hide shows
             try await Self.input("cat\r", t)
             try await Self.waitRunning("cat", t)
-            _ = try await Self.newTerminal(t) // the neighbour the hide shows
             t.pane.select(TabID(t.tab.id))
             try await PinnedPageTests.until({ t.pane.stripModel.selectedID?.rawValue == t.tab.id })
             let hold = t.services.daemon.closeReadHold
@@ -357,24 +350,42 @@ struct CmdWIdleTerminalClosesInItsTurnTests {
         let store: DaemonStore
         let pane: PaneController
         let tab: TabModel
+        /// Terminal tabs made just before `tab`, in strip order: a close selects the tab before it (#38328), so
+        /// `before.last` is the neighbour a close of `tab` shows.
+        let before: [TabModel]
     }
 
-    /// A focused live terminal in a pane that keeps another tab, its shell started.
-    private static func withFocusedTerminal(_ body: (Terminal) async throws -> Void) async throws {
+    /// A focused live terminal in a pane that keeps another tab, its shell started; `before` terminal tabs sit
+    /// right before it in the strip.
+    private static func withFocusedTerminal(before count: Int = 0, _ body: (Terminal) async throws -> Void) async throws {
         try await PinnedPageTests.withApp(heldKeyReplay: { event, window, router in
             if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
         }) { services, connection in
             let store = services.daemon.store
             let paneModel = try #require(store.workspaces.first?.screens.first?.panes.first)
+            // The first test of a run can ask before the window has made the pane's controller.
+            try await PinnedPageTests.until({ services.paneController(for: paneModel) != nil }, report: { "the first pane has no controller" })
+            let pane = try #require(services.paneController(for: paneModel))
+            var before: [TabModel] = []
+            for _ in 0..<count {
+                let surface = try await connection.newTab(in: paneModel.handle).surface
+                try await PinnedPageTests.until({ store.tab(surface: surface).map { pane.orderedIDs.map(\.rawValue).contains($0.id) } == true })
+                before.append(try #require(store.tab(surface: surface)))
+                pane.select(TabID(before[before.count - 1].id))
+            }
             let surface = try await connection.newTab(in: paneModel.handle).surface
             try await PinnedPageTests.until({ store.tab(surface: surface) != nil })
             let tab = try #require(store.tab(surface: surface))
-            let pane = try #require(services.paneController(for: paneModel))
             try await PinnedPageTests.until({ pane.orderedIDs.map(\.rawValue).contains(tab.id) && pane.orderedIDs.count > 1 })
+            let order: [String] = pane.orderedIDs.map(\.rawValue)
+            let expected: [String] = before.map(\.id) + [tab.id]
+            let start: Int = order.firstIndex(of: expected[0]) ?? order.endIndex
+            let run: [String] = Array(order[start...].prefix(expected.count))
+            try #require(run == expected, "the terminals before the focused one are not right before it: \(order)")
             pane.select(TabID(tab.id))
             try #require(services.windows.active?.focusedPane === pane, "the terminal's pane is not the focused one")
             try #require(TabCloseGuard.asks([tab], services: services), "the terminal close warning does not apply")
-            let terminal = Terminal(services: services, connection: connection, store: store, pane: pane, tab: tab)
+            let terminal = Terminal(services: services, connection: connection, store: store, pane: pane, tab: tab, before: before)
             try await Self.waitRunning(nil, terminal)
             defer { if let record = Self.question() { _ = CmuxDialogCenter.shared.press(record.id, button: "cancel") } }
             try await body(terminal)

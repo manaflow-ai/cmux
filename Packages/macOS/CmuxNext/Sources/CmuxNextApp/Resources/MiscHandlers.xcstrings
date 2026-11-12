@@ -17977,127 +17977,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use is off. Turn it on in Settings > Computer Use."
+            "value": "Computer Use is off. Turn it on in Settings > Agents > Computer Use."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Computer Use はオフです。設定 > Computer Use でオンにしてください。"
+            "value": "Computer Use はオフです。設定 > エージェント > Computer Use でオンにしてください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "استخدام الكمبيوتر متوقف. شغّله من الإعدادات > Computer Use."
+            "value": "استخدام الكمبيوتر متوقف. شغّله من الإعدادات > الوكلاء > Computer Use."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use je isključen. Uključite ga u Postavke > Computer Use."
+            "value": "Computer Use je isključen. Uključite ga u Postavke > Agenti > Computer Use."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use er slået fra. Slå det til under Indstillinger > Computer Use."
+            "value": "Computer Use er slået fra. Slå det til under Indstillinger > Agenter > Computer Use."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use ist aus. Schalte es unter Einstellungen > Computer Use ein."
+            "value": "Computer Use ist aus. Schalte es unter Einstellungen > Agenten > Computer Use ein."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use está desactivado. Actívalo en Ajustes > Computer Use."
+            "value": "Computer Use está desactivado. Actívalo en Ajustes > Agentes > Computer Use."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use est désactivé. Activez-le dans Réglages > Computer Use."
+            "value": "Computer Use est désactivé. Activez-le dans Réglages > Agents > Computer Use."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use è disattivato. Attivalo in Impostazioni > Computer Use."
+            "value": "Computer Use è disattivato. Attivalo in Impostazioni > Agenti > Computer Use."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use បានបិទ។ បើកវានៅក្នុង ការកំណត់ > Computer Use។"
+            "value": "Computer Use បានបិទ។ បើកវានៅក្នុង ការកំណត់ > ភ្នាក់ងារ > Computer Use។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use가 꺼져 있습니다. 설정 > Computer Use에서 켜세요."
+            "value": "Computer Use가 꺼져 있습니다. 설정 > 에이전트 > Computer Use에서 켜세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use er av. Slå det på under Innstillinger > Computer Use."
+            "value": "Computer Use er av. Slå det på under Innstillinger > Agenter > Computer Use."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use jest wyłączone. Włącz je w Ustawienia > Computer Use."
+            "value": "Computer Use jest wyłączone. Włącz je w Ustawienia > Agenci > Computer Use."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O Computer Use está desativado. Ative-o em Ajustes > Computer Use."
+            "value": "O Computer Use está desativado. Ative-o em Ajustes > Agentes > Computer Use."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use выключен. Включите его в Настройки > Computer Use."
+            "value": "Computer Use выключен. Включите его в Настройки > Агенты > Computer Use."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use ปิดอยู่ เปิดได้ที่ การตั้งค่า > Computer Use"
+            "value": "Computer Use ปิดอยู่ เปิดได้ที่ การตั้งค่า > เอเจนต์ > Computer Use"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use kapalı. Ayarlar > Computer Use bölümünden açın."
+            "value": "Computer Use kapalı. Ayarlar > Aracılar > Computer Use bölümünden açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use вимкнено. Увімкніть його в Налаштування > Computer Use."
+            "value": "Computer Use вимкнено. Увімкніть його в Налаштування > Агенти > Computer Use."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use đang tắt. Bật trong Cài đặt > Computer Use."
+            "value": "Computer Use đang tắt. Bật trong Cài đặt > Tác tử > Computer Use."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use 已关闭。请在“设置 > Computer Use”中打开。"
+            "value": "Computer Use 已关闭。请在“设置 > 智能体 > Computer Use”中打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Computer Use 已關閉。請在「設定 > Computer Use」中開啟。"
+            "value": "Computer Use 已關閉。請在「設定 > 代理 > Computer Use」中開啟。"
           }
         }
       }

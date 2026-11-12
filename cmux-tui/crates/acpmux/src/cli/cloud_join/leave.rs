@@ -99,7 +99,10 @@ pub(super) fn remove_local(home: &std::path::Path) -> Result<Vec<&'static str>> 
             removed.push("meshRelay");
         }
     }
-    for (file, label) in [(CREDENTIAL_FILE, "credential"), ("node.wg.key", "nodeKey")] {
+    for (file, label) in [
+        (CREDENTIAL_FILE, "credential"),
+        (cmux_link::key_holder::KeyFile::Node.file_name(), "nodeKey"),
+    ] {
         match std::fs::remove_file(home.join(file)) {
             Ok(()) => removed.push(label),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -158,6 +161,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     }
     let removed = remove_local(&home).map_err(|_| store_error())?;
     let daemon = tokio::time::timeout(
+        // timeout: a daemon that never answers is reported not running; the leave is done.
         std::time::Duration::from_secs(2),
         crate::client::Client::connect(&crate::config::socket_path()),
     )

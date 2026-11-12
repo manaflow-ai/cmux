@@ -25,6 +25,8 @@ enum Behavior {
     CrashOnce,
     /// Answer an `app_denied` refusal.
     Refuse,
+    /// Answer as the engine does once the person stopped the session.
+    Stopped,
 }
 
 /// A worker: one socket, one secret, answering per [`Behavior`], and
@@ -100,6 +102,8 @@ impl FakeWorker {
                 }
                 let result = if let Some(result) = done.lock().unwrap().get(&call_id).cloned() {
                     result // a retry of a call that already ran: its result, not a second run
+                } else if behavior == Behavior::Stopped {
+                    cmux_computer_use::stop::stopped().to_json()
                 } else if behavior == Behavior::Refuse {
                     json!({"is_error": true, "code": "app_denied", "body": {"error": "Keychain Access is denied", "code": "app_denied"}, "png": null})
                 } else {
@@ -126,6 +130,7 @@ struct FakeDaemon {
     answers: Arc<Mutex<Vec<Result<Value, DaemonError>>>>,
     asks: Arc<AtomicUsize>,
     remote: Arc<Mutex<Vec<Value>>>,
+    workspace_reads: Arc<AtomicUsize>,
 }
 
 impl FakeDaemon {
@@ -134,6 +139,7 @@ impl FakeDaemon {
             answers: Arc::new(Mutex::new(answers)),
             asks: Arc::default(),
             remote: Arc::default(),
+            workspace_reads: Arc::default(),
         }
     }
 }
@@ -152,6 +158,13 @@ impl Daemon for FakeDaemon {
     }
     fn machines(&self) -> Result<Value, DaemonError> {
         Ok(json!({"machines": [{"name": "studio", "reachable": true, "computer_use": "ready"}]}))
+    }
+    fn workspace_name(&self, id: &str) -> Option<String> {
+        self.workspace_reads.fetch_add(1, Ordering::SeqCst);
+        workspace_name_in(
+            &json!({"workspaces": [{"id": "1F2E", "name": "  cmux \u{7}rewrite  "}, {"id": "other", "name": "Other"}]}),
+            id,
+        )
     }
 }
 
@@ -181,6 +194,50 @@ fn a_call_reaches_the_worker_with_its_session_label_and_call_id() {
     assert_eq!(seen[0]["arguments"], json!({"app_id": "com.apple.Notes"}));
     // A local call never claims an origin: the worker treats it as local.
     assert!(seen[0].get("origin").is_none(), "{}", seen[0]);
+}
+
+/// The agent cursor's tag: the workspace's name by default (read from the daemon once), the
+/// agent's `cursor_tag` once it sets one (taken out of the tool's arguments and kept for the
+/// later calls), back to the workspace's name when it sets an empty one; a remote call carries it.
+#[test]
+fn a_call_carries_the_cursor_tag_the_agent_set_else_its_workspace_name() {
+    let dir = tmp();
+    let worker = FakeWorker::start(dir.path(), "w", Behavior::Answer, Arc::default());
+    let daemon = FakeDaemon::new(vec![Ok(worker.ready())]);
+    let reads = daemon.workspace_reads.clone();
+    let remote = daemon.remote.clone();
+    let caller = caller(daemon).with_workspace(Some("1f2e".into()));
+    caller.call("click", &json!({"window_id": "w1"}), "t-1");
+    caller.call("click", &json!({"window_id": "w1", "cursor_tag": "Fixing\nthe build"}), "t-2");
+    caller.call("screenshot", &json!({"window_id": "w1"}), "t-3");
+    caller.call("click", &json!({"window_id": "w1", "cursor_tag": "  "}), "t-4");
+    caller.call("click", &json!({"window_id": "w1", "machine": "studio"}), "t-5");
+    let seen = worker.seen.lock().unwrap();
+    let tags: Vec<_> = seen.iter().map(|r| r["tag"].clone()).collect();
+    assert_eq!(
+        tags,
+        [
+            json!("cmux rewrite"),
+            json!("Fixing the build"),
+            json!("Fixing the build"),
+            json!("cmux rewrite")
+        ]
+    );
+    assert!(
+        seen.iter().all(|r| r["arguments"].get("cursor_tag").is_none()),
+        "the tag never reaches the tool"
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 1, "the workspace's name is read once");
+    assert_eq!(remote.lock().unwrap()[0]["tag"], "cmux rewrite");
+    // No workspace and no tag of its own: no tag.
+    let bare = FakeWorker::start(dir.path(), "b", Behavior::Answer, Arc::default());
+    let caller = Caller::new(FakeDaemon::new(vec![Ok(bare.ready())]), "s-2".into(), "Codex".into());
+    caller.call("click", &json!({"window_id": "w1"}), "t-6");
+    assert!(bare.seen.lock().unwrap()[0].get("tag").is_none());
+    assert_eq!(
+        cmux_computer_use::tools::safe_tag(&"x".repeat(80)).map(|t| t.chars().count()),
+        Some(60)
+    );
 }
 
 /// The worker dies mid-call and comes back on a new socket with a new
@@ -237,6 +294,20 @@ fn a_refusal_reaches_the_agent_unchanged() {
     let text = mcp["content"][0]["text"].as_str().unwrap();
     assert!(text.contains("app_denied") && text.contains("Keychain Access is denied"), "{text}");
     // Exactly one attempt: a refusal is never retried.
+    assert_eq!(worker.seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn the_persons_stop_reaches_the_agent_word_for_word_and_is_never_retried() {
+    let dir = tmp();
+    let worker = FakeWorker::start(dir.path(), "w", Behavior::Stopped, Arc::default());
+    let caller = caller(FakeDaemon::new(vec![Ok(worker.ready())]));
+    let mcp = caller.call("click", &json!({"window_id": "k"}), "call-s").to_mcp();
+    assert_eq!(mcp["isError"], true, "{mcp}");
+    let text: Value = serde_json::from_str(mcp["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(text["code"], cmux_computer_use::stop::STOPPED_CODE);
+    assert_eq!(text["error"], cmux_computer_use::stop::STOPPED_MESSAGE);
+    assert!(text["error"].as_str().unwrap().contains("Do not retry or work around it"));
     assert_eq!(worker.seen.lock().unwrap().len(), 1);
 }
 

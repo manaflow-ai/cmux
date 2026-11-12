@@ -22,7 +22,6 @@ const LOCAL_PEERPID: libc::c_int = 0x002;
 
 /// The copy that runs.
 pub(super) struct Staged {
-    pub(super) app: PathBuf,
     pub(super) executable: PathBuf,
     /// Content digest of the signed bundle (its executable and seal).
     pub(super) digest: String,
@@ -303,7 +302,7 @@ pub(super) fn spawn_host(
 /// A live process's start time (seconds, microseconds), or None.
 pub(super) fn process_start(pid: u32) -> Option<(u64, u64)> {
     let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let size = size_of::<libc::proc_bsdinfo>() as libc::c_int;
     // SAFETY: proc_pidinfo into a correctly sized buffer.
     let read = unsafe {
         libc::proc_pidinfo(
@@ -320,7 +319,7 @@ pub(super) fn process_start(pid: u32) -> Option<(u64, u64)> {
 /// The pid of a connected Unix socket's peer.
 pub(super) fn peer_pid(stream: &std::os::unix::net::UnixStream) -> Option<u32> {
     let mut pid: libc::pid_t = 0;
-    let mut length = std::mem::size_of::<libc::pid_t>() as libc::socklen_t;
+    let mut length = size_of::<libc::pid_t>() as libc::socklen_t;
     // SAFETY: getsockopt into a pid_t.
     let ok = unsafe {
         libc::getsockopt(stream.as_raw_fd(), 0, LOCAL_PEERPID, (&raw mut pid).cast(), &mut length)

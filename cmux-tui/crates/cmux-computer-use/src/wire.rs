@@ -38,6 +38,9 @@ pub struct CallRequest {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub call_id: Option<String>,
+    /// The agent cursor's tag (`CallContext::tag`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
 }
 
 /// `endpoint.json`, written 0600 by the host while the worker serves.

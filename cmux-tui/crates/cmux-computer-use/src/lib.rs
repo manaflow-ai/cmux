@@ -29,6 +29,7 @@ pub mod keys;
 pub mod menus;
 pub mod policy;
 pub mod session;
+pub mod stop;
 pub mod tools;
 pub mod wire;
 

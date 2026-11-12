@@ -21,7 +21,7 @@ or protocol changed.
 
 Checked and correct already: closing an unfocused column left of the strip viewport
 (focused column kept its screen x), closing an unfocused visible column, the tab
-successor (right, else left), an unselected tab closed by the CLI, the workspace successor
+successor (then right, else left; now left, else right), an unselected tab closed by the CLI, the workspace successor
 order (next, else previous). Closing the last column springs back to the clamp, which is
 forced (no empty space past the last column).
 
@@ -40,25 +40,38 @@ the strip's scroll function (column-scroll.md).
   and closing an unfocused item never changes focus. No origin input is needed.
 - C2/C3 The successor is a surviving item on the same screen (panes on hidden screens are
   used only when that screen emptied); focus is nil only when nothing is left.
-- Pane (`layout.closeFocus`, default `previousNeighbor`): the previous pane in its column,
+- Pane (`layout.closeFocus`, default `mostRecent` since 2026-11-08, issue
+  https://github.com/manaflow-ai/cmux/issues/38194: "the logic for this matches bonsplit stuff as
+  we want in the cmux classic terminal"). `mostRecent` is cmux classic's Bonsplit rule
+  (`SplitViewController.closePane`): the newest surviving pane of this window's history on that
+  screen, as Zellij and tmux return to the pane used last; with no surviving pane in the history,
+  the closed pane's sibling when the topology carries it (`CmuxFocusTopology.column_siblings`,
+  `close_focus::pane_or_sibling`), else `previousNeighbor`. The app does not send siblings yet:
+  the pinned FFI header predates the field, so after the repin `FocusMachine` must encode them
+  (follow-up); until then the app falls back to `previousNeighbor` here. The daemon's own active pane follows the same rule (focus recency only,
+  `Pane::focused_at`; with no focused survivor, the closed pane's sibling subtree's first pane, as
+  Bonsplit's `closePaneRecursively`). `previousNeighbor` (opt-in): the previous pane in its column,
   else the next pane there, counting only panes still in that column after the change
   (column identity, not liveness: a neighbor moved to another column in the same snapshot
   does not count; found by the rows lead's LayoutRows.tla), else a pane that joined the
   column; when the column went, the nearest column to the left, else to
   the right, in visual order (left docked, strip, right docked; a split screen is one
-  column), entering it at its most recently focused pane, else its first. `mostRecent`:
-  the newest surviving pane of this window's history on that screen, else the default.
+  column), entering it at its most recently focused pane, else its first.
   Closing the right docked column focuses the strip's last column; the left one, the
   strip's first.
-- Tab: a browser link tab with a live opener relation (`BrowserTabOpeners`) goes back to
-  its family first, in Chrome's order (`DetermineNewSelectedIndex`): its next child, else
-  a sibling (the next tab with the same opener), else the opener. "Next" means the nearest
-  after the closed tab, else the nearest before it. Otherwise, and for terminal and agent
-  tabs, which have no openers: the next shown tab, else the previous shown one. Members of
-  a collapsed group are skipped while a shown tab survives, so a hidden opener or sibling
-  is passed over. Relations end where Chrome ends them: a switch to an unrelated tab or a
-  typed navigation forgets them all (except a typed navigation in a New Tab page at the end
-  of the strip). Rule changed 2026-10-18 (manaflow-ai/cmux#21805 row 1).
+- Tab: closing the selected tab selects the shown tab BEFORE it in its pane (left in a
+  strip, above in a vertical list), else the shown tab after it when it was the first.
+  Closing a tab that is not selected keeps the selection. One rule for every tab kind
+  (terminal, browser, agent, page) and every way a tab closes (Cmd-W, the close button, a
+  middle click, the context menu, Close Others, Close Tabs to the Right or Left, a group
+  close, the CLI or MCP, a terminal that exits): `cmux-focus-core` `close_focus::tab`, which
+  the app (`FocusAfterClose.tab`), the daemon's active tab (`tree_edit::remove_surface`) and
+  the cmux-tui client call. Pinned tabs come first in the strip, so closing the first
+  unpinned tab selects the last pinned one; the tab before may be in another group; members
+  of a collapsed group are skipped while a shown tab survives. No opener, most recently used
+  or "next to the right" step. Rule changed 2026-11-08 (Lawrence: "it should always focus
+  the tab before it if it exists"); before, a link tab went back to its opener family
+  (Chrome's `DetermineNewSelectedIndex`), then the next tab, else the previous one.
 - Workspace: the next workspace below, else the one above (`WindowRegistry.repairedSelection`).
 - A rejected close (the tab or pane comes back) does not move focus back.
 
@@ -114,10 +127,11 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
   clamped, target shows focus); action properties UnfocusedCloseKeepsFocus, NoJump,
   MinimalReveal, SuccessorRule, NoSecondScroll; liveness Settles (after the last user step
   the view settles with the focus visible).
-- Tab opener order: `FocusAfterCloseOpenerTests` (child, sibling, opener, hidden ones
-  skipped, and every strip of up to 4 tabs with every opener forest and hidden set) and
-  `BrowserTabOpenersCloseFocusTests` (relations forgotten after an unrelated switch, a
-  closed opener's children take its opener).
+- Tab rule: `FocusAfterCloseTabTests` and `TabCloseSelectsBeforeTests` (app), cmux-focus-core
+  `close_successor.rs`. Pane rule (issue 38194): `PaneCloseControllerTests`
+  (`theDefaultCloseFocusIsClassicsMostRecentPane`, `theDefaultCloseFocusReturnsToTheLastUsedColumn`),
+  `most_recent_without_history_focuses_the_closed_panes_sibling`, and the daemon's pane close
+  tests in cmux-tui-core `mux/tests/tabs.rs`.
 - Behavior tests: `CloseFocusReducerTests` (B1, B2, docked, screens, reject),
   `SidebarCloseScrollTests` (S1-S3, no jump), `FocusReducerTests`.
 
@@ -158,7 +172,7 @@ pill and animation smoothness (screenshots are settled frames).
 2. Entering the left column after a column closes lands on that column's most recently
    focused pane, else its first (each column keeps an active tile), not the
    geometrically nearest pane.
-3. Tabs keep their own rule (opener family for link tabs, then right, else left) and do
+3. Tabs keep their own rule (the tab before, else the one after; 2026-11-08) and do
    not follow `layout.closeFocus`.
    Workspaces keep next-below, else above.
 4. The sidebar reveals the active row only when it changed or was visible; it does not

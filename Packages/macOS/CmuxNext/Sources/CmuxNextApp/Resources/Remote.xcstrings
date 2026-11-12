@@ -5898,6 +5898,137 @@
         }
       }
     },
+    "remote.status.staticInstallStaged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A newer cmux build is staged for ~/.cmux/bin/cmux on this machine. It is installed the next time its session server starts; nothing running there was stopped."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تجهيز إصدار أحدث من cmux لـ ~/.cmux/bin/cmux على هذا الجهاز. سيُثبَّت عند بدء خادم الجلسة في المرة القادمة؛ لم يُوقَف أي شيء يعمل هناك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novija cmux verzija je pripremljena za ~/.cmux/bin/cmux na ovoj mašini. Instalira se pri sljedećem pokretanju njenog servera sesije; ništa što tamo radi nije zaustavljeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En nyere cmux-build er klar til ~/.cmux/bin/cmux på denne maskine. Den installeres næste gang dens sessionsserver starter; intet, der kører der, blev stoppet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein neuerer cmux-Build ist für ~/.cmux/bin/cmux auf diesem Rechner bereitgestellt. Er wird beim nächsten Start seines Sitzungsservers installiert; nichts, was dort läuft, wurde beendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay una compilación más reciente de cmux preparada para ~/.cmux/bin/cmux en esta máquina. Se instala la próxima vez que se inicie su servidor de sesión; no se detuvo nada de lo que se ejecuta allí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une version plus récente de cmux est prête pour ~/.cmux/bin/cmux sur cette machine. Elle sera installée au prochain démarrage de son serveur de session ; rien de ce qui y tourne n’a été arrêté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una build più recente di cmux è pronta per ~/.cmux/bin/cmux su questa macchina. Viene installata al prossimo avvio del suo server di sessione; nulla di ciò che è in esecuzione è stato interrotto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンの ~/.cmux/bin/cmux 用に新しい cmux ビルドが待機しています。次にセッションサーバーが起動するときにインストールされます。実行中のものは停止していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំណែ cmux ថ្មីជាងត្រូវបានរៀបចំសម្រាប់ ~/.cmux/bin/cmux នៅលើម៉ាស៊ីននេះ។ វានឹងត្រូវដំឡើងនៅពេលម៉ាស៊ីនមេវគ្គចាប់ផ្តើមលើកក្រោយ; គ្មានអ្វីដែលកំពុងដំណើរការត្រូវបានបញ្ឈប់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신의 ~/.cmux/bin/cmux에 새 cmux 빌드가 준비되어 있습니다. 다음에 세션 서버가 시작될 때 설치됩니다. 실행 중인 항목은 중지되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En nyere cmux-versjon er klar for ~/.cmux/bin/cmux på denne maskinen. Den installeres neste gang sesjonsserveren starter; ingenting som kjører der, ble stoppet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowsza kompilacja cmux czeka na ~/.cmux/bin/cmux na tej maszynie. Zostanie zainstalowana przy następnym uruchomieniu serwera sesji; nic, co tam działa, nie zostało zatrzymane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma versão mais nova do cmux está preparada para ~/.cmux/bin/cmux nesta máquina. Ela será instalada na próxima vez que o servidor de sessão iniciar; nada em execução lá foi interrompido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для ~/.cmux/bin/cmux на этой машине подготовлена более новая сборка cmux. Она будет установлена при следующем запуске сервера сеанса; ничего из запущенного там не остановлено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีบิลด์ cmux ที่ใหม่กว่าเตรียมไว้สำหรับ ~/.cmux/bin/cmux บนเครื่องนี้ ระบบจะติดตั้งเมื่อเซิร์ฟเวอร์เซสชันเริ่มทำงานครั้งถัดไป และไม่มีสิ่งใดที่ทำงานอยู่ถูกหยุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu makinede ~/.cmux/bin/cmux için daha yeni bir cmux derlemesi hazır. Oturum sunucusu bir sonraki başlatılışında yüklenir; orada çalışan hiçbir şey durdurulmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для ~/.cmux/bin/cmux на цій машині підготовлено новішу збірку cmux. Її буде встановлено під час наступного запуску сервера сеансу; нічого з запущеного там не зупинено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một bản dựng cmux mới hơn đã được chuẩn bị cho ~/.cmux/bin/cmux trên máy này. Bản này được cài đặt khi máy chủ phiên khởi động lần tới; không có gì đang chạy ở đó bị dừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器上已为 ~/.cmux/bin/cmux 暂存了更新的 cmux 版本。它会在会话服务器下次启动时安装；那里正在运行的内容均未停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器上已為 ~/.cmux/bin/cmux 暫存了較新的 cmux 版本。它會在工作階段伺服器下次啟動時安裝；那裡正在執行的內容皆未停止。"
+          }
+        }
+      }
+    },
     "remote.status.unreachable": {
       "extractionState": "manual",
       "localizations": {

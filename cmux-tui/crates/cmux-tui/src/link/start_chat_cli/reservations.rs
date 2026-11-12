@@ -65,13 +65,23 @@ struct Request {
     compose_key: String,
     environment: Option<String>,
     platform: Option<String>,
-    team: Option<String>,
 }
 
+/// `reserve|release --request JSON`, stdin the session credential then the install token: the
+/// reservation names the install token's team ([`super::spare_warm::install_team`]), the spare warm's team.
 pub(super) fn run(
     flags: &Flags,
     action: Action,
     stdin: &mut dyn std::io::BufRead,
+) -> Option<Value> {
+    run_with(flags, action, stdin, &|call, credential| call.post(credential))
+}
+
+pub(super) fn run_with(
+    flags: &Flags,
+    action: Action,
+    stdin: &mut dyn std::io::BufRead,
+    transport: Transport<'_>,
 ) -> Option<Value> {
     let request: Request = match serde_json::from_str(flags.one("--request")?) {
         Ok(request) => request,
@@ -79,11 +89,6 @@ pub(super) fn run(
     };
     if !valid_key(&request.compose_key)
         || request.environment.as_deref().is_some_and(|id| !valid_environment(id))
-        || request.team.as_deref().is_some_and(|team| {
-            !team.strip_prefix("team_").is_some_and(|hex| {
-                hex.len() == 20 && hex.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-            })
-        })
     {
         return Some(refused("bad_request", "invalid composer reservation"));
     }
@@ -91,15 +96,17 @@ pub(super) fn run(
     if stdin.read_line(&mut credential).is_err() || credential.trim().is_empty() {
         return Some(refused("unauthorized", "no session credential on stdin"));
     }
-    let result = Call {
+    let mut install = String::new();
+    let _ = stdin.read_line(&mut install);
+    let call = Call {
         action,
         compose_key: request.compose_key.to_lowercase(),
         send_key: None,
         environment: request.environment,
         platform: request.platform,
-        team: request.team,
-    }
-    .post(credential.trim());
+        team: super::spare_warm::install_team(&install),
+    };
+    let result = transport(&call, credential.trim());
     if action == Action::Reserve && result.as_ref().is_ok_and(|body| machine(body).is_none()) {
         return Some(refused("bad_answer", "the cmux platform reserved no readable Cloud machine"));
     }

@@ -574,7 +574,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             #if DEBUG
             self?.devProbe?.sent(data)
             #endif
-            self?.model.session.send(data)
+            guard let self else { return }
+            // A refusal comes back as `.inputNotSent` from inside `send`.
+            inputRefused = false
+            model.session.send(data)
+        }
+        // Held for a reattach (or a first attach still coming) is not sent:
+        // the echo may never come, so nothing is predicted for it.
+        surface.inputGoesOut = { [weak self] in
+            guard let self else { return false }
+            return model.connectionState.isAttached && !inputRefused
         }
         // Every input path (keyboard, key bar, composer, paste) goes through
         // the surface's `perform`: typing brings the prompt into view, like Terminal.
@@ -605,8 +614,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
-        center.addObserver(self, selector: #selector(keyboardDidChange), name: UIResponder.keyboardDidShowNotification, object: nil)
-        center.addObserver(self, selector: #selector(keyboardDidHide), name: UIResponder.keyboardDidHideNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardDidShow(_:)), name: UIResponder.keyboardDidShowNotification, object: nil)
+        center.addObserver(self, selector: #selector(keyboardDidHide(_:)), name: UIResponder.keyboardDidHideNotification, object: nil)
     }
 
     override func didMove(toParent parent: UIViewController?) {
@@ -1057,10 +1066,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scheduleOutput()
         case .hostGridOwner(let name):
             hostGridOwner = name
+        case .inputNotSent:
+            // Keys refused, or held through an outage and dropped: their
+            // predicted glyphs would stand for keys that never arrive.
+            inputRefused = true
+            surface.prediction?.inputDropped()
+            model.ingest(event)
+        case .connection(let state):
+            // The link went down with keys on it: the ones in flight may be
+            // held, resent or dropped, and their echoes may never come.
+            if !state.isAttached { surface.prediction?.inputDropped() }
+            model.ingest(event)
         default:
             model.ingest(event)
         }
     }
+
+    /// The session refused the input `send` was just given (`.inputNotSent`
+    /// during the call): prediction does not record it.
+    private var inputRefused = false
 
     /// Feeds at once when nothing was fed in this display frame (an echo is
     /// not held back to the next frame); otherwise the display link feeds at
@@ -2732,12 +2756,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         setKeyBar(visible: false, note: note)
     }
 
-    @objc private func keyboardDidHide() {
+    @objc private func keyboardDidHide(_ note: Notification) {
         #if DEBUG
         if CommandLine.arguments.contains("-CmuxMobileTermLog") { NSLog("mobileterm kbd didHide t=%.3f first=%d", CACurrentMediaTime(), surface.isFirstResponder ? 1 : 0) }
         #endif
+        // A hide a newer show interrupted: the keyboard is on its way up, and
+        // settling the stack now would lay it out against the hide.
+        guard !isStale(note) else { return }
         dock.keyboardDidHide()
         keyboardDidChange()
+    }
+
+    @objc private func keyboardDidShow(_ note: Notification) {
+        // A show a newer hide interrupted (the keyboard key pressed twice).
+        guard !isStale(note) else { return }
+        keyboardDidChange()
+    }
+
+    /// A did-show or did-hide that ends a transition a later one replaced
+    /// (`MobileKeyboardFrameTracker.isStale(didChangeTo:)`).
+    private func isStale(_ note: Notification) -> Bool {
+        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return false }
+        return keyboardTracker.isStale(didChangeTo: end)
     }
 
     @objc private func keyboardDidChange() {

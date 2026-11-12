@@ -134,6 +134,27 @@ import Testing
         #expect(store.unreadBadge() == 2)
         expectConsistent(store, "after a mark")
     }
+
+    /// A terminal key asks whether any workspace is marked unread (NotificationCenterService's
+    /// clearUnreadMark): the store keeps that count, so the key reads one value, not every workspace.
+    /// A mark on a workspace that already has unread tabs counts too.
+    @Test func theMarkedWorkspacesAreAKeptCount() {
+        let store = loadedStore()
+        #expect(store.unreadTotals.markedWorkspaces == 0)
+        store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: (0..<Self.workspaces).map {
+            Self.workspace($0, tabs: $0 == 9 ? (0..<Self.tabsPerWorkspace).map { Self.tab(9, $0, unread: $0 == 4 ? 3 : nil) } : nil,
+                           markedUnread: $0 == 9 || $0 == 11 || $0 == 70)
+        }))
+        #expect(store.unreadTotals.markedWorkspaces == 3)
+        #expect(store.recountedUnreadTotals().markedWorkspaces == 3)
+        store.apply(snapshot: DaemonTree(workspaceRevision: 3, workspaces: (0..<Self.workspaces).map {
+            Self.workspace($0, markedUnread: $0 == 70)
+        }))
+        #expect(store.unreadTotals.markedWorkspaces == 1)
+        store.apply(snapshot: DaemonTree(workspaceRevision: 4, workspaces: (0..<Self.workspaces).map { Self.workspace($0) }))
+        #expect(store.unreadTotals.markedWorkspaces == 0)
+        expectConsistent(store, "after the marks clear")
+    }
 }
 
 /// An observer's onChange ran (it may run on any thread).

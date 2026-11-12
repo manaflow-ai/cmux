@@ -12,7 +12,7 @@ import Testing
         #expect(keys.workspaceByNumber == "⌘1…9")
         #expect(keys.nextPreviousTab == "⇧⌘[ ⇧⌘]")
         #expect(keys.nextPreviousWorkspace == "⌃⌘[ ⌃⌘]")
-        #expect(keys.focusBackForward == "⌘[ ⌘]")
+        #expect(keys.focusBackForward == "⌥⌘, ⌥⌘.")
         #expect(keys.tabByNumberModifiers == NSEvent.ModifierFlags.control.rawValue)
     }
 

@@ -38,14 +38,6 @@ extension TabStripView {
         return rect.insetBy(dx: -3, dy: -4).contains(inCell)
     }
 
-    /// Whether `point` (strip coordinates) is on tab `id`'s zoom indicator, with the speaker's slack.
-    func isInZoomButton(_ id: TabID, _ point: CGPoint) -> Bool {
-        guard let cell = cells[id], let rect = cell.zoomButtonRect, !isInCloseButton(id, point) else { return false }
-        let local = convert(point, to: tabsClip)
-        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
-        return rect.insetBy(dx: -3, dy: -4).contains(inCell)
-    }
-
     func isInNewTabButton(_ point: CGPoint) -> Bool {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
@@ -62,7 +54,6 @@ extension TabStripView {
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
         onHoverTab?(id)
-        TabSeparatorVisibility.apply(to: self)
     }
 
     /// `moved`: a pointer event (true) or content that moved under a still
@@ -81,27 +72,21 @@ extension TabStripView {
             closeHoveredID = closeID
             if let closeID { cells[closeID]?.isCloseHovered = true }
         }
-        setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil }, zoom: id.flatMap { isInZoomButton($0, point) ? $0 : nil })
+        setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil })
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
 
         // The coordinator hit-tests the pointer itself (`TabHoverCardController.target`).
         if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
     }
 
-    /// The speaker or zoom indicator under the pointer: its fill, and a tooltip naming what a click does.
-    func setAudioHovered(_ id: TabID?, zoom: TabID? = nil) {
+    /// The speaker under the pointer: its fill, and a tooltip naming what a click does.
+    func setAudioHovered(_ id: TabID?) {
         if id != audioHoveredID {
             if let audioHoveredID { cells[audioHoveredID]?.isAudioHovered = false }
             audioHoveredID = id
             if let id { cells[id]?.isAudioHovered = true }
         }
-        if zoom != zoomHoveredID {
-            if let zoomHoveredID { cells[zoomHoveredID]?.isZoomHovered = false }
-            zoomHoveredID = zoom
-            if let zoom { cells[zoom]?.isZoomHovered = true }
-        }
         let tip = id.flatMap { cells[$0]?.item.audio }.map { $0 == .muted ? Strings.unmuteTab : Strings.muteTab }
-            ?? zoom.map { _ in Strings.exitZoom }
         // tooltip-native-allow: the strip's speakers are layers, not views; a themed tracker added while the
         // pointer is already inside gets no mouseEntered, and one anchors below the whole strip.
         if toolTip != tip { toolTip = tip }
@@ -121,9 +106,7 @@ extension TabStripView {
 
     public override func mouseEntered(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: true) { return }
-        buttonReveal.pointerInStrip = true
-        closingWatch.pointerReturned()
-        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
+        pointerEntered(at: event.locationInWindow)
     }
 
     public override func mouseMoved(with event: NSEvent) {
@@ -133,8 +116,7 @@ extension TabStripView {
 
     public override func mouseExited(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: false) { return }
-        pointerLeft()
-        hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+        pointerExited(at: event.locationInWindow)
     }
 
     /// An exit, or the strip moved away under a still pointer (`geometryDidChange`).
@@ -151,9 +133,6 @@ extension TabStripView {
     public override func mouseDown(with event: NSEvent) {
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
-        // Read once and clear; only a continued zoom click sequence retains it below.
-        let zoomClicked = zoomClickedID
-        zoomClickedID = nil
         // A press before the strip's model sync (right after a close) catches up first.
         if model.orderedTabs.map(\.id) != lastModelOrder { sync(fromModel: true) }
         if isInNewTabMenuButton(point) {
@@ -182,12 +161,6 @@ extension TabStripView {
             return
         }
         if let id = tabID(at: point) {
-            // Removing the zoom badge can move another control (the speaker) under this pointer.
-            // Suppress the rest of that gesture before testing any of the tab's buttons.
-            if event.clickCount >= 2, zoomClicked == id {
-                zoomClickedID = id
-                return
-            }
             if isInCloseButton(id, point) {
                 pressedCloseID = id
                 cells[id]?.isClosePressed = true
@@ -198,14 +171,6 @@ extension TabStripView {
             if isInAudioButton(id, point) {
                 pressedAudioID = id
                 cells[id]?.isAudioPressed = true
-                return
-            }
-            // So is a zoomed pane's indicator: its release restores the layout (cmux classic).
-            // A triple-click's third press is the same gesture as the double-click that zoomed the
-            // pane and put the indicator under the pointer: it restores nothing.
-            if event.clickCount < 3, isInZoomButton(id, point) {
-                pressedZoomID = id
-                cells[id]?.isZoomPressed = true
                 return
             }
             // The first click selected the tab; the second renames it (the screen bar) or zooms its pane.
@@ -244,10 +209,6 @@ extension TabStripView {
             cells[id]?.isAudioPressed = isInAudioButton(id, point)
             return
         }
-        if let id = pressedZoomID {
-            cells[id]?.isZoomPressed = isInZoomButton(id, point)
-            return
-        }
         if drag != nil {
             updateDrag(at: point, event: event)
             return
@@ -279,16 +240,6 @@ extension TabStripView {
             pressedAudioID = nil
             cells[id]?.isAudioPressed = false
             if isInAudioButton(id, point) { model.send(.toggleAudioMute(id)) }
-            updateHover(at: point, moved: false)
-            return
-        }
-        if let id = pressedZoomID {
-            pressedZoomID = nil
-            cells[id]?.isZoomPressed = false
-            if isInZoomButton(id, point) {
-                zoomClickedID = id
-                model.send(.toggleZoom(id))
-            }
             updateHover(at: point, moved: false)
             return
         }
@@ -408,14 +359,4 @@ extension TabStripView {
     func arrivingCloseTab(at point: CGPoint) -> TabID? {
         closingModeWidth == nil ? nil : closingHit.tab(at: convert(point, to: tabsClip), in: self)
     }
-}
-
-/// In a pane the layout screen's one tracking area hit-tests the pointer and calls these (``PanePointerFollowing``), as
-/// the strip's own tracking area called the overrides above (`TabStripView.updateTrackingAreas`). The strip sets no
-/// cursor of its own.
-extension TabStripView: PanePointerFollowing {
-    public func panePointerCursor(at point: NSPoint) -> NSCursor? { nil }
-    public func panePointerEntered(with event: NSEvent) { mouseEntered(with: event) }
-    public func panePointerMoved(with event: NSEvent) { mouseMoved(with: event) }
-    public func panePointerExited(with event: NSEvent) { mouseExited(with: event) }
 }

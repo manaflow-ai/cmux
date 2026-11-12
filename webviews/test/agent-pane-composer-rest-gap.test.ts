@@ -247,12 +247,21 @@ await requireBrowserLane("agent-pane-composer-rest-gap.test.ts", async () => {
       return actions ? actions.getBoundingClientRect().bottom : undefined;
     };
     /// The top of the bottom stack's first drawn part: the tray, a question, the queue or the card.
+    /// Where the part lies, not its ink: a part that enters settles its ink in on its own `translate`
+    /// (the tray's 4px rise, subagents.css `acpmux-tray-settle-in`), which moves no layout, so the
+    /// rows' gap is read from where it lands.
+    const settling = (part: Element) => {
+      const lift = getComputedStyle(part).translate;
+      return lift === "none" ? 0 : Number.parseFloat(lift.split(" ")[1] ?? "") || 0;
+    };
     const stackTop = (dock: Element) => {
       const parts = [...dock.children].flatMap((part) =>
         part.classList.contains("acpmux-composer") ? [...part.children] : [part],
       );
-      const tops = parts.map((part) => part.getBoundingClientRect()).filter((rect) => rect.height > 0);
-      return tops.length ? Math.min(...tops.map((rect) => rect.top)) : undefined;
+      const tops = parts
+        .map((part) => ({ rect: part.getBoundingClientRect(), lift: settling(part) }))
+        .filter(({ rect }) => rect.height > 0);
+      return tops.length ? Math.min(...tops.map(({ rect, lift }) => rect.top - lift)) : undefined;
     };
     w.__restGap = () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");

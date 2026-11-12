@@ -52,6 +52,23 @@ export function foldsToHold(
   return [...held];
 }
 
+/// `held` (``foldsToHold``) with one key per message run: each open run's line keeps the key it
+/// toggles, and a key another row of that run brought is dropped. `drawn` is the view shaped with
+/// `held` open; only its rows after the first `reused` are looked at. A running turn draws every row
+/// and no message run (turns.ts `shapeLiveTurn`, cmux#38339), so at its end several rows of one run
+/// the reader had in view each held the run by their own key, while the line closes by its key
+/// alone: the run stayed open on the first close and needed a second click (cmux#33300).
+export function oneKeyPerMessageRun(held: readonly string[], drawn: readonly AcpmuxRow[], reused = 0): string[] {
+  if (held.length < 2) return [...held];
+  const others = new Set<string>();
+  for (let index = reused; index < drawn.length; index += 1) {
+    const row = drawn[index]!;
+    if (row.kind !== MESSAGE_RUN || !row.foldOpen || !row.messageRun) continue;
+    for (const id of row.messageRun.rows) if (messageRunRowId(id) !== row.id) others.add(messageRunRowId(id));
+  }
+  return others.size === 0 ? [...held] : held.filter((key) => !others.has(key));
+}
+
 /// The key of the open message-run line in `drawn` whose rows hold `rowId` (messageRuns.ts): the
 /// id of the line its rows follow. The walk goes back from the row to the line before it, and stops
 /// at the turn's prompt, which a run never crosses.

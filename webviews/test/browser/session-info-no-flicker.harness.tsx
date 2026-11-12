@@ -11,7 +11,7 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "../../src/agent-session/acpmux/m
 import { activity, assistant, chat, CWD, tool, user } from "../../src/gallery/fixtures/acpmux";
 import { setHeaderState } from "../../src/agent-session/acpmux/header/headerState";
 import { ChatHeaderTools } from "../../src/agent-session/acpmux/header/ChatHeaderTools";
-import { useSessionInfo } from "../../src/agent-session/acpmux/session-info/SessionInfo";
+import { useSessionInfo } from "../../src/agent-session/acpmux/session-info/useSessionInfo";
 import { setSessionInfoOpen } from "../../src/agent-session/acpmux/session-info/sessionInfoState";
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";

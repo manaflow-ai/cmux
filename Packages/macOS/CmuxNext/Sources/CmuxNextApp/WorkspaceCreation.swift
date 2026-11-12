@@ -129,10 +129,12 @@ enum WorkspaceCreation {
         }
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         if linked {
-            tabs.sessions[key] = session
-            tabs.linkedSessions.insert(key)
-            tabs.track(key, in: daemon.store)
+            let scoped = AgentTabKey(machine: daemon.machineID, key: key)
+            tabs.sessions[scoped] = session
+            tabs.linkedSessions.insert(AgentTabKey(machine: daemon.machineID, key: key))
+            tabs.track(key, in: daemon.store, machine: daemon.machineID)
         }
         return key
     }
 }
+import CmuxNextTabs

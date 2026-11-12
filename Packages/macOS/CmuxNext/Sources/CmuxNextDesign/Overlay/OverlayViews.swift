@@ -3,6 +3,22 @@ import AppKit
 /// Holds presented overlays; flipped so overlay frames read top-down in tests and logs.
 final class OverlayContainerView: NSView {
     nonisolated override var isFlipped: Bool { false }
+
+    /// A presented view's click regions in this view's coordinates (a dialog's card, a toast stack's
+    /// toasts), nil when the whole view takes clicks. Set by the host.
+    var clickRegions: (NSView) -> [NSRect]? = { _ in nil }
+
+    /// A view takes only the clicks in its click region; the rest go to the views under it, so a
+    /// dialog's transparent area never covers an older dialog's card (review 32 of #37296).
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden else { return nil }
+        let local = convert(point, from: superview)
+        for view in subviews.reversed() where !view.isHidden {
+            if let regions = clickRegions(view), !regions.contains(where: { $0.contains(local) }) { continue }
+            if let hit = view.hitTest(local) { return hit }
+        }
+        return frame.contains(point) ? self : nil
+    }
 }
 
 /// Clips a `.pane` overlay to its pane minus the occluders (a mask with holes).

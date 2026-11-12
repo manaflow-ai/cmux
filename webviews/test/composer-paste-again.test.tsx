@@ -161,11 +161,11 @@ async function paste(plain: string) {
   await settle();
 }
 
-/// 130 lines of a log (780 words, over the 750-word limit) with a blank line in it, which a paste keeps.
-const LOG = Array.from({ length: 130 }, (_, index) => `line ${index + 1} of the build log`)
+/// 600 lines of a log (3,600 words, over the 3,500-word limit) with a blank line in it, which a paste keeps.
+const LOG = Array.from({ length: 600 }, (_, index) => `line ${index + 1} of the build log`)
   .join("\n")
   .replace("line 13 of the build log\n", "line 13 of the build log\n\n");
-const OTHER = Array.from({ length: 130 }, (_, index) => `row ${index + 1} of the other table`).join("\n");
+const OTHER = Array.from({ length: 600 }, (_, index) => `row ${index + 1} of the other table`).join("\n");
 
 const send = (composer: RefObject<ComposerHandle | null>) =>
   act(async () => {
@@ -183,10 +183,13 @@ test("the same long block pasted again puts its chip's text in the prompt, as a 
   expect(host.querySelector(".acpmux-attachment-pasted")).toBeNull();
   // Once, exactly as pasted (its blank line too): the text a click on the chip gives, not twice.
   expect(promptText()).toBe(LOG);
+  // It was pasted, so it goes as pasted (composer/pasteMarks.ts, ask-fa4c523fa8): the same text, in
+  // one block of its own, never as the person's typed words.
   await send(composer);
   expect(sent).toHaveLength(1);
-  expect(sent[0]!.text).toBe(LOG);
-  expect(sent[0]!.attachments).toEqual([]);
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([
+    { type: "text", text: LOG, _meta: { cmux: { pasted: true } } },
+  ]);
 });
 
 // Review (Codex): the paste that opens a held chip dropped the chip before its node left the
@@ -220,7 +223,7 @@ test("the block pasted a third time, its chip already opened, is a chip again", 
   // The prompt's text, then the chip's as its own block, each as pasted.
   await send(composer);
   expect(promptBlocks(sent[0]!.text, sent[0]!.attachments)).toEqual([
-    { type: "text", text: LOG },
+    { type: "text", text: LOG, _meta: { cmux: { pasted: true } } },
     { type: "text", text: LOG, _meta: { cmux: { pasted: true } } },
   ]);
 });

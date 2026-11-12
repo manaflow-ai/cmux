@@ -36,8 +36,8 @@ enum BrowserTabIconState: Equatable {
 
     /// The icon of the cmux page at `url`, nil for any other address.
     static func pageIcon(_ url: URL?) -> IconName? {
-        if HistoryPageAddress.matches(url) { return .history }
-        if BookmarkPageAddress.matches(url) { return .bookmarkManager }
+        if url?.isHistoryPage == true { return .history }
+        if url?.isBookmarkPage == true { return .bookmarkManager }
         if AgentActivityPageAddress.matches(url) { return .agentActivity }
         if ScreenshotsPageAddress.matches(url) { return .sitePermissionImages }
         if url?.scheme?.lowercased() == RemoteViewTabRecord.scheme, url?.host()?.lowercased() == RemoteViewTabRecord.urlHost { return .machineRemote }
@@ -53,7 +53,7 @@ enum BrowserTabIconState: Equatable {
             item.isBusy = true
             item.isWaiting = waiting
         case .favicon(let image): item.icon = .image(image)
-        case .globe: item.icon = .icon(.browser)
+        case .globe: item.icon = .browser
         case .page(let name): item.icon = .icon(name)
         }
     }

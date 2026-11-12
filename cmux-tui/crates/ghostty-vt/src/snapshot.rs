@@ -32,6 +32,18 @@ pub mod tag {
     pub const READY: u16 = 5;
     pub const FINISH: u16 = 6;
     pub const CONTINUATION: u16 = 7;
+    /// One screen's Kitty images and placements, before READY (ghostty-next
+    /// `kitty.zig`, upstream c7f68a7f4). Optional.
+    pub const KITTY_IMAGE_STORAGE: u16 = 8;
+    /// The pixels of one Kitty image or animation frame, after READY.
+    /// Optional.
+    pub const KITTY_IMAGE_PAYLOAD: u16 = 9;
+    /// The Kitty placements pinned to one history page, after its PAGE.
+    /// Optional.
+    pub const KITTY_IMAGE_PAGE_PLACEMENTS: u16 = 10;
+    /// The prompt clear a resize put off until the shell's next byte
+    /// (ghostty-next `prompt_redraw.zig`). Optional.
+    pub const PROMPT_REDRAW: u16 = 11;
 }
 
 /// Which part of a snapshot to encode. Matches the surface-side phases of
@@ -223,31 +235,53 @@ fn encode_raw(raw: sys::GhosttyTerminal, phase: SnapshotPhase) -> Result<Vec<u8>
 /// declare the history extent the source had, while the restored terminal
 /// holds no history until HISTORY pages arrive.)
 pub fn reencode_ready(complete: &[u8]) -> Result<Vec<u8>> {
-    let mut decoder: sys::GhosttySnapshotDecoder = std::ptr::null_mut();
-    check(unsafe {
-        sys::ghostty_snapshot_decoder_new_buf(
-            std::ptr::null(),
-            &mut decoder,
-            complete.as_ptr(),
-            complete.len(),
-        )
-    })?;
-    let retain = true;
-    let mut restored: sys::GhosttyTerminal = std::ptr::null_mut();
-    let result = check(unsafe {
-        sys::ghostty_snapshot_decoder_set(
-            decoder,
-            sys::GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION,
-            (&retain as *const bool).cast(),
-        )
-    })
-    .and_then(|()| check(unsafe { sys::ghostty_snapshot_decoder_decode(decoder, &mut restored) }))
-    .and_then(|()| encode_raw(restored, SnapshotPhase::Ready));
-    unsafe {
-        sys::ghostty_snapshot_decoder_free(decoder);
-        sys::ghostty_terminal_free(restored);
+    encode_raw(DecodedTerminal::decode(complete)?.raw(), SnapshotPhase::Ready)
+}
+
+/// A terminal restored from a COMPLETE snapshot (with its unfinished escape
+/// sequence retained), freed on drop. It has no callbacks and is never
+/// written to: callers only read it.
+pub(crate) struct DecodedTerminal(sys::GhosttyTerminal);
+
+impl DecodedTerminal {
+    pub(crate) fn decode(complete: &[u8]) -> Result<Self> {
+        let mut decoder: sys::GhosttySnapshotDecoder = std::ptr::null_mut();
+        check(unsafe {
+            sys::ghostty_snapshot_decoder_new_buf(
+                std::ptr::null(),
+                &mut decoder,
+                complete.as_ptr(),
+                complete.len(),
+            )
+        })?;
+        let retain = true;
+        let mut restored: sys::GhosttyTerminal = std::ptr::null_mut();
+        let result = check(unsafe {
+            sys::ghostty_snapshot_decoder_set(
+                decoder,
+                sys::GHOSTTY_SNAPSHOT_DECODER_OPT_RETAIN_CONTINUATION,
+                (&retain as *const bool).cast(),
+            )
+        })
+        .and_then(|()| {
+            check(unsafe { sys::ghostty_snapshot_decoder_decode(decoder, &mut restored) })
+        });
+        unsafe { sys::ghostty_snapshot_decoder_free(decoder) };
+        // The decoder hands the terminal over only on success; free one it
+        // left behind on a failure too (freeing null is a no-op).
+        let decoded = Self(restored);
+        result.map(|()| decoded)
     }
-    result
+
+    pub(crate) fn raw(&self) -> sys::GhosttyTerminal {
+        self.0
+    }
+}
+
+impl Drop for DecodedTerminal {
+    fn drop(&mut self) {
+        unsafe { sys::ghostty_terminal_free(self.0) };
+    }
 }
 
 /// One HISTORY page of the primary screen with the rows it covers.

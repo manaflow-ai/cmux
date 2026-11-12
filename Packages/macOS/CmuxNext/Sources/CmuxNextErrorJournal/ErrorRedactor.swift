@@ -12,6 +12,13 @@ public struct ErrorRedactor {
     private let queryAssignments: NSRegularExpression?
     /// False when a built-in pattern failed to compile: ``redact(_:)`` then keeps no text at all.
     private let complete: Bool
+    /// Names these rules: 16 hex digits over every pattern, replacement and key list, and
+    /// ``logicRevision``. A journal line stamped with it was redacted by these rules, so opening the
+    /// journal redacts it again only when the rules changed.
+    let rulesDigest: String
+    /// Bump when the matching code changes what ``redact(_:)`` returns without a pattern or key list
+    /// changing (the patterns and lists are in ``rulesDigest`` by themselves).
+    private static let logicRevision = 1
     private static let sensitiveAssignmentComponents: Set<String> = [
         "auth", "authorization", "cookie", "credential", "credentials", "password", "passwd", "pwd", "secret",
         "token",
@@ -45,12 +52,14 @@ public struct ErrorRedactor {
         let compiled = patterns.compactMap { pattern, replacement in
             (try? NSRegularExpression(pattern: pattern)).map { ($0, replacement) }
         }
-        let anchors = try? NSRegularExpression(
-            pattern: #"\b([A-Za-z_][A-Za-z0-9_-]*)((?:(?:\\+)?["'])?\s*[:=]\s*)"#
-        )
-        let query = try? NSRegularExpression(
-            pattern: #"(?=(^|[?#&;\s="'=(:,])([^=?&#;\s"']+)=)"#
-        )
+        let anchorPattern = #"\b([A-Za-z_][A-Za-z0-9_-]*)((?:(?:\\+)?["'])?\s*[:=]\s*)"#
+        let queryPattern = #"(?=(^|[?#&;\s="'=(:,])([^=?&#;\s"']+)=)"#
+        let anchors = try? NSRegularExpression(pattern: anchorPattern)
+        let query = try? NSRegularExpression(pattern: queryPattern)
+        let keyLists = [Self.sensitiveAssignmentComponents, Self.keyShapeComponents, Self.exactQueryKeys,
+                        Self.sensitiveQueryComponents].map { $0.sorted().joined(separator: ",") }
+        let parts = patterns.flatMap { [$0.0, $0.1] } + [anchorPattern, queryPattern] + keyLists + ["\(Self.logicRevision)"]
+        rulesDigest = ErrorFingerprint(source: "redaction", template: parts.joined(separator: "\u{1e}"), topFrame: nil).hex
         rules = compiled
         assignmentAnchors = anchors
         queryAssignments = query

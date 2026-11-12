@@ -13,10 +13,12 @@
 // person's click.
 // The code and the key live only in this component's state while it is up: never in a row, a
 // log or anything kept.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useT, type StringKey } from "../i18n";
 import { copyText, copyTextResult } from "./clipboard";
 import { LoginStepError, type CloudSignIn as SignIn, type LoginFailure, type LoginStart } from "../cloudAgentLogin";
+import { cancelResize, playResize } from "./fold";
+import { motionMode } from "../../../ui/motion/motionMode";
 
 type Stage =
   | { at: "idle" }
@@ -56,15 +58,39 @@ export function CloudSignIn({
   rowId,
   prompt,
   keyOnly = false,
+  actionsRef,
 }: {
   signIn: SignIn;
   rowId: string | undefined;
   prompt: string | undefined;
   /// Only Use an API key: a team Cloud machine, where the agent's own sign-in is not offered.
   keyOnly?: boolean;
+  actionsRef?: RefObject<HTMLElement | null>;
 }) {
   const t = useT();
-  const [stage, setStage] = useState<Stage>({ at: "idle" });
+  const [stage, commitStage] = useState<Stage>({ at: "idle" });
+  const previousHeight = useRef<number | undefined>(undefined);
+  const resizingNode = useRef<HTMLElement | null>(null);
+  // Read before changing the step, including when another step interrupts a resize. The same
+  // transcript fold places following rows before paint; no observer, timer or idle work is needed.
+  const setStage = (next: Stage) => {
+    previousHeight.current ??= actionsRef?.current?.getBoundingClientRect().height;
+    commitStage(next);
+  };
+  useLayoutEffect(() => {
+    const from = previousHeight.current;
+    previousHeight.current = undefined;
+    const node = actionsRef?.current;
+    resizingNode.current = node ?? null;
+    if (node && from !== undefined && motionMode(node.ownerDocument) === "full") playResize(node, from);
+    else if (node) cancelResize(node);
+  }, [stage, actionsRef]);
+  useLayoutEffect(
+    () => () => {
+      if (resizingNode.current) cancelResize(resizingNode.current);
+    },
+    [],
+  );
   const [code, setCode] = useState("");
   const [key, setKey] = useState("");
   const [copied, setCopied] = useState(false);

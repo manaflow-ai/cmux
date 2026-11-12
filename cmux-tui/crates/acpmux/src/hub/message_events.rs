@@ -29,21 +29,24 @@ pub(super) fn embed_message_context(
     message: Option<&MessageContext>,
     receiver: &str,
 ) {
+    let forwarder =
+        opts.provenance.as_ref().and_then(|p| crate::prompt_provenance::sender_of(Some(p)).0);
     let Some(provenance) = opts.provenance.as_mut() else { return };
     let Some(object) = provenance.as_object_mut() else { return };
     object.remove(MESSAGE_META);
     let Some(message) = message else { return };
-    object.insert(
-        MESSAGE_META.to_owned(),
-        json!({
-            "sender": message.sender.clone(),
-            "text": message.text.clone(),
-            "messageId": message.message_id.clone(),
-            "recordSenderCopy": message.record_sender_copy,
-            "at": message.at,
-            "receiverId": receiver,
-        }),
-    );
+    let mut context = json!({
+        "sender": message.sender.clone(),
+        "text": message.text.clone(),
+        "messageId": message.message_id.clone(),
+        "recordSenderCopy": message.record_sender_copy,
+        "at": message.at,
+        "receiverId": receiver,
+    });
+    if let Some(forwarder) = forwarder.filter(|id| id != &message.sender_session) {
+        context.set("forwardedBy", json!({"session": forwarder}));
+    }
+    object.insert(MESSAGE_META.to_owned(), context);
 }
 
 fn resolve_exact(hub: &Hub, id: &str) -> Option<Arc<Session>> {
@@ -219,11 +222,14 @@ pub(super) fn message_context(
     {
         return None;
     }
-    let sender = if let Some(sender) = opts.message_sender.as_ref() {
+    let mut sender = if let Some(sender) = opts.message_sender.as_ref() {
         sender.clone()
     } else {
         json!({"name": name, "sessionId": sender_session, "host": host_label()})
     };
+    if let Some(label) = crate::prompt_provenance::declared_label(opts.provenance.as_ref()) {
+        sender.set("label", json!(label));
+    }
     let message_id = opts
         .message_id
         .clone()
@@ -279,7 +285,10 @@ pub(super) fn name_message(accepted: &mut Value, message: &MessageContext) {
 }
 
 pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &str) {
-    if opts.provenance.is_some() {
+    // A peer's message names its sender here: it takes the place of an `unverified` mark.
+    if opts.provenance.is_some()
+        && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
+    {
         return;
     }
     let Some(sender) = opts.message_sender.as_ref().and_then(Value::as_object) else { return };
@@ -287,6 +296,15 @@ pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &st
     let Some(name) = sender.get("name").and_then(Value::as_str) else { return };
     let mut provenance = crate::prompt_provenance::named_sender(name, target_id);
     provenance.set("sessionId", json!(id));
+    // It keeps how it came and who passed it on, as the daemon saw them.
+    for key in [crate::prompt_provenance::TRANSPORT, crate::prompt_provenance::FORWARDED_BY] {
+        if let Some(value) = opts.provenance.as_ref().and_then(|p| p.get(key)) {
+            provenance.set(key, value.clone());
+        }
+    }
+    if let Some(label) = sender.get("label").and_then(Value::as_str) {
+        provenance = crate::prompt_provenance::stamp_declared(provenance, Some(label));
+    }
     opts.provenance = Some(provenance);
 }
 
@@ -858,6 +876,8 @@ mod message_recovery_tests {
         let sender_id = sender.id.clone();
         original.detach_child(&sender).await;
         original.store.flush().unwrap();
+        // The first daemon's shutdown seal: the journal's lock passes to the restarted one.
+        original.seal();
         // The restarted daemon has not read its saved sessions yet.
         let restarted = Hub::new_loading(
             config.clone(),

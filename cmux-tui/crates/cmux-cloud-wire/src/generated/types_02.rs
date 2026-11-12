@@ -854,6 +854,7 @@ wire_enum! {
         AutomationDynamicWorkers = "automation.dynamic_workers",
         EgressRequests = "egress.requests",
         ModelSpendUsd = "model.spend_usd",
+        CloudMachineUsd = "cloud.machine_usd",
     }
 }
 

@@ -103,6 +103,9 @@ pub struct InitParams {
     pub locale: Option<String>,
     pub strings: Value,
     pub main: String,
+    /// The script's file name, so an error names `main.js:2:12`; `None`
+    /// keeps QuickJS's `eval_script`.
+    pub main_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -382,7 +385,11 @@ impl AppVm {
     /// Evaluates the app's main script and calls `__cmuxAppInit`.
     pub fn init(&mut self, params: InitParams) -> Result<(), VmError> {
         let main = params.main;
-        if let Err(error) = self.enter("main", move |ctx| ctx.eval::<(), _>(main))? {
+        let mut options = rquickjs::context::EvalOptions::default();
+        options.filename = params.main_name;
+        if let Err(error) =
+            self.enter("main", move |ctx| ctx.eval_with_options::<(), _>(main, options))?
+        {
             return Err(VmError::Init(format!("main: {error}")));
         }
         let init = json!({

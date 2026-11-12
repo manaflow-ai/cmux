@@ -129,13 +129,44 @@ session summary and refuses missing or unknown modes, non-asking modes, and an
 acpmux enforcement policy other than `ask`. Its preflight accepts Claude
 `default`/`plan` and Codex `ask` only. History remains readable in other modes.
 
-This preflight is not atomic VM authorization. Shipping requires the VM's
-mobile-capability implementation to enforce the authenticated owner, actual
-harness profile and asking-mode floor at dispatch, through the queue and for
-the active turn. The adapter cannot establish a Codex bridge profile from its
+This preflight is not atomic VM authorization. The VM enforces the
+authenticated owner, actual harness profile and asking-mode floor itself, and
+its daemon advertises `cloud-mobile-chat-v1` only because it does
+(hq#8003):
+
+- The carrier reaches the VM daemon as a `mux-control` stream. The session
+  host writes the verified carrier grant's role (`vmk`) on it before any of
+  the phone's bytes (`carrier-role`), and the daemon binds it once. A
+  teammate's or role-less stream can't start a chat on the caller's `owner`
+  word.
+- A connection that declared `cloud-mobile-chat-v1` may send only the
+  adapter's commands (`phone_carrier.rs`): `identify`, `set-client-info`,
+  `list-workspaces`, `create-workspace`, an agent `new-conversation-tab` of
+  the machine's own store, `close-surface` of an agent tab no chat is bound
+  to, and `agent-session-{of,start,attach,events,prompt,cancel,detach,context}`.
+  It may not send command-bearing params. The declaration lasts for the
+  connection's life.
+- Its start needs an acpmux that reports the Cloud mobile floor. It must be a
+  family the floor has a mode for, and the new session must end up in a mode
+  acpmux's floor accepts for the profile it actually runs. Otherwise the
+  session is ended.
+- Every one of its prompts is stamped `via: cloud-mobile`. acpmux holds it to
+  that floor at dispatch, through the queue and for the active turn.
+ The adapter cannot establish a Codex bridge profile from its
 mode name, or prevent a concurrent mode change by itself. No Mac approval
 signature or Full-access setting is transplanted to the VM. Approval answers, mode changes, file operations and other native
-commands are unsupported on this service. Hostd never opens a phone-supplied
+commands are unsupported on this service.
+
+Starting a chat (`session/new`) uses the rules a phone's Mac chat start already has
+(the `acpmux` lane's `session/new` under acpmux's remote guard), narrowed further.
+The phone names nothing but the request: hostd creates the tab in the machine's
+own store (`registry:` host, from the machine's `list-workspaces`) and starts
+Claude only, with no folder, model, MCP server, mode or policy from the phone.
+The machine's daemon starts every remote chat with policy `ask` and makes the
+chat's own folder. `vm_kind: "owner"` is sent because hostd opened this channel
+only on the app's single owner link for the machine. A Claude chat starts in
+its asking `default` mode, so the prompt preflight above still applies. A start
+the machine refuses closes the empty tab. Hostd never opens a phone-supplied
 path, accepts an arbitrary service, or treats the carrier as a local-owner
 connection. Sign-out stops the supervised hostd and its channels; each new
 channel needs a fresh app snapshot.
@@ -885,6 +916,39 @@ Round 3 review notes (accepted, said here):
   phone then deletes the group it just made, so no empty group stays.
 - Live (round 3, rig `cmux-mobile-p3-153f3482`): every group action read back from the Mac's
   `list-personal` (`verify/parity-mac.md`, `groups`).
+
+## `acpmux`: allowing a peer's prompt from the phone (cmux#37301)
+
+A chat this Mac opened on one of its acpmux peers (`--host`) asks for approval on
+the peer, and the peer checks the person, not this Mac. The Mac app's own key was
+already enrolled there (`acpmux host enroll`, the peer's `mac-approvers.json`);
+now the phones this Mac pairs are enrolled with it, so a paired phone can give the
+same one-time Allow.
+
+The trust rule:
+
+- **Who enrolls a phone.** Only `host enroll` or `machine doctor --fix` run on this
+  Mac, over the person's own ssh, as for the Mac's key. No RPC adds a key on the
+  peer. It enrolls exactly the phones this Mac's app pairs (their public approval
+  keys, from `_acpmux/approvers_set`), each under
+  `phone:<12 hex of SHA-256 of this Mac's device id>:<phone id>`, and removes ids
+  under that prefix that this Mac no longer pairs; another Mac's phones are left alone.
+- **What a phone signs there.** The enrolled Mac's message
+  (`acpmux-mac-approver-decision-v1`): the peer's daemon run, the phone's id there,
+  the session, the permission, the tool call, the option, the nonce, the expiry
+  (at most 300 s) and the answers digest. The phone signs it only after the person
+  unlocks the approval key, as for its own Mac's prompts. The phone refuses to sign anything but a one-time
+  allow for a peer, before asking for the key.
+- **What it counts for.** A one-time allow of a tool's ask, a question or the
+  folder-trust card, once (the peer's spent nonces): never a lasting allow, a plan
+  or a mode switch. An id under `phone:` never signs a policy raise on a peer,
+  since a phone raises none on its own Mac.
+- **Removal.** Unpairing a phone here takes it off a peer at the next `host enroll`
+  or `machine doctor --fix` (doctor warns until then); `host approvals rm ID` on
+  the peer removes it at once, and `host approvals unenroll PEER` takes this Mac's phones with it. Unenroll first reads the peer's list. If it can't (or it can't tell this Mac's phones from another Mac's), it changes nothing and says so.
+- **Unowned objects and local state.** The peer counts the signature only for its
+  own pending prompt; the phone reads nothing new, and the Mac forwards the answer
+  unchanged.
 
 ## `acpmux`: messages larger than one link frame
 

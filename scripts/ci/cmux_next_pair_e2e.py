@@ -632,7 +632,8 @@ def _forget_tag_files(app, bundle, tag, ls_env):
     for home in homes:
         support = os.path.join(home, "Library/Application Support")
         dirs += [os.path.join(support, bundle), os.path.join(support, "cmux", bundle),
-                 os.path.join(support, "cmux/tags", tag), os.path.join(support, "cmux-next", safe),
+                 os.path.join(support, "cmux-next/tags", tag), os.path.join(support, "cmux/tags", tag),
+                 os.path.join(support, "cmux-next", safe),
                  os.path.join(home, ".cmux/chief/isolated", tag)]
         files += [os.path.join(support, f"cmux/cmuxd-dev-{tag}.sock"),
                   os.path.join(support, f"cmux/dev-{slug}-last-socket-path"),

@@ -1,7 +1,8 @@
 // Every internal page the app ships (the agent pane, each React page, Agent Activity) loads the
-// shared stylesheet: its body computes the UI font stack, Inter first with the system's after it
-// (`--font-ui`, schemas/type-scale/type-scale.json), not the engine default serif (WebKit reports
-// that as `-webkit-standard`).
+// shared stylesheet: its body computes the UI font stack, the macOS system font (`--font-ui`,
+// schemas/type-scale/type-scale.json; Lawrence 2026-11-07: "default fonts on cmux for everything should be
+// macos default, not inter"), not the engine default serif (WebKit reports that as `-webkit-standard`) and
+// no bundled face before it.
 // Agent Activity shipped with its shared desktop.css dropped from the bundle and rendered in Times
 // (Leo, 2026-10-13).
 //
@@ -61,8 +62,8 @@ await requireBrowserLane("internal-pages-app-font.test.ts", async () => {
       try {
         await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
         const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
-        expect(font).toMatch(/^\s*"?Inter"?\s*,/);
-        expect(font).toMatch(/system-ui|-apple-system/);
+        expect(font).toMatch(/^\s*(-apple-system|system-ui)\s*,/);
+        expect(font).not.toMatch(/Inter/);
         expect(font).not.toMatch(/^\s*"?(-webkit-standard|Times|serif)/i);
       } finally {
         await page.close();

@@ -1157,6 +1157,11 @@ def is_web_change(path: str) -> bool:
         return True
     if path == "CHANGELOG.md":
         return True
+    # web/tests/next-docs.test.ts compares the generated docs references with
+    # these (web_subareas.UNIT_TESTS_EXACT); #38631 changed the catalog alone,
+    # skipped Web tests and turned them red on base.
+    if path in ("plans/cmux-next/action-surfaces.json", "schemas/settings/settings-schema.json"):
+        return True
     if is_web_bundle_input(path):
         return True
     return path in {
@@ -1190,8 +1195,6 @@ def is_web_change(path: str) -> bool:
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
         "scripts/cmux-next/build-agent-pane-web.sh",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
-        "scripts/cmux-next/build-palette-ranker.sh",
         "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/index.html",
         "scripts/cmux-next/build-agent-activity-web.sh",
         "scripts/cmux-next/regenerate-web-bundles.sh",

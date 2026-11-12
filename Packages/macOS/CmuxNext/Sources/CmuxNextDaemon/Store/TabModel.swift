@@ -85,10 +85,15 @@ public final class TabModel: Identifiable {
         publishMarkedUnread()
     }
 
+    /// Whether this client's write of `marked` still waits for the record's echo (``TabReads``).
+    public func expectsMarkedUnread(_ marked: Bool) -> Bool { pendingMarkedUnread == marked }
+
     /// Rolls back ``expectMarkedUnread(_:)`` when the write of `marked`
     /// failed. A newer pending value (a second toggle) stays.
     public func dropExpectedMarkedUnread(_ marked: Bool) {
         guard pendingMarkedUnread == marked else { return }
+        rollbacks.rolledBack("marked-unread", tab: id)
+        holdKeyReads()
         pendingMarkedUnread = nil
         publishMarkedUnread()
     }
@@ -109,9 +114,13 @@ public final class TabModel: Identifiable {
         return attention
     }
 
+    /// Whether this client's clear of `request` still waits for the record (``TabReads``).
+    public func expectsAttentionClear(_ request: TabAttention) -> Bool { pendingAttentionClear == request }
+
     /// A failed old clear never restores over a newer request or a newer clear.
     public func dropExpectedAttentionClear(_ request: TabAttention) {
         guard pendingAttentionClear == request else { return }
+        rollbacks.rolledBack("attention-clear", tab: id)
         pendingAttentionClear = nil
         attention = recordAttention
     }
@@ -198,9 +207,42 @@ public final class TabModel: Identifiable {
         readingNotification = notification.notification
     }
 
+    /// This tab's optimistic indicator writes rolled back, against the native budget.
+    @ObservationIgnored let rollbacks = IndicatorRollbackBudget()
+    /// When keys may read this tab's dot again after a read of theirs rolled back (Leo, 2026-11-09:
+    /// "when im typing in the composer the tab and workspace flicker"). Each key's read hid the dot
+    /// at once; a refused one (a daemon that is not connected) brought it back a round trip later
+    /// and the next key hid it again, so the tab's and the workspace row's dot blinked once per key.
+    /// A rollback holds key reads off for ``keyReadBackoff`` (2 s, doubling to 30 s); the daemon's
+    /// record changing the dot resets it. No marker id is cached: ids restart with the daemon.
+    @ObservationIgnored private var keyReadsResumeAt: ContinuousClock.Instant?
+    @ObservationIgnored private var keyReadBackoff: Duration = .seconds(2)
+    /// The clock key reads are timed by; tests set it.
+    @ObservationIgnored var keyReadClock: () -> ContinuousClock.Instant = { .now }
+
+    /// Whether a key may read the tab's unread notification or Mark as Unread now.
+    public func keyMayRead() -> Bool {
+        keyReadsResumeAt.map { keyReadClock() >= $0 } ?? true
+    }
+
+    /// A read rolled back: keys wait before the next one, longer each time in a row.
+    private func holdKeyReads() {
+        keyReadsResumeAt = keyReadClock() + keyReadBackoff
+        keyReadBackoff = min(keyReadBackoff * 2, .seconds(30))
+    }
+
+    /// The daemon's record changed the dot: the next key reads at once again.
+    private func resumeKeyReads() {
+        keyReadsResumeAt = nil
+        keyReadBackoff = .seconds(2)
+    }
+
     /// Rolls back ``expectNotificationRead()`` when the acknowledge failed.
     public func dropExpectedNotificationRead() {
-        if readingNotification != nil { readingNotification = nil }
+        guard readingNotification != nil else { return }
+        rollbacks.rolledBack("notification-read", tab: id)
+        holdKeyReads()
+        readingNotification = nil
     }
 
     /// The tree's notification marker arrived: a read or replaced
@@ -238,10 +280,16 @@ public final class TabModel: Identifiable {
     public internal(set) var resourceID: ResourceID?
 
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
-    /// source, `agent-session-tabs-v1`); nil for every other tab.
+    /// source, `agent-session-tabs-v1`); nil for every other tab. Its host as this Mac names it now
+    /// when its store is this Mac's own and it was saved under a former one (``formerLocalHosts``).
     public var agentSession: AgentSessionRef? {
-        kind == .conversation ? conversation?.agentSession : nil
+        guard kind == .conversation, var record = conversation?.agentSession else { return nil }
+        if let host = formerLocalHosts[record.host] { record.host = host }
+        return record
     }
+    /// Its store's ``DaemonStore/formerLocalHosts`` (written on a change only): observed, so a reader
+    /// of ``agentSession`` hears ids read after the tree arrived.
+    var formerLocalHosts: [String: String] = [:]
 
     /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
     public var appTab: AppTabRef? {
@@ -325,7 +373,7 @@ public final class TabModel: Identifiable {
         if terminalState != s.terminalState { terminalState = s.terminalState }
         if end != s.end { end = s.end }
         if relaunch != s.relaunch { relaunch = s.relaunch }
-        if notification != s.notification { notification = s.notification }
+        if notification != s.notification { notification = s.notification; resumeKeyReads() }
         settleReadingNotification()
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
@@ -355,6 +403,7 @@ public final class TabModel: Identifiable {
         if pendingAttentionClear != record.attention { pendingAttentionClear = nil }
         let shownAttention = pendingAttentionClear == nil ? record.attention : nil
         if attention != shownAttention { attention = shownAttention }
+        if recordMarkedUnread != record.markedUnread { resumeKeyReads() }
         recordMarkedUnread = record.markedUnread
         if pendingMarkedUnread == record.markedUnread { pendingMarkedUnread = nil }
         publishMarkedUnread()

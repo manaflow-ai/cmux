@@ -93,7 +93,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
         guard let list, let window = list.window else { return nil }
-        let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        // Under the Updated card's open preview no row or group has a card (`hoverOccluded`).
+        if list.hoverOccluded?(windowPoint) == true { return nil }
+        let point = list.convert(windowPoint, from: nil)
         if let group = list.hoverCardGroup(at: point), let anchor = list.hoverCardBand(forGroup: group) {
             // A group waits its own, longer delay: the person rests on it "for a while".
             return HoverCardHit(target: HoverTarget(id: Self.targetID(group), window: window.windowNumber,
@@ -113,7 +116,10 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
         guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor,
               let first = list.displayed.rows.first, let last = list.displayed.rows.last else { return false }
-        let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        // Under the Updated card's open preview a shown row card bridges nothing: it goes (review F1 of #38117).
+        if list.hoverOccluded?(windowPoint) == true { return false }
+        let point = list.convert(windowPoint, from: nil)
         return list.visibleRect.contains(point) && point.y >= first.y && point.y < last.maxY
     }
 
@@ -489,7 +495,8 @@ final class WorkspaceHoverCardView: NSView, HoverCardInteractiveBody, HoverCardT
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = Metrics.space3
+        // The shared hover card style's one spacing scale (`HoverCardStyle`), as every other hover card.
+        stack.spacing = HoverCardStyle.shared.rowGap
         // Show details reads as the list's last row, on the rows' spacing.
         stack.setCustomSpacing(Metrics.space1, after: tabList)
         stack.setCustomSpacing(Metrics.space1, after: titleRow)
@@ -814,7 +821,7 @@ extension WorkspaceHoverCardView {
             // The frosted material (Lawrence msg 19245: glass over a busy terminal was hard to read): a veil of
             // the theme's window background over the glass, below the overlay rule's solid alpha.
             wantsLayer = true
-            layer?.cornerRadius = Metrics.panelCornerRadius
+            layer?.cornerRadius = HoverCardStyle.shared.cornerRadius
             layer?.cornerCurve = .continuous
             // 0.55: as dense as the overlay rule allows a body's tint (under 0.6).
             layer?.backgroundColor = style.material == .frosted ? Palette.windowBackground.withAlphaComponent(0.55).cgColor : nil

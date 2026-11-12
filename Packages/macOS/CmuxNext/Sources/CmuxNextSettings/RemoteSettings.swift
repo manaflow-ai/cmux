@@ -5,9 +5,11 @@
 /// relaunch. A build without it uses the app's own helper and host.
 /// - `endSharingOnQuit` (off by default): a Screen Sharing session ends when cmux quits. Off,
 ///   cmux Remote keeps this Mac available to the person's devices while cmux is quit.
+/// - `ultraMode` (off by default): Ultra Connection Mode. The Rust tunnel starts read it from the
+///   file themselves (cmux-tui-util `user_settings::ultra_mode`); kept here so the row reads back.
 public nonisolated struct RemoteSettings: Sendable, Equatable {
-    public static let endSharingOnQuitPath = ["remote", "endSharingOnQuit"]
-    public var endSharingOnQuit = false
+    public var endSharingOnQuit = RemoteSettings.endSharingOnQuitDefault
+    public var ultraMode = RemoteSettings.ultraModeDefault
 
     public init() {}
 
@@ -15,25 +17,8 @@ public nonisolated struct RemoteSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["remote"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("endSharingOnQuit") { settings.endSharingOnQuit = value }
+        if let value = reader.bool("ultraMode") { settings.ultraMode = value }
         diagnostics = reader.diagnostics
         return settings
-    }
-}
-
-/// Agents > cmux Remote.
-nonisolated enum RemoteSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
-        return [
-            SettingDescriptor(
-                RemoteSettings.endSharingOnQuitPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
-                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help",
-                                         "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."),
-                summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
-                kind: .toggle, default: .bool(RemoteSettings().endSharingOnQuit),
-                keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
-            ),
-        ]
     }
 }

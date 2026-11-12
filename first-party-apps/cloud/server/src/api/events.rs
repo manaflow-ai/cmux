@@ -74,7 +74,7 @@ pub(crate) fn apply(
         "cloud.machine.state" => {
             let frame: StateFrame = decode(event, data)?;
             match (frame.t.as_str(), frame.state) {
-                ("state", Some(PushedState { record })) if record.id == frame.machine => {
+                ("state", Some(PushedState { record })) if record.id() == frame.machine => {
                     projection.mark_pushed(&frame.machine);
                     projection.upsert(record);
                 }

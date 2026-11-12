@@ -10,7 +10,7 @@ import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow"
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { callDescription } from "../src/agent-session/acpmux/direct";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const shell = (id: string, extra: Partial<Tool> = {}): AcpmuxActivity => ({
@@ -63,19 +63,22 @@ test("a finished run that is one group folds to its closed line", () => {
   expect(listed).toContain('aria-expanded="true"');
 });
 
-test("a command reads as its description, the raw line only in its Shell block", () => {
+test("a known command reads as what it did without the setup, read off the command, not its description", () => {
   const html = renderToStaticMarkup(
     <CommandRow item={shell("x", { command: 'export PATH="/a:$PATH"; bun test', description: "Run the web tests" })} />,
   );
-  expect(words(html)).toContain("Run the web tests");
+  // Leo, 2026-11-07: "you ran a specific thing" (commandActions.ts); the table reads what ran.
+  expect(words(html)).toContain("Ran tests with bun");
+  expect(words(html)).not.toContain("Run the web tests");
   expect(html).not.toContain("export PATH");
   const plain = renderToStaticMarkup(<CommandRow item={shell("y")} />);
   expect(words(plain)).toContain("Ran echo y");
 });
 
-test("a lone shell call reads as its description, and never as the bare tool name", () => {
+test("a lone shell call the table does not know reads as its description, else its command, never the bare tool name", () => {
   const described = renderToStaticMarkup(<ToolRow item={shell("x", { description: "List the build folder" })} />);
   expect(words(described)).toContain("List the build folder");
+  expect(words(renderToStaticMarkup(<ToolRow item={shell("x")} />))).toContain("Ran echo x");
   const bare = renderToStaticMarkup(<ToolRow item={shell("y", { command: undefined })} />);
   expect(words(bare)).toContain("Ran a command");
   expect(words(bare)).not.toMatch(/\bBash\b/);
@@ -134,14 +137,18 @@ test("a failed tool call keeps its red mark at rest; a running one no spinner", 
   expect(running).not.toContain("cv-command__time");
 });
 
-test("the hover check and time fade as a message's hover row does", async () => {
+// Leo (2026-11-09, on a live turn's recording): "oh im mostly just saying that it lags". A tool
+// row is a list row: its check and time show on the frame the pointer reaches it and leave on the
+// quick step, not the message hover row's dwell (test/agent-pane-hover-follows-row.test.ts).
+test("the hover check and time show at once and leave on the quick step", async () => {
   const css = await Bun.file(
     new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url),
   ).text();
   expect(css).toMatch(
-    /\.cv-tool :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-out\)/,
+    /\.cv-tool :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: var\(--cv-row-reveal-out\);/,
   );
   expect(css).toMatch(
-    /\.cv-tool:hover :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: opacity var\(--cv-actions-in\) var\(--cv-actions-ease\) var\(--cv-actions-in-delay\)/,
+    /\.cv-tool:is\(:hover, :focus-visible\) :is\(\.cv-command__ok, \.cv-command__time\) \{\s*transition: none;/,
   );
+  expect(css).toMatch(/--cv-row-reveal-out: opacity var\(--cmux-motion-quick, 80ms\)/);
 });

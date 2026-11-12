@@ -2,18 +2,21 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextWindowRules
 import Observation
 
 extension NewChatPlacement {
-    /// Where a new chat from `controller`'s pane opens; `.here` on a daemon
-    /// without dock roles.
+    /// Where a new chat from `controller`'s pane opens (cmux-window-rules `chat::new_chat_placement`);
+    /// `.here` on a daemon without dock roles (never asked: the rule reads topology only) or with no answer.
     @MainActor static func resolve(from controller: PaneController) -> NewChatPlacement {
-        guard let content = controller.workspace,
-              content.daemon.supports(DaemonCapability.dockColumnRole.rawValue),
-              let screen = content.layoutModel.screen(containing: controller.layoutPaneID) else { return .here }
-        let pane = controller.layoutPaneID
-        return resolve(from: pane, columns: ChatColumnPlacement.columns(of: screen, containing: pane),
-                       isLoneChat: ChatColumnPlacement.resolve(from: controller, services: controller.services) == .dockChat)
+        guard controller.workspace?.daemon.supports(DaemonCapability.dockColumnRole.rawValue) == true,
+              let read = ChatColumnPlacement.read(controller, services: controller.services) else { return .here }
+        switch read.newChat {
+        case .here: return .here
+        case .dock(let pane): return .dock(LayoutPaneID(rawValue: pane))
+        case .newDock: return .newDock
+        case .besideDock: return .besideDock
+        }
     }
 
     /// How `controller`'s new chat opens: the pane it opens in, and for a new
@@ -106,13 +109,13 @@ extension PaneController {
     /// The tab ids `pendingDock` hides: a provisional id also hides the tab
     /// the store replaced it with, from the store's first snapshot on.
     var dockBound: Set<String> {
-        pendingDock.hidden(aliases: services.agentTabs.aliases)
+        pendingDock.hidden(aliases: services.agentTabs.aliases.unambiguousIDs)
     }
 
     /// Chat `key` reached its dock (or the move failed): the strip may list
     /// it again. Other chats still on their way stay hidden.
     func dockFinished(_ key: String) {
-        pendingDock.finished(key, aliases: services.agentTabs.aliases)
+        pendingDock.finished(key, aliases: services.agentTabs.aliases.unambiguousIDs)
         apply(snapshot())
     }
 }

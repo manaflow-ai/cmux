@@ -107,6 +107,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
     @State private var overviewPosition = ScrollPosition(y: 0)
     @State private var menuExpanded = false
     @State private var menuContent = false
+    /// The page menu's rows, built when the menu opens (CMUX-15). Built in `body`, every
+    /// change the rows read (an agent chat's turns as it streams, its running state, the
+    /// layout) re-ran this whole view and rebuilt the hidden menu, so the page stuttered
+    /// and the menu opened late while an agent worked. A menu shows what was true when
+    /// it opened, as UIKit's do.
+    @State private var menuGroups: [[TabsKitMenuItem]] = []
     @Environment(\.tabsKitTheme) private var theme
 
     private var fullRect: CGRect { CGRect(origin: .zero, size: size) }
@@ -168,7 +174,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
             if chrome.editing {
                 source.editingBackground(addressEditing)
                     .frame(width: size.width, height: size.height)
-                    .transition(.opacity.animation(.easeInOut(duration: 0.1).delay(0.03)))
+                    .transition(.opacity.animation(theme.motion.resolve(.easeInOut(duration: 0.1).delay(0.03))))
             }
 
             if let tab = activeTab, zoomState.phase == .page, !chrome.swiping, !chrome.editing {
@@ -204,8 +210,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
             // Kept mounted (transparent) so the droplet starts growing on
             // the first frame after the tap instead of after its first layout.
-            if !overviewVisible, let tab = activeTab {
-                PageMenu(groups: source.pageMenu(for: tab),
+            if !overviewVisible, activeTab != nil {
+                PageMenu(groups: menuGroups,
                          origin: CGRect(x: layout.capsule.minX, y: layout.capsule.minY, width: theme.metrics.control, height: theme.metrics.control),
                          capsule: layout.capsule, topLimit: safeTop + 8, expanded: menuExpanded, contentVisible: menuContent,
                          onDismiss: closeMenu, onSelect: { item in
@@ -229,11 +235,12 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .padding(.top, safeTop + 8)
                     .frame(width: size.width, alignment: .top)
                     .onTapGesture { source.clearNotice() }
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    // Reduce Motion: a fade, no slide.
+                    .transition(UIAccessibility.isReduceMotionEnabled ? .opacity : .opacity.combined(with: .move(edge: .top)))
                     .task(id: notice) {
                         // Toast lifetime (a UI timeout, not synchronization).
                         try? await Task.sleep(for: .seconds(5))
-                        if source.notice == notice { withAnimation { source.clearNotice() } }
+                        if source.notice == notice { withAnimation(theme.motion.resolve(.default)) { source.clearNotice() } }
                     }
                     .accessibilityAddTraits(.isStaticText)
             }
@@ -561,15 +568,16 @@ struct TabsScreen<Source: TabsDataSource>: View {
     // MARK: Page menu
 
     private func openMenu() {
+        menuGroups = activeTab.map { source.pageMenu(for: $0) } ?? []
         chrome.menuOpen = true
         menuExpanded = false
         menuContent = false
         withAnimation(theme.motion.resolve(theme.motion.menu)) { menuExpanded = true }
-        withAnimation(.linear(duration: 0.12).delay(0.08)) { menuContent = true }
+        withAnimation(theme.motion.resolve(.linear(duration: 0.12).delay(0.08))) { menuContent = true }
     }
 
     private func closeMenu() {
-        withAnimation(.linear(duration: 0.1)) { menuContent = false }
+        withAnimation(theme.motion.resolve(.linear(duration: 0.1))) { menuContent = false }
         withAnimation(theme.motion.resolve(.spring(response: 0.3, dampingFraction: 0.9))) { menuExpanded = false } completion: {
             chrome.menuOpen = false
         }

@@ -55,6 +55,15 @@ test("HTML reads back as the same Markdown", () => {
   expect(htmlMarkdown(markdownHtml(REPLY))).toBe(REPLY);
 });
 
+test("plain pre-wrap spans retain lines without flattening rich pasted spans", () => {
+  expect(htmlMarkdown('<span style="white-space: pre-wrap;">first\n    second</span>')).toBe("first\n    second");
+  expect(
+    htmlMarkdown(
+      '<span style="white-space: pre-wrap;"><strong>Bold</strong> <a href="https://example.com/">link</a></span>',
+    ),
+  ).toBe("**Bold** [link](https://example.com/)");
+});
+
 test("Notes and Docs HTML: nested lists beside items, Docs' bold spans and its normal-weight wrapper", () => {
   const notes = "<ul><li>a</li><ul><li>b</li></ul><li>c</li></ul>";
   expect(htmlMarkdown(notes)).toBe("- a\n   - b\n- c");

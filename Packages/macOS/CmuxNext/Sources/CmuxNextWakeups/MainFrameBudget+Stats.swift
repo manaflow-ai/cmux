@@ -12,6 +12,9 @@ extension MainFrameBudget {
         /// Per class: tasks that started past the class's own share, on frame time the other classes
         /// left while no input was pending.
         public var idleTasks: [Int] = [0, 0, 0]
+        /// Times a background task was held for the next frame because this one had no idle time
+        /// (it came late, or after a long render pass).
+        public var waitedForIdleFrame = 0
         /// Per class: tasks that ran past the class's whole budget on their own.
         public var overBudgetTasks: [Int] = [0, 0, 0]
         /// Per class: the longest task, in nanoseconds.

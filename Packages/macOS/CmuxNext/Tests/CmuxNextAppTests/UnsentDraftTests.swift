@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import Foundation
 import Testing
@@ -57,7 +58,7 @@ struct UnsentDraftTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: AgentUnsentDrafts.fileName), files = AgentPaneStateFiles()
         let drafts = AgentUnsentDrafts(file: file, files: files)
-        drafts.windowOfTab = { $0 == "tab-1" || $0 == "tab-2" ? "window-1" : nil }
+        drafts.windowOfTab = { key, _ in key == "tab-1" || key == "tab-2" ? "window-1" : nil }
         let model = AgentPaneModel(host: MockAgentPaneHost())
         drafts.wire(model) { "tab-1" }
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "typed here"]))
@@ -82,7 +83,7 @@ struct UnsentDraftTests {
         // window's slot with the same text is never its to give up.
         relaunched.leave("second", inWindow: "window-2")
         let page = AgentPaneModel(host: MockAgentPaneHost())
-        relaunched.windowOfTab = { $0 == "tab-5" ? "window-2" : "window-1" }
+        relaunched.windowOfTab = { key, _ in key == "tab-5" ? "window-2" : "window-1" }
         relaunched.wire(page) { "tab-3" }
         #expect(page.newTabForPage == nil, "only a New Tab page gets it")
         // A New Tab page its host gave none (a workspace's first page, a restored one) reads its window's.
@@ -234,6 +235,19 @@ struct UnsentDraftTests {
         drafts.typed("x", for: "tab-1")
         #expect(drafts.draft(for: "tab-1") == saved + "\n\nx")
         #expect(AgentUnsentDrafts(file: file, files: files).draft(for: "tab-1") == saved + "\n\nx")
+    }
+
+    /// Another machine's tab whose id a tab of this Mac also has keeps its own draft: closing it
+    /// clears that one only, never this Mac's (#36767 review at a3fa88d2: the close cleared by bare id).
+    @Test func closingAnotherMachinesTabWithTheSameIDKeepsThisMacsDraft() {
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
+        tabs.unsentDrafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
+        tabs.unsentDrafts.typed("local draft", for: "tab-1")
+        tabs.unsentDrafts.set("remote draft", for: "tab-1", machine: "other-mac")
+        #expect(tabs.unsentDrafts.hasDraft("tab-1", machine: "this-mac"), "this Mac's tab keeps the bare id")
+        tabs.release("tab-1", machine: "other-mac")
+        #expect(tabs.unsentDrafts.draft(for: "tab-1") == "local draft")
+        #expect(!tabs.unsentDrafts.hasDraft("tab-1", machine: "other-mac"))
     }
 
     /// The merge keeps both texts once, and leaves a text that already holds the other as it is.

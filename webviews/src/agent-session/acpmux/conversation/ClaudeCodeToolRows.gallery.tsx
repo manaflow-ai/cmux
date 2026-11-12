@@ -3,8 +3,8 @@
 // comparing claude code's to ours, we're not faithfully following how they're doing stuff" / "wrt
 // tool calls and the lowest level thinking"). A finished call is one muted line, verb then tool
 // ("Used repo: repo grep", "Ran 3 commands", "Read App.tsx"), its chevron right after the words; the
-// live line names the current action in full ink, the rest muted, then the turn's time and its
-// tokens ("Using repo: repo grep 3m 2s · 47.4K tokens"). Its only working mark is the shimmer
+// live line names the current action in its one muted tone (agent-pane.live-lead-tone), then the
+// turn's time and its tokens ("Using repo: repo grep 3m 2s · 47.4K tokens"). Its only working mark is the shimmer
 // ("we don't want the claude symbol ellipsis thing btw we just keep the shimmer ONLY"), so Claude's
 // orange dots have no variant. References: claude/live/transcript-tool-rows-and-task-list,
 // claude/live/transcript-peer-session-message.
@@ -15,8 +15,9 @@ import { McpCallRows } from "./McpCallRows";
 import { Thinking } from "./Thinking";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
-import { WorkingCountsContext, type WorkingCounts } from "./WorkingFor";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { WorkingCountsContext, type WorkingCounts } from "./workingForModel";
 
 type Look = "shipped" | "bare" | "caret" | "split" | "condensed";
 type Props = { look: Look; mode: "light" | "dark" };

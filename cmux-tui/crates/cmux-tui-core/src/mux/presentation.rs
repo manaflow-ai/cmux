@@ -302,6 +302,16 @@ impl Mux {
         }
     }
 
+    /// Each placed PTY tab's git branch, from the HEAD cache only (no
+    /// filesystem read), for an in-process frontend's tree snapshot. The
+    /// caller holds the state lock, as [`Self::tree_decorations_in_state`].
+    pub fn tab_git_branches_in_state(&self, state: &State) -> HashMap<SurfaceId, String> {
+        self.resolve_tab_directories(surface_directories_in_state(state), false)
+            .into_iter()
+            .filter_map(|(surface, directory)| Some((surface, directory.git_branch?)))
+            .collect()
+    }
+
     fn resolve_tab_directories(
         &self,
         directories: Vec<(SurfaceId, String)>,

@@ -15,6 +15,7 @@ macro_rules! interfaces {
 }
 
 interfaces! {
+    "cmux.chat.widget/1" => "cmux.chat.widget",
     "cmux.contact.provider/1" => "cmux.contact.provider",
     "cmux.credential.provider/1" => "cmux.credential.provider",
     "cmux.diff.renderer/1" => "cmux.diff.renderer",

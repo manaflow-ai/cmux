@@ -1,4 +1,4 @@
-name: fleet test-compile
+name: fleet test-compile (advisory)
 
 # Advisory: compile the Swift test targets a pull request can break, on a
 # fleet Mac, and fail this check when one does not compile.
@@ -12,7 +12,9 @@ name: fleet test-compile
 #
 # It gates nothing: fleet/compile-check, the landing gate and the Release
 # compile neither wait for it nor read it. A red here is a test
-# target that does not compile at the PR's merge commit.
+# target that does not compile at the PR's merge commit. The workflow's name
+# says "(advisory)" like its job's, so a reader that judges a whole check suite
+# (cmuxterm-hq now_pr_verdict.py, the head's verdict time) skips it as well.
 #
 # It runs on its own gateway label, vars.CI_TEST_COMPILE_GATEWAY, never the
 # required compile's CI_COMPILE_CHECK_GATEWAY: each gateway job holds a fleet

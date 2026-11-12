@@ -2,7 +2,7 @@ import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { EnvironmentStore } from "./environmentStore";
-import type { CloudEnvironment, EnvironmentPatch } from "./environmentModel";
+import type { CloudEnvironment, EnvironmentPatch, EnvironmentSection } from "./environmentModel";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 
@@ -56,14 +56,20 @@ const sample: CloudEnvironment = {
   updated_at: "2026-11-01T00:00:00Z",
   updated_by: "user_example",
 };
-async function mount(section: "overview" | "script" = "overview") {
+async function mount(
+  section: EnvironmentSection = "overview",
+  environment: CloudEnvironment = sample,
+  refusal?: string,
+) {
   const writes: EnvironmentPatch[] = [];
   const store = new EnvironmentStore({
-    list: async () => [sample],
-    get: async () => sample,
+    list: async () => [environment],
+    get: async () => environment,
     update: async (_id, patch) => {
       writes.push(patch);
-      return sample;
+      // The daemon forwards a refusal's code only, with a message of its own.
+      if (refusal) throw Object.assign(new Error("Could not save or load the cloud environment."), { code: refusal });
+      return environment;
     },
     derive: async () => ({ setup: { script: "#!/bin/bash\nnpm ci\n" } }),
   });
@@ -142,3 +148,174 @@ test("the checklist entry displays the derived Bash script and backs into the co
     await mounted.dispose();
   }
 });
+
+test("without the service's support for secret routes, a secret row has no delivery controls", async () => {
+  const mounted = await mount("secrets");
+  try {
+    expect(document.querySelector('input[aria-label="Secret name"]')).not.toBeNull();
+    expect(document.querySelector('input[aria-label="Sent to"]')).toBeNull();
+    expect(document.querySelector(".env-secret")).toBeNull();
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test("a secret stored without hosts loads invalid and blocks Save; one host makes it valid", async () => {
+  const mounted = await mount("secrets", { ...sample, secret_routes: true });
+  try {
+    const hosts = document.querySelector<HTMLInputElement>('input[aria-label="Sent to"]');
+    expect(hosts?.value).toBe("");
+    expect(hosts?.getAttribute("aria-invalid")).toBe("true");
+    const sentence = "A secret needs at least one host. For a value the machine reads itself, use a variable.";
+    expect(document.querySelector(".env-secret .env-error")?.textContent).toBe(sentence);
+    // Every secret has hosts, so its header line is always there, closed.
+    const disclosure = document.querySelector<HTMLButtonElement>(".env-secret > .env-disclosure");
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => {
+      button("Save changes")!.click();
+      await settle();
+    });
+    expect(mounted.writes).toEqual([]);
+    expect(mounted.store.getSnapshot().error).toBe("hostless");
+    expect(document.querySelectorAll(".env-error")).toHaveLength(2);
+    expect([...document.querySelectorAll(".env-error")].every((node) => node.textContent === sentence)).toBe(true);
+    // Not flagged while Sent to has focus: a half-typed list is not an error yet.
+    await act(async () => hosts!.focus());
+    expect(hosts?.getAttribute("aria-invalid")).toBeNull();
+    await act(async () => hosts!.blur());
+    await act(async () => {
+      mounted.store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "tok", hosts: "registry.example.com" }] });
+    });
+    expect(hosts?.getAttribute("aria-invalid")).toBeNull();
+    expect(document.querySelector(".env-secret .env-error")).toBeNull();
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test("a new blank secret row is not flagged yet; named without a host it is, and Save refuses it", async () => {
+  const stored = { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["registry.example.com"] };
+  const mounted = await mount("secrets", { ...sample, secret_routes: true, secrets: [stored] });
+  try {
+    await act(async () => document.querySelector<HTMLButtonElement>(".env-add")!.click());
+    const fields = () => document.querySelectorAll<HTMLInputElement>('input[aria-label="Sent to"]');
+    expect(fields()).toHaveLength(2);
+    expect(fields()[1]?.getAttribute("aria-invalid")).toBeNull();
+    await act(async () => {
+      mounted.store.edit({
+        secrets: [
+          { name: "PACKAGE_TOKEN", value: "", hosts: "registry.example.com" },
+          { name: "DEPLOY_KEY", value: "key" },
+        ],
+      });
+    });
+    expect(fields()[0]?.getAttribute("aria-invalid")).toBeNull();
+    expect(fields()[1]?.getAttribute("aria-invalid")).toBe("true");
+    await act(async () => {
+      button("Save changes")!.click();
+      await settle();
+    });
+    expect(mounted.writes).toEqual([]);
+    expect(mounted.store.getSnapshot().error).toBe("hostless");
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test("a secret's header opens under its hosts, and an invalid host shows inline and blocks Save", async () => {
+  const mounted = await mount("secrets", { ...sample, secret_routes: true });
+  try {
+    const hosts = document.querySelector<HTMLInputElement>('input[aria-label="Sent to"]');
+    await act(async () => {
+      mounted.store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "tok", hosts: "registry.example.com" }] });
+    });
+    expect(document.querySelector(".env-header-summary")?.textContent).toBe("authorization: Bearer {value}");
+    const disclosure = document.querySelector<HTMLButtonElement>(".env-disclosure");
+    const fields = document.querySelector(".env-secret > .env-fold");
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(fields?.hasAttribute("inert")).toBe(true);
+    await act(async () => disclosure!.click());
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+    expect(fields?.hasAttribute("data-open")).toBe(true);
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Header name"]')?.value).toBe("authorization");
+    await act(async () => {
+      mounted.store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "tok", hosts: "https://registry.example.com" }] });
+    });
+    expect(hosts?.getAttribute("aria-invalid")).toBe("true");
+    expect(document.querySelector(".env-secret .env-error")?.textContent).toContain("up to 8 host names");
+    await act(async () => {
+      button("Save changes")!.click();
+      await settle();
+    });
+    expect(mounted.writes).toEqual([]);
+    expect(mounted.store.getSnapshot().error).toBe("hosts");
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test("removing a secret row keeps every other row's open header with its own secret", async () => {
+  const route = (name: string, host: string) => ({ name, updated_at: "2026-11-01T00:00:00Z", hosts: [host] });
+  const mounted = await mount("secrets", {
+    ...sample,
+    secret_routes: true,
+    secrets: [route("PACKAGE_TOKEN", "registry.example.com"), route("GITHUB_TOKEN", "api.github.com")],
+  });
+  try {
+    const secretRows = () => [...document.querySelectorAll<HTMLElement>(".env-secret")];
+    const nameOf = (row: HTMLElement) => row.querySelector<HTMLInputElement>('input[aria-label="Secret name"]')?.value;
+    const disclosureOf = (row: HTMLElement) => row.querySelector<HTMLButtonElement>(":scope > .env-disclosure");
+    expect(secretRows().map(nameOf)).toEqual(["PACKAGE_TOKEN", "GITHUB_TOKEN"]);
+    await act(async () => disclosureOf(secretRows()[1]!)!.click());
+    expect(secretRows().map((row) => disclosureOf(row)?.getAttribute("aria-expanded"))).toEqual(["false", "true"]);
+    await act(async () => button("Remove PACKAGE_TOKEN")!.click());
+    expect(secretRows().map(nameOf)).toEqual(["GITHUB_TOKEN"]);
+    expect(disclosureOf(secretRows()[0]!)?.getAttribute("aria-expanded")).toBe("true");
+    // A row added after it starts closed.
+    await act(async () => document.querySelector<HTMLButtonElement>(".env-add")!.click());
+    expect(secretRows().map((row) => disclosureOf(row)?.getAttribute("aria-expanded"))).toEqual(["true", "false"]);
+    expect(mounted.store.getSnapshot().draft?.secrets.map((row) => row.name)).toEqual(["GITHUB_TOKEN", ""]);
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+// A secret sent to hosts is written to the secret store on save (cmux-platform#1046); its refusals reach the sheet as
+// vault.* codes, and the alert at the foot says why in a plain sentence.
+const unavailable = "Secrets can't be saved right now. Try again in a moment.";
+const refused = "The secret couldn't be stored. Your edits are kept; check its name and hosts, or try again later.";
+const vaultSentences: Record<string, string> = {
+  "vault.unavailable": unavailable,
+  "vault.unreachable": unavailable,
+  "vault.upstream_failed": unavailable,
+  "vault.not_configured": unavailable,
+  "vault.pin_public_suffix":
+    "A host can't cover every site under a public suffix like .com or .co.uk. Name the exact host, such as api.example.com.",
+  "vault.secret_not_ascii":
+    "A secret sent as Basic credentials must be plain text: ASCII letters, numbers and symbols only.",
+  "vault.secret_unreadable": "A saved secret can't be read anymore. Type its value again, then save.",
+  "vault.grant_refused": refused,
+  "vault.request_rejected": refused,
+  // Only a machine's start gives these, or the platform adds one later: the generic save sentence.
+  "vault.boot_superseded": "Could not save changes. Your edits are kept; try again.",
+  "vault.something_new": "Could not save changes. Your edits are kept; try again.",
+};
+
+for (const [code, sentence] of Object.entries(vaultSentences)) {
+  test(`a save the secret store refuses with ${code} says why at the foot and keeps the edits`, async () => {
+    const mounted = await mount("overview", sample, code);
+    try {
+      await act(async () => {
+        mounted.store.edit({ script: "echo unsaved" });
+        button("Save changes")!.click();
+        await settle();
+      });
+      expect(mounted.writes).toHaveLength(1);
+      expect(mounted.store.getSnapshot().open).toBe(true);
+      expect(mounted.store.getSnapshot().draft?.script).toBe("echo unsaved");
+      expect(document.querySelector('[role="alert"]')?.textContent).toBe(sentence);
+    } finally {
+      await mounted.dispose();
+    }
+  });
+}

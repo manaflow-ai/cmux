@@ -4,6 +4,18 @@
 
 use super::*;
 
+/// The `pane.split` `direction` field of a split along `dir`: `right` or
+/// `down`, or `left` or `up` when the new pane goes before the target
+/// (`split-before-v1`).
+pub(crate) fn split_direction_field(dir: SplitDir, before: bool) -> &'static str {
+    match (dir, before) {
+        (SplitDir::Right, false) => "right",
+        (SplitDir::Right, true) => "left",
+        (SplitDir::Down, false) => "down",
+        (SplitDir::Down, true) => "up",
+    }
+}
+
 impl Mux {
     pub(crate) fn create_terminal_result_in_workspace_as(
         self: &Arc<Self>,
@@ -453,14 +465,27 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
+        self.split_placed_with_options_as(actor, target, dir, false, spawn, size)
+    }
+
+    /// [`Self::split_with_options_as`] with the new pane before the target
+    /// on the split axis when `before` (`split-before-v1`: Split Left, Split
+    /// Up), in the same one commit: the split's layout is final, with no
+    /// `swap-pane` after it.
+    pub fn split_placed_with_options_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: PaneId,
+        dir: SplitDir,
+        before: bool,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<PaneSurfaceCreation> {
         let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
-        let direction = match dir {
-            SplitDir::Right => "right",
-            SplitDir::Down => "down",
-        };
+        let direction = split_direction_field(dir, before);
         let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);

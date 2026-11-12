@@ -69,9 +69,12 @@ export function searchablePendingRows(
     .concat(visible.filter((row) => !kept.has(row)));
 }
 
-/// The key a message's sender is grouped under.
+/// The key a message's sender is grouped under: its chat here, else what its chat is asked for by
+/// (a relayed sender's `MACHINE/SESSION`), else its name. Two machines' chats can share a name.
 export const senderKey = (row: AcpmuxRow) =>
-  row.incoming?.kind === "message" ? (row.incoming.message.sessionId ?? row.incoming.message.name) : row.id;
+  row.incoming?.kind === "message"
+    ? (row.incoming.message.sessionId ?? row.incoming.message.lookup ?? row.incoming.message.name)
+    : row.id;
 
 /// The group's messages by sender, each sender once in the order it first wrote, its messages oldest first.
 export function bySender(rows: readonly AcpmuxRow[]): { key: string; rows: AcpmuxRow[] }[] {

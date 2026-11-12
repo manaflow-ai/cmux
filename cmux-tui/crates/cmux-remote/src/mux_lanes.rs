@@ -116,6 +116,15 @@ impl MuxLaneTracker {
         };
         if let Some(event) = envelope.event.as_ref().map(MuxName::as_str) {
             return Some(match event {
+                // A snapshot viewer's READY and history pages (`snapshot`) and
+                // its idle drift check (`digest`) are cut at one generation
+                // and offset of the same byte stream as `output`. On another
+                // lane, output tagged with the new generation can overtake its
+                // READY, pass the app's generation check, and then be wiped
+                // when the READY lands: bytes printed just after a reconnect
+                // vanish. One ordered lane keeps the cut and the bytes after
+                // it in host order.
+                "snapshot" | "digest" => Lane::Bulk,
                 "output" | "vt-state" | "render-state" | "render-delta" | "frame"
                 | "browser-state" | "resized" | "colors-changed" | "scroll-changed"
                 | "detached" => Lane::Bulk,
@@ -332,5 +341,26 @@ mod tests {
             tracker.classify_server_line(br#"{"event":"output","surface":1,"data":"Yg=="}"#),
             Some(Lane::Bulk)
         );
+    }
+
+    #[test]
+    fn snapshot_and_digest_share_the_output_lane() {
+        let tracker = MuxLaneTracker::default();
+        let output = br#"{"event":"output","surface":1,"data":"Yg==","generation":2,"offset":9}"#;
+        let output = tracker.classify_server_line(output);
+        assert_eq!(output, Some(Lane::Bulk));
+        for line in [
+            &br#"{"event":"snapshot","surface":1,"phase":"ready","generation":2,"offset":9,"version":1,"cols":80,"rows":24,"data":""}"#[..],
+            br#"{"event":"snapshot","surface":1,"phase":"history","generation":2,"offset":9,"version":1,"compression":"deflate","raw_bytes":0,"data":"","done":true}"#,
+            br#"{"event":"digest","surface":1,"generation":2,"offset":9,"version":1,"sha256":"00"}"#,
+        ] {
+            let lane = tracker.classify_server_line(line);
+            assert_eq!(lane, output, "{}", String::from_utf8_lossy(line));
+        }
+        // The attach reply that starts the stream rides the same lane too.
+        let attach = br#"{"id":3,"cmd":"attach-surface","surface":1}"#;
+        let lane = classify_client_line(attach);
+        tracker.observe_request(attach, lane);
+        assert_eq!(tracker.classify_server_line(br#"{"id":3,"ok":true}"#), output);
     }
 }

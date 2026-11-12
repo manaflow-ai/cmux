@@ -1,0 +1,15 @@
+{
+  "title": "The Settings page itself (scene:settings and tour:chief-settings never open it), light and dark: Agent Chat > Chat Interface Font, then General > Tabs. For a font, type or spacing change that has to show in Settings (the system UI font, Lawrence 2026-11-07). Record it with: cmux-ci capture SHA --state tour:settings-window",
+  "settings": {},
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Settings > Agent Chat: Chat Interface Font, light", "cmux": ["action", "run", "openSettings", "--setting", "agentPane.display.font.ui"], "wait": 4},
+    {"title": "Settings > Agent Chat, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Back to light", "rpc": {"method": "debug.appearance", "params": {"mode": "light"}}, "wait": 1, "shot": false,
+     "optional": "debug.appearance is DEBUG only"},
+    {"title": "Settings > General > Tabs, light", "cmux": ["action", "run", "openSettings", "--setting", "tabs.newTabTemplate"], "wait": 3},
+    {"title": "Settings > General > Tabs, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}

@@ -50,6 +50,7 @@ extension UpdaterService {
     /// (the download already running, or staged) does nothing.
     public func downloadClicked() {
         syncFlowPhase()
+        log.append("download clicked (\(flow.phase))")
         if downloadAgainIfCancelled() { return }
         guard case .available = flow.phase else {
             log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
@@ -65,6 +66,7 @@ extension UpdaterService {
     /// or when the download finishes. `willRelaunch` records keep sessions.
     public func installClicked() {
         syncFlowPhase()
+        log.append("restart to update clicked (\(flow.phase))")
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
@@ -307,7 +309,8 @@ extension UpdaterService {
         let required = requiredMinimumVersion != nil
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
         let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
-                                                                   constrained: network.constrained, expensive: network.expensive)
+                                                                   constrained: network.constrained || networkPending,
+                                                                   expensive: network.expensive || networkPending)
         // The tip app reads its feed every few minutes only where found updates download by
         // themselves and the policy allows updates.
         defer {
@@ -319,7 +322,7 @@ extension UpdaterService {
         downloadsFoundUpdates = downloads
         if let controller, controller.downloadsUpdatesInBackground != downloads {
             controller.downloadsUpdatesInBackground = downloads
-            log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
+            log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive), link pending \(networkPending))")
         }
         // Downloads came on (the setting, the link or the policy): an update a check found while they
         // were off downloads now instead of waiting for a click (the driver's own state decides; a
@@ -328,20 +331,27 @@ extension UpdaterService {
         if resumed && (required || !runsPickedBuild) { acceptAvailable() }
     }
 
-    /// Follows the link's Low Data Mode and cost (path events, no polling).
+    /// Follows the link's Low Data Mode and cost (path events, no polling). Until the first path
+    /// arrives the link counts as metered (``networkPending``).
     func followNetwork() {
         guard pathMonitor == nil else { return }
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
             let state = (constrained: path.isConstrained, expensive: path.isExpensive)
-            Task { @MainActor in
-                guard let self, self.network != state else { return }
-                self.network = state
-                self.applyDownloadPolicy()
-            }
+            Task { @MainActor in self?.networkChanged(constrained: state.constrained, expensive: state.expensive) }
         }
+        networkPending = true
         monitor.start(queue: DispatchQueue(label: "cmux.updates.network"))
         pathMonitor = monitor
+    }
+
+    /// A path event: the link's Low Data Mode and cost as the monitor reports them.
+    func networkChanged(constrained: Bool, expensive: Bool) {
+        let state = (constrained: constrained, expensive: expensive)
+        guard networkPending || network != state else { return }
+        networkPending = false
+        network = state
+        applyDownloadPolicy()
     }
 }
 

@@ -850,7 +850,8 @@ def wipe_state():
         raise SystemExit(f"refusing to wipe: tag {TAG!r} is not the tag of bundle {BUNDLE_ID}")
     library = os.path.expanduser("~/Library")
     for path in (os.path.join(library, "Application Support", BUNDLE_ID, "Chromium"),
-                 os.path.join(library, "Application Support/cmux/tags", TAG),
+                 os.path.join(library, "Application Support/cmux-next/tags", TAG),
+                 os.path.join(library, "Application Support/cmux/tags", TAG),  # an older build's
                  os.path.join(library, "Saved Application State", BUNDLE_ID + ".savedState"),
                  os.path.join(library, "Caches", BUNDLE_ID),
                  os.path.expanduser(f"~/.acpmux/builds/com.cmuxterm.app.debug.{slug}"),

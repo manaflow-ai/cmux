@@ -39,6 +39,8 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
             "  web:\n    needs: coalesce\n"
             "    # A yielded coalesce job (a newer push's run checks these commits) runs no checks.\n"
             "    if: ${{ needs.coalesce.outputs.run != 'false' }}\n"
+            "    # actions: read: the webview base replay reads the base's flake history artifact (ci-web.yml).\n"
+            "    permissions:\n      contents: read\n      actions: read\n"
             "    uses: ./.github/workflows/ci-web.yml\n    with:\n"
             "      web: ${{ 'true' }}\n      macos: ${{ 'false' }}\n      agent_session_web: ${{ 'true' }}\n",
             self.text,

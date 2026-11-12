@@ -187,7 +187,7 @@ final class PaneToolbar {
         // (Lawrence 2026-10-20: "i dont like the down arrow"); it is a row of "…"'s menu.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
-        // The zoom indicator is on the selected tab (`TabStripModel.zoomsSelected`), not a button here:
+        // The zoom indicator is at the pane's top-right (`PaneZoomIndicatorView`), not a button here:
         // a zoom keeps this room, so the strip's width and every tab stay put.
         let buttons = shownButtons()
         // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).
@@ -248,6 +248,14 @@ final class PaneToolbar {
             previousWasSeparator = item.isSeparatorItem
         }
         while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
+        // New ▸ Kind ▸ place, the pane menu's rows (a Terminal, Browser, Agent Chat or New Tab Page at any of Fork To's places).
+        if let paneTarget, let folder = ContextMenuCatalog.shared.newPlacementFolder() {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            for item in registry.makeContextMenu(for: .pane, target: paneTarget, entries: [folder], customize: false, machineID: machineID()).items {
+                item.menu?.removeItem(item)
+                menu.addItem(item)
+            }
+        }
         let own = contentMenu()
         if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
         for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }
@@ -290,7 +298,7 @@ final class PaneToolbar {
         let submenu = NSMenu(title: PaneToolbarStrings.showInTabBar)
         let setting = PaneToolbarButtonsSetting(pinned: pinned)
         let available = Set(kind.map(Self.actions) ?? [])
-        for id in PaneToolbarButtonsSetting.buttonIDs where available.contains(ActionID(rawValue: id)) || pinned.contains(id) {
+        for id in PaneToolbarButtonsSetting.values where available.contains(ActionID(rawValue: id)) || pinned.contains(id) {
             guard let descriptor = registry.descriptor(for: ActionID(rawValue: id)) else { continue }
             let row = NSMenuItem(title: descriptor.title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             row.state = pinned.contains(id) ? .on : .off

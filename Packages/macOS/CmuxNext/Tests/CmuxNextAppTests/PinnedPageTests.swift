@@ -291,6 +291,11 @@ struct PinnedPageTests {
             try await until({ !services.windows.registry.isLaunching || services.windows.restoreGaveUp }, within: .seconds(90))
             // Actions reach tabs through the window's panes, which attach after the daemon's.
             try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
+            // And one of them is focused: bodies start with `#require(services.windows.active?.focusedPane)`,
+            // and on a busy runner the panes attach before the focus lands. `PasswordManagerRouteTests.withApp`
+            // waits the same way.
+            try await until({ services.windows.active?.focusedPane != nil }, within: .seconds(30),
+                            report: { "the active window's panes attached but none is focused" })
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         reaped = await owner.stop(services)

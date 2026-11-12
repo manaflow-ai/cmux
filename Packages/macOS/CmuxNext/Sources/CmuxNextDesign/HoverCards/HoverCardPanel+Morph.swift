@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextDesignTokens
 
 /// A resize in flight: the card laid out at the larger of its two sizes, shown through a mask
 /// that grows or shrinks from the last card's size to the next one's.
@@ -53,7 +54,7 @@ extension HoverCardPanel {
     /// a translation and a resize on one spring. Returns false (nothing done) when the sizes
     /// match, or when motion is off; the caller then slides or places it at once.
     @discardableResult
-    func morph(from previous: CGRect) -> Bool {
+    func morph(from previous: CGRect, spring: MotionSpring = .panel) -> Bool {
         let rest = cardFrame
         guard abs(previous.width - rest.width) > 0.5 || abs(previous.height - rest.height) > 0.5 else { return false }
         // The same gate as the slide it runs with (`Motion.set`): Reduce Motion or speed off resize at once.
@@ -102,7 +103,7 @@ extension HoverCardPanel {
         let shownFrom = CGRect(origin: .zero, size: previous.size)
         CATransaction.begin()
         CATransaction.setMainCompletion { [weak self] in self?.finishMorph(generation) }
-        Motion.hoverCards.set(mask, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: rest.size)), spring: .panel, from: NSValue(rect: shownFrom))
+        Motion.hoverCards.set(mask, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: rest.size)), spring: spring, from: NSValue(rect: shownFrom))
         // The shadow and its cutout follow the visible card (host coordinates, before the slide).
         let cardInHost = glass.frame
         func rounded(_ size: CGSize) -> CGPath {
@@ -117,13 +118,29 @@ extension HoverCardPanel {
             path.addPath(rounded(size))
             return path
         }
-        Motion.hoverCards.set(host.shadowLayer, "shadowPath", to: rounded(rest.size), spring: .panel, from: rounded(previous.size))
+        Motion.hoverCards.set(host.shadowLayer, "shadowPath", to: rounded(rest.size), spring: spring, from: rounded(previous.size))
         if let cutoutLayer = host.shadowLayer.mask as? CAShapeLayer {
-            Motion.hoverCards.set(cutoutLayer, "path", to: cutout(rest.size), spring: .panel, from: cutout(previous.size))
+            Motion.hoverCards.set(cutoutLayer, "path", to: cutout(rest.size), spring: spring, from: cutout(previous.size))
         }
         slide(from: offset)
         CATransaction.commit()
         return true
+    }
+
+    /// A first show that grows out of its target (`HoverCardEntrance.morph`): the same resize as a
+    /// retarget's, from a drop as wide as the target (at most the card) and as tall as the card's
+    /// rounded corners, on the card's touching edge, to the whole card. The settle spring is
+    /// slightly under-damped, so the card stretches a hair past rest and pulls back, the surface
+    /// tension Leo asked for (2026-11-07). Motion off: no growth, the fade alone.
+    @discardableResult
+    func grow() -> Bool {
+        let rest = cardFrame
+        guard rest.width > 0.5, rest.height > 0.5 else { return false }
+        let width = min(max(anchorFrame.width, 1), rest.width)
+        let height = min(rest.height, 2 * (host?.cornerRadius ?? Self.cornerRadius))
+        let seed = CGRect(x: isLeading ? rest.maxX - width : rest.minX,
+                          y: restingPlacement == .above ? rest.minY : rest.maxY - height, width: width, height: height)
+        return morph(from: seed, spring: .settle)
     }
 
     /// Ends the morph in flight (or only `generation`'s): the card is laid out at rest at once,

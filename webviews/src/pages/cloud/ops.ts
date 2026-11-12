@@ -6,6 +6,14 @@
 // Mutations carry `idempotency_key` in their params (the page envelope rule, react-pages.md); the
 // host moves it to the op request's key.
 
+// The backend records (machine, snapshot, plan, migration) are the catalog's generated types
+// (clients/ts/cloud/src/generated.ts, from backend/catalog/cloud-operations.json): type-only, so
+// nothing of the client ships in the page bundle.
+import type * as Wire from "../../../../clients/ts/cloud/src/generated";
+
+/** The catalog's answer of one op. */
+type Result<Op extends Wire.CloudOpName> = Wire.CloudOps[Op]["result"];
+
 export const CloudOps = {
   authStatus: "cmux.cloud.auth.status",
   /**
@@ -239,49 +247,21 @@ export interface TransferChanged {
   error?: { code: string; message?: string; retryable?: boolean };
 }
 
-/** `CloudMachine.status` (contract 1.2); a status the page does not know becomes `unknown`. */
-export type MachineStatus =
-  | "provisioning"
-  | "starting"
-  | "running"
-  | "pausing"
-  | "paused"
-  | "deleting"
-  | "failed"
-  | "unknown";
+/**
+ * The catalog's machine status, plus `unknown`: the page's own value for a status it does not know
+ * (`normalizeMachine`, like the server's decoder). The wire never sends `unknown`.
+ */
+export type MachineStatus = Wire.CloudMachineStatus | "unknown";
 
 /** A machine size. Create and resize send at least one field; the plan decides which are allowed. */
-export interface MachineSize {
-  cpu?: number | null;
-  memory_mb?: number | null;
-  disk_mb?: number | null;
-}
+export type MachineSize = Wire.CloudMachineSize;
 
-/** `CloudMachine` (contract 1.2; server `api/models.rs` `Machine`). Owner: the team's CloudDO. */
-export interface CloudMachine {
-  id: string;
-  team?: string | null;
-  creator?: string | null;
-  name?: string | null;
-  size?: MachineSize | null;
-  status: MachineStatus;
-  image?: { id: string; daemon_version?: string | null } | null;
-  /** The overlay host id; null until the machine is bound. */
-  host?: string | null;
-  /** Imported from cmux Cloud classic: read-only here until upgraded (contract 4). */
-  classic?: boolean;
-  /** Epoch milliseconds. */
-  created_at?: number | null;
-  last_active_at?: number | null;
-  idle_policy?: { idle_seconds?: number | null } | null;
-  error?: { code: string; message?: string | null; at?: number | null } | null;
-  /** US dollars an hour while running, from the server's rate table (display only; no rates here). */
-  hourly_rate_usd?: number | null;
-  /** Epoch milliseconds the machine last started running; null unless it is running. */
-  running_since?: number | null;
-  /** The record's own revision: a decimal string that only grows. */
-  revision: string;
-}
+/**
+ * `CloudMachine` as the catalog declares it (the generated wire is the only machine type), with the
+ * status widened to the page's `unknown`. Owner: the team's CloudDO. The page still reads optional
+ * parts defensively (`?.`, `??`), since an older server relays records with fields left out.
+ */
+export type CloudMachine = Omit<Wire.CloudMachine, "status"> & { readonly status: MachineStatus };
 
 export interface MachineListResult {
   machines: CloudMachine[];
@@ -307,21 +287,10 @@ export interface MachineResult {
 }
 
 /** A delete's answer; a retry after the delete answers the same. */
-export interface DeletedResult {
-  deleted: true;
-}
+export type DeletedResult = Result<"cloud.machine.delete">;
 
-/** `CloudSnapshot` (contract 1.2). */
-export interface CloudSnapshot {
-  id: string;
-  machine?: string | null;
-  name?: string | null;
-  size_mb?: number | null;
-  status?: string | null;
-  /** Epoch milliseconds. */
-  created_at?: number | null;
-  revision: string;
-}
+/** `CloudSnapshot` as the catalog declares it. */
+export type CloudSnapshot = Wire.CloudSnapshot;
 
 export interface SnapshotListResult {
   snapshots: CloudSnapshot[];
@@ -332,55 +301,21 @@ export interface SnapshotResult {
 }
 
 /** `CloudPlan`: limits and usage in one record (`cloud.usage.get` folded in). No plan logic here. */
-export interface CloudPlan {
-  plan_id: string;
-  /** The plan that lifts this plan's limits ("See plans"); null when no plan does. */
-  upgrade_plan?: string | null;
-  limits: {
-    max_active: number;
-    max_saved: number;
-    /** Memory sizes the plan offers, locked ones included. */
-    memory_options_mb: number[];
-    /** Offered sizes that need another plan: shown, not selectable. */
-    locked_memory_options_mb: number[];
-    vm_hours_included?: number | null;
-  };
-  usage: {
-    active: number;
-    saved: number;
-    vm_hours_used?: number | null;
-    /** Epoch milliseconds. */
-    period_end?: number | null;
-  };
-}
+export type CloudPlan = Wire.CloudPlan;
 
 /** `cloud.billing.checkout {plan}`: the host opens the https URL in the browser. */
-export interface CheckoutResult {
-  url: string;
-}
-
-export type MigrationState = "none" | "available" | "moving" | "moved";
+export type CheckoutResult = Result<"cloud.billing.checkout">;
 
 /** `cloud.migration.status` (contract 4). */
-export interface MigrationStatus {
-  state: MigrationState;
-  classic_count: number;
-  imported: string[];
-}
+export type MigrationStatus = Result<"cloud.migration.status">;
+
+export type MigrationState = MigrationStatus["state"];
 
 /** `cloud.migration.start`: one way, per user. */
-export interface MigrationStarted {
-  state: MigrationState;
-}
+export type MigrationStarted = Result<"cloud.migration.start">;
 
 /** `cloud.machine.create` params (contract 1.3), without the key. */
-export interface CreateMachineArgs {
-  /** 1 to 80 characters; absent = the owner names the machine. */
-  name?: string;
-  size: MachineSize;
-  image?: string;
-  from_snapshot?: string;
-}
+export type CreateMachineArgs = Wire.CloudOps["cloud.machine.create"]["params"];
 
 /** `cloud.fs.list` entries and the `cloud.fs.stat` answer (server `fs/files.rs` `Entry`). */
 export interface FsEntry {

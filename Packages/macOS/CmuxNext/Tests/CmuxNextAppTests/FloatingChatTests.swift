@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -68,7 +69,7 @@ struct FloatingChatTests {
         init(suite: String, ownsSuite: Bool) {
             self.suite = suite
             self.ownsSuite = ownsSuite
-            defaults = UserDefaults(suiteName: suite) ?? .standard
+            defaults = UserDefaults(testSuiteName: suite) ?? .standard
         }
 
         deinit {
@@ -192,7 +193,7 @@ struct FloatingChatTests {
 
     @Test func theFloatingChatComesBackWhereItWasLeftOnEachScreen() throws {
         let suite = "floating-chat-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let laptop = CGRect(x: 0, y: 0, width: 1512, height: 944)
         let composer = CGRect(x: 416, y: 488, width: 680, height: 220)

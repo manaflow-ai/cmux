@@ -539,6 +539,17 @@ impl Hub {
                 "closed session identity does not match transfer bundle",
             ));
         }
+        // From here until the folder that came in is in place, no fork references the chat, and
+        // the forks that do hold its history: the incoming folder may hold it compacted elsewhere
+        // (review of #37020).
+        let _fence = if replacing_durable {
+            Some(
+                crate::store::fence_history(self.store.as_ref(), id)
+                    .map_err(|e| transfer_error("store", format!("chat {id}: {e}")))?,
+            )
+        } else {
+            None
+        };
         let mut replace_native = false;
         if let Some(g) = &guard {
             let replaceable = old.as_ref().and_then(|o| o.meta().agent_session_id);
@@ -582,7 +593,12 @@ impl Hub {
             }
             self.retire_transfer_instance(old).await?;
         }
-        let source_store = if replacing_durable { self.store.session_dir(id) } else { None };
+        let source_store = if replacing_durable {
+            crate::store::folder_to_replace(self.store.as_ref(), id)
+                .map_err(|e| transfer_error("store", format!("chat {id}: {e}")))?
+        } else {
+            None
+        };
         let source_store_backup = if let Some(source_store) = source_store.as_ref() {
             let backup = source_store
                 .parent()
