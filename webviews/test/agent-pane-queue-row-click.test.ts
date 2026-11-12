@@ -343,6 +343,31 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         await page.close();
       });
 
+      // Leo, 2026-11-12: "if i click into the app or click into you for the workspace like focus
+      // anything the composer just the window the pane it should fade away".
+      test("a clicked or opened row's actions fade when the pointer leaves, and a keyed row's when another pane takes the keyboard", async () => {
+        const page = await openChat(true, undefined, [], engine);
+        await caughtUp(page, "the cwd fix.");
+        const hidden = () =>
+          page.waitForFunction(
+            (sel) => Number(getComputedStyle(document.querySelector(sel)!).opacity) === 0,
+            `${ROW} .acpmux-queued-actions`,
+          );
+        // A click opens the row to its whole text and may leave focus on it; neither holds the actions.
+        await hoverRow(page, ROW);
+        await page.mouse.down();
+        await page.mouse.up();
+        expect(await page.locator(`${ROW} .acpmux-queued-text`).getAttribute("aria-expanded")).toBe("true");
+        await page.mouse.move(4, 4);
+        await hidden();
+        // Reached by key they show; the window's blur (another pane or app has the keyboard) fades them.
+        await focusByKey(page, ROW);
+        expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(1);
+        await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        await hidden();
+        await page.close();
+      });
+
       test("Steer, pressed where it draws, sends the prompt now", async () => {
         const page = await openChat(true, undefined, [], engine);
         await caughtUp(page, "the cwd fix.");
