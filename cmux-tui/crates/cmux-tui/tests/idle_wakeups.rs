@@ -728,6 +728,37 @@ fn daemon_usage_patterns_on_has_no_periodic_wakeups() {
     }
 }
 
+/// The daemon watches the folders its project sources read (~/.codex among
+/// them), and on a machine that runs Codex agents that folder is busy: Codex
+/// appends to its logs and other databases there several times a second. The
+/// daemon reads none of those files, so the writes must not wake it (a watch
+/// of the whole folder woke it for each write: about 230 context switches per
+/// window at 20 writes a second).
+#[test]
+fn cmux_next_daemon_idle_ignores_writes_to_unread_files_in_a_watched_project_folder() {
+    let daemon = Daemon::start("project-folder");
+    let codex = daemon.dir.join("home/.codex");
+    let unread = ["logs_2.sqlite", "logs_2.sqlite-wal", "goals_1.sqlite-wal", "history.jsonl"];
+    for name in unread {
+        fs::write(codex.join(name), "").unwrap();
+    }
+    assert_idle(&daemon, move || {
+        // About 20 writes a second through the windows, in place, as a
+        // database or log appends.
+        let end = Instant::now() + WINDOW * WINDOWS - Duration::from_millis(100);
+        let mut round = 0usize;
+        while Instant::now() < end {
+            let mut file = fs::OpenOptions::new()
+                .append(true)
+                .open(codex.join(unread[round % unread.len()]))
+                .unwrap();
+            file.write_all(format!("{round}\n").as_bytes()).unwrap();
+            round += 1;
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+}
+
 /// Starts a terminal, keeps the app's streams open, settles, then runs
 /// `during` across the quiet windows and fails when the daemon or a terminal
 /// host woke up (see [`woke`]).
