@@ -4298,11 +4298,18 @@ def _sh_ordered(text: str, script):
     the function is called, never where it is defined (a function nobody calls runs nothing). Each call runs the
     definition in effect when it runs: one made later, or replaced since, is not it (hq#9863 review F2). A
     substitution's commands run in a subshell and a trap's action later, so neither is here."""
+    for cmd, _ in _sh_ordered_calls(text, script, ()):
+        yield cmd
+
+
+def _sh_ordered_calls(text: str, script, callers: tuple):
+    """_sh_ordered's commands, each with the function-call commands it runs inside (outermost first, after CALLERS):
+    their NAME=value words are in its environment (hq#9900 review F1)."""
     commands = script.commands
     headers = _sh_function_spans(text, commands)
     active: dict[str, tuple[int, int]] = {}
 
-    def walk(start: int, end: int, calls: tuple):
+    def walk(start: int, end: int, calls: tuple, callers: tuple):
         k = start
         while k < end:
             if k in headers:  # a definition runs nothing; from here on, NAME means this body
@@ -4311,18 +4318,18 @@ def _sh_ordered(text: str, script):
                 k = close + 1
                 continue
             cmd = commands[k]
-            yield cmd
+            yield cmd, callers
             program = _sh_program(_sh_run(text, cmd)[1])
             if program == "eval":
                 for nested in cmd.scripts:
-                    yield from _sh_ordered(text, nested)
+                    yield from _sh_ordered_calls(text, nested, callers)
             name = _sh_called_function(text, cmd)
             body = active.get(name)
             if body is not None and name not in calls and len(calls) < 8:
-                yield from walk(body[0] + 1, body[1] + 1, calls + (name,))
+                yield from walk(body[0] + 1, body[1] + 1, calls + (name,), callers + (cmd,))
             k += 1
 
-    yield from walk(0, len(commands), ())
+    yield from walk(0, len(commands), (), callers)
 
 
 def _sh_called_function(text: str, cmd) -> str:
@@ -4383,19 +4390,20 @@ def _sh_function_spans(text: str, commands: list) -> dict[int, tuple[str, int]]:
     return out
 
 
-def _sh_running(text: str, script):
-    """Every command that runs: this shell's (_sh_ordered), each substitution's, and a `sh -c` or eval script's."""
+def _sh_running(text: str, script, callers: tuple = ()):
+    """Every command that runs, with the function-call commands it runs inside (_sh_ordered_calls): this shell's,
+    each substitution's, and a `sh -c` or eval script's (a subshell and a child keep the caller's environment)."""
     tree = _shell_tree()
-    for cmd in _sh_ordered(text, script):
-        yield cmd
+    for cmd, inside in _sh_ordered_calls(text, script, callers):
+        yield cmd, inside
         program = _sh_program(_sh_run(text, cmd)[1])
         if program not in ("eval", "trap"):
             for nested in cmd.scripts:
-                yield from _sh_running(text, nested)
+                yield from _sh_running(text, nested, inside)
         words = cmd.words + cmd.data + [r.target for r in cmd.redirects] + [r.body for r in cmd.redirects if r.body]
         for word in words:
             for sub in tree.subs(word.parts):
-                yield from _sh_running(text, sub.script)
+                yield from _sh_running(text, sub.script, inside)
 
 
 # Words that leave a builtin (source, .) running in this shell: env, nice, exec, timeout and the rest run a program,
@@ -4438,6 +4446,17 @@ def _sh_pair(text: str, word) -> Optional[tuple[str, Optional[str]]]:
     if head is None or word.start + len(head.group(0)) > word.end:
         return None
     return re.match(r"\w+", head.group(0)).group(0), _sh_unquote(text[head.end():word.end])
+
+
+def _sh_prefix(text: str, cmd) -> dict:
+    """The NAME=value words before the command CMD runs (or env's): bash puts them in that command's environment, a
+    function's included, for that command only."""
+    tree = _shell_tree()
+    argv = ["X=" if tree.ASSIGNMENT.match(text, word.start) else tree.name(text, word) or "\0" for word in cmd.words]
+    assigned: list = []
+    tree.unwrap(argv, assigned)
+    return dict(pair for entry in assigned if entry[0] < len(cmd.words) and (len(entry) < 3 or entry[2] is None)
+                for pair in [_sh_pair(text, cmd.words[entry[0]])] if pair is not None)
 
 
 def _sh_env_step(text: str, cmd, exported: dict, variables: dict) -> dict:
@@ -4547,9 +4566,15 @@ def _sh_maintenance_off(text: str) -> bool:
         return False
     exported: dict = {}
     variables: dict = {}
-    for cmd in _sh_running(text, script):
+    for cmd, callers in _sh_running(text, script):
         env = _sh_env_step(text, cmd, exported, variables)
         _, values = _sh_run(text, cmd)
+        if callers and _sh_program(values) in ("git", "git_q"):
+            # A function call's NAME=value words are in its body's environment (hq#9900 review F1).
+            inherited: dict = {}
+            for call in callers:
+                inherited.update(_sh_prefix(text, call))
+            env = {**exported, **inherited, **_sh_prefix(text, cmd)}
         if _sh_program(values) in ("git", "git_q") and (
                 _git_argv_maintenance_off([value or "" for value in values[1:]]) or _env_pairs_off(env)):
             return True
@@ -4597,9 +4622,10 @@ _PY_ARGV_RUNNERS = frozenset({"run", "call", "check_call", "check_output", "Pope
 _PY_GIT_WRAPPERS = frozenset({"git", "_git", "run_git", "git_q"})
 
 
-# Functions a test framework calls by name: unittest's test*/setUp*/tearDown*, pytest's test_*/setup_*/teardown_*, and
+# Functions a test framework calls by name: unittest's test*/setUp*/tearDown* and load_tests (hq#9900 review F3), pytest's test_*/setup_*/teardown_*, and
 # the dunder methods Python calls itself.
-_PY_FRAMEWORK_CALLED = re.compile(r"(?:test|setUp|tearDown|asyncSetUp|asyncTearDown|setup_|teardown_)\w*|__\w+__")
+_PY_FRAMEWORK_CALLED = re.compile(
+    r"(?:test|setUp|tearDown|asyncSetUp|asyncTearDown|setup_|teardown_)\w*|load_tests|__\w+__")
 
 
 class _PyCode:
@@ -4619,6 +4645,8 @@ class _PyCode:
         self.locals: dict[object, set] = {}
         self.values: dict[object, dict[str, list[object]]] = {}
         declared: dict[object, set] = {}
+        self.module = tree
+        self.globals: dict[object, set] = {}
         for node in ast.walk(tree):
             if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
                 self.locals.setdefault(self.scope(node), set()).add(node.id)
@@ -4631,10 +4659,14 @@ class _PyCode:
                     (alias.asname or alias.name).split(".")[0] for alias in node.names)
             elif isinstance(node, (ast.Global, ast.Nonlocal)):
                 declared.setdefault(self.scope(node), set()).update(node.names)
+                if isinstance(node, ast.Global):  # the module's NAME, never an enclosing function's (hq#9900 F2)
+                    self.globals.setdefault(self.scope(node), set()).update(node.names)
             if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
                 for target in (node.targets if isinstance(node, ast.Assign) else [node.target]):
                     if isinstance(target, ast.Name):
-                        self.values.setdefault(self.scope(target), {}).setdefault(target.id, []).append(node.value)
+                        scope = self.scope(target)
+                        scope = tree if target.id in self.globals.get(scope, ()) else scope
+                        self.values.setdefault(scope, {}).setdefault(target.id, []).append(node.value)
         for scope, names in declared.items():
             self.locals.get(scope, set()).difference_update(names)
         self.running = self._running(tree)
@@ -4663,6 +4695,8 @@ class _PyCode:
 
         scope = self.scope(node)
         inner = scope
+        if name in self.globals.get(scope, ()):
+            return self.module, self.values.get(self.module, {}).get(name, [])
         while not isinstance(scope, ast.Module):
             if name in self.locals.get(scope, ()) and (scope is inner or not isinstance(scope, ast.ClassDef)):
                 break
