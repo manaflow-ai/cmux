@@ -161,10 +161,15 @@ struct State {
     guard: Option<std::sync::Arc<dyn crate::desktop::MenuGuard>>,
     /// The target's window, which a helper's menu window must overlap.
     target_frame: Option<crate::desktop::Rect>,
-    /// The target's theft of the armed call (thief, person's app, call
-    /// number), recorded when its notice is dropped: when the call never saw
-    /// its menu, its keyboard goes back as the call ends (disarm).
-    theft: Option<(i32, i32, u64)>,
+    /// The armed call's theft, recorded when its notice is dropped. It has
+    /// one owner: whoever commits to releasing it takes it (the release
+    /// thread once the menu shows, or disarm when the call never saw its
+    /// menu), and only the taker releases.
+    theft: Option<Theft>,
+    /// The call during which another app took the keyboard from the menu's
+    /// owner (a lost-key notice to it from a process other than this one):
+    /// the newest theft is then not the call's, so nothing is released.
+    stolen_since: u64,
     /// The armed call's number (each arm is a new call): a release thread
     /// or a theft of an earlier call is ignored.
     generation: u64,
@@ -181,6 +186,63 @@ struct State {
     /// give-back of an earlier call never reads as this call's.
     released: u64,
     missed: u64,
+}
+
+/// A theft the armed call may give back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Theft {
+    pub thief: i32,
+    /// The person's app the keyboard goes back to.
+    pub front: i32,
+    pub generation: u64,
+    pub is_target: bool,
+}
+
+/// Takes the recorded theft when it is `thief`'s of call `generation`, so
+/// only one party ever releases it. Pure, for tests.
+pub(super) fn take_theft(slot: &mut Option<Theft>, thief: i32, generation: u64) -> Option<Theft> {
+    if slot.is_some_and(|t| t.thief == thief && t.generation == generation) {
+        slot.take()
+    } else {
+        None
+    }
+}
+
+/// Whether a menu-layer window shows the call's menu: the thief's own, or a
+/// new one (not there when the call armed) over the target's window (a
+/// context menu's window need not be the thief's, but the person's Control
+/// Center or Wi-Fi menu elsewhere is never taken for it). Pure, for tests.
+pub(super) fn counts_as_call_menu(
+    window: (i32, i64, u32, crate::desktop::Rect),
+    thief: i32,
+    before: &[u32],
+    target_frame: Option<crate::desktop::Rect>,
+) -> bool {
+    let (pid, layer, id, frame) = window;
+    layer == MENU_LAYER
+        && (pid == thief
+            || (!before.contains(&id)
+                && target_frame.is_none_or(|f| super::menus::overlaps(&frame, &f))))
+}
+
+/// Why a release by id may not run: release_below takes the newest live
+/// theft, which is the call's only when nothing else took the keyboard
+/// since, and only the tap on the menu's owner can tell. Pure, for tests.
+pub(super) fn release_blocked(stolen_since: bool, tap_placed: bool) -> Option<&'static str> {
+    if !tap_placed {
+        Some("no tap on the menu's owner could be placed")
+    } else if stolen_since {
+        Some("another app took the keyboard since")
+    } else {
+        None
+    }
+}
+
+/// Held across a release's last liveness check and its SkyLight calls, and
+/// by disarm, so a call cannot end in between.
+fn release_lock() -> std::sync::MutexGuard<'static, ()> {
+    static L: OnceLock<Mutex<()>> = OnceLock::new();
+    L.get_or_init(Mutex::default).lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Counts a release (or a miss) for call `generation`, if it is current.
@@ -377,8 +439,8 @@ extern "C" fn front_tap(
             {
                 let mut st = state();
                 set_note(&mut st, generation, "the theft was seen; the release had not run yet");
-                if thief == target && st.generation == generation {
-                    st.theft = Some((thief, front, generation));
+                if st.generation == generation && st.theft.is_none() {
+                    st.theft = Some(Theft { thief, front, generation, is_target: thief == target });
                 }
             }
             // The release waits for the menu window: released earlier, the
@@ -419,11 +481,23 @@ extern "C" fn menu_tap(
             CGEventGetIntegerValueField(event, FIELD_THIEF_PID),
         )
     };
-    if drops_own_notice(event_type, subtype, thief, std::process::id() as i32, in_lookup) {
-        std::ptr::null_mut()
-    } else {
-        event
+    let own = std::process::id() as i32;
+    if drops_own_notice(event_type, subtype, thief, own, in_lookup) {
+        return std::ptr::null_mut();
     }
+    // Another app took the keyboard from the menu's owner while the call is
+    // live (Spotlight, a menu-bar menu): the newest theft is not the call's.
+    if event_type == FOCUS_NOTICE
+        && subtype == LOST_KEY_FOCUS
+        && thief > 0
+        && thief != i64::from(own)
+    {
+        let mut st = state();
+        if st.live && thief != i64::from(st.target) {
+            st.stolen_since = st.generation;
+        }
+    }
+    event
 }
 
 /// Records what the handoff did, for the call numbered `generation` only (a
@@ -461,17 +535,21 @@ pub(super) fn call_state(current: u64, live: bool, generation: u64) -> CallState
 /// the menu shows or the call sees it open (or, for the target, when the
 /// call disarms), for the call numbered `generation` only.
 fn release_theft(thief: i32, front: i32, thief_is_target: bool, generation: u64) {
+    // The tap on the menu's owner goes in first: it keeps this process's own
+    // steal from closing the menu, and it hears another app take the
+    // keyboard since (then nothing is released by id).
+    place_menu_tap(thief);
     let start = Instant::now();
-    // Any menu window that was not there when the call armed (a context
-    // menu's window need not belong to the process the notice names), or
-    // the call's own word that it saw its menu open.
-    let before = state().menus_before.clone();
+    let (before, target_frame) = {
+        let st = state();
+        (st.menus_before.clone(), st.target_frame)
+    };
     let seen = || state().menu_seen == generation;
     let menu_shows = || {
         seen()
-            || super::cgwindows::on_screen()
-                .iter()
-                .any(|w| w.layer == MENU_LAYER && (w.pid == thief || !before.contains(&w.id)))
+            || super::cgwindows::on_screen().iter().any(|w| {
+                counts_as_call_menu((w.pid, w.layer, w.id, w.frame), thief, &before, target_frame)
+            })
     };
     let current = || {
         let st = state();
@@ -480,23 +558,22 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool, generation: u64)
     while start.elapsed() < MENU_WAIT && current() == CallState::Live && !menu_shows() {
         std::thread::sleep(Duration::from_millis(2));
     }
-    match current() {
-        CallState::Live => {}
-        // Its call is over: nothing is released by id any more.
-        // (The call's end already gave a target theft back if it never saw
-        // its menu.)
-        CallState::Ended => {
-            let mut st = state();
-            bump(&mut st, generation, false);
-            set_note(&mut st, generation, "the call ended before its menu was seen");
-            return;
-        }
-        CallState::Stale => return,
+    // An ended call's theft is disarm's (it gave a target theft back if it
+    // never saw its menu); a later call's is not this thread's.
+    if current() != CallState::Live {
+        return;
     }
     let person_front = super::frontmost_pid() == Some(front);
     match release_plan(menu_shows(), thief_is_target, person_front) {
-        ReleasePlan::Now => give_back(thief, generation, false),
-        // The call's end gives it back (disarm, from the recorded theft).
+        ReleasePlan::Now => {
+            // Commit: take the theft, so disarm never releases it again.
+            let taken = take_theft(&mut state().theft, thief, generation);
+            if taken.is_some() {
+                let _release = release_lock();
+                give_back_locked(thief, generation, false);
+            }
+        }
+        // The call's end gives it back (disarm takes the recorded theft).
         ReleasePlan::AtDisarm => {
             set_note(&mut state(), generation, "no new menu window seen after the theft");
         }
@@ -513,33 +590,45 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool, generation: u64)
     }
 }
 
-/// Releases `thief`'s key focus to the person's app (SkyLight), for the
-/// call numbered `generation`: only while that call is live, except the
-/// deliberate give-back as it ends (`at_disarm`).
-fn give_back(thief: i32, generation: u64, at_disarm: bool) {
-    if !state().menus.contains_key(&thief)
-        && let Some(tap) = spawn_tap(thief, menu_tap)
-    {
-        let mut st = state();
-        // Another release may have placed one meanwhile: keep the first.
-        match st.menus.entry(thief) {
-            std::collections::hash_map::Entry::Occupied(_) => stop_tap(tap),
-            std::collections::hash_map::Entry::Vacant(slot) => {
-                slot.insert(tap);
-            }
-        }
-        // A few menu owners at most; the others go.
-        while st.menus.len() > 8 {
-            let Some(old) = st.menus.keys().copied().find(|p| *p != thief) else { break };
-            if let Some(t) = st.menus.remove(&old) {
-                stop_tap(t);
-            }
+/// Places the focus-notice tap on a menu's owner, once.
+fn place_menu_tap(thief: i32) {
+    if state().menus.contains_key(&thief) {
+        return;
+    }
+    let Some(tap) = spawn_tap(thief, menu_tap) else { return };
+    let mut st = state();
+    // Another release may have placed one meanwhile: keep the first.
+    match st.menus.entry(thief) {
+        std::collections::hash_map::Entry::Occupied(_) => stop_tap(tap),
+        std::collections::hash_map::Entry::Vacant(slot) => {
+            slot.insert(tap);
         }
     }
-    // Placing the tap can take a while: the call may have ended meanwhile.
-    if !at_disarm {
-        let st = state();
-        if call_state(st.generation, st.live, generation) != CallState::Live {
+    // A few menu owners at most; the others go.
+    while st.menus.len() > 8 {
+        let Some(old) = st.menus.keys().copied().find(|p| *p != thief) else { break };
+        if let Some(t) = st.menus.remove(&old) {
+            stop_tap(t);
+        }
+    }
+}
+
+/// Releases `thief`'s key focus to the person's app (SkyLight), for the
+/// call numbered `generation`, with the release lock held by the caller,
+/// who took the theft: only while that call is live (except the deliberate
+/// give-back as it ends, `at_disarm`), only with the tap on the owner in
+/// place, and never once another app took the keyboard since (the newest
+/// theft is then not the call's).
+fn give_back_locked(thief: i32, generation: u64, at_disarm: bool) {
+    {
+        let mut st = state();
+        if !at_disarm && call_state(st.generation, st.live, generation) != CallState::Live {
+            return;
+        }
+        let stolen = st.stolen_since == generation;
+        if let Some(why) = release_blocked(stolen, st.menus.contains_key(&thief)) {
+            bump(&mut st, generation, false);
+            set_note(&mut st, generation, why);
             return;
         }
     }
@@ -683,24 +772,32 @@ pub(super) fn arm(
 
 /// Ends the armed window when the call that armed it returns.
 pub(super) fn disarm() {
+    let _release = release_lock();
     let (generation, theft, seen) = {
         let mut st = state();
         st.armed_until = None;
         st.live = false;
         let generation = st.generation;
-        let theft = st.theft.take().filter(|t| t.2 == generation);
+        // Disarm takes whatever theft the release thread did not.
+        let theft = st.theft.take().filter(|t| t.generation == generation);
         (generation, theft, st.menu_seen == generation)
     };
     // A target theft whose menu the call never saw (one that shows late, a
     // panel or list off the menu layer) goes back now, as the call ends:
     // its outcome is in. A menu that was seen and closed ended its theft.
-    if let Some((thief, front, _)) = theft {
-        if gives_back_at_disarm(seen, true, super::frontmost_pid() == Some(front)) {
-            give_back(thief, generation, true);
+    if let Some(t) = theft {
+        let still_front = super::frontmost_pid() == Some(t.front);
+        if gives_back_at_disarm(seen, t.is_target, still_front) {
+            give_back_locked(t.thief, generation, true);
         } else if !seen {
             let mut st = state();
             bump(&mut st, generation, false);
-            set_note(&mut st, generation, "the person's app was no longer in front");
+            let why = if still_front {
+                "a helper's theft with no menu window over the target"
+            } else {
+                "the person's app was no longer in front"
+            };
+            set_note(&mut st, generation, why);
         }
     }
 }

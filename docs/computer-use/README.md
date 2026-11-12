@@ -149,13 +149,17 @@ Prevention, in the desktop (macOS):
     release that missed), the menu is listed and closed the same way, with
     the reason in the result's note (`keyboard handoff: ...`); `set_value`
     and `click` with `menu_item` still pick in one call.
-  - The target's theft goes back once any new menu-layer window shows (a
-    context menu's window need not belong to the process the notice
-    names), or as soon as the call itself sees its menu open; a target theft
-    whose menu the call never saw goes back when the call ends. Each call is
-    numbered: a release of an earlier call, or of a call that already ended,
-    gives nothing back (a release by id would take the newest theft, perhaps
-    a launcher the person opened since).
+  - A release takes the keyboard back only from the call's own theft.
+    Whoever commits to it takes it, once: the release thread when the call's
+    menu shows (the thief's own menu window, a new one over the target's
+    window, or the call seeing its menu open), else the call's end, when
+    the call never saw its menu (a menu that was seen and closed ended its
+    theft itself). The release goes by id (the newest theft), so it is
+    skipped, as a miss, when another app took the keyboard from the menu's
+    owner since (Spotlight, a menu-bar menu: the tap on the owner hears it)
+    or that tap could not be placed. Each call is numbered: a release of an
+    earlier call, or of a call that already ended, gives nothing back. A
+    miss is the safe fallback above (listed and closed, keyboard: menu).
   - Display screenshots show a menu the agent opened as it is on screen,
     hidden items' titles included (only the windows of blocked apps are
     redacted; a window screenshot leaves menus out). Codex Computer Use

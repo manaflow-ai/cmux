@@ -1202,7 +1202,7 @@ fn a_release_thread_acts_only_for_its_own_live_call() {
     // Its call ended (the menu was listed and closed, or never showed):
     // nothing is released by id any more.
     assert_eq!(call_state(7, false, 7), CallState::Ended);
-    // A later call armed: an earlier thread or pending give-back is ignored.
+    // A later call armed: an earlier call's thread or theft is ignored.
     assert_eq!(call_state(8, true, 7), CallState::Stale);
     assert_eq!(call_state(8, false, 7), CallState::Stale);
 }
@@ -1218,4 +1218,43 @@ fn a_target_theft_whose_menu_was_never_seen_goes_back_when_the_call_ends() {
     // Not a helper's, and not once the person moved on.
     assert!(!gives_back_at_disarm(false, false, true));
     assert!(!gives_back_at_disarm(false, true, false));
+}
+
+#[test]
+fn a_theft_has_one_taker() {
+    use key_focus::{Theft, take_theft};
+    let t = Theft { thief: 42, front: 7, generation: 3, is_target: true };
+    let mut slot = Some(t);
+    // Another thief's, or another call's: not taken.
+    assert_eq!(take_theft(&mut slot, 43, 3), None);
+    assert_eq!(take_theft(&mut slot, 42, 2), None);
+    // The release thread takes it; disarm then finds nothing to release.
+    assert_eq!(take_theft(&mut slot, 42, 3), Some(t));
+    assert_eq!(take_theft(&mut slot, 42, 3), None);
+    assert_eq!(slot, None);
+}
+
+#[test]
+fn a_new_menu_window_counts_only_over_the_target() {
+    use key_focus::counts_as_call_menu;
+    let target = Rect { x: 100.0, y: 100.0, width: 400.0, height: 300.0 };
+    let over = Rect { x: 300.0, y: 200.0, width: 200.0, height: 300.0 };
+    let menubar = Rect { x: 1200.0, y: 0.0, width: 300.0, height: 400.0 };
+    // The thief's own menu window counts wherever it is.
+    assert!(counts_as_call_menu((42, 101, 9, menubar), 42, &[], Some(target)));
+    // A new window of another owner: only over the target's window.
+    assert!(counts_as_call_menu((77, 101, 9, over), 42, &[], Some(target)));
+    // The person's Control Center or Wi-Fi menu elsewhere never counts.
+    assert!(!counts_as_call_menu((77, 101, 9, menubar), 42, &[], Some(target)));
+    // One that was there when the call armed, or off the menu layer: no.
+    assert!(!counts_as_call_menu((77, 101, 9, over), 42, &[9], Some(target)));
+    assert!(!counts_as_call_menu((42, 0, 9, over), 42, &[], Some(target)));
+}
+
+#[test]
+fn a_release_by_id_is_skipped_once_another_app_took_the_keyboard() {
+    use key_focus::release_blocked;
+    assert_eq!(release_blocked(false, true), None);
+    assert!(release_blocked(true, true).is_some_and(|w| w.contains("another app")));
+    assert!(release_blocked(false, false).is_some_and(|w| w.contains("tap")));
 }
