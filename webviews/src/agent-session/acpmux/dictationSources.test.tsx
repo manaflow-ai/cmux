@@ -10,6 +10,7 @@ import { deliverHandoffFailure, useDictation, type Dictation, type DictationFiel
 import { dictationSourceName, handoffFailure } from "./dictationSources";
 import { NativeError } from "./nativeError";
 import { translate } from "./i18n";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -19,6 +20,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { pageSwitch } from "../../../../test/support/pageSwitch";
 import { MockAppPanelsClient } from "../../../apps/scene/panelsMock";
 import { gridOrder, useNewTabExtensionWidgets } from "./ExtensionWidgets";
+import { teardownDom } from "../../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
 const globals = globalThis as Record<string, unknown>;
@@ -19,12 +20,8 @@ const replacements = {
 };
 const saved = Object.keys(replacements).map((key) => [key, key in globals, globals[key]] as const);
 Object.assign(globals, replacements);
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 /** The page host, with every call it gets in order. */

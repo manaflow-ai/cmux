@@ -8,6 +8,7 @@
 // (`blocked`).
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -32,13 +33,9 @@ const { useFolderTrustAsk } = await import("../src/agent-session/acpmux/useFolde
 type TrustAsk = ReturnType<typeof useFolderTrustAsk>;
 
 const root = createRoot(dom.window.document.getElementById("root")!);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 /// A trust source whose reads and saves wait until the test answers them.

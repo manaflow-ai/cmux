@@ -33,21 +33,49 @@ test("the levels are chrome, popover, menu and chip, each with its tint, blur an
   expect(desktop).toContain("--tooltip-blur: var(--ds-glass-chip-blur);");
 });
 
-test("popups and hover cards are the popover level, menus the menu level", () => {
+// Leo, 2026-11-11: "The point is, the styles mix and they don't look good. So they need to look good."
+// Every floating popup and card (menus, popovers, pickers, hover cards, the context card) is one
+// material: the menu level, and one veil on the App's glass. No surface keeps a tint of its own.
+test("every popup and hover card is one material: the menu level and one veil on the App's glass", () => {
   const glass = source("ui/glass/glass.css").replace(/\/\*[\s\S]*?\*\//g, "");
-  const rule = (selector: string) => {
-    const at = glass.indexOf(`${selector} {`);
-    expect(at, selector).toBeGreaterThanOrEqual(0);
-    return glass.slice(at, glass.indexOf("}", at));
-  };
-  const popover = rule(".ui-popup.ui-glass,\n.ui-card.ui-glass");
-  expect(popover).toContain("var(--ds-glass-popover-tint)");
-  expect(popover).toContain("--glass-backdrop: var(--ds-glass-popover-blur)");
-  const menu = rule(
-    ".ui-popup.ui-glass:is(.ui-menu, .ui-context-menu, .ui-select-popup, .toolbar-menu, .page-menu, .acpmux-menu, .acpmux-slash-menu)",
+  const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass {");
+  expect(at).toBeGreaterThanOrEqual(0);
+  const rule = glass.slice(at, glass.indexOf("}", at));
+  expect(rule).toContain("var(--ds-glass-menu-tint)");
+  expect(rule).toContain("--glass-backdrop: var(--ds-glass-menu-blur)");
+  expect(rule).toContain("--host-glass-fill: color-mix(in srgb, var(--glass-surface) 40%, transparent)");
+  // No popup names the popover level, and no menu a second rule of its own.
+  expect(glass).not.toMatch(/\.ui-popup\.ui-glass[^{]*\{[^}]*--ds-glass-popover-tint/);
+  // The surfaces that kept a tint of their own (the model menu's 92%, the + menu's and New Tab
+  // suggestions' 86%) and a radius of their own (the model menu's 10) read the shared ones.
+  for (const file of [
+    "agent-session/acpmux/modelPicker.css",
+    "agent-session/acpmux/styles.css",
+    "agent-session/acpmux/newtab/screen.css",
+  ]) {
+    // One rule at a time: a selector and its own declarations (the sheets hold no nested blocks there).
+    const rules = source(file)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("}")
+      .map((rule) => rule.split("{"))
+      .filter((parts) => parts.length >= 2)
+      .map((parts) => ({ selector: parts.at(-2)!, body: parts.at(-1)! }));
+    const own = rules.filter(
+      ({ selector, body }) =>
+        (/\.(acpmux-quick-menu|acpmux-composer-plus|nt-popover)\b/.test(selector) && /--glass-tint\s*:/.test(body)) ||
+        (/\.ui-glass\b/.test(selector) && /--host-glass-fill\s*:/.test(body)),
+    );
+    expect(
+      own.map(({ selector }) => selector.trim()),
+      file,
+    ).toEqual([]);
+  }
+  const quick = source("agent-session/acpmux/modelPicker.css");
+  const menu = quick.slice(
+    quick.indexOf(".acpmux-quick-menu {"),
+    quick.indexOf("}", quick.indexOf(".acpmux-quick-menu {")),
   );
-  expect(menu).toContain("var(--ds-glass-menu-tint)");
-  expect(menu).toContain("--glass-backdrop: var(--ds-glass-menu-blur)");
+  expect(menu).toContain("border-radius: var(--ui-popup-radius);");
 });
 
 test("Session Info, the composer and the running tray share the popover level", () => {

@@ -1,5 +1,19 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-11: Home, the pinned rows and the "Workspaces" heading keep one row pitch at every density. Lawrence
+  (8:04 PM screenshot of Home, six pins and the heading), verbatim: "spacing here is not consistent anymore either".
+  A list block's rows stacked edge to edge while the list keeps its `space1` row gap, so pins stepped 2 pt tighter than
+  workspace rows outside Default; and a block joined under another (Pinned under Home) took a 4 pt section gap even in
+  the Quiet look, which draws no line there. Since #39984 Default's rows touch, so that seam was the one hole in the
+  run (Home to the first pin 34 pt, pin to pin 30 pt). Now `SidebarRegionMetrics.rowGap`
+  (`SidebarDensityTokens.rowSpacing`) goes between a list section's rows, and a joined block's top edge is that gap
+  unless the look draws a line between sections (Lines keeps its section gap and line). Regression:
+  `SidebarTopRowsRhythmTests` (every app density x sidebar density).
+- 2026-11-12 (#41212): Lucas accepted the `uicons` build: "this is acceptable for now."
+  Workspace rows and tabs share their corner radius and Debug corner curve. Adjacent workspace
+  rows keep a `space1` gap. Body text and icons scale with the app density. The base's shared
+  `chromeRowHeight` continues to follow sidebar density and text size.
+
 - 2026-11-09: at Default density the sidebar matches the Codex desktop sidebar
   (https://github.com/manaflow-ai/cmux/issues/39956; measured in https://github.com/manaflow-ai/cmux/issues/28793 and the
   Codex stylesheet). The user, verbatim: "the sidebar colour is too bright (bright grey selection pill on Recents row).
@@ -26,6 +40,15 @@
   df6c4fd518c: with the spaces strip on the footer row, the line leaves it two slots (the active dot and the "+"),
   so a long line never squeezes the switcher out (Codex at fd18923). Regression:
   `SidebarProfileChipTests.aLongHealthLineLeavesTheSpacesStripRoom`.
+- 2026-11-11: app health's line leaves the footer row (#40912). Leo, verbatim: "the agent pane: slow indicator
+  on the bottom left is uselsss and layout shifts the space. it's bad". The line (`AppHealthIndicatorView`) is no longer
+  in the row's flow: it floats on a small chip in the sidebar cards' veil (`CardSurfaceView`) just above the row and any card over it, at
+  the avatar's leading edge (`SidebarFooterBand.placeHealthIndicator(above:)`), so the spaces strip, the update button
+  and Search keep their frames when it comes and goes. A part that is only slow shows nothing; the words name the part
+  and what is happening ("Agent chat isn't responding", "Repairing Agent chat…", "Agent chat needs a repair").
+  Gallery: `AAAppHealthIndicatorGalleryTests` (a-overlay shipped, b-dot on the avatar's corner, c-hidden) and web
+  `ui.app-health.footer-row`. Regression: `SidebarProfileChipTests.theHealthLineMovesNothingInTheFooterRow` (replaces
+  `aLongHealthLineLeavesTheSpacesStripRoom`).
 - 2026-11-10 (lane/small-views-react-sidebar-history): the session tree's chat history blocks (Pinned, Earlier) are a
   React page (webviews/src/pages/sidebar-chats) in each block's gap of the list (`SidebarChatHistoryHost`,
   CmuxNextSidebar); the AppKit `SidebarChatHistoryView`, `SidebarChatHistoryRow` and `SidebarChatHistoryHeader` are
@@ -935,6 +958,14 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## 2 pt between list rows (2026-11-11)
+
+Lucas 2026-11-11: "1px spacing between workspace items is what i meant", then "lets change this to 2px". At
+Default the list rows are 2 pt apart (`SidebarDensityTokens.rowSpacing`, `space1` as at every other density), so a lit row's fill no longer touches the next one; the row stays Codex's 30 pt
+with its 10 pt corner and fills. This takes back one part of #39984 (Austin, 2026-11-10: Codex's rows touch, 0 pt).
+A smaller "Workspaces" heading and a hairline over it were tried the same day and taken back (Lucas: "we'll just go
+back to how it was"). Tests: `SidebarCodexMatchTests`.
 
 ## Unnamed workspaces read in the title ink (2026-11-12)
 
@@ -2076,3 +2107,5 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
   `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
+- 2026-11-11 (a1074, Lawrence 8:04 PM "spacing here is not consistent anymore either"): Home to the first pin and pin
+  to pin step at the workspace rows' pitch at every density. Sidebar-Look: Home, pinned rows and the Workspaces heading keep one row pitch.
