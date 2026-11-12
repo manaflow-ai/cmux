@@ -150,7 +150,7 @@ impl Hub {
         if let (Some(kind), Some(sub)) = (word("type"), word("id")) {
             env.insert(crate::cli::sender::SUBAGENT_ENV.to_owned(), format!("{kind}:{sub}"));
         }
-        std::fs::create_dir_all(&dir).map_err(internal)?;
+        crate::home_fs::create_dirs(&dir).map_err(internal)?;
         let generation = bg_generation(&dir, true).map_err(internal)?;
         let uuid = uuid::Uuid::now_v7().simple().to_string();
         let id = fixed_id
@@ -159,7 +159,7 @@ impl Hub {
         if fixed_id.is_some() {
             use std::io::Write as _;
             let claim = dir.join(format!("{id}.claim"));
-            match std::fs::OpenOptions::new().write(true).create_new(true).open(claim) {
+            match crate::home_fs::OpenOptions::new().write(true).create_new(true).open(claim) {
                 Ok(mut file) => {
                     file.write_all(command.as_bytes()).map_err(internal)?;
                     file.sync_all().map_err(internal)?;
@@ -410,7 +410,7 @@ impl Hub {
         // read still has a runner to stop. A folder that cannot be listed fails the purge.
         let ids = bg_task_ids(&dir).map_err(internal)?;
         if ids.is_empty() {
-            let _ = std::fs::remove_dir_all(&dir);
+            let _ = crate::home_fs::remove_dir_all(&dir);
             return bg_cleared(&dir);
         }
         // The stops carry the folder's generation, so only its own runners act on them: a runner
@@ -428,7 +428,7 @@ impl Hub {
             }
         }
         let to = aside.join(format!("{}-{}", session.id, uuid::Uuid::now_v7().simple()));
-        match std::fs::create_dir_all(&aside).and_then(|()| std::fs::rename(&dir, &to)) {
+        match crate::home_fs::create_dirs(&aside).and_then(|()| crate::home_fs::rename(&dir, &to)) {
             // The runners' locks moved with the folder (same files), so the wait reads them there.
             Ok(()) => {
                 tokio::spawn(async move {
@@ -440,7 +440,7 @@ impl Hub {
             // Where no move works, the folder goes; a runner keeps its open files.
             Err(e) => {
                 tracing::warn!(dir = %dir.display(), "a purged chat's tasks could not be moved aside: {e}");
-                let _ = std::fs::remove_dir_all(&dir);
+                let _ = crate::home_fs::remove_dir_all(&dir);
             }
         }
         bg_cleared(&dir)
@@ -490,7 +490,7 @@ fn bg_sweep(aside: &std::path::Path) {
 /// cannot be listed stays.
 fn bg_sweep_one(dir: &std::path::Path) {
     if bg_task_ids(dir).is_ok_and(|ids| ids.iter().all(|id| bg_gone(dir, id))) {
-        let _ = std::fs::remove_dir_all(dir);
+        let _ = crate::home_fs::remove_dir_all(dir);
     }
 }
 
@@ -526,10 +526,10 @@ pub(super) fn bg_generation(dir: &std::path::Path, make: bool) -> std::io::Resul
         Err(e) if make && e.kind() == std::io::ErrorKind::NotFound => {
             let generation = uuid::Uuid::now_v7().simple().to_string();
             let aside = dir.join(format!(".generation.{generation}"));
-            std::fs::write(&aside, &generation)
-                .and_then(|()| std::fs::rename(&aside, &path))
+            crate::home_fs::write(&aside, &generation)
+                .and_then(|()| crate::home_fs::rename(&aside, &path))
                 .inspect_err(|_| {
-                    let _ = std::fs::remove_file(&aside);
+                    let _ = crate::home_fs::remove_file(&aside);
                 })?;
             Ok(generation)
         }
