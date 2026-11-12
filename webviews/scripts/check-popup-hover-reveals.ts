@@ -87,7 +87,7 @@ const NON_POPUP_REVEALS = new Map<string, string>([
     "look affordance",
   ],
   ["agent-session/acpmux/composerLook.css|.acpmux-composer-under:hover .acpmux-look-dots", "look affordance"],
-  ["pages/changelog/updateSurfaces.css|.wn-card:is(:hover, :focus-within) .wn-card-close", "close affordance"],
+  ["pages/changelog/updateSurfaces.css|.wn-card:is(:hover, :has(:focus-visible)) .wn-card-close", "close affordance"],
   [
     "agent-session/acpmux/needsYou/needsYou.css|.acpmux-needs-you-item:is(:hover, :focus-within) .acpmux-needs-you-tools",
     "needs-you actions",

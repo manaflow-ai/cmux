@@ -6,6 +6,11 @@
 //! nothing for an open, so an idle daemon does not wake. IN_MODIFY is left
 //! out too: a writer that keeps the file open is seen when it closes it.
 //!
+//! [`super::Watcher::start_with_writes`] adds an IN_MODIFY watch on each
+//! watched regular file itself (not its directory), so a write that its
+//! writer keeps open (a database's write-ahead log) hints, and a write to any
+//! other entry of the directory still queues nothing.
+//!
 //! One thread owns the inotify descriptor and waits in `poll` on it and on
 //! a stop socket; dropping the handle closes the socket's other end.
 
@@ -25,6 +30,7 @@ use super::{MAX_DELAY, Plan, QUIET};
 // <sys/inotify.h> and <poll.h>; the values are the same on every Linux
 // architecture Rust targets except the O_CLOEXEC-based IN_CLOEXEC, which
 // differs only on alpha, sparc and parisc.
+const IN_MODIFY: u32 = 0x0000_0002;
 const IN_ATTRIB: u32 = 0x0000_0004;
 const IN_CLOSE_WRITE: u32 = 0x0000_0008;
 const IN_MOVED_FROM: u32 = 0x0000_0040;
@@ -80,6 +86,7 @@ pub(super) struct Handle {
 
 pub(super) fn start(
     files: Vec<PathBuf>,
+    writes: bool,
     mut on_hint: impl FnMut() + Send + 'static,
 ) -> notify::Result<Handle> {
     let fd = inotify_init1(IN_CLOEXEC);
@@ -89,7 +96,7 @@ pub(super) fn start(
     // SAFETY: `fd` is a new descriptor from inotify_init1 that nothing else
     // owns; the File closes it.
     let file = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
-    let mut watches = Watches { file, by_dir: BTreeMap::new(), names: HashMap::new() };
+    let mut watches = Watches { file, by_dir: BTreeMap::new(), names: HashMap::new(), writes };
     watches.rearm(&files).map_err(notify::Error::io)?;
     let (stop, stopped) = UnixStream::pair().map_err(notify::Error::io)?;
     let thread = std::thread::Builder::new()
@@ -119,8 +126,11 @@ struct Watches {
     file: File,
     /// Watched directory -> (watch descriptor, mask).
     by_dir: BTreeMap<PathBuf, (c_int, u32)>,
-    /// Watch descriptor -> the entry names that matter in its directory.
+    /// Watch descriptor -> the entry names that matter in its directory
+    /// (a watched file's own watch: the empty name its events carry).
     names: HashMap<c_int, BTreeSet<OsString>>,
+    /// Also watch each watched regular file's writes (IN_MODIFY).
+    writes: bool,
 }
 
 enum Wake {
@@ -259,6 +269,9 @@ impl Watches {
             let mask = if interest.holds_file { FILE_DIR_MASK } else { ANCESTOR_MASK };
             match self.add_watch(&dir, mask) {
                 Ok(wd) => {
+                    if self.writes && interest.holds_file {
+                        self.arm_writes(&dir, &interest.names, &mut armed);
+                    }
                     self.names.insert(wd, interest.names);
                     armed.insert(dir, (wd, mask));
                 }
@@ -279,6 +292,30 @@ impl Watches {
         match first_error {
             Some(error) if self.by_dir.is_empty() => Err(error),
             _ => Ok(()),
+        }
+    }
+
+    /// Adds an IN_MODIFY watch on each of `names` in `dir` that is a regular
+    /// file now. A file replaced by rename changes an entry of `dir`, whose
+    /// watch then rearms and watches the new file. A file that cannot be
+    /// watched is skipped: its directory's watch still sees it replaced or
+    /// closed after a write.
+    fn arm_writes(
+        &mut self,
+        dir: &Path,
+        names: &BTreeSet<OsString>,
+        armed: &mut BTreeMap<PathBuf, (c_int, u32)>,
+    ) {
+        for name in names {
+            let path = dir.join(name);
+            if !std::fs::metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
+                continue;
+            }
+            if let Ok(wd) = self.add_watch(&path, IN_MODIFY) {
+                // A file's own events carry no name.
+                self.names.insert(wd, BTreeSet::from([OsString::new()]));
+                armed.insert(path, (wd, IN_MODIFY));
+            }
         }
     }
 

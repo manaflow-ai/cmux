@@ -71,7 +71,13 @@ import {
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
-import { ARRIVAL_EASE, arrivalStepMs, createFollowChase, type FollowChase } from "./conversation/followChase";
+import {
+  createFollowChase,
+  type FollowChase,
+  ARRIVAL_EASE,
+  arrivalStepMs,
+  sendMotionMs,
+} from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -175,12 +181,12 @@ import { readUnread, subscribeUnread, unreadPending } from "./conversation/unrea
 import {
   jumpUpShown,
   jumpUpTarget,
-  IdleTracker,
   lastOwnPrompt,
   placeOffView,
   pressJumpUp,
   type JumpBack,
   type PromptScan,
+  IdleTracker,
 } from "./jumpUp";
 import { topZoneOffset } from "./overlayLayout";
 import "./jumpPair.css";
@@ -1049,6 +1055,8 @@ export function JumpUp({
   const t = useT();
   const label = t(back ? "transcript.jumpBack" : "transcript.jumpUp");
   const [look] = useState(() => experimentArm(jumpPairLook));
+  // The single look draws Jump to latest alone; where Jump up would go (and its Esc back) is unchanged.
+  if (look === "single") return null;
   return (
     <button
       type="button"
@@ -1678,6 +1686,7 @@ function TranscriptView({
     moveAtOnce = false,
     held = false,
     arrived = false,
+    sent = false,
   ) => {
     const chase = followChase.current!;
     const rowTop = (id: string) => {
@@ -1693,7 +1702,7 @@ function TranscriptView({
     // A turn's end folding moves the rows itself (turnEndFold.ts): their motion is no move to chase.
     const turnEnding = thread.current?.hasAttribute(TURN_END_ATTR) === true;
     if (before && now !== undefined && !moveAtOnce && !turnEnding)
-      chase.shift(thread.current, now - before.top, below, held, arrived);
+      chase.shift(thread.current, now - before.top, below, held, arrived, sent);
     const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
     const top = id === undefined ? undefined : rowTop(id);
@@ -2483,6 +2492,20 @@ function TranscriptView({
   /// Until when rows that come move the followed view on a send's glide (`followGlide.sent`): the
   /// sent prompt's row and its reply's first rows can land a commit or two after the send itself.
   const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
+  /// Until when rows that come join the send's own rise on the bubble's clock (`followChase` `sent`):
+  /// the send motion's length. A row landing later in `sendRiseUntil` (a delayed thinking or tool
+  /// row) arrives on the arrival step instead of starting the send curve over after the bubble rested.
+  const sendClockUntil = useRef(Number.NEGATIVE_INFINITY);
+  /// The latest send came while a turn ran (a steer): its row lands above the running work, an
+  /// arrival like any other (followChase's arrival step), not the send's rise from the composer.
+  /// Set while rendering, as React adjusts state on a prop change, so the passes after this
+  /// render read it (`sendsAt`: the sends it was last set for).
+  const [sendsAt, setSendsAt] = useState(sends);
+  const [steered, setSteered] = useState(false);
+  if (sends !== sendsAt) {
+    setSendsAt(sends);
+    setSteered(working);
+  }
   // Under the scrollbar fade (the host theme sets it, applyPaneTheme), the scrollbar fades in and
   // out with the scrolling marks (scrollers.ts).
   useEffect(() => (ref.current ? followShownScrollerFade(ref.current) : undefined), []);
@@ -3559,6 +3582,7 @@ function TranscriptView({
       seenSends.current = sends;
       sentBeforeOpen.current = false;
       sendRiseUntil.current = Number.NEGATIVE_INFINITY;
+      sendClockUntil.current = Number.NEGATIVE_INFINITY;
       previousLayout.current = null;
       previousRows.current = rows;
       scrolledTo.current = { top: 0, atLatest: false };
@@ -3924,7 +3948,10 @@ function TranscriptView({
             if (arrivedAtTail(oldRows, rows)) arrivedAt.current = now;
             const arrived = now - arrivedAt.current < ARRIVAL_PASS_MS;
             tailAnchor = chaseAnchor.current?.id;
-            chaseFollow(node, layout, rows, below, atOnce, held, arrived);
+            // A send's own rows rise on the send motion, one clock with the bubble's entrance, while
+            // that motion plays; rows landing after it arrive on the arrival step.
+            const sentClock = sentRows && (sends !== seenSends.current || now < sendClockUntil.current);
+            chaseFollow(node, layout, rows, below, atOnce, held, arrived, sentClock && !steered);
             tailGlides = !atOnce && followChase.current?.arm !== "instant";
           }
         }
@@ -4020,7 +4047,17 @@ function TranscriptView({
         // The send's own effect runs after this pass, so a send in this commit counts here too.
         const sentHere = sentBeforeOpen.current || sends !== seenSends.current;
         if (sentHere && at < 0 && node.scrollTop - before > 0.5) {
-          if (chasing) followChase.current?.shift(thread.current, before - node.scrollTop);
+          // On the send motion, one clock with the bubble's entrance, while that motion plays.
+          const sentClock = sends !== seenSends.current || performance.now() < sendClockUntil.current;
+          if (chasing)
+            followChase.current?.shift(
+              thread.current,
+              before - node.scrollTop,
+              Number.POSITIVE_INFINITY,
+              false,
+              false,
+              sentClock && !steered,
+            );
           else followGlide.current?.sent(thread.current, node.scrollTop - before);
         }
         followTrace.set(node.scrollTop);
@@ -4594,6 +4631,7 @@ function TranscriptView({
       // A tail that fit and overflows with this send opens at the latest row on the send's glide
       // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
       sendRiseUntil.current = performance.now() + SEND_RISE_MS;
+      sendClockUntil.current = performance.now() + sendMotionMs(node);
       return;
     }
     revealing.current = undefined;
@@ -4622,6 +4660,7 @@ function TranscriptView({
     const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     // The prompt's rows that land in the next commits glide in too (placement pass, `sendRows`).
     sendRiseUntil.current = performance.now() + SEND_RISE_MS;
+    sendClockUntil.current = performance.now() + sendMotionMs(node);
     // Sent while scrolled up: the view glides down to the latest message on Jump to latest's ride
     // (one viewport at most, its curve and duration) instead of cutting there in one frame, and the
     // prompt's row and reply land on the moving end. Reduce Motion and motion off still cut.
@@ -4645,7 +4684,7 @@ function TranscriptView({
       // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
       // the send's glide too.
       if (chasing) {
-        if (fromLatest) chaseFollow(node, layout, rows);
+        if (fromLatest) chaseFollow(node, layout, rows, Number.POSITIVE_INFINITY, false, false, false, !steered);
       } else if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
     }
     // The kept place is the latest message again: a relaunch opens there.
@@ -4808,7 +4847,14 @@ function TranscriptView({
     // release too, and a layout change landing at the end inside it is not the reader's.
     const down = readerDown.current;
     const readerMovedDown = down !== undefined && performance.now() - down.at <= READER_SCROLL_MS;
-    const readerReachedBottom = !programmatic && readerMovedDown && next > was.top + 0.5 && measured.atLatest;
+    // The scroller's own end counts too (Leo, 2026-11-11: "I scroll down to the bottom. I have to,
+    // like, scroll down again because it didn't realize"): a row that lands as the reader gets
+    // there (the thinking row, a tooltip's room) puts the layout's end past the offset the browser
+    // could still reach, and a later wheel at the end scrolls nothing, so no scroll event came to
+    // arm it.
+    const atEnd = next >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX;
+    const readerReachedBottom =
+      !programmatic && readerMovedDown && next > was.top + 0.5 && (measured.atLatest || atEnd);
     scrolledTo.current = {
       top: next,
       atLatest: recentUp || (movedUp && !measured.atLatest) ? false : followingRef.current || readerReachedBottom,
@@ -5058,6 +5104,23 @@ function TranscriptView({
       const downInput = readerDownInput(event, pointer, touch);
       if (movingUp) readerDown.current = undefined;
       else if (downInput) readerDown.current = { at: performance.now(), input: downInput };
+      // A wheel or key down at the scroller's end, where the browser scrolls nothing and sends no
+      // scroll event: the reader is at the latest row, so it follows again from here. A pressed drag
+      // (selecting text near the end) is not a move to the latest row, nor a key a control keeps (the
+      // thread rail's arrows walk its prompts): only a key on the transcript itself or the page.
+      if (
+        downInput &&
+        (event?.type === "wheel" ||
+          (event?.type === "keydown" && (event.target === node || event.target === node.ownerDocument.body))) &&
+        !followingRef.current &&
+        jumpTarget.current === undefined &&
+        node.clientHeight > 0 &&
+        node.scrollTop >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX
+      ) {
+        scrolledTo.current = { top: node.scrollTop, atLatest: true };
+        followRef.current(true, "reader-end");
+        followRequest.current = intent.request();
+      }
       if (event?.type === "pointerdown") {
         pointerY = (event as PointerEvent).clientY;
       } else if (pointer) pointerY = pointer.clientY;
