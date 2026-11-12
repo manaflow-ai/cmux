@@ -39,7 +39,7 @@ jobs:
   resolve:
     name: resolve direct commits
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -126,7 +126,7 @@ jobs:
     name: post the verdict
     needs: [resolve, gates]
     if: always() && needs.resolve.outputs.run == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 5
     permissions:
       statuses: write
