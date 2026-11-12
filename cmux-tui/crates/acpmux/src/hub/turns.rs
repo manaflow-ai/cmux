@@ -2366,8 +2366,13 @@ impl Hub {
                 });
             }
             let applied = if let Some(_turn) = turn {
-                self.detach_child(session).await;
-                "now"
+                // Beside background work it waits for that work (`background_safe.rs`).
+                if self.defer_restart(session) {
+                    "afterBackgroundWork"
+                } else {
+                    self.detach_child(session).await;
+                    "now"
+                }
             } else {
                 "afterTurn"
             };

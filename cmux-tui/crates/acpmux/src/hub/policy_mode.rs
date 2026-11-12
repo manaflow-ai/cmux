@@ -378,7 +378,8 @@ impl Hub {
         // An unreached host is reached (`ensure_child`): a fresh start there already asks.
         let restarted = match self.child_for(session).await {
             Ok(_) if asks() => Ok(()),
-            Ok(_) => self.restart_on_route(session).await,
+            // A security restart: it does not wait for background work (`background_safe.rs`).
+            Ok(_) => self.restart_on_route_now(session).await,
             Err(e) => Err(e),
         };
         if let Err(e) = restarted {

@@ -235,6 +235,13 @@ pub struct Session {
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
+    /// The generation of its live agent when that agent is a Claude Code process started without
+    /// `perTaskStopAffordance` (an adopted host of an older build): its interrupt kills every
+    /// background subagent and shell, so a Stop beside background work writes none
+    /// (`background_safe.rs`). 0 for none: generations start at 1.
+    pub(super) stop_kills_background: std::sync::atomic::AtomicU64,
+    /// A restart between turns waits for background work to end (`background_safe.rs`); logged once.
+    pub(super) restart_deferred: AtomicBool,
     /// Its harness profile's launch changed since its agent started: the agent restarts on the
     /// new one when the turn ends (`profile_respawn.rs`). Lists say `respawn pending: profile
     /// changed` until a start runs the new profile.

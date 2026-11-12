@@ -215,6 +215,7 @@ impl Hub {
                             tap_session.harness_turn.store(true, Ordering::SeqCst);
                         } else if method.starts_with("claude.result") {
                             tap_session.harness_turn.store(false, Ordering::SeqCst);
+                            tap_hub.restart_after_background(&tap_session);
                         } else if (method == "claude.system.task_started"
                             || method == "claude.system.task_notification")
                             && let Some(line) = params.as_ref()
@@ -476,6 +477,8 @@ impl Hub {
             }
             if subagent_events || background_changed {
                 tap_hub.refresh_work_below(&tap_session);
+                // A restart that waited for background work may run now (`background_safe.rs`).
+                tap_hub.restart_after_background(&tap_session);
             }
             // Watchers hear the new count on the summary (`subagentsRunning`, `hub/views.rs`).
             if running_changed {
@@ -486,6 +489,7 @@ impl Hub {
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {
                 tap_hub.note_process(&tap_session, &rec, output.as_deref());
+                tap_hub.restart_after_background(&tap_session);
                 // A dev server's URL, from its output file (`process_preview.rs`).
                 tap_hub.watch_previews(&tap_session);
             }

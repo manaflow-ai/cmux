@@ -34,6 +34,8 @@
 //! they end. Stopping them stays its own act: a process's kill (`_acpmux/process/kill`) or a
 //! subagent's stop (`_acpmux/subagent_stop`). Claude Code's own interrupt spares them too once
 //! acpmux says it stops tasks one by one (`claude_stdio/outbound.rs` `initialize_request`).
+//! An adopted Claude Code started before that (an older host build, `background_safe.rs`) gets no
+//! interrupt at all while background work runs: its interrupt would kill all of it.
 //!
 //! A harness with unanswered agent steering messages is also spared. Their settlement needs the
 //! live harness to confirm whether it dropped them unread; killing it first loses that proof
@@ -215,6 +217,17 @@ impl Hub {
             Self::force_cancel(&session, &current);
             return;
         };
+        // Its interrupt would kill the background work (`background_safe.rs`): only the turn ends.
+        if self.interrupt_kills_background(&session, &child) {
+            self.append(
+                &session,
+                "mux",
+                "stop_escalated",
+                json!({"turnId": turn.turn_id, "step": "spared", "reason": "background_work", "interrupt": false}),
+            );
+            Self::force_cancel(&session, &current);
+            return;
+        }
         tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent has not answered Stop: cancelling again");
         self.append(
             &session,
@@ -570,7 +583,21 @@ impl Hub {
                 _ => false,
             }
         });
-        let sent = if unwritten {
+        // An adopted Claude Code started without `perTaskStopAffordance` kills every background
+        // subagent and shell on its interrupt: beside background work it gets none, and only
+        // acpmux's turn ends (`background_safe.rs`).
+        let spare_interrupt = !unwritten && self.interrupt_kills_background(session, &child);
+        if spare_interrupt && let Some(turn) = turn.as_ref() {
+            tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "Stop beside background work of an agent whose interrupt would kill it: ending only the turn");
+            self.append(
+                session,
+                "mux",
+                "stop_escalated",
+                json!({"turnId": turn.turn_id, "step": "spared", "reason": "background_work", "interrupt": false}),
+            );
+            Self::force_cancel(session, turn);
+        }
+        let sent = if unwritten || spare_interrupt {
             Ok(())
         } else {
             // Preserve the compaction snapshot even if the old boundary clears while

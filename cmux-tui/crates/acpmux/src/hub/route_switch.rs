@@ -216,7 +216,24 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        // Never beside background work: it would end with the process (`background_safe.rs`).
+        if self.defer_restart(session) {
+            return Ok(());
+        }
+        self.restart_on_route_now(session).await
+    }
+
+    /// [`Hub::restart_on_route`] that does not wait for background work: a security restart
+    /// (`policy_mode.rs`), and the deferred restart itself once that work ended.
+    pub(super) async fn restart_on_route_now(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+    ) -> Result<(), RpcError> {
+        if self.shutting_down() {
+            return Err(super::shutdown::shutting_down_error());
+        }
         session.route_switch.store(false, Ordering::SeqCst);
+        session.restart_deferred.store(false, Ordering::SeqCst);
         if session.child.lock().await.is_none() {
             return Ok(());
         }
@@ -312,6 +329,7 @@ impl Hub {
             let _turn = session.turn_lock.lock().await;
             if session.turn().is_none()
                 && session.pending_permissions().is_empty()
+                && !hub.defer_restart(&session)
                 && session.route_switch.swap(false, Ordering::SeqCst)
             {
                 hub.detach_child(&session).await;

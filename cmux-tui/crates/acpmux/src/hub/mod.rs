@@ -204,6 +204,9 @@ pub(crate) mod reply_fit;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub(crate) use queue::approved_prompts_error;
 pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_key};
+mod background_safe;
+#[cfg(test)]
+mod background_safe_tests;
 mod live_name;
 mod profile_respawn;
 pub(crate) mod require_asking;
@@ -1769,6 +1772,8 @@ impl Hub {
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             launch_env: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
+            stop_kills_background: std::sync::atomic::AtomicU64::new(0),
+            restart_deferred: AtomicBool::new(false),
             profile_respawn: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),

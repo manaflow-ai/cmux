@@ -693,6 +693,8 @@ impl Hub {
             drop(state);
         }
         self.restart_unproven(session, proven);
+        // After recovery, so a recovered turn holds it off. A Claude Code started before Stop spared background work (`background_safe.rs`).
+        self.note_adopted_stop_semantics(session, &child, &incarnation);
         self.save_meta(session);
         Ok(())
     }
@@ -1409,7 +1411,8 @@ impl Hub {
                         // now and the next prompt starts it again, resuming
                         // the chat. Not started here: this task runs inside
                         // the adoption a start itself may run.
-                        if s.route_switch.swap(false, Ordering::SeqCst) {
+                        // Beside background work it waits for that work (`background_safe.rs`).
+                        if !hub.defer_restart(&s) && s.route_switch.swap(false, Ordering::SeqCst) {
                             hub.detach_child(&s).await;
                         }
                         // A Stop ended its agent (`cancel.rs`). Not started again here, for the
