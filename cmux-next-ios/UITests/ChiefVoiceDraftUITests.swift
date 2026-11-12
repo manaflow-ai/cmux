@@ -25,13 +25,13 @@ final class ChiefVoiceDraftUITests: XCTestCase {
     func testTheReviewSurvivesTheBackground() throws {
         for look in [XCUIDevice.Appearance.dark, .light] {
             XCUIDevice.shared.appearance = look
-            let app = launch()
+            let app = launch(look)
             let length = recordToReview(app, look: look)
             attach(app, "\(look.name)-1-review")
             for trip in 1...2 {
                 background(app, trip: trip)
-                attach(app, "\(look.name)-2-back-\(trip)")
                 assertReview(app, length: length, "after background trip \(trip)")
+                attach(app, "\(look.name)-2-back-\(trip)")
             }
             sendAndCheck(app, look: look)
             app.terminate()
@@ -42,17 +42,17 @@ final class ChiefVoiceDraftUITests: XCTestCase {
     func testARunningRecordingStopsIntoTheReviewInTheBackground() throws {
         for look in [XCUIDevice.Appearance.dark, .light] {
             XCUIDevice.shared.appearance = look
-            let app = launch()
+            let app = launch(look)
             startRecording(app)
             let timer = app.staticTexts["conversation.recording.time"]
             XCTAssertTrue(wait(for: timer, "NOT (label IN {'0:00', '0:01'})", timeout: 10), "recording: \(timer.label)")
             attach(app, "\(look.name)-1-recording")
             let reached = Self.seconds(timer.label)
             background(app, trip: 1)
-            attach(app, "\(look.name)-2-back")
             let more = app.buttons["conversation.recording.continue"]
             XCTAssertTrue(wait(for: app.buttons["conversation.recording.send"], "hittable == true", timeout: 10),
                           "the running recording came back as a review\n\(app.debugDescription)")
+            attach(app, "\(look.name)-2-back")
             let kept = Self.seconds((more.value as? String) ?? "0:00")
             XCTAssertGreaterThanOrEqual(kept, reached, "nothing recorded before the background was lost")
             // It records on from there.
@@ -72,25 +72,25 @@ final class ChiefVoiceDraftUITests: XCTestCase {
     func testTheReviewSurvivesARelaunch() throws {
         for look in [XCUIDevice.Appearance.dark, .light] {
             XCUIDevice.shared.appearance = look
-            var app = launch()
+            var app = launch(look)
             let length = recordToReview(app, look: look)
             // The system ends an app in the background (memory, or swiped away
             // in the switcher): it always got there through the background.
             XCUIDevice.shared.press(.home)
             XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10), "in the background")
             app.terminate()
-            app = launch(clearingDrafts: false)
+            app = launch(look, clearingDrafts: false)
             XCTAssertTrue(wait(for: app.buttons["conversation.recording.send"], "hittable == true", timeout: 30),
                           "the review is back after a relaunch\n\(app.debugDescription)")
-            attach(app, "\(look.name)-2-relaunched")
             assertReview(app, length: length, "after a relaunch")
+            attach(app, "\(look.name)-2-relaunched")
             // The x throws it away for good: the next launch has no recording.
             app.buttons["conversation.composer.plus"].tap()
             XCTAssertTrue(wait(for: app.buttons["conversation.recording.send"], "exists == false", timeout: 5), "x discards")
             XCUIDevice.shared.press(.home)
             XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10))
             app.terminate()
-            app = launch(clearingDrafts: false)
+            app = launch(look, clearingDrafts: false)
             XCTAssertTrue(app.buttons["conversation.composer.record"].waitForExistence(timeout: 30))
             XCTAssertFalse(app.buttons["conversation.recording.send"].waitForExistence(timeout: 3), "a discarded recording stays gone")
             attach(app, "\(look.name)-3-discarded-relaunch")
@@ -101,13 +101,15 @@ final class ChiefVoiceDraftUITests: XCTestCase {
     // MARK: Steps
 
     @MainActor
-    private func launch(clearingDrafts: Bool = true) -> XCUIApplication {
+    private func launch(_ look: XCUIDevice.Appearance, clearingDrafts: Bool = true) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         // Each test starts with no kept recording; a relaunch inside a test keeps it.
         if clearingDrafts { app.launchEnvironment["CMUX_UITEST_CLEAR_AUDIO_DRAFTS"] = "1" }
         app.launchEnvironment["CMUX_CONVERSATION_AUDIO_INPUT"] = "synthetic"
-        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "chief-open"]
+        // The app draws in its own appearance setting, not only the system's.
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmuxMobile.settings.appearance", look.name,
+                                "-cmux-mobile-demo", "chief-open"]
         app.launch()
         return app
     }
