@@ -628,7 +628,9 @@ impl Drop for UsageFiles {
 /// (not at the next timed write), and counts nothing after that.
 ///
 /// This test and the next one are not named `cmux_next_`: that prefix puts
-/// a test in the job that gates nightly-next, and these two are run by name.
+/// a test in the `cmux_next_ daemon tests` job (cmux-tui-artifacts.yml),
+/// which gates the feat-cmux-next channel. These two run with the file and
+/// by name.
 #[test]
 fn daemon_usage_patterns_follow_the_setting_while_it_runs() {
     /// How long the setting stays on. The daemon cannot say when it read the
@@ -705,8 +707,8 @@ fn daemon_usage_patterns_on_has_no_periodic_wakeups() {
         assert!(
             cmux_usage_patterns::FLUSH_EVERY.as_secs()
                 < SETTLE.as_secs() + WINDOW.as_secs() * WINDOWS as u64
-        )
-    };
+        );
+    }
     let files = UsageFiles::new("idle");
     let daemon = Daemon::start_with_env(
         "usage-idle",
