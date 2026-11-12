@@ -29,6 +29,10 @@ else echo "attach-compare: no network namespace here"; exit 2; fi
 # BASE is built in its own worktree with its own target dir, so the two builds
 # share no source file and no cache. Swapping BASE's file into this tree kept
 # HEAD's newer mtime on disk, and Cargo could reuse the HEAD binary as BASE's.
+# BASE's target dir sits beside HEAD's and is kept between runs (a cold
+# cmux-server build alone outran a one-hour CI step); it is never HEAD's.
+head_target=${CARGO_TARGET_DIR:-$PWD/target}
+base_target=${ATTACH_BASE_TARGET_DIR:-$head_target-attach-base}
 scratch=$(mktemp -d)
 basetree="$scratch/base"
 cleanup() {
@@ -38,11 +42,16 @@ cleanup() {
 }
 trap cleanup EXIT
 git worktree add -q --detach "$basetree" "$base"
-build() { (cd "$1" && CARGO_TARGET_DIR="$2" cargo test -p cmux-server --lib --no-run --message-format=json 2>/dev/null) |
+build() {
+  echo "attach-compare: building $1 into $2" >&2
+  local started=$SECONDS
+  (cd "$1" && CARGO_TARGET_DIR="$2" cargo test -p cmux-server --lib --no-run --message-format=json 2>/dev/null) |
   python3 -c 'import json,sys
 for l in sys.stdin:
     m=json.loads(l)
-    if m.get("reason")=="compiler-artifact" and m.get("executable") and m["target"]["name"]=="cmux_server": print(m["executable"])' | tail -1; }
+    if m.get("reason")=="compiler-artifact" and m.get("executable") and m["target"]["name"]=="cmux_server": print(m["executable"])' | tail -1
+  echo "attach-compare: built $1 in $((SECONDS - started))s" >&2
+}
 measure() {
   for attach in 1 4 8 12; do
     for _ in $(seq "$runs"); do
@@ -50,8 +59,9 @@ measure() {
     done
   done
 }
-after=$(build . "${CARGO_TARGET_DIR:-$PWD/target}")
-before=$(build "$basetree/cmux-tui" "$scratch/target")
+[ "$base_target" != "$head_target" ] || { echo "attach-compare: BASE's target dir is HEAD's" >&2; exit 2; }
+after=$(build . "$head_target")
+before=$(build "$basetree/cmux-tui" "$base_target")
 [ -x "$after" ] && [ -x "$before" ] || { echo "attach-compare: a build made no test binary" >&2; exit 1; }
 # The sources differ (checked above), so equal binaries mean one build was
 # reused for the other: the run would compare HEAD against itself.
