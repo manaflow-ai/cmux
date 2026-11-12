@@ -15,6 +15,7 @@
 
 use std::path::{Path, PathBuf};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -70,7 +71,7 @@ pub(super) fn key(spec: &Spec) -> Option<String> {
         let mut env: Vec<&str> = shared.env.iter().map(|(k, _)| k.as_str()).collect();
         env.sort_unstable();
         env.dedup();
-        what["shared"] = json!({"command": shared.command, "args": shared.args, "env": env});
+        what.set("shared", json!({"command": shared.command, "args": shared.args, "env": env}));
     }
     let digest = Sha256::digest(what.to_string().as_bytes());
     Some(digest.iter().map(|b| format!("{b:02x}")).collect())
