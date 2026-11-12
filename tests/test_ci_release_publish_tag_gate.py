@@ -751,6 +751,14 @@ SUBCOMMAND_ESCAPES = {
     "python -I -m twine upload": "python3 -I -m twine upload dist/*",
     "twine --no-color upload": "twine --no-color upload dist/*",
     "xcrun --sdk before notarytool": "xcrun --sdk macosx notarytool submit x.zip",
+    # A follow-up review of #41398: npm and pnpm read an explicit true or false after a flag as its value, never as
+    # the subcommand; an xcrun -f or --find exempts only before the tool, after it the option is the tool's own.
+    "npm --ignore-scripts true before publish": "npm --ignore-scripts true publish",
+    "npm -g false before publish": "npm -g false publish",
+    "npm -gy true before publish": "npm -gy true publish",
+    "pnpm --dry-run false before publish": "pnpm --dry-run false publish",
+    "xcrun notarytool with its own -f": "xcrun notarytool submit x.zip -f json",
+    "xcrun --sdk, notarytool with its own --find": "xcrun --sdk macosx notarytool history --find x -f json",
 }
 SUBCOMMAND_READS = {
     "gh release download --dir upload": "gh release download v1 --dir upload",
@@ -763,6 +771,9 @@ SUBCOMMAND_READS = {
     "twine check upload/x.whl": "twine check upload/x.whl",
     "twine check upload": "twine check upload",
     "xcrun --find notarytool": "xcrun --find notarytool",
+    "xcrun -f notarytool": "xcrun -f notarytool",
+    "xcrun --sdk --find notarytool": "xcrun --sdk macosx --find notarytool",
+    "npm --yes true test publish": "npm --yes true test publish",
 }
 
 

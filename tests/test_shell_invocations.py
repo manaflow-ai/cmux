@@ -139,6 +139,7 @@ SCRIPT_FIXTURES = [
     ("bash +o errexit ./sign.sh", True, False),
     ("bash -eo noexec ./sign.sh", False, False),
     ("bash -O extglob ./sign.sh", True, False),
+    ("bash -oe errexit ./sign.sh", True, False),  # the o takes the next word, wherever it is in the group
     ("bash <<'EOF'\n./sign.sh\nEOF", True, False),
     ("echo ./sign.sh | bash", True, False),
     ("env ./sign.sh", True, True),
@@ -447,6 +448,70 @@ class NestingGrammarAgainstBash(unittest.TestCase):
             with self.subTest(script):
                 self.assertIn([], may_run_nested(script))
                 self.assertTrue(may_run_program(script, "anything"))
+
+
+# A follow-up review of #41398: bash reads every option before -c's text, and each o or O in an option word takes
+# the next word (`-co errexit`), as do --rcfile and --init-file. Each form runs the release in real bash, so
+# may_run_nested must read the release in its text.
+SHELL_OPTION_FORMS = ("bash -co errexit '{}'", "bash -oc errexit '{}'", "bash -c -o errexit '{}'",
+                      "bash -cO extglob '{}'", "bash -co errexit -O extglob '{}'", "bash --rcfile /dev/null -c '{}'",
+                      "bash --norc -ec '{}'", "bash -c -- '{}'", "bash -e -c '{}'")
+
+
+class ShellOptionsAgainstBash(unittest.TestCase):
+    def test_the_text_after_every_option_form_is_read(self) -> None:
+        from shell_invocations import may_run_nested
+        scripts = [form.format(NEST_LEAF) for form in SHELL_OPTION_FORMS]
+        self.assertEqual(bash_runs_gh(scripts), set(range(len(scripts))), "a form bash does not run is no fixture")
+        for script in scripts:
+            with self.subTest(script):
+                self.assertIn(NEST_LEAF.split(), may_run_nested(script))
+
+
+class _OverBudget(Exception):
+    pass
+
+
+class NestedExpansionWorkIsLinear(unittest.TestCase):
+    """A follow-up review of #41398: each arithmetic body re-read every arithmetic inside it, so the parses doubled
+    per level (11 levels: 3,072). The parses shell_tree does are counted, never the time they take: at most a few
+    per level, at 1, 5 and 11 levels."""
+
+    serial = 0
+
+    def parses(self, build, depth: int, budget: int) -> int:
+        from unittest import mock
+        import shell_invocations
+        NestedExpansionWorkIsLinear.serial += 1
+        leaf = f"gh release create v{NestedExpansionWorkIsLinear.serial}"  # a new text each time: nothing cached
+        script = "echo " + build("$(" + leaf + ")", depth) + "\n"
+        real, count = shell_invocations.shell_tree.parse, [0]
+
+        def counted(*args, **kwargs):
+            count[0] += 1
+            if count[0] > budget:
+                raise _OverBudget
+            return real(*args, **kwargs)
+
+        with mock.patch.object(shell_invocations.shell_tree, "parse", counted):
+            try:
+                nested = shell_invocations.may_run_nested(script)
+            except _OverBudget:
+                nested = None
+        self.assertIsNotNone(nested, f"{depth} levels took more than {budget} parses: {script!r}")
+        self.assertIn(leaf.split(), nested, script)
+        return count[0]
+
+    def test_nested_arithmetic_and_parameter_expansions(self) -> None:
+        nests = {
+            "$(( $(( ... )) + 1 ))": lambda leaf, depth: "$(( " * depth + leaf + " + 1 ))" * depth,
+            "${x:-$(( ... ))}": lambda leaf, depth: "${x:-$(( " * depth + leaf + " + 1 ))}" * depth,
+            "$(( ${x:-...} + 1 ))": lambda leaf, depth: "$(( ${x:-" * depth + leaf + "} + 1 ))" * depth,
+        }
+        for label, build in nests.items():
+            for depth in (1, 5, 11):
+                with self.subTest(label, depth=depth):
+                    self.parses(build, depth, budget=4 * depth + 8)
 
 
 if __name__ == "__main__":
