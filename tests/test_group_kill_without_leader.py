@@ -44,15 +44,26 @@ def _is_killpg(node: ast.AST) -> bool:
     return (isinstance(func, ast.Attribute) and func.attr == "killpg") or (isinstance(func, ast.Name) and func.id == "killpg")
 
 
-def _liveness_subjects(test: ast.AST) -> set[str]:
-    """The objects whose liveness TEST reads: p in p.poll(), p.returncode, t.is_alive()."""
-    subjects = set()
+def _liveness_reads(test: ast.AST) -> list[tuple[str, bool]]:
+    """(object, alive) for each liveness read in TEST: alive is True for `p.poll() is None`, `p.returncode is None`
+    and `t.is_alive()`, False for `p.poll() is not None`, `p.returncode is not None` and `not t.is_alive()`."""
+    parents = {child: parent for parent in ast.walk(test) for child in ast.iter_child_nodes(parent)}
+    reads = []
     for node in ast.walk(test):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("poll", "is_alive"):
-            subjects.add(ast.unparse(node.func.value))
-        elif isinstance(node, ast.Attribute) and node.attr == "returncode":
-            subjects.add(ast.unparse(node.value))
-    return subjects
+        if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.comparators[0], ast.Constant) \
+                and node.comparators[0].value is None and isinstance(node.ops[0], (ast.Is, ast.IsNot)):
+            left = node.left
+            subject = None
+            if isinstance(left, ast.Call) and isinstance(left.func, ast.Attribute) and left.func.attr == "poll":
+                subject = ast.unparse(left.func.value)
+            elif isinstance(left, ast.Attribute) and left.attr == "returncode":
+                subject = ast.unparse(left.value)
+            if subject is not None:
+                reads.append((subject, isinstance(node.ops[0], ast.Is)))
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "is_alive":
+            negated = isinstance(parents.get(node), ast.UnaryOp) and isinstance(parents[node].op, ast.Not)
+            reads.append((ast.unparse(node.func.value), not negated))
+    return reads
 
 
 def _killpg_subject(call: ast.Call) -> str | None:
@@ -100,7 +111,7 @@ def scan(source: str, name: str = "<source>") -> list[str]:
             node = call
             while node is not func and gate is None:
                 parent = parents[node]
-                if isinstance(parent, ast.If) and node in parent.body and _liveness_subjects(parent.test):
+                if isinstance(parent, ast.If) and node in parent.body and any(a for _, a in _liveness_reads(parent.test)):
                     gate = parent
                 node = parent
             subject = _killpg_subject(call)
@@ -115,7 +126,7 @@ def scan(source: str, name: str = "<source>") -> list[str]:
                         finals.append(parent)
                     node = parent
                 for stmt in ast.walk(func):
-                    if (isinstance(stmt, ast.If) and stmt.lineno < call.lineno and subject in _liveness_subjects(stmt.test)
+                    if (isinstance(stmt, ast.If) and stmt.lineno < call.lineno and (subject, False) in _liveness_reads(stmt.test)
                             and stmt.body and isinstance(stmt.body[-1], ast.Return)
                             and not any(_is_killpg(n) for n in ast.walk(stmt))
                             and not any(stmt in set(ast.walk(ast.Module(body=t.body, type_ignores=[]))) for t in finals)):
@@ -220,6 +231,15 @@ class ScanTests(unittest.TestCase):
                 if check.returncode != 0:
                     return 1
                 os.killpg(proc.pid, signal.SIGKILL)
+        """)
+        self.assertEqual(scan(source), [])
+
+    def test_scan_passes_a_kill_of_what_an_exited_leader_left(self) -> None:
+        source = textwrap.dedent("""
+            def start(sup):
+                if sup.poll() is not None:
+                    os.killpg(sup.pid, signal.SIGKILL)
+                    return fail()
         """)
         self.assertEqual(scan(source), [])
 
