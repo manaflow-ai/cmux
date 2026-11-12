@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43143337299",
+  "recorded_at": "2026-11-12T02:52:33Z",
+  "reason": "cmux-tui d9b91678182d changes the image's cmux-tui (pinned 7ae2c9707413)",
+  "dry_run": false,
+  "cmux_tui": "d9b91678182d574896755c19c0fcba5acfb745e3",
+  "fixes": [
+    {
+      "sha": "d9b91678182d574896755c19c0fcba5acfb745e3",
+      "mergedAt": "2026-11-12T02:27:15Z",
+      "subject": "acpmux: the log rotation passes the previous path by value (base red: clippy) (#41668)"
+    },
+    {
+      "sha": "869122c02d607a32c00b02f073bbd7cba0c4c074",
+      "mergedAt": "2026-11-11T20:23:29-06:00",
+      "subject": "cmux-tui tests: the chat-tab validation test counts only its own registry's tabs"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T02:52:33Z",
+    "snapshot_id": "sh-2ad53d5d023c487cb4570806907848a7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43143337299): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "74d3b40ecce34ed277187f8c81d3a44bb389e388",
+    "image": "cloud-native-auto-d9b91678-43143337299-1",
+    "revision": "ci-43143337299-1",
+    "at": "2026-11-12T02:52:33Z"
+  },
+  "rolled_back": false
+}
