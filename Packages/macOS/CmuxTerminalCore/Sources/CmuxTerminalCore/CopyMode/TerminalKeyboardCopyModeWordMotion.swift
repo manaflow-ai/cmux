@@ -152,6 +152,12 @@ private struct Scanner {
 
     private var lastIndex: Int { max(line.count - 1, 0) }
 
+    /// Where a forward motion stops when the scrollback ends: the last glyph,
+    /// as in vim, but never left of a cursor that started past it on this row.
+    private func forwardEdgeIndex(crossedRows: Bool) -> Int {
+        crossedRows ? lastIndex : max(index, lastIndex)
+    }
+
     /// vim `w`. Returns `true` when the scrollback ended before a word start.
     mutating func moveToNextWordStart(
         _ adjacentLine: (_ forward: Bool) -> [Character]?
@@ -171,7 +177,9 @@ private struct Scanner {
             return false
         }
 
+        var crossedRows = false
         while let next = adjacentLine(true) {
+            crossedRows = true
             line = next
             if line.isEmpty {
                 index = 0
@@ -186,7 +194,7 @@ private struct Scanner {
                 return false
             }
         }
-        index = lastIndex
+        index = forwardEdgeIndex(crossedRows: crossedRows)
         return true
     }
 
@@ -224,15 +232,17 @@ private struct Scanner {
         _ adjacentLine: (_ forward: Bool) -> [Character]?
     ) -> Bool {
         var position = index + 1
+        var crossedRows = false
         while true {
             while position < line.count, characterClass(at: position) == .blank {
                 position += 1
             }
             if position < line.count { break }
             guard let next = adjacentLine(true) else {
-                index = lastIndex
+                index = forwardEdgeIndex(crossedRows: crossedRows)
                 return true
             }
+            crossedRows = true
             line = next
             position = 0
         }

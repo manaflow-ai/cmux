@@ -6176,6 +6176,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               ) else { return }
 
         var row = start.row
+        var crossedRows = false
+        var rowReadFailed = false
         let move: (ghostty_keyboard_selection_move_e, UInt16) -> TerminalKeyboardCopyModeCursor? = {
             self.performKeyboardCopyModeNativeMove(
                 $0,
@@ -6209,9 +6211,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 1
             ), atViewportEdge || moved.row != row else { return nil }
             row = moved.row
-            return self.readKeyboardCopyModeRowGlyphs(row: row, surface: surface)
+            crossedRows = true
+            guard let glyphs = self.readKeyboardCopyModeRowGlyphs(row: row, surface: surface) else {
+                // The cursor already moved; a target resolved without this
+                // row's text would belong to the previous row.
+                rowReadFailed = true
+                return nil
+            }
+            return glyphs
         }
 
+        // A failed read leaves no target for the current row, and a motion
+        // that stayed put must not re-land: an index in empty cells names the
+        // start of that run, not the cursor's cell.
+        guard !rowReadFailed, crossedRows || target != startIndex else {
+            syncKeyboardCopyModeCursorOverlay(surface: surface)
+            return
+        }
         if move(GHOSTTY_KEYBOARD_SELECTION_MOVE_BEGINNING_OF_LINE, 1) != nil,
            target > 0 {
             _ = move(
