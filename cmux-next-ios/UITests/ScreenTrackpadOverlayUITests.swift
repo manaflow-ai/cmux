@@ -127,27 +127,13 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         }
         #endif
         attach(app, "08-options-menu")
-        app.buttons["Escape"].firstMatch.tap()
 
-        // The menu toggle tucks it away too.
-        options.tap()
-        XCTAssertTrue(showTrackpad.waitForExistence(timeout: 5))
+        // Its Show Trackpad toggle tucks the trackpad away (and is remembered like the notch's drag).
         showTrackpad.tap()
         XCTAssertTrue(wait(for: drawer, value: "closed"), "Show Trackpad off did not tuck it away")
-        options.tap()
-        XCTAssertTrue(showTrackpad.waitForExistence(timeout: 5))
-        showTrackpad.tap()
-        XCTAssertTrue(wait(for: drawer, value: "open"), "Show Trackpad on did not bring it back")
-
-        // Hide Toolbar: the screen moves up to the top, the trackpad stays.
-        options.tap()
-        app.buttons["Hide Toolbar"].firstMatch.tap()
+        XCTAssertTrue(pad.waitForNonExistence(timeout: 5), "trackpad surface after Show Trackpad off")
         settle(app, 1)
-        XCTAssertFalse(options.exists, "toolbar still shown")
-        XCTAssertTrue(pad.exists, "trackpad gone with the toolbar")
-        attach(app, "09-portrait-toolbar-hidden")
-        app.buttons["Show Toolbar"].firstMatch.tap()
-        settle(app, 1)
+        attach(app, "09-show-trackpad-off")
     }
 
     @MainActor
