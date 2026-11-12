@@ -15,6 +15,10 @@ on the head (the retry) and on the merge parent (the base), then asks this scrip
         prints the head's failing test names, one per line, for the retry and the base replay.
     cargo_test_verdict.py judge --head HEAD.log [--retry RETRY.log] [--base BASE.log] [--job NAME]
         prints GitHub annotations and exits 0 when no red is the change's own, 1 when one is.
+    cargo_test_verdict.py running HEAD.log
+        prints the tests still running in a log cut short, the longest-running first: each one libtest said "has been
+        running for over 60 seconds" and that has no result line after it. The job's watchdog prints them before the
+        job's own timeout cancels the run, so a cancelled run names the test it was waiting on.
 
 The verdict:
 - A test that failed on the head and passed when run again alone is a flake: it warns.
@@ -55,6 +59,9 @@ INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*"([^"]+)"')
 DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 PASSED = re.compile(r"^test (\S+) \.\.\. ok$")
 FAILED_LINE = re.compile(r"^test (\S+) \.\.\. FAILED$")
+SLOW_LINE = re.compile(r"^test (\S+) has been running for over 60 seconds$")
+DONE_LINE = re.compile(r"^test (\S+) \.\.\. ")
+RUNNING_LINE = re.compile(r"^running \d+ tests?$")
 
 
 def _default_optional(manifest: dict) -> set[str]:
@@ -190,6 +197,22 @@ def passed_names(log: str | None) -> set[str]:
     return {m.group(1) for line in test_reds.lines_of(log) for m in [PASSED.match(line)] if m}
 
 
+def running_names(log: str) -> list[str]:
+    """The tests LOG says are still running: libtest flagged each as running for over 60 seconds, and no result line
+    (`test NAME ... ok|FAILED|ignored`) followed. In the order they were flagged, so the longest-running comes first.
+    A binary's `running N tests` line starts a new set: a name flagged in an earlier binary that finished is not
+    carried into the next."""
+    slow: dict[str, None] = {}
+    for line in test_reds.lines_of(log):
+        if RUNNING_LINE.match(line):
+            slow.clear()
+        elif match := SLOW_LINE.match(line):
+            slow.setdefault(match.group(1), None)
+        elif match := DONE_LINE.match(line):
+            slow.pop(match.group(1), None)
+    return list(slow)
+
+
 # A binary's closing line, its counts rewritten when its flakes are taken out (without_failures).
 RESULT_COUNTS = re.compile(r"test result: FAILED\. (\d+) passed; (\d+) failed;")
 
@@ -250,6 +273,8 @@ def main(argv: list[str] | None = None) -> int:
     scope = sub.add_parser("touches", help="whether the changed paths on stdin touch a crate's test inputs")
     scope.add_argument("crate", help="the crate's directory, relative to the repository")
     scope.add_argument("--repo", type=Path, default=Path("."))
+    still = sub.add_parser("running", help="print the tests a cut-short cargo test log was still running")
+    still.add_argument("log", type=Path)
     one = sub.add_parser("judge", help="judge a red head run against its retry and the base replay")
     one.add_argument("--head", required=True, type=Path)
     one.add_argument("--retry", type=Path)
@@ -263,6 +288,9 @@ def main(argv: list[str] | None = None) -> int:
         if len(hits) > 20:
             print(f"... and {len(hits) - 20} more")
         return 0 if hits else 1
+    if args.command == "running":
+        print("\n".join(running_names(read_text(args.log) or "")))
+        return 0
     if args.command == "failed":
         print("\n".join(failed_names(args.log.read_text(errors="replace"))))
         return 0

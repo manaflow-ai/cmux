@@ -37,6 +37,8 @@ async fn big_hub_with(extra: Vec<Value>) -> Arc<crate::hub::Hub> {
     .unwrap();
     store.save(&meta).unwrap();
     let hub = crate::hub::Hub::new(config, store);
+    // What each reply holds, not the list pace (`Hub::unpace_lists_for_tests`).
+    hub.unpace_lists_for_tests();
     let (tx, _rx) = mpsc::channel(8);
     let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
     hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());

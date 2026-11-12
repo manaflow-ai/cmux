@@ -48,6 +48,9 @@ fn row_id(row: &Value) -> Option<&str> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn no_reply_on_a_client_path_is_larger_than_a_page() {
     let hub = hub().await;
+    // What each reply holds, not the list pace (`Hub::unpace_lists_for_tests`): about 15 whole
+    // reads of a 30 MB list, which the pace spread over minutes on a busy runner.
+    hub.unpace_lists_for_tests();
     let every = every_id();
     let own: HashSet<String> = every.iter().filter(|id| id.starts_with("own-")).cloned().collect();
     let mut failures = Vec::new();
