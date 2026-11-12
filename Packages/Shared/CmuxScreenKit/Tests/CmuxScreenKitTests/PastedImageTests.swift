@@ -6,11 +6,12 @@ import Testing
 import UniformTypeIdentifiers
 
 /// A picked photo becomes PNG or JPEG for the Mac's pasteboard at its full size, upright in its
-/// pixels (an agent that reads the pixels sees it the right way up) and with no location in it:
-/// not in GPS, IPTC or XMP.
+/// pixels (an agent that reads the pixels sees it the right way up) and with no metadata in it:
+/// no EXIF, GPS, IPTC, XMP or maker note, whatever its tags are named.
 struct PastedImageTests {
-    /// Where a test photo says it was taken.
-    enum Location: Sendable, CaseIterable { case gps, iptc, xmp }
+    /// Metadata a test photo carries: where it was taken (GPS, IPTC, a known XMP tag, an XMP tag
+    /// in a namespace of its own that no list of place names knows), or camera data in EXIF.
+    enum Location: Sendable, CaseIterable { case gps, iptc, xmp, customXMP, camera }
 
     /// A corner of an image as it is shown.
     enum Corner: Sendable, CaseIterable { case topLeft, topRight, bottomLeft, bottomRight }
@@ -41,12 +42,23 @@ struct PastedImageTests {
         case .iptc?:
             properties[kCGImagePropertyIPTCDictionary] = [kCGImagePropertyIPTCCity: "San Francisco",
                                                           kCGImagePropertyIPTCCountryPrimaryLocationName: "United States"]
-        case .xmp?, nil:
+        case .camera?:
+            properties[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFMake: "Apple", kCGImagePropertyTIFFModel: "iPhone",
+                                                          kCGImagePropertyTIFFOrientation: orientation]
+            properties[kCGImagePropertyExifDictionary] = [kCGImagePropertyExifDateTimeOriginal: "2026:11:11 12:00:00",
+                                                          kCGImagePropertyExifUserComment: "at home"]
+        case .xmp?, .customXMP?, nil:
             break
         }
-        if location == .xmp {
+        if location == .xmp || location == .customXMP {
             let metadata = CGImageMetadataCreateMutable()
-            #expect(CGImageMetadataSetValueWithPath(metadata, nil, "photoshop:City" as CFString, "San Francisco" as CFString))
+            if location == .xmp {
+                #expect(CGImageMetadataSetValueWithPath(metadata, nil, "photoshop:City" as CFString, "San Francisco" as CFString))
+            } else {
+                #expect(CGImageMetadataRegisterNamespaceForPrefix(metadata, "http://ns.example.com/spot/1.0/" as CFString,
+                                                                  "spot" as CFString, nil))
+                #expect(CGImageMetadataSetValueWithPath(metadata, nil, "spot:Place" as CFString, "Golden Gate Park" as CFString))
+            }
             CGImageDestinationAddImageAndMetadata(destination, image, metadata, properties as CFDictionary)
         } else {
             CGImageDestinationAddImage(destination, image, properties as CFDictionary)
@@ -55,12 +67,13 @@ struct PastedImageTests {
         return output as Data
     }
 
-    /// What ImageIO reads of a photo: its type, size, orientation, any location it names, and its
-    /// pixels (RGBA, rows from the top).
+    /// What ImageIO reads of a photo: its type, size, orientation, any metadata, and its pixels
+    /// (RGBA, rows from the top).
     struct Read {
         var type: String, width: Int, height: Int, orientation: Int
-        /// The location fields found: `GPS`, `IPTC`, or an XMP path.
-        var location: [String]
+        /// Every metadata field found that does not only describe the pixels (`{Exif}`,
+        /// `{TIFF}.Make`, an XMP tag `prefix:name`, …): empty for a photo that carries none.
+        var metadata: [String]
         var pixels: [UInt8]
 
         /// Whether `corner` is red (inset two pixels from the edges).
@@ -75,15 +88,7 @@ struct PastedImageTests {
     static func read(_ data: Data) throws -> Read {
         let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
         let properties = try #require(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
-        var location: [String] = []
-        if properties[kCGImagePropertyGPSDictionary] != nil { location.append("GPS") }
-        if let iptc = properties[kCGImagePropertyIPTCDictionary] as? [CFString: Any],
-           [kCGImagePropertyIPTCCity, kCGImagePropertyIPTCSubLocation, kCGImagePropertyIPTCProvinceState,
-            kCGImagePropertyIPTCCountryPrimaryLocationName].contains(where: { iptc[$0] != nil }) { location.append("IPTC") }
-        if let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) {
-            for path in ["photoshop:City", "photoshop:Country", "Iptc4xmpCore:Location", "exif:GPSLatitude", "exif:GPSLongitude"]
-            where CGImageMetadataCopyTagWithPath(metadata, nil, path as CFString) != nil { location.append(path) }
-        }
+        let metadata = Self.metadata(source, properties: properties)
         let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
         let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
@@ -97,39 +102,63 @@ struct PastedImageTests {
         #expect(drawn)
         return Read(type: CGImageSourceGetType(source) as String? ?? "", width: properties[kCGImagePropertyPixelWidth] as? Int ?? 0,
                     height: properties[kCGImagePropertyPixelHeight] as? Int ?? 0,
-                    orientation: properties[kCGImagePropertyOrientation] as? Int ?? 1, location: location, pixels: pixels)
+                    orientation: properties[kCGImagePropertyOrientation] as? Int ?? 1, metadata: metadata, pixels: pixels)
     }
 
-    @Test func uprightPngAndJpegWithNoLocationPassThroughUnchanged() throws {
-        for (type, alpha) in [(UTType.png, true), (UTType.jpeg, false)] {
-            let photo = try Self.photo(type, alpha: alpha)
-            let pasted = try #require(PastedImage(photo: photo))
-            #expect(pasted.type == type.identifier)
-            #expect(pasted.data == photo, "\(type.identifier) is sent as it is")
+    /// What describes only the pixels, by dictionary: the rest is metadata. Written apart from the
+    /// code under test, so the test does not take that code's word for what is safe.
+    static let pixelOnly: [String: Set<String>] = [
+        "{JFIF}": ["Version", "XDensity", "YDensity", "DensityUnit", "IsProgressive"],
+        "{PNG}": ["Gamma", "Chromaticities", "sRGBIntent", "InterlaceType", "XPixelsPerMeter", "YPixelsPerMeter",
+                  "CompressionFilter"],
+        "{TIFF}": ["Orientation", "XResolution", "YResolution", "ResolutionUnit"],
+    ]
+
+    /// Every metadata field of the first image of `source` (see ``Read/metadata``).
+    static func metadata(_ source: CGImageSource, properties: [CFString: Any]) -> [String] {
+        var found: [String] = []
+        for (key, value) in properties {
+            guard let dictionary = value as? [String: Any] else { continue }
+            guard let allowed = pixelOnly[key as String] else {
+                found.append(key as String)
+                continue
+            }
+            found += dictionary.keys.filter { !allowed.contains($0) }.map { "\(key).\($0)" }
         }
+        if let tags = CGImageSourceCopyMetadataAtIndex(source, 0, nil).flatMap({ CGImageMetadataCopyTags($0) as? [CGImageMetadataTag] }) {
+            for tag in tags {
+                let prefix = CGImageMetadataTagCopyPrefix(tag) as String? ?? "?"
+                let name = CGImageMetadataTagCopyName(tag) as String? ?? "?"
+                if !(prefix == "tiff" && pixelOnly["{TIFF}"]!.contains(name)) { found.append("\(prefix):\(name)") }
+            }
+        }
+        return found.sorted()
     }
 
-    /// A photo's location, in GPS, IPTC or XMP, upright or not, never reaches the Mac (or an agent there).
-    @Test(arguments: [(UTType.jpeg, Location.gps), (.jpeg, .iptc), (.jpeg, .xmp), (.png, .gps), (.png, .xmp),
-                      (.tiff, .gps), (.tiff, .iptc), (.tiff, .xmp)])
-    func aPhotoWithALocationIsSentWithoutIt(_ type: UTType, _ location: Location) throws {
+    /// Any metadata a photo has, upright or not, whatever its tags are named, never reaches the Mac
+    /// (or an agent there): no EXIF, GPS, IPTC, XMP or maker note is left.
+    @Test(arguments: [(UTType.jpeg, Location.gps), (.jpeg, .iptc), (.jpeg, .xmp), (.jpeg, .customXMP), (.jpeg, .camera),
+                      (.png, .gps), (.png, .xmp), (.png, .customXMP),
+                      (.tiff, .gps), (.tiff, .iptc), (.tiff, .xmp), (.tiff, .customXMP), (.tiff, .camera)])
+    func aPhotoIsSentWithNoMetadata(_ type: UTType, _ location: Location) throws {
         let photo = try Self.photo(type, alpha: type == .png, location: location)
-        let before = try Self.read(photo)
-        #expect(!before.location.isEmpty, "the test photo names a location")
+        #expect(!(try Self.read(photo).metadata.isEmpty), "the test photo has metadata")
         let pasted = try #require(PastedImage(photo: photo))
-        #expect(try Self.read(pasted.data).location == [])
+        #expect(try Self.read(pasted.data).metadata == [])
     }
 
-    /// An upright JPEG or PNG with a location loses only the location: its pixels are the same
-    /// (no second lossy encode).
-    @Test(arguments: [(UTType.jpeg, Location.gps), (.jpeg, .iptc), (.png, .gps)])
-    func anUprightPhotoWithALocationKeepsItsPixels(_ type: UTType, _ location: Location) throws {
+    /// An upright JPEG or PNG keeps its type and its pixels (no second lossy encode), with or
+    /// without metadata to drop.
+    @Test(arguments: [(UTType.jpeg, nil), (.png, nil), (.jpeg, .gps), (.jpeg, .iptc), (.jpeg, .customXMP), (.jpeg, .camera),
+                      (.png, .gps), (.png, .customXMP)] as [(UTType, Location?)])
+    func anUprightPhotoKeepsItsTypeAndPixels(_ type: UTType, _ location: Location?) throws {
         let photo = try Self.photo(type, width: 320, height: 240, alpha: false, location: location)
         let pasted = try #require(PastedImage(photo: photo))
         #expect(pasted.type == type.identifier)
         let before = try Self.read(photo), after = try Self.read(pasted.data)
         #expect((after.width, after.height) == (320, 240))
         #expect(after.pixels == before.pixels, "the same pixels")
+        #expect(after.metadata == [])
     }
 
     /// A turned photo is sent with its pixels turned upright the right way: the stored top-left red
@@ -145,6 +174,7 @@ struct PastedImageTests {
             let read = try Self.read(pasted.data)
             #expect((read.width, read.height) == (width, height), "\(type.identifier) \(orientation): turned, full size")
             #expect(read.orientation == 1, "no tag left to apply")
+            #expect(read.metadata == [], "\(type.identifier) \(orientation): no metadata")
             for corner in Corner.allCases {
                 #expect(read.isRed(corner) == (corner == red), "\(type.identifier) \(orientation): \(corner)")
             }
@@ -181,7 +211,7 @@ struct PastedImageTests {
         #expect((read.width, read.height) == (240, 320))
         #expect(read.orientation == 1)
         #expect(read.isRed(.bottomLeft) && !read.isRed(.topRight), "turned 90° the right way")
-        #expect(read.location == [])
+        #expect(read.metadata == [])
     }
 
     /// A photo whose pixel size ImageIO cannot read is refused (the app says it could not be read),
