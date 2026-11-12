@@ -116,6 +116,21 @@ NESTABLE = (
     "command c1",
     "command -v c1 >/dev/null",
     "nice env sh -c 'c1'",
+    # A follow-up review of cmux#41624: an assignment eval runs (F1, a TypeError before), a $'...' string decoded as
+    # bash decodes it, and a shell's options read whole before its -c text: each o or O in a group takes the next
+    # word, and so do --rcfile and --init-file (F2).
+    "eval x=$'hello'",
+    "eval x=$'a' c1",
+    "eval $'c1; c2'",
+    "eval $'c1\\x20a'",
+    "bash -c $'c1\\nc2'",
+    "bash -co errexit 'c1; c2'",
+    "bash -oc errexit 'c1; c2'",
+    "bash -c -o errexit 'c1'",
+    "bash -cO extglob 'c1'",
+    "bash --rcfile /dev/null -c 'c1; c2'",
+    "bash --init-file /dev/null -c c1",
+    "bash --norc -c c1",
 )
 WHOLE = (
     "exec c1",
@@ -222,6 +237,8 @@ def tree_runs(text: str) -> list[str] | str:
         tree = shell_tree.parse(text)
     except shell_tree.Unparsed:
         return "shell_tree raised Unparsed"
+    except Exception as error:  # a crash on one line is that line's difference, never one that hides the others
+        return f"shell_tree raised {type(error).__name__}: {error}"
     found = set()
     for cmd in shell_tree.commands(tree):
         words = shell_tree.words_run(text, cmd)

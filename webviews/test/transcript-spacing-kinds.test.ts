@@ -35,6 +35,7 @@ import {
 } from "../src/agent-session/acpmux/transcriptSpacing";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { pinLiveTurnRuns } from "./support/liveTurnRuns";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
@@ -167,7 +168,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     await page.addInitScript(() => {
       globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "claude-turn-fold": "runs" };
     });
-    if (LIVE_RUNS_VARIANTS.has(variant)) await pinLiveTurnRuns(page);
+    if (LIVE_RUNS_VARIANTS.has(variant)) {
+      await pinLiveTurnRuns(page);
+      // This table measures adjacent status rows, with the retained clock-on-line look.
+      await pinArms(page, CLOCK_ON_LINE);
+    }
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
       `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1100, theme, reducedMotion: "true", exp: "background-turn-look", arm: "line" })}`,
@@ -179,6 +184,15 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     // Open "Ran 2 commands", as in Leo's capture, and let its fold and the rows under it settle.
     if (variant === VARIANT)
       await page.locator('[data-row-id="kinds-run"] button.cv-tool', { hasText: "Ran 2 commands" }).first().click();
+    if (variant === "working-bottom") {
+      // Finished work starts closed. Open it before measuring its last call against the next row.
+      const messages = page.locator('[data-row-id="messageRun-status-work"] button[data-message-run]');
+      if (await messages.count()) await messages.click();
+      const closed = page.locator(
+        '[data-row-id="status-work"] button:is([data-tool-run], [data-tool-group])[aria-expanded="false"]',
+      );
+      while (await closed.count()) await closed.first().click();
+    }
     await page.evaluate(async () => {
       const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
       const finite = () =>
@@ -257,9 +271,11 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       };
       const after = (row: Element | undefined, gap: number | null) =>
         gap == null ? null : Math.round((gap - below(row)) * 100) / 100;
-      const live = rows.find(
-        (row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"),
-      );
+      // The turn's live line at its bottom: with the clock on top (liveTurnClock.experiment.ts `top`),
+      // "Working for" over the work is an `acpmux-working` row too, and stands first.
+      const live = rows
+        .filter((row) => row.classList.contains("acpmux-thinking") || row.classList.contains("acpmux-working"))
+        .at(-1);
       const footer = document
         .querySelector('[data-row-id="received-footer"] .cv-turn-actions button svg')
         ?.getBoundingClientRect();
