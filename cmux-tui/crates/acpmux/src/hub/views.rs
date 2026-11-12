@@ -964,6 +964,10 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
 
+#[cfg(test)]
+#[path = "views_status_tests.rs"]
+mod status_tests;
+
 /// `true` when this daemon runs in the user's login session (its agents read the
 /// login keychain), `false` when it does not, `"unknown"` when its security session
 /// could not be read; null off macOS.
