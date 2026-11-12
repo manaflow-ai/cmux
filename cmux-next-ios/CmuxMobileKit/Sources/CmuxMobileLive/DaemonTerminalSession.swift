@@ -561,6 +561,30 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reattach, but the connection stays attached throughout. One at a time;
     /// a no-op while a key is on its way (it must not be sent twice), and
     /// against a daemon without `attach-replay-history-rows-v1`.
+    /// The Mac terminal's foreground program (`process-info`
+    /// `foreground_executable`, the foreground job leader's name), nil while
+    /// not attached, on a refusal or after ``processInfoDeadline``. One bounded
+    /// read, asked when the screen enters the alternate screen and when a drag
+    /// begins there (``TerminalPanRoute``).
+    public func foregroundProgram() async -> String? {
+        guard attached, let client else { return nil }
+        let surface = surface
+        do {
+            let reply = try await client.request("process-info", params: ["surface": surface], deadline: Self.processInfoDeadline)
+            if let error = Self.error(in: reply) {
+                log.notice("surface \(surface, privacy: .public): process-info refused: \(error, privacy: .public)")
+                return nil
+            }
+            return TerminalProcessInfo(reply: (try JSONSerialization.jsonObject(with: reply) as? [String: Any]) ?? [:]).foregroundExecutable
+        } catch {
+            log.notice("surface \(surface, privacy: .public): process-info failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// How long a drag's `process-info` may take (the Mac answers in one PTY query).
+    nonisolated static let processInfoDeadline: Duration = .seconds(1)
+
     public func loadOlderHistory() {
         guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
               let allowance = historyAllowance, inputInFlight == 0, let client else { return }

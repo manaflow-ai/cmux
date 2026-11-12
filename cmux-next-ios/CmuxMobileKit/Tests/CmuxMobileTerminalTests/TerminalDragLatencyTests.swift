@@ -53,9 +53,11 @@ import UIKit
         Self.check(missed: missed)
     }
 
-    /// The program the Mac reports (none before the route read it).
-    static func prepare(_ surface: TerminalSurfaceView) {}
+    /// The program the Mac reports for the terminal (`process-info`), which
+    /// the route reads; the harness before this route had no such step.
+    static func prepare(_ surface: TerminalSurfaceView) { surface.foregroundProgram = "less" }
 
-    static func check(missed: Int) {}
+    /// Every wheel scrolled less: one key each.
+    static func check(missed: Int) { #expect(missed == 0) }
 }
 #endif
