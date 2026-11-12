@@ -190,6 +190,7 @@ import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
+import { chatDrawn, happenedAfterOpen } from "./conversation/openBreakpoint";
 import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/transcriptHeights";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
@@ -2112,16 +2113,39 @@ function TranscriptView({
   loadFade.current ??= new LoadFadeWindow();
   if (sessionChanged) loadFade.current.clear();
   loadFade.current.phase(loading);
+  // The tick the reader opened this chat (a click into it, a restart's first load): what it held
+  // before is history and never enters; only what happened after it does (openBreakpoint.ts).
+  // Set once per open, so a StrictMode second render of the switch keeps the first one's.
+  // `settled`: the open's read landed and its cold fade is done; from then on what arrives is live.
+  const opened = useRef<
+    { session: string; at: number; drewBefore: boolean; drawn: Set<string>; settled: boolean } | undefined
+  >(undefined);
+  if (opened.current?.session !== sessionKey) {
+    const drewBefore = chatDrawn.drewAny(sessionKey);
+    opened.current = {
+      session: sessionKey,
+      at: Date.now(),
+      drewBefore,
+      drawn: chatDrawn.open(sessionKey),
+      settled: false,
+    };
+  }
+  const drawn = opened.current.drawn;
+  const openSettledBefore = opened.current.settled;
+  if (!loading && coldOpen === undefined && rows.length > 0) opened.current.settled = true;
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
   // Keyed by frame (model.ts `rowFrameKey`): a row drawn in a frame already on screen is not new.
   if (knownRows.current === null || sessionChanged) {
     const mounting = knownRows.current === null;
     knownRows.current = new Set(rows.map(rowFrameKey));
+    for (const row of rows) drawn.add(row.id);
     // An empty chat draws no transcript: it mounts with the first prompt the reader just sent (and
     // its thinking line), and those rows enter on the send's clock as every later prompt's do
     // (conversation.css SEND-ENTRANCE). A transcript mounted again over an older chat does not.
     if (
       mounting &&
+      // A transcript mounted again over rows this page drew for the chat is not a first send.
+      !opened.current.drewBefore &&
       sends > 0 &&
       coldOpen === undefined &&
       rows.length <= LIVE_ROWS_PER_UPDATE &&
@@ -2156,14 +2180,24 @@ function TranscriptView({
     for (let index = from; index < rows.length; index += 1) {
       const row = rows[index]!;
       const key = rowFrameKey(row);
-      if (knownRows.current.has(key) && !(row.below && index === rows.length - 1 && key !== liveBefore)) continue;
+      const nextLiveLine = row.below && index === rows.length - 1 && key !== liveBefore;
+      if (knownRows.current.has(key) && !nextLiveLine) continue;
+      knownRows.current.add(key);
+      // A row this page already drew for the chat, under another frame now (a reconnect's replay, a
+      // transcript cleared and refilled), draws in place: it is not news and does not fade again.
+      // The live line keeps one id from turn to turn, so a next turn's line counts by its time only.
+      const redrawn = drawn.has(row.id) && !nextLiveLine;
+      drawn.add(row.id);
+      if (redrawn) continue;
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
         if (olderLate) olderRows.current.add(row.id);
         else if (loadArrival) loadFade.current.arrive(row.id);
       } else if (loadArrival) loadFade.current.arrive(row.id);
-      else arrived.push(row);
-      knownRows.current.add(key);
+      // Until the open settles, history the chat held before the reader opened it (the read behind
+      // the first slice, a reconnect's replay) is not live: it draws in place (Leo, 2026-11-12:
+      // "you don't bother trying to replay the animations").
+      else if (openSettledBefore || happenedAfterOpen(row, opened.current.at)) arrived.push(row);
     }
     // A row that arrived while the chat is hidden (another tab or workspace shows), or that lands
     // before its first frame back, came while the user was away: it draws in place. WebKit
@@ -2485,6 +2519,8 @@ function TranscriptView({
   useEffect(() => () => stopReadingAloud(), [sessionId]);
   // A cold open's rows fade in on the first frame that draws them, before that frame paints.
   const fadedOpen = useRef<number | undefined>(undefined);
+  /// The open (`opened` above) whose cold fade played: a later cold open of the same open does not.
+  const fadedSession = useRef<typeof opened.current>(undefined);
   /// The chat switch motion's arm, read once per transcript (a changed arm applies on reload).
   const [switchArm] = useState(() => experimentArm(chatSwitchMotion));
   /// The fade running on this transcript. The transcript stays mounted across a switch, so a fade
@@ -2528,8 +2564,13 @@ function TranscriptView({
     if (coldOpen === undefined || rows.length === 0 || fadedOpen.current === coldOpen) return;
     fadedOpen.current = coldOpen;
     openFade.current?.cancel();
-    // A switch under a chat switch motion (chatSwitch.ts) is drawn by its own play instead.
-    openFade.current = switchPending.current ? undefined : fadeInOpenedChat(ref.current);
+    // A switch under a chat switch motion (chatSwitch.ts) is drawn by its own play instead. A chat
+    // this page already drew, or already faded in since it was opened, shows at once: a reload over
+    // it (a reconnect, a cleared and refilled transcript) is not a first load (openBreakpoint.ts).
+    const open = opened.current;
+    const shownBefore = open?.drewBefore === true || fadedSession.current === open;
+    fadedSession.current = open;
+    openFade.current = switchPending.current || shownBefore ? undefined : fadeInOpenedChat(ref.current);
     onColdOpenShown?.(coldOpen);
   }, [coldOpen, rows.length, onColdOpenShown]);
   const previousSession = useRef(sessionId);
