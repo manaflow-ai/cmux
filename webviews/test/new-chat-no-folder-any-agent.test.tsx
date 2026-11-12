@@ -10,6 +10,7 @@
 // home folder as the relay does (AcpmuxPathPolicy, `transport.path_outside_roots`) unless the host
 // named it as the start folder (the person answered Use Home Folder).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -79,6 +80,7 @@ afterEach(async () => {
 
 afterAll(async () => {
   (await import("../src/agent-session/acpmux/newtab/chatStore")).markMockPage(false);
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;
