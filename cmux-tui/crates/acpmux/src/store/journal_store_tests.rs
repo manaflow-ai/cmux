@@ -2057,6 +2057,28 @@ fn every_test_wait_on_a_hold_is_bounded() {
         "a test module's `mod child;` resolves to no file:\n{}",
         unresolved.join("\n")
     );
+    // #41842 review F1: a `}` in a raw string once cut hub/restart_resume.rs's test module
+    // short at line 1143, hiding the tests after it. The scan reads it to its last test.
+    let resume = files
+        .iter()
+        .find(|(path, _)| path == Path::new("hub/restart_resume.rs"))
+        .map(|(_, text)| text)
+        .expect("hub/restart_resume.rs is a source of the crate");
+    let last_fn = resume.rfind("fn ").map_or(0, |at| resume[..at].lines().count());
+    let mut modules = Modules::default();
+    modules_in(lex(resume), Path::new(""), Path::new(""), false, &mut modules);
+    let reached = modules
+        .bodies
+        .iter()
+        .filter_map(|body| body.clone().into_iter().last())
+        .map(|tt| tt.span().end().line)
+        .max()
+        .unwrap_or(0);
+    assert!(
+        last_fn > 1143 && reached >= last_fn,
+        "the scan read hub/restart_resume.rs's test module to line {reached}, not its last \
+         test at line {last_fn}"
+    );
     let mut found = Vec::new();
     let mut allowed_seen = vec![false; ALLOWED.len()];
     for (path, wait) in waits {
@@ -2686,6 +2708,10 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
         ("F2: an assert_eq! second argument", "assert_eq!(Ok(()), arrived.RECV);\n"),
         ("F2: an assert_eq! with a message", "assert_eq!(arrived.RECV, Ok(()), \"arrived\");\n"),
         ("F2: a blocking_recv argument", "consume(rx.blocking_RECV);\n"),
+        ("#41842 F2: a blocking_recv in assert!", "assert!(rx.blocking_RECV.is_some());\n"),
+        ("#41842 F2: a blocking_recv in assert_eq!", "assert_eq!(rx.blocking_RECV, Some(1));\n"),
+        ("#41842 F2: a recv as assert_eq!'s last argument", "assert_eq!(Ok(1), rx.RECV);\n"),
+        ("#41842 F2: a recv in a matches! in assert!", "assert!(matches!(rx.RECV, Ok(_)));\n"),
         ("F2: a blocking_recv handed to a timeout", "timeout(d, rx.blocking_RECV);\n"),
         ("sweep: a comparison", "let same = arrived.RECV == Ok(());\n"),
         ("sweep: a call's argument inside a timeout", "consume(timeout(d, wrap(rx.RECV)));\n"),
@@ -2717,6 +2743,12 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             "F1': a `{` in a char and a comment",
             "#[cfg(test)]\nmod tests {\n    // an open `{`\n    fn t() {\n        \
              let open = '{';\n        arrived.RECV.unwrap();\n    }\n}\n",
+        ),
+        (
+            "#41842 F1: a `}` in a string, a raw string and a comment (hub/restart_resume.rs)",
+            "#[cfg(test)]\nmod tests {\n    fn t() {\n        let a = \"}\";\n        \
+             let b = r#\"}\"#;\n        // }\n    }\n    fn u() {\n        \
+             arrived.RECV.unwrap();\n    }\n}\n",
         ),
         (
             "F1': a `}` in a string closes nothing",
@@ -2782,6 +2814,12 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
         ("F2: a join! call", "let (a, b) = tokio::join!(left.RECV, right.RECV);\n"),
         ("F2: a join call", "let (a, b) = futures::future::join(left.RECV, right.RECV).await;\n"),
         ("an awaited future", "let line = rx.RECV.await;\n"),
+        ("#41842 F2: an awaited future in assert_eq!", "assert_eq!(rx.RECV.await, Some(1));\n"),
+        (
+            "#41842 F2: an awaited future as assert_eq!'s last argument",
+            "assert_eq!(Some(1), rx.RECV.await);\n",
+        ),
+        ("#41842 F2: an awaited future in assert!", "assert!(rx.RECV.await.is_some());\n"),
         ("a release park", "let _ = release.RECV;\n"),
         ("a release park behind a lock", "let _ = self.release.lock().unwrap().RECV;\n"),
         (
