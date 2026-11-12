@@ -182,6 +182,16 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
           await press(page);
           const after = await read(page);
           console.log(
+            "DBG rows",
+            await page.evaluate(() => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              const top = scroller.getBoundingClientRect().top;
+              return [...document.querySelectorAll<HTMLElement>("[data-row-id]")]
+                .map((el) => `${el.dataset.rowId}@${Math.round(el.getBoundingClientRect().top - top)}`)
+                .join(" ");
+            }),
+          );
+          console.log(
             "DBG trace",
             (await page.evaluate(() => (window as unknown as { __dbg: string[] }).__dbg))
               .filter((_, i, all) => i < 40 || i % 10 === 0 || i === all.length - 1)
