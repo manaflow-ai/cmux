@@ -138,9 +138,63 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     else record("mux", step.mux, step.msg ?? {}, at);
   };
   const base = 1_791_000_000_000;
-  for (let turn = 0; turn < TURNS; turn++)
-    for (const step of loadTurn(turn, { diffLines: 60, logLines: 80 }))
-      recordStep(step, turn, base + turn * 60_000, `m-${turn}-${(step as { update?: unknown }).update ? "a" : "x"}`);
+  /// A shell the agent left running in the background (Claude's `run_in_background` Bash), as a
+  /// long-lived chat holds a few dozen of (Leo's, 2026-11-11: "glaeda-gh wait +24 more").
+  const backgroundShell = (id: string, command: string, at: number) => {
+    record(
+      "in",
+      "tool_call",
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: id,
+        title: command,
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command, run_in_background: true },
+        _meta: { claude: { tool: "Bash" } },
+      }),
+      at,
+    );
+    record(
+      "in",
+      "tool_call_update",
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: id,
+        status: "completed",
+        content: [{ type: "content", content: { type: "text", text: `Command running in background with ID: ${id}` } }],
+      }),
+      at,
+    );
+    record(
+      "in",
+      "background_task_update",
+      update({
+        sessionUpdate: "background_task_update",
+        taskId: `task-${id}`,
+        toolCallId: id,
+        command,
+        state: "running",
+      }),
+      at,
+    );
+  };
+  const BACKGROUND = 25;
+  for (let turn = 0; turn < TURNS; turn++) {
+    const at = base + turn * 60_000;
+    const steps = loadTurn(turn, { diffLines: 60, logLines: 80 });
+    steps.forEach((step, index) => {
+      // Every few turns, after the turn's read, a shell goes on in the background: the last ones
+      // fall in the newest page, the rest in the history before it.
+      if (
+        index === 4 &&
+        turn % Math.floor(TURNS / BACKGROUND) === 0 &&
+        turn / Math.floor(TURNS / BACKGROUND) < BACKGROUND
+      )
+        backgroundShell(`bg-${turn}`, `glaeda-gh wait run ${turn} --timeout 3600`, at);
+      recordStep(step, turn, at, `m-${turn}-${(step as { update?: unknown }).update ? "a" : "x"}`);
+    });
+  }
   const LIVE_TURN = TURNS;
   record("mux", "user_message", { text: `Turn ${LIVE_TURN}: now fix the last retry loop`, promptId: `p-${LIVE_TURN}` });
   record("mux", "turn_started", { turnId: `t-${LIVE_TURN}`, promptId: `p-${LIVE_TURN}` });
@@ -315,8 +369,24 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  /// Installs the per-frame row recorder before any pane script runs.
-  const installRecorder = (page: Page) =>
+  /// The turn fold's own reflow is not a load flip: under the shipped "answer" arm (#41213) a turn
+  /// that ends folds its earlier replies under "Worked for", the transcript gets shorter and the
+  /// prompt above scrolls back into view by design. This harness measures loading (open, reconnects,
+  /// paging, a cold restart), so every page it records pins the arm that keeps every reply, as #41213
+  /// pinned old arms in other suites; turn-fold-keeps-replies.test.ts covers the fold itself.
+  const pinFoldArm = (page: Page) =>
+    page.addInitScript(() => {
+      (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+        "turn-fold-replies": "replies",
+      };
+    });
+
+  /// Installs the fold pin and the per-frame row recorder before any pane script runs.
+  const installRecorder = async (page: Page) => {
+    await pinFoldArm(page);
+    await recordRows(page);
+  };
+  const recordRows = (page: Page) =>
     page.addInitScript(() => {
       type Seen = { el: number; visible: boolean; kind: "text" | "tool" };
       const ids = new WeakMap<Element, number>();
@@ -343,7 +413,18 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         lost: { text: [] as string[], tool: [] as string[] },
         rowsSeen: { text: new Set<string>(), tool: new Set<string>() },
         marks: [] as [string, number][],
+        // The restart detectors: the visible row set by frame (changes once rows show), frames that
+        // show the New Tab page, each row's fold state by frame, and the pending (background) count.
+        visibleSet: "",
+        setChanges: [] as number[],
+        newTab: [] as number[],
+        folds: new Map<string, [number, string][]>(),
+        pending: [] as [number, string][],
+        overlaps: [] as string[],
+        atBottom: false,
+        leftBottom: [] as string[],
       };
+      if ((window as unknown as { __settledArmed?: boolean }).__settledArmed) state.on = true;
       (window as unknown as { __settled: typeof state }).__settled = state;
       const read = (now: number) => {
         state.frames += 1;
@@ -425,6 +506,55 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
             entry.visible = false;
             if (state.on) entry.hiddenAfterShown = true;
           }
+        // The rows a reader sees, in order: a change once rows showed is the view reshaping.
+        const visibleIds = [...state.rows].filter(([, row]) => row.visible).map(([id]) => id);
+        const set = visibleIds.join(",");
+        if (set !== state.visibleSet) {
+          if (state.on && state.visibleSet !== "") state.setChanges.push(Math.round(now));
+          state.visibleSet = set;
+        }
+        // A pane with a chat that shows the New Tab page, for any frame.
+        if (state.on && state.firstRow !== undefined && document.querySelector(".nt-screen")) {
+          state.newTab.push(Math.round(now));
+          changed = true;
+        }
+        // Each visible row's folds (their open state), recorded when it changes.
+        for (const id of visibleIds) {
+          const el = scroller!.querySelector(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
+          if (!el) continue;
+          const sig = [...el.querySelectorAll("[aria-expanded]")].map((b) => b.getAttribute("aria-expanded")).join("");
+          const seen = state.folds.get(id) ?? [];
+          if (seen.at(-1)?.[1] !== sig) {
+            seen.push([Math.round(now), sig]);
+            state.folds.set(id, seen);
+            if (seen.length > 1) changed = true;
+          }
+        }
+        // The background tasks the composer counts (its tray's head, or its pull tab).
+        const tray = document.querySelector(".acpmux-running-tray__title, .acpmux-tray-pull__tab");
+        const count = tray?.textContent?.match(/\d+/)?.[0] ?? "";
+        if (count && state.pending.at(-1)?.[1] !== count) {
+          state.pending.push([Math.round(now), count]);
+          changed = true;
+        }
+        // No two drawn rows overlap (a stale measured height or place draws one over another).
+        if (state.on && !paneHidden) {
+          const boxes = [...scroller!.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
+            .filter((el) => !LIVE_LINES.has(el.getAttribute("data-row-id")!))
+            .map((el) => [el.getAttribute("data-row-id")!, el.getBoundingClientRect()] as const)
+            .filter(([, r]) => r.height > 0 && r.bottom > box!.top && r.top < box!.bottom)
+            .sort((x, y) => x[1].top - y[1].top);
+          for (let i = 1; i < boxes.length; i++)
+            if (boxes[i]![1].top < boxes[i - 1]![1].bottom - 2) {
+              state.overlaps.push(`${boxes[i - 1]![0]}/${boxes[i]![0]}@${Math.round(now)}`);
+              break;
+            }
+        }
+        // While the reader stays at the bottom, the newest row stays in view: the view never leaves it.
+        if (state.on && state.atBottom && scroller && !paneHidden) {
+          const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+          if (gap > 48) state.leftBottom.push(`${Math.round(gap)}px@${Math.round(now)}`);
+        }
         if (changed) state.lastChange = now;
       };
       // installPaintedFrames' init script ran first, so its frame reader is here already.
@@ -442,7 +572,15 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     remounts: { text: string[]; tool: string[] };
     lost: { text: string[]; tool: string[] };
     rowsSeen: { text: number; tool: number };
+    overlaps: string[];
+    leftBottom: string[];
+    pending: [number, string][];
   };
+  /// Whether the reader is at the bottom, for the stay-at-bottom detector.
+  const atBottom = (page: Page, on: boolean) =>
+    page.evaluate((value) => {
+      (window as unknown as { __settled: { atBottom: boolean } }).__settled.atBottom = value;
+    }, on);
   const snapshot = (page: Page) =>
     page.evaluate(() => {
       const s = (window as unknown as { __settled: any }).__settled;
@@ -454,6 +592,9 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         remounts: s.remounts,
         lost: s.lost,
         rowsSeen: { text: s.rowsSeen.text.size, tool: s.rowsSeen.tool.size },
+        overlaps: s.overlaps,
+        leftBottom: s.leftBottom,
+        pending: s.pending,
       } as Settled;
     });
   /// Counting on from now: a row visible now that hides and comes back is a flip.
@@ -522,16 +663,6 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
       try {
         await installPaintedFrames(page);
         await installRecorder(page);
-        // The turn fold's own reflow is not a load flip: under the shipped "answer" arm (#41213) a turn
-        // that ends folds its earlier replies under "Worked for", the transcript gets shorter and the
-        // prompt above scrolls back into view by design. This harness measures loading (open,
-        // reconnects, paging), so it pins the arm that keeps every reply, as #41213 pinned old arms in
-        // other suites; turn-fold-keeps-replies.test.ts covers the fold itself.
-        await page.addInitScript(() => {
-          (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
-            "turn-fold-replies": "replies",
-          };
-        });
         await page.goto(url());
         await page.mouse.move(0, 0);
         await arm(page, true);
@@ -542,6 +673,9 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         status = "idle";
         const openSettled = await settle(page);
         const open = await snapshot(page);
+        // The reader is at the newest message from here until they scroll up: it must stay in view
+        // through the prompt, the stream and the reconnect, as every new row comes in.
+        await atBottom(page, true);
 
         // The reader asks something; the reply streams; the connection resets mid-reply, the reply
         // goes on while the pane is away, and on after it is back.
@@ -584,6 +718,7 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
 
         // The reader goes up the chat (input: not counted) past what one attach page holds, which
         // pages older records in; reading there, the connection resets again.
+        await atBottom(page, false);
         await arm(page, false);
         const olderAsked = () => pagesAsked;
         const pagesBefore = olderAsked();
@@ -614,10 +749,14 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
           flips: { text: all.flips.text.length, tool: all.flips.tool.length },
           remounts: { text: all.remounts.text.length, tool: all.remounts.tool.length },
           lost: { text: all.lost.text.length, tool: all.lost.tool.length },
+          overlap_frames: all.overlaps.length,
+          left_bottom_frames: all.leftBottom.length,
           examples: {
             flips: [...all.flips.text.slice(0, 6), ...all.flips.tool.slice(0, 3)],
             remounts: [...all.remounts.text.slice(0, 6), ...all.remounts.tool.slice(0, 3)],
             lost: [...all.lost.text.slice(0, 6), ...all.lost.tool.slice(0, 3)],
+            overlaps: all.overlaps.slice(0, 4),
+            left_bottom: all.leftBottom.slice(0, 4),
           },
         };
         console.log(`settled-load: ${JSON.stringify(report)}`);
@@ -629,8 +768,141 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         expect(report.flips).toEqual({ text: 0, tool: 0 });
         expect(report.remounts).toEqual({ text: 0, tool: 0 });
         expect(report.lost).toEqual({ text: 0, tool: 0 });
+        // overlap_frames is reported, not yet gated: base draws the same few frames (a reply's last
+        // growth placing the turn footer under it a frame late), a separate root fix.
+        expect(report.left_bottom_frames).toBe(0);
       } finally {
         prompted = undefined;
+        await page.close();
+      }
+    },
+  );
+
+  // Leo, 2026-11-11 (a recording of his chat right after an app restart): "this is so wack idk wtf
+  // happened after restarting the loading is so wack". The first page reads the chat and leaves
+  // what the app host keeps of it (its tail, its reading place), as the app does on quit; a second
+  // page then opens it cold, as after the restart, from that and the daemon. From its first frame
+  // the rows a reader sees, their folds and the background count must be the settled ones, and no
+  // frame may show the New Tab page: later data only adds.
+  test.each(engines.map(([name]) => name))(
+    "%s: a long chat opened cold after a restart draws its settled rows, folds and count from the first frame",
+    async (name) => {
+      events.length = fixtureEnd;
+      liveAt = fixtureLiveAt;
+      record("mux", "turn_result", { status: "completed" });
+      status = "idle";
+      const kept = { tails: {}, anchors: {} };
+      const before = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+      try {
+        await before.addInitScript((value) => {
+          (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+        }, kept);
+        await installPaintedFrames(before);
+        await installRecorder(before);
+        await before.goto(url());
+        await before.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+        await settle(before);
+        // Quit: the page hands the host what it keeps (pagehide), as the app's quit does.
+        await before.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false })));
+        Object.assign(
+          kept,
+          await before.evaluate(() =>
+            JSON.parse(JSON.stringify((globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept)),
+          ),
+        );
+      } finally {
+        await before.close();
+      }
+      // SETTLED_LOAD_VIDEO=DIR records the cold open (the PR's before/after video).
+      const videoDir = process.env.SETTLED_LOAD_VIDEO;
+      const page = await browsers.get(name)!.newPage({
+        viewport: { width: 1200, height: 860 },
+        ...(videoDir ? { recordVideo: { dir: path.join(videoDir, name), size: { width: 1200, height: 860 } } } : {}),
+      });
+      try {
+        await page.addInitScript((value) => {
+          (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+          (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
+        }, kept);
+        await installPaintedFrames(page);
+        await installRecorder(page);
+        const navigated = Date.now();
+        await page.goto(url());
+        await page.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+        // The daemon restarted with the app and is still restoring its chats: the pane's connection
+        // drops and comes back a few times while the chat opens, and the background tasks restore.
+        for (let round = 0; round < 3; round++) {
+          const before = connections;
+          drop();
+          const deadline = Date.now() + 30_000;
+          while ((connections === before || attached.size === 0) && Date.now() < deadline)
+            await page.evaluate(() => window.cmuxPaintFrame());
+        }
+        const settledAt = await settle(page);
+        const result = await page.evaluate(() => {
+          const s = (window as unknown as { __settled: any }).__settled;
+          const folds: string[] = [];
+          for (const [id, seen] of s.folds as Map<string, [number, string][]>)
+            if (seen.length > 1)
+              folds.push(`${id}:${seen.map(([at, sig]: [number, string]) => `${sig || "-"}@${at}`).join(">")}`);
+          return {
+            frames: s.frames,
+            firstRow: s.firstRow,
+            setChanges: s.setChanges,
+            newTab: s.newTab,
+            folds,
+            pending: s.pending,
+            overlaps: s.overlaps,
+            flips: s.flips,
+            remounts: s.remounts,
+            rowsSeen: { text: s.rowsSeen.text.size, tool: s.rowsSeen.tool.size },
+          };
+        });
+        const report = {
+          engine: name,
+          case: "cold-restart",
+          kept_tail_records:
+            Object.values(kept.tails as Record<string, { events?: unknown[] }>)[0]?.events?.length ?? 0,
+          frames: result.frames,
+          first_row_ms: Math.round(result.firstRow ?? Number.NaN),
+          settled_ms: Math.round(settledAt),
+          wall_ms: Date.now() - navigated,
+          rows_seen: result.rowsSeen,
+          row_set_changes: result.setChanges.length,
+          fold_changes: result.folds.length,
+          new_tab_frames: result.newTab.length,
+          pending_changes: Math.max(0, result.pending.length - 1),
+          overlap_frames: result.overlaps.length,
+          flips: { text: result.flips.text.length, tool: result.flips.tool.length },
+          remounts: { text: result.remounts.text.length, tool: result.remounts.tool.length },
+          examples: {
+            row_set_changes: result.setChanges.slice(0, 8),
+            folds: result.folds.slice(0, 4),
+            pending: result.pending.slice(0, 8),
+            flips: [...result.flips.text.slice(0, 4), ...result.flips.tool.slice(0, 2)],
+            remounts: [...result.remounts.text.slice(0, 4), ...result.remounts.tool.slice(0, 2)],
+          },
+        };
+        console.log(`settled-load: ${JSON.stringify(report)}`);
+        expect(report.kept_tail_records).toBeGreaterThan(0);
+        expect(Number.isFinite(settledAt)).toBe(true);
+        expect(report.rows_seen.text).toBeGreaterThan(2);
+        expect({
+          row_set_changes: report.row_set_changes,
+          new_tab_frames: report.new_tab_frames,
+          pending_changes: report.pending_changes,
+          flips: report.flips,
+          remounts: report.remounts,
+        }).toEqual({
+          // fold_changes and overlap_frames are reported, not yet gated: base shows the same (the last
+          // turn footer's Timeline toggle goes while the connection is down), a separate root fix.
+          row_set_changes: 0,
+          new_tab_frames: 0,
+          pending_changes: 0,
+          flips: { text: 0, tool: 0 },
+          remounts: { text: 0, tool: 0 },
+        });
+      } finally {
         await page.close();
       }
     },
