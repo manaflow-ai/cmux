@@ -68,9 +68,10 @@ function Surface({
         maxWidth: look === "ships" ? "calc(100% - 16px)" : undefined,
         overflow: look === "ships" ? "hidden" : undefined,
         padding: frame(8, look, "inner"),
-        borderRadius: 10,
+        borderRadius: "var(--ui-popup-radius, 8px)",
         background: "var(--tsf-surface)",
-        boxShadow: "0 0 0 0.5px var(--tsf-edge), 0 4px 14px rgba(0, 0, 0, 0.18)",
+        boxShadow:
+          "0 0 0 0.5px var(--tsf-edge), var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent))",
         ...style,
       }}
     >
@@ -80,7 +81,7 @@ function Surface({
 }
 
 function Label({ children }: { children: ReactNode }) {
-  return <div style={{ color: "var(--tsf-muted)", fontSize: "var(--tsf-caption)", marginBottom: 6 }}>{children}</div>;
+  return <div style={{ color: "var(--tsf-muted)", fontSize: "var(--tsf-caption)", marginBottom: 8 }}>{children}</div>;
 }
 
 function TextSizeFollowGallery({ look, scheme, size }: Props) {
@@ -121,11 +122,11 @@ function TextSizeFollowGallery({ look, scheme, size }: Props) {
             style={{
               marginTop: frame(6, look, "inner"),
               height: frame(4, look, "inner"),
-              borderRadius: 2,
+              borderRadius: 999,
               background: colors.edge,
             }}
           >
-            <div style={{ width: "74%", height: "100%", borderRadius: 2, background: colors.accent }} />
+            <div style={{ width: "74%", height: "100%", borderRadius: 999, background: colors.accent }} />
           </div>
         </Surface>
       </section>

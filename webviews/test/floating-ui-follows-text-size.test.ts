@@ -39,7 +39,9 @@ function page(scale?: number, width = 1024, height = 768): Window {
 
 function setScale(view: Window, scale: number): void {
   view.document.documentElement.style.setProperty("--cmux-interface-scale", String(scale));
-  view.dispatchEvent(new view.Event(INTERFACE_SCALE_EVENT));
+  // The page's own Event: a JSDOM window takes only events of its own realm.
+  const PageEvent = (view as unknown as typeof globalThis).Event;
+  view.dispatchEvent(new PageEvent(INTERFACE_SCALE_EVENT));
 }
 
 const rect = (left: number, top: number, width = 80, height = 24) =>
