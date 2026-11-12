@@ -162,3 +162,46 @@ test("a transcript mounted again over a chat this page drew shows it at once", a
     await again.unmount();
   }
 });
+
+test("history that lands after the open has loaded still draws in place; only what came after the open enters", async () => {
+  const { host, render, unmount } = mount("breakpoint-late-history");
+  try {
+    const shown = [row("p1", "user", "First"), row("r1", "assistant", "First reply")];
+    await render(shown);
+    // The read is done and well past its load window, then two rows from before the open land.
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    await render([...shown, row("p2", "user", "Second"), row("r2", "assistant", "Second reply")]);
+    expect(animatedIds(host)).toEqual([]);
+  } finally {
+    await unmount();
+  }
+});
+
+test("a refill of the running turn does not play its live line's entrance again; the next turn's line enters", async () => {
+  const { host, render, unmount } = mount("breakpoint-live-line");
+  try {
+    const now = Date.now();
+    const prompt = row("prompt", "user", "Go", { at: now + 10 });
+    const line = (at: number) => row("liveThinking", "thinking", "", { at, below: true });
+    await render([prompt]);
+    await render([prompt, line(now + 10)]);
+    // The pane clears and refills the same running turn.
+    await render([]);
+    await render([prompt, line(now + 10)]);
+    expect(animatedIds(host).includes("liveThinking")).toBe(false);
+  } finally {
+    await unmount();
+  }
+});
+
+test("each chat remembers a bounded number of rows, the newest drawn kept", async () => {
+  const { ChatDrawn } = await import("../src/agent-session/acpmux/conversation/openBreakpoint");
+  const page = new ChatDrawn(2, 3);
+  const a = page.open("a");
+  for (const id of ["1", "2", "3", "4"]) a.add(id);
+  expect([a.has("1"), a.has("2"), a.has("4"), a.size]).toEqual([false, true, true, 3]);
+  page.open("b");
+  page.open("c");
+  // "a" was opened longest ago: past two chats it is forgotten.
+  expect(page.drewAny("a")).toBe(false);
+});

@@ -105,7 +105,8 @@ test("a row that arrives while the chat shows still enters", async () => {
     await act(async () => render(turns));
     await page.switchAwayAndBack();
     page.reset();
-    await act(async () => render([...turns, row("t3-user", "user", "Question 3")]));
+    // It happens now, after the chat was opened (a row from before the open never enters).
+    await act(async () => render([...turns, { ...row("t3-user", "user", "Question 3"), at: Date.now() }]));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(page.entrances().length).toBeGreaterThan(0);
   } finally {
