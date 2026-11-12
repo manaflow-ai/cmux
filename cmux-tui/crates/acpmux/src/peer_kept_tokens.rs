@@ -16,7 +16,11 @@ use crate::peer_last_good::{read_json, write_json};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, Weak};
+
+/// A runtime-only writer identity. A replacement gets a fresh identity even
+/// when its name, URL and currently kept tokens are all unchanged.
+pub(crate) struct Generation(Arc<()>);
 
 /// The file name in the acpmux home.
 pub const FILE_NAME: &str = "peer-tokens.json";
@@ -46,6 +50,8 @@ struct File {
 pub struct KeptTokens {
     path: Option<PathBuf>,
     peers: Mutex<BTreeMap<String, Entry>>,
+    // Always locked before `peers`, through the write and its atomic rename.
+    owners: Mutex<BTreeMap<String, (String, Weak<()>)>>,
 }
 
 impl std::fmt::Debug for KeptTokens {
@@ -70,7 +76,45 @@ impl KeptTokens {
             .filter(|file| file.version == VERSION)
             .map(|file| file.peers)
             .unwrap_or_default();
-        Self { path, peers: Mutex::new(peers) }
+        Self { path, peers: Mutex::new(peers), owners: Mutex::default() }
+    }
+
+    pub(crate) fn bind(&self, name: &str, url: &str) -> (Generation, Option<Tokens>) {
+        let mut owners = self.owners.lock().unwrap_or_else(|e| e.into_inner());
+        let generation = Generation(Arc::new(()));
+        owners.insert(name.to_owned(), (url.to_owned(), Arc::downgrade(&generation.0)));
+        (generation, self.get(name, url))
+    }
+
+    pub(crate) fn keep_current(
+        &self,
+        name: &str,
+        url: &str,
+        generation: &Generation,
+        tokens: &Tokens,
+    ) {
+        let owners = self.owners.lock().unwrap_or_else(|e| e.into_inner());
+        if owners.get(name).is_some_and(|(owner_url, owner)| {
+            owner_url == url && owner.ptr_eq(&Arc::downgrade(&generation.0))
+        }) {
+            self.keep(name, url, tokens);
+        }
+    }
+
+    pub(crate) fn forget_current(&self, name: &str, url: &str, generation: &Generation) {
+        let owners = self.owners.lock().unwrap_or_else(|e| e.into_inner());
+        if owners.get(name).is_some_and(|(owner_url, owner)| {
+            owner_url == url && owner.ptr_eq(&Arc::downgrade(&generation.0))
+        }) {
+            self.forget(name, url);
+        }
+    }
+
+    pub(crate) fn release(&self, name: &str, generation: &Generation) {
+        let mut owners = self.owners.lock().unwrap_or_else(|e| e.into_inner());
+        if owners.get(name).is_some_and(|(_, owner)| owner.ptr_eq(&Arc::downgrade(&generation.0))) {
+            owners.remove(name);
+        }
     }
 
     /// The tokens `name` read over `url`; none when it read them over another URL.
@@ -82,7 +126,7 @@ impl KeptTokens {
 
     /// Keep what `name` read over `url`; only a read with a peer token is kept
     /// (`peer_tokens.rs`). Written only when it changed.
-    pub fn keep(&self, name: &str, url: &str, tokens: &Tokens) {
+    fn keep(&self, name: &str, url: &str, tokens: &Tokens) {
         let Some(peer_token) = &tokens.1 else { return };
         let entry =
             Entry { url: url.to_owned(), token: tokens.0.clone(), peer_token: peer_token.clone() };
@@ -97,7 +141,7 @@ impl KeptTokens {
 
     /// Forget what `name` read over `url`: the remote no longer takes it, or it restarts. An
     /// entry another URL wrote (a replacement of the peer pointed elsewhere) stays.
-    pub fn forget(&self, name: &str, url: &str) {
+    fn forget(&self, name: &str, url: &str) {
         let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
         if peers.get(name).is_some_and(|entry| entry.url == url) {
             peers.remove(name);
@@ -110,6 +154,8 @@ impl KeptTokens {
     /// outlive it past the next start.
     pub fn retain<'a>(&self, configured: impl IntoIterator<Item = (&'a str, &'a str)>) {
         let configured: std::collections::BTreeSet<_> = configured.into_iter().collect();
+        let mut owners = self.owners.lock().unwrap_or_else(|e| e.into_inner());
+        owners.retain(|name, (url, _)| configured.contains(&(name.as_str(), url.as_str())));
         let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
         let before = peers.len();
         peers.retain(|name, entry| configured.contains(&(name.as_str(), entry.url.as_str())));

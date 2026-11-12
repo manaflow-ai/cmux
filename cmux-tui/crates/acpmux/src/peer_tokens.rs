@@ -14,7 +14,7 @@
 //! A peer of the hub keeps them on disk too (`peer_kept_tokens.rs`), so its daemon's next run
 //! starts with them and the same three cases read them again.
 
-use crate::peer_kept_tokens::KeptTokens;
+use crate::peer_kept_tokens::{Generation, KeptTokens};
 use crate::peer_last_good::LastGood;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -25,7 +25,7 @@ pub(crate) type Tokens = (String, Option<String>);
 pub(crate) struct TokenCache {
     tokens: Mutex<Option<Tokens>>,
     /// Where they are kept on disk, and under which peer name and URL (`back`).
-    disk: OnceLock<(Arc<LastGood>, String, String)>,
+    disk: OnceLock<(Arc<LastGood>, String, String, Generation)>,
 }
 
 impl TokenCache {
@@ -42,37 +42,44 @@ impl TokenCache {
         url: &str,
         usable: impl FnOnce(&Tokens) -> bool,
     ) {
-        match book.tokens.get(name, url) {
-            Some(kept) if usable(&kept) => {
-                let mut tokens = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
-                tokens.get_or_insert(kept);
+        self.disk.get_or_init(|| {
+            let (generation, kept) = book.tokens.bind(name, url);
+            match kept {
+                Some(kept) if usable(&kept) => {
+                    let mut tokens = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+                    tokens.get_or_insert(kept);
+                }
+                // A configured half now disagrees: what was kept is stale, so it leaves the file
+                // too, and is not presented again if that configuration is later removed.
+                Some(_) => book.tokens.forget_current(name, url, &generation),
+                None => {}
             }
-            // A configured half now disagrees: what was kept is stale, so it leaves the file
-            // too, and is not presented again if that configuration is later removed.
-            Some(_) => book.tokens.forget(name, url),
-            None => {}
-        }
-        let _ = self.disk.set((book, name.to_owned(), url.to_owned()));
+            (book, name.to_owned(), url.to_owned(), generation)
+        });
     }
 
-    fn kept(&self) -> Option<(&KeptTokens, &str, &str)> {
-        self.disk.get().map(|(book, name, url)| (&book.tokens, name.as_str(), url.as_str()))
+    fn kept(&self) -> Option<(&KeptTokens, &str, &str, &Generation)> {
+        self.disk.get().map(|(book, name, url, generation)| {
+            (&book.tokens, name.as_str(), url.as_str(), generation)
+        })
     }
 
     /// Kept only with a peer token (see the module note).
     pub(crate) fn keep(&self, tokens: &Tokens) {
         if tokens.1.is_some() {
-            *self.tokens.lock().unwrap_or_else(|e| e.into_inner()) = Some(tokens.clone());
-            if let Some((kept, name, url)) = self.kept() {
-                kept.keep(name, url, tokens);
+            let mut current = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+            *current = Some(tokens.clone());
+            if let Some((kept, name, url, generation)) = self.kept() {
+                kept.keep_current(name, url, generation, tokens);
             }
         }
     }
 
     pub(crate) fn forget(&self) {
-        *self.tokens.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        if let Some((kept, name, url)) = self.kept() {
-            kept.forget(name, url);
+        let mut current = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+        *current = None;
+        if let Some((kept, name, url, generation)) = self.kept() {
+            kept.forget_current(name, url, generation);
         }
     }
 
@@ -81,11 +88,19 @@ impl TokenCache {
     /// host are never kept as another's.
     pub(crate) fn carry(&self, from: &TokenCache) {
         let same_url = match (self.disk.get(), from.disk.get()) {
-            (Some((_, _, to)), Some((_, _, of))) => to == of,
+            (Some((_, _, to, _)), Some((_, _, of, _))) => to == of,
             _ => true,
         };
         if same_url && let Some(tokens) = from.get() {
             self.keep(&tokens);
+        }
+    }
+}
+
+impl Drop for TokenCache {
+    fn drop(&mut self) {
+        if let Some((kept, name, _, generation)) = self.kept() {
+            kept.release(name, generation);
         }
     }
 }
