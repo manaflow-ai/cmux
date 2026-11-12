@@ -81,7 +81,7 @@ final class ConnectionHeartbeat: Sendable {
             try WireCoding.encodeRequest(IdentifyRequest(), id: id)
         }) != nil
         let peerAlive = transport.peerProcessIsAlive
-        let step = state.withLock { cmux_heartbeat_tick(&$0, run, answered, Int64(limit), peerAlive) }
+        let step = state.withLock { cmux_heartbeat_tick(&$0, run, answered, Int64(clamping: limit), peerAlive) }
         switch step.action {
         case 1: // missed, and its daemon is not alive
             transport.close()
