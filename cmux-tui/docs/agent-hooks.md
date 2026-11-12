@@ -49,7 +49,8 @@ The monotonic clock is `CLOCK_MONOTONIC`, one system-wide clock per boot. On
 macOS that is `mach_continuous_time`, which counts while the Mac sleeps. An
 event with no monotonic stamp (an older hook helper, or a platform that gives
 no boot id) applies in journal order: the wall clock (`observed_at_ms`) is
-kept for the record and does not order events.
+kept for the record and does not order events. A boot id longer than 64
+bytes (a real one is a 36-character UUID) counts as none.
 
 ## Agents in a tmux session started elsewhere
 

@@ -339,6 +339,11 @@ pub(crate) fn hook_observed_at_ms(payload: &Value) -> Option<u64> {
         .and_then(|text| text.parse().ok())
 }
 
+/// The longest boot id a hook event may carry, in bytes. Linux and macOS boot
+/// ids are 36-character UUIDs; a longer one (from a remote hook) is dropped,
+/// so the event has no monotonic stamp and applies in journal order.
+pub(crate) const HOOK_BOOT_ID_MAX_BYTES: usize = 64;
+
 /// The order key of one hook event, as its hook stamped it: the monotonic
 /// clock of the machine that ran the hook (`boot_id`, `monotonic_ns`). One
 /// agent session runs on one machine, so its events compare on that
@@ -363,7 +368,9 @@ impl HookOrderStamp {
         let normalized = payload.get("normalized");
         let text = |key: &str| normalized.and_then(|value| value.get(key)).and_then(Value::as_str);
         Self {
-            boot_id: text("boot_id").filter(|boot| !boot.is_empty()).map(str::to_owned),
+            boot_id: text("boot_id")
+                .filter(|boot| !boot.is_empty() && boot.len() <= HOOK_BOOT_ID_MAX_BYTES)
+                .map(str::to_owned),
             monotonic_ns: text("monotonic_ns").and_then(|value| value.parse().ok()),
             observed_at_ms: hook_observed_at_ms(payload),
         }

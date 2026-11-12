@@ -2341,4 +2341,28 @@ mod tests {
 
         assert!(AgentRoster::restore(&snapshot).is_none());
     }
+
+    #[test]
+    fn hook_seq_an_old_roster_snapshot_still_restores() {
+        // A roster saved before the monotonic order: the fence kept the wall
+        // clock (`observed_at_ms`) and had no `order`.
+        let snapshot = json!({
+            "entries": {},
+            "hook_fences": {
+                "term_a": {
+                    "session_id": "order-1",
+                    "sequence": 4,
+                    "ended": false,
+                    "ended_at_ms": null,
+                    "observed_at_ms": 2_000
+                }
+            }
+        })
+        .to_string();
+        let roster = AgentRoster::restore(&snapshot).expect("an old roster snapshot restores");
+        let fence = &roster.hook_fences["term_a"];
+        assert_eq!((fence.session_id.as_str(), fence.sequence), ("order-1", 4));
+        // No monotonic stamp: the session's next event applies in journal order.
+        assert!(fence.order.is_empty());
+    }
 }
