@@ -146,6 +146,14 @@ export function joinedCaption(
  * reached through the mesh alone. */
 export const isLinked = (row: MachineRow) => !row.joined || row.id !== `joined:${row.joined.id}`;
 
+/** Mac and Cloud rows can open the shared-screen viewer. A joined macOS row carries the same ability. */
+export const canViewScreen = (row: MachineRow) =>
+  row.isConnected && (row.kind === "local" || row.kind === "cloud" || row.joined?.platform?.toLowerCase() === "macos");
+
+/** Sharing is a host action, so it is offered on this Mac and joined macOS hosts. */
+export const canShareScreen = (row: MachineRow) =>
+  row.isConnected && (row.kind === "local" || row.joined?.platform?.toLowerCase() === "macos");
+
 /** One line of the section, top to bottom. */
 export type SectionItem =
   | { type: "header"; key: string; title: string; first: boolean; team?: { name: string; personal: boolean } }

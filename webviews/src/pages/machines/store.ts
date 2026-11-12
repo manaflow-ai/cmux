@@ -105,6 +105,18 @@ export class MachinesStore {
     void this.client?.call(MachinesOps.newWorkspace, { machine }).catch(() => undefined);
   }
 
+  viewScreen(machine: string): void {
+    void this.client?.call(MachinesOps.viewScreen, { machine }).catch(() => undefined);
+  }
+
+  shareScreen(machine: string): void {
+    void this.client?.call(MachinesOps.shareScreen, { machine }).catch(() => undefined);
+  }
+
+  stopSharing(): void {
+    void this.client?.call(MachinesOps.stopSharing, {}).catch(() => undefined);
+  }
+
   addMachine(): void {
     void this.client?.call(MachinesOps.addMachine, {}).catch(() => undefined);
   }

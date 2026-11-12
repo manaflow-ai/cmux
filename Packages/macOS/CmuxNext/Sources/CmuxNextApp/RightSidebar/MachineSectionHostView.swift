@@ -21,6 +21,21 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
             rows: { MachineSectionRow.rows(machines, health: health, joined: joined) },
             style: { ServerTunables.machinesStyle.value }, joined: { joined },
             newWorkspace: { registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string($0)])) },
+            viewScreen: { machine in
+                services.openMacScreen(for: machine, in: services.windows.active?.focusedPane)
+                return true
+            },
+            shareScreen: { _ in
+                registry.perform("macScreen.shareThisMac") != nil
+            },
+            stopSharing: {
+                services.macScreenPages.hubHost.stopSession() != nil
+            },
+            screenSharing: {
+                services.macScreenPages.hubHost.session.map {
+                    MachineScreenSharing(viewerName: $0.viewerName, scope: $0.scope.rawValue, connected: $0.connected)
+                }
+            },
             addMachine: { registry.perform("device.add") }, present: { _, _ in },
             menu: { kind, row in Self.menu(kind, row: row, registry: registry) }, cloudTeam: { [weak cloud = services.cloud] in cloud.flatMap { TeamRowText.machinesTeam($0.auth) } }))
         section = provider.makeSection(joined: joined)

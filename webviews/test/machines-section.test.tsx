@@ -13,7 +13,7 @@ import table from "../src/pages/machines/generated/strings.json";
 import { MachinesSection } from "../src/pages/machines/MachinesSection";
 import { MockMachinesProvider, joinedRows, sampleRows, sampleSnapshot } from "../src/pages/machines/mockProvider";
 import { MachinesStore } from "../src/pages/machines/store";
-import type { MachinesSnapshot } from "../src/pages/machines/types";
+import { MachinesOps, type MachinesSnapshot } from "../src/pages/machines/types";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -119,6 +119,25 @@ test("New Workspace runs only on a connected row; Add Machine… runs device.add
     { machine: "fixture-cloud-1" },
   ]);
   expect(ops(provider, "cmux.machines.addMachine")).toHaveLength(1);
+});
+
+test("connected Mac and Cloud rows expose direct screen actions and the host bar stops in one click", async () => {
+  const { provider } = await mount({
+    ...sampleSnapshot,
+    rows: [sampleRows[0]!, sampleRows[1]!],
+    screenSharing: { viewerName: "Air Blue", scope: "full", connected: true },
+  });
+  const local = rowNamed("This Mac");
+  const cloud = rowNamed("atlas-web");
+  expect(local.querySelector('[aria-label="View screen"]')).not.toBeNull();
+  expect(local.querySelector('[aria-label="Share"]')).not.toBeNull();
+  expect(cloud.querySelector('[aria-label="View screen"]')).not.toBeNull();
+  act(() => local.querySelector<HTMLButtonElement>('[aria-label="View screen"]')!.click());
+  act(() => local.querySelector<HTMLButtonElement>('[aria-label="Share"]')!.click());
+  act(() => host.querySelector<HTMLButtonElement>(".machines-stop-sharing")!.click());
+  expect(ops(provider, MachinesOps.viewScreen).map((call) => call.params)).toEqual([{ machine: "local" }]);
+  expect(ops(provider, MachinesOps.shareScreen).map((call) => call.params)).toEqual([{ machine: "local" }]);
+  expect(ops(provider, MachinesOps.stopSharing)).toHaveLength(1);
 });
 
 test("a joined machine needs a link for New Workspace", async () => {
