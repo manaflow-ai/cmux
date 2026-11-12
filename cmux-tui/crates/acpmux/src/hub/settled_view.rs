@@ -201,7 +201,8 @@ impl Hub {
         let mut records = page.events;
         records.retain(|r| r.seq <= m.last_seq);
         let detail = self.session_summary(session);
-        let mut pending = session.permissions.lock().unwrap().pending_records();
+        let mut pending =
+            session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending_records();
         for p in &mut pending {
             p["personInstance"] = Value::String(self.person.instance().to_owned());
         }
