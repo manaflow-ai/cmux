@@ -91,4 +91,42 @@ import Testing
         let closed = try #require(shade.path)
         #expect(closed.contains(CGPoint(x: 120, y: 265), using: rule), "a deselected folder's hole stayed open")
     }
+
+    /// The tab row's divider takes over from the tone as the contrast drops (Leo, 2026-11-12: "THERE IS THE
+    /// DIVIDER"): none at the shipped contrast, half at 0.5, full at one colour.
+    @Test func theDividerStrengthGrowsAsTheContrastDrops() {
+        withContrast(1) { #expect(Metrics.tabRowDividerStrength == 0) }
+        withContrast(1.5) { #expect(Metrics.tabRowDividerStrength == 0) }
+        withContrast(0.5) { #expect(abs(Metrics.tabRowDividerStrength - 0.5) < 1e-9) }
+        withContrast(0) { #expect(Metrics.tabRowDividerStrength == 1) }
+    }
+
+    /// The divider runs along the card's top between its rounded corners; a square corner (the first tab
+    /// selected, or the one-colour pill look) lets it reach the edge.
+    @Test func theDividerLineSpansTheCardTopBetweenItsCorners() {
+        let card = CGRect(x: 10, y: 10, width: 380, height: 240)
+        #expect(CornerFlushChrome.dividerLine(card: card, radius: 12, squareLeading: false) == CGRect(x: 22, y: 250, width: 356, height: 0))
+        #expect(CornerFlushChrome.dividerLine(card: card, radius: 12, squareLeading: true) == CGRect(x: 10, y: 250, width: 368, height: 0))
+        #expect(CornerFlushChrome.dividerLine(card: card, radius: 0, squareLeading: true) == CGRect(x: 10, y: 250, width: 380, height: 0))
+    }
+
+    /// The divider's hairline sits on the card's top under the unselected tabs and leaves the selected folder
+    /// tab out, so the folder still opens into the content; at the shipped contrast there is no line at all.
+    @Test func theDividerLeavesTheFolderTabOut() throws {
+        let view = MainPaneChromeShadeView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        let card = CGRect(x: 10, y: 10, width: 380, height: 240)
+        let folder = CGPath(rect: CGRect(x: 60, y: 240, width: 120, height: 40), transform: nil)
+        let divider = CornerFlushChrome.dividerLine(card: card, radius: 12, squareLeading: false)
+        let line = try #require(view.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.last)
+        try withContrast(0.5) {
+            view.update(card: card, radius: 12, alpha: 0.14, folders: [folder], divider: divider)
+            let path = try #require(line.path, "no divider at contrast 0.5")
+            #expect(path.contains(CGPoint(x: 300, y: 250.2), using: .evenOdd), "no divider under the unselected tabs")
+            #expect(!path.contains(CGPoint(x: 120, y: 250.2), using: .evenOdd), "the divider crosses the folder tab")
+        }
+        withContrast(1) {
+            view.update(card: card, radius: 12, alpha: 0.28, folders: [folder], divider: divider.offsetBy(dx: 1, dy: 0))
+            #expect(line.path == nil, "the shipped contrast drew a divider")
+        }
+    }
 }

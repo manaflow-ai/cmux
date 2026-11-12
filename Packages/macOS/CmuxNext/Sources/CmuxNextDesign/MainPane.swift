@@ -144,6 +144,15 @@ extension Metrics {
     /// still clears it; under it the tab keeps the selection fill.
     public static let folderTabMinimumShade: CGFloat = 0.02
 
+    /// How strongly the tab row's divider draws (a share of `Palette.separator`): the line takes over from the
+    /// tone as `appearance.titleAreaContrast` drops, so the tab row stays marked at any contrast. 0 at a
+    /// contrast of 1 or more (the shipped look, no line), 1 at a contrast of 0 (one colour: the line and the
+    /// selected tab's pill are the only separation). Leo, 2026-11-12: "THERE IS THE DIVIDER THERE ARE WAYS TO
+    /// MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
+    public static var tabRowDividerStrength: CGFloat {
+        min(1, max(0, 1 - DesignSettings.shared.titleAreaContrast))
+    }
+
     /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the
     /// separate look only under `appearance.sidebarSurface` separate (the
     /// default shares the pane's surface, `SidebarSurface`); 0 when the pane

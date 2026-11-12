@@ -194,7 +194,9 @@ public final class CornerFlushChrome: NSView {
         if content.superview === root, superview !== root || root.subviews.firstIndex(of: self) != (root.subviews.firstIndex(of: content) ?? 0) + 1 {
             root.addSubview(self, positioned: .above, relativeTo: content)
         }
-        guard on, alpha > 0, radius > 0, superview === root else {
+        // A shade of 0 (`appearance.titleAreaContrast` 0, one colour) still draws here: the tab row keeps its
+        // divider, and the selected tab its pill (``redraw()``).
+        guard on, Metrics.mainPaneChromeShadeBase(isDark: isDark) > 0, radius > 0, superview === root else {
             isHidden = true
             markTopRow(card: nil, in: root)
             shade.update(card: card, radius: radius, alpha: alpha)
@@ -226,6 +228,18 @@ public final class CornerFlushChrome: NSView {
             shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha)
             return
         }
+        // Under the least shade that sets the content apart (a title area contrast near 0: the tab row in the
+        // content's own colour), a tab in the content's colour would vanish into the row: the selected tab keeps
+        // its pill (`Palette.selectionFill`), the content its four round corners, and only the divider marks the
+        // row's edge. Lawrence's single colour with a highlighted tab.
+        guard drawn.alpha >= Metrics.folderTabMinimumShade else {
+            wedges.path = nil
+            markTopRow(card: nil, in: root)
+            if let content { Self.roundBottomOnly(content, false) }
+            shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha,
+                          divider: Self.dividerLine(card: card, radius: 0, squareLeading: true))
+            return
+        }
         if let content { Self.roundBottomOnly(content, true) }
         markTopRow(card: card, in: root)
         let square = leadingTabSelected(card: card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
@@ -233,7 +247,20 @@ public final class CornerFlushChrome: NSView {
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
         shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square,
-                      folders: drawn.alpha >= Metrics.folderTabMinimumShade ? folderHoles(card: card, in: root) : [])
+                      folders: folderHoles(card: card, in: root),
+                      divider: Self.dividerLine(card: card, radius: drawn.radius, squareLeading: square && drawn.sidebarOnLeft,
+                                                squareTrailing: square && !drawn.sidebarOnLeft))
+    }
+
+    /// The tab row's divider: the card's top edge (maxY is the top) between its rounded corners, as a rect of no
+    /// height (`MainPaneChromeShadeView` gives it a hairline's thickness and leaves the selected folder tabs out,
+    /// so the line runs under the unselected tabs and ends where a folder's fillet curves into the content).
+    /// `radius` 0: the whole width (the pill look, whose card top is the tab row's top). Leo, 2026-11-12, on the
+    /// two tones: "THERE IS THE DIVIDER THERE ARE WAYS TO MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
+    static func dividerLine(card: CGRect, radius: CGFloat, squareLeading: Bool, squareTrailing: Bool = false) -> CGRect {
+        let r = min(radius, card.width / 2, card.height / 2)
+        let minX = card.minX + (squareLeading ? 0 : r), maxX = card.maxX - (squareTrailing ? 0 : r)
+        return CGRect(x: minX, y: card.maxY, width: max(0, maxX - minX), height: 0)
     }
 
     /// The selected folder tabs of the strips on the card's top row, in the shade's coordinates: the
