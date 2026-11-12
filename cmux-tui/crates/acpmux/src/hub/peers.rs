@@ -24,11 +24,13 @@ impl PeerNoticeProjectionHook {
         })
     }
 
+    /// Waits, with a bound, for the projection to reach the hook; a test fails instead of
+    /// hanging when it never does.
     pub(crate) fn wait_reached(&self) {
-        let mut reached = self.reached.0.lock().unwrap_or_else(|e| e.into_inner());
-        while !*reached {
-            reached = self.reached.1.wait(reached).unwrap_or_else(|e| e.into_inner());
-        }
+        assert!(
+            self.wait_reached_timeout(std::time::Duration::from_secs(30)),
+            "the peer notice projection never reached its hold"
+        );
     }
 
     pub(crate) fn wait_reached_timeout(&self, timeout: std::time::Duration) -> bool {
@@ -840,52 +842,43 @@ impl Hub {
                                     .iter()
                                     .cloned(),
                             );
+                            // The rows themselves, shared with the table: no summary is copied.
                             let map = self.remote_sessions.settled();
                             (
                                 map.of_peer(&peer)
-                                    .map(|(id, r)| (id.clone(), r.summary.clone()))
+                                    .map(|(id, r)| (id.clone(), Arc::clone(r)))
                                     .collect::<HashMap<_, _>>(),
                                 epoch,
                                 purged,
                             )
                         };
-                        let mut listed_rows = Vec::new();
-                        let mut updates = Vec::new();
+                        // Each row is parsed from its text here, one at a time, so a list is
+                        // never held parsed whole. A row that is not an object is skipped.
+                        let mut listed = Vec::new();
                         let mut changed = Vec::new();
-                        for s in &list {
-                            let summary = Self::remote_summary(&peer, s.clone());
+                        for text in &list {
+                            let Ok(s) = serde_json::from_str::<Value>(text) else { continue };
+                            let summary = Self::remote_summary(&peer, s);
                             let Some(receipt) = session_receipt(&summary) else { continue };
                             if purged.contains(&receipt.mux_session_id) {
                                 continue;
                             }
                             let id = receipt.qualified_id();
                             let previous = old.remove(&id);
-                            let summary = Self::retain_summary_tools(summary, previous.as_ref());
-                            if previous.as_ref() != Some(&summary) {
-                                changed.push(summary.clone());
-                                updates.push((
-                                    id.clone(),
-                                    RemoteSession {
-                                        peer: peer.clone(),
-                                        summary: summary.clone(),
-                                        receipt: receipt.clone(),
-                                    },
-                                ));
+                            let previous = previous.as_ref().map(|r| &r.summary);
+                            let summary = Self::retain_summary_tools(summary, previous);
+                            listed.push((
+                                receipt.mux_session_id.clone(),
+                                summary.get("createdAt").and_then(Value::as_u64),
+                            ));
+                            if previous != Some(&summary) {
+                                // One row for the table and the announcement both.
+                                let row = RemoteSession { peer: peer.clone(), summary, receipt };
+                                changed.push((id, Arc::new(row)));
                             }
-                            listed_rows
-                                .push((id, RemoteSession { peer: peer.clone(), summary, receipt }));
                         }
                         let gone_ids = old.keys().cloned().collect::<Vec<_>>();
                         let gone = old.into_values().collect::<Vec<_>>();
-                        let listed = listed_rows
-                            .iter()
-                            .map(|(_, r)| {
-                                (
-                                    r.receipt.mux_session_id.clone(),
-                                    r.summary.get("createdAt").and_then(Value::as_u64),
-                                )
-                            })
-                            .collect::<Vec<_>>();
                         #[cfg(test)]
                         self.pause_after_peer_session_projection_for_test();
                         let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
@@ -903,8 +896,8 @@ impl Hub {
                         for id in gone_ids {
                             map.remove(&id);
                         }
-                        for (id, row) in updates {
-                            map.insert(id, row);
+                        for (id, row) in &changed {
+                            map.insert_shared(id.clone(), Arc::clone(row));
                         }
                         if !changed.is_empty() || !gone.is_empty() {
                             current
@@ -931,11 +924,12 @@ impl Hub {
                     // notice. The throttle admits one snapshot per interval; disconnect/drop
                     // paths still call with `now = true` for the final state.
                     self.save_peer_cache(&peer, generation, false);
-                    for summary in changed {
-                        self.announce_remote(&peer, summary, "status");
+                    // Each summary copied as it is announced, one at a time.
+                    for (_, row) in changed {
+                        self.announce_remote(&peer, row.summary.clone(), "status");
                     }
-                    for summary in gone {
-                        self.announce_remote(&peer, summary, "purged");
+                    for row in gone {
+                        self.announce_remote(&peer, row.summary.clone(), "purged");
                     }
                     // Its live asks that came before this list.
                     self.release_held_peer_asks(&peer, generation);

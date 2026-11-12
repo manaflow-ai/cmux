@@ -133,8 +133,16 @@ public final class DaemonTerminalSession: TerminalSession {
     /// reach the shell after the rest was dropped (r13 review).
     private var refusingInput = false
     /// How long typed keys may wait for the terminal (a blip) before they
-    /// are dropped and the screen is told (seconds).
-    public static let inputHoldLimit: TimeInterval = 2
+    /// are dropped and the screen is told (seconds). An LTE handover or a
+    /// relay reconnect takes a few seconds; 2 s dropped the keys of most
+    /// blips and said so (Leo, 2026-11-12, on LTE: "thjs chatters too often
+    /// with connectivity"). 10 s rides those out and still never runs a
+    /// command long after it was typed (termfix-r13 D5).
+    public static let inputHoldLimit: TimeInterval = 10
+    /// At most this many typed bytes wait for a detached terminal; past it
+    /// the queue is dropped as an expired one is (a long paste into a dead
+    /// link is not replayed whole into whatever runs when it comes back).
+    public static let inputHoldBytes = 16 * 1024
     /// The clock the hold is measured on (tests inject one).
     var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     /// A `send` is being written (writes go one after another, in order).
@@ -293,6 +301,10 @@ public final class DaemonTerminalSession: TerminalSession {
             return
         }
         input.append((bytes, now(), !attached, true))
+        if !attached, input.reduce(0, { $0 + $1.bytes.count }) > Self.inputHoldBytes {
+            dropDetachedInput(reason: "more than \(Self.inputHoldBytes) bytes waited for the terminal")
+            return
+        }
         if attached {
             scheduleInputDrain()
             noteInteraction()
@@ -341,13 +353,18 @@ public final class DaemonTerminalSession: TerminalSession {
     private func expireInput() {
         let cutoff = now() - Self.inputHoldLimit
         guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
+        dropDetachedInput(reason: "the terminal was unreachable for longer than \(Self.inputHoldLimit) s")
+    }
+
+    /// Drops every queued key, refuses input until the next attach, and tells the screen.
+    private func dropDetachedInput(reason: String) {
         let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         input.removeAll()
         // Only terminal replies were waiting: nothing the person typed was
         // lost, so typing goes on and the screen says nothing.
         guard bytes > 0 else { return }
         if !attached { refusingInput = true }
-        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
+        log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (\(reason, privacy: .public))")
         handler?(.inputNotSent(bytes: bytes))
     }
 
@@ -732,6 +749,9 @@ public final class DaemonTerminalSession: TerminalSession {
             heldEvents = nil
             for event in held { apply(event) }
             attachRetries = 0
+            // Keys held past the limit (the app was suspended) are dropped and said before
+            // the screen hears `.attached`, which forgets a held composer send.
+            expireInput()
             attached = true
             settleReclaimHold()
             refusingInput = false
