@@ -638,7 +638,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         func line(_ tag: String?) -> String { [chiefWord, tag].compactMap { $0 }.joined(separator: " \u{00B7} ") }
         func entry(_ id: String, _ name: String, _ avatar: String, _ detail: String,
                    _ kind: HomeRecipientEntry.Kind, _ activity: Date?) -> HomeRecipientEntry {
-            HomeRecipientEntry(contact: ConversationContact(id: id, name: name, initials: avatar, colorHex: "#636366", handles: [], detail: detail),
+            HomeRecipientEntry(contact: ConversationContact(id: id, name: name, initials: avatar, colorHex: "#636366",
+                                                            handles: [HomeNewMessageDirectory.cmuxHandle], detail: detail),
                                kind: kind, activity: activity)
         }
         var chiefs: [HomeRecipientEntry] = []

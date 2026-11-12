@@ -325,7 +325,8 @@ final class HomeNewMessageDirectory: ConversationDirectory, ConversationComposeL
     static func addressEntry(_ address: String, isEmail: Bool) -> HomeRecipientEntry {
         HomeRecipientEntry(
             contact: ConversationContact(id: "address:\(address)", name: address, initials: isEmail ? "@" : "#", colorHex: "#8E8E93",
-                                         handles: [], detail: isEmail ? String(localized: "Email") : String(localized: "Phone")),
+                                         handles: [ConversationContactHandle(value: address, label: "", service: isEmail ? .iMessage : .sms)],
+                                         detail: isEmail ? String(localized: "Email") : String(localized: "Phone")),
             kind: .address(address, isEmail: isEmail)
         )
     }
@@ -378,10 +379,14 @@ final class HomeNewMessageDirectory: ConversationDirectory, ConversationComposeL
     static func teammate(id: String, name: String) -> HomeRecipientEntry {
         HomeRecipientEntry(
             contact: ConversationContact(id: "team:\(id)", name: name, initials: homeInitials(name), colorHex: "#8E8E93",
-                                         handles: [], detail: String(localized: "Team")),
+                                         handles: [cmuxHandle], detail: String(localized: "Team")),
             kind: .teammate(participant: id)
         )
     }
+
+    /// Everyone Home lists is reached in cmux: a blue token, as Messages draws an iMessage recipient
+    /// (a contact with no iMessage handle would draw green, SMS).
+    static let cmuxHandle = ConversationContactHandle(value: "cmux", label: "", service: .iMessage)
 
     /// The Cloud's participant id for a Stack user id (`user_<id>`).
     static func participantID(_ user: String) -> String {

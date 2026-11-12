@@ -265,7 +265,8 @@ public final class ConversationComposeViewController: UIViewController {
         case .sms: String(localized: "conversation.compose.service.sms", defaultValue: "Text Message • SMS", bundle: .module)
         case .iMessage, nil: "iMessage"
         }
-        let hidden = service == nil || !session.rows.isEmpty || existingController != nil || !notice.isHidden
+        // cmux Home (a listing) has no service line: its people are not reached over iMessage or SMS.
+        let hidden = service == nil || session.listing != nil || !session.rows.isEmpty || existingController != nil || !notice.isHidden
         serviceTitle.isHidden = hidden
         serviceSubtitle.isHidden = hidden
     }
