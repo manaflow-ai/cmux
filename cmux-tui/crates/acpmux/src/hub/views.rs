@@ -1058,3 +1058,7 @@ mod time_breakdown_tests {
         assert_eq!(summary["timeBreakdown"]["totalTokens"], 12);
     }
 }
+
+#[cfg(test)]
+#[path = "views_status_budget_tests.rs"]
+mod status_budget_tests;
