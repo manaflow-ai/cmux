@@ -2149,3 +2149,10 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
 - 2026-11-11 (a1074, Lawrence 8:04 PM "spacing here is not consistent anymore either"): Home to the first pin and pin
   to pin step at the workspace rows' pitch at every density. Sidebar-Look: Home, pinned rows and the Workspaces heading keep one row pitch.
+- 2026-11-12 (#41935): in Two-Tone the sidebar's edge line runs beside the curved card, not only in the titlebar band.
+  On a shaded chrome (`appearance.sidebarSurface` separate) the card's edge is a 0.02 light / 0.12 dark shade and did
+  not read as the seam; the same-surface curved styles keep the line in the band. The workspace hover card is smaller:
+  18 titles wide by default (232 pt at a 12 pt title), 24 at its widest (a tab's detail line reads whole), six history rows before it scrolls. Tests:
+  `SidebarPaneGapTests.twoToneDrawsTheSidebarLineBesideTheCard`, `TwoToneWindowStyleTests`, `SidebarHoverCardSizeTests`.
+  Sidebar-Look: Leo 2026-11-12, "in two-tone mode, it, like, the one between the sidebar and the transcript disappears
+  for some reason" and "the hover previews for the sidebar are still just too big".
