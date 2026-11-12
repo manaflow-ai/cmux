@@ -317,6 +317,9 @@ pub struct Inputs {
     /// Sessions get cmux's hosted MCP server with the signed-in person's tools
     /// (`hosted_mcp.rs`): [`crate::hosted_mcp::SWITCH_ENV`] is `1` (default off).
     pub hosted: bool,
+    /// Sessions get GitHub's own MCP server through the team's cmux GitHub connection
+    /// (`github_mcp.rs`): on a cmux Cloud machine whose Cloud agent mints GitHub tokens.
+    pub github: bool,
 }
 
 /// The acpmux command word of the helper v2 bridge (`acpmux cua-mcp`).
@@ -358,6 +361,7 @@ impl Inputs {
             displays: crate::agent_displays::per_workspace()
                 .then(|| crate::agent_displays::dir(&crate::config::home())),
             hosted: crate::hosted_mcp::enabled(),
+            github: crate::github_mcp::available(),
         }
     }
 }
@@ -586,8 +590,8 @@ pub fn mcp_config_path(home: &Path, session_id: &str) -> PathBuf {
 /// Remove the session's MCP config when the session ends.
 pub fn remove_mcp_config(home: &Path, session_id: &str) {
     let path = mcp_config_path(home, session_id);
-    let _ = std::fs::remove_file(crate::bg_hook::denied_path(&path));
-    let _ = std::fs::remove_file(path);
+    let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(&path));
+    let _ = crate::home_fs::remove_file(path);
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
@@ -716,6 +720,16 @@ fn resolve_with_cua_helper(
             name: crate::acpmux_mcp::SERVER_NAME.into(),
             command: acpmux.exe.clone(),
             args: acpmux.args_lossy(&["acpmux-mcp"]),
+            env: vec![],
+        });
+    }
+    if let (true, Some(acpmux)) = (inputs.github, &inputs.acpmux) {
+        // GitHub's own MCP server through the team's GitHub connection (`github_mcp.rs`): the
+        // machine's Cloud agent mints each call's token; nothing goes in its env.
+        servers.push(McpServer {
+            name: crate::github_mcp::SERVER_NAME.into(),
+            command: acpmux.exe.clone(),
+            args: acpmux.args_lossy(&["github-mcp"]),
             env: vec![],
         });
     }
@@ -1072,9 +1086,9 @@ impl AgentTools {
         let mut args = Vec::new();
         // Each launch starts the hook's turned-away calls afresh: one from a launch with other
         // servers is not a retry in this one.
-        let _ = std::fs::remove_file(crate::bg_hook::denied_path(config_file));
+        let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(config_file));
         if self.servers.is_empty() {
-            let _ = std::fs::remove_file(config_file);
+            let _ = crate::home_fs::remove_file(config_file);
         }
         if let Some(config) = self.mcp_config() {
             match write_private(config_file, config.to_string().as_bytes()) {
@@ -1085,7 +1099,7 @@ impl AgentTools {
                 // Never fall back to inline JSON: that puts the token in argv. An earlier
                 // launch's file goes too, so the hook never reads servers this one lacks.
                 Err(e) => {
-                    let _ = std::fs::remove_file(config_file);
+                    let _ = crate::home_fs::remove_file(config_file);
                     tracing::warn!(
                         "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
                         config_file.display()
@@ -1106,22 +1120,26 @@ impl AgentTools {
 #[cfg(unix)]
 pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
-    // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`).
+    // A request during a lost home's shutdown never makes it again (`config::mark_home_lost`),
+    // and the file goes through the folder this daemon holds (`home_fs`): a home replaced after
+    // the check never gets it.
     crate::config::refuse_lost_home(path)?;
     let dir = path.parent().ok_or_else(|| anyhow::anyhow!("no parent folder"))?;
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    crate::home_fs::create_dir_all(dir, 0o700)?;
+    crate::home_fs::set_mode(dir, 0o700)?;
     let tmp = dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
     let written = (|| -> std::io::Result<()> {
-        let mut f =
-            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)?;
+        let mut f = crate::home_fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)?;
         f.write_all(bytes)?;
         f.sync_all()?;
-        std::fs::rename(&tmp, path)
+        crate::home_fs::rename(&tmp, path)
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     Ok(written?)
 }
@@ -1203,8 +1221,10 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
     if dir.join(".claude-plugin/plugin.json").is_file() {
         return Ok(dir);
     }
+    // Written through the folder this daemon holds (`home_fs`): a home replaced after the check
+    // never gets the plugin.
     crate::config::refuse_lost_home(state_dir)?;
-    std::fs::create_dir_all(state_dir)?;
+    crate::home_fs::create_dir_all(state_dir, 0o777)?;
     let tmp = state_dir.join(format!(".tmp-{}", uuid::Uuid::now_v7()));
     let manifest = json!({
         "name": PLUGIN_NAME,
@@ -1217,19 +1237,19 @@ fn materialize(state_dir: &Path, keep: impl Fn(&str) -> bool) -> anyhow::Result<
     for (path, text) in files {
         let file = tmp.join(path);
         if let Some(parent) = file.parent() {
-            std::fs::create_dir_all(parent)?;
+            crate::home_fs::create_dir_all(parent, 0o777)?;
         }
-        std::fs::write(file, text)?;
+        crate::home_fs::write_synced(&file, text.as_bytes())?;
     }
-    match std::fs::rename(&tmp, &dir) {
+    match crate::home_fs::rename(&tmp, &dir) {
         Ok(()) => Ok(dir),
         // Another spawn wrote the same content first.
         Err(_) if dir.join(".claude-plugin/plugin.json").is_file() => {
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = crate::home_fs::remove_dir_all(&tmp);
             Ok(dir)
         }
         Err(e) => {
-            let _ = std::fs::remove_dir_all(&tmp);
+            let _ = crate::home_fs::remove_dir_all(&tmp);
             Err(e.into())
         }
     }

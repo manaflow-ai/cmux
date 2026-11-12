@@ -267,8 +267,8 @@ pub(super) fn open_read_target(_t: &ReadTarget) -> std::io::Result<std::fs::File
 #[cfg(unix)]
 pub(super) fn write_approved(target: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let mut file = std::fs::OpenOptions::new()
+    use std::os::unix::fs::MetadataExt;
+    let mut file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(false)

@@ -221,6 +221,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
+    // `diagnostics.usagePatterns`. Counts and kinds only, never prompt or tool text.
+    let _ = cmux_usage_patterns::install("acpmux");
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
     #[cfg(unix)]
     open_file_limit::raise();
@@ -535,7 +538,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             for (from, to) in
                 [(journal, "outbox.journal.clone-boot"), (path, "outbox.json.clone-boot")]
             {
-                if let Err(e) = std::fs::rename(&from, home().join(to))
+                if let Err(e) = crate::home_fs::rename(&from, home().join(to))
                     && e.kind() != std::io::ErrorKind::NotFound
                 {
                     tracing::warn!("copied machine's outbox not set aside: {e}");
@@ -633,6 +636,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.start_harness_checks();
     // Uploads past their age cap (`hub/file_uploads.rs`).
     hub.start_upload_sweep();
+    // The host's sender token, which our own tools present to be named verified
+    // (`sender_token.rs`): made once, kept across restarts. Without it no send is verified by it,
+    // as before, so a failure is only logged.
+    if let Err(e) = crate::sender_token::ensure(&home()) {
+        tracing::warn!("the host sender token: {e}");
+    }
     // The pid file only explains a dropped connection (`client::closed_error`):
     // a daemon that cannot write it (a full disk) serves without it and tries
     // again, never exits (`daemon/persist_retry.rs`).
@@ -1046,7 +1055,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if bound_socket.as_ref().map_or(!cfg!(unix), |s| s.lost().is_none()) {
         // The home watch runs on through the shutdown: this removal is not a loss.
         home_watch::release_socket();
-        let _ = std::fs::remove_file(socket_path());
+        let _ = crate::home_fs::remove_file(socket_path());
     }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
@@ -1071,6 +1080,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             usize::MAX
         }
     };
+    // The hub's own tasks after its agents: cancelled and joined, any left named (`hub/shutdown.rs`).
+    hub.close_owned_tasks().await;
     // After the agents: their model streams go through the router.
     // A lost home's router path may be another daemon's router now: let go of ours, never ask
     // that path to stop.
@@ -1085,9 +1096,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     recheck_home();
     if !crate::config::home_lost() {
-        let _ = std::fs::remove_file(home().join("daemon.pid"));
+        let _ = crate::home_fs::remove_file(home().join("daemon.pid"));
         for file in [local_app_file, peer_file, carrier_file].into_iter().flatten() {
-            let _ = std::fs::remove_file(file);
+            let _ = crate::home_fs::remove_file(file);
         }
     }
     tracing::info!("stopped");
@@ -1098,7 +1109,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
 /// daemon bound: one replaced since is another daemon's. Off Unix there is no identity to read.
 fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
     if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
-        let _ = std::fs::remove_file(socket_path());
+        let _ = crate::home_fs::remove_file(socket_path());
     }
 }
 
@@ -1143,7 +1154,7 @@ fn narrow_to_owner(path: &std::path::Path) {
     let mode = meta.permissions().mode();
     if mode & 0o077 != 0
         && let Err(e) =
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
+            crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
     {
         tracing::warn!("could not make {} owner-only: {e}", path.display());
     }

@@ -14,7 +14,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 AREAS="$ROOT_DIR/scripts/cmux-next/autofix-areas.sh"
 APPLY="$ROOT_DIR/scripts/cmux-next/pr-autofix-apply.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-pr-autofix.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 
 area() { # changed path -> the actions area's value
@@ -46,6 +46,10 @@ done
 # The settings exports (schemas/settings/settings-schema.json and
 # docs/mdm) follow a CmuxNextSettings change on the same Mac job, so a pull
 # request that adds a setting lands with them instead of a red defaults-snapshot.
+locks() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^locks=//p'; }
+[[ "$(locks cmux-tui/Cargo.toml)" == true ]] || fail "a Cargo.toml change must check every lock"
+[[ "$(locks Native/DiffSidecar/Cargo.lock)" == true ]] || fail "a Cargo.lock change anywhere must check every lock"
+[[ "$(locks cmux-tui/crates/x/src/lib.rs)" == false ]] || fail "a Rust source change alone must not run the lock repair"
 settings() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^settings=//p'; }
 for path in Packages/macOS/CmuxNext/Sources/CmuxNextSettings/CmuxConfigSnapshot.swift \
   Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings schemas/settings/settings-schema.json; do

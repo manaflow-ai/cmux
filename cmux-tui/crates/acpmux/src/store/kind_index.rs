@@ -449,10 +449,7 @@ impl LocalStore {
         // whatever the umask: under 002 it would be group-writable, and `private_state_dir`
         // refuses that.
         let dir = self.dir(id).join(DIR);
-        let mut made = std::fs::DirBuilder::new();
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
-        if let Err(e) = made.create(&dir)
+        if let Err(e) = crate::home_fs::create_dir(&dir, 0o700)
             && e.kind() != std::io::ErrorKind::AlreadyExists
         {
             return Err(e.into());
