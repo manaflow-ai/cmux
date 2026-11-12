@@ -285,6 +285,43 @@ ONE_OBJECT_PER_FILE = textwrap.dedent('''
     print(json.dumps({"two": two, "unimportable": unimportable}))
 ''')
 
+# Run in a fresh interpreter: imports each test module in the given order and reports, per file, every sys.modules
+# entry its import added or replaced with a stub (None, a SimpleNamespace, a bare ModuleType with no spec or file).
+# A stub left there is what the next test's `import name` gets instead of the real module.
+STUBS_LEFT = textwrap.dedent('''
+    import importlib, json, os, sys, types
+    root, order = sys.argv[1], json.loads(sys.argv[2])
+    def real(module):
+        return isinstance(module, types.ModuleType) and (
+            getattr(module, "__spec__", None) is not None or getattr(module, "__file__", None))
+    left, unimportable = {}, {}
+    for rel in order:
+        folder = os.path.dirname(os.path.join(root, rel))
+        if folder not in sys.path:
+            sys.path.insert(0, folder)
+        before = dict(sys.modules)
+        try:
+            importlib.import_module(os.path.basename(rel)[:-3])
+        except BaseException as error:  # a test that needs a Mac library cannot import here
+            unimportable[rel] = type(error).__name__ + ": " + str(error)[:200]
+        names = sorted(name for name, module in sys.modules.items()
+                       if before.get(name) is not module and not real(module))
+        if names:
+            left[rel] = names
+    print(json.dumps({"left": left, "unimportable": unimportable}))
+''')
+
+# A test file that stubs a module others import for real must take its stub back out (#41653 review).
+STUB_POLLUTER, STUB_VICTIM = "test_perf_completeness", "test_teardown_clone_cleanup"
+STUB_SUITES = ROOT / "scripts/cmux-next/tests"
+
+
+def stubbing_test_files(root: Path = ROOT) -> list[str]:
+    """Every test file whose source writes to sys.modules: the ones that can leave a stub there."""
+    found = set(test_files(root)) | set(root.glob("scripts/**/test_*.py"))
+    return sorted(p.relative_to(root).as_posix() for p in found if "sys.modules" in p.read_text(encoding="utf-8"))
+
+
 POLLUTER = "tests/test_ci_change_areas.py::test_cmux_next_does_not_run_full_suite_for_unrelated_packages"
 VICTIM = "tests/test_cmux_next_route.py::LinuxLaneTests::test_a_linux_guard_test_a_mac_tier_reads_keeps_its_tier"
 
@@ -370,6 +407,67 @@ class ScriptModuleLoadTests(unittest.TestCase):
                 for rel in required:
                     self.assertNotIn(rel, result["unimportable"])
                 self.assertLess(len(result["unimportable"]), len(order) // 10, result["unimportable"])
+
+    def test_files_importing_through_a_load_helper_are_in_the_sharing_set(self):
+        """#41653 review: `def load(name): ... return importlib.import_module(name)` called as load("procs") is an
+        import by name, so the files that do it share their modules; an import by a name scan() cannot read fails."""
+        shared = sharing_test_files()
+        for rel in ("tests/test_ci_route_refusal_detail.py", "tests/test_gh_call_log.py",
+                    "scripts/cmux-next/tests/test_teardown_clone_cleanup.py"):
+            self.assertIn(rel, shared)
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "scripts/ci/ring.py").write_text("")
+            (root / "tests/test_a.py").write_text(textwrap.dedent('''
+                import importlib, sys
+                def load(name, path=None):
+                    sys.path.insert(0, "scripts/ci")
+                    return importlib.import_module(name)
+                ring = load("ring")
+            '''))
+            (root / "tests/test_b.py").write_text("import ring\n")
+            (root / "tests/test_c.py").write_text(textwrap.dedent('''
+                import importlib
+                NAME = "ri" + "ng"
+                ring = importlib.import_module(NAME)
+                def go(stem):
+                    return __import__(stem.upper())
+            '''))
+            imported, _ = scan(root / "tests/test_a.py")
+            self.assertIn("ring", imported)
+            self.assertIn("tests/test_a.py", sharing_test_files(root))
+            findings, _, _ = two_object_loads(root)
+        unread = sorted(f for f in findings if "cannot read" in f)
+        self.assertEqual([f.split(":")[:2] for f in unread], [["tests/test_c.py", "4"], ["tests/test_c.py", "6"]], findings)
+
+    def test_no_test_file_leaves_a_stub_module_behind(self):
+        """#41653 review: test_perf_completeness.py put an empty `procs` in sys.modules at import and left it, so
+        test_teardown_clone_cleanup.py's `import procs` got the stub when it ran later in one process."""
+        order = stubbing_test_files()
+        for rel in ("scripts/cmux-next/tests/test_perf_completeness.py", "scripts/tests/test_readiness_soak.py",
+                    "scripts/cmux-next/test_split_scale_background.py"):
+            self.assertIn(rel, order)
+        done = subprocess.run([sys.executable, "-c", STUBS_LEFT, str(ROOT), json.dumps(order)], cwd=ROOT,
+                              capture_output=True, text=True, timeout=600,
+                              env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(done.returncode, 0, done.stderr[-4000:])
+        result = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(result["left"], {})
+        self.assertNotIn("scripts/cmux-next/tests/test_perf_completeness.py", result["unimportable"])
+        self.assertLess(len(result["unimportable"]), len(order) // 4, result["unimportable"])
+
+    def test_the_procs_stub_polluter_and_its_victim_pass_in_either_order(self):
+        driver = ("import sys, unittest\nsys.path.insert(0, sys.argv[1])\n"
+                  "suite = unittest.defaultTestLoader.loadTestsFromNames(sys.argv[2:])\n"
+                  "sys.exit(not unittest.TextTestRunner(verbosity=1).run(suite).wasSuccessful())\n")
+        for order in ((STUB_POLLUTER, STUB_VICTIM), (STUB_VICTIM, STUB_POLLUTER)):
+            with self.subTest(first=order[0]):
+                done = subprocess.run([sys.executable, "-c", driver, str(STUB_SUITES), *order], cwd=ROOT,
+                                      capture_output=True, text=True, timeout=600)
+                self.assertEqual(done.returncode, 0, done.stdout[-2000:] + done.stderr[-4000:])
 
     @unittest.skipUnless(importlib.util.find_spec("pytest"), "needs pytest")
     def test_the_route_polluter_and_its_victim_pass_in_either_order(self):
