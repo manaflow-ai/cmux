@@ -209,7 +209,8 @@ def check_manifest(text: str, checksum: str) -> None:
 # longer reads the languages' grammar for what is built:
 #
 # - Each crate cmux-app-ffi reaches is an input as a whole directory (its git-tracked files), except its own tests/,
-#   benches/ and examples/ (cargo builds them only for tests) and the reviewed TEST_ONLY files. Such a directory is not
+#   benches/ and examples/ (cargo builds them only for tests; excluded whether or not the tree has them, so a change
+#   that adds a crate's first one changes no input, #41555) and the reviewed TEST_ONLY files. Such a directory is not
 #   excluded when it holds a walked crate, a reached module or a named path, or when a named directory holds it.
 # - Every string literal in a scanned file that names a path, relative to the file (or, in a Rust inline module, to that
 #   module's directory) or to its crate, adds that path: a file outside the crate (an include_str! of a spec file, a
@@ -794,8 +795,19 @@ class _Walk:
         return max(holders, key=len) if holders else None
 
     def excluded_tops(self) -> set[str]:
-        return {f"{crate}/{top}" for crate in self.crates for top in EXCLUDED_DIRS
-                if self.tree.is_dir(f"{crate}/{top}") and self.crate_of(f"{crate}/{top}") == crate}
+        """Each walked crate's tests/, benches/ and examples/, present or not, and its target/ when git has one. A
+        missing one is excluded too: a change may add a crate's first tests/ file, and the check takes the union of the
+        pinned tree's inputs and the head's (merge), where the pinned tree's crate directory would otherwise hold it.
+        Nothing in a tree can name a path that is not in it, so a missing folder's exclusion hides nothing that tree
+        builds; a tree that names a file in it keeps it an input there, and the union then keeps it."""
+        tops = set()
+        for crate in self.crates:
+            for top in EXCLUDED_DIRS:
+                path = f"{crate}/{top}"
+                if self.tree.is_dir(path) or (top != "target" and path not in self.tree.modes):
+                    if self.crate_of(path) == crate:
+                        tops.add(path)
+        return tops
 
     def to_unexclude(self) -> set[str]:
         """The excluded directories that hold a named path or reached module, a walked crate (a path dependency inside

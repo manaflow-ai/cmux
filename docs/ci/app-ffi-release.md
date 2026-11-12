@@ -91,8 +91,8 @@ re-pin.
 
 A crate's `tests/`, `benches/` and `examples/` are not FFI inputs
 (`--list-excluded`): Cargo never builds them into the library, so a test-only
-change (a new test, a `cargo fmt` of one) needs no release and no re-pin. A
-folder that a scanned file names or reaches (an `include_str!` of a test
+change (a new test, a crate's first `tests/` folder, a `cargo fmt` of a test)
+needs no release and no re-pin. A folder that a scanned file names or reaches (an `include_str!` of a test
 vector, even from a `#[cfg(test)]` module; a `mod` or `#[path]`; a path
 dependency inside it) stays an input. Besides those folders, only the reviewed
 `TEST_ONLY` files (read by tests alone) are left out.

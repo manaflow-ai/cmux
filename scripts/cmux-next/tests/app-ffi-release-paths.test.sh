@@ -33,9 +33,12 @@ want="$(
       ":(literal)"*) input="${input#":(literal)"}" ;;
       ":"*) echo "FAIL: --list-inputs printed a pathspec with other magic: $input" >&2; exit 1 ;;
     esac
-    # A directory input is a prefix (a crate, .cargo), whether or not it exists yet.
-    case "${input##*/}" in
-      .cargo) echo "\"$negate$input/**\"" ;;
+    # A directory input is a prefix (a crate, .cargo), whether or not it exists yet. An excluded path is a directory (a
+    # crate's tests/, benches/ or examples/, which the walk excludes before the crate has one) unless it is a file (a
+    # TEST_ONLY file).
+    case "$negate:${input##*/}" in
+      *:.cargo) echo "\"$negate$input/**\"" ;;
+      !:*) [[ -f "$root/$input" ]] && echo "\"$negate$input\"" || echo "\"$negate$input/**\"" ;;
       *) [[ -d "$root/$input" ]] && echo "\"$negate$input/**\"" || echo "\"$negate$input\"" ;;
     esac
   done <<<"$inputs"
