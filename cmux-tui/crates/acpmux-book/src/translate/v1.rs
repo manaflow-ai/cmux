@@ -121,9 +121,11 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
     super::bounded(&msg.prompt_id)?;
     super::bounded(&msg.old_message_id)?;
     if let Some(params) = msg.params {
+        super::bounded(&params.meta.acpmux.segment)?;
         if let Some(raw) = params.update {
             let update: Update<'_> = input::value(raw)?;
             super::bounded(&update.session_update)?;
+            super::bounded(&update.meta.acpmux.segment)?;
             if let Some(raw) = update.content {
                 input::content(raw, 0, &mut |_| Ok(()))?;
             }

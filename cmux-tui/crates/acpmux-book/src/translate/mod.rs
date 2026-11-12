@@ -107,7 +107,8 @@ impl OwnedRow {
         }
         self.fields.insert(
             key.into(),
-            serde_json::to_string(&value[..end]).unwrap_or_else(|_| "\"\"".into()),
+            serde_json::to_string(value.get(..end).unwrap_or_default())
+                .unwrap_or_else(|_| "\"\"".into()),
         );
         truncated
     }
@@ -205,6 +206,7 @@ pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Ve
         Harness::V1 => v1::line(state, bytes, &mut out),
         Harness::Claude => claude::line(state, bytes, &mut out),
     };
+    debug_assert!(result.is_ok(), "validated harness line failed during apply");
     if result.is_err() {
         state.line_errors = state.line_errors.saturating_add(1);
         return Ok(Vec::new());

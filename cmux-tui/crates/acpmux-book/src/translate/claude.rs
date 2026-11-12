@@ -170,6 +170,9 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
 
 pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
     let rec: Record<'_> = input::parse(bytes)?;
+    if rec.kind.is_empty() {
+        return Err(Error::InvalidRecord("Claude type"));
+    }
     super::bounded(&rec.uuid)?;
     if let Some(message) = rec.message {
         super::bounded(&message.id)?;
@@ -177,7 +180,10 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
             if body.get().starts_with('[') {
                 input::each(body, |raw| {
                     let block: Block<'_> = input::value(raw)?;
-                    if let Some(raw) = block.text.or(block.thinking) {
+                    if let Some(raw) = block.text {
+                        let _ = input::text(raw)?;
+                    }
+                    if let Some(raw) = block.thinking {
                         let _ = input::text(raw)?;
                     }
                     if let Some(raw) = block.input {

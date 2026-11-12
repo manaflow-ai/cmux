@@ -430,6 +430,34 @@ fn long_metadata_is_cut_without_a_late_line_error() {
     assert_eq!(state.checkpoint().unwrap(), before);
     assert_eq!(state.counters().line_errors, 0);
 }
+
+#[test]
+fn accepted_input_never_mutates_a_leaf_before_rejection() {
+    let mut state = State::default();
+    for seed in 0..10_000u32 {
+        let before = state.checkpoint().unwrap();
+        let line = if seed % 2 == 0 {
+            br#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":7,"text":"ok"}]}}"#.to_vec()
+        } else {
+            br#"{"type":"assistant","message":{"content":7}}"#.to_vec()
+        };
+        assert!(translate(&mut state, Harness::Claude, &line).is_ok());
+        assert_eq!(state.checkpoint().unwrap(), before);
+        assert_eq!(state.counters().line_errors, 0);
+    }
+    let before = state.checkpoint().unwrap();
+    let segment = "x".repeat(64 * 1024);
+    let line = update(
+        1,
+        &format!(
+            r#"{{"sessionUpdate":"agent_message_chunk","messageId":"m","_meta":{{"acpmux":{{"segment":{}}}}},"content":{{"type":"text","text":"ok"}}}}"#,
+            quote(&segment)
+        ),
+    );
+    assert!(translate(&mut state, Harness::V1, line.as_bytes()).is_ok());
+    assert_eq!(state.checkpoint().unwrap(), before);
+    assert_eq!(state.counters().line_errors, 0);
+}
 #[test]
 fn large_tool_bodies_are_ranges_and_streamed_replies_have_small_checkpoints() {
     for harness in [Harness::V1, Harness::Claude] {
