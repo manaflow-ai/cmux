@@ -91,11 +91,8 @@ async fn reply(
     } else {
         None
     };
-    let diag = std::env::var_os("ACPMUX_LIST_DIAG").is_some();
-    let t0 = std::time::Instant::now();
     let wait = guard.reserve(&conn.list_pace, share).map_err(busy)?;
     tokio::time::sleep(wait).await;
-    let t1 = std::time::Instant::now();
     for reads in 0..=REBUILDS {
         let list = match first.take() {
             Some(list) => list,
@@ -104,19 +101,7 @@ async fn reply(
                 if live_only { guard.snapshot_live(hub).await } else { guard.snapshot(hub).await }
             }
         };
-        let t2 = std::time::Instant::now();
         let text = make(&list)?;
-        if diag {
-            eprintln!(
-                "LISTDIAG reply origin={:?} share={share:.4} window_ms={} pace_wait_ms={} snapshot_ms={} make_ms={} bytes={}",
-                conn.origin,
-                guard.window().as_millis(),
-                (t1 - t0).as_millis(),
-                (t2 - t1).as_millis(),
-                t2.elapsed().as_millis(),
-                text.len()
-            );
-        }
         let Ok((id, method, claim)) = REPLY.try_with(|r| {
             let r = r.borrow();
             (r.id.clone(), r.method, r.claim.clone())

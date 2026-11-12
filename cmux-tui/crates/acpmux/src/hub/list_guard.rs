@@ -807,15 +807,6 @@ impl ListGuard {
         let built = if live_only { Snapshot::build_live(hub) } else { Snapshot::build(hub) };
         let elapsed = started.elapsed();
         let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
-        if std::env::var_os("ACPMUX_LIST_DIAG").is_some() {
-            eprintln!(
-                "LISTDIAG build rows={} build_ms={} window_ms={} builder_wait_ms={}",
-                built.1.len(),
-                elapsed.as_millis(),
-                window.as_millis(),
-                wait.as_millis()
-            );
-        }
         tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
             build_us = elapsed.as_micros(), window_us = window.as_micros(),
             builder_wait_us = wait.as_micros(), "list_snapshot_build");
