@@ -10723,6 +10723,14 @@ export class AcpmuxDirectClient {
       if (this.purgingSessionId === sessionId) this.purgingSessionId = undefined;
     }
   }
+  /// Move to Terminal (header/terminalMoveRow.ts): stops the harness process that runs the shown
+  /// chat `sessionId`, so the terminal's resume is the conversation's only writer. The chat and its
+  /// history stay (`_acpmux/kill` without purge). `ifIdle`: acpmux refuses (reason `busy`) while a
+  /// turn, a queued prompt, a permission or a tool call is open, checked under its turn lock.
+  async releaseToTerminal(sessionId: string): Promise<void> {
+    if (!sessionId || sessionId !== this.selectedSessionId) throw new Error(translate("error.notOpen"));
+    await this.request("_acpmux/kill", { sessionId, purge: false, ifIdle: true });
+  }
   /// Mark as Unread (cx-ncc.78): acpmux keeps the selected chat unread until it is hidden and
   /// shown again.
   async markUnread(): Promise<void> {
