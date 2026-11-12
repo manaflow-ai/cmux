@@ -319,7 +319,8 @@ fn is_screaming(name: &str) -> bool {
 
 fn is_pct_word(w: &str) -> bool {
     PCT_WORDS.contains(&w)
-        || (w.len() >= 3 && w.starts_with('p') && w[1..].chars().all(|c| c.is_ascii_digit()))
+        || (w.len() >= 3
+            && w.strip_prefix('p').is_some_and(|d| d.chars().all(|c| c.is_ascii_digit())))
 }
 
 fn names_pct(name: &str) -> bool {
@@ -339,7 +340,7 @@ fn name_kind(name: &str) -> Kind {
         return Kind::of(Base::Pct);
     }
     let unit = ws.len() > 1 && ws.last().is_some_and(|w| UNIT_WORDS.contains(&w.as_str()));
-    let bare_unit = ws.len() == 1 && ["us", "ms", "ns"].contains(&ws[0].as_str());
+    let bare_unit = matches!(ws.as_slice(), [w] if ["us", "ms", "ns"].contains(&w.as_str()));
     if ws.iter().any(|w| TIMING_WORDS.contains(&w.as_str())) || unit || bare_unit {
         return Kind::of(Base::Timing);
     }
@@ -432,7 +433,7 @@ fn path_segs(p: &syn::ExprPath) -> Vec<String> {
 fn single_ident(e: &Expr) -> Option<String> {
     match e {
         Expr::Path(p) if p.qself.is_none() && p.path.segments.len() == 1 => {
-            Some(p.path.segments[0].ident.to_string())
+            p.path.segments.first().map(|s| s.ident.to_string())
         }
         _ => None,
     }
@@ -602,7 +603,7 @@ impl Scope<'_> {
             _ => Vec::new(),
         };
         let last = segs.last().map_or("", String::as_str);
-        let parent = segs.len().checked_sub(2).map(|i| segs[i].as_str());
+        let parent = segs.len().checked_sub(2).and_then(|i| segs.get(i)).map(String::as_str);
         let measured: Vec<&Kind> =
             args.iter().filter(|a| a.measured() || a.base == Base::Ratio).collect();
         let all_const = !args.is_empty() && args.iter().all(|a| a.base == Base::Const);
@@ -854,7 +855,7 @@ fn reads_clock(tokens: TokenStream) -> bool {
             return false;
         };
         match name.as_str() {
-            "elapsed" => k > 0 && flat[k - 1] == Flat::Punct('.'),
+            "elapsed" => k.checked_sub(1).and_then(|j| flat.get(j)) == Some(&Flat::Punct('.')),
             "Instant" | "SystemTime" => {
                 flat.get(k + 1) == Some(&Flat::Punct(':'))
                     && flat.get(k + 2) == Some(&Flat::Punct(':'))
@@ -896,7 +897,7 @@ impl Items {
         let is_test =
             paths.iter().any(|p| p.last().is_some_and(|last| TEST_ATTRS.contains(&last.as_str())));
         if is_test {
-            let ignored = paths.iter().any(|p| p.len() == 1 && p[0] == "ignore");
+            let ignored = paths.iter().any(|p| matches!(p.as_slice(), [only] if only == "ignore"));
             let paused = attrs.iter().any(|a| has_ident(a.meta.to_token_stream(), "start_paused"));
             if !ignored && !paused {
                 self.tests.push(TestFn {

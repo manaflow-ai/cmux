@@ -252,7 +252,9 @@ fn is_test_file(rel: &str) -> bool {
 
 /// The comment and attribute lines directly above `lines[at]`, nearest first.
 fn leading_block<'a>(lines: &[&'a str], at: usize) -> Vec<&'a str> {
-    lines[..at.min(lines.len())]
+    lines
+        .get(..at)
+        .unwrap_or(lines)
         .iter()
         .rev()
         .map(|l| l.trim())
@@ -263,8 +265,8 @@ fn leading_block<'a>(lines: &[&'a str], at: usize) -> Vec<&'a str> {
 /// The reason a `// test-hook-allow:` comment on `line` gives.
 fn marker_reason(line: &str) -> Option<String> {
     let mut rest = line;
-    while let Some(at) = rest.find("//") {
-        rest = &rest[at + 2..];
+    while let Some((_, after)) = rest.split_once("//") {
+        rest = after;
         if let Some(reason) = rest.trim_start().strip_prefix(MARKER) {
             return Some(reason.trim().to_string());
         }
@@ -273,7 +275,7 @@ fn marker_reason(line: &str) -> Option<String> {
 }
 
 fn serialized_by(reason: &str) -> Option<String> {
-    let rest = &reason[reason.find("serialized by ")? + "serialized by ".len()..];
+    let (_, rest) = reason.split_once("serialized by ")?;
     let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
     (!name.is_empty() && !name.starts_with(|c: char| c.is_ascii_digit())).then_some(name)
 }
@@ -736,25 +738,25 @@ impl Resolver<'_> {
     ) -> bool {
         let leading = path.leading_colon.is_some();
         let mut segs: Vec<&syn::PathSegment> = path.segments.iter().collect();
-        if !leading && segs.len() == 2 && segs[0].ident == "self" {
+        if !leading && segs.len() == 2 && segs.first().is_some_and(|s| s.ident == "self") {
             segs.remove(0);
         }
-        let Some(last) = segs.last() else {
+        let Some((last, init)) = segs.split_last() else {
             return false;
         };
         if !leading && segs.len() == 1 {
             return self.name(&last.ident.to_string(), &last.arguments, env, stack, facts);
         }
         let idents: Vec<String> = segs.iter().map(|s| s.ident.to_string()).collect();
-        for seg in &segs[..segs.len() - 1] {
+        for seg in init {
             self.args(&seg.arguments, env, stack, facts);
         }
         if !leading {
-            if let Some(bound) = env.get(&idents[0]) {
+            if let Some(bound) = idents.first().and_then(|first| env.get(first)) {
                 // A projection of a parameter (`T::Hook`): its argument stays in, what it names is unresolved.
                 facts.merge(&bound.facts);
                 facts.unresolved.insert(if bound.given {
-                    format!("<{}>::{}", bound.text, idents[1..].join("::"))
+                    format!("<{}>::{}", bound.text, idents.get(1..).unwrap_or_default().join("::"))
                 } else {
                     idents.join("::")
                 });
