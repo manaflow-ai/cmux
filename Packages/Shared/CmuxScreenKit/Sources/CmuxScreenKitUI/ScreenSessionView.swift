@@ -233,8 +233,12 @@ public struct ScreenSessionView: View {
     /// tucked away in landscape until it is brought up there.
     private var trackpadOpen: Bool { isLandscape ? landscapeTrackpadOpen : session.preferences.showTrackpad }
 
-    /// The software keyboard is up: it covers the drawer, so no room is kept for it.
-    private var softwareKeyboardUp: Bool { containerSize.height > 0 && aboveKeyboardHeight < containerSize.height - 60 }
+    /// How much of the bottom the keyboard (or only its key bar, with a hardware
+    /// keyboard) covers: the drawer sits under it, so that much less room is kept.
+    private var keyboardOverlap: CGFloat {
+        guard containerSize.height > 0, aboveKeyboardHeight > 0 else { return 0 }
+        return max(0, containerSize.height - aboveKeyboardHeight)
+    }
 
     /// The trackpad is up on a connected screen (its pad drives the pointer).
     private var trackpadShown: Bool {
@@ -254,8 +258,8 @@ public struct ScreenSessionView: View {
     /// finger while the notch drags), none before the screen connects or while
     /// the software keyboard covers it.
     private var trackpadReserved: CGFloat {
-        guard hasTrackpadOverlay, case .connected = session.phase, !softwareKeyboardUp else { return 0 }
-        return trackpadDrawerHeight - trackpadOffset
+        guard hasTrackpadOverlay, case .connected = session.phase else { return 0 }
+        return max(0, trackpadDrawerHeight - trackpadOffset - keyboardOverlap)
     }
 
     /// The pad's height: what is left under the toolbar and the screen fitted
@@ -601,6 +605,11 @@ public struct ScreenView: UIViewControllerRepresentable {
     public func makeUIViewController(context: Context) -> ScreenViewController {
         let controller = ScreenViewController(session: session)
         trackpadLink?.controller = controller
+        controller.onKeyboardHidden = { [keyboardVisible = $keyboardVisible] in
+            // After this update pass: the binding is not written while SwiftUI updates the view.
+            // task-owner: one main-actor hop that writes the binding; nothing waits on it
+            Task { @MainActor in if keyboardVisible.wrappedValue { keyboardVisible.wrappedValue = false } }
+        }
         controller.onFocusSize = { [weak trackpadLink] size in
             if trackpadLink?.focusSize != size { trackpadLink?.focusSize = size }
         }

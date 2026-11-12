@@ -82,8 +82,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     override public func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        for name in [NSNotification.Name.GCKeyboardDidConnect, .GCKeyboardDidDisconnect] {
-            NotificationCenter.default.addObserver(self, selector: #selector(hardwareKeyboardChanged), name: name, object: nil)
+        // However the software keyboard was hidden: the screen takes the focus back for a
+        // hardware keyboard's keys, and the toolbar's keyboard button learns it is down.
+        keyInput.onResign = { [weak self] in
+            guard let self else { return }
+            becomeFirstResponder()
+            onKeyboardHidden?()
         }
         // UI tests drive the screen through this element (a query by id stays cheap while it redraws).
         scrollView.accessibilityIdentifier = "screen.view"
@@ -149,10 +153,19 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// had UIKit raise the software keyboard whenever a menu opened over it.
     override public var canBecomeFirstResponder: Bool { GCKeyboard.coalesced != nil }
 
-    /// Takes the focus when a hardware keyboard connects, gives it up when it goes.
-    @objc private func hardwareKeyboardChanged() {
+    /// Called when the software keyboard was hidden by anything but `isKeyboardVisible`.
+    public var onKeyboardHidden: (() -> Void)?
+
+    /// A touch on the screen or its trackpad: the screen holds the focus while a
+    /// hardware keyboard is connected (one that connected since the screen
+    /// appeared included) and gives it up once none is. The software keyboard keeps it.
+    private func syncKeyboardFocus() {
         guard !keyInput.isFirstResponder else { return }
-        if GCKeyboard.coalesced != nil { becomeFirstResponder() } else if isFirstResponder { resignFirstResponder() }
+        if GCKeyboard.coalesced == nil {
+            if isFirstResponder { resignFirstResponder() }
+        } else if !isFirstResponder {
+            becomeFirstResponder()
+        }
     }
 
     override public func viewDidAppear(_ animated: Bool) {
@@ -381,6 +394,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     var onFocusSize: ((CGSize) -> Void)?
 
+    /// The display the view is fitted to while paged or fitted, else the whole frame.
+    private func reportFocusSize() {
+        let size = fitToDisplay || paged ? focusRect.size : frameSize
+        if size != focusSize { focusSize = size }
+    }
+
     /// The display the view is pinned to: one of several, or the whole frame.
     private var focusRect: CGRect {
         screens.indices.contains(page) ? screens[page] : CGRect(origin: .zero, size: frameSize)
@@ -404,7 +423,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
         paged = true
         pageControl.currentPage = page
         let rect = focusRect
-        if rect.size != focusSize { focusSize = rect.size }
+        reportFocusSize()
         let scale = fitScale(rect)
         let apply = { [self] in
             scrollView.minimumZoomScale = fitToDisplay ? scale : fitScale(CGRect(origin: .zero, size: frameSize))
@@ -490,6 +509,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     private func updateZoomLimits(resetToFit: Bool) {
         guard frameSize.width > 0, frameSize.height > 0, view.bounds.width > 0 else { return }
+        defer { reportFocusSize() }
         if fitToDisplay || paged {
             // Re-fit after a rotation or resize; keep a zoomed-in view zoomed.
             let wasAtFit = abs(scrollView.zoomScale - scrollView.minimumZoomScale) < 0.001
@@ -654,6 +674,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
         switch recognizer.state {
         case .began:
+            syncKeyboardFocus()
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             session.movePointer(to: framebufferPoint(recognizer))
             pressButton(.left)
@@ -672,6 +693,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// quick taps are two clicks at one point, which the Mac counts as a
     /// double click.
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
+        syncKeyboardFocus()
         let point = clickSnap.point(for: framebufferPoint(recognizer), at: CACurrentMediaTime(), radius: 24 * pixelsPerPoint)
         session.movePointer(to: point)
         session.click(.left, modifiers: keyInput.takeModifiers())
@@ -728,6 +750,7 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     private func handleTrackpad(_ event: SingleTouchRecognizer.Event, from finger: TrackpadFinger = .screen) {
         if case .down = event {
             if lastTrackpadPoint != nil, trackpadFinger != finger { return }
+            syncKeyboardFocus()
             trackpadFinger = finger
         } else if trackpadFinger != finger {
             return
