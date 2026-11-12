@@ -1,6 +1,7 @@
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 public import Foundation
 
 /// Runs one Chief move or rollback for the app's actions (`chief.moveTo`, `chief.moveRollback`),
@@ -79,8 +80,9 @@ public struct ChiefTeleportRunner {
         let token: (folder: URL, file: URL)?
         if case .cloud = target.kind {
             do { token = try await writeToken() } catch {
-                model.phase = .failed(title, reason: String(describing: error))
-                return ActionWorkFailure(ChiefTeleportStrings.failedTitle(title) + ": " + String(describing: error))
+                // The row and the notice read plain words; the log line keeps the error.
+                model.phase = .failed(title, reason: PlainErrorText.text(error))
+                return ActionWorkFailure(log: ChiefTeleportStrings.failedTitle(title) + ": " + String(describing: error), reason: PlainErrorText.words(error))
             }
         } else {
             token = nil
@@ -145,7 +147,7 @@ public struct ChiefTeleportRunner {
         if fromCloud {
             do { token = try await writeToken() } catch {
                 model.phase = previous
-                return .failure(ActionWorkFailure(ChiefTeleportStrings.rollbackFailedTitle + ": " + String(describing: error)))
+                return .failure(ActionWorkFailure(log: ChiefTeleportStrings.rollbackFailedTitle + ": " + String(describing: error), reason: PlainErrorText.words(error)))
             }
         } else {
             token = nil

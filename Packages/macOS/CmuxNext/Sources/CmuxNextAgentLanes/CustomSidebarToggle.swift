@@ -57,7 +57,7 @@ public struct CustomSidebarToggle {
                         return .failure(ActionWorkFailure(CustomSidebarStrings.unreadable(folder.manifestURL.path(percentEncoded: false))))
                     }
                 } catch {
-                    return .failure(ActionWorkFailure(CustomSidebarStrings.couldNotCreate(error.localizedDescription)))
+                    return .failure(ActionWorkFailure(log: CustomSidebarStrings.couldNotCreate(String(describing: error)), reason: PlainErrorText.words(error)))
                 }
                 // The daemon watches the folder; a reload shows the new app without waiting for the watch.
                 client.reloadLocalApps()

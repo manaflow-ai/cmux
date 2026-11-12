@@ -287,8 +287,9 @@ public final class ScreenshotsView: NSView {
                 if let first = saved.first { self?.grid.reveal(path: first.path) }
             } catch {
                 // dialog-keys-exempt: CmuxNextScreenshots reaches no CmuxDialogCenter (it depends on CmuxNextFileGrid and CmuxNextFiles only); move to a dialog seam with the Finder pane
-                let alert = NSAlert(error: error)
+                let alert = NSAlert()
                 alert.messageText = ScreenshotsStrings.dropFailed
+                alert.informativeText = ScreenshotsStrings.reason(error)
                 if let window = self?.window { alert.beginSheetModal(for: window, completionHandler: nil) }
             }
         }

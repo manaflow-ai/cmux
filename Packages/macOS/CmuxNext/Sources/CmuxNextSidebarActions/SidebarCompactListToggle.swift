@@ -39,7 +39,7 @@ public struct SidebarCompactListToggle {
                 } catch {
                     DesignSettings.shared.sidebarSections.workspacesAsTabs = before
                     if clearsTunable { store.set(tunable.key, .bool(true)) }
-                    return .failure(ActionWorkFailure(String(describing: error)))
+                    return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error)))
                 }
             })
         }

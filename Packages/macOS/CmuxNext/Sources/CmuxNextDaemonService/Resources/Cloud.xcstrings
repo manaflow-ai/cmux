@@ -661,134 +661,133 @@
         }
       }
     },
-    "cloud.link.checkFailed": {
-      "comment": "A Cloud machine connect stopped because the Cloud app's answer (its connection socket) failed one of this Mac's safety checks. `cmux cloud diagnostics` is a command; keep it as is.",
+    "cloud.link.checkFailedPlain": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux didn't connect: the Cloud app's answer for this machine failed a safety check. Click Connect to try again; if it keeps happening, run `cmux cloud diagnostics`."
+            "value": "cmux didn't connect: the Cloud app's answer for this machine failed a safety check. Click Connect to try again."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لم يتصل cmux: فشل ردّ تطبيق Cloud لهذا الجهاز في فحص أمان. انقر على اتصال للمحاولة مرة أخرى؛ وإذا تكرر ذلك، فشغّل `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "لم يتصل cmux: فشلت إجابة تطبيق Cloud لهذا الجهاز في فحص الأمان. انقر على اتصال للمحاولة مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux se nije povezao: odgovor Cloud aplikacije za ovu mašinu nije prošao sigurnosnu provjeru. Kliknite Poveži da pokušate ponovo; ako se ponavlja, pokrenite `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux se nije povezao: odgovor Cloud aplikacije za ovu mašinu nije prošao sigurnosnu provjeru. Kliknite Poveži da pokušate ponovo."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux oprettede ikke forbindelse: Cloud-appens svar for denne maskine bestod ikke et sikkerhedstjek. Klik på Forbind for at prøve igen. Hvis det bliver ved, så kør `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux oprettede ikke forbindelse: Cloud-appens svar for denne maskine bestod ikke et sikkerhedstjek. Klik på Opret forbindelse for at prøve igen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux hat sich nicht verbunden: Die Antwort der Cloud-App für diese Maschine hat eine Sicherheitsprüfung nicht bestanden. Klicke auf Verbinden, um es erneut zu versuchen. Passiert es wieder, führe `cmux cloud diagnostics` aus."
+            "state": "needs_review",
+            "value": "cmux hat sich nicht verbunden: Die Antwort der Cloud-App für diesen Rechner hat eine Sicherheitsprüfung nicht bestanden. Klicke auf Verbinden, um es erneut zu versuchen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux no se conectó: la respuesta de la app de Cloud para esta máquina no superó una comprobación de seguridad. Haz clic en Conectar para intentarlo de nuevo; si sigue pasando, ejecuta `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux no se conectó: la respuesta de la app Cloud para esta máquina no pasó una comprobación de seguridad. Haz clic en Conectar para volver a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux ne s’est pas connecté : la réponse de l’app Cloud pour cette machine a échoué à une vérification de sécurité. Cliquez sur Se connecter pour réessayer ; si cela se reproduit, exécutez `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux ne s'est pas connecté : la réponse de l'app Cloud pour cette machine n'a pas passé un contrôle de sécurité. Cliquez sur Connecter pour réessayer."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux non si è connesso: la risposta dell’app Cloud per questa macchina non ha superato un controllo di sicurezza. Fai clic su Connetti per riprovare; se succede ancora, esegui `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux non si è connesso: la risposta dell'app Cloud per questa macchina non ha superato un controllo di sicurezza. Fai clic su Connetti per riprovare."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux は接続しませんでした。このマシンに対する Cloud アプリの応答が安全性チェックに通りませんでした。［接続］をクリックしてもう一度試してください。繰り返す場合は `cmux cloud diagnostics` を実行してください。"
+            "state": "needs_review",
+            "value": "cmux は接続しませんでした。このマシンに対する Cloud アプリの応答が安全チェックに通りませんでした。もう一度試すには「接続」をクリックしてください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux មិនបានភ្ជាប់ទេ៖ ចម្លើយរបស់កម្មវិធី Cloud សម្រាប់ម៉ាស៊ីននេះមិនបានឆ្លងការពិនិត្យសុវត្ថិភាព។ ចុច ភ្ជាប់ ដើម្បីសាកម្តងទៀត។ ប្រសិនបើវានៅតែកើតឡើង សូមដំណើរការ `cmux cloud diagnostics`។"
+            "state": "needs_review",
+            "value": "cmux មិនបានភ្ជាប់ទេ៖ ចម្លើយរបស់កម្មវិធី Cloud សម្រាប់ម៉ាស៊ីននេះមិនបានឆ្លងការពិនិត្យសុវត្ថិភាព។ ចុច ភ្ជាប់ ដើម្បីព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux가 연결하지 않았습니다. 이 머신에 대한 Cloud 앱의 응답이 보안 검사를 통과하지 못했습니다. 연결을 클릭해 다시 시도하세요. 계속되면 `cmux cloud diagnostics`를 실행하세요."
+            "state": "needs_review",
+            "value": "cmux가 연결하지 않았습니다. 이 머신에 대한 Cloud 앱의 응답이 안전 검사를 통과하지 못했습니다. 다시 시도하려면 연결을 클릭하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux koblet ikke til: Cloud-appens svar for denne maskinen besto ikke en sikkerhetskontroll. Klikk Koble til for å prøve igjen. Hvis det fortsetter, kjør `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux koblet ikke til: Cloud-appens svar for denne maskinen besto ikke en sikkerhetskontroll. Klikk Koble til for å prøve igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux nie połączył się: odpowiedź aplikacji Cloud dla tej maszyny nie przeszła kontroli bezpieczeństwa. Kliknij Połącz, aby spróbować ponownie; jeśli to się powtarza, uruchom `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux nie połączył się: odpowiedź aplikacji Cloud dla tej maszyny nie przeszła kontroli bezpieczeństwa. Kliknij Połącz, aby spróbować ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O cmux não se conectou: a resposta do app do Cloud para esta máquina não passou em uma verificação de segurança. Clique em Conectar para tentar de novo; se continuar, execute `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "O cmux não se conectou: a resposta do app Cloud para esta máquina não passou em uma verificação de segurança. Clique em Conectar para tentar novamente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux не подключился: ответ приложения Cloud для этой машины не прошел проверку безопасности. Нажмите «Подключить», чтобы повторить; если это повторяется, выполните `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux не подключился: ответ приложения Cloud для этой машины не прошёл проверку безопасности. Нажмите «Подключить», чтобы попробовать снова."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux ไม่ได้เชื่อมต่อ เพราะคำตอบของแอป Cloud สำหรับเครื่องนี้ไม่ผ่านการตรวจสอบความปลอดภัย คลิกเชื่อมต่อเพื่อลองอีกครั้ง หากยังเกิดขึ้นอีก ให้เรียกใช้ `cmux cloud diagnostics`"
+            "state": "needs_review",
+            "value": "cmux ไม่ได้เชื่อมต่อ: คำตอบของแอป Cloud สำหรับเครื่องนี้ไม่ผ่านการตรวจสอบความปลอดภัย คลิกเชื่อมต่อเพื่อลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux bağlanmadı: Cloud uygulamasının bu makine için verdiği yanıt bir güvenlik denetiminden geçemedi. Yeniden denemek için Bağlan'a tıklayın; tekrarlanırsa `cmux cloud diagnostics` komutunu çalıştırın."
+            "state": "needs_review",
+            "value": "cmux bağlanmadı: Cloud uygulamasının bu makine için yanıtı bir güvenlik denetiminden geçemedi. Tekrar denemek için Bağlan'a tıklayın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux не підключився: відповідь застосунку Cloud для цієї машини не пройшла перевірку безпеки. Натисніть «Підключити», щоб спробувати ще раз; якщо це повторюється, виконайте `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux не підключився: відповідь застосунку Cloud для цієї машини не пройшла перевірку безпеки. Натисніть «Підключити», щоб спробувати ще раз."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux không kết nối: phản hồi của ứng dụng Cloud cho máy này không vượt qua một bước kiểm tra an toàn. Bấm Kết nối để thử lại; nếu vẫn xảy ra, hãy chạy `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux chưa kết nối: phản hồi của ứng dụng Cloud cho máy này không vượt qua bước kiểm tra an toàn. Nhấp Kết nối để thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 没有连接：Cloud 应用为此机器给出的应答未通过安全检查。点按“连接”重试；如果反复出现，请运行 `cmux cloud diagnostics`。"
+            "state": "needs_review",
+            "value": "cmux 未连接：Cloud 应用对这台机器的应答未通过安全检查。点按“连接”重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 沒有連線：Cloud App 為此機器給出的回應未通過安全檢查。按一下「連線」再試一次；如果一再發生，請執行 `cmux cloud diagnostics`。"
+            "state": "needs_review",
+            "value": "cmux 未連線：Cloud 應用程式對這台機器的回應未通過安全檢查。按一下「連線」再試一次。"
           }
         }
       }

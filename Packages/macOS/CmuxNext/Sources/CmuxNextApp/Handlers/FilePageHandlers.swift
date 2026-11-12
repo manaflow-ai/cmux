@@ -84,7 +84,7 @@ enum FilePageHandlers {
                     }
                     return nil
                 } catch {
-                    return ActionWorkFailure(error.localizedDescription)
+                    return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))
                 }
             })
         })
@@ -95,7 +95,7 @@ enum FilePageHandlers {
                 let look = services.viewers.editorPages.look, writer = SettingWriter(invocation.origin)
                 let value = toggle.next(in: look.current()["settings"])
                 return .applied(result: {
-                    do { try await look.setPreference(key: toggle.key, value: value, by: writer); return .success([:]) } catch { return .failure(ActionWorkFailure(error.localizedDescription)) }
+                    do { try await look.setPreference(key: toggle.key, value: value, by: writer); return .success([:]) } catch { return .failure(ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))) }
                 })
             })
         }

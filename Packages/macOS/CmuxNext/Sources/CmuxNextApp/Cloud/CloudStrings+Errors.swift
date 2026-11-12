@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextDesign
 import Foundation
 
 /// The text a person reads for a Cloud failure: what failed, then the next
@@ -7,15 +8,21 @@ extension CloudStrings {
     /// One Cloud error as a person reads it, never a Swift dump: a server
     /// refusal is its message, its next step and "(trace …)"; the other
     /// ``CloudAPIError`` cases say what to do; a link error reads as
-    /// ``CloudAppLinks/endedMessage(_:)``. Logs keep `String(describing:)`.
+    /// ``CloudAppLinks/endedMessage(_:)``; a system error (no network, a
+    /// full disk) reads in ``PlainErrorText``'s words, and any other as its
+    /// generic line, never `localizedDescription` ("Error Domain=…").
+    /// Logs keep `String(describing:)`.
     static func errorText(_ error: any Error) -> String {
         switch error {
-        case let error as CloudAPIError: apiErrorText(error)
-        case let error as CloudLinkError: CloudAppLinks.endedMessage(error)
-        case let error as ActionFailure: error.message
-        case let error as any LocalizedError: error.errorDescription ?? String(describing: error)
-        default: String(describing: error)
+        case let error as CloudAPIError: return apiErrorText(error)
+        case let error as CloudLinkError: return CloudAppLinks.endedMessage(error)
+        case let error as ActionFailure: return error.message
+        default: break
         }
+        if let words = PlainErrorText.words(error) { return words }
+        // cmux's own errors write `errorDescription` for a person; a system error's is Cocoa's text.
+        if !PlainErrorText.isSystem(error), let text = (error as? any LocalizedError)?.errorDescription { return text }
+        return PlainErrorText.generic
     }
 
     /// A ``CloudAPIError`` as a person reads it. Nonisolated: the approvals
@@ -26,7 +33,8 @@ extension CloudStrings {
         case .noBackend: localBackend
         // The path stays in the log (`description`): a person gets no raw API path.
         case .timedOut: apiTimedOut
-        case .transport(let detail): apiUnreachable(detail)
+        // The detail (the system's network error text) stays in the log.
+        case .transport: apiUnreachable
         case .decoding: apiUnreadable
         // The server's own (localized) refusal, else the app's Pro copy.
         case let .planRequired(message, _, plan): message ?? (plan == "pro" ? proRequiredBody : error.text())
@@ -51,15 +59,13 @@ extension CloudStrings {
     }
 
     nonisolated static var apiTimedOut: String {
-        String(localized: "cloud.error.timedOut",
-               defaultValue: "cmux Cloud didn't answer in time. Try again; if it keeps happening, run `cmux cloud diagnostics`.",
+        String(localized: "cloud.error.timedOutPlain", defaultValue: "cmux Cloud didn't answer in time. Try again.",
                table: "Cloud", bundle: .module)
     }
 
-    /// `detail` is the system's own (localized) network error text.
-    nonisolated static func apiUnreachable(_ detail: String) -> String {
-        String(format: String(localized: "cloud.error.unreachable", defaultValue: "Couldn't reach cmux Cloud (%@). Check your network, then try again.",
-                              table: "Cloud", bundle: .module), detail)
+    nonisolated static var apiUnreachable: String {
+        String(localized: "cloud.error.unreachablePlain", defaultValue: "Couldn't reach cmux Cloud. Check your network, then try again.",
+               table: "Cloud", bundle: .module)
     }
 
     nonisolated static var apiUnreadable: String {

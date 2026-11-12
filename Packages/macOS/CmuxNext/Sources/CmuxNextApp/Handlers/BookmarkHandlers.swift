@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBookmarks
 import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 
 /// Bookmark actions (plans/cmux-next/bookmarks.md section 3): one handler
@@ -70,7 +71,7 @@ enum BookmarkHandlers {
             services.bookmarks.setBarShown(shown)
             guard let settings = services.settings else { return }
             services.registry.track(Task { @MainActor in
-                do { try await settings.setShowBookmarksBar(shown) } catch { return ActionWorkFailure(String(describing: error)) }
+                do { try await settings.setShowBookmarksBar(shown) } catch { return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error)) }
                 return nil
             })
         })

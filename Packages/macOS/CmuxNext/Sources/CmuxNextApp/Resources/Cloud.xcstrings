@@ -11593,266 +11593,264 @@
         }
       }
     },
-    "cloud.error.timedOut": {
-      "comment": "cmux Cloud did not answer a request in time. `cmux cloud diagnostics` is a command; keep it as is.",
+    "cloud.error.timedOutPlain": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud didn't answer in time. Try again; if it keeps happening, run `cmux cloud diagnostics`."
+            "value": "cmux Cloud didn't answer in time. Try again."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لم يستجب cmux Cloud في الوقت المحدد. حاول مرة أخرى؛ وإذا تكرر ذلك، فشغّل `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "لم تستجب cmux Cloud في الوقت المناسب. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud nije odgovorio na vrijeme. Pokušajte ponovo; ako se ponavlja, pokrenite `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud nije odgovorio na vrijeme. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud svarede ikke i tide. Prøv igen. Hvis det bliver ved, så kør `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud svarede ikke i tide. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud hat nicht rechtzeitig geantwortet. Versuche es erneut. Passiert es wieder, führe `cmux cloud diagnostics` aus."
+            "state": "needs_review",
+            "value": "cmux Cloud hat nicht rechtzeitig geantwortet. Versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud no respondió a tiempo. Inténtalo de nuevo; si sigue pasando, ejecuta `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud no respondió a tiempo. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud n’a pas répondu à temps. Réessayez ; si cela se reproduit, exécutez `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud n'a pas répondu à temps. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud non ha risposto in tempo. Riprova; se succede ancora, esegui `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud non ha risposto in tempo. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud から時間内に応答がありませんでした。もう一度試してください。繰り返す場合は `cmux cloud diagnostics` を実行してください。"
+            "state": "needs_review",
+            "value": "cmux Cloud が時間内に応答しませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud មិនបានឆ្លើយតបទាន់ពេលទេ។ សាកម្តងទៀត។ ប្រសិនបើវានៅតែកើតឡើង សូមដំណើរការ `cmux cloud diagnostics`។"
+            "state": "needs_review",
+            "value": "cmux Cloud មិនបានឆ្លើយតបទាន់ពេលទេ។ សូមព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud가 제때 응답하지 않았습니다. 다시 시도하세요. 계속되면 `cmux cloud diagnostics`를 실행하세요."
+            "state": "needs_review",
+            "value": "cmux Cloud가 제때 응답하지 않았습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud svarte ikke i tide. Prøv igjen. Hvis det fortsetter, kjør `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud svarte ikke i tide. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud nie odpowiedział na czas. Spróbuj ponownie; jeśli to się powtarza, uruchom `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud nie odpowiedział na czas. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O cmux Cloud não respondeu a tempo. Tente de novo; se continuar, execute `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "O cmux Cloud não respondeu a tempo. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud не ответил вовремя. Повторите попытку; если это повторяется, выполните `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud не ответил вовремя. Попробуйте снова."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud ไม่ตอบกลับภายในเวลาที่กำหนด ลองอีกครั้ง หากยังเกิดขึ้นอีก ให้เรียกใช้ `cmux cloud diagnostics`"
+            "state": "needs_review",
+            "value": "cmux Cloud ไม่ตอบกลับภายในเวลาที่กำหนด ลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud zamanında yanıt vermedi. Yeniden deneyin; tekrarlanırsa `cmux cloud diagnostics` komutunu çalıştırın."
+            "state": "needs_review",
+            "value": "cmux Cloud zamanında yanıt vermedi. Tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud не відповів вчасно. Спробуйте ще раз; якщо це повторюється, виконайте `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud не відповів вчасно. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud không phản hồi kịp thời. Hãy thử lại; nếu vẫn xảy ra, hãy chạy `cmux cloud diagnostics`."
+            "state": "needs_review",
+            "value": "cmux Cloud không phản hồi kịp. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud 未及时响应。请重试；如果反复出现，请运行 `cmux cloud diagnostics`。"
+            "state": "needs_review",
+            "value": "cmux Cloud 未及时响应。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud 未及時回應。請再試一次；如果一再發生，請執行 `cmux cloud diagnostics`。"
+            "state": "needs_review",
+            "value": "cmux Cloud 未及時回應。請再試一次。"
           }
         }
       }
     },
-    "cloud.error.unreachable": {
-      "comment": "This Mac could not reach cmux Cloud; %@ is the system's own network error text (already localized).",
+    "cloud.error.unreachablePlain": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't reach cmux Cloud (%@). Check your network, then try again."
+            "value": "Couldn't reach cmux Cloud. Check your network, then try again."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تعذّر الوصول إلى cmux Cloud (%@). تحقق من الشبكة، ثم حاول مرة أخرى."
+            "state": "needs_review",
+            "value": "تعذّر الوصول إلى cmux Cloud. تحقق من الشبكة، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nije moguće doći do cmux Clouda (%@). Provjerite mrežu, pa pokušajte ponovo."
+            "state": "needs_review",
+            "value": "Nije moguće doći do cmux Clouda. Provjerite mrežu, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke nå cmux Cloud (%@). Tjek dit netværk, og prøv igen."
+            "state": "needs_review",
+            "value": "Kunne ikke nå cmux Cloud. Tjek dit netværk, og prøv igen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud ist nicht erreichbar (%@). Prüfe dein Netzwerk und versuche es erneut."
+            "state": "needs_review",
+            "value": "cmux Cloud ist nicht erreichbar. Prüfe dein Netzwerk und versuche es erneut."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "No se pudo conectar con cmux Cloud (%@). Revisa tu red e inténtalo de nuevo."
+            "state": "needs_review",
+            "value": "No se pudo conectar con cmux Cloud. Revisa tu red e inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossible de joindre cmux Cloud (%@). Vérifiez votre réseau, puis réessayez."
+            "state": "needs_review",
+            "value": "Impossible de joindre cmux Cloud. Vérifiez votre réseau, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impossibile raggiungere cmux Cloud (%@). Controlla la rete, poi riprova."
+            "state": "needs_review",
+            "value": "Impossibile raggiungere cmux Cloud. Controlla la rete, poi riprova."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud に接続できませんでした（%@）。ネットワークを確認してから、もう一度試してください。"
+            "state": "needs_review",
+            "value": "cmux Cloud に接続できませんでした。ネットワークを確認してから、もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "មិនអាចទៅដល់ cmux Cloud បានទេ (%@)។ ពិនិត្យបណ្តាញរបស់អ្នក រួចសាកម្តងទៀត។"
+            "state": "needs_review",
+            "value": "មិនអាចទៅដល់ cmux Cloud បានទេ។ ពិនិត្យបណ្ដាញរបស់អ្នក រួចព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud에 연결할 수 없습니다(%@). 네트워크를 확인한 뒤 다시 시도하세요."
+            "state": "needs_review",
+            "value": "cmux Cloud에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kunne ikke nå cmux Cloud (%@). Sjekk nettverket, og prøv igjen."
+            "state": "needs_review",
+            "value": "Kunne ikke nå cmux Cloud. Sjekk nettverket, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nie można połączyć się z cmux Cloud (%@). Sprawdź sieć i spróbuj ponownie."
+            "state": "needs_review",
+            "value": "Nie można połączyć się z cmux Cloud. Sprawdź sieć i spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Não foi possível acessar o cmux Cloud (%@). Verifique sua rede e tente de novo."
+            "state": "needs_review",
+            "value": "Não foi possível acessar o cmux Cloud. Verifique sua rede e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не удалось связаться с cmux Cloud (%@). Проверьте сеть и повторите попытку."
+            "state": "needs_review",
+            "value": "Не удалось связаться с cmux Cloud. Проверьте сеть и попробуйте снова."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เข้าถึง cmux Cloud ไม่ได้ (%@) ตรวจสอบเครือข่ายของคุณ แล้วลองอีกครั้ง"
+            "state": "needs_review",
+            "value": "เข้าถึง cmux Cloud ไม่ได้ ตรวจสอบเครือข่าย แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux Cloud'a ulaşılamadı (%@). Ağınızı kontrol edin, sonra yeniden deneyin."
+            "state": "needs_review",
+            "value": "cmux Cloud'a ulaşılamadı. Ağınızı kontrol edip tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Не вдалося зв’язатися з cmux Cloud (%@). Перевірте мережу й спробуйте ще раз."
+            "state": "needs_review",
+            "value": "Не вдалося зв'язатися з cmux Cloud. Перевірте мережу й спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Không thể kết nối tới cmux Cloud (%@). Hãy kiểm tra mạng rồi thử lại."
+            "state": "needs_review",
+            "value": "Không kết nối được tới cmux Cloud. Hãy kiểm tra mạng rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "无法连接 cmux Cloud（%@）。请检查网络，然后重试。"
+            "state": "needs_review",
+            "value": "无法连接 cmux Cloud。请检查网络，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "無法連線至 cmux Cloud（%@）。請檢查網路，然後再試一次。"
+            "state": "needs_review",
+            "value": "無法連線到 cmux Cloud。請檢查網路，然後再試一次。"
           }
         }
       }

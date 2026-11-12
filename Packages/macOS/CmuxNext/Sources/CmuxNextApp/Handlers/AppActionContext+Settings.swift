@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextSettings
 import os
 
@@ -26,7 +27,7 @@ extension AppActionContext {
             } catch {
                 Self.settingsLogger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if reloadOnFailure { await settings.reload() }
-                return ActionWorkFailure(String(describing: error))
+                return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))
             }
         })
     }
@@ -38,7 +39,7 @@ extension AppActionContext {
             try await settings.setSetting(at: path, to: value, by: writer)
             return nil
         } catch {
-            return ActionWorkFailure(String(describing: error))
+            return ActionWorkFailure(log: String(describing: error), reason: PlainErrorText.words(error))
         }
     }
 
