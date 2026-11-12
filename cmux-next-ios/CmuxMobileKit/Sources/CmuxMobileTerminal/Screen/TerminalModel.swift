@@ -262,6 +262,12 @@ public final class TerminalModel {
             break
         case .inputNotSent:
             composerNotice = TerminalConnectionState.inputNotSentNotice
+            // A composer send that waited out a blip and was dropped comes back to edit.
+            if let held = heldComposerSend, composerText.isEmpty,
+               ProcessInfo.processInfo.systemUptime - held.at <= Self.heldComposerSendWindow {
+                composerText = held.text
+            }
+            heldComposerSend = nil
         case .hostGrid, .hostGridOwner:
             break
         }
@@ -479,8 +485,21 @@ public final class TerminalModel {
             sendAttachments(pressReturn: true)
             return
         }
+        holdComposerText()
         controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
         composerText = ""
+    }
+
+    /// A composer send made while the terminal is not attached (a blip): the
+    /// session holds its keys, and drops them if the terminal does not come
+    /// back in time. Its text, with when it was sent, comes back then.
+    @ObservationIgnored var heldComposerSend: (text: String, at: TimeInterval)?
+    /// How long after a held send its text may come back (the session's hold, with room for the attach).
+    static let heldComposerSendWindow: TimeInterval = 30
+
+    private func holdComposerText() {
+        heldComposerSend = connectionState.isAttached || composerText.isEmpty
+            ? nil : (composerText, ProcessInfo.processInfo.systemUptime)
     }
 
     /// Voice mode's prompt: the user's words typed into the terminal with
@@ -500,6 +519,7 @@ public final class TerminalModel {
             sendAttachments(pressReturn: false)
             return
         }
+        holdComposerText()
         controller?.surface.sendText(composerText, pressReturn: false, fullScreenApp: isTUI)
         composerText = ""
     }
