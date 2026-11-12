@@ -11,6 +11,7 @@ extension WindowRootView {
     func setUpCollapsedBandReveal() {
         collapsedBand.install(in: self)
         collapsedBand.shownPresence = { [weak self] in self?.toolbarBandPresence ?? 0 }
+        collapsedBand.fullWidth = { [weak self] in self?.toolbarBand.slots.width ?? 0 }
         collapsedBand.reveal = titlebarReveal
         titlebarReveal.onStateChange = { [weak self] state in
             guard let band = self?.collapsedBand else { return }

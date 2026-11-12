@@ -438,7 +438,11 @@ impl ChatService {
             (state.recorded.roots().to_vec(), state.settings.clone())
         };
         let (found, settings_refused) = discover_roots(&self.sources, &recorded, &settings);
-        let paths: Vec<PathBuf> = found.roots.iter().map(|root| root.real_path.clone()).collect();
+        let paths: Vec<watch::WatchedRoot> = found
+            .roots
+            .iter()
+            .map(|root| watch::WatchedRoot { path: root.real_path.clone(), kind: root.harness })
+            .collect();
         let (watcher, errors) = watch::start(&paths, Arc::downgrade(self));
         let mut state = lock(&self.state);
         let known: HashSet<String> = state.index.roots().map(|root| root.id()).collect();
@@ -547,8 +551,11 @@ impl ChatService {
     }
 
     fn rewatch(self: &Arc<Self>) {
-        let paths: Vec<PathBuf> =
-            lock(&self.state).index.roots().map(|root| root.real_path.clone()).collect();
+        let paths: Vec<watch::WatchedRoot> = lock(&self.state)
+            .index
+            .roots()
+            .map(|root| watch::WatchedRoot { path: root.real_path.clone(), kind: root.harness })
+            .collect();
         let (watcher, errors) = watch::start(&paths, Arc::downgrade(self));
         let mut state = lock(&self.state);
         state.watch_errors = errors;

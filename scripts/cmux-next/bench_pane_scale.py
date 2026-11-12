@@ -65,6 +65,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, classify, process_table, usage, wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 
 class _ThreadInfo(ctypes.Structure):
@@ -510,7 +511,7 @@ def main():
         "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
     }
     app = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"pane-scale: launched pid {app.pid}", flush=True)
+    safe_print(f"pane-scale: launched pid {app.pid}", flush=True)
     report = {
         "tag": tag, "sha": sha, "label": args.label, "app": bundle, "shape": args.shape, "rows": args.rows,
         "depth": args.depth, "tabs": args.tabs, "host": os.uname().nodename,
@@ -530,7 +531,7 @@ def main():
         for target in [int(c) for c in args.counts.split(",")]:
             if app.poll() is not None:
                 report["app_exit"] = app.returncode
-                print(f"pane-scale: the app exited ({app.returncode})", file=sys.stderr)
+                safe_print(f"pane-scale: the app exited ({app.returncode})", file=sys.stderr)
                 break
             panes = bench.counts()[0]
             new = max(0, target - panes)
@@ -541,7 +542,7 @@ def main():
                 skip = (f"PTY guard: {used} PTYs in use on the host + {new_terminals} new terminals "
                         f"+ {args.pty_margin} margin > kern.tty.ptmx_max {limit}")
                 report["checkpoints"].append({"target": target, "skipped": skip})
-                print(f"== N={target}: skipped ({skip})", flush=True)
+                safe_print(f"== N={target}: skipped ({skip})", flush=True)
                 break
             build_start = time.monotonic()
             created = []
@@ -570,12 +571,12 @@ def main():
                           "window": build_window, "refused": [c for c in created if c["error"]]},
                 "tabs_added": tabs_info,
             }
-            print(f"== N={target}: panes {panes} tabs {tabs} terminals {terminals} "
-                  f"build {checkpoint['build']['seconds']} s, create rtt p50 {checkpoint['build']['rtt_ms']['p50']} ms",
-                  flush=True)
+            safe_print(f"== N={target}: panes {panes} tabs {tabs} terminals {terminals} "
+                       f"build {checkpoint['build']['seconds']} s, create rtt p50 {checkpoint['build']['rtt_ms']['p50']} ms",
+                       flush=True)
             checkpoint["idle"] = bench.idle()
             for row in checkpoint["idle"].get("app_threads", [])[:8]:
-                print(f"   idle thread {row['name'][:40]:<40} {row['ran']}/{row['threads']} ran, {row['cpu_us_per_s']} us/s", flush=True)
+                safe_print(f"   idle thread {row['name'][:40]:<40} {row['ran']}/{row['threads']} ran, {row['cpu_us_per_s']} us/s", flush=True)
             if args.sample_seconds:
                 # After the idle window (sample suspends threads): stacks of what woke.
                 path = os.path.join(args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench"),
@@ -585,14 +586,14 @@ def main():
                                capture_output=True, timeout=args.sample_seconds + 120)
                 checkpoint["sample"] = path
             for kind, row in sorted(checkpoint["idle"]["processes"].items()):
-                print(f"   idle {kind:<14} x{row['count']:<5} {row['cpu_percent']:>7.3f}% CPU "
-                      f"{row['wakeups_per_s']:>8.2f} wk/s {row['footprint_mb']:>9.1f} MB", flush=True)
+                safe_print(f"   idle {kind:<14} x{row['count']:<5} {row['cpu_percent']:>7.3f}% CPU "
+                           f"{row['wakeups_per_s']:>8.2f} wk/s {row['footprint_mb']:>9.1f} MB", flush=True)
             checkpoint["phases"] = bench.phases(panes)
             for name, ph in checkpoint["phases"].items():
                 app_row = ph["processes"].get("app", {})
-                print(f"   {name:<7} p50 {ph['latency_ms']['p50']} p99 {ph['latency_ms']['p99']} ms, "
-                      f"app {app_row.get('cpu_percent')}% CPU, hangs {ph.get('hangs', {}).get('total_ms')} ms, "
-                      f"frames p99 {ph.get('frames', {}).get('p99_ms')} ms, layout {ph.get('layout')}", flush=True)
+                safe_print(f"   {name:<7} p50 {ph['latency_ms']['p50']} p99 {ph['latency_ms']['p99']} ms, "
+                           f"app {app_row.get('cpu_percent')}% CPU, hangs {ph.get('hangs', {}).get('total_ms')} ms, "
+                           f"frames p99 {ph.get('frames', {}).get('p99_ms')} ms, layout {ph.get('layout')}", flush=True)
             report["checkpoints"].append(checkpoint)
             if created and created[-1]["error"]:
                 break
@@ -615,13 +616,13 @@ def main():
             try:
                 report["teardown"] = end_terminals(os.path.join(bundle, "Contents/Resources/bin/cmux-tui"), tag)
             except Exception as error:  # noqa: BLE001 - teardown is best effort; report it
-                print(f"pane-scale: daemon teardown: {error}", file=sys.stderr)
+                safe_print(f"pane-scale: daemon teardown: {error}", file=sys.stderr)
     out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
     os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, f"{sha}-pane-scale-{args.label}.json")
     with open(out, "w") as handle:
         json.dump(report, handle, indent=2)
-    print(f"pane-scale: wrote {out}")
+    safe_print(f"pane-scale: wrote {out}")
 
 
 if __name__ == "__main__":

@@ -18,8 +18,8 @@ import Observation
 /// closed items of that pane), and its
 /// action reopens exactly those records at their own places, never "the
 /// newest". Only a costly close shows it (`CloseToastRule`: several real
-/// tabs, an agent at work or an unsent chat, a terminal running a program);
-/// Settings, New Tab, History and one idle tab close silently, and Cmd-Shift-T
+/// tabs, an agent at work or an unsent chat); Settings, New Tab, History and
+/// one tab that is not working (a terminal too) close silently, and Cmd-Shift-T
 /// still reopens them. "Closed “title”" for one tab, "Closed N tabs" for
 /// several; closes made while a close toast shows join it, so one Undo
 /// reopens them all. Automation closes (CLI, agents) never announce, so they
@@ -184,9 +184,10 @@ final class CloseUndoToasts {
             PaneController.close(closing)
             for part in deciding { part.pane.services.closedTabs?.undoToasts.hidePages(part.ids, in: part.pane) } // they leave now too
         }
-        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts, keeping: selecting) { [weak services] asked, hidden in
-            guard user, let undo = services?.closedTabs?.undoToasts else { hidden?.lift(); return closeAll(nil, false) }
-            undo.decideFirst(tabs, on: daemon, asked: asked, window: first.view.window) { costly in hidden?.lift(); closeAll(undo, costly) }
+        TabCloseGuard.close(tabs, on: daemon, services: services, window: first.view.window, leaving: parts, keeping: selecting) { [weak services] _, hidden in
+            hidden?.lift()
+            guard user, let undo = services?.closedTabs?.undoToasts else { return closeAll(nil, false) }
+            closeAll(undo, undo.isCostly(tabs))
         }
     }
 
@@ -196,28 +197,19 @@ final class CloseUndoToasts {
         hiddenPages.hide(tabs, in: pane, store: pane.daemon.store)
     }
 
-    /// `CloseToastRule`'s answer for `tabs`, read before their close runs: a
-    /// closed terminal ends, and could no longer say what it ran (cx-lb4al).
-    /// `asked` holds terminals the close's question already asked; when it
-    /// covers every terminal the rule asks about, the close runs at once.
-    func decideFirst(_ tabs: [TabModel], on daemon: DaemonService, asked: RunningPrograms = [:], window: NSWindow? = nil,
-                     then run: @escaping @MainActor (_ costly: Bool) -> Void) {
+    /// `CloseToastRule`'s answer for `tabs`, read before their close runs: whether the close earns its undo toast.
+    /// Synchronous: no terminal is asked what it runs (Lawrence 2026-11-09, one idle terminal's toast).
+    func isCostly(_ tabs: [TabModel]) -> Bool {
         switch services.map({ CloseToastRule(services: $0).decide(tabs) }) ?? .skip {
-        case .show: run(true)
-        case .skip: run(false)
-        case .askTerminals(let terminals) where asked.covers(terminals):
-            run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
-        case .askTerminals(let terminals):
-            let coordinator = services?.keyRouter.creationInputCoordinator, keys = coordinator?.beginClose(of: tabs, in: window)
-            // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the close
-            Task { @MainActor in run(!(await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)).isEmpty); coordinator?.endClose(keys, in: window) }
+        case .show: true
+        case .skip: false
         }
     }
 
     /// No action run (a click in the strip) or a user-origin run.
     static var isUserClose: Bool { (ActionRunScope.current?.origin ?? .user) == .user }
 
-    /// The user is closing tabs `ids` of `pane` in one gesture; `costly` is `decideFirst`'s answer.
+    /// The user is closing tabs `ids` of `pane` in one gesture; `costly` is `isCostly`'s answer.
     func expectGroup(_ ids: [StripTabID], in pane: PaneController, costly: Bool) {
         expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, window: pane.view.window, costly: costly)
     }

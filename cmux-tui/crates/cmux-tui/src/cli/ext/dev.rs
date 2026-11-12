@@ -668,8 +668,6 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
                 }
                 "cmux.session.info.section/1" => "the agent pane's Session Info".into(),
                 "cmux.pane/1" => "a tab (Open in the Command Palette)".into(),
-                "cmux.chat.widget/1" => "chat messages that name the app".into(),
-                "cmux.newtab.widget/1" => "the new tab page".into(),
                 "cmux.sidebar.rows/1" => "workspace rows in the sidebar".into(),
                 other => other.to_string(),
             };
@@ -682,13 +680,7 @@ fn placements(manifest: &Value, shown: bool) -> Vec<Value> {
 fn probe_interface(manifest: &Value) -> Option<String> {
     let implements = manifest.get("implements")?.as_object()?;
     let has_export = |name: &str| implements.get(name).and_then(|e| e.get("export")).is_some();
-    const PREFERRED: [&str; 5] = [
-        "cmux.section/1",
-        "cmux.newtab.widget/1",
-        "cmux.pane/1",
-        "cmux.session.info.section/1",
-        "cmux.chat.widget/1",
-    ];
+    const PREFERRED: [&str; 3] = ["cmux.section/1", "cmux.pane/1", "cmux.session.info.section/1"];
     PREFERRED
         .iter()
         .find(|name| has_export(name))
@@ -711,6 +703,8 @@ pub(super) struct Outcome {
     pub installed: Option<bool>,
     pub placed: Vec<Value>,
     pub probe: Option<String>,
+    /// The outline of the probe's first scene (`scene.rs`): what the view rendered.
+    pub scene: Vec<String>,
     pub logs: Vec<Value>,
     pub next: Option<String>,
     /// Ctrl-C ended the reload.
@@ -732,6 +726,7 @@ impl Outcome {
             installed: None,
             placed: Vec::new(),
             probe: None,
+            scene: Vec::new(),
             logs: Vec::new(),
             next: None,
             interrupted: false,
@@ -770,6 +765,7 @@ impl Outcome {
             "installed": self.installed,
             "placed": self.placed,
             "probe": self.probe,
+            "scene": self.scene,
             "logs": self.logs,
             "next": self.next,
         })
@@ -953,7 +949,7 @@ impl Session {
             outcome.probe = probe_interface(&pkg.manifest);
             if let Some(interface) = outcome.probe.clone().filter(|_| enabled) {
                 match self.probe(&pkg.id, &interface, !installed) {
-                    Ok(Ok(())) => {}
+                    Ok(Ok(ops)) => outcome.scene = super::scene::outline(&[&ops]),
                     Ok(Err(problem)) => {
                         outcome.logs = self.daemon.take_logs();
                         return outcome.failed(Phase::Load, vec![problem]);
@@ -1044,14 +1040,14 @@ impl Session {
         })
     }
 
-    /// Mounts `interface` once and waits for its first scene (loaded) or its
-    /// failure (the load error); then unmounts it.
+    /// Mounts `interface` once and waits for its first scene (loaded: its op
+    /// batch) or its failure (the load error); then unmounts it.
     fn probe(
         &mut self,
         id: &str,
         interface: &str,
         preview: bool,
-    ) -> Result<Result<(), Problem>, Stop> {
+    ) -> Result<Result<Value, Problem>, Stop> {
         self.probes += 1;
         let mount_id = format!("ext-dev-probe-{}-{}", std::process::id(), self.probes);
         let mut context = json!({});
@@ -1074,7 +1070,7 @@ impl Session {
                 return None;
             }
             match value.field("event").as_str()? {
-                "apps-scene" => Some(Ok(())),
+                "apps-scene" => Some(Ok(value.field("ops").clone())),
                 "apps-mount-failed" => {
                     Some(Err(load_problem(value.field("reason").as_str().unwrap_or(""))))
                 }
