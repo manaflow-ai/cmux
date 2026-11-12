@@ -790,6 +790,8 @@ public struct WorkspacesList: View {
         case .offline: RelativeStamp(now: now).presence(isOnline: false, lastSeenAt: fold.mac.lastSeenAt)
         case .notConnected: "Not connected"
         case .failed: "Can't connect"
+        // A Cloud machine's state has its own line (`cloudFoldLine`).
+        case .cloudPaused, .cloudWaking, .cloudFailed, .cloudEmpty: Self.cloudFoldText(fold).detail
         }
         return Button {
             switch fold.reason {
@@ -809,6 +811,8 @@ public struct WorkspacesList: View {
                 }
             case .notConnected, .failed:
                 reconnect?(fold.mac.id)
+            case .cloudPaused, .cloudWaking, .cloudFailed, .cloudEmpty:
+                break
             }
         } label: {
             HStack(spacing: 0) {
