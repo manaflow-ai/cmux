@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43321474602",
+  "recorded_at": "2026-11-12T22:48:44Z",
+  "reason": "cmux-tui ab3b95f74782 changes the image's cmux-tui (pinned 3c42d7a92139)",
+  "dry_run": false,
+  "cmux_tui": "ab3b95f74782daff030a736550c149bac1dedf24",
+  "fixes": [
+    {
+      "sha": "ab3b95f74782daff030a736550c149bac1dedf24",
+      "mergedAt": "2026-11-12T21:24:59Z",
+      "subject": "acpmux: a first-run matrix cell puts the daemon in any set of agent CLIs and sign-ins (#41918)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T22:48:44Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
