@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43299012160",
+  "recorded_at": "2026-11-12T20:21:45Z",
+  "reason": "cmux-tui 3b8bfabb3fcd changes the image's cmux-tui (pinned 53df879fb060)",
+  "dry_run": false,
+  "cmux_tui": "3b8bfabb3fcd4b126d3446df30de7ff4ba4404d8",
+  "fixes": [
+    {
+      "sha": "3b8bfabb3fcd4b126d3446df30de7ff4ba4404d8",
+      "mergedAt": "2026-11-12T13:46:34-06:00",
+      "subject": "fix(cmux-tui): a closed remote connection closes its socket while the session lives on"
+    },
+    {
+      "sha": "16b90b8aecf18328af5bf31a1fc1ca8870b1e5b2",
+      "mergedAt": "2026-11-12T13:46:34-06:00",
+      "subject": "test(cmux-tui): a closed remote connection closes its socket while the session lives on"
+    },
+    {
+      "sha": "bfb706d227a42bec00204737133c1f2b600e7629",
+      "mergedAt": "2026-11-12T13:46:16-06:00",
+      "subject": "cmux-tui-core tests: an adopting terminal's queue waits on the backstop's clock, not 10 s"
+    },
+    {
+      "sha": "84a8821dcba79fb5dcc79594fa0177451c1f5592",
+      "mergedAt": "2026-11-12T11:40:30-08:00",
+      "subject": "acpmux: read the settings file through cmux-config's path and JSONC reader (#42064)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T20:21:45Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
