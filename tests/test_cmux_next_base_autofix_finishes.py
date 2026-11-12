@@ -44,6 +44,8 @@ SURFACES = "plans/cmux-next/action-surfaces.json"
 WEBVIEWS = "webviews/src/generated.ts"
 APP = "first-party-apps/app/fragment.json"
 ACTION_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionTests.swift"
+DISPLAY_LIST = "scripts/ci/display-suites.txt"
+DISPLAY_TEST = "Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SplitAtOnceTests.swift"
 
 
 def git(cwd, *args):
@@ -121,7 +123,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
         files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SETTINGS_REF: "old", CLI_REF: "old", DOCS_GENERATOR: "g1", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
-                 "README.md": "r", "unlisted/output.txt": "old",
+                 DISPLAY_LIST: "old", DISPLAY_TEST: "t1", "README.md": "r", "unlisted/output.txt": "old",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
             (seed / path).parent.mkdir(parents=True, exist_ok=True)
@@ -267,6 +269,19 @@ class BaseAutofixFinishes(unittest.TestCase):
         done, landed, out = self.push({DOCS_GENERATOR: "g2"}, repair={SETTINGS_REF: "new", CLI_REF: "new"})
         self.assertEqual(done.returncode, 1, out)
         self.assertEqual((landed[SETTINGS_REF], landed[CLI_REF]), ("old", "old"))
+
+    def test_the_display_suite_list_lands_past_an_unrelated_change(self):
+        # base-autofix.sh regenerates scripts/ci/display-suites.txt on every run (8d01c87e13c, a direct push,
+        # left tooling-tests red on base); unclaimed, it would be "unknown" and never land on a moved tip.
+        done, landed, out = self.push({"README.md": "r2"}, repair={DISPLAY_LIST: "new"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[DISPLAY_LIST], "new")
+
+    def test_the_display_suite_list_waits_when_a_test_source_moved(self):
+        # A newer test file may add or drop a display trait: the next run regenerates the list on that tip.
+        done, landed, out = self.push({DISPLAY_TEST: "t2"}, repair={DISPLAY_LIST: "new"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed[DISPLAY_LIST], "old")
 
     def test_an_output_no_area_claims_is_never_reapplied(self):
         done, landed, out = self.push({"README.md": "r2"}, repair={"unlisted/output.txt": "new"})

@@ -266,10 +266,20 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             lines.topAnchor.constraint(equalTo: clip.topAnchor),
             lines.widthAnchor.constraint(equalToConstant: width),
             scroll.widthAnchor.constraint(equalToConstant: width),
-            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: CmuxDialogMetrics.linesMaxHeight),
+            scroll.heightAnchor.constraint(lessThanOrEqualToConstant: Self.cutHeight(Typography.body, spacing: lines.spacing)),
             fit,
         ])
         return scroll
+    }
+
+    /// The scrolling box's height: at most ``CmuxDialogMetrics/linesMaxHeight``, ending halfway through a line, so the
+    /// person sees the message goes on (a box that ends on a line's edge reads as the whole list, with no scroller
+    /// shown until they scroll).
+    private static func cutHeight(_ font: NSFont, spacing: CGFloat) -> CGFloat {
+        let line = ceil(NSLayoutManager().defaultLineHeight(for: font))
+        let pitch = line + spacing
+        let whole = max(floor((CmuxDialogMetrics.linesMaxHeight - line / 2) / pitch), 1)
+        return whole * pitch + line / 2
     }
 
     /// The buttons on one line, right-aligned, when they fit in `width`; else stacked, each `width` wide and the
