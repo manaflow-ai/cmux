@@ -239,7 +239,7 @@ fn a_window_is_bounded_in_rows_and_bytes_and_says_what_lies_beyond() {
 fn unsettled_ids_between_settled_rows_are_stepped_over() {
     let home = tempfile::tempdir().unwrap();
     let (mut log, _) = open(home.path());
-    for id in (10..=200).filter(|id| !id.is_multiple_of(3)) {
+    for id in (10..=200u64).filter(|id| !id.is_multiple_of(3)) {
         log.append_settled(id, 1, &text(id)).unwrap();
     }
     let window = log.window(Anchor::Row { id: 99, side: Side::Around }, 20, 1 << 20);
