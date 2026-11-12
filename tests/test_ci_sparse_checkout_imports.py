@@ -243,6 +243,11 @@ _IMPORT_MODULES = {name.rsplit(".", 1)[0] for name in IMPORT_BY_NAME if "." in n
 # Keywords naming the attribute or dotted target a patch replaces (monkeypatch.setattr(m, name=...),
 # mock.patch.object(m, attribute=...), mock.patch(target=...)).
 _PATCH_KEYWORDS = {"name", "attribute", "target"}
+# Mapping methods that write or remove a key: on sys.modules (or a module's __dict__) a key naming a module that holds
+# an import function swaps that module (`monkeypatch.setitem(sys.modules, "importlib", fake)`,
+# `mock.patch.dict(sys.modules, importlib=fake)`, `sys.modules.update(...)`, `setdefault`, `pop`). Only these calls,
+# so a read (`sys.modules.get("importlib")`) or a literal import of the module itself is not a patch.
+_MAPPING_WRITES = {"dict", "update", "setdefault", "setitem", "delitem", "pop", "__setitem__", "__delitem__"}
 
 
 def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset[str], frozenset[str]]:
@@ -258,7 +263,9 @@ def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset
     by keyword (`name=`, `attribute=`, `target=`, `mock.patch.multiple(importlib, import_module=f)`), by a write
     through a mapping (`vars(importlib)["import_module"] = f`, `importlib.__dict__[...]`, or a dict of them passed
     to a call such as `mock.patch.dict(importlib.__dict__, {...})`), or by swapping the module that holds it in
-    sys.modules (`sys.modules["importlib"] = fake`, `mock.patch.dict(sys.modules, {"importlib": fake})`). A bare
+    sys.modules (`sys.modules["importlib"] = fake`, `mock.patch.dict(sys.modules, {"importlib": fake})`, or by key or keyword through a mapping-writing method:
+    `mock.patch.dict(sys.modules, importlib=fake)`, `monkeypatch.setitem(sys.modules, "importlib", fake)`,
+    `monkeypatch.delitem`, `sys.modules.update(...)`, `setdefault`, `pop`). A bare
     attribute name names no object, so it replaces every import function; reading a name replaces nothing."""
     roots: set[str] = set()
     imported: dict[str, set[str]] = {}
@@ -307,6 +314,12 @@ def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset
                 elif isinstance(arg, ast.Dict):
                     for key in arg.keys:  # mock.patch.dict(importlib.__dict__, {"import_module": f})
                         names_a_patch(key)
+            if isinstance(node.func, ast.Attribute) and node.func.attr in _MAPPING_WRITES:
+                for arg in node.args:  # monkeypatch.setitem(sys.modules, "importlib", fake), sys.modules.pop("importlib")
+                    names_a_patch(arg)
+                for keyword in node.keywords:  # mock.patch.dict(sys.modules, importlib=fake), sys.modules.update(...)
+                    if keyword.arg is not None:
+                        names_a_patch(ast.Constant(keyword.arg))
             for keyword in node.keywords:
                 if keyword.arg in _PATCH_KEYWORDS:
                     names_a_patch(keyword.value)  # monkeypatch.setattr(importlib, name="import_module", value=f)
@@ -4831,6 +4844,67 @@ class GuardScopeAndRebindingTests(unittest.TestCase):
         ("import builtins\nfrom unittest import mock\nmock.patch.object(builtins, attribute='__import__').start()\n"
          "mod = __import__('helper')\n", "__import__('helper')"),
     )
+
+    BI = "__import__('helper')"
+    MAPPED = (
+        # A mapping write that swaps the module holding the import function, or the function in that module's
+        # __dict__, by keyword or by a mapping method rather than a subscript or a dict literal (#41788 review F1).
+        ("import sys, types\nfrom unittest import mock\nfake = types.ModuleType('importlib')\n"
+         "mock.patch.dict(sys.modules, importlib=fake).start()\nimport importlib\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import sys, types\ndef test(monkeypatch):\n    monkeypatch.setitem(sys.modules, 'importlib', types.ModuleType('x'))\n"
+         "import importlib\nmod = importlib.import_module('helper')\n", IM),
+        ("import sys\ndef test(monkeypatch):\n    monkeypatch.delitem(sys.modules, 'importlib')\n"
+         "import importlib\nmod = importlib.import_module('helper')\n", IM),
+        ("import sys, types\nsys.modules.update(importlib=types.ModuleType('x'))\nimport importlib\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import sys, types\nsys.modules.setdefault('importlib', types.ModuleType('x'))\nimport importlib\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import sys, types\nsys.modules.__setitem__('importlib', types.ModuleType('x'))\nimport importlib\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import sys\nsys.modules.pop('importlib')\nimport importlib\nmod = importlib.import_module('helper')\n", IM),
+        ("import sys, types\nfrom unittest import mock\nmock.patch.dict(sys.modules, builtins=types.ModuleType('x')).start()\n"
+         "mod = __import__('helper')\n", BI),
+        ("import sys, types\ndef test(monkeypatch):\n    monkeypatch.setitem(sys.modules, 'builtins', types.ModuleType('x'))\n"
+         "mod = __import__('helper')\n", BI),
+        # Forms of the same class #41788 already reads; kept so the class stays covered as one table.
+        ("import sys, types\nsys.modules.update({'importlib': types.ModuleType('x')})\nimport importlib\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import sys\ndel sys.modules['importlib']\nimport importlib\nmod = importlib.import_module('helper')\n", IM),
+        ("import importlib\ndef test(monkeypatch):\n    monkeypatch.setitem(importlib.__dict__, 'import_module', print)\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import importlib\ndef test(monkeypatch):\n    monkeypatch.delattr(importlib, 'import_module')\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import importlib\ndef test(monkeypatch):\n    monkeypatch.setattr('importlib.import_module', print)\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import builtins\nfrom unittest import mock\nmock.patch.dict(builtins.__dict__, __import__=print).start()\n"
+         "mod = __import__('helper')\n", BI),
+    )
+
+    def test_f2_a_mapping_write_that_swaps_the_import_function_keeps_the_dynamic_diagnostic(self) -> None:
+        for source, text in self.MAPPED:
+            with self.subTest(source=source):
+                line = source.count("\n")
+                self.assertEqual(
+                    self._misses(self.block("scripts/ci/rebind.py"), more={"scripts/ci/rebind.py": source}),
+                    [
+                        f"{self.PREFIX}scripts/ci/rebind.py calls {text} (line {line}), which this check cannot follow; "
+                        "make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+                    ],
+                )
+
+    def test_f2_reading_sys_modules_or_importing_by_name_is_not_a_patch(self) -> None:
+        # Reading sys.modules, or a literal import of the importlib module itself, writes no mapping: still static.
+        source = ("import sys, importlib\nhave = sys.modules.get('importlib')\nok = 'importlib' in sys.modules\n"
+                  "lib = importlib.import_module('importlib')\nmod = importlib.import_module('helper')\n")
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/peeks.py"), more={"scripts/ci/peeks.py": source}),
+            [
+                f"{self.PREFIX}scripts/ci/helper.py imports scripts/ci/deadline_http.py, not in its sparse checkout "
+                "(via scripts/ci/peeks.py)",
+                f"{self.PREFIX}scripts/ci/peeks.py imports scripts/ci/helper.py, not in its sparse checkout",
+            ],
+        )
 
     def test_f2_every_form_of_patching_the_import_function_keeps_the_dynamic_diagnostic(self) -> None:
         for source, text in self.PATCHED:
