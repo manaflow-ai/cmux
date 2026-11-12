@@ -1103,6 +1103,44 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(verdicts.attempt_result(124, report), verdicts.CANNOT_RUN)
         self.assert_cleaned_up(report)
 
+    def test_a_healthy_launch_that_the_gate_cuts_is_never_a_crash_for_the_gate(self):
+        # The gate reads a cut attempt (status 124) by its report. A healthy app that the harness itself stops at
+        # the cut must leave no evidence of an end: `exit` and the crash reports are only what the watch saw while
+        # the app ran, and the stop at the cut writes nothing of the app into the report. In each phase of each arm.
+        verdicts = gate_verdicts()
+        cuts = (("==> fresh-home launch of", ("--seconds", "60")),
+                ("ok: Home rendered in a visible window", ("--seconds", "60")),
+                ("==> seeded-home launch of", ("--seconds", "2", "--seeded-seconds", "60")),
+                ("ok: the cookie sync read the seeded store", ("--seconds", "2", "--seeded-seconds", "60")))
+        for name, (cut_at, extra) in enumerate(cuts):
+            with self.subTest(cut_at=cut_at):
+                app, out = make_app(self.dir / f"cut-healthy-{name}", "healthy"), self.dir / f"out-cut-healthy-{name}"
+                harness = subprocess.Popen([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out),
+                                            "--startup-timeout", "10", "--arms", "empty,seeded", *extra],
+                                           env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                lines = []
+                try:
+                    for line in harness.stdout:
+                        lines.append(line)
+                        if line.startswith(cut_at):
+                            harness.terminate()
+                    status = harness.wait(timeout=60)
+                finally:
+                    if harness.poll() is None:
+                        harness.kill()
+                    harness.stdout.close()
+                output = "".join(lines)
+                self.assertEqual(status, 128 + signal.SIGTERM, output)
+                report = json.loads((out / "report.json").read_text())
+                self.assertIsNone(report.get("exit"), output)
+                self.assertFalse(report.get("crash_reports") or report.get("run_exceptions"), output)
+                self.assertNotEqual(report.get("verdict"), "fail", output)
+                self.assertEqual(verdicts.attempt_result(124, report), verdicts.CANNOT_RUN, report)
+                self.assertEqual(verdicts.verdict([(124, report), (124, report)]), verdicts.CANNOT_RUN, report)
+                for pid in (report.get("pid"), ((report.get("arms") or {}).get("seeded") or {}).get("pid")):
+                    self.assertFalse(pid and smoke.alive(pid), "an app outlived the stopped run")
+                self.assert_cleaned_up(report)
+
     def test_an_app_that_never_reads_the_seeded_store_leaves_the_arm_not_run(self):
         status, output, report, _out = self.seeded("no-sync")
         self.assertEqual(status, smoke.PASS, output)
