@@ -2398,6 +2398,29 @@ mod request_admission_tests;
 #[path = "acp_list_tests.rs"]
 mod acp_list_tests;
 
+/// A heavy list test's own deadline: it fails by name in `LIST_TEST_DEADLINE` rather than leave
+/// CI's job to its 40-minute cut, which names nothing. On 2026-11-12 a list test that rebuilt the
+/// list for every page ran past the job's limit and the job was cancelled, not failed (cmux run
+/// 43164890485). Generous: a busy runner makes these minutes slower, and must not fail them.
+#[cfg(test)]
+pub(crate) const LIST_TEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+#[cfg(test)]
+pub(crate) async fn list_test_within<T>(
+    test: &str,
+    body: impl std::future::Future<Output = T>,
+) -> T {
+    let started = std::time::Instant::now();
+    match tokio::time::timeout(LIST_TEST_DEADLINE, body).await {
+        Ok(done) => done,
+        Err(_) => panic!(
+            "{test}: not done in {:?} (deadline {LIST_TEST_DEADLINE:?}): a paged list read that never \
+             ends, or a build per page; the list guard's `list_cost` debug log names each build",
+            started.elapsed()
+        ),
+    }
+}
+
 #[cfg(test)]
 #[path = "list_fit_tests.rs"]
 mod list_fit_tests;

@@ -141,6 +141,14 @@ fn every_id() -> Vec<String> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
+    super::list_test_within(
+        "a_web_connection_reads_a_large_whole_list_in_bounded_pages",
+        a_web_connection_reads_a_large_whole_list_in_bounded_pages_body(),
+    )
+    .await
+}
+
+async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages_body() {
     let hub = hub().await;
     let mut web = Client::on(&hub, Origin::Web).await;
     let (ids, sizes) = web.whole_watch().await;
@@ -152,6 +160,14 @@ async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_peer_link_reads_its_own_rows_in_bounded_pages() {
+    super::list_test_within(
+        "a_peer_link_reads_its_own_rows_in_bounded_pages",
+        a_peer_link_reads_its_own_rows_in_bounded_pages_body(),
+    )
+    .await
+}
+
+async fn a_peer_link_reads_its_own_rows_in_bounded_pages_body() {
     let hub = hub().await;
     let mut link = Client::on(&hub, Origin::Peer).await;
     let (ids, sizes) = link.whole_watch().await;
@@ -164,6 +180,14 @@ async fn a_peer_link_reads_its_own_rows_in_bounded_pages() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
+    super::list_test_within(
+        "a_peer_link_reads_a_whole_sessions_list_in_bounded_pages",
+        a_peer_link_reads_a_whole_sessions_list_in_bounded_pages_body(),
+    )
+    .await
+}
+
+async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages_body() {
     let hub = hub().await;
     let mut link = Client::on(&hub, Origin::Peer).await;
     let (ids, sizes) = link.whole(method::MUX_SESSIONS, json!({})).await;
@@ -178,6 +202,14 @@ async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
 /// Unix socket's feeds, the agent pane's) included: they were the ones sent 31 MB replies.
 #[tokio::test(flavor = "multi_thread")]
 async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
+    super::list_test_within(
+        "no_list_reply_passes_a_few_megabytes_on_any_connection",
+        no_list_reply_passes_a_few_megabytes_on_any_connection_body(),
+    )
+    .await
+}
+
+async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
     let hub = hub().await;
     for origin in [Origin::Local, Origin::LocalApp, Origin::Web, Origin::Peer] {
         let mut client = Client::on(&hub, origin).await;
@@ -187,7 +219,19 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
             (method::MUX_SESSIONS, json!({})),
         ];
         for (m, params) in reads {
+            let builds = hub.list_guard.builds_for_tests();
             let (ids, sizes) = client.whole(m, params.clone()).await;
+            let builds = hub.list_guard.builds_for_tests() - builds;
+            println!("LIST-BUILDS {origin:?} {m} {params}: pages={} builds={builds}", sizes.len());
+            // One paged read is cut from about one build, however long its with-tools rows took
+            // to make: built again for every page, the 30 pages with tools here waited out the
+            // builder's pace each time and this test ran past CI's 40 minutes (run 43164890485).
+            // Loose, since a busy host may see a window end mid-read; not one build per page.
+            assert!(
+                builds as usize <= sizes.len() / 3 + 3,
+                "{origin:?} {m} {params}: {builds} builds for {} pages",
+                sizes.len()
+            );
             assert!(sizes.len() > 1, "{origin:?} {m} {params}: a list past one page goes in pages");
             let most = sizes.iter().max().copied().unwrap_or_default();
             assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} {m} {params}: {most} bytes");

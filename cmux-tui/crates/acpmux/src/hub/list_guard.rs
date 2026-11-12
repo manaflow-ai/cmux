@@ -8,8 +8,11 @@
 //! - **Never staler than a client is owed.** It is reused only while nothing a watcher
 //!   hears of changed (every send on [`Events`], attach or detach, write to the peers'
 //!   rows, and change of a peer's link state counts), within its window, and never while
-//!   the chat logs load. Fields
-//!   that change with the clock alone (a stall, an expiring tag) are at most a window old.
+//!   the chat logs load. The window runs from when the snapshot is made, and a part of it made
+//!   later (its rows with tools, its masked text) moves it on by that part's own window, so a
+//!   paged read is cut from one build however long its parts take. Fields
+//!   that change with the clock alone (a stall, an expiring tag) are at most a window older
+//!   than the part that shows them.
 //!   A request shares any build begun after it arrived. A watcher's reply never follows
 //!   a `session_changed` notice its list may lack (`list_reply.rs`).
 //! - **Paced.** [`BURST`] builds back to back, then one per window ([`PACE`] times the
@@ -19,9 +22,9 @@
 //!   [`PAGE_MIN`]. The first list is built before it is paced, so the pace is known. A
 //!   request that would wait more than [`MAX_WAIT`] is refused, to try again later.
 //!
-//! Cleanup: each build starts one task that drops its snapshot when the window ends
-//! (unless a newer build replaced it); it holds a weak reference and ends after one
-//! sleep. A connection's pace goes with the connection.
+//! Cleanup: each build starts one task that drops its snapshot when its window ends
+//! (unless a newer build replaced it); it holds a weak reference and sleeps again only when a
+//! part made since moved the window on. A connection's pace goes with the connection.
 
 use super::*;
 use std::ops::Range;
@@ -158,8 +161,12 @@ pub(crate) struct Snapshot {
     serial: u64,
     /// Whether this snapshot intentionally omits closed records for the Mac census path.
     live_only: bool,
-    started: Instant,
-    /// How long it is reused, and how far the next build waits behind it.
+    /// Until when it is reused: a window after the last of it was made. A part made lazily (its
+    /// rows with tools, its masked text) moves this on by its own cost's window, so a list whose
+    /// with-tools rows take longer to make than the base build's window is not stale before its
+    /// first page goes out ([`Snapshot::made_now`]).
+    fresh_until: StdMutex<Instant>,
+    /// How long it is reused after its build, and how far the next build waits behind it.
     window: Duration,
     /// `{"sessions": [...]}` of every summary, local and remote, newest first.
     pub(crate) whole: Arc<String>,
@@ -210,12 +217,12 @@ impl Snapshot {
         live_only: bool,
         (text, spans, keys): Built,
     ) -> Self {
-        let (whole, made, started) = (Arc::new(text), Default::default(), Instant::now());
+        let (whole, made) = (Arc::new(text), Default::default());
         Self {
             key,
             serial,
             live_only,
-            started,
+            fresh_until: StdMutex::new(Instant::now() + window),
             window,
             whole,
             spans,
@@ -272,6 +279,7 @@ impl Snapshot {
     pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
+            let began = Instant::now();
             let (whole, spans, keys) = if self.live_only {
                 let mut rows = Rows::default();
                 hub.visit_live_session_summaries(true, |row| rows.push(&row));
@@ -279,6 +287,7 @@ impl Snapshot {
             } else {
                 Self::build_rows(hub, true, true)
             };
+            self.made_now(began);
             Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
         })
         .clone()
@@ -408,7 +417,38 @@ impl Snapshot {
         make: impl FnOnce(&Self) -> String,
     ) -> Arc<String> {
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
-        made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
+        made.entry(name)
+            .or_insert_with(|| {
+                let began = Instant::now();
+                let text = Arc::new(make(self));
+                self.made_now(began);
+                text
+            })
+            .clone()
+    }
+
+    /// Whether it may still be reused, nothing it shows having changed: within a window of the
+    /// last part of it made.
+    fn fresh(&self) -> bool {
+        Instant::now() < self.fresh_until()
+    }
+
+    fn fresh_until(&self) -> Instant {
+        *self.fresh_until.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A part of it begun at `began` is made: it stays fresh a window past now, the window of
+    /// that part's cost ([`PACE`] times it, at most [`MAX_WINDOW`]) or its build's, the longer.
+    /// Its with-tools rows are several times its base rows (3,000 chats of 10 KB titles: 30 MB
+    /// against 6, 2026-11-12), so with the window priced on the base build alone they took
+    /// longer to make than the snapshot lived: every page of a with-tools list built the whole
+    /// list and its tools again and waited out the builder's pace, and one paged read of it
+    /// took minutes; the list test that reads 16 of them ran past CI's 40 minutes.
+    fn made_now(&self, began: Instant) {
+        let now = Instant::now();
+        let window = now.saturating_duration_since(began).saturating_mul(PACE).min(MAX_WINDOW);
+        let mut until = self.fresh_until.lock().unwrap_or_else(|e| e.into_inner());
+        *until = (*until).max(now + window.max(self.window));
     }
 }
 
@@ -760,7 +800,7 @@ impl ListGuard {
         if let Some(last) = &state.last
             && last.live_only == live_only
             && last.key.0
-            && (last.serial > asked || last.current(hub) && last.started.elapsed() < last.window)
+            && (last.serial > asked || last.current(hub) && last.fresh())
         {
             return last.clone();
         }
@@ -785,25 +825,40 @@ impl ListGuard {
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
         self.bytes.store(built.0.len(), Ordering::Relaxed);
-        let snapshot =
-            Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, live_only, built) });
+        // Fresh for a window from now, when it is made: a build slower than its window (a busy
+        // host, MAX_WINDOW) is reused, not stale on arrival.
+        let snapshot = Arc::new(Snapshot::new(key, serial, window, live_only, built));
         state.last = Some(snapshot.clone());
         drop(state);
         self.expire(serial, window);
         snapshot
     }
 
-    /// Drops snapshot `serial` when its window ends, unless a newer build replaced it.
+    /// Drops snapshot `serial` when it is no longer fresh (its window, moved on by any part of
+    /// it made since), unless a newer build replaced it.
     fn expire(&self, serial: u64, window: Duration) {
         let state = Arc::downgrade(&self.state);
         tokio::spawn(async move {
-            tokio::time::sleep(window).await;
-            let Some(state) = state.upgrade() else { return };
-            let mut state = state.lock().await;
-            if state.last.as_ref().is_some_and(|s| s.serial == serial) {
-                state.last = None;
+            let mut until = Instant::now() + window;
+            loop {
+                tokio::time::sleep_until(until).await;
+                let Some(state) = state.upgrade() else { return };
+                let mut state = state.lock().await;
+                let Some(last) = state.last.as_ref().filter(|s| s.serial == serial) else { return };
+                let fresh_until = last.fresh_until();
+                if fresh_until <= Instant::now() {
+                    state.last = None;
+                    return;
+                }
+                until = fresh_until;
             }
         });
+    }
+
+    /// Lists built so far, for a test that bounds how many builds a paged read costs.
+    #[cfg(test)]
+    pub(crate) fn builds_for_tests(&self) -> u64 {
+        self.begun.load(Ordering::SeqCst)
     }
 }
 
@@ -1555,6 +1610,27 @@ mod tests {
         assert!(hub.list_guard.state.lock().await.last.is_some(), "an older build's expiry");
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(hub.list_guard.state.lock().await.last.is_none(), "it outlived its window");
+    }
+
+    /// A part of a snapshot made lazily after its build (its rows with tools, 30 MB beside 6 of
+    /// base rows on the list test's 3,000 chats) keeps it fresh for that part's window: on
+    /// 2026-11-12 it was stale before its first with-tools page went out, so every page built
+    /// the list again and a paged read of it ran for minutes (cmux run 43164890485).
+    #[tokio::test(start_paused = true)]
+    async fn a_part_made_after_the_build_keeps_the_snapshot_for_its_own_window() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let serial = guard.begun.load(Ordering::SeqCst);
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        guard.expire(serial, Duration::from_secs(1));
+        // Its tools took 3 s to make: past the base build's 1 s window.
+        held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(guard.state.lock().await.last.is_some(), "dropped at the build's window");
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "rebuilt within its window");
+        // 3 s of work: a window of MAX_WINDOW (PACE times 3 s, at most 15 s) from when it was made.
+        tokio::time::sleep(MAX_WINDOW - Duration::from_secs(4)).await;
+        assert!(guard.state.lock().await.last.is_none(), "kept past its part's window");
     }
 }
 
