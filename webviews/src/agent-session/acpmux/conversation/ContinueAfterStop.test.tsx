@@ -13,6 +13,7 @@ import type { AcpmuxRow } from "../model";
 import { CONTINUE_PROMPT, resumeThrough, TurnActionsContext } from "./turnActions";
 import { TurnFooter } from "./TurnRows";
 import { isEmptyFooter, turnView } from "./turns";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const prompt = (id: string, at: number, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -162,6 +163,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

@@ -55,8 +55,9 @@ await requireBrowserLane("new-tab-create-strip-scroll.test.ts", async () => {
         });
         expect(initial.overflow).toBeGreaterThan(24);
         for (let index = 0; index < ordinary - 1; index++) await page.keyboard.press(key);
+        // Down reaches the strip as one line, at its first action; → steps along it. Tab steps each.
         for (let index = 0; index < 3; index++) {
-          await page.keyboard.press(key);
+          await page.keyboard.press(index === 0 || key === "Tab" ? key : "ArrowRight");
           await page.waitForFunction(
             (selectedIndex) =>
               document.querySelector(".nt-create-strip-item.is-selected") ===

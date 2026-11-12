@@ -5,6 +5,7 @@
 import { expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { MOTION_MS, MOTION_SEND_MS } from "../src/motion/scale.generated";
+import { settleReact } from "./support/domTeardown";
 
 const theme = {
   isDark: false,
@@ -46,6 +47,7 @@ async function sendTokens(policy: ReturnType<typeof motion>) {
       fade: style.getPropertyValue("--agent-motion-send-fade"),
     };
   } finally {
+    await settleReact();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;
       else delete scope[key];

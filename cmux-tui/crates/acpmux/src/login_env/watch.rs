@@ -1,5 +1,5 @@
 //! D26: the login environment follows the person's edits. One watcher over
-//! the folders of the startup files (`startup_files`, FSEvents on macOS,
+//! the folders of the startup files (`startup_files`; kqueue on macOS, `kq`;
 //! inotify for changes only on Linux, `quiet`): an edit to one of them reads
 //! the login shell again in the background at once, not at the next agent
 //! spawn. No polling: the
@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use notify::Watcher as _;
 
 /// Editors save in bursts (write, rename, chmod): read once after this quiet...
@@ -35,7 +35,7 @@ pub fn start() {
     dirs.sort();
     dirs.dedup();
     let (tx, rx) = std::sync::mpsc::channel();
-    let Some(source) = source(&dirs, tx) else { return };
+    let Some(source) = source(&dirs, &files, tx) else { return };
     let spawned =
         std::thread::Builder::new().name("acpmux-login-env-watch".into()).spawn(move || {
             // The thread owns the event source: its events stop only with the process.
@@ -50,13 +50,31 @@ pub fn start() {
 /// What a watch of `dirs` sends on `tx`: kept alive for as long as events should come. None when
 /// no folder could be watched.
 #[cfg(target_os = "linux")]
-fn source(dirs: &[PathBuf], tx: Sender<notify::Result<notify::Event>>) -> Option<Box<dyn Send>> {
+fn source(
+    dirs: &[PathBuf],
+    _files: &[PathBuf],
+    tx: Sender<notify::Result<notify::Event>>,
+) -> Option<Box<dyn Send>> {
     quiet::watch(dirs, tx).then(|| Box::new(()) as Box<dyn Send>)
 }
 
-/// Other systems: `notify`'s watcher (FSEvents on macOS, which reports no opens).
-#[cfg(not(target_os = "linux"))]
-fn source(dirs: &[PathBuf], tx: Sender<notify::Result<notify::Event>>) -> Option<Box<dyn Send>> {
+/// macOS: kqueue on each startup file and its folder's entries (`kq`).
+#[cfg(target_os = "macos")]
+fn source(
+    _dirs: &[PathBuf],
+    files: &[PathBuf],
+    tx: Sender<notify::Result<notify::Event>>,
+) -> Option<Box<dyn Send>> {
+    kq::watch(files, tx)
+}
+
+/// Other systems: `notify`'s watcher.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn source(
+    dirs: &[PathBuf],
+    _files: &[PathBuf],
+    tx: Sender<notify::Result<notify::Event>>,
+) -> Option<Box<dyn Send>> {
     let mut watcher = match notify::recommended_watcher(move |event| {
         let _ = tx.send(event);
     }) {
@@ -159,6 +177,28 @@ mod quiet {
     }
 }
 
+/// macOS: kqueue on each startup file and its folder's entries (`named_files_watch`), not an
+/// FSEvents stream over `$HOME`, which woke for every write below it. It sends each startup file
+/// whose stamp changed.
+#[cfg(target_os = "macos")]
+mod kq {
+    use super::*;
+    use crate::named_files_watch::NamedFilesWatch;
+
+    pub(super) fn watch(
+        files: &[PathBuf],
+        tx: Sender<notify::Result<notify::Event>>,
+    ) -> Option<Box<dyn Send>> {
+        let watch = NamedFilesWatch::start(files.to_vec(), move |changed| {
+            changed.iter().any(|path| {
+                let event = notify::Event::new(notify::EventKind::Any).add_path(path.clone());
+                tx.send(Ok(event)).is_err()
+            })
+        })?;
+        Some(Box::new(watch))
+    }
+}
+
 /// Each file as listed, plus the same name under its folder's real path
 /// (`/etc` is `/private/etc` on macOS, and events carry real paths), plus
 /// a symlinked file's real path (`~/.zshrc -> ~/dotfiles/zshrc`), whose
@@ -223,8 +263,8 @@ fn run(
     }
 }
 
-// The one test reads Linux's inotify source: off Linux the module is empty, and its import unused.
-#[cfg(all(test, target_os = "linux"))]
+// The tests read the inotify (Linux) and kqueue (macOS) sources: elsewhere the module is empty.
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests {
     use super::*;
 
@@ -237,7 +277,8 @@ mod tests {
         let file = dir.path().join("profile");
         std::fs::write(&file, "export A=1\n").unwrap();
         let (tx, rx) = std::sync::mpsc::channel();
-        let source = source(&[dir.path().to_path_buf()], tx).expect("the folder is watched");
+        let source = source(&[dir.path().to_path_buf()], std::slice::from_ref(&file), tx)
+            .expect("the folder is watched");
         for _ in 0..20 {
             let _ = std::fs::read_to_string(&file).unwrap();
         }

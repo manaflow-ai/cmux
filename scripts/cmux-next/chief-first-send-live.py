@@ -20,6 +20,8 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
 """
 import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 import re
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -139,7 +141,7 @@ def end_round(app, cache):
     try:
         app.wait(timeout=60)
     except subprocess.TimeoutExpired:
-        print(f"app {app.pid} did not quit; SIGKILL", flush=True)
+        safe_print(f"app {app.pid} did not quit; SIGKILL", flush=True)
         os.kill(app.pid, signal.SIGKILL)
         app.wait(timeout=10)
     env = {**os.environ, "ACPMUX_HOME": ACPMUX_HOME, "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}
