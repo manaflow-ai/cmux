@@ -7,6 +7,7 @@ import { CHAT_UI_FONT_KEY } from "../chatUiFont";
 import { cardFont, cardLetterSpacing, permissionCardHeight } from "./cardHeight";
 import type { AcpmuxPermission } from "../model";
 import type { AgentQuestion } from "../question/model";
+import answered from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/answered-collapsed.json";
 import pending from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-single.json";
 
 test("a permission card measures the chat's interface font", () => {
@@ -49,4 +50,20 @@ test("normal question estimates track the reading size and a footer that wraps",
   expect(permissionCardHeight(permission, 640)).toBeGreaterThan(wide);
   setChatDisplay({});
   expect(permissionCardHeight(permission, 640)).toBe(wide);
+});
+
+test("an answered question bubble wraps and follows the chat reading size", () => {
+  const permission = { question: answered as AgentQuestion } as AcpmuxPermission;
+  setChatDisplay({});
+  setChatDisplay({ "agentPane.display.font.preset": "serif" });
+  const wide = permissionCardHeight(permission, 640);
+  expect(permissionCardHeight(permission, 280)).toBeGreaterThan(wide);
+  const multiline = {
+    ...answered,
+    items: answered.items.map((item) => ({ ...item, prompt: "First line\nSecond line\nThird line" })),
+  } as AgentQuestion;
+  expect(permissionCardHeight({ question: multiline } as AcpmuxPermission, 640)).toBeGreaterThan(wide);
+  setChatDisplay({ "agentPane.display.font.size": 24 });
+  expect(permissionCardHeight(permission, 640)).toBeGreaterThan(wide);
+  setChatDisplay({});
 });

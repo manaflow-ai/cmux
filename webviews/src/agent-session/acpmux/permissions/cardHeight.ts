@@ -2,8 +2,8 @@
 // Keep the frame on the shared grid; interactive expansion is still measured by the transcript.
 import { layout, prepare, prepareWithSegments, layoutWithLines } from "@chenglou/pretext";
 import typeScale from "../../../../../schemas/type-scale/type-scale.json";
-import { chatDisplay } from "../chatDisplay";
-import { chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
+import { chatDisplay, chatMetrics } from "../chatDisplay";
+import { chatUiFontVariables, chatUiMeasureStack, chatUiTracking } from "../chatUiFont";
 import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
 import { plainText } from "../question/inlineText";
@@ -41,14 +41,22 @@ export function cardLetterSpacing(size: number, step?: string): number {
 }
 
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
-function textHeight(text: string, width: number, size: number, line: number, mono = false, weight = 400): number {
+function textHeight(
+  text: string,
+  width: number,
+  size: number,
+  line: number,
+  mono = false,
+  weight = 400,
+  typography?: { font: string; letterSpacing: number; preserveWhitespace: boolean },
+): number {
   const room = Math.max(1, width);
-  if (!mono) text = text.replace(/\s+/g, " ");
+  if (!mono && !typography?.preserveWhitespace) text = text.replace(/\s+/g, " ");
   try {
     return layout(
-      prepare(text, `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, {
+      prepare(text, typography?.font ?? `${weight} ${size}px ${mono ? "monospace" : cardFont()}`, {
         whiteSpace: "pre-wrap",
-        letterSpacing: mono ? 0 : cardLetterSpacing(size),
+        letterSpacing: typography?.letterSpacing ?? (mono ? 0 : cardLetterSpacing(size)),
       }),
       room,
       line,
@@ -95,7 +103,7 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   // Immutable permission snapshots retain their estimate while unrelated reply tokens stream.
   // Keep only the current width per ask; old asks are released with their snapshot.
   // The font's stack and its name: two fonts that share a stack track differently.
-  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}/${chatDisplay().fontSize}/${chatDisplay().lineHeight}`;
+  const key = `${width}/${scale}/${currentLanguage()}/${cardFont()}/${chatDisplay().uiFont}/${chatDisplay().font}/${chatDisplay().fontSize}/${chatDisplay().lineHeight}`;
   const cached = estimates.get(permission);
   if (cached?.key === key) return cached.height;
   const height = estimatePermission(permission, width, scale);
@@ -180,10 +188,24 @@ function questionHeight(question: AgentQuestion, width: number): number {
   if (question.state.kind === "answered") {
     const answer = question.state.answer;
     const by = answer.respondent;
+    const display = chatDisplay();
+    const metrics = chatMetrics(display);
+    const tracking = chatUiFontVariables(display.uiFont)["--cv-tracking"];
+    let letterSpacing = tracking ? Number.parseFloat(tracking) : 0;
+    if (tracking?.endsWith("em")) letterSpacing *= display.fontSize;
+    const bubbleRoom = Math.max(1, width * 0.7 - 32);
+    const bubbleText = (value: string) =>
+      textHeight(plainText(value), bubbleRoom, display.fontSize, metrics.lineHeight, false, 400, {
+        font: metrics.measureFont,
+        letterSpacing,
+        preserveWhitespace: true,
+      });
     return (
-      16 +
-      1 +
-      question.items.reduce((sum, item) => sum + text(item.prompt) + 2 + text(itemAnswerText(item, answer)) + 8, -8) +
+      20 +
+      question.items.reduce(
+        (sum, item) => sum + bubbleText(item.prompt) + 2 + bubbleText(itemAnswerText(item, answer)) + 8,
+        -8,
+      ) +
       (by && (by.displayName || by.device || by.isRemote) ? 8 + detail.lineHeight : 0)
     );
   }
@@ -206,10 +228,10 @@ function questionHeight(question: AgentQuestion, width: number): number {
         (sum, option) =>
           sum +
           Math.max(
-            36,
+            40,
             16 +
-              text(option.label, inner - 36, line, contentSize) +
-              (option.detail ? 2 + text(option.detail, inner - 36, detail.lineHeight, detail.size) : 0),
+              text(option.label, inner - 52, line, contentSize) +
+              (option.detail ? 2 + text(option.detail, inner - 52, detail.lineHeight, detail.size) : 0),
           ),
         0,
       );

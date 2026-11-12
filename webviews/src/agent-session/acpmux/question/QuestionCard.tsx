@@ -836,7 +836,10 @@ function AnsweredQuestion({ question, answer }: { question: AgentQuestion; answe
   const t = useT();
   const by = respondentLine(t, answer);
   return (
-    <div className="acpmux-question-answered" data-remote={answer.respondent?.isRemote || undefined}>
+    <div
+      className="acpmux-question-answered ui-glass cv-user__bubble"
+      data-remote={answer.respondent?.isRemote || undefined}
+    >
       <span className="acpmux-hidden-label">{t("question.answered")}</span>
       {question.items.map((item) => {
         const chosen = itemAnswerText(item, answer);
