@@ -477,7 +477,7 @@ impl HubWriter {
             let mut keep = true;
             let Ok(mut state) = subscriber.state.lock() else { return true };
             if event.seq <= state.cursor || state.dropped.is_some() {
-                return !state.dropped.is_some();
+                return state.dropped.is_none();
             }
             enqueue_item(&mut state, ListItem::Summary(event.clone()));
             subscriber.notify.notify_one();
@@ -516,7 +516,7 @@ impl HubWriter {
         subscribers.retain(|subscriber| {
             let Ok(mut state) = subscriber.state.lock() else { return true };
             if seq <= state.cursor || state.dropped.is_some() {
-                return !state.dropped.is_some();
+                return state.dropped.is_none();
             }
             enqueue_item(&mut state, ListItem::Gone { seq, chat_id: chat_id.clone() });
             subscriber.notify.notify_one();
@@ -601,10 +601,10 @@ mod tests {
             "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"unit\":\"ns\"}}"
         );
         eprintln!("{line}");
-        if let Ok(path) = std::env::var("V2_GATE_OUT") {
-            if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-                let _ = writeln!(file, "{line}");
-            }
+        if let Ok(path) = std::env::var("V2_GATE_OUT")
+            && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
+        {
+            let _ = writeln!(file, "{line}");
         }
     }
 
