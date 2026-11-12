@@ -1019,12 +1019,13 @@ impl Mux {
                 let before = split_direction.is_some_and(|(_, before_target)| before_target);
                 // A `fit` column on a screen that fits the window shares it.
                 let fits = fit && screen.strip_fits_window();
+                let column_id = column.id;
                 anyhow::ensure!(
                     screen.insert_layout_column_beside(target, base, column, before),
                     "target pane disappeared from its layout"
                 );
                 if fits {
-                    screen.fit_strip_after_insert(split_id.expect("column id"));
+                    screen.fit_strip_after_insert(column_id);
                 }
             } else if let Some((dir, before_target)) = split_direction {
                 let split = split_id.expect("split direction reserves an id");
