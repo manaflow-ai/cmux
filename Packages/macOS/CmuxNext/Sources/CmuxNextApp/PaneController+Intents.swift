@@ -157,7 +157,7 @@ extension PaneController {
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, machine: daemon.machineID, newTerminal: true)
         services.registry.track(Task { [services, daemon] in
             var made: SurfaceID? // nil: refused, and the keys typed for the tab go with it
-            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: made != nil, in: window, madeTab: made.map { made in { daemon.store.tab(surface: made)?.id } }) }
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: made != nil, in: window, madeTab: { [made] in made.flatMap { daemon.store.tab(surface: $0)?.id } }) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
@@ -204,7 +204,7 @@ extension PaneController {
         let previous = self.workspace?.pendingCreate
         let work: ActionWork = Task { [services, daemon] in
             var made: SurfaceID?
-            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: made != nil, in: window, madeTab: made.map { made in { daemon.store.tab(surface: made)?.id } }) }
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: made != nil, in: window, madeTab: { [made] in made.flatMap { daemon.store.tab(surface: $0)?.id } }) }
             await previous?.value
             do {
                 let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
