@@ -60,7 +60,6 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("tests/test_ci_package_lane_suite_skips.py", "test_reds"): LEFT,
     ("tests/test_ci_package_result_reuse.py", "select_package_tests"): LEFT,
     ("tests/test_ci_parallel_artifact_transport.py", "parallel_artifact_download"): LEFT,
-    ("tests/test_ci_queue_janitor.py", "queue_janitor"): LEFT,
     ("tests/test_ci_r2_cache_census.py", "r2_cache_census"): LEFT,
     ("tests/test_ci_rescue_actors.py", "classify_failures"): LEFT,
     ("tests/test_ci_rescue_actors.py", "next_macos_cascade"): LEFT,
@@ -477,7 +476,7 @@ class ScriptModuleLoadTests(unittest.TestCase):
                 def go(stem):
                     return __import__(stem.upper())
             '''))
-            imported, _ = scan(root / "tests/test_a.py")
+            imported, _, _ = scan(root / "tests/test_a.py")
             self.assertIn("ring", imported)
             self.assertIn("tests/test_a.py", sharing_test_files(root))
             findings, _, _ = two_object_loads(root)
