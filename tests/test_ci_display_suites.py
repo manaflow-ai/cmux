@@ -33,10 +33,25 @@ class DerivedNeverCommittedTest(unittest.TestCase):
             self.assertEqual(tracked.stdout.strip(), "", "a display suite list is tracked: derive it instead")
 
     def test_no_mode_writes_or_checks_a_copy(self):
+        """--fix and --check stay only as no-ops for base's trusted autofix copy (TrustedBaseAutofixStepTest): they
+        exit 0 and write, print and check nothing, even where the derived list would have rows."""
+        tmp = Path(tempfile.mkdtemp(prefix="display-suites-modes-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        tests = tmp / "Packages/macOS/Pkg/Tests/PkgTests"
+        tests.mkdir(parents=True)
+        (tmp / "Packages/macOS/Pkg/Package.swift").write_text("// swift-tools-version: 6.0\n")
+        (tests / "A.swift").write_text('@Suite(.enabled(if: hasScreen, "needs a display")) struct ZoomTests {}\n')
+        (tmp / "scripts/ci").mkdir(parents=True)
+        stale = tmp / "scripts/ci/display-suites.txt"
+        stale.write_text("a stale copy\n")
+        before = sorted(p.relative_to(tmp).as_posix() for p in tmp.rglob("*"))
         for mode in ("--fix", "--check"):
-            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), mode],
+            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py"), "--root", str(tmp), mode],
                                   capture_output=True, text=True)
-            self.assertEqual(done.returncode, 2, f"display_suites.py {mode} still keeps a committed copy")
+            self.assertEqual((done.returncode, done.stdout), (0, ""), f"display_suites.py {mode} is no no-op: {done}")
+            self.assertEqual(stale.read_text(), "a stale copy\n", f"display_suites.py {mode} rewrote a copy")
+            self.assertEqual(sorted(p.relative_to(tmp).as_posix() for p in tmp.rglob("*")), before,
+                             f"display_suites.py {mode} wrote a file")
 
     def test_the_derived_list_prints_the_rows(self):
         done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/display_suites.py")],

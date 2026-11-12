@@ -10,6 +10,12 @@ autofix could not write it) until the post-merge base autofix landed it. A reade
 commit runs this script from that commit's tree (`--root`).
 
 Usage: display_suites.py [--root DIR]      print the suites the traits ask for (`PACKAGE TARGET.SUITE`, sorted)
+
+`--fix` and `--check` are transitional no-ops that write, print and check nothing and exit 0. The pull request
+autofix runs a trusted copy of base's scripts (`git archive "$BASE_SHA"`) against the pull request's tree, and base's
+base-autofix.sh step 1e4 calls this script with `--fix` until this change is on base (run 43196743424 failed with
+`unrecognized arguments: --fix`). Remove both, and tests/test_ci_display_suites.py's BASE_STEP_1E4, once no base the
+autofix can archive has step 1e4.
 """
 
 from __future__ import annotations
@@ -147,7 +153,12 @@ def render(rows: list[str]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    # Transitional: base's trusted base-autofix.sh step 1e4 still calls --fix (see the module docstring).
+    parser.add_argument("--fix", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--check", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.fix or args.check:
+        return 0
     sys.stdout.write(render(display_suites(args.root)))
     return 0
 
