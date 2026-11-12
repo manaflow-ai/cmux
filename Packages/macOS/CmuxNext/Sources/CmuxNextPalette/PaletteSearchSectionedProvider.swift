@@ -33,6 +33,7 @@ final class PaletteSearchSectionedProvider: PaletteProvider {
         guard let updates = base.itemUpdates() else { return nil }
         let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
         // task-owner: one open's lists of the base provider; ends with the base's stream or with this stream's consumer
+        // main-hop-allow: not an action's work: it awaits the base's stream and sets the section on each list it gives (one map of that list), as `items()` does for a single read
         let task = Task { @MainActor in
             for await items in updates { continuation.yield(self.sectioned(items)) }
             continuation.finish()

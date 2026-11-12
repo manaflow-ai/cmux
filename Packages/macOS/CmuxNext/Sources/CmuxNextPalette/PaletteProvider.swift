@@ -103,8 +103,10 @@ public final class AsyncPaletteProvider: PaletteProvider {
         AsyncPaletteProvider(id: id, showsItemsForEmptyQuery: showsItemsForEmptyQuery, once: { await read()?.items ?? [] }, updates: {
             let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
             // task-owner: one open's reads of a list that is not complete; ends at a complete read or with the stream's consumer
+            // main-hop-allow: not an action's work: it awaits a read and then a clock wait, which no frame queue can; on the main actor it only passes one read's rows on, one time per wait
             let task = Task { @MainActor in
                 var reads = 0
+                // wakeup-allow: each pass awaits one read and then `wait` (History: a Backoff sleep of 1 s to 8 s, because the daemon sends no event when a list becomes complete); a complete read, a source that is gone or the consumer's cancel ends it, so it runs only while the person has the list open
                 while !Task.isCancelled, let list = await read() {
                     reads += 1
                     continuation.yield(list.items)
