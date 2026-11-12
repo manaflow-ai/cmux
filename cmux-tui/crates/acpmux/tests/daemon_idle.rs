@@ -8,6 +8,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/thread_activity.rs"]
+mod thread_activity;
 // This process starts no agent.
 const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
@@ -243,17 +245,27 @@ fn acpmux_daemon_idle_has_no_periodic_wakeups() {
         .chain(children(pid).into_iter().map(|child| (format!("child {child}"), child)))
         .collect();
     let mut marks = vec![processes.iter().map(|(_, pid)| usage(*pid)).collect::<Vec<Usage>>()];
+    let mut threads = vec![thread_activity::thread_activity(pid)];
     for _ in 0..WINDOWS {
         std::thread::sleep(WINDOW);
         marks.push(processes.iter().map(|(_, pid)| usage(*pid)).collect());
+        threads.push(thread_activity::thread_activity(pid));
     }
     let mut failures = Vec::new();
     for (at, (name, _)) in processes.iter().enumerate() {
         let windows: Vec<Usage> =
             marks.windows(2).map(|pair| delta(pair[0][at], pair[1][at])).collect();
+        // Not captured by libtest, so CI logs carry the numbers on success too.
+        eprintln!("idle acpmux {name}: {windows:?} ({WINDOWS} windows of {WINDOW:?})");
         if woke(&windows) {
             failures.push(format!("{name}: {windows:?}"));
         }
+    }
+    // A thread that runs in every window is woken by a timer, however
+    // little each wake costs (a 5-second loop is 2 switches per window).
+    let periodic = thread_activity::periodic_threads(&threads);
+    if !periodic.is_empty() {
+        failures.push(format!("daemon threads that ran in every window: {}", periodic.join(", ")));
     }
     let _ = child.kill();
     let _ = child.wait();
@@ -263,4 +275,80 @@ fn acpmux_daemon_idle_has_no_periodic_wakeups() {
         failures.is_empty(),
         "an idle acpmux daemon woke up (per {WINDOW:?} window): {failures:#?}"
     );
+}
+
+/// Usage patterns (opt-in counters) are written some time after a count, so
+/// an idle daemon does not wake for them: a count made just before the daemon
+/// stops (an update's SIGTERM) must be on disk after the stop. The connection
+/// comes after the first write of the 5-second loop the writer had before,
+/// which then wrote again only 30 s later.
+#[test]
+fn acpmux_daemon_writes_its_usage_counts_when_it_stops() {
+    let dir = scratch("usage");
+    let counts = dir.join("usage-patterns");
+    let socket = dir.join("s.sock");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .env("CMUX_USAGE_PATTERNS", "1")
+        .env("CMUX_USAGE_PATTERNS_DIR", &counts)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let ready = BufReader::new(stdout)
+        .lines()
+        .map_while(Result::ok)
+        .find_map(|line| serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true));
+    if ready.is_none() {
+        let _ = child.kill();
+        panic!("the daemon exited without a readiness line: {:?}", child.wait());
+    }
+    std::thread::sleep(Duration::from_secs(6));
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let call = json!({"jsonrpc":"2.0","id":1,"method":"_acpmux/watch","params":{"enabled":true}});
+    stream.write_all(format!("{call}\n").as_bytes()).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    loop {
+        let mut line = String::new();
+        assert!(reader.read_line(&mut line).unwrap() > 0, "the daemon closed the stream");
+        if serde_json::from_str::<Value>(&line).ok().is_some_and(|v| v["id"] == 1) {
+            break;
+        }
+    }
+    // SAFETY: the pid is this test's own daemon, still running.
+    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while child.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("the daemon did not stop on SIGTERM");
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    drop(reader);
+    let counted: u64 = fs::read_dir(&counts)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .flat_map(|rollup| {
+            rollup["counts"]
+                .as_object()
+                .into_iter()
+                .flat_map(|families| families.values())
+                .flat_map(|keys| keys.as_object().into_iter().flat_map(|keys| keys.values()))
+                .filter_map(Value::as_u64)
+                .collect::<Vec<_>>()
+        })
+        .sum();
+    let _ = fs::remove_dir_all(&dir);
+    assert!(counted >= 1, "the connection counted before the stop was not written");
 }

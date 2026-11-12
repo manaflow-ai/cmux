@@ -130,14 +130,15 @@ export const withMeshCaller = <const S extends Scope, A, E, R>(
   scope: S,
   rateClass: RateClass,
   k: <C>(caller: Named<C, Principal>, granted: KeyHasScope<C, S>) => Effect.Effect<A, E, R>,
+  phases?: Phases,
 ) =>
   Effect.gen(function* () {
-    const principal = yield* gate;
+    const principal = yield* phase(phases, "gateMs", gate);
     return yield* name(principal, (caller) =>
       Effect.gen(function* () {
         const granted = keyHasScope(caller, scope);
         if (granted === null) return yield* Effect.fail(missingScope(scope));
-        yield* rateLimit(principal, rateClass);
+        yield* phase(phases, "rateMs", rateLimit(principal, rateClass));
         return yield* k(caller, granted);
       }),
     );
@@ -152,6 +153,7 @@ export const withOwnedMesh = <const S extends Scope, A, E, R>(
     mesh: Named<M, MeshId>,
     proofs: { readonly owns: TenantOwnsResource<C, M>; readonly scope: KeyHasScope<C, S> },
   ) => Effect.Effect<A, E, R>,
+  phases?: Phases,
 ) =>
   withMeshCaller(scope, rateClass, (caller, granted) =>
     Effect.gen(function* () {
@@ -159,12 +161,13 @@ export const withOwnedMesh = <const S extends Scope, A, E, R>(
       if (Option.isNone(parsed)) return yield* Effect.fail(meshNotFound());
       return yield* name(parsed.value, (mesh) =>
         Effect.gen(function* () {
-          const owns = yield* tenantOwnsMesh(caller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find")));
+          const owns = yield* phase(phases, "ownsMeshMs", tenantOwnsMesh(caller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find"))));
           if (owns === null) return yield* Effect.fail(meshNotFound());
           return yield* k(caller, mesh, { owns, scope: granted });
         }),
       );
     }),
+    phases,
   );
 
 const withOwnedDevice = <const S extends Scope, A, E, R>(
@@ -467,7 +470,7 @@ const reconcileCurrent = <C, M>(caller: Named<C, Principal>, mesh: Named<M, Mesh
     const wanted = yield* limits.coverageWanted(tenantId, coverageKey(mesh.value)).pipe(Effect.option);
     const acl = yield* phase(phases, "aclMs", store.currentAcl(tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl"))));
     const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (row) => row.document });
-    const { result } = yield* phase(phases, "compileMs", compileFor(tenantId, mesh.value, document, false));
+    const { result } = yield* phase(phases, "compileMs", compileFor(tenantId, mesh.value, document, false, [], phases));
     const desired = yield* compiled(result);
     const applied = yield* reconcile(caller, mesh, ownsMesh, desired, phases);
     if (Option.isSome(wanted)) {
@@ -1673,7 +1676,12 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
       })),
     )
     .handle("attachMeshVm", ({ path }) =>
-      withOwnedMesh(path.meshId, "mesh:write", "write", (caller, mesh, proofs) =>
+      Effect.gen(function* () {
+      // The handler's entry, before the caller gate, the rate limit, the mesh ownership read and the audit: the
+      // mesh_vm_attach line's entered_at, with each of those timed (gateMs, rateMs, ownsMeshMs) and pre_ms in all.
+      const entered = yield* Clock.currentTimeMillis;
+      const pre: Phases = {};
+      return yield* withOwnedMesh(path.meshId, "mesh:write", "write", (caller, mesh, proofs) =>
         audited(
           "mesh.vm.attach",
           mesh.value,
@@ -1687,8 +1695,8 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             const tenantId = caller.value.tenantId;
             // Where an attach's time goes (ownership reads, the provider attach, the writer lock, the rule creates),
             // logged once as mesh_vm_attach for wrangler tail.
-            const phases: Phases = { meshId: mesh.value, vmId: path.vmId };
             const started = yield* Clock.currentTimeMillis;
+            const phases: Phases = { meshId: mesh.value, vmId: path.vmId, enteredAt: String(entered), preMs: String(started - entered), ...pre };
             return yield* name(parsed.value, (vm) =>
               Effect.gen(function* () {
                 const ownsVm = yield* phase(phases, "ownsVmMs", tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find"))));
@@ -1735,7 +1743,8 @@ export const meshHandlers = HttpApiBuilder.group(CmuxVmApi, "mesh", (handlers) =
             );
           }),
         ),
-      ),
+      pre);
+      }),
     )
     .handle("detachMeshVm", ({ path }) =>
       withOwnedMesh(path.meshId, "mesh:write", "write", (caller, mesh, proofs) =>

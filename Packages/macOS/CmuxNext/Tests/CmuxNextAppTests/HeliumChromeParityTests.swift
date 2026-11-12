@@ -56,12 +56,13 @@ import Testing
     }
 
     /// layout-constants.patch: `kLocationBarTrailingIconSize` 18 (Chrome 20),
-    /// `kLocationBarChildCornerRadius` 6, `kLocationBarMargin` 6 (twice the base padding). The bar is
-    /// the chrome row (in place of `kLocationBarHeight` 28).
+    /// `kLocationBarMargin` 6 (twice the base padding). The bar is the chrome row (in place of
+    /// `kLocationBarHeight` 28), rounded as Chrome rounds its tab (Lawrence 2026-11-11), so the chip
+    /// nests in it: the bar's radius less its 2 pt inset, in place of `kLocationBarChildCornerRadius` 6.
     @Test func omnibarKeepsHeliumsLocationBarMetrics() {
         #expect(OmnibarStyle.trailingIconSize == 18)
         #expect(OmnibarStyle.barHeight == Metrics.chromeRowHeight)
-        #expect(OmnibarStyle.chipCornerRadius == 6)
+        #expect(OmnibarStyle.chipCornerRadius == max(0, OmnibarStyle.cardCornerRadius - OmnibarStyle.chipLeading))
         #expect(OmnibarStyle.barMargin == 6)
         #expect(OmnibarStyle.buttonSpacing == 3)
     }
@@ -81,13 +82,16 @@ import Testing
     /// In Helium's 8 pt pill that was Helium's `kCornerRadius` 4; since the default outer radius is the
     /// omnibar's 8 pt (Lawrence 2026-11-05, 99d72e1ba3a) the pill was 6 pt; with the main pane concentric
     /// with the 16 pt window across its 6 pt gutter (Lawrence 2026-11-07), the card is 10 pt, the pill 2 pt
-    /// inside it 8 pt and the x's hover nested 4 pt inside that 4 pt: Helium's `kCornerRadius` again.
+    /// inside it 8 pt and the x's hover nested 4 pt inside that 4 pt: Helium's `kCornerRadius` again. Since
+    /// Lawrence 2026-11-11 ("same roundness as chrome") the 24 pt pill takes Chrome's tab ratio, 8 on 30, so
+    /// 6 pt, and the x's hover nested 4 pt inside it is 2 pt.
     @Test func tabCloseHoverIsARoundedRectConcentricWithThePill() {
         let metrics = TabStripMetrics.standard
         let side = metrics.closeButtonSize
         let pill = CGRect(x: 0, y: 0, width: 120, height: metrics.tabHeight)
         let close = CGRect(x: pill.maxX - metrics.contentTrailingInset - side, y: (pill.height - side) / 2, width: side, height: side)
-        #expect(metrics.cornerRadius == 8 && (pill.height - side) / 2 == 4, "pill \(metrics.cornerRadius) pt, x inset \((pill.height - side) / 2) pt")
-        #expect(metrics.nestedCornerRadius(close, in: pill) == 4)
+        #expect(metrics.cornerRadius == Metrics.chromeRowCornerRadius(height: metrics.tabHeight) && (pill.height - side) / 2 == 4,
+                "pill \(metrics.cornerRadius) pt, x inset \((pill.height - side) / 2) pt")
+        #expect(metrics.nestedCornerRadius(close, in: pill) == max(0, metrics.cornerRadius - 4))
     }
 }

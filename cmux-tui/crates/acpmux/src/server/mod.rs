@@ -190,6 +190,8 @@ pub struct Conn {
     outbound_gap_pending: Arc<AtomicBool>,
     /// Responses waiting for a queue slot; notifications cannot consume these slots.
     outbound_pending_controls: Arc<AtomicUsize>,
+    /// The bytes its queue holds, for `daemon status` (`queue_gauge.rs`).
+    queued: queue_gauge::Queued,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
@@ -580,6 +582,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
     }
 
@@ -622,6 +625,7 @@ impl Conn {
                     &self.outbound_gap_pending,
                     &self.outbound_lock,
                     &self.outbound_pending_controls,
+                    &self.queued,
                 );
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
@@ -645,6 +649,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
@@ -744,6 +749,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
         if !queued {
             return Err(RpcError::new(-32000, "the link to that client is backed up; try again")
@@ -761,6 +767,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
@@ -1680,6 +1687,7 @@ async fn serve_connection_from(
         outbound_dropped: Arc::new(AtomicU64::new(0)),
         outbound_gap_pending: Arc::new(AtomicBool::new(false)),
         outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
+        queued: Default::default(),
         subs: StdMutex::new(HashMap::new()),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
@@ -1719,6 +1727,7 @@ async fn serve_connection_from(
         wire,
         dual_principal,
     });
+    queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
@@ -2345,6 +2354,7 @@ mod outbound;
 mod plan_build;
 mod project_new;
 mod prompt_coach;
+pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 use outbound::{

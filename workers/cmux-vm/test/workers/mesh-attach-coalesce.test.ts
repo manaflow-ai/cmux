@@ -9,7 +9,7 @@
  * attaches answer once it lands, without an apply of their own.
  */
 import { Effect, Layer } from "effect";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TenantId } from "../../src/lib/ids.ts";
 import { memoryLimitsLayer, TenantLimits, type TenantLimitsService } from "../../src/limits/service.ts";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
@@ -102,5 +102,37 @@ describe("concurrent mesh attaches", () => {
     expect(failed.every((answer) => answer.status === 503)).toBe(true);
     // Every attach that answered 200 was reachable when it answered: none was let through by the failed apply.
     for (const answer of answers) if (answer.status === 200) expect(answer.covered).toBe(true);
+  }, 60_000);
+});
+
+describe("the mesh_vm_attach line", () => {
+  it("stamps the handler's entry before the caller gate, the rate limit and the mesh ownership read", async () => {
+    const { key, meshId } = await meshWithDevice();
+    const vm = h.addVm(TEAM);
+    const lines: Array<Record<string, string>> = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      if (typeof line !== "string" || !line.startsWith("{")) return;
+      const parsed = record(JSON.parse(line));
+      if (parsed["event"] === "mesh_vm_attach") lines.push(Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, String(v)])));
+    });
+    const before = Date.now();
+    const answer = await h.request(`/v1/meshes/${meshId}/vms/${vm.vmId}`, bearer(key), { method: "PUT" });
+    const after = Date.now();
+    spy.mockRestore();
+    expect(answer.status).toBe(200);
+    expect(lines).toHaveLength(1);
+    const line = lines[0]!;
+    // entered_at is the handler's first stamp: the pre-timer work (gate, rate limit, mesh ownership, audit) is preMs,
+    // which totalMs never counted.
+    const entered = Number(line["enteredAt"]);
+    expect(entered).toBeGreaterThanOrEqual(before);
+    expect(entered).toBeLessThanOrEqual(after);
+    for (const field of ["preMs", "gateMs", "rateMs", "ownsMeshMs", "totalMs"]) expect(Number(line[field])).toBeGreaterThanOrEqual(0);
+    // The apply's compile splits into its five reads and the mesh's size (one VM, one device here).
+    for (const field of ["readDevicesMs", "readServersMs", "readMembersMs", "readAddressesMs", "readRulesMs"])
+      expect(Number(line[field])).toBeLessThanOrEqual(Number(line["compileMs"]));
+    expect(line).toMatchObject({ members: "1", devices: "1" });
+    expect(Number(line["preMs"])).toBeGreaterThanOrEqual(Number(line["ownsMeshMs"]));
+    expect(entered + Number(line["preMs"]) + Number(line["totalMs"])).toBeLessThanOrEqual(after);
   }, 60_000);
 });

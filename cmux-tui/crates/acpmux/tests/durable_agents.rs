@@ -25,6 +25,8 @@ mod grant_cleared;
 mod idle_adopted;
 #[path = "durable_agents/late_hello_adoption.rs"]
 mod late_hello_adoption;
+#[path = "durable_agents/lost_link_turn.rs"]
+mod lost_link_turn;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]

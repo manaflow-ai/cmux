@@ -15,9 +15,10 @@
 //! - **Paced.** [`BURST`] builds back to back, then one per window ([`PACE`] times the
 //!   last build's cost, at most [`MAX_WINDOW`]): about 1/32 of a core however many ask.
 //!   Per connection, two lists back to back, then one per window; all connections
-//!   together, [`REPLIES`] per window. A page costs its share of the rows, at least
-//!   [`PAGE_MIN`]. The first list is built before it is paced, so the pace is known. A
-//!   request that would wait more than [`MAX_WAIT`] is refused, to try again later.
+//!   together, [`REPLIES`] per window. A page by `limit` costs its rows' share of the list
+//!   (`ListGuard::share_rows`), a byte page its bytes' share, at least [`BYTE_PAGE_MIN`].
+//!   The first list is built before it is paced, so the pace is known. A request that
+//!   would wait more than [`MAX_WAIT`] is refused, to try again later.
 //!
 //! Cleanup: each build starts one task that drops its snapshot when the window ends
 //! (unless a newer build replaced it); it holds a weak reference and ends after one
@@ -40,12 +41,10 @@ const BURST: u32 = 4;
 const CONN_BURST: u32 = 2;
 /// Lists all connections together read per window, after as many back to back.
 const REPLIES: u32 = 8;
-/// The least a page costs, in lists: it reads every row's key to find its rows.
-const PAGE_MIN: f64 = 1.0 / 16.0;
 /// The least a byte page of the whole list costs, in lists: it reads the keys once and copies
 /// its megabyte of the shared text. Every list reply is a page of at most
 /// `rpc::REPLY_PAGE_BYTES` (`server/list_reply.rs`), so a 31 MB list is about 31 of them: at
-/// [`PAGE_MIN`] each, one whole read would cost two lists and be paced as such.
+/// 1/16 each, one whole read would cost two lists and be paced as such.
 const BYTE_PAGE_MIN: f64 = 1.0 / 64.0;
 /// The longest a list request waits for its turn; a longer wait is refused.
 pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
@@ -245,7 +244,7 @@ impl FullRows {
     }
 }
 
-type Built = (String, Vec<Range<usize>>, Vec<Value>);
+pub(crate) type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
 impl Snapshot {
     fn new(
@@ -399,11 +398,10 @@ impl Snapshot {
     }
 
     /// The reply to a paged `params` (a `limit`, or a census's `orderBy`), cut from the shared
-    /// text, with tools when `full` is given: the rows `session_list_reply` picks, as many as fit
-    /// in `budget` bytes, at least one, and `nextCursor` first. A page cut short by its bytes ends
-    /// with the `nextCursor` of its last row, as a page of that many rows would: 1000 rows of a
-    /// busy host with usage were more than one message, refused whole on every retry. A row
-    /// larger than `budget` alone is trimmed ([`row_text`]).
+    /// text, with tools when `full` is given: the rows `session_list_reply` picks, cut by
+    /// [`cut_page`]. A daemon builds a page from its own rows instead (`page_first.rs`); this is
+    /// the reference that page must equal, row for row and byte for byte.
+    #[cfg(test)]
     pub(crate) fn page(
         &self,
         full: Option<&FullRows>,
@@ -417,21 +415,8 @@ impl Snapshot {
         let picked = super::session_pages::session_list_reply_borrowed(keys, params)?;
         let rows =
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let mut next = picked.get("nextCursor").cloned();
-        let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
-        for (n, key) in rows.iter().enumerate() {
-            let row = row_text(text, spans, key, budget);
-            // One more byte for the comma between rows.
-            let total = used.saturating_add(row.len()).saturating_add(1);
-            if n > 0 && total > budget {
-                let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
-                next = Some(Value::String(page_cursor(params, last)));
-                break;
-            }
-            used = total;
-            page.push(row);
-        }
-        Ok(page_text(next.map(|next| next.to_string()), &page))
+        let next = picked.get("nextCursor").cloned();
+        Ok(cut_page((text, spans.as_slice()), rows, next, params, budget))
     }
 
     /// Every summary, parsed back.
@@ -453,7 +438,13 @@ impl Snapshot {
         make: impl FnOnce(&Self) -> String,
     ) -> Arc<String> {
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
-        made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
+        made.entry(name)
+            .or_insert_with(|| {
+                let text = make(self);
+                crate::gauges::global().list_variant(name, text.len());
+                Arc::new(text)
+            })
+            .clone()
     }
 }
 
@@ -490,6 +481,55 @@ pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> Stri
     text.push_str("]}");
     debug_assert_eq!(text.len(), size);
     text
+}
+
+/// A paged reply's text: `rows` (paging keys, each naming its row in `text` by `at`), as many as
+/// fit in `budget` bytes, at least one, and `next` (the picked page's `nextCursor`) first. A page
+/// cut short by its bytes ends with the `nextCursor` of its last row, as a page of that many rows
+/// would: 1000 rows of a busy host with usage were more than one message, refused whole on every
+/// retry. A row larger than `budget` alone is trimmed ([`row_text`]).
+pub(crate) fn cut_page(
+    (text, spans): (&str, &[Range<usize>]),
+    rows: &[Value],
+    mut next: Option<Value>,
+    params: &Value,
+    budget: usize,
+) -> String {
+    let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
+    for (n, key) in rows.iter().enumerate() {
+        let row = row_text(text, spans, key, budget);
+        // One more byte for the comma between rows.
+        let total = used.saturating_add(row.len()).saturating_add(1);
+        if n > 0 && total > budget {
+            let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
+            next = Some(Value::String(page_cursor(params, last)));
+            break;
+        }
+        used = total;
+        page.push(row);
+    }
+    page_text(next.map(|next| next.to_string()), &page)
+}
+
+/// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
+/// paging keys of each (`at` its place): what [`cut_page`] cuts.
+pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
+    let prefix = br#"{"sessions":["#;
+    let mut whole = Vec::from(&prefix[..]);
+    let (mut spans, mut keys) = (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
+    for (at, row) in rows.iter().enumerate() {
+        if at > 0 {
+            whole.push(b',');
+        }
+        let start = whole.len();
+        // A Value always serializes, and Vec's writer cannot fail.
+        let _ = serde_json::to_writer(&mut whole, row);
+        spans.push(start..whole.len());
+        keys.push(RowKey::of(row, at).value(at));
+    }
+    whole.extend_from_slice(b"]}");
+    // serde_json writes UTF-8.
+    (String::from_utf8(whole).unwrap_or_default(), spans, keys)
 }
 
 /// Spare capacity a page keeps for its reply line's frame (`{"id":..,"jsonrpc":"2.0",
@@ -751,10 +791,11 @@ impl ListGuard {
         Duration::from_nanos(self.window_nanos.load(Ordering::Relaxed))
     }
 
-    /// The share of the list a page of `limit` rows costs (None: all of it).
-    pub(crate) fn share(&self, limit: Option<u64>) -> f64 {
+    /// The share of the list a page built from its own rows (`page_first.rs`) costs: its `limit`
+    /// rows of the last list's, with no floor, since it builds no other row.
+    pub(crate) fn share_rows(&self, limit: Option<u64>) -> f64 {
         let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
-        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(PAGE_MIN, 1.0))
+        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(0.0, 1.0))
     }
 
     /// The share of the list a page of at most `budget` bytes costs: a whole list cut into
@@ -821,6 +862,7 @@ impl ListGuard {
         let (started, key) = (Instant::now(), key(hub));
         let built = if live_only { Snapshot::build_live(hub) } else { Snapshot::build(hub) };
         let elapsed = started.elapsed();
+        crate::gauges::global().list_rebuilt(built.1.len(), built.0.len(), elapsed);
         let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
         tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
             build_us = elapsed.as_micros(), window_us = window.as_micros(),
@@ -1479,11 +1521,11 @@ mod tests {
         assert!(third > Duration::from_millis(3900), "{third:?}");
         // Pages of a quarter: a list ahead and one page more, then the pace holds.
         let (pages, pace) = (guard(), StdMutex::default());
-        assert_eq!(pages.share(Some(100)), 0.25);
+        assert_eq!(pages.share_rows(Some(100)), 0.25);
         let waits: Vec<Duration> = (0..6).map(|_| pages.reserve(&pace, 0.25).unwrap()).collect();
         assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 1, "{waits:?}");
-        // A page of one row (or none) still reads every key: it costs `PAGE_MIN`.
-        assert_eq!((pages.share(Some(1)), pages.share(Some(0))), (PAGE_MIN, PAGE_MIN));
+        // A page built from its own rows costs only them: no floor.
+        assert_eq!((pages.share_rows(Some(1)), pages.share_rows(Some(0))), (1.0 / 400.0, 0.0));
         // A new connection for each list: a window's `REPLIES` and one more, then they wait.
         let many = guard();
         let waits: Vec<Duration> =

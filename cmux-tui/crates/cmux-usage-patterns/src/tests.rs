@@ -187,3 +187,77 @@ fn opaque_ids_are_sha_based_and_stable() {
     assert_eq!(opaque_id("main"), opaque_id("main"));
     assert_eq!(opaque_id("main").len(), 12);
 }
+
+/// The writer thread sleeps with no timeout while nothing is counted, writes
+/// a count once its interval has passed, and writes at once when counting
+/// stops. (A 5-second gate loop woke every idle daemon; `idle_wakeups.rs`.)
+#[test]
+fn the_writer_waits_for_a_count_and_writes_it_after_its_interval() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+    let dir = scratch("writer");
+    let on = config(&dir, true);
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", on.clone()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let interval = Duration::from_millis(300);
+    let writer = {
+        let recorder = Arc::clone(&recorder);
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || recorder.run_writer(interval, &|| stop.load(Ordering::Relaxed)))
+    };
+    std::thread::sleep(interval * 3);
+    assert!(!recorder.path().exists(), "the writer wrote with nothing counted");
+    let counted = Instant::now();
+    recorder.count("command", "split");
+    let deadline = counted + Duration::from_secs(5);
+    while !recorder.path().exists() {
+        assert!(Instant::now() < deadline, "a count was never written");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(read_dir(&dir.join("out")).rollup.counts["command"]["split"], 1);
+    // Turning counting off writes what was counted at once, not after the interval.
+    recorder.count("command", "split");
+    std::fs::write(&on, "{\"diagnostics\":{\"usagePatterns\":false}}  ").unwrap();
+    let turned_off = Instant::now();
+    assert!(!recorder.refresh_gate());
+    while read_dir(&dir.join("out")).rollup.counts["command"]["split"] != 2 {
+        assert!(turned_off.elapsed() < Duration::from_secs(5), "turning off did not write");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}
+
+/// Waits up to 5 s for the gate to say `on`.
+fn gate_becomes(recorder: &Recorder, on: bool, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while recorder.enabled() != on {
+        assert!(Instant::now() < deadline, "{what}: the gate did not turn {on}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The gate follows the settings file with no timer: a file created later in
+/// a folder created later, then a file replaced by rename (editors and the
+/// settings writer save that way), each change the setting at once.
+#[test]
+fn the_gate_follows_the_settings_file_created_later_and_replaced_by_rename() {
+    let dir = scratch("gate-watch");
+    let folder = dir.join("config").join("cmux");
+    let settings = folder.join("cmux-next.json");
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", settings.clone()));
+    assert!(!recorder.enabled());
+    let _watch = watch_gate(&recorder).expect("the gate watch starts");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(&settings, "{\"diagnostics\":{\"usagePatterns\":true}}").unwrap();
+    gate_becomes(&recorder, true, "a settings file created in a folder made later");
+    let staged = folder.join("cmux-next.json.tmp");
+    std::fs::write(&staged, "{\"diagnostics\":{\"usagePatterns\":false}}").unwrap();
+    std::fs::rename(&staged, &settings).unwrap();
+    gate_becomes(&recorder, false, "a settings file replaced by rename");
+    std::fs::write(&staged, "{\"diagnostics\":{\"usagePatterns\":true}} ").unwrap();
+    std::fs::rename(&staged, &settings).unwrap();
+    gate_becomes(&recorder, true, "a second replace by rename");
+}

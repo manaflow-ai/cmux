@@ -103,24 +103,80 @@ async fn reply(
                 if live_only { guard.snapshot_live(hub).await } else { guard.snapshot(hub).await }
             }
         };
-        let mut text = make(&list)?;
-        // A watch's list says the position it is current to: read before the list was, so every
-        // change after it reaches the watcher as a notice (`row_log.rs`).
-        if let Some(Cursor { head, reset }) = cursor {
-            text = Arc::new(row_log::with_cursor(&text, head, hub.list_cursor().1, reset));
+        let text = with_watch_cursor(hub, make(&list)?, cursor);
+        if let Some(done) = send_list(hub, conn, text, seen, reads == REBUILDS).await {
+            return Ok(done);
         }
-        let Ok((id, method, claim)) = REPLY.try_with(|r| {
-            let r = r.borrow();
-            (r.id.clone(), r.method, r.claim.clone())
-        }) else {
-            return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
-        };
-        hub.request_hold(RequestStage::ListBuilt, method.unwrap_or_default(), &id).await;
-        let last = reads == REBUILDS;
-        if let Some(whole) = conn.send_serialized(&id, method, claim.as_ref(), text, seen, last) {
-            REPLY.with(|r| r.borrow_mut().sent = Some(whole));
-            hub.request_hold(RequestStage::ListQueued, method.unwrap_or_default(), &id).await;
-            break;
+    }
+    Ok(Value::Null)
+}
+
+/// `text` with the list position a watch's list is current to: read before the list was, so every
+/// change after it reaches the watcher as a notice (`row_log.rs`).
+fn with_watch_cursor(hub: &Hub, text: Arc<String>, cursor: Option<Cursor>) -> Arc<String> {
+    match cursor {
+        Some(Cursor { head, reset }) => {
+            Arc::new(row_log::with_cursor(&text, head, hub.list_cursor().1, reset))
+        }
+        None => text,
+    }
+}
+
+/// Sends `text` as this request's list reply, unless a `session_changed` notice was queued on the
+/// connection since `seen` (its count before the list was read) and this is not the `last` read:
+/// then `None`, and the list is read again. Sent, the request's result is null (its reply is
+/// queued already); outside a request task, the result is `text` parsed.
+async fn send_list(
+    hub: &Hub,
+    conn: &Conn,
+    text: Arc<String>,
+    seen: u64,
+    last: bool,
+) -> Option<Value> {
+    let Ok((id, method, claim)) = REPLY.try_with(|r| {
+        let r = r.borrow();
+        (r.id.clone(), r.method, r.claim.clone())
+    }) else {
+        return Some(serde_json::from_str(&text).unwrap_or(Value::Null));
+    };
+    hub.request_hold(RequestStage::ListBuilt, method.unwrap_or_default(), &id).await;
+    let whole = conn.send_serialized(&id, method, claim.as_ref(), text, seen, last)?;
+    REPLY.with(|r| r.borrow_mut().sent = Some(whole));
+    hub.request_hold(RequestStage::ListQueued, method.unwrap_or_default(), &id).await;
+    Some(Value::Null)
+}
+
+/// A page by `limit`, or a census in its own order (`orderBy`): its own rows, picked before any is
+/// built (`Hub::session_page_rows`), at most `limit` of them and at most [`LIST_PAGE_BYTES`]
+/// (`list_guard::cut_page`, as the whole list's page cuts them). It reads no list snapshot, and
+/// the list pace charges it its rows' share of the list (`ListGuard::share_rows`): a page of five
+/// costs next to nothing, one of every row about a list. A page whose list a notice overtook is
+/// read again, as a list is ([`send_list`]).
+async fn page(
+    hub: &Hub,
+    conn: &Conn,
+    params: &Value,
+    tools: bool,
+    cursor: Option<Cursor>,
+) -> Result<Value, RpcError> {
+    use crate::hub::list_guard::{cut_page, serialize_in_order};
+    let raw = conn.raw_text;
+    let guard = &hub.list_guard;
+    let limit = params.get("limit").and_then(Value::as_u64);
+    let wait = guard.reserve(&conn.list_pace, guard.share_rows(limit)).map_err(busy)?;
+    tokio::time::sleep(wait).await;
+    for reads in 0..=REBUILDS {
+        // Read before the rows are: a notice counted after it may tell a change they lack.
+        let seen = conn.notices.load(Ordering::SeqCst);
+        let (rows, next) = hub.session_page_rows(params, tools)?;
+        let (text, spans, keys) = serialize_in_order(&rows);
+        drop(rows);
+        let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
+            Ok(cut_page((text.as_str(), spans.as_slice()), &keys, next.clone(), params, budget))
+        })?;
+        let text = with_watch_cursor(hub, text, cursor);
+        if let Some(done) = send_list(hub, conn, text, seen, reads == REBUILDS).await {
+            return Ok(done);
         }
     }
     Ok(Value::Null)
@@ -140,12 +196,13 @@ fn with_tools(params: &Value) -> Result<bool, RpcError> {
     }
 }
 
-/// `_acpmux/sessions`: the whole list shared, or a page or filter cut from it. One with no
-/// `limit` goes whole, newest first, as before, when it fits in [`LIST_PAGE_BYTES`] as the
-/// client reads it; one larger goes in pages, each with the `nextCursor` of the rest
+/// `_acpmux/sessions`: the whole list shared, or a filter cut from it, or a page of its own rows.
+/// One with no `limit` goes whole, newest first, as before, when it fits in [`LIST_PAGE_BYTES`]
+/// as the client reads it; one larger goes in pages, each with the `nextCursor` of the rest
 /// (`Snapshot::bounded`), rather than as one message too large to send. A page by `limit`, or a
 /// census in its own order (`orderBy`), holds at most `limit` rows and at most
-/// [`LIST_PAGE_BYTES`] (`Snapshot::page`): no reply here is too large to send.
+/// [`LIST_PAGE_BYTES`], and builds only those rows ([`page`]): no reply here is too large to
+/// send, and none costs every chat for a few.
 pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     list(hub, conn, params, None).await
 }
@@ -169,21 +226,18 @@ async fn list(
     if crate::hub::session_pages::bool_filter(params, "pendingOnly")? {
         return pending(hub, raw, params);
     }
-    let limit = params.get("limit").and_then(Value::as_u64);
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
     let by_bytes = unset("limit") && unset("orderBy");
     let tools = with_tools(params)?;
+    if !by_bytes {
+        return page(hub, conn, params, tools, cursor).await;
+    }
     let (most, guard) = (LIST_PAGE_BYTES, &hub.list_guard);
     // A byte page costs its bytes' share of the list: a whole list read in pages costs about one
     // list in all, not one per page.
     if tools || !whole(params) {
-        let share = if by_bytes { guard.share_bytes(most) } else { guard.share(limit) };
-        return reply(hub, conn, share, excludes_closed(params), cursor, |list| {
-            if by_bytes {
-                return within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget));
-            }
-            let full = tools.then(|| list.full_rows(hub));
-            within_limit(raw, most, |budget| list.page(full.as_deref(), params, budget))
+        return reply(hub, conn, guard.share_bytes(most), excludes_closed(params), cursor, |list| {
+            within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget))
         })
         .await;
     }
