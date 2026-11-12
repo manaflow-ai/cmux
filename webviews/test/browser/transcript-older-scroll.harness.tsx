@@ -13,6 +13,9 @@ import "../../src/pages/shared/desktop.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
+// The prompt rail lies over the transcript as the app draws it (dev.tsx); unstyled, it sat in flow
+// above the rows and moved them down by its height.
+import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
 
 const root = document.getElementById("root")!;
 document.documentElement.style.height = document.body.style.height = "100%";
