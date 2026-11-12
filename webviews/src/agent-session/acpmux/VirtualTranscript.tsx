@@ -4841,12 +4841,15 @@ function TranscriptView({
     // The reader's own scroll: an idle stretch starts where it rests, a third down the view where a
     // press puts it back (Jump up, jumpUp.ts), the mark it pinned goes, and a way back Jump up held is
     // theirs no longer.
+    // Only an input that scrolls (userScroll.ts `scrolledByHand`): a press on text holds the view as
+    // any input does, but a row settling or a page landing inside that hold is not the reader moving.
     // Jump up's own move (`placeView`) lands inside the press's input hold, so it reads as the
     // reader's: the offsets its glide steps through and the one it lands on are not stops, and it
     // keeps the way back it holds.
     const placed = placedTop.current;
     placedTop.current = undefined;
-    if (!programmatic && !placing.current && (placed === undefined || Math.abs(next - placed) > 1)) {
+    const byHand = !programmatic && userScrollIntent(node).scrolledByHand();
+    if (byHand && !placing.current && (placed === undefined || Math.abs(next - placed) > 1)) {
       if (jumpButton)
         idle.current = {
           sessionId,

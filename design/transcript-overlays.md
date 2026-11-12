@@ -85,7 +85,9 @@ thread."
   when they went idle, once a full screen of new content came in below it (Leo, 2026-11-12: "it's more so,
   like, idle detection... when you have, like, at least one full screen of idleness, that's when it starts
   having that"). An idle stretch starts only at the reader's own acts: a scroll by hand (a third down the
-  view) or a send (the prompt's row). Once set, the mark stays until they act again: restarts, reconnects,
+  view) or a send (the prompt's row). A scroll by hand is a wheel, a touch moving, a scroll key, the scrollbar
+  or a drag; a click on text is not, so the view moving under it keeps the mark and the way back. Once set,
+  the mark stays until they act again: restarts, reconnects,
   app updates, hot reloads, the view's own moves and notice rows never move it. It is kept per chat across
   reloads.
 - It shows only while that place is off screen.

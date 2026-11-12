@@ -37,7 +37,13 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
-  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  // A frame's time on the clock the code reads (`performance.now()`, Bun's), as in a browser, where
+  // both are the page's. jsdom's own frame time counts from when this window was made, so it ran
+  // behind Bun's by however long the imports above took: a ride (scrollMotion.ts) held its start
+  // until jsdom's clock caught up, and on a loaded worker that outlasted the frames this test waits
+  // (the glide "landed" where it skipped to).
+  requestAnimationFrame: (callback: FrameRequestCallback) =>
+    dom.window.requestAnimationFrame(() => callback(performance.now())),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
   IS_REACT_ACT_ENVIRONMENT: true,
 };
@@ -194,4 +200,39 @@ test("pressing Jump to latest is the reader's act: Jump up does not come up at t
   }
   // The press let go of the mark: what the chat keeps for its next load has none.
   expect(loadIdle(dom.window.localStorage, SESSION).mark).toBeUndefined();
+});
+
+test("a press on text while scrolled up is no hand scroll: a row moving the view under it keeps the mark", async () => {
+  const kept = { mark: { place: { rowId: "prompt", offset: 0 }, at: 1, why: "idle" as const } };
+  for (const input of ["press", "wheel"] as const) {
+    const { root, scroller } = await open(kept);
+    try {
+      // Up in the reply, put there by no input of the reader's.
+      await act(async () => {
+        scroller.scrollTop = VIEWPORT * 2;
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+      });
+      await act(async () => nextFrame());
+      const text = dom.window.document.querySelector<HTMLElement>(".acpmux-row")!;
+      await act(async () => {
+        if (input === "press") {
+          // A click to select: pressed and released in place.
+          text.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true, clientX: 200, clientY: 300 }));
+          dom.window.document.dispatchEvent(
+            new dom.window.MouseEvent("pointerup", { bubbles: true, clientX: 200, clientY: 300 }),
+          );
+        } else text.dispatchEvent(new dom.window.WheelEvent("wheel", { bubbles: true, deltaY: -40 }));
+        // The view moves inside that input's hold: a row settling for the press, the wheel's own step.
+        scroller.scrollTop = VIEWPORT * 2 - 40;
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+      });
+      await act(async () => nextFrame());
+    } finally {
+      await act(async () => root.unmount());
+    }
+    // What the chat keeps for its next load: the press kept the mark, the wheel let it go.
+    const mark = loadIdle(dom.window.localStorage, SESSION).mark;
+    if (input === "press") expect(mark?.place.rowId).toBe("prompt");
+    else expect(mark).toBeUndefined();
+  }
 });
