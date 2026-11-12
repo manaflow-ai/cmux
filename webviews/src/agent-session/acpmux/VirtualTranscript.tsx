@@ -3008,12 +3008,13 @@ function TranscriptView({
     // rows that page brought.
     // A tail shorter than the view holds no room at all (olderReserve.ts `fillsView`): it draws from
     // the view's top, never under a blank band, and a page that fills the view seeds the room.
+    const loadedHeight = placed.totalHeight - placedOrigin;
     const gone =
       canLoadOlder &&
       roomGone &&
       roomGone.sessionId === sessionId &&
       rows[0]?.id === roomGone.firstId &&
-      fillsView(placed.totalHeight - placedOrigin, height)
+      fillsView(loadedHeight, height)
         ? roomGone
         : undefined;
     const reserved = gone
@@ -3022,7 +3023,7 @@ function TranscriptView({
           sessionId,
           rows,
           rowTop: (index) => placed.geometry.topAt(index) - placedOrigin,
-          rowsHeight: placed.totalHeight - placedOrigin,
+          rowsHeight: loadedHeight,
           canLoadOlder,
           earlier: earlier?.length,
           promptCount,
