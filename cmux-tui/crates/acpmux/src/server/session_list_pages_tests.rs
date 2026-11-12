@@ -11,9 +11,10 @@ use crate::peer::{Peer, PeerNotice};
 use crate::rpc::{MAX_MESSAGE_BYTES, Message, method};
 use serde_json::{Value, json};
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tracing_subscriber::layer::SubscriberExt as _;
 
 /// A hub mirroring `rows` chats from each of `peers` peers, each with a 3 KB preview and a
 /// 3.3 KB tool list.
@@ -155,6 +156,81 @@ async fn a_session_list_that_fits_is_one_reply_newest_first_with_no_cursor() {
         assert!(page.get("nextCursor").is_none(), "{m} {params}: {}", page["nextCursor"]);
         let stamps: Vec<u64> = rows.iter().map(|r| r["updatedAt"].as_u64().unwrap()).collect();
         assert!(stamps.windows(2).all(|w| w[0] >= w[1]), "{m} {params}: not newest first");
+    }
+}
+
+/// What the list pace charges each list reply, in lists: the `share` of every
+/// `list_reply_reservation` line (target `acpmux::list_cost`), the daemon's own account of
+/// `ListGuard::reserve`.
+#[derive(Clone, Default)]
+struct Charges(Arc<Mutex<Vec<f64>>>);
+
+impl Charges {
+    /// The charges since the last call.
+    fn take(&self) -> Vec<f64> {
+        std::mem::take(&mut *self.0.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Charges {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        #[derive(Default)]
+        struct Line {
+            reservation: bool,
+            share: Option<f64>,
+        }
+        impl tracing::field::Visit for Line {
+            fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
+                if field.name() == "share" {
+                    self.share = Some(value);
+                }
+            }
+
+            fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if field.name() == "message" {
+                    self.reservation = format!("{value:?}") == "list_reply_reservation";
+                }
+            }
+        }
+        let mut line = Line::default();
+        event.record(&mut line);
+        if let (true, Some(share)) = (line.reservation, line.share) {
+            self.0.lock().unwrap_or_else(PoisonError::into_inner).push(share);
+        }
+    }
+}
+
+/// One whole list read in `limit` pages is charged about one list, however many pages its bytes
+/// cut it into. Every list reply is at most a megabyte (#41559), so a page that asks for 1000
+/// rows of 3 KB sends a third of them. Charged for the rows it asked for, one `acpmux ls` of
+/// 3,000 chats of 6.5 KB (19 pages, each asking for more rows than the list has) was charged 18
+/// lists, and waited 16 windows of the pace: 41 s in a debug build, which made
+/// `ls_selection selected_listing_is_bounded_and_newest_first` time out at the feat-cmux-next
+/// tip on 2026-11-12. The session daemon's chat notices and the phone's later pages (500 rows
+/// a page) were charged three lists for one.
+#[tokio::test]
+async fn a_whole_list_read_in_limit_pages_is_charged_about_one_list() {
+    let charges = Charges::default();
+    let logs = tracing_subscriber::registry().with(charges.clone());
+    let _logs = tracing::subscriber::set_default(logs);
+    // 3,000 rows of 3 KB: 9 MB, so nine pages or more.
+    let hub = fleet_hub(6, 500).await;
+    // The first list is charged before it is built, with no size known yet: not counted here.
+    // A list with no `limit`, so the daemon builds it and knows its rows and bytes.
+    Conn::open(&hub).await.call(method::MUX_SESSIONS, json!({})).await;
+    charges.take();
+    // 500 rows: the session daemon and the phone. 1000: the first page of `acpmux ls`. More
+    // than the list has: its later pages.
+    for limit in [500, 1000, 5000] {
+        let mut conn = Conn::open(&hub).await;
+        let (rows, sizes) = conn.whole_list(method::MUX_SESSIONS, json!({"limit": limit})).await;
+        let shares = charges.take();
+        assert_eq!(rows.len(), 3000, "limit {limit}");
+        assert!(sizes.len() >= 8, "limit {limit}: its bytes do not cut the list: {sizes:?}");
+        assert_eq!(shares.len(), sizes.len(), "limit {limit}: one charge for each page");
+        let lists: f64 = shares.iter().sum();
+        let pages = sizes.len();
+        assert!(lists <= 1.25, "limit {limit}: {pages} pages were charged {lists:.2} lists");
     }
 }
 
