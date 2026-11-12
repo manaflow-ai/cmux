@@ -219,5 +219,127 @@ class TimeoutKillsTree(unittest.TestCase):
             self.assertEqual(sorted(scan(Path(tmp))), ["bad_popen.py:g:popen", "bad_run.py:f:run"])
 
 
+# The second shape (cmux#41767 review F1): a SIGTERM to a process group whose SIGKILL is sent only when the leader
+# has not exited yet. A child that ignores SIGTERM and holds no pipe outlives the leader, and nothing waits on it, so
+# the group's SIGKILL must come after the grace period whether or not the leader is gone. Scanned in every directory
+# of scripts a CI job or the pre-push hook runs; a function that sends SIGTERM to a group passes when it also sends
+# SIGKILL to it unconditionally (not only inside the `except TimeoutExpired` of the leader's wait, or a branch the
+# SIGTERM is not in), or in a (SIGTERM, SIGKILL) loop that leaves early only when the group is gone.
+GROUP_DIRECTORIES = ("scripts/ci", "scripts/cmux-next", ".github/scripts")
+GROUP_ALLOWED: frozenset[str] = frozenset()
+LOOKUP_ERRORS = {"ProcessLookupError", "PermissionError", "OSError"}
+
+
+def _signal(node: ast.AST, name: str) -> bool:
+    return isinstance(node, ast.Attribute) and node.attr == name and isinstance(node.value, ast.Name) \
+        and node.value.id == "signal"
+
+
+def _catches(handler: ast.ExceptHandler, names: set[str]) -> bool:
+    return handler.type is not None and any(
+        (isinstance(n, ast.Name) and n.id in names) or (isinstance(n, ast.Attribute) and n.attr in names)
+        for n in ast.walk(handler.type))
+
+
+def scan_group_kills(root: Path = ROOT, directories: tuple[str, ...] = GROUP_DIRECTORIES) -> set[str]:
+    """{"file.py:function"} for each function that SIGTERMs a process group and SIGKILLs it only if the leader
+    lives on."""
+    found: set[str] = set()
+    for directory in directories:
+        for path in sorted((root / directory).glob("*.py")):
+            if path.name.startswith("test_"):
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+            def above(node: ast.AST):
+                while node in parents:
+                    node = parents[node]
+                    yield node
+
+            terms: dict[ast.AST, list[ast.Call]] = {}
+            kills: dict[ast.AST, list[ast.Call]] = {}
+            loops: set[ast.AST] = set()
+            for call in ast.walk(tree):
+                if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+                        and call.func.attr == "killpg" and isinstance(call.func.value, ast.Name)
+                        and call.func.value.id == "os" and len(call.args) == 2):
+                    continue
+                function = next((a for a in above(call) if isinstance(a, (ast.FunctionDef, ast.AsyncFunctionDef))),
+                                None)
+                if function is None:
+                    continue
+                sig = call.args[1]
+                loop = next((a for a in above(call) if isinstance(a, ast.For) and isinstance(a.iter, ast.Tuple)
+                             and isinstance(a.target, ast.Name) and isinstance(sig, ast.Name)
+                             and a.target.id == sig.id), None)
+                if loop is not None:
+                    if any(_signal(e, "SIGTERM") for e in loop.iter.elts):
+                        terms.setdefault(function, []).append(call)
+                        breaks = [b for b in ast.walk(loop) if isinstance(b, ast.Break)]
+                        if any(_signal(e, "SIGKILL") for e in loop.iter.elts) and all(
+                                any(isinstance(a, ast.ExceptHandler) and _catches(a, LOOKUP_ERRORS) for a in above(b))
+                                for b in breaks):
+                            loops.add(function)
+                elif _signal(sig, "SIGTERM"):
+                    terms.setdefault(function, []).append(call)
+                elif _signal(sig, "SIGKILL"):
+                    kills.setdefault(function, []).append(call)
+
+            def guards(node: ast.AST, function: ast.AST) -> list[ast.AST]:
+                out = []
+                for a in above(node):
+                    if a is function:
+                        break
+                    if (isinstance(a, ast.ExceptHandler) and _catches(a, {"TimeoutExpired"})) \
+                            or isinstance(a, (ast.If, ast.While)):
+                        out.append(a)
+                return out
+
+            for function, term_calls in terms.items():
+                fine = function in loops or any(
+                    all(all(g in set(above(term)) for g in guards(kill, function)) for term in term_calls)
+                    for kill in kills.get(function, []))
+                if not fine:
+                    found.add(f"{path.name}:{function.name}")
+    return found
+
+
+class GroupKillAfterGrace(unittest.TestCase):
+    def test_no_script_sigkills_a_group_only_while_its_leader_lives(self):
+        unlisted = sorted(scan_group_kills() - GROUP_ALLOWED)
+        self.assertEqual(unlisted, [], "these SIGTERM a process group and SIGKILL it only if the leader has not "
+                         "exited, so a child that ignores SIGTERM outlives them: SIGKILL the group after the grace "
+                         "period whether or not the leader is gone (cmux#41767 review F1)")
+
+    def test_the_group_allowlist_only_shrinks(self):
+        self.assertEqual(sorted(GROUP_ALLOWED - scan_group_kills()), [])
+
+    def test_the_detector_tells_the_group_shapes_apart(self):
+        head = "import os, signal, subprocess\n"
+        cases = {
+            "bad_except.py": head + "def a(p):\n    os.killpg(p.pid, signal.SIGTERM)\n    try:\n"
+                             "        p.wait(timeout=5)\n    except subprocess.TimeoutExpired:\n"
+                             "        os.killpg(p.pid, signal.SIGKILL)\n",
+            "bad_loop.py": head + "def b(p):\n    for sig in (signal.SIGTERM, signal.SIGKILL):\n"
+                           "        os.killpg(p.pid, sig)\n        try:\n            p.wait(timeout=5)\n"
+                           "            break\n        except subprocess.TimeoutExpired:\n            pass\n",
+            "bad_term_only.py": head + "def c(p):\n    os.killpg(p.pid, signal.SIGTERM)\n    p.wait()\n",
+            "good_always.py": head + "def d(p):\n    os.killpg(p.pid, signal.SIGTERM)\n    try:\n"
+                              "        p.wait(timeout=5)\n    except subprocess.TimeoutExpired:\n        pass\n"
+                              "    os.killpg(p.pid, signal.SIGKILL)\n",
+            "good_loop.py": head + "def e(p):\n    for sig in (signal.SIGTERM, signal.SIGKILL):\n        try:\n"
+                            "            os.killpg(p.pid, sig)\n        except ProcessLookupError:\n"
+                            "            break\n        try:\n            p.wait(timeout=5)\n"
+                            "        except subprocess.TimeoutExpired:\n            pass\n",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "d").mkdir()
+            for name, text in cases.items():
+                (Path(tmp) / "d" / name).write_text(text, encoding="utf-8")
+            self.assertEqual(sorted(scan_group_kills(Path(tmp), ("d",))),
+                             ["bad_except.py:a", "bad_loop.py:b", "bad_term_only.py:c"])
+
+
 if __name__ == "__main__":
     unittest.main()

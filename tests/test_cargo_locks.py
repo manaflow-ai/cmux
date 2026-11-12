@@ -227,6 +227,13 @@ class BusyFixture(unittest.TestCase):
             if not offline:
                 time.sleep(0.02)
             kind = self.behaviour[root]
+            if kind == "stale-hang":
+                # Stale under --locked; the rewrite `fix` runs (no --locked) hangs for its whole limit.
+                if "--locked" in args:
+                    return 101, STALE_MESSAGE.format(lock=Path(cwd) / "Cargo.lock")
+                with self.lock:
+                    self.now += limit
+                return 124, f"timed out after {limit:g}s"
             if kind == "stale":
                 return 101, STALE_MESSAGE.format(lock=Path(cwd) / "Cargo.lock")
             if kind == "ok":
@@ -455,6 +462,103 @@ class InheritedPathTests(BusyFixture):
         code, output = self.run_check("--base", self.base)
         self.assertEqual(code, 0, output)
         self.assertRegex(output, r"warning:.*cargo-locks: other timed out")
+
+
+class FixSharesTheDeadlineTests(BusyFixture):
+    """--deadline bounds the whole run, `fix`'s rewrites and their re-checks included (cmux#41767 review F3: the
+    deadline stopped at check(), and `fix --deadline 1.1` ran 1.44 s)."""
+
+    def run_fix(self, *extra):
+        out, err = io.StringIO(), io.StringIO()
+        with unittest.mock.patch.object(sys, "stdout", out), unittest.mock.patch.object(sys, "stderr", err):
+            code = self.module.main(["fix", "--repo", str(self.repo), *extra])
+        return code, out.getvalue() + err.getvalue()
+
+    def test_a_hanging_rewrite_stops_at_the_deadline(self):
+        self.behaviour["core"] = "stale-hang"
+
+        code, output = self.run_fix("--deadline", "150")
+
+        self.assertEqual(code, 0, output)
+        self.assertLessEqual(self.now, 150, f"fix ran {self.now:g}s past a 150s deadline: {self.calls}")
+        self.assertIn("left: core/Cargo.lock", output)
+
+    def test_no_base_fix_keeps_the_default_deadline(self):
+        """The base autofix runs `fix` with no base and no --deadline: NO_BASE_DEADLINE bounds it too."""
+        self.behaviour["core"] = "stale-hang"
+        self.behaviour["ffi"] = "stale-hang"
+
+        code, output = self.run_fix()
+
+        self.assertEqual(code, 0, output)
+        self.assertLessEqual(self.now, self.module.NO_BASE_DEADLINE, f"fix ran {self.now:g}s: {self.calls}")
+
+
+class CargoStopsItsWholeGroupTests(unittest.TestCase):
+    """cargo() on a timeout leaves nothing of cargo's process group running (cmux#41767 review F1: after SIGTERM the
+    cleanup stopped once cargo exited, so a child that ignored SIGTERM and closed stderr survived). Real processes:
+    a fake `cargo` on PATH whose child does exactly that."""
+
+    STUBBORN = (
+        "import os, signal, sys, time\n"
+        "path = os.environ['STUBBORN_PID']\n"
+        "if os.fork() == 0:\n"
+        "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+        "    with open(path + '.tmp', 'w') as out:\n"
+        "        out.write(str(os.getpid()))\n"
+        "    os.replace(path + '.tmp', path)\n"
+        "    for fd in (0, 1, 2):\n"
+        "        os.close(fd)\n"
+        "    time.sleep(60)\n"
+        "    os._exit(0)\n"
+        "while not os.path.exists(path):\n"
+        "    time.sleep(0.01)\n"
+        "time.sleep(60)\n")
+
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("cargo_locks_group", SCRIPT)
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-group-")
+        self.addCleanup(temporary.cleanup)
+        self.tmp = Path(temporary.name)
+        (self.tmp / "bin").mkdir()
+        cargo = self.tmp / "bin" / "cargo"
+        cargo.write_text(f"#!{sys.executable}\n" + self.STUBBORN)
+        cargo.chmod(0o755)
+        self.pid_file = self.tmp / "child.pid"
+        self.addCleanup(self.stop_child)
+
+    def child(self) -> int:
+        return int(self.pid_file.read_text()) if self.pid_file.exists() else 0
+
+    def stop_child(self):
+        if self.child():
+            try:
+                os.kill(self.child(), 9)  # only the child this test's fake cargo started
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    def alive(self, pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        try:
+            return Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
+        except (OSError, IndexError):
+            return True
+
+    def test_a_child_that_ignores_sigterm_and_closes_stderr_is_killed(self):
+        env = {**os.environ, "PATH": f"{self.tmp / 'bin'}:{os.environ['PATH']}", "STUBBORN_PID": str(self.pid_file)}
+
+        code, _ = self.module.cargo(["update", "--workspace", "--locked"], self.tmp, env, timeout=1)
+
+        self.assertEqual(code, 124)
+        self.assertTrue(self.child(), "the fake cargo's child never started")
+        self.assertFalse(self.alive(self.child()), "cargo's child ignored SIGTERM and outlived the timeout")
 
 
 def gate_lock_check_timeout() -> float:

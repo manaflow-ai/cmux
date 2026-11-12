@@ -291,6 +291,21 @@ class RustWorkspacesTests(unittest.TestCase):
                                                                      else "// changed\n"))
                 self.assertIn("vws", self.planned())
 
+    def test_a_file_read_from_inside_a_nested_workspace_plans_its_reader(self) -> None:
+        """solo include_str!s a file inside solo/tool, a workspace of its own under solo's tree: a change to that file
+        is solo's too, since an explicit file read crosses the nested boundary (cmux#41767 review F2: read_paths
+        dropped it as lexically under solo, and owns() then gave the change to solo/tool alone)."""
+        self.write("solo/src/main.rs", (self.repo / "solo/src/main.rs").read_text()
+                   + 'const D: &str = include_str!("../tool/data.txt");\n')
+        self.write("solo/tool/data.txt", "data\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "read")
+        self.base = self.head()
+        self.change("solo/tool/data.txt", "changed\n")
+        planned = self.planned()
+        self.assertIn("solo", planned)
+        self.assertIn("solo/tool", planned)
+
     def test_a_change_in_a_nested_workspace_plans_only_it(self) -> None:
         """A Cargo.toml below a workspace with a [workspace] of its own, or in its `exclude`, is another workspace:
         a change there is not the outer one's (the cmux#41742 review's F1 class)."""
