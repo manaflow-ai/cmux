@@ -143,6 +143,8 @@ PACKAGE_MANAGERS = {
                      "--provenance -h --help"),
     "yarn": _options("--cwd", "-s --silent --verbose -h --help"),
     "bun": _options("--cwd -c --config", "--silent -h --help"),
+    "npx": _options("-p --package --cache", "-q --quiet --yes --no-install"),
+    "bunx": _options("--package", "--bun --no-install --silent"),
     "cargo": _options("--color --config -Z -C --explain",
                       "-v -vv --verbose -q --quiet --locked --offline --frozen -h --help -V --version --list"),
 }
@@ -174,6 +176,9 @@ def subcommand(args: list[str], options: Options) -> tuple[str | None, list[str]
 def _package_publishes(program: str, args: list[str]) -> bool:
     if program == "cargo" and args[:1] and args[0].startswith("+"):
         args = args[1:]  # `cargo +stable publish`: a toolchain before the subcommand
+    if program in ("npx", "bunx"):
+        target, target_rest = subcommand(args, PACKAGE_MANAGERS[program])
+        return target is None or publishing_command([target, *target_rest])
     command, rest = subcommand(args, PACKAGE_MANAGERS[program])
     if command is None or command == "publish":
         return True
@@ -184,7 +189,7 @@ def _package_publishes(program: str, args: list[str]) -> bool:
         nested, nested_rest = subcommand(rest, Options())
         if nested is None:
             return True
-        return nested in PACKAGE_MANAGERS and _package_publishes(nested, nested_rest)
+        return publishing_command([nested, *nested_rest])
     if program == "yarn" and command == "workspace":
         return _package_publishes(program, rest[1:])  # `yarn workspace NAME COMMAND`
     if program == "yarn" and command == "npm":
