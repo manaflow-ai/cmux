@@ -2071,3 +2071,9 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   Gallery: `AARestartToUpdateGalleryTests` (each layout, ready and installing, dark and light). 09f49ddeb6f keeps
   `height(for:)` a one-argument function for its callers: no visual change. Sidebar-Look: Leo 2026-11-10, "the
   nightly automatically downloads and installs/unpacks and you simply click and it restarts with the new version".
+- 2026-11-11 (fix/stuck-header-plain, for a590): the stuck project header (#40401) draws as a plain heading while it is
+  stuck: the header's font, quiet ink and chevron, no band, wash or rim, on the veil (the sidebar's own tone and blur).
+  At its own place in the list it keeps the group's look. Look change: the raised pill over the scrolled rows is gone.
+  Gallery: `AAStuckHeaderGalleryTests` (an uncolored group dark and light, a colored group dark; at rest, before, after).
+  Sidebar-Look: Leo 2026-11-11, "ohhh it's showing me the topmost project im in... well that's nice but it doesn't
+  look congruent with the regular look".
