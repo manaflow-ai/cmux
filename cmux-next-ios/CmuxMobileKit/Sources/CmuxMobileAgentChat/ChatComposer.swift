@@ -242,9 +242,8 @@ struct ChatComposer: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(placeholder)
                 } else {
-                    // The menu is there whenever the agent offers models, even when the
-                    // current one is not among them (a default the account lacks, D4).
-                    if store.currentModelName != nil || !store.models.isEmpty || !store.modes.isEmpty { modelPill }
+                    if store.currentModelName != nil || !store.models.isEmpty || !store.modes.isEmpty
+                        || store.effortOption != nil { pickerChips }
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
@@ -353,74 +352,127 @@ struct ChatComposer: View {
         .accessibilityLabel("Add")
     }
 
-    private var modelPill: some View {
+    /// The controls after +, as the Mac composer's chips: the model button (its menu nests the
+    /// models under the harness, "Claude > Opus"), then the permission mode and the effort, each
+    /// its own button. When the row is narrow (large text sizes) mode and effort drop to icons.
+    private var pickerChips: some View {
+        ViewThatFits(in: .horizontal) {
+            pickerChipRow(compactMode: false, compactEffort: false)
+            pickerChipRow(compactMode: true, compactEffort: false)
+            pickerChipRow(compactMode: true, compactEffort: true)
+        }
+    }
+
+    private func pickerChipRow(compactMode: Bool, compactEffort: Bool) -> some View {
+        HStack(spacing: 6) {
+            // The model button is there whenever the agent offers models, even when the current
+            // one is not among them (a default the account lacks, D4).
+            if store.currentModelName != nil || !store.models.isEmpty { modelButton }
+            if !store.modes.isEmpty { modeButton(compact: compactMode) }
+            if let effort = store.effortOption, !effort.options.isEmpty { effortButton(effort, compact: compactEffort) }
+        }
+        // The narrowest row may shrink, so a long model name truncates rather than overflowing.
+        .fixedSize(horizontal: !(compactMode && compactEffort), vertical: false)
+    }
+
+    /// The harness the chat runs ("Claude", "Codex"): the model menu's top level, as on the Mac.
+    private var harnessName: String {
+        switch store.summary.harness.lowercased() {
+        case "claude", "claude-code", "claude_code": "Claude"
+        case "codex": "Codex"
+        case "": "Agent"
+        default: store.summary.harness.prefix(1).uppercased() + store.summary.harness.dropFirst()
+        }
+    }
+
+    private var modelButton: some View {
         Menu {
-            // Checkmark buttons rather than inline pickers: an inline picker
-            // inside a menu section drops the section's header.
-            if !store.models.isEmpty {
-                Section("Model") {
-                    ForEach(store.models) { model in
-                        checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
-                    }
+            // The models nest under the harness, as the Mac's model menu does: a submenu row
+            // names the harness, with the current model as its subtitle.
+            Menu {
+                // Checkmark buttons rather than an inline picker: an inline picker inside a
+                // menu section drops the section's header.
+                ForEach(store.models) { model in
+                    checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
+                }
+            } label: {
+                Text(harnessName)
+                if let name = store.currentModelName { Text(name) }
+            }
+            .menuOrder(.fixed)
+            .accessibilityIdentifier("agentChat.composer.model.harness")
+        } label: {
+            chipLabel(Text(store.currentModelName ?? store.currentModelID ?? "Model"))
+        }
+        .padding(.vertical, -5)
+        .menuOrder(.fixed)
+        .accessibilityLabel("Model")
+        .accessibilityValue(Text([harnessName, store.currentModelName].compactMap { $0 }.joined(separator: ", ")))
+        .accessibilityIdentifier("agentChat.composer.model")
+    }
+
+    /// ACP `session/set_mode` over the link. The Mac accepts from the phone only the modes that
+    /// still ask before running tools, and the harness's Full access mode when this phone's
+    /// Full-access setting covers it (`ACPMode.phoneChoices`); a refused one comes back as the
+    /// chat's error line.
+    private func modeButton(compact: Bool) -> some View {
+        Menu {
+            Section("Mode") {
+                ForEach(store.modes) { mode in
+                    checkButton(mode.name, checked: mode.id == store.currentModeID) { store.setMode(mode.id) }
                 }
             }
-            // ACP `session/set_mode` over the link. The Mac accepts from the phone only the
-            // modes that still ask before running tools, and the harness's Full access mode
-            // when this phone's Full-access setting covers it (`ACPMode.phoneChoices`); a
-            // refused one comes back as the chat's error line.
-            if !store.modes.isEmpty {
-                Section("Mode") {
-                    ForEach(store.modes) { mode in
-                        checkButton(mode.name, checked: mode.id == store.currentModeID) { store.setMode(mode.id) }
-                    }
-                }
+        } label: {
+            if compact {
+                chipLabel(Image(systemName: "lock.shield"), iconOnly: true)
+            } else {
+                chipLabel(Text(currentModeName ?? "Mode"))
             }
-            if let effort = store.effortOption {
-                Section(effort.name ?? "Effort") {
-                    ForEach(effort.options, id: \.value) { option in
-                        checkButton(option.name ?? option.value, checked: option.value == effort.currentValue) {
-                            store.setConfig(effort.id, value: option.value)
-                        }
+        }
+        .padding(.vertical, -5)
+        // The agent's order, not the reversed order of a menu opened near the bottom of the screen.
+        .menuOrder(.fixed)
+        .accessibilityLabel("Mode")
+        .accessibilityValue(Text(currentModeName ?? ""))
+        .accessibilityIdentifier("agentChat.composer.mode")
+    }
+
+    /// The agent's thought-level option, always called Effort (an agent may name it "Reasoning").
+    private func effortButton(_ effort: ACPConfigOption, compact: Bool) -> some View {
+        let current = effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
+        return Menu {
+            Section("Effort") {
+                ForEach(effort.options, id: \.value) { option in
+                    checkButton(option.name ?? option.value, checked: option.value == effort.currentValue) {
+                        store.setConfig(effort.id, value: option.value)
                     }
                 }
             }
         } label: {
-            // Model and effort when they fit; at large text sizes the model alone.
-            ViewThatFits(in: .horizontal) {
-                modelPillLabel(withEffort: true)
-                modelPillLabel(withEffort: false)
+            if compact {
+                chipLabel(Image(systemName: "gauge.with.dots.needle.50percent"), iconOnly: true)
+            } else {
+                chipLabel(Text(current ?? "Effort"))
             }
+        }
+        .padding(.vertical, -5)
+        .menuOrder(.fixed)
+        .accessibilityLabel("Effort")
+        .accessibilityValue(Text(current ?? ""))
+        .accessibilityIdentifier("agentChat.composer.effort")
+    }
+
+    private func chipLabel(_ content: some View, iconOnly: Bool = false) -> some View {
+        content
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.primary)
             .lineLimit(1)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 34)
+            .padding(.horizontal, iconOnly ? 0 : 12)
+            .frame(minWidth: iconOnly ? 34 : nil, minHeight: 34)
             .background(Color.cmuxMobileFill, in: .capsule)
-            // 44 pt high target around the 34 pt pill.
+            // 44 pt high target around the 34 pt chip.
             .frame(minHeight: 44)
             .contentShape(.rect)
-        }
-        .padding(.vertical, -5)
-        // Source order (Model, Mode, Effort; modes in the agent's order), the same as the
-        // title menu, not the reversed order of a menu opened near the bottom of the screen.
-        .menuOrder(.fixed)
-        .accessibilityLabel(store.currentModelName == nil ? "Mode" : "Model")
-        .accessibilityValue(Text([store.currentModelName, store.effortOption.flatMap { effort in
-            effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
-        }].compactMap { $0 }.joined(separator: ", ")))
-    }
-
-    private func modelPillLabel(withEffort: Bool) -> some View {
-        HStack(spacing: 4) {
-            Text(store.currentModelName ?? store.currentModelID ?? currentModeName ?? "Model")
-            if withEffort, store.currentModelName != nil, let mode = currentModeName, store.currentModeID != store.modes.first?.id {
-                Text(mode).foregroundStyle(.secondary)
-            }
-            if withEffort, let effort = store.effortOption, let value = effort.options.first(where: { $0.value == effort.currentValue }) {
-                Text(value.name ?? value.value).foregroundStyle(.secondary)
-            }
-        }
-        .fixedSize(horizontal: withEffort, vertical: false)
     }
 
     private var currentModeName: String? {
