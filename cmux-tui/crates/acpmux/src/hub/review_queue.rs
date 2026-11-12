@@ -214,6 +214,17 @@ impl Index {
         });
     }
 
+    /// The one pull request the index holds numbered `n`, in whatever repository: a bare
+    /// `gh pr merge 5` names no repository. `None` when none or several have it.
+    pub(crate) fn pr_by_number(&self, n: u64) -> Option<String> {
+        let suffix = format!("/pull/{n}");
+        let inner = self.lock();
+        let mut urls =
+            inner.prs.values().flatten().map(|p| &p.url).filter(|u| u.ends_with(&suffix));
+        let first = urls.next()?.clone();
+        urls.all(|u| *u == first).then_some(first)
+    }
+
     /// Drops the pull requests of `session` past the window from its list as it is now (one
     /// noted since a read's snapshot stays), and the session once its list is empty or it is
     /// `gone`.

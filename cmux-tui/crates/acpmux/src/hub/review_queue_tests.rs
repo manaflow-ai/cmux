@@ -469,11 +469,10 @@ async fn a_merged_or_closed_pull_request_waits_on_no_one() {
     // Each lane lands its own the way its tools print it; the coordinator lands or closes the rest.
     for (n, lane) in lanes.iter().enumerate().take(LANES - 3) {
         let (script, printed) = match n % 3 {
+            // Off a terminal gh prints nothing when it merges; the number names the one with it.
             0 => (
                 format!("gh pr merge {n} --squash --match-head-commit abc 2>&1 | tail -3"),
-                format!(
-                    "✓ Squashed and merged pull request o/r#{n} (lane {n})\n✓ Deleted local branch"
-                ),
+                String::new(),
             ),
             1 => (
                 format!("cd /src && gh pr merge {n} --squash"),

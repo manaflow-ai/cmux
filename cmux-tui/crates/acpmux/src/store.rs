@@ -495,7 +495,7 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub pull_request_times: BTreeMap<String, u64>,
     /// The pull requests this session's `gh pr merge` and `gh pr close` calls merged or closed,
-    /// by URL, as gh printed them (`hub/pull_requests.rs`), whoever's session opened them: none
+    /// by URL (`hub/pull_requests.rs`), whoever's session opened them: none
     /// waits on the person any more (`hub/review_queue.rs`). At most
     /// `pull_requests::MAX_PULL_REQUESTS`, the oldest dropped first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
