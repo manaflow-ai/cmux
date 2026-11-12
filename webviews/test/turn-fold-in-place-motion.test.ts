@@ -147,6 +147,22 @@ await requireBrowserLane("turn-fold-in-place-motion.test.ts", async () => {
     },
   );
 
+  // CMUX_TURN_FOLD_TRACE=tool-group,...: each frame of the end, from the frame before it, as
+  // `frame animations | id top opacity moving` per row in view, to see what moves past the budget.
+  test.skipIf(!process.env.CMUX_TURN_FOLD_TRACE)("frame trace (CMUX_TURN_FOLD_TRACE)", async () => {
+    for (const scenario of (process.env.CMUX_TURN_FOLD_TRACE ?? "").split(",").filter(Boolean)) {
+      const all = await samples(scenario);
+      const first = all.findIndex((sample) => sample.phase === "end");
+      for (let index = Math.max(0, first - 1); index < Math.min(all.length, first + 30); index += 1) {
+        const sample = all[index]!;
+        const rows = (sample.rows ?? [])
+          .filter((row) => row.inView)
+          .map((row) => `${row.id} ${row.top.toFixed(1)} ${row.opacity.toFixed(2)}${row.moving ? " M" : ""}`);
+        console.log(`TURN_FOLD_TRACE ${scenario} f${index - first} a${sample.animations} | ${rows.join(" ; ")}`);
+      }
+    }
+  });
+
   test.skipIf(!process.env.CMUX_TURN_FOLD_LOOKS)("every look (CMUX_TURN_FOLD_LOOKS)", async () => {
     for (const look of (process.env.CMUX_TURN_FOLD_LOOKS ?? "").split(",").filter(Boolean))
       for (const scenario of TRANSITION_TURNS)

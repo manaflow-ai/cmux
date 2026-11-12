@@ -736,6 +736,12 @@ export type AcpmuxRow = {
   /// `shapedTurn`): the line stands for that prompt where the closed fold draws none, so the turn
   /// keeps its minimap tick (threadMinimap/model.ts `minimapTurns`).
   foldedPrompt?: AcpmuxRow;
+  /// A finished turn's "Worked for" that sits between two rows that stay in sight (a reply, a steer:
+  /// conversation/turns.ts `shapeTurn`, `foldTail`), not right under the turn's prompt: it draws as the
+  /// one-line step row its work drew, at its height and pitch with no rule, so the fold takes the room
+  /// the work took and the rows around it stay where they were (Leo, 2026-11-11: "It should just be
+  /// there, because it already was there").
+  inline?: true;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
@@ -1583,7 +1589,9 @@ export const opensBackgroundTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined)
   !(prev.kind === BACKGROUND_TURN && prev.background?.id === row.inBackground);
 const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
   row.kind === WORKED
-    ? MARK_WORKED
+    ? row.inline
+      ? MARK_STEP
+      : MARK_WORKED
     : isEditCard(row)
       ? MARK_CARD
       : isStepRow(row)
@@ -2289,7 +2297,7 @@ function fallbackRowHeight(
   // A finished work disclosure is one activity line, including when opened. Its estimate and
   // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
   // Plus the room over and under its rule (conversation.css `.cv-worked.has-divider.is-toggle`).
-  if (row.kind === WORKED) return finish(toolRowHeight() + WORKED_GAP_PT * chromeScale);
+  if (row.kind === WORKED) return finish(toolRowHeight() + (row.inline ? 0 : WORKED_GAP_PT * chromeScale));
   if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.

@@ -90,8 +90,9 @@ test("the time and both token parts take the tertiary text token, in tabular num
   expect(rule).toContain("font-variant-numeric: tabular-nums;");
 });
 
-// A finished connected turn has one Worked-for line, including its intermediate replies and
-// steers. That line spans the whole turn, so it carries the turn's token count.
+// A finished turn folds each stretch of its work in place, one Worked-for line on each side of an
+// intermediate reply or a steer (turn-fold-keeps-order.test.ts). The turn's token count is the
+// whole turn's, so only its last fold carries it, as only the last carries a stop.
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -120,13 +121,16 @@ test("a turn with one Worked for carries the turn's tokens on it", () => {
   ]);
 });
 
-test("a turn with intermediate replies keeps its tokens on its single fold", () => {
+test("a turn with intermediate replies keeps its tokens on its last fold", () => {
   expect(
     workedTokens([row("u", "user"), ran("ran-1"), takeaway("first"), ran("ran-2"), takeaway("second"), ended()]),
-  ).toEqual([["worked-u", SPLIT]]);
+  ).toEqual([
+    ["worked-u", undefined],
+    ["worked-u~1", SPLIT],
+  ]);
 });
 
-test("a steered turn keeps its tokens on the original prompt's fold", () => {
+test("a steered turn keeps its tokens on its last fold, after the steer", () => {
   expect(
     workedTokens([
       row("u", "user"),
@@ -136,5 +140,8 @@ test("a steered turn keeps its tokens on the original prompt's fold", () => {
       takeaway("done"),
       ended(),
     ]),
-  ).toEqual([["worked-u", SPLIT]]);
+  ).toEqual([
+    ["worked-u", undefined],
+    ["worked-u~1", SPLIT],
+  ]);
 });

@@ -64,7 +64,10 @@ function TranscriptSpacing({ gap, emptyFooter }: SpacingProps) {
 
 // Measure the real virtual rows. A finished reply's footer is a row of its own (#31690: ChatGPT's 32
 // line, 8 under the reply), and the virtual stack puts the grid's block gap between it and the next
-// sender's line (transcriptGrid.ts `transcriptGap`, `TRANSCRIPT_BLOCK_GAP`). The gap is the grid's
+// row (transcriptGrid.ts `transcriptGap`, `TRANSCRIPT_BLOCK_GAP`). After footer a that row is the
+// "Worked for" line of the turn coord-deputy's message started: another agent's message that starts a
+// turn folds into its first "Worked for" once the turn ends (turns.ts `foldsPrompt`). After footer b it
+// is review-lane's line, whose turn has not ended. The gap is the grid's
 // since #27580: `--cv-turn-gap` no longer places rows, so the older variants below draw the same
 // spacing as the shipped one and are kept only as the record of what was compared.
 const checkSpacing =
@@ -73,7 +76,9 @@ const checkSpacing =
     const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
     const footer = (suffix: string) => `[data-row-id="spacing-footer-${suffix}"] .cv-turn-actions`;
     const chip = (suffix: string) =>
-      `[data-row-id="spacing-received-${suffix}"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)`;
+      suffix === "a"
+        ? '[data-row-id="worked-spacing-received-a"] button.cv-worked'
+        : `[data-row-id="spacing-received-${suffix}"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)`;
     const measure = () => ["a", "b"].map((suffix) => rect(chip(suffix)).top - rect(footer(suffix)).bottom);
     await ctx.waitFor(() => ctx.document.querySelector(chip("b")));
     await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
@@ -81,7 +86,7 @@ const checkSpacing =
     const before = measure();
     for (const value of before) {
       const expected = TRANSCRIPT_BLOCK_GAP;
-      if (Math.abs(value - expected) > 0.5) throw new Error(`Footer-to-sender gap ${value}px; expected ${expected}px`);
+      if (Math.abs(value - expected) > 0.5) throw new Error(`Footer-to-next-row gap ${value}px; expected ${expected}px`);
     }
 
     const visible = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-row")]

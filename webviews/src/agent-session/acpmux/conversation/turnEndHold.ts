@@ -10,7 +10,7 @@
 // over one of them stays open, as if the reader had opened it, and closes only when they close it.
 import { isLineRow, MESSAGE_RUN, type AcpmuxRow } from "../model";
 import { messageRunRowId } from "./messageRuns";
-import { hiddenRowFolds } from "./turns";
+import { HELD_FOLD, hiddenRowFolds } from "./turns";
 import type { Folds } from "./viewFolds";
 
 /// The folds to open so every row in `inView` that `rows` holds stays drawn in `drawn`, the view
@@ -83,10 +83,16 @@ function openRunKeyOf(drawn: readonly AcpmuxRow[], rowId: string): string | unde
   return undefined;
 }
 
-/// `folds` with `extra` open too.
+/// `folds` with `extra` open too. A held key the reader has not opened answers `key + HELD_FOLD`
+/// as well, so it draws without its "Worked for" lines (turns.ts `HELD_FOLD`).
 export function withHeldFolds(folds: Folds, extra: ReadonlySet<string>): Folds {
   if (extra.size === 0) return folds;
-  return { has: (id) => extra.has(id) || folds.has(id), size: folds.size + extra.size };
+  const heldOnly = (id: string) => {
+    if (!id.endsWith(HELD_FOLD)) return false;
+    const key = id.slice(0, -HELD_FOLD.length);
+    return extra.has(key) && !folds.has(key);
+  };
+  return { has: (id) => extra.has(id) || folds.has(id) || heldOnly(id), size: folds.size + extra.size };
 }
 
 // A command still running in an earlier run is the live line's, and that run draws no row for it

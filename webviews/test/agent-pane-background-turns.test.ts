@@ -19,6 +19,7 @@ import {
   turnFoldFor,
   turnView,
   turnViewFrom,
+  WORKED,
 } from "../src/agent-session/acpmux/conversation/turns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
@@ -71,6 +72,25 @@ const texts = (rows: AcpmuxRow[]) =>
   rows.map((row) =>
     row.kind === BACKGROUND_TURN ? `line:${row.background?.trigger}` : `${row.kind}:${row.text ?? ""}`,
   );
+/// Once the person's turn ended, what the agent ran on its own after it is that turn's tail: its work
+/// folds in place under the tail's own "Worked for", each opened on its own (turns.ts `foldTail`; Leo,
+/// 2026-11-11, on "Background command completed" rows between answers: "Do those not count as the
+/// works for?"). The tail folds a view draws.
+const tailFolds = (rows: AcpmuxRow[]) =>
+  rows.filter((row) => row.kind === WORKED && row.id.includes("~tail-")).map((row) => row.id);
+/// `rows` drawn with `open` and every tail fold opened, as the reader who opens each one sees them. An
+/// opened line can bring a fold of its own (its rows join a later tail), so it opens until none is new.
+const drawnOpen = (rows: AcpmuxRow[], open: string[] = []) => {
+  const keys = new Set(open);
+  let view = drawn(rows, [...keys]);
+  for (let pass = 0; pass < 4; pass += 1) {
+    const more = tailFolds(view).filter((id) => !keys.has(id));
+    if (more.length === 0) break;
+    for (const id of more) keys.add(id);
+    view = drawn(rows, [...keys]);
+  }
+  return view;
+};
 
 test("a quiet background turn is one line that opens to its rows", async () => {
   const daemon = fakeDaemon(
@@ -96,7 +116,11 @@ test("a quiet background turn is one line that opens to its rows", async () => {
     // Its rows belong to it; the person's turn's rows do not.
     const members = rows().filter((row) => row.inBackground === "bg1");
     expect(members.map((row) => row.kind)).toEqual(["activity", "assistant"]);
-    const closed = drawn(rows());
+    // Closed, the line is behind the tail's one fold, the last row.
+    const folded = drawn(rows());
+    expect(folded.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    expect(tailFolds(folded)).toEqual([folded.at(-1)!.id]);
+    const closed = drawnOpen(rows());
     expect(closed.some((row) => row.text === "Nothing new for you yet.")).toBe(false);
     expect(closed.filter((row) => row.kind === BACKGROUND_TURN)).toHaveLength(1);
     expect(closed.at(-1)?.kind).toBe(BACKGROUND_TURN);
@@ -107,7 +131,7 @@ test("a quiet background turn is one line that opens to its rows", async () => {
       expect.stringMatching(/^turnSummary:/),
     ]);
     // Opened, its rows follow its line, in order.
-    const open = drawn(rows(), [backgroundTurnRowId("bg1")]);
+    const open = drawnOpen(rows(), [backgroundTurnRowId("bg1")]);
     const at = open.findIndex((row) => row.kind === BACKGROUND_TURN);
     expect(open.slice(at + 1).map((row) => row.kind)).toEqual(["activity", "assistant"]);
     expect(open.at(-1)?.text).toBe("Nothing new for you yet.");
@@ -149,14 +173,16 @@ test("a running background turn is the compact line, marked running", async () =
   );
   const { client, rows } = await connect(daemon);
   try {
-    const view = drawn(rows());
+    // While it runs the chat works: the line is in sight, the last row.
+    const view = turnView(rows(), new Set(), { working: true }).filter((row) => row.kind !== "date");
     const line = view.at(-1)!;
     expect(line.kind).toBe(BACKGROUND_TURN);
     expect(line.background).toEqual({ id: "bg3", trigger: "scheduled", running: true, hasRows: true });
     expect(view.some((row) => row.kind === "activity")).toBe(false);
-    // It ends quiet: the same line, no longer running.
+    // It ends quiet: the same line, no longer running, now in the tail's fold.
     daemon.push(record([say("Queue empty."), ended("bg3", true, "result", "scheduled")], 7));
-    const after = drawn(rows());
+    expect(drawn(rows()).at(-1)?.kind).toBe(WORKED);
+    const after = drawnOpen(rows());
     expect(after.at(-1)?.background).toMatchObject({ running: false, quiet: true });
     expect(after.some((row) => row.text === "Queue empty.")).toBe(false);
   } finally {
@@ -182,7 +208,17 @@ test("a prompt that interrupts a background turn starts a normal turn after it",
         .filter((row) => row.inBackground)
         .map((row) => row.text),
     ).toEqual(["Still building."]);
-    const view = drawn(rows());
+    // Closed, its tail's fold, then the person's next turn.
+    const closed = drawn(rows());
+    const fold = closed.findIndex((row) => row.kind === WORKED && row.id.includes("~tail-"));
+    expect(fold).toBeGreaterThan(0);
+    expect(texts(closed.slice(fold))).toEqual([
+      "worked:",
+      "user:What's the status?",
+      "assistant:The build passed.",
+      expect.stringMatching(/^turnSummary:/),
+    ]);
+    const view = drawnOpen(rows());
     const line = view.findIndex((row) => row.kind === BACKGROUND_TURN);
     expect(texts(view.slice(line))).toEqual([
       "line:task_notification",
@@ -201,9 +237,14 @@ test("a log from before background_turn records draws exactly as before", async 
   const { client, rows } = await connect(daemon);
   try {
     expect(rows().some((row) => row.kind === BACKGROUND_TURN || row.inBackground !== undefined)).toBe(false);
+    // As any turn's tail: its call folds in place under its fold, its reply stays in sight after it.
     const view = drawn(rows());
     expect(view.at(-1)?.text).toBe("Nothing new yet.");
-    expect(view.some((row) => row.kind === "activity")).toBe(true);
+    expect(view.at(-2)?.kind).toBe(WORKED);
+    expect(view.some((row) => row.kind === "activity")).toBe(false);
+    const open = drawnOpen(rows());
+    expect(open.at(-1)?.text).toBe("Nothing new yet.");
+    expect(open.at(-2)?.kind).toBe("activity");
   } finally {
     client.close();
   }
@@ -224,8 +265,10 @@ test("work after a background turn ends never joins its rows", async () => {
     const after = rows().find((row) => row.items?.some((item) => item.tool?.id === "b"))!;
     expect(after.inBackground).toBeUndefined();
     expect(after.items?.some((item) => item.tool?.id === "a")).toBe(false);
-    // It draws below the closed line, never inside it.
-    expect(drawn(rows()).at(-1)?.id).toBe(after.id);
+    // It draws below the closed line, never inside it (the tail's fold opened, the line closed).
+    const view = drawnOpen(rows());
+    expect(view.at(-1)?.id).toBe(after.id);
+    expect(view.at(-2)?.id).toBe(backgroundTurnRowId("bg5"));
   } finally {
     client.close();
   }
@@ -315,7 +358,9 @@ test("a subagent's done line folds with its quiet background turn", async () => 
     const done = tray.find((row) => row.kind === SUBAGENT_DONE)!;
     expect(done.inBackground).toBe("bg9");
     expect(drawn([...tray]).some((row) => row.kind === SUBAGENT_DONE)).toBe(false);
-    expect(drawn([...tray], [backgroundTurnRowId("bg9")]).some((row) => row.kind === SUBAGENT_DONE)).toBe(true);
+    // Its tail's fold opened, the line closed: the done line stays with it.
+    expect(drawnOpen([...tray]).some((row) => row.kind === SUBAGENT_DONE)).toBe(false);
+    expect(drawnOpen([...tray], [backgroundTurnRowId("bg9")]).some((row) => row.kind === SUBAGENT_DONE)).toBe(true);
   } finally {
     client.close();
   }
@@ -330,11 +375,13 @@ test("Find and a link open the background line that hides a row", async () => {
   try {
     const all = rows();
     const at = all.findIndex((row) => row.text === "Still green.");
-    expect(turnFoldFor(all, at)).toBe(backgroundTurnRowId("bg10"));
-    expect(messageRevealTarget(all, drawn(all), [all[at]!.id])).toEqual({
-      rowId: all[at]!.id,
-      fold: backgroundTurnRowId("bg10"),
-    });
+    // Once the person's turn ended, the line is behind its tail's fold (turns.ts `foldTail`): the
+    // folds a link opens draw the row, whichever key they name.
+    const target = messageRevealTarget(all, drawn(all), [all[at]!.id])!;
+    expect(target.rowId).toBe(all[at]!.id);
+    const opened = [target.fold, target.run, ...(target.also ?? [])].filter((id): id is string => id !== undefined);
+    expect(opened).toContain(backgroundTurnRowId("bg10"));
+    expect(drawn(all, opened).some((row) => row.id === all[at]!.id)).toBe(true);
     // A row of the person's own turn still opens that turn's fold.
     expect(
       turnFoldFor(
@@ -401,8 +448,15 @@ test("a subagent done after the next user prompt stays folded with its owner bac
   expect(closed.some((item) => item.id === "prompt-2")).toBe(true);
   expect(closed.some((item) => item.id === "answer-2")).toBe(true);
 
-  // Disclosure of the original background line reveals the late completion in chronology order.
-  const opened = drawn([...tray], [owner]);
+  // Disclosure of the original background line reveals the late completion in chronology order: it
+  // is agent work in the later turn's tail, so it draws in that tail's fold, after prompt-2.
+  const lineOpen = drawn([...tray], [owner]);
+  const lateFold = `${WORKED}-prompt-2~tail-${done.id}`;
+  expect(lineOpen.findIndex((item) => item.id === lateFold)).toBeGreaterThan(
+    lineOpen.findIndex((item) => item.id === "prompt-2"),
+  );
+  expect(drawn([...tray], [lateFold]).some((item) => item.id === done.id)).toBe(false);
+  const opened = drawn([...tray], [owner, lateFold]);
   expect(opened.some((item) => item.id === done.id)).toBe(true);
   expect(opened.indexOf(opened.find((item) => item.id === done.id)!)).toBeGreaterThan(
     opened.findIndex((item) => item.id === "prompt-2"),
@@ -496,11 +550,15 @@ test("a late subagent done line follows its line's toggles across reused turn vi
   const shows = (view: { rows: AcpmuxRow[] }) => view.rows.some((item) => item.id === done.id);
   const now = 1_000;
 
+  // The done line is agent work in the later turn's tail: it draws in that tail's fold.
+  const lateFold = `${WORKED}-prompt-2~tail-${done.id}`;
   const closedSet = new Set<string>();
   const closed = turnViewFrom(tray, closedSet, { now });
   expect(shows(closed)).toBe(false);
+  // The tail's fold alone opens nothing while the original line is closed.
+  expect(shows(turnViewFrom(tray, new Set([lateFold]), { now }, closed))).toBe(false);
   // Open the original line: the later turn holding the done line draws it.
-  const opened = turnViewFrom(tray, new Set([owner]), { now }, closed);
+  const opened = turnViewFrom(tray, new Set([owner, lateFold]), { now }, closed);
   expect(shows(opened)).toBe(true);
   // Close it again from the open view: hidden again, not a stale open row.
   const closedAgain = turnViewFrom(tray, new Set<string>(), { now }, opened);
@@ -513,7 +571,7 @@ test("a late subagent done line follows its line's toggles across reused turn vi
   expect(shows(next)).toBe(false);
   expect(next.rows.some((item) => item.id === "answer-3b")).toBe(true);
   // ... and shows it while the line is open.
-  const openSet = new Set([owner]);
+  const openSet = new Set([owner, lateFold]);
   const openBase = turnViewFrom(tray, openSet, { now });
   const openNext = turnViewFrom(streamed, openSet, { now }, openBase);
   expect(openNext.reusedRows).toBeGreaterThan(0);
@@ -609,7 +667,10 @@ test("a running background turn with no rows yet is a plain line, no chevron and
   );
   const { client, rows } = await connect(daemon);
   try {
-    const line = drawn(rows()).find((row) => row.kind === BACKGROUND_TURN)!;
+    // While it runs the chat works: the line is in sight.
+    const live = (open: string[] = []) =>
+      turnView(rows(), new Set(open), { working: true }).filter((row) => row.kind !== "date");
+    const line = live().find((row) => row.kind === BACKGROUND_TURN)!;
     expect(line.background).toMatchObject({ running: true });
     const html = lineHtml(line);
     expect(html).not.toContain("<button");
@@ -617,12 +678,13 @@ test("a running background turn with no rows yet is a plain line, no chevron and
     expect(html).not.toContain("aria-expanded");
     // Its first row of its own makes it open to that row.
     daemon.push(record([say("Still running.")], 7));
-    const after = drawn(rows()).find((row) => row.kind === BACKGROUND_TURN)!;
+    const after = live().find((row) => row.kind === BACKGROUND_TURN)!;
     const opened = lineHtml(after);
     expect(opened).toContain("<button");
     expect(opened).toContain("cv-agent-activity__chevron");
-    const open = drawn(rows(), [after.id]);
-    expect(open.at(-1)?.text).toBe("Still running.");
+    const open = live([after.id]);
+    const reply = open.findIndex((row) => row.text === "Still running.");
+    expect(reply).toBeGreaterThan(open.findIndex((row) => row.id === after.id));
   } finally {
     client.close();
   }
@@ -709,13 +771,17 @@ test("quiet background turns in a row that ran something fold into one counted l
   );
   const { client, rows } = await connect(daemon);
   try {
-    const view = drawn(rows());
+    // Closed, the run is behind the tail's one fold.
+    const folded = drawn(rows());
+    expect(folded.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    expect(tailFolds(folded)).toHaveLength(1);
+    const view = drawnOpen(rows());
     expect(view.some((row) => row.text === "·")).toBe(false);
     const lines = view.filter((row) => row.kind === BACKGROUND_TURN);
     expect(lines).toHaveLength(1);
     expect(lines[0]!.backgroundRun).toMatchObject({ finished: 4 });
     // Opened, the four lines draw again in order, each closed on its own rows.
-    const open = drawn(rows(), [lines[0]!.id]).filter((row) => row.kind === BACKGROUND_TURN);
+    const open = drawnOpen(rows(), [lines[0]!.id]).filter((row) => row.kind === BACKGROUND_TURN);
     expect(open.map((row) => row.background?.id ?? "run")).toEqual(["run", "bg-a", "bg-b", "bg-c", "bg-d"]);
   } finally {
     client.close();
@@ -861,10 +927,19 @@ test("a silent turn no call took still keeps a line when it had something to say
   );
   const { client, rows } = await connect(daemon);
   try {
-    const lines = drawn(rows()).filter((row) => row.kind === BACKGROUND_TURN);
+    // Its line is the tail's work, in the tail's fold; its words are behind the line.
+    const closed = drawn(rows());
+    expect(closed.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+    const lines = drawnOpen(rows()).filter((row) => row.kind === BACKGROUND_TURN);
     expect(lines.map((row) => row.background?.id)).toEqual(["bg-m"]);
-    // Find opens the quiet one: its line draws while open, so it can close again.
-    const open = drawn(rows(), [backgroundTurnRowId("bg-q")]);
+    expect(
+      drawnOpen(rows(), [backgroundTurnRowId("bg-m")]).some(
+        (row) => row.text === "CI moved to step 3 of 5.\n\nNothing to do yet.",
+      ),
+    ).toBe(true);
+    // Find opens the quiet one: its words draw, and its line draws while open, inside the tail's
+    // fold, so it can close again.
+    const open = drawnOpen(rows(), [backgroundTurnRowId("bg-q")]);
     expect(open.some((row) => row.text === "Tick.")).toBe(true);
     expect(open.some((row) => row.background?.id === "bg-q")).toBe(true);
   } finally {
@@ -1131,12 +1206,23 @@ test("a background turn's long reply is the agent's own turn, never the subagent
     for (const [index, { row, at }] of own.entries()) {
       // Its own footer right under it, the turn's end, as a prompt's turn ends.
       expect(view[at + 1]).toMatchObject({ kind: "turnSummary", id: `${BACKGROUND_END}-bg-${index + 1}` });
-      // It opens a turn: the turn gap over it, from whatever row is above.
+      if (index === 0) continue;
+      // It opens a turn: the turn gap over it, from the footer above.
       const prev = view[at - 1]!;
       expect(transcriptGap(gridMark(prev, view[at - 2]), gridMark(row, prev))).toBe(TRANSCRIPT_TURN_GAP);
     }
-    // The first follows the subagent's done line, not inside it.
-    expect(view[own[0]!.at - 1]?.kind).toBe(SUBAGENT_DONE);
+    // The first follows the subagent's done line, folded in place under the tail's own "Worked for",
+    // not inside it: right under that header, which keeps its own room (transcriptGrid.ts MARK_WORKED).
+    const first = own[0]!.at;
+    expect(view[first - 1]?.kind).toBe(WORKED);
+    expect(view[first - 1]?.id).toContain("~tail-");
+    const opened = drawn([...withSubagentLines(rows(), new Map())], [view[first - 1]!.id]);
+    const reply = opened.findIndex((row) => row.text === replies[0]);
+    expect(opened[reply - 1]?.kind).toBe(SUBAGENT_DONE);
+    // Opened, it opens a turn: the turn gap over it, from the done line above.
+    expect(
+      transcriptGap(gridMark(opened[reply - 1]!, opened[reply - 2]), gridMark(opened[reply]!, opened[reply - 1])),
+    ).toBe(TRANSCRIPT_TURN_GAP);
   } finally {
     client.close();
   }

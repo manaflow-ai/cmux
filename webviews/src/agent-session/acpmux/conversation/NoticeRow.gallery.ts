@@ -9,7 +9,7 @@
 // the page as the pane drew it. The `look-*` versions beside the default are noticeLook.ts's
 // (`theme.noticeLook`). Names, hosts and numbers are made up.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "./incomingMessage";
 import { noticeRowText } from "./agentNotice";
@@ -266,8 +266,30 @@ function background() {
   );
 }
 
-/// Opens the two ends that went in together.
+/// Opens each closed "Worked for" line, one measured click each, in order: a finished turn's work
+/// folds in place, and so does the agent's work after it (turns.ts `shapeTurn`, `foldTail`), another
+/// agent's message and a task's end among it. `wait`: the stage draws one once its events replay.
+const openWorked = async (ctx: PlayContext, wait = false) => {
+  const toggle = "button.cv-worked.is-toggle";
+  if (wait) await ctx.waitFor(() => ctx.document.querySelector(toggle), { capMs: 10_000 });
+  for (let guard = 0; guard < 20; guard += 1) {
+    const shut = ctx.document.querySelector(`${toggle}[aria-expanded="false"]`);
+    const id = shut?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+    if (!id) return;
+    const line = `.acpmux-row[data-row-id="${id}"] ${toggle}`;
+    // On its words: the line runs the pane's width, and its middle can sit under the jump-to-latest
+    // button at the transcript's foot, which would take a click aimed there.
+    await ctx.click({ selector: `${line} .cv-worked__label` });
+    await ctx.waitFor(() => ctx.document.querySelector(line)?.getAttribute("aria-expanded") === "true", {
+      capMs: 10_000,
+    });
+  }
+};
+
+/// Opens the two ends that went in together. Each end woke a turn of the agent's own, which folds
+/// it into that turn's "Worked for": those open first.
 const openDigest: Play = async (ctx) => {
+  await openWorked(ctx, true);
   const lines = () => [...ctx.document.querySelectorAll(".cv-received .cv-disclosure__toggle")];
   await ctx.waitFor(() => lines().length >= 5 || null, { capMs: 10_000 });
   const last = lines().at(-1)!;

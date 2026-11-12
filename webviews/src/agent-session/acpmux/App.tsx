@@ -3346,11 +3346,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       });
     else setExpanded((current) => (current.has(fold) ? current : new Set(current).add(fold)));
   }, []);
-  // The folds a turn's end held open (turnRowsShown) become the reader's own open folds before the
-  // frame paints, so they close only when the reader closes them.
+  // The folds a turn's end held open (turnRowsShown) draw open with no "Worked for" lines while the
+  // reader stays scrolled up, so nothing in view moves (turns.ts `HELD_FOLD`). Back at the latest
+  // row they become the reader's own open folds before the frame paints, lines and all, and close
+  // only when the reader closes them.
   useLayoutEffect(() => {
     const { keys } = heldFolds.current;
-    if (keys.size === 0) return;
+    if (keys.size === 0 || !followingTranscript.current) return;
     heldFolds.current = { session: heldFolds.current.session, keys: new Set() };
     for (const key of keys) openFold(key);
   });
@@ -6380,7 +6382,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const onTranscriptFollowingChange = useCallback((following: boolean) => {
     followingTranscript.current = following;
     // Back at the latest row: the commands held out while scrolled up go back into their runs.
-    if (following && heldCalls.current.keys.size > 0) releaseCalls();
+    // The folds a turn's end held open take their lines there too (the layout effect above).
+    if (following && (heldCalls.current.keys.size > 0 || heldFolds.current.keys.size > 0)) releaseCalls();
   }, []);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;

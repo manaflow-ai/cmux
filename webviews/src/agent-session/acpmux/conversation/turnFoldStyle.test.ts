@@ -103,14 +103,14 @@ test("claude: Worked for over the conclusion, the chatter and runs folded under 
 
 // Leo, 2026-11-06: "your intermediate message got lost. that can never happen" (turn-fold-keeps-replies.test.ts).
 for (const family of ["claude", "codex", "gemini", "muse"])
-  test(`${family}: a closed fold keeps a reply between two runs in sight, both runs under it`, () => {
+  test(`${family}: a closed fold keeps a reply between two runs in sight, each run folded where it ran`, () => {
     const rows = drawn(family, new Set(), replied);
-    const worked = rows.find((row) => row.kind === WORKED)!;
-    expect(worked.foldOpen).toBe(false);
-    // The fold hides only calls, so no header counts messages.
-    expect(worked.previous).toBeUndefined();
-    // Every call stays under the closed line, as chatgpt.com draws it (turn-fold-hides-every-call.test.ts).
-    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "n1", "a"]);
+    const folds = rows.filter((row) => row.kind === WORKED);
+    expect(folds.every((fold) => fold.foldOpen === false)).toBe(true);
+    // The folds hide only calls, so no header counts messages.
+    expect(folds.every((fold) => fold.previous === undefined)).toBe(true);
+    // Each run folds in place on its side of the reply (turn-fold-keeps-order.test.ts): nothing moves.
+    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([`${WORKED}-p`, "n1", `${WORKED}-p~1`, "a"]);
   });
 
 test("claude, opened: its runs fold per run with the chatter between them", () => {
@@ -133,9 +133,14 @@ test("claude: a turn that ends on a call keeps its last takeaway in sight, the c
     now: 70_000,
     agentFamily: "claude",
   });
-  const worked = rows.find((row) => row.kind === WORKED)!;
-  expect(worked.foldOpen).toBe(false);
-  expect(ids(rows.filter((row) => row.kind !== "turnSummary" && row.kind !== "user"))).toEqual([worked.id, "t"]);
+  const folds = rows.filter((row) => row.kind === WORKED);
+  expect(folds.every((fold) => fold.foldOpen === false)).toBe(true);
+  // The takeaway stays where it was said, the call after it folded below it, in place.
+  expect(ids(rows.filter((row) => row.kind !== "turnSummary" && row.kind !== "user"))).toEqual([
+    `${WORKED}-p`,
+    "t",
+    `${WORKED}-p~1`,
+  ]);
 });
 
 test("claude: a turn with only its reply draws no Worked for", () => {

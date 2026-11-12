@@ -11,49 +11,20 @@
     "agent-pane.add-project-panel#keyboard": [],
     "agent-pane.add-project-panel#sources": [],
     "agent-pane.addressed-message#relayed": [],
-    "agent-pane.agent-message-row#both-directions": [
-      "center-line:row user-60"
-    ],
-    "agent-pane.agent-message-row#both-directions-opened": [
-      "center-line:row user-73"
-    ],
-    "agent-pane.agent-message-row#folded-run": [
-      "center-line:row user-76",
-      "center-line:row user-77",
-      "center-line:row user-78",
-      "center-line:row user-79"
-    ],
-    "agent-pane.agent-message-row#folded-run-mixed": [
-      "center-line:row user-80",
-      "center-line:row user-81",
-      "center-line:row user-82",
-      "center-line:row user-83"
-    ],
-    "agent-pane.agent-message-row#folded-run-opened": [
-      "center-line:row user-84",
-      "center-line:row user-85",
-      "center-line:row user-86",
-      "center-line:row user-87"
-    ],
-    "agent-pane.agent-message-row#icon-column": [
-      "center-line:row user-69"
-    ],
+    "agent-pane.agent-message-row#both-directions": [],
+    "agent-pane.agent-message-row#both-directions-opened": [],
+    "agent-pane.agent-message-row#folded-run": [],
+    "agent-pane.agent-message-row#folded-run-mixed": [],
+    "agent-pane.agent-message-row#folded-run-opened": [],
+    "agent-pane.agent-message-row#icon-column": [],
     "agent-pane.agent-message-row#lanes": [],
-    "agent-pane.agent-message-row#outcomes": [
-      "center-line:row subagentDone:gallery-session/toolu_cap",
-      "center-line:row user-56"
-    ],
+    "agent-pane.agent-message-row#outcomes": [],
     "agent-pane.agent-message-row#sent": [],
     "agent-pane.agent-message-row#sent-hover": [],
     "agent-pane.agent-message-row#sent-opened": [],
     "agent-pane.agent-message-row#sent-opened-long": [],
-    "agent-pane.agent-message-row#sent-subagents": [
-      "center-line:row subagentDone:gallery-session/toolu_grid",
-      "center-line:row subagentDone:gallery-session/toolu_review"
-    ],
-    "agent-pane.agent-message-row#unicode-boundary": [
-      "center-line:row user-3"
-    ],
+    "agent-pane.agent-message-row#sent-subagents": [],
+    "agent-pane.agent-message-row#unicode-boundary": [],
     "agent-pane.agent-pair-note#cap": [
       "center-line:row agentPair-8"
     ],
@@ -70,15 +41,9 @@
       "center-line:row agentPair-7"
     ],
     "agent-pane.agent-pair-note#resumed": [],
-    "agent-pane.agent-runs#card-done": [
-      "center-line:row subagents-1"
-    ],
-    "agent-pane.agent-runs#card-failed": [
-      "center-line:row subagents-1"
-    ],
-    "agent-pane.agent-runs#card-running": [
-      "center-line:row subagents-1"
-    ],
+    "agent-pane.agent-runs#card-done": [],
+    "agent-pane.agent-runs#card-failed": [],
+    "agent-pane.agent-runs#card-running": [],
     "agent-pane.agent-start#failed-start": [],
     "agent-pane.agent-start#slow-start": [],
     "agent-pane.agent-start#starting": [],
@@ -155,19 +120,11 @@
     "agent-pane.background-tasks-workflow#list": [],
     "agent-pane.background-tasks-workflow#loading": [],
     "agent-pane.background-tasks-workflow#transcript": [],
-    "agent-pane.background-tasks#alone": [
-      "center-line:row subagentDone:agent-audit"
-    ],
-    "agent-pane.background-tasks#closed": [
-      "center-line:row subagentDone:agent-audit"
-    ],
-    "agent-pane.background-tasks#docked": [
-      "center-line:row subagentDone:agent-audit"
-    ],
+    "agent-pane.background-tasks#alone": [],
+    "agent-pane.background-tasks#closed": [],
+    "agent-pane.background-tasks#docked": [],
     "agent-pane.background-tasks#finished": [],
-    "agent-pane.background-tasks#transcript": [
-      "center-line:row subagentDone:agent-audit"
-    ],
+    "agent-pane.background-tasks#transcript": [],
     "agent-pane.bottom-stack-styles#cards": [],
     "agent-pane.bottom-stack-styles#collapsed": [],
     "agent-pane.bottom-stack-styles#expanded": [],
@@ -348,15 +305,9 @@
     "agent-pane.chief-prompt#context": [],
     "agent-pane.chief-prompt#follow-up": [],
     "agent-pane.chief-prompt#long": [],
-    "agent-pane.claude-desktop-organization#card": [
-      "center-line:row plan-4"
-    ],
-    "agent-pane.claude-desktop-organization#tree": [
-      "center-line:row plan-15"
-    ],
-    "agent-pane.claude-desktop-organization#zebra": [
-      "center-line:row plan-26"
-    ],
+    "agent-pane.claude-desktop-organization#card": [],
+    "agent-pane.claude-desktop-organization#tree": [],
+    "agent-pane.claude-desktop-organization#zebra": [],
     "agent-pane.cloud-chat-recovery#before": [],
     "agent-pane.cloud-chat-recovery#deleted": [],
     "agent-pane.cloud-chat-recovery#paused": [],
@@ -881,18 +832,10 @@
     "agent-pane.context-ring#wheel-compact": [],
     "agent-pane.context-ring#wheel-minimal": [],
     "agent-pane.context-ring#wheel-standard": [],
-    "agent-pane.continuation-spacing#before": [
-      "center-line:row continuation-peer"
-    ],
-    "agent-pane.continuation-spacing#half-tucked": [
-      "center-line:row continuation-peer"
-    ],
-    "agent-pane.continuation-spacing#shipped": [
-      "center-line:row continuation-peer"
-    ],
-    "agent-pane.continuation-spacing#two-thirds": [
-      "center-line:row continuation-peer"
-    ],
+    "agent-pane.continuation-spacing#before": [],
+    "agent-pane.continuation-spacing#half-tucked": [],
+    "agent-pane.continuation-spacing#shipped": [],
+    "agent-pane.continuation-spacing#two-thirds": [],
     "agent-pane.copy-controls#output": [],
     "agent-pane.current-family-menus#claude-composer": [
       "menu-fit:div[aria-label=\"Model\"]"
@@ -1197,98 +1140,32 @@
     "agent-pane.inbox-notice#three-open": [
       "icon-column:row user-22"
     ],
-    "agent-pane.incoming-message-disclosure#a-shipped": [
-      "center-line:row user-4",
-      "center-line:row user-5",
-      "center-line:row user-6"
-    ],
-    "agent-pane.incoming-message-disclosure#a-shipped-open": [
-      "center-line:row user-4",
-      "center-line:row user-5",
-      "center-line:row user-6"
-    ],
-    "agent-pane.incoming-message-disclosure#b-received-wording": [
-      "center-line:row user-4",
-      "center-line:row user-5",
-      "center-line:row user-6"
-    ],
-    "agent-pane.incoming-message-disclosure#c-line-count": [
-      "center-line:row user-4",
-      "center-line:row user-5",
-      "center-line:row user-6"
-    ],
-    "agent-pane.incoming-message-disclosure#d-sender-only": [
-      "center-line:row user-4",
-      "center-line:row user-5",
-      "center-line:row user-6"
-    ],
+    "agent-pane.incoming-message-disclosure#a-shipped": [],
+    "agent-pane.incoming-message-disclosure#a-shipped-open": [],
+    "agent-pane.incoming-message-disclosure#b-received-wording": [],
+    "agent-pane.incoming-message-disclosure#c-line-count": [],
+    "agent-pane.incoming-message-disclosure#d-sender-only": [],
     "agent-pane.incoming-message#avatar": [],
     "agent-pane.incoming-message#chief": [],
-    "agent-pane.incoming-message#details": [
-      "center-line:row user-56"
-    ],
-    "agent-pane.incoming-message#files": [
-      "center-line:row user-75",
-      "center-line:row user-76"
-    ],
-    "agent-pane.incoming-message#files-elsewhere": [
-      "center-line:row user-80",
-      "center-line:row user-81"
-    ],
-    "agent-pane.incoming-message#lane-report": [
-      "center-line:row user-48"
-    ],
-    "agent-pane.incoming-message#lane-verdict": [
-      "center-line:row user-4"
-    ],
-    "agent-pane.incoming-message#links": [
-      "center-line:row user-38"
-    ],
-    "agent-pane.incoming-message#long": [
-      "center-line:row user-44"
-    ],
-    "agent-pane.incoming-message#messages": [
-      "center-line:row user-16",
-      "center-line:row user-19"
-    ],
-    "agent-pane.incoming-message#mid-turn": [
-      "center-line:row user-59",
-      "center-line:row user-61"
-    ],
-    "agent-pane.incoming-message#minimal": [
-      "center-line:row user-10",
-      "center-line:row user-8",
-      "center-line:row user-9"
-    ],
-    "agent-pane.incoming-message#minimal-fade-count": [
-      "center-line:row user-10",
-      "center-line:row user-8",
-      "center-line:row user-9"
-    ],
-    "agent-pane.incoming-message#minimal-inline-name": [
-      "center-line:row user-10",
-      "center-line:row user-8",
-      "center-line:row user-9"
-    ],
-    "agent-pane.incoming-message#minimal-off": [
-      "center-line:row user-10",
-      "center-line:row user-8",
-      "center-line:row user-9"
-    ],
+    "agent-pane.incoming-message#details": [],
+    "agent-pane.incoming-message#files": [],
+    "agent-pane.incoming-message#files-elsewhere": [],
+    "agent-pane.incoming-message#lane-report": [],
+    "agent-pane.incoming-message#lane-verdict": [],
+    "agent-pane.incoming-message#links": [],
+    "agent-pane.incoming-message#long": [],
+    "agent-pane.incoming-message#messages": [],
+    "agent-pane.incoming-message#mid-turn": [],
+    "agent-pane.incoming-message#minimal": [],
+    "agent-pane.incoming-message#minimal-fade-count": [],
+    "agent-pane.incoming-message#minimal-inline-name": [],
+    "agent-pane.incoming-message#minimal-off": [],
     "agent-pane.incoming-message#minimal-open": [],
     "agent-pane.incoming-message#notice": [],
-    "agent-pane.incoming-message#opened": [
-      "center-line:row user-52"
-    ],
-    "agent-pane.incoming-message#reply": [
-      "center-line:row user-67"
-    ],
+    "agent-pane.incoming-message#opened": [],
+    "agent-pane.incoming-message#reply": [],
     "agent-pane.incoming-message#sender-hover": [],
-    "agent-pane.incoming-message#subsession": [
-      "center-line:row user-22",
-      "center-line:row user-25",
-      "center-line:row user-26"
-    ],
+    "agent-pane.incoming-message#subsession": [],
     "agent-pane.inline-chips#after-accent": [],
     "agent-pane.inline-chips#after-hairline": [],
     "agent-pane.inline-chips#after-minimal": [],
@@ -1373,25 +1250,11 @@
     "agent-pane.message-entrance#scale": [],
     "agent-pane.message-entrance#scale-y": [],
     "agent-pane.message-entrance#translate": [],
-    "agent-pane.message-preview#baseline-fade": [
-      "center-line:row user-1",
-      "center-line:row user-2"
-    ],
-    "agent-pane.message-preview#cards-no-fade": [
-      "center-line:row user-1",
-      "center-line:row user-2"
-    ],
-    "agent-pane.message-preview#code-first": [
-      "center-line:row user-5"
-    ],
-    "agent-pane.message-preview#full-cards-no-fade": [
-      "center-line:row user-1",
-      "center-line:row user-2"
-    ],
-    "agent-pane.message-preview#one-line": [
-      "center-line:row user-1",
-      "center-line:row user-2"
-    ],
+    "agent-pane.message-preview#baseline-fade": [],
+    "agent-pane.message-preview#cards-no-fade": [],
+    "agent-pane.message-preview#code-first": [],
+    "agent-pane.message-preview#full-cards-no-fade": [],
+    "agent-pane.message-preview#one-line": [],
     "agent-pane.missing-chat#no-machine": [],
     "agent-pane.missing-chat#this-mac": [],
     "agent-pane.missing-folder#deleted": [],
@@ -2298,16 +2161,9 @@
     "agent-pane.subagent-retry#retried-out": [],
     "agent-pane.subagent-retry#retrying": [],
     "agent-pane.subagent-retry#task-ask-parent": [],
-    "agent-pane.subagent-row-anatomy#done-one": [
-      "center-line:row subagentDone:agent-land-the-fix-and-glyph-nits-follow-up"
-    ],
-    "agent-pane.subagent-row-anatomy#mixed": [
-      "center-line:row subagentDone:agent-check-the-docs",
-      "center-line:row subagentDone:agent-run-the-flaky-suite"
-    ],
-    "agent-pane.subagent-row-anatomy#running-stats": [
-      "center-line:row subagentDone:agent-land-the-fix-and-glyph-nits-follow-up"
-    ],
+    "agent-pane.subagent-row-anatomy#done-one": [],
+    "agent-pane.subagent-row-anatomy#mixed": [],
+    "agent-pane.subagent-row-anatomy#running-stats": [],
     "agent-pane.subagent-tray-head#folded": [],
     "agent-pane.subagent-tray-head#open": [],
     "agent-pane.subagent-tray-motion#enter-exit": [],
@@ -2318,87 +2174,28 @@
     "agent-pane.subagent-tray#between-turns": [],
     "agent-pane.subagent-tray#codex-lineage": [],
     "agent-pane.subagent-tray#command-and-subagent": [],
-    "agent-pane.subagent-tray#counts-equal-rows": [
-      "center-line:row subagentDone:agent-find-the-screenshot"
-    ],
+    "agent-pane.subagent-tray#counts-equal-rows": [],
     "agent-pane.subagent-tray#duration-columns": [],
-    "agent-pane.subagent-tray#expand-after-latest": [
-      "center-line:row subagentDone:agent-lane-2",
-      "center-line:row subagentDone:agent-lane-3"
-    ],
-    "agent-pane.subagent-tray#expand-on-composer": [
-      "center-line:row subagentDone:agent-lane-1",
-      "center-line:row subagentDone:agent-lane-2",
-      "center-line:row subagentDone:agent-lane-3"
-    ],
-    "agent-pane.subagent-tray#failed-line": [
-      "center-line:row subagentDone:agent-check-the-docs",
-      "center-line:row subagentDone:agent-find-the-channel-name",
-      "center-line:row subagentDone:agent-read-the-release-script",
-      "center-line:row subagentDone:agent-run-the-update-tests"
-    ],
+    "agent-pane.subagent-tray#expand-after-latest": [],
+    "agent-pane.subagent-tray#expand-on-composer": [],
+    "agent-pane.subagent-tray#failed-line": [],
     "agent-pane.subagent-tray#finished-line": [
       "center-line:row subagentDone:agent-check-the-docs",
       "center-line:row subagentDone:agent-explain-daemon-update-mechanism"
     ],
-    "agent-pane.subagent-tray#geometry": [
-      "center-line:row subagentDone:agent-cancelled-check",
-      "center-line:row subagentDone:agent-done-check"
-    ],
-    "agent-pane.subagent-tray#grid-31": [
-      "center-line:row subagentDone:agent-lane-19",
-      "center-line:row subagentDone:agent-lane-20",
-      "center-line:row subagentDone:agent-lane-21",
-      "center-line:row subagentDone:agent-lane-22",
-      "center-line:row subagentDone:agent-lane-23",
-      "center-line:row subagentDone:agent-lane-24",
-      "center-line:row subagentDone:agent-lane-25",
-      "center-line:row subagentDone:agent-lane-26",
-      "center-line:row subagentDone:agent-lane-27",
-      "center-line:row subagentDone:agent-lane-28",
-      "center-line:row subagentDone:agent-lane-29"
-    ],
+    "agent-pane.subagent-tray#geometry": [],
+    "agent-pane.subagent-tray#grid-31": [],
     "agent-pane.subagent-tray#many-folded": [],
     "agent-pane.subagent-tray#one-agent-two-commands": [],
     "agent-pane.subagent-tray#one-command": [],
     "agent-pane.subagent-tray#one-running": [],
-    "agent-pane.subagent-tray#panel-118": [
-      "center-line:row subagentDone:agent-lane-106",
-      "center-line:row subagentDone:agent-lane-107",
-      "center-line:row subagentDone:agent-lane-108",
-      "center-line:row subagentDone:agent-lane-109",
-      "center-line:row subagentDone:agent-lane-110",
-      "center-line:row subagentDone:agent-lane-111",
-      "center-line:row subagentDone:agent-lane-112",
-      "center-line:row subagentDone:agent-lane-113",
-      "center-line:row subagentDone:agent-lane-114",
-      "center-line:row subagentDone:agent-lane-115",
-      "center-line:row subagentDone:agent-lane-116"
-    ],
-    "agent-pane.subagent-tray#panel-one-running": [
-      "center-line:row subagentDone:agent-lane-1",
-      "center-line:row subagentDone:agent-lane-2",
-      "center-line:row subagentDone:agent-lane-3"
-    ],
-    "agent-pane.subagent-tray#panel-two": [
-      "center-line:row subagentDone:agent-lane-1",
-      "center-line:row subagentDone:agent-lane-2",
-      "center-line:row subagentDone:agent-lane-3"
-    ],
-    "agent-pane.subagent-tray#restart-on-hover": [
-      "center-line:row subagentDone:agent-check-the-docs",
-      "icon-column:row turnSummary-76"
-    ],
+    "agent-pane.subagent-tray#panel-118": [],
+    "agent-pane.subagent-tray#panel-one-running": [],
+    "agent-pane.subagent-tray#panel-two": [],
+    "agent-pane.subagent-tray#restart-on-hover": [],
     "agent-pane.subagent-tray#row-menu": [],
-    "agent-pane.subagent-tray#several-running": [
-      "center-line:row subagentDone:agent-find-the-release-script"
-    ],
-    "agent-pane.subagent-tray#short-dock": [
-      "center-line:row subagentDone:agent-completed-check-1",
-      "center-line:row subagentDone:agent-completed-check-2",
-      "center-line:row subagentDone:agent-completed-check-3",
-      "center-line:row subagentDone:agent-completed-check-4"
-    ],
+    "agent-pane.subagent-tray#several-running": [],
+    "agent-pane.subagent-tray#short-dock": [],
     "agent-pane.subagent-tray#workflow-progress": [],
     "agent-pane.subagents#agents-pill": [
       "center-line:row subagents-2:agent-error-parsing",
@@ -2408,13 +2205,11 @@
     ],
     "agent-pane.subagents#card-closed": [
       "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
       "center-line:row subagents-2:agent-test-coverage",
       "center-line:row subagents-2:agent-timeouts"
     ],
     "agent-pane.subagents#card-collapsed": [
       "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
       "center-line:row subagents-2:agent-test-coverage",
       "center-line:row subagents-2:agent-timeouts"
     ],
@@ -2434,12 +2229,10 @@
     ],
     "agent-pane.subagents#card-outside-click": [
       "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
       "center-line:row subagents-2:agent-test-coverage",
       "center-line:row subagents-2:agent-timeouts"
     ],
     "agent-pane.subagents#card-waiting": [
-      "center-line:row subagents-13:agent-read-a",
       "center-line:row subagents-13:agent-read-b"
     ],
     "agent-pane.subagents#child": [
@@ -2467,18 +2260,14 @@
     "agent-pane.subagents#codex-two-turns": [
       "icon-column:row subagents-13"
     ],
-    "agent-pane.subagents#done": [
-      "icon-column:row subagents-6"
-    ],
+    "agent-pane.subagents#done": [],
     "agent-pane.subagents#many": [
       "center-line:row subagents-4:agent-package-i18n",
       "center-line:row subagents-4:agent-package-icons",
-      "center-line:row subagents-4:agent-package-router",
       "center-line:row subagents-4:agent-package-tests"
     ],
     "agent-pane.subagents#mixed": [
       "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
       "center-line:row subagents-2:agent-test-coverage",
       "center-line:row subagents-2:agent-timeouts"
     ],
@@ -2491,7 +2280,6 @@
     "agent-pane.subagents#open-done": [
       "center-line:row subagents-6:agent-error-parsing",
       "center-line:row subagents-6:agent-retry-policy",
-      "center-line:row subagents-6:agent-test-coverage",
       "center-line:row subagents-6:agent-timeouts"
     ],
     "agent-pane.subagents#open-many": [
@@ -2514,7 +2302,6 @@
     ],
     "agent-pane.subagents#running": [
       "center-line:row subagents-19:agent-error-parsing",
-      "center-line:row subagents-19:agent-retry-policy",
       "center-line:row subagents-19:agent-test-coverage",
       "center-line:row subagents-19:agent-timeouts"
     ],
@@ -2529,37 +2316,23 @@
     ],
     "agent-pane.subagents#summary": [
       "center-line:row subagents-2:agent-error-parsing",
-      "center-line:row subagents-2:agent-retry-policy",
       "center-line:row subagents-2:agent-test-coverage",
       "center-line:row subagents-2:agent-timeouts"
     ],
     "agent-pane.subagents#summary-legacy": [],
     "agent-pane.subagents#two-batches": [
       "center-line:row subagents-34:agent-test-coverage",
-      "center-line:row subagents-34:agent-timeouts",
-      "icon-column:row subagents-34"
+      "center-line:row subagents-34:agent-timeouts"
     ],
-    "agent-pane.subsession-cards#avatars": [
-      "center-line:row activity-24"
-    ],
+    "agent-pane.subsession-cards#avatars": [],
     "agent-pane.subsession-cards#messages": [],
     "agent-pane.subsession-cards#pending": [],
-    "agent-pane.subsession-cards#prompt-not-twice": [
-      "center-line:row activity-7"
-    ],
-    "agent-pane.subsession-cards#recorded": [
-      "center-line:row activity-3"
-    ],
-    "agent-pane.subsession-cards#recorded-wait": [
-      "center-line:row activity-10"
-    ],
+    "agent-pane.subsession-cards#prompt-not-twice": [],
+    "agent-pane.subsession-cards#recorded": [],
+    "agent-pane.subsession-cards#recorded-wait": [],
     "agent-pane.subsession-cards#replies": [],
-    "agent-pane.subsession-cards#started": [
-      "center-line:row activity-18"
-    ],
-    "agent-pane.subsession-cards#summary": [
-      "center-line:row activity-45"
-    ],
+    "agent-pane.subsession-cards#started": [],
+    "agent-pane.subsession-cards#summary": [],
     "agent-pane.suggested-tasks#open": [],
     "agent-pane.suggested-tasks#received": [],
     "agent-pane.suggested-tasks#refused": [],
@@ -2693,30 +2466,12 @@
     "agent-pane.transcript-row-tidy#hover": [],
     "agent-pane.transcript-row-tidy#rows": [],
     "agent-pane.transcript-spacing-reference#shipped": [],
-    "agent-pane.transcript-spacing#balanced": [
-      "center-line:row spacing-received-a",
-      "center-line:row spacing-received-b"
-    ],
-    "agent-pane.transcript-spacing#before": [
-      "center-line:row spacing-received-a",
-      "center-line:row spacing-received-b"
-    ],
-    "agent-pane.transcript-spacing#compact": [
-      "center-line:row spacing-received-a",
-      "center-line:row spacing-received-b"
-    ],
-    "agent-pane.transcript-spacing#empty-footer": [
-      "center-line:row spacing-received-a",
-      "center-line:row spacing-received-b"
-    ],
-    "agent-pane.transcript-spacing#relaxed": [
-      "center-line:row spacing-received-a",
-      "center-line:row spacing-received-b"
-    ],
-    "agent-pane.transcript-spacing#shipped": [
-      "center-line:row spacing-received-a",
-      "center-line:row spacing-received-b"
-    ],
+    "agent-pane.transcript-spacing#balanced": [],
+    "agent-pane.transcript-spacing#before": [],
+    "agent-pane.transcript-spacing#compact": [],
+    "agent-pane.transcript-spacing#empty-footer": [],
+    "agent-pane.transcript-spacing#relaxed": [],
+    "agent-pane.transcript-spacing#shipped": [],
     "agent-pane.transcript-type#claude-approve": [],
     "agent-pane.transcript-type#claude-code-entry": [],
     "agent-pane.transcript-type#codex-code": [],
@@ -2730,15 +2485,9 @@
     "agent-pane.transcript-view#normal": [],
     "agent-pane.transcript-view#thinking": [],
     "agent-pane.transcript-view#verbose": [],
-    "agent-pane.transcript#activity-tone-readable": [
-      "center-line:row message-surface-peer"
-    ],
-    "agent-pane.transcript#activity-tone-secondary": [
-      "center-line:row message-surface-peer"
-    ],
-    "agent-pane.transcript#activity-tone-tertiary": [
-      "center-line:row message-surface-peer"
-    ],
+    "agent-pane.transcript#activity-tone-readable": [],
+    "agent-pane.transcript#activity-tone-secondary": [],
+    "agent-pane.transcript#activity-tone-tertiary": [],
     "agent-pane.transcript#agent-messages": [],
     "agent-pane.transcript#archive-chat-key": [],
     "agent-pane.transcript#background-turns": [],
@@ -2805,15 +2554,9 @@
     "agent-pane.transcript#math": [],
     "agent-pane.transcript#math-delimiters": [],
     "agent-pane.transcript#mcp-calls": [],
-    "agent-pane.transcript#message-surfaces-bordered": [
-      "center-line:row message-surface-peer"
-    ],
-    "agent-pane.transcript#message-surfaces-borderless": [
-      "center-line:row message-surface-peer"
-    ],
-    "agent-pane.transcript#message-surfaces-soft": [
-      "center-line:row message-surface-peer"
-    ],
+    "agent-pane.transcript#message-surfaces-bordered": [],
+    "agent-pane.transcript#message-surfaces-borderless": [],
+    "agent-pane.transcript#message-surfaces-soft": [],
     "agent-pane.transcript#output-unwrapped-long-cut": [],
     "agent-pane.transcript#output-unwrapped-long-line": [],
     "agent-pane.transcript#permission": [],

@@ -10,7 +10,7 @@
 // laneNoticeBatches.ts `projectInboxRows`, LaneNoticeBatch.tsx), shaped like his screenshot: a
 // notice of three threads, two messages that came in while its turn ran, and a notice of two.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "./incomingMessage";
 import { inboxText } from "./inboxNotice";
@@ -36,8 +36,9 @@ const TEXT: Record<string, string> = {
   "s-ux": "Took the transcript spacing asks; first PR goes up within the hour.",
 };
 
-/// An inbox notice as acpmux sends it (hub/inbox.rs `render`): one thread per sender.
-function notice(senders: Sender[], minutes: number) {
+/// An inbox notice as acpmux sends it (hub/inbox.rs `render`): one thread per sender. `steer`: it
+/// came in while the turn it joins ran.
+function notice(senders: Sender[], minutes: number, steer = false) {
   const threads = senders.map((sender, index) => ({
     threadId: `from:${sender.name}`,
     label: "",
@@ -59,7 +60,7 @@ function notice(senders: Sender[], minutes: number) {
     _meta: { provenance: { kind: "inbox_notice", noticeId: `notice-received-${minutes}`, threads } },
   });
   return incoming?.kind === "inbox"
-    ? user(inboxText(incoming.notice), minutes, { incoming, untyped: true })
+    ? user(inboxText(incoming.notice), minutes, { incoming, untyped: true, ...(steer && { continues: true }) })
     : user(text, minutes);
 }
 
@@ -89,7 +90,7 @@ function snapshot() {
       notice(SENDERS.slice(0, 3), 6),
       received(SENDERS[3]!, 5.5),
       received(SENDERS[4]!, 5),
-      notice(SENDERS.slice(5), 4),
+      notice(SENDERS.slice(5), 4, true),
       assistant("The nightly is back on 6d9ae71 and base is green; #2210 and #2214 are next.", 3.5),
       summary(3.4, { status: "completed", durationMs: 30_000, toolCount: 0 }),
     ],
@@ -108,8 +109,29 @@ function snapshot() {
 const HEAD = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
 const LINE = ".cv-lane-batch__body .cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
 
-/// Opens the "Received N messages" row (level 1).
+/// Opens each closed "Worked for" line, one measured click each, in order: a finished turn's work
+/// folds in place, and so does the agent's work after it (turns.ts `shapeTurn`, `foldTail`), another
+/// agent's message and a task's end among it. `wait`: the stage draws one once its events replay.
+const openWorked = async (ctx: PlayContext, wait = false) => {
+  const toggle = "button.cv-worked.is-toggle";
+  if (wait) await ctx.waitFor(() => ctx.document.querySelector(toggle), { capMs: 10_000 });
+  for (let guard = 0; guard < 20; guard += 1) {
+    const shut = ctx.document.querySelector(`${toggle}[aria-expanded="false"]`);
+    const id = shut?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+    if (!id) return;
+    const line = `.acpmux-row[data-row-id="${id}"] ${toggle}`;
+    // On its words: the line runs the pane's width, and its middle can sit under the jump-to-latest
+    // button at the transcript's foot, which would take a click aimed there.
+    await ctx.click({ selector: `${line} .cv-worked__label` });
+    await ctx.waitFor(() => ctx.document.querySelector(line)?.getAttribute("aria-expanded") === "true", {
+      capMs: 10_000,
+    });
+  }
+};
+
+/// Opens the turn's "Worked for", then the "Received N messages" row in it (level 1).
 const openRow: Play = async (ctx) => {
+  await openWorked(ctx, true);
   await ctx.waitFor(() => ctx.document.querySelector(HEAD), { capMs: 10_000 });
   if (ctx.document.querySelector(HEAD)?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: HEAD });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-lane-batch__body .cv-received").length >= 7, {
@@ -126,11 +148,11 @@ const openMessage: Play = async (ctx) => {
 
 const variants: Record<string, AgentPaneVariant> = {
   collapsed: {
-    note: 'Selected default: a notice of three threads, two messages that came in while its turn ran and a notice of two are one row, "Received 7 messages", closed. No session names at rest; the senders\' short names are its hover.',
+    note: 'Selected default: a notice of three threads woke the agent; two messages and a notice of two came in while that turn ran. Other agents\' messages are the turn\'s work, so all seven fold under its "Worked for", above the answer; opened, they are one row, "Received 7 messages", closed. No session names at rest; the senders\' short names are its hover.',
     snapshot: snapshot(),
   },
   "level-1": {
-    note: "The row opened: every message on its own line, the sender (its mark in the tool rows' icon column, its name on the head's text column, no indent) and the message's first line.",
+    note: "The turn's Worked for opened, then the row: every message on its own line, the sender (its mark in the tool rows' icon column, its name on the head's text column, no indent) and the message's first line.",
     snapshot: snapshot(),
     play: openRow,
   },

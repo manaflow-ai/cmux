@@ -12,7 +12,7 @@
 // "Received a message from" wording, no preview), C (A plus how many more lines) and D (the sender
 // alone) are drawn here only, over the shipped line.
 import { agentPaneEntry } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 
 const incoming = (name: string, text: string, sessionId: string) => ({
@@ -66,6 +66,25 @@ const snapshot = chat(
   },
 );
 
+/// Opens each closed "Worked for" line, one measured click each, in order: a finished turn's work
+/// folds in place, and so does the agent's work after it (turns.ts `shapeTurn`, `foldTail`), another
+/// agent's message and a task's end among it. `wait`: the stage draws one once its events replay.
+const openWorked = async (ctx: PlayContext, wait = false) => {
+  const toggle = "button.cv-worked.is-toggle";
+  if (wait) await ctx.waitFor(() => ctx.document.querySelector(toggle), { capMs: 10_000 });
+  for (let guard = 0; guard < 20; guard += 1) {
+    const shut = ctx.document.querySelector(`${toggle}[aria-expanded="false"]`);
+    const id = shut?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+    if (!id) return;
+    const line = `.acpmux-row[data-row-id="${id}"] ${toggle}`;
+    // On its words: the line runs the pane's width, and its middle can sit under the jump-to-latest
+    // button at the transcript's foot, which would take a click aimed there.
+    await ctx.click({ selector: `${line} .cv-worked__label` });
+    await ctx.waitFor(() => ctx.document.querySelector(line)?.getAttribute("aria-expanded") === "true", {
+      capMs: 10_000,
+    });
+  }
+};
 /// Opens the group of messages that wait (ios-remote's steer, artifacts' queued one), which shows
 /// collapsed after the turn, so all five lines show. Each opening is its own clicked step, settled
 /// before the next: two raw clicks in one task started both openings outside any step, so the rows
@@ -75,7 +94,10 @@ const snapshot = chat(
 /// (`foldsLanded`): a click during a glide stops it part-way and the rows jumped what it had left, a
 /// shift scored in some runs and not others by frame timing alone.
 const openWaiting: Play = async (ctx) => {
-  // The delivered ones sit in one "Received N messages" row (#32720): open it too.
+  // The delivered ones are the work of the turn they started: they fold under its "Worked for".
+  await openWorked(ctx, true);
+  await foldsLanded(ctx);
+  // Opened, they sit in one "Received N messages" row (#32720): open it too.
   const received = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
   await ctx.waitFor(() => ctx.document.querySelector(received));
   if (ctx.document.querySelector(received)?.getAttribute("aria-expanded") !== "true")
@@ -83,8 +105,12 @@ const openWaiting: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 3);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle"));
   await foldsLanded(ctx);
+  // The waiting group's head sits at the transcript's foot: bring the foot in, so no jump-to-latest
+  // button lies over it.
+  await ctx.scroll({ selector: ".acpmux-scroll" }, "bottom");
   if (ctx.document.querySelector('.cv-pending__toggle[aria-expanded="false"]'))
-    await ctx.click({ selector: ".cv-pending__toggle" });
+    await ctx.click({ selector: '.cv-pending__toggle[aria-expanded="false"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('.cv-pending__toggle[aria-expanded="true"]'));
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 5);
   await foldsLanded(ctx);
 };

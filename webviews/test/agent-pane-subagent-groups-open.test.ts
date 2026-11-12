@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture prompts and subagent names, not shipped UI.
 // With Debug Settings agentPane.debug.subagentTray off (the tray is the default), a transcript group of subagents (subagents/SubagentGroup.tsx) starts open while its agents run
 // in the working turn, so their lines show without a click, after Codex and Claude Code. A finished
-// chat's groups start closed. A group the person closes stays closed as its agents work, and the
+// chat's groups start closed, folded with the rest of its turn's work under "Worked for" (turns.ts
+// `isAgentWork`); opened, the fold draws them closed. A group the person closes stays closed as its agents work, and the
 // open and closed groups are the chat's own: another chat's group at the same place starts as its
 // own rule says. The page is the pane's dev entry with its browser host, talking JSON-RPC to a
 // stand-in acpmux daemon that can push live events.
@@ -192,6 +193,16 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     await page.evaluate(() => window.cmuxPaintFrame());
     expect(await shown(page)).toEqual(want);
   };
+  /// Opens every closed "Worked for" (a finished turn folds its subagent groups there), as the reader would.
+  const openFolds = async (page: Page) => {
+    const shut = page.locator('button.cv-worked.is-toggle[aria-expanded="false"]');
+    await shut.first().waitFor({ timeout: 10_000 });
+    for (let round = 0; round < 12 && (await shut.count()) > 0; round++) {
+      await shut.first().click();
+      await page.evaluate(() => window.cmuxPaintFrame());
+    }
+    expect(await shut.count()).toBe(0);
+  };
   /// Waits until the first group's line (its count and states) is no longer `before`.
   const lineChanged = (page: Page, before: string) =>
     page.waitForFunction((before) => document.querySelector("button.cv-subagents")?.textContent !== before, before, {
@@ -248,6 +259,9 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     await expectGroups(page, { open: ["true"], lines: 2 });
     await page.close();
     const finished = await open(DONE, "Both reviews are in.");
+    // Its group is the finished turn's work: under the closed "Worked for", and closed once that opens.
+    await expectGroups(finished, { open: [], lines: 0 });
+    await openFolds(finished);
     await expectGroups(finished, { open: ["false"], lines: 0 });
     await finished.close();
   });
@@ -272,12 +286,16 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
 
   test("a chat's open groups are its own: another chat's group at the same place starts closed", async () => {
     const page = await open(DONE, "Both reviews are in.");
+    await openFolds(page);
     await groups(page).first().click();
     await expectGroups(page, { open: ["true"], lines: 2 });
     await select(page, OTHER);
     await page.getByText("The other review is in.").waitFor({ timeout: 10_000 });
+    // The other chat's fold is its own too: closed, and its group closed once it opens.
+    await expectGroups(page, { open: [], lines: 0 });
+    await openFolds(page);
     await expectGroups(page, { open: ["false"], lines: 0 });
-    // Back in the first chat, its group is open as it was left.
+    // Back in the first chat, its fold and its group are open as they were left.
     await select(page, DONE);
     await page.getByText("Both reviews are in.").waitFor({ timeout: 10_000 });
     await expectGroups(page, { open: ["true"], lines: 2 });
@@ -299,6 +317,9 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
 
   test("an earlier turn's agent a cancel left running opens nothing when the next turn works", async () => {
     const page = await open(STALE, "Now fix the tests");
+    // The earlier turn ended: its group is under its "Worked for", and stays closed once that opens.
+    await expectGroups(page, { open: [], lines: 0 });
+    await openFolds(page);
     await expectGroups(page, { open: ["false"], lines: 0 });
     await page.close();
   });

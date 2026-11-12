@@ -208,7 +208,30 @@ const openChild = (name: string) => async (ctx: PlayContext) => {
 
 /** Opens the first group and waits for its `count` subagent lines. A group of running agents in a
  * working turn is open already (App.tsx), and stays so. */
+/// Opens each closed "Worked for" line, one measured click each, in order: a finished turn's work
+/// folds in place, and so does the agent's work after it (turns.ts `shapeTurn`, `foldTail`), another
+/// agent's message and a task's end among it. `wait`: the stage draws one once its events replay.
+const openWorked = async (ctx: PlayContext, wait = false) => {
+  const toggle = "button.cv-worked.is-toggle";
+  if (wait) await ctx.waitFor(() => ctx.document.querySelector(toggle), { capMs: 10_000 });
+  for (let guard = 0; guard < 20; guard += 1) {
+    const shut = ctx.document.querySelector(`${toggle}[aria-expanded="false"]`);
+    const id = shut?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+    if (!id) return;
+    const line = `.acpmux-row[data-row-id="${id}"] ${toggle}`;
+    // On its words: the line runs the pane's width, and its middle can sit under the jump-to-latest
+    // button at the transcript's foot, which would take a click aimed there.
+    await ctx.click({ selector: `${line} .cv-worked__label` });
+    await ctx.waitFor(() => ctx.document.querySelector(line)?.getAttribute("aria-expanded") === "true", {
+      capMs: 10_000,
+    });
+  }
+};
+
+/// Opens the group's list. A group whose agents all ended is its turn's work and folds under its
+/// "Worked for" once the turn ends: that opens first. A running group stays in sight.
 const openGroup = (count: number) => async (ctx: PlayContext) => {
+  await openWorked(ctx);
   await ctx.focus({ selector: ".cv-subagents" });
   if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true") await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === count);
@@ -314,7 +337,7 @@ export default agentPaneEntry({
       }),
     },
     many: { note: "Seven subagents: three avatars, then +4; open while they work.", snapshot: MANY },
-    done: { note: "An ended turn: the group stays in view above the reply, outside Worked for.", snapshot: DONE },
+    done: { note: "An ended turn: the finished group is its work, folded under Worked for above the reply.", snapshot: DONE },
     stopped: {
       note: "A turn stopped while subagents ran: cancelled and disconnected.",
       snapshot: chat([
@@ -378,7 +401,7 @@ export default agentPaneEntry({
       play: openGroup(PACKAGES.length),
     },
     "open-done": {
-      note: "An ended turn's group opened: the reply below moves down without a layout shift.",
+      note: "An ended turn's Worked for, then its group, opened: the reply below moves down without a layout shift.",
       snapshot: DONE,
       play: openGroup(AUDIT.length),
     },

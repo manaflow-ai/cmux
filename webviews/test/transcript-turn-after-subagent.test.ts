@@ -3,7 +3,10 @@
 // which replays acpmux's events through the pane's own client). Leo, 2026-11-08: "idk what happened
 // here like the text in this situation isn't from the subagent?". The sequence: a background
 // command's end, the subagent's "Subagent finished" row, then three turns the agent ran on its own
-// (task notifications, no prompt). With the report closed, opened and closed again, each reply draws
+// (task notifications, no prompt). The command's and the subagent's ends are the agent's work after the
+// turn: they fold in place under the tail's "Worked for" (turns.ts `foldTail`), each reply in sight
+// under it, so the test reads the replies with it closed, then opens it to reach the subagent's row.
+// With the report closed, opened and closed again, each reply draws
 // outside the subagent row's box, at the reply column, with the turn gap over it and its own footer
 // under it, and closing the report puts every row back where it was.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -143,6 +146,22 @@ await requireBrowserLane("transcript-turn-after-subagent.test.ts", async () => {
     });
     await page.evaluate(() => document.fonts.ready);
     await page.mouse.move(0, 0);
+    // The tail's work folded: the subagent's row is behind its "Worked for", every reply in sight, in
+    // order, with its own footer under it.
+    const folded = await measure(page);
+    expect(folded.subagent, folded.tops.join("\n")).toBeNull();
+    let foldedTop = -Infinity;
+    for (const [index, reply] of (folded.replies as Reply[]).entries()) {
+      const what = `folded; rows:\n${folded.tops.join("\n")}\nreply ${index + 1}: ${JSON.stringify(reply)}`;
+      expect(reply.text, what).not.toBeNull();
+      expect(reply.next, what).toBe(`backgroundEnd-own-${index + 1}`);
+      expect(reply.text!.top, what).toBeGreaterThan(foldedTop);
+      foldedTop = reply.text!.top;
+    }
+    const tail = page.locator('.acpmux-row[data-row-id*="~tail-"] button.cv-worked.is-toggle').first();
+    await tail.click();
+    await page.waitForSelector(`.acpmux-row[data-row-id="subagentDone:${AGENT}"]`);
+    await settled(page);
     const closed = await measure(page);
     check("closed", closed);
     // The background command's end draws as its own row above the subagent's.

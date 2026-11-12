@@ -317,6 +317,13 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   test("clicking a background task's end opens it in place; only Open in terminal opens its terminal", async () => {
     const page = await recordingPage();
+    // The task's end is the turn's work: it folds in place under the turn's "Worked for" (turns.ts
+    // isAgentWork), the reply under it in sight. Open the turn's work first.
+    const worked = page.locator("button.cv-worked.is-toggle").last();
+    await worked.click();
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("button.cv-worked.is-toggle")].at(-1)?.getAttribute("aria-expanded") === "true",
+    );
     const note = page.getByRole("button", { name: /Background command completed pytest -x/ });
     const top = await note.evaluate((node) => node.getBoundingClientRect().top);
     await note.click();

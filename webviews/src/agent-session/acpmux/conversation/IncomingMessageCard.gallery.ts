@@ -11,7 +11,7 @@
 // over the shipped line.
 import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import { sampleChart, sampleDiagram, sampleGradient } from "../mockFixture";
 
@@ -82,10 +82,31 @@ const FILES_HOST: ChipHostFixture = {
 /// Each received message's own line (its DisclosureRow toggle); inside an opened "Received N
 /// messages" row, each message keeps its own line.
 const RECEIVED_LINE = ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)";
+/// Opens each closed "Worked for" line, one measured click each, in order: a finished turn's work
+/// folds in place, and so does the agent's work after it (turns.ts `shapeTurn`, `foldTail`), another
+/// agent's message and a task's end among it. `wait`: the stage draws one once its events replay.
+const openWorked = async (ctx: PlayContext, wait = false) => {
+  const toggle = "button.cv-worked.is-toggle";
+  if (wait) await ctx.waitFor(() => ctx.document.querySelector(toggle), { capMs: 10_000 });
+  for (let guard = 0; guard < 20; guard += 1) {
+    const shut = ctx.document.querySelector(`${toggle}[aria-expanded="false"]`);
+    const id = shut?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+    if (!id) return;
+    const line = `.acpmux-row[data-row-id="${id}"] ${toggle}`;
+    // On its words: the line runs the pane's width, and its middle can sit under the jump-to-latest
+    // button at the transcript's foot, which would take a click aimed there.
+    await ctx.click({ selector: `${line} .cv-worked__label` });
+    await ctx.waitFor(() => ctx.document.querySelector(line)?.getAttribute("aria-expanded") === "true", {
+      capMs: 10_000,
+    });
+  }
+};
 /// Received lines next to each other gather in one "Received N messages" row (#32720), closed, whose
 /// lines show once it opens: opens it when the stage draws one, then waits for a line.
 const RECEIVED_ROW = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
 const openReceivedRow: Play = async (ctx) => {
+  // Other agents' messages are work: in a finished turn they fold under its "Worked for".
+  await openWorked(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(`${RECEIVED_ROW}, .cv-received`));
   if (ctx.document.querySelector(RECEIVED_ROW)?.getAttribute("aria-expanded") === "false")
     await ctx.click({ selector: RECEIVED_ROW });

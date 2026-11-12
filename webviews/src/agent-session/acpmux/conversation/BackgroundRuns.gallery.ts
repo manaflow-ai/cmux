@@ -8,6 +8,7 @@ import type { AcpmuxRow } from "../model";
 import { backgroundRunRowId } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { backgroundTurnLook, drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
+import { openTailFolds } from "./endedStretchPlay";
 
 const quiet = (id: string, minutes: number): AcpmuxRow =>
   row(BACKGROUND_TURN, minutes, {
@@ -109,6 +110,8 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         if (!drawsBackgroundTurnLines()) return;
+        // The run folds in place in the ended turn's tail (turns.ts foldTail): open that first.
+        await openTailFolds(ctx);
         const line = { selector: `[data-row-id="${RUN}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");

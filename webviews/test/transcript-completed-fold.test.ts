@@ -1,5 +1,5 @@
-// A completed turn keeps its final answer in sight and folds the earlier transcript, including
-// received reports, under one stable Worked-for disclosure. A running turn keeps the existing
+// A completed turn keeps its final answer in sight and folds the earlier work, including received
+// reports, in place under stable Worked-for disclosures keyed by its prompt (turn-fold-keeps-order.test.ts). A running turn keeps the existing
 // step-by-step rows so the reader can follow work as it arrives.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -105,8 +105,15 @@ test("a received prompt without a continuation relation stays a separate turn", 
   const rows = completedTurn();
   const unrelated = rows.map((entry) => (entry.id === "report" ? { ...entry, steer: undefined } : entry));
   const folded = turnView(unrelated, new Set());
-  expect(folded).toContainEqual(expect.objectContaining({ id: "report" }));
+  // The report opens its own turn, never the prompt's fold: another agent's message that starts a
+  // turn folds as that turn's first entry, under its own Worked for (`foldedPrompt`).
+  expect(folded.some((entry) => entry.id === `${WORKED}-prompt`)).toBe(false);
+  const own = folded.find((entry) => entry.id === `${WORKED}-report`);
+  expect(own?.foldedPrompt?.id).toBe("report");
   expect(folded).toContainEqual(expect.objectContaining({ id: "progress" }));
+  // Opened, the report draws right under its turn's line.
+  const opened = turnView(unrelated, new Set([`${WORKED}-report`])).map((entry) => entry.id);
+  expect(opened.indexOf("report")).toBe(opened.indexOf(`${WORKED}-report`) + 1);
 });
 
 test("the completed disclosure state is keyed by the turn prompt, so a later snapshot reopens it", () => {
@@ -176,8 +183,6 @@ test("a completed fold keeps asks, refusals, and turn context available without 
     "startedSessions",
     "workflowCard",
     "questionRecord",
-    "backgroundTask",
-    "subagents",
   ];
   for (const kind of kinds) {
     const rows = completedTurn();
@@ -191,6 +196,33 @@ test("a completed fold keeps asks, refusals, and turn context available without 
         shown.findIndex((entry) => entry.id === "final"),
       );
     }
+  }
+  // A subagent group still running stays in sight as a running call does.
+  const rows = completedTurn();
+  const running = row("running-agents", "subagents", {
+    subagents: [{ id: "x", name: "x", state: "running" } as never],
+  });
+  rows.splice(2, 0, running);
+  for (const expanded of [new Set<string>(), new Set([`${WORKED}-prompt`])])
+    expect(turnView(rows, expanded).filter((entry) => entry.id === running.id)).toHaveLength(1);
+});
+
+test("agent activity in a completed turn folds with its work, and opens in place", () => {
+  // Leo, 2026-11-11, on "Background command completed" and "Subagent finished" rows left between
+  // answers: "why aren't these getting folded? ... Do those not count as the works for?"
+  const ended = {
+    backgroundTask: { backgroundTask: { toolCallId: "c-1", command: "bun test", state: "completed" } },
+    subagents: { subagents: [{ id: "x", name: "x", state: "completed" } as never] },
+  } as const;
+  for (const [kind, extra] of Object.entries(ended)) {
+    const rows = completedTurn();
+    const work = row(`${kind}-work`, kind, extra as Partial<AcpmuxRow>);
+    rows.splice(2, 0, work);
+    expect(shownIds(turnView(rows, new Set())).filter((id) => id === work.id)).toHaveLength(0);
+    const opened = shownIds(turnView(rows, new Set([`${WORKED}-prompt`])));
+    expect(opened.filter((id) => id === work.id)).toHaveLength(1);
+    expect(opened.indexOf(work.id)).toBeGreaterThan(opened.indexOf(`${WORKED}-prompt`));
+    expect(opened.indexOf(work.id)).toBeLessThan(opened.indexOf("final"));
   }
 });
 
@@ -246,11 +278,18 @@ test("a pending edit remains available beside the completed fold", () => {
   });
   const rows = completedTurn();
   rows.splice(2, 0, pending);
-  const shown = turnView(rows, new Set());
-  expect(shown.find((entry) => entry.id === pending.id)).toMatchObject({ items: pending.items });
-  expect(shown.find((entry) => entry.id === pending.id)?.ended).not.toBe(true);
-  // Beside the closed fold it is not also the edited-files card, which would take its id.
-  expect(shown.filter((entry) => entry.id === pending.id)).toHaveLength(1);
+  for (const expanded of [new Set<string>(), new Set([`${WORKED}-prompt`])]) {
+    const shown = turnView(rows, expanded);
+    // The step draws as an open fold draws it, closed too: its call keeps a row of its own, the
+    // folded-run copy, which takes `:fold` so the edited-files card keeps the step's id.
+    const call = shown.find((entry) => entry.id === `${pending.id}:fold`);
+    expect(call).toMatchObject({ items: pending.items, foldRun: true });
+    expect(call?.ended).not.toBe(true);
+    // Its edit is on the turn's edited-files card, once.
+    const card = shown.filter((entry) => entry.id === pending.id);
+    expect(card).toHaveLength(1);
+    expect(card[0]!.merged).toEqual([pending.id]);
+  }
 });
 
 test("a completed turn of only replies and the person's own steer has no work to fold", () => {

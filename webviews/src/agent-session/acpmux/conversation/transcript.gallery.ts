@@ -10,7 +10,7 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
-import { openEndedStretch } from "./endedStretchPlay";
+import { openEndedStretch, openTailFolds } from "./endedStretchPlay";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -911,6 +911,13 @@ const liveLineClear = async (ctx: PlayContext) => {
 /// The selected borderless message arm is a real rendered contract: the prompt keeps liquid glass
 /// without an edge, received/agent bodies have no box shadow, and the assistant prose stays plain.
 const messageSurfaceComputedStyle = async (ctx: PlayContext) => {
+  // The peer's message starts a turn of its own (no prompt of the person's before its summary): another
+  // agent's message that starts a turn folds into that turn's "Worked for" (turns.ts `foldsPrompt`),
+  // opened here with a measured click.
+  const worked = '[data-row-id="worked-message-surface-peer"] button.cv-worked';
+  await ctx.waitFor(() => ctx.document.querySelector(worked));
+  await ctx.click({ selector: `${worked} .cv-worked__label` });
+  await ctx.waitFor(() => ctx.document.querySelector(worked)?.getAttribute("aria-expanded") === "true");
   await ctx.waitFor(() => ctx.document.querySelector('[data-row-id="message-surface-peer"] .cv-received'));
   const view = ctx.document.defaultView!;
   const prompt = ctx.document.querySelector<HTMLElement>('[data-row-id="message-surface-user"] .cv-user__bubble');
@@ -3854,6 +3861,8 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         if (!drawsBackgroundTurnLines()) return;
+        // Both turns fold in place in the ended turn's tail (turns.ts foldTail): open it first.
+        await openTailFolds(ctx);
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
@@ -3866,6 +3875,10 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
           throw new Error("an ended background turn with nothing to open drew a line");
         if (!drawsBackgroundTurnLines()) return;
+        // The running one folds in place in the ended turn's tail (turns.ts foldTail): open it first.
+        await openTailFolds(ctx);
+        if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
+          throw new Error("an ended background turn with nothing to open drew a line in the opened tail");
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-waiting")}"] .cv-background-turn` };
         if (ctx.find(line).tagName === "BUTTON") throw new Error("a background line with nothing to open is a button");
         if (ctx.find(line).querySelector(".cv-agent-activity__chevron"))

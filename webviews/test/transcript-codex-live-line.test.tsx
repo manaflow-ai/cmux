@@ -11,7 +11,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
-import { THINKING, turnView, WORKING } from "../src/agent-session/acpmux/conversation/turns";
+import { THINKING, turnView, WORKED, WORKING } from "../src/agent-session/acpmux/conversation/turns";
 import { shortCommand } from "../src/agent-session/acpmux/conversation/shortCommand";
 
 import type { ReactNode } from "react";
@@ -405,15 +405,16 @@ test("work after the turn's summary (a task notification's) is one live line, no
 });
 
 test("an ended turn draws no row for a call that never got its input", () => {
-  const ended = turnView(
-    [
-      row("u", "user"),
-      row("a", "assistant", { text: "Done." }),
-      row("s", "turnSummary", { status: "completed", toolCount: 0 }),
-      row("late", "activity", { items: [call("git status"), draft("b1"), draft("b2")] }),
-    ],
-    new Set(),
-  );
+  const rows = [
+    row("u", "user"),
+    row("a", "assistant", { text: "Done." }),
+    row("s", "turnSummary", { status: "completed", toolCount: 0 }),
+    row("late", "activity", { items: [call("git status"), draft("b1"), draft("b2")] }),
+  ];
+  // The late row after the summary is the turn's tail, folded in place (turns.ts `foldTail`): opened,
+  // it holds the finished call and none of the drafts.
+  expect(callIds(turnView(rows, new Set()))).toEqual([]);
+  const ended = turnView(rows, new Set([`${WORKED}-u~tail-late`]));
   expect(callIds(ended)).toEqual(["git status"]);
   const stopped = turnView([row("u", "user"), row("run", "activity", { items: [draft("b1")] })], new Set(), {});
   expect(stopped.some((entry) => entry.kind === "activity")).toBe(false);

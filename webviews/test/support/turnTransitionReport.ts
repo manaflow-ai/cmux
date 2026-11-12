@@ -10,7 +10,8 @@
 //   turn's footer), moved in a frame;
 // - `composerPx`: the most the composer card's top moved;
 // - `jumpFrames`: frames in which any of those moved more than JUMP_PX;
-// - `popIns`: rows that came into view at full ink in their first frame (no fade);
+// - `popIns`: rows that came into view at full ink in their first frame (no fade), but the rows a
+//   turn's end folds in place (`foldsInPlace`);
 // - `reflows`: frames in which a row moved or resized with nothing new drawn and no motion playing
 //   (after an animation ended).
 // A frame in which no row came, went or changed but a reply and the live line, and whose latest change
@@ -33,6 +34,14 @@ export const LIVE_LINE = "thinking-live";
 const ANSWER = "live-answer";
 /// The turn's prompt (scriptedTurn.ts SCRIPTED_PROMPT_ID).
 const PROMPT = "live-user";
+/// The step a turn ends at (scriptedTurn.ts), where its work folds.
+const END_STEP = "end";
+/// The rows a turn's end draws in place of the work it folds: its "Worked for" lines and its footer
+/// (scriptedTurn.ts `live-end`). They stand where the folded rows stood, at full ink, which is no row
+/// arriving (Leo, 2026-11-11, on the fold fading in: "It should just be there, because it already was
+/// there ... It should not look like a PowerPoint transition slide fade-in"); turn-fold-in-place-motion
+/// .test.ts holds that they draw no fade, and every other row the end brings is still a pop-in here.
+const foldsInPlace = (id: string) => id.startsWith("worked-") || id === "live-end";
 /// A transition's window: 40 frames from its step's first frame, 333 ms at 120 Hz.
 export const WINDOW_FRAMES = 40;
 
@@ -112,7 +121,13 @@ export function transitionReport(samples: Sample[], steps: readonly string[]): W
           changed = true;
           // A row the window mounts out of view draws nothing.
           if (row.inView) other = true;
-          if (row.inView && !seenBefore[index]!.has(row.id) && row.opacity >= 0.9 && row.height > 4)
+          if (
+            row.inView &&
+            !seenBefore[index]!.has(row.id) &&
+            row.opacity >= 0.9 &&
+            row.height > 4 &&
+            !(step === END_STEP && foldsInPlace(row.id))
+          )
             report.popIns.push(row.id);
           continue;
         }

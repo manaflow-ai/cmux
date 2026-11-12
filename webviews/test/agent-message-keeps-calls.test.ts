@@ -6,9 +6,10 @@
 // edited-files card, which draws only the files: its commands were gone. The two replies then sat
 // next to each other with the first one's reply room between them, an empty double gap.
 //
-// Since 2026-11-10 a closed "Worked for" draws nothing beside it but the replies, as chatgpt.com
-// does (turn-fold-hides-every-call.test.ts): the stretch is checked opened, where it must still hold
-// the received message and every command, and closed, where nothing between the replies may be an
+// Since 2026-11-11 each stretch of work folds in place under its own "Worked for" (Leo: "it rewrites
+// the transcript in a way"; turn-fold-keeps-order.test.ts), so the work between the two replies has
+// its own closed line there: the stretch is checked opened, where it must still hold the received
+// message and every command, and closed, where it is that line and nothing between the replies is an
 // empty row.
 //
 // Leo, 2026-11-07: "I think some of the tool calls, like, literally just get swallowed. They get
@@ -20,7 +21,7 @@
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { LANE_NOTICE_BATCH, MESSAGE_RUN, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
+import { turnViewFrom, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const TURN = "0190a000-0000-7000-8000-00000000c701";
@@ -227,9 +228,11 @@ function holds(row: AcpmuxRow): string[] {
   ];
 }
 
-/// A row between two replies that draws something: a tool line with a call, a folded message run, or
-/// another agent's line.
+/// A row between two replies that draws something: a tool line with a call, a folded message run,
+/// another agent's line, or the "Worked for" line of the work between them (folded in place,
+/// turn-fold-keeps-order.test.ts).
 const drawsSomething = (row: AcpmuxRow) =>
+  row.kind === WORKED ||
   (row.kind === "activity" && (row.items ?? []).some((item) => item.tool)) ||
   row.kind === MESSAGE_RUN ||
   row.kind === LANE_NOTICE_BATCH ||
@@ -255,8 +258,10 @@ for (const live of [true, false])
   test(`a command running when another agent's message came stays between the replies once the turn ends (${live ? "live" : "cold reload"})`, async () => {
     const rows = await rowsOf(runningCall, live);
     expect(received(rows)).toBeDefined();
-    // Closed, nothing between the two replies draws empty.
-    expect(between(rows, false).filter((row) => !drawsSomething(row))).toEqual([]);
+    // Closed, the work between the two replies is its own folded line, and nothing there draws empty.
+    const closed = between(rows, false);
+    expect(closed.filter((row) => row.kind === WORKED)).toHaveLength(1);
+    expect(closed.filter((row) => !drawsSomething(row))).toEqual([]);
     const drawn = between(rows);
     // Something sits between the two replies, and every row there draws: no empty gap.
     expect(drawn.length).toBeGreaterThan(0);

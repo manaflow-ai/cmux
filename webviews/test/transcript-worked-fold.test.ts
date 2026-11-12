@@ -1,7 +1,8 @@
 // A finished turn folds its work under "Worked for", as the Codex and Claude desktop apps do, and
 // its last reply stays open below the fold. A reply is never folded, also when the turn ran a tool
 // after it (Leo, 2026-10-21, nightly 331e2e9: the final reply sat inside "Worked for 1m 7s";
-// "Those replies should never be collapsed"); the tool after it folds with the rest. Only short
+// "Those replies should never be collapsed"); the tool after it folds in place under its own
+// "Worked for" below the reply (turn-fold-keeps-order.test.ts). Only short
 // interim notes the turn worked on after are status, and fold: a turn whose only text was such
 // notes (or that stopped mid-tool) has no answer.
 import { expect, test } from "bun:test";
@@ -171,14 +172,16 @@ test("a reply the turn ran a tool after stays open below the fold, and the tool 
     tool("send", "execute"),
     summary(),
   ];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:answer", "turnSummary:end"]);
-  // Opened, the fold holds every tool row of the turn, in order, and never the reply.
+  // The tool after the reply folds where it ran, under its own line below the reply.
+  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:answer", "worked:worked-u~1", "turnSummary:end"]);
+  // Opened, the folds hold every tool row of the turn, in order, and never the reply.
   expect(drawn(rows, new Set(["worked-u"]))).toEqual([
     "user:u",
     "worked:worked-u",
     "activity:defaults read",
-    "activity:send",
     "assistant:answer",
+    "worked:worked-u~1",
+    "activity:send",
     "turnSummary:end",
   ]);
 });
@@ -194,10 +197,18 @@ test("the last reply stays open when short notes and tools come after it", () =>
     summary(),
   ];
   const open = drawn(rows, new Set(["worked-u"]));
-  // The short note joins the runs on either side of it (turns.ts mergeShortNotes).
-  expect(open.filter((entry) => entry.startsWith("activity:"))).toEqual(["activity:read", "activity:grep"]);
-  expect(open.slice(-2)).toEqual(["assistant:answer", "turnSummary:end"]);
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:answer", "turnSummary:end"]);
+  // The short note joins the runs on either side of it (turns.ts mergeShortNotes), in the fold
+  // below the reply, where they ran.
+  expect(open).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "activity:read",
+    "assistant:answer",
+    "worked:worked-u~1",
+    "activity:grep",
+    "turnSummary:end",
+  ]);
+  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:answer", "worked:worked-u~1", "turnSummary:end"]);
 });
 
 const dateTurn = (id: string, at: number, visible = true): AcpmuxRow[] => [

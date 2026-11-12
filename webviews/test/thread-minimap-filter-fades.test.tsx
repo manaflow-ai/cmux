@@ -179,7 +179,11 @@ test("Next Turn from above every kept prompt lands on the first one the filter k
     const reading = () => {
       let read = 0;
       prompts.forEach((entry, index) => {
-        const node = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`);
+        // Another agent's message that opened a finished turn draws folded into its "Worked for"
+        // (turns.ts `foldsPrompt`), which stands for it as the turn's start.
+        const node =
+          document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${entry.id}"]`) ??
+          document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="worked-${entry.id}"]`);
         const top =
           Number.parseFloat(node?.style.top ?? "") + (Number.parseFloat(node?.style.marginTop ?? "") || 0) - 16;
         if (Math.max(0, 16 + top - 35) <= scroller.scrollTop + 1) read = index;

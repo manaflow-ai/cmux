@@ -8,7 +8,9 @@
 // other tool calls are". So every row kind is swept, not only that one: background turns
 // ("Scheduled check", "Background update", "4 background tasks finished", a reaction's line),
 // "Report from …", a sub-session's line, a notice, "Background command
-// completed", "Received N messages", the plan's summary and "Worked for". A line with nothing behind
+// completed", "Received N messages", the plan's summary and "Worked for". The lines that are agent
+// work fold under an ended turn's "Worked for" (turns.ts `isAgentWork`), so those are read with their
+// folds opened. A line with nothing behind
 // it (a compaction's note) never lights, nor does a "Subagent finished" line with no report: only its
 // name chip opens the subagent and lights (Leo, 2026-11-05: "subagents need to have their clickable
 // bit be highlighted instead of the whole line click sending me to the subagent righ split"). Measured in the page from the real transcript, gallery
@@ -25,6 +27,8 @@ type Kind = {
   /** What the row is, in the report. */
   name: string;
   entry: string;
+  /** The entry's variant, when the line is not in its first one. */
+  variant?: string;
   /** The line the pointer visits. */
   line: string;
   /** The line's words, inside `line`. */
@@ -33,6 +37,9 @@ type Kind = {
   glyph?: string;
   /** False for a line with nothing behind it: it never lights. */
   lights?: boolean;
+  /** The line is agent work an ended turn folds under "Worked for" (turns.ts `isAgentWork`): the
+   * test opens the folds before it reads the line. */
+  folded?: boolean;
 };
 
 await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () => {
@@ -61,6 +68,7 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     },
     {
       name: "Background update",
+      folded: true,
       entry: "agent-pane.lone-system-rows",
       line: "button.cv-background-turn",
       words: ".cv-agent-activity__sentence",
@@ -68,6 +76,7 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     },
     {
       name: "N background tasks finished",
+      folded: true,
       entry: "agent-pane.background-runs",
       line: 'button.cv-background-turn[data-background-turn="run"]',
       words: ".cv-agent-activity__sentence",
@@ -77,6 +86,7 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       // A failure's line under the default background-turn-look (inline): its rows already draw under
       // it, so it opens nothing and is no button, like "Subagent finished" with no report.
       name: "background reaction line (opens nothing)",
+      folded: true,
       entry: "agent-pane.background-reactions",
       line: "div.cv-background-turn",
       words: ".cv-agent-activity__sentence",
@@ -85,6 +95,7 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     },
     {
       name: "Subagent finished, no report (only its name chip opens)",
+      folded: true,
       entry: "agent-pane.background-tasks",
       line: "div.cv-subagent-done",
       words: ".cv-agent-activity__sentence",
@@ -93,6 +104,7 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     },
     {
       name: "Report from (subagent report)",
+      folded: true,
       entry: "agent-pane.subagent-report",
       line: "button.cv-subagent-report__head",
       words: ".cv-subagent-report__sentence",
@@ -100,6 +112,11 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     {
       name: "sub-session line (its name chip opens its chat)",
       entry: "agent-pane.long-report",
+      // A running stretch draws no finished call (live-turn-work `line`, shipped since 8a37e5fcf650).
+      // In this variant the stretch that started the sub-session ended and its play opens it, so the
+      // line is in sight while the lead works on. The play leaves the pointer on the name chip; the
+      // test moves it away before it reads the line at rest.
+      variant: "lead-running-hover",
       line: ".cv-disclosure__open",
       words: ".cv-disclosure__label",
       glyph: ".cv-disclosure__icon",
@@ -112,6 +129,7 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     },
     {
       name: "Background command completed",
+      folded: true,
       entry: "agent-pane.turn-after-subagent",
       line: "button.cv-tool.cv-bgtask.is-toggle",
       words: ".cv-tool__text",
@@ -170,12 +188,12 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     await vite?.close();
   });
 
-  const open = async (entry: string) => {
+  const open = async (entry: string, variant?: string) => {
     const page = await browser.newPage({ viewport: { width: 760, height: 2400 } });
     await page.emulateMedia({ reducedMotion: "reduce" });
     const port = (vite!.httpServer!.address() as { port: number }).port;
     await page.goto(
-      `http://127.0.0.1:${port}${galleryFrame(entry, { width: 760, exp: "background-turn-look", arm: "line" })}`,
+      `http://127.0.0.1:${port}${galleryFrame(entry, { variant, width: 760, exp: "background-turn-look", arm: "line" })}`,
     );
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -186,6 +204,16 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       content: "*, *::before, *::after { transition: none !important; animation: none !important; }",
     });
     return page;
+  };
+
+  /** Opens every closed "Worked for" in the page, as the reader would to see the work it holds. */
+  const openFolds = async (page: Page) => {
+    const shut = page.locator('.acpmux-row button.cv-worked.is-toggle[aria-expanded="false"]');
+    for (let round = 0; round < 12 && (await shut.count()) > 0; round++) {
+      await shut.first().click();
+      await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    }
+    expect(await shut.count()).toBe(0);
   };
 
   /** The transcript's text tone, resolved in the page. */
@@ -225,8 +253,9 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
 
   for (const kind of KINDS)
     test(`${kind.name}: ${kind.lights === false ? "never lights" : "its words light all the way through on hover, nothing moves"}`, async () => {
-      const page = await open(kind.entry);
+      const page = await open(kind.entry, kind.variant);
       try {
+        if (kind.folded) await openFolds(page);
         await page.mouse.move(1, 1);
         const rest = await read(page, kind);
         expect(rest, `${kind.entry} draws no ${kind.line}`).toBeDefined();

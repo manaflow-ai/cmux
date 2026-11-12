@@ -7,15 +7,16 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { BackgroundTurnLine } from "./BackgroundTurnLine";
 import { BACKGROUND_TURN, backgroundTurnRowId, foldBackgroundTurns } from "./backgroundTurns";
-import { turnView } from "./turns";
+import { turnView, WORKED } from "./turns";
 
 // These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
 // turn's calls inline, with no line (backgroundTurnInline.test.ts).
+const experiments = globalThis.cmuxExperiments;
 beforeAll(() => {
   globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
 });
 afterAll(() => {
-  delete globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = experiments;
 });
 
 let at = 0;
@@ -53,13 +54,23 @@ const transcript = (background: Partial<NonNullable<AcpmuxRow["background"]>>) =
 };
 const ids = (rows: AcpmuxRow[]) => rows.filter((entry) => entry.kind !== "date").map((entry) => entry.id);
 
+// Once its turn ended, a background turn is the agent's work after that turn: it folds in place under
+// the tail's own "Worked for" (turns.ts `foldTail`; Leo, 2026-11-11: "Do those not count as the works
+// for?"). Opened, that fold draws the line as before.
+const TAIL = (first: string) => `${WORKED}-prompt~tail-${first}`;
+
 test("a quiet background turn is one closed line that opens to its rows", () => {
   const rows = transcript({ quiet: true });
-  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", backgroundTurnRowId("bg")]);
-  expect(ids(turnView(rows, new Set([backgroundTurnRowId("bg")])))).toEqual([
+  const fold = TAIL(backgroundTurnRowId("bg"));
+  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", fold]);
+  // The tail's fold opened: the line, closed, in its place.
+  expect(ids(turnView(rows, new Set([fold])))).toEqual(["prompt", "reply", "summary", fold, backgroundTurnRowId("bg")]);
+  // The line opened too: its rows follow it, in order.
+  expect(ids(turnView(rows, new Set([fold, backgroundTurnRowId("bg")])))).toEqual([
     "prompt",
     "reply",
     "summary",
+    fold,
     backgroundTurnRowId("bg"),
     "check",
     "note",
@@ -72,13 +83,19 @@ test("a quiet background turn is one closed line that opens to its rows", () => 
 
 test("a background turn that is not quiet draws its rows as they came, with no line", () => {
   const rows = transcript({ quiet: false });
-  // Its reply ends on its own footer (backgroundTurnFooter.test.ts).
-  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", "check", "note", "backgroundEnd-bg"]);
+  // Its call folds in place; its reply stays in sight and ends on its own footer
+  // (backgroundTurnFooter.test.ts).
+  const fold = TAIL("check");
+  expect(ids(turnView(rows, new Set()))).toEqual(["prompt", "reply", "summary", fold, "note", "backgroundEnd-bg"]);
+  const open = turnView(rows, new Set([fold]));
+  expect(ids(open)).toEqual(["prompt", "reply", "summary", fold, "check", "note", "backgroundEnd-bg"]);
+  expect(open.some((entry) => entry.kind === BACKGROUND_TURN)).toBe(false);
 });
 
 test("a running background turn is the compact line with the working spinner", () => {
   const rows = transcript({ running: true });
-  const view = turnView(rows, new Set());
+  // While it runs the chat works, and the tail draws as it comes: the line in sight, the last row.
+  const view = turnView(rows, new Set(), { working: true });
   expect(ids(view).at(-1)).toBe(backgroundTurnRowId("bg"));
   expect(view.some((entry) => entry.id === "note")).toBe(false);
   const running = line("bg", { running: true, trigger: "scheduled" });

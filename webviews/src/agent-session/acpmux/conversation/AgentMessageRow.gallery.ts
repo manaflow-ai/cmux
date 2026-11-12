@@ -7,6 +7,7 @@
 // chat (IncomingMessageCard.tsx) sits beside them.
 import { minutesAgo } from "../../../gallery/clock";
 import { agentPaneEntry } from "../../../gallery/format";
+import type { PlayContext } from "../../../gallery/play";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { SUBAGENTS } from "../subagents/subagentFold";
 
@@ -292,6 +293,26 @@ const foldedMixedRun = () =>
     received("codex-review", "The visual check is ready.", 3.4),
   ]);
 
+/// Opens each closed "Worked for" line, one measured click each, in order: a finished turn's work
+/// folds in place, and so does the agent's work after it (turns.ts `shapeTurn`, `foldTail`), another
+/// agent's message and a task's end among it. `wait`: the stage draws one once its events replay.
+const openWorked = async (ctx: PlayContext, wait = false) => {
+  const toggle = "button.cv-worked.is-toggle";
+  if (wait) await ctx.waitFor(() => ctx.document.querySelector(toggle), { capMs: 10_000 });
+  for (let guard = 0; guard < 20; guard += 1) {
+    const shut = ctx.document.querySelector(`${toggle}[aria-expanded="false"]`);
+    const id = shut?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
+    if (!id) return;
+    const line = `.acpmux-row[data-row-id="${id}"] ${toggle}`;
+    // On its words: the line runs the pane's width, and its middle can sit under the jump-to-latest
+    // button at the transcript's foot, which would take a click aimed there.
+    await ctx.click({ selector: `${line} .cv-worked__label` });
+    await ctx.waitFor(() => ctx.document.querySelector(line)?.getAttribute("aria-expanded") === "true", {
+      capMs: 10_000,
+    });
+  }
+};
+
 export default agentPaneEntry({
   id: "agent-pane.agent-message-row",
   title: "Messages between agents",
@@ -362,9 +383,11 @@ export default agentPaneEntry({
       snapshot: iconColumn(),
     },
     "both-directions-opened": {
-      note: "Both opened: the sent message and the received one under their lines.",
+      note: "Both opened: the turn's work opened where it ran, then the sent message and the received one under their lines.",
       snapshot: both(),
       play: async (ctx) => {
+        // The send and the message back are the turn's work: they fold under its "Worked for".
+        await openWorked(ctx, true);
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
         await ctx.click({ selector: ".cv-received :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)" });

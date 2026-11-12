@@ -2,8 +2,9 @@
 // A finished turn folds as its harness family's own app does (Leo, 2026-11-01: "separate it per
 // harness/model family. claude gets claude behaviour, codex gets codex").
 //
-// - Codex and ChatGPT: the turn's work, its interim chatter with it, folds under one "Worked for";
-//   the final answer stays below it.
+// - Codex and ChatGPT: each run of the turn's work, its interim chatter with it, folds in place under
+//   its own "Worked for" between the longer messages; the final answer stays below the last one
+//   (turn-fold-keeps-order.test.ts).
 // - Claude, as Claude desktop: no "Worked for". Each run of calls, the short notes inside it with
 //   it, folds into its own summary line; a longer message between runs stays in place; the final
 //   answer stays last.
@@ -125,10 +126,18 @@ test("the recorded Claude turn ends as Claude desktop draws it: a line per run, 
   expect(view[summary]?.folded).toBe(false);
 });
 
-test("the same turn in a Codex chat folds its work and chatter under one Worked for, never a longer message", async () => {
+/// The drawn turn's outline: a fold by "W", a longer message by its number (the footer, which copies
+/// the answer's text, is not one).
+const outline = (view: readonly AcpmuxRow[]) =>
+  view.flatMap((row): (string | number)[] =>
+    row.kind === WORKED ? ["W"] : row.kind === "assistant" && LONG.test(row.text ?? "") ? [longAt(row)] : [],
+  );
+
+test("the same turn in a Codex chat folds its work and chatter in place, never a longer message", async () => {
   const rows = await replayRows();
   const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, agentFamily: "codex" });
-  expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
+  // The work before message 14 and the work between 14 and 16 each fold where they ran.
+  expect(outline(view)).toEqual(["W", 14, "W", 16, 17]);
   // The longer messages stay in sight (Leo, 2026-11-06: "your intermediate message got lost. that can
   // never happen"); the work around them stays under Worked for, as chatgpt.com draws it, and no
   // short note shows.
@@ -148,7 +157,7 @@ test("the recorded turn restored in a Claude chat, folded by default, keeps ever
   try {
     const rows = await replayRows();
     const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, agentFamily: "claude" });
-    expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
+    expect(outline(view)).toEqual(["W", 14, "W", 16, 17]);
     expect(
       assistants(view)
         .filter((row) => LONG.test(row.text ?? ""))
@@ -207,5 +216,16 @@ test("a steered Claude turn keeps the steer and the reply before it in sight, ea
 
 test("a steered Codex turn still folds everything but the steer, the reply before it and the answer", () => {
   const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), agentFamily: "codex" });
-  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", `${SUPERSEDED}-s1`, "s1", "answer", "sum"]);
+  // Each run folds in place: before the reply, between it and the steer, and after the steer.
+  expect(view.map((row) => row.id)).toEqual([
+    "u",
+    `${WORKED}-u`,
+    "r1",
+    `${WORKED}-u~1`,
+    `${SUPERSEDED}-s1`,
+    "s1",
+    `${WORKED}-u~2`,
+    "answer",
+    "sum",
+  ]);
 });

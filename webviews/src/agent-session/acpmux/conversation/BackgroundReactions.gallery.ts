@@ -12,6 +12,7 @@ import type { AcpmuxBackgroundCause, AcpmuxBackgroundReaction, AcpmuxRow } from 
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
 import { backgroundReactionLook } from "./backgroundReaction.experiment";
+import { openTailFolds } from "./endedStretchPlay";
 
 /// A background turn's line as acpmux's records leave it: weighed by `cause`, its mark on the call
 /// when `attached`; one that said something there is the agent's own turn (`ownTurn`, direct.ts
@@ -176,9 +177,12 @@ export default agentPaneEntry({
     "weighed-hover": {
       note: "The background turn's line under the pointer: its words light all the way through, as a tool row's do (Leo, 2026-11-09).",
       snapshot: chat(weighedChat),
+      checks: { layoutShiftMax: { value: 0.5, reason: "Opening the ended turn tail Worked for first (turns.ts foldTail) intentionally reveals its rows below it." } },
       play: async (ctx) => {
         // The line look's line (backgroundTurnLook.experiment.ts); the inline look draws none.
         if (!drawsBackgroundTurnLines()) return;
+        // The turns the agent ran on its own after the prompt's turn fold in place in its tail.
+        await openTailFolds(ctx);
         await ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" });
       },
     },

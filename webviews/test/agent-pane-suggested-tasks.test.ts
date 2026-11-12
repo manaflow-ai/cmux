@@ -537,6 +537,17 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   // envelopes in a prompt (an adopted Claude session's history).
   describe("messages from other agents", () => {
     const incoming = (page: Page) => page.locator(".cv-received");
+    /// Opens every closed "Worked for": a finished turn a message or a notification started folds that
+    /// prompt into it, in place (turns.ts `foldedPrompt`), as the reader opens it to see the prompt.
+    const openFolds = async (page: Page) => {
+      const shut = page.locator('button.cv-worked.is-toggle[aria-expanded="false"]');
+      await shut.first().waitFor({ timeout: 10_000 });
+      for (let round = 0; round < 12 && (await shut.count()) > 0; round++) {
+        await shut.first().click();
+        await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+      }
+      expect(await shut.count()).toBe(0);
+    };
     /// The pointer on a message's line: its hover actions (Reply, Retry, ⋯) take clicks only then.
     const hoverLine = (card: Locator) => card.locator(":scope > .cv-agentmsg__line").hover();
     /// One message as cmux's agent_message_prompt.rs `render` writes it: the prompt's text.
@@ -659,6 +670,12 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
           from("cli", "m-2", "Ship it."),
         ],
       });
+      // The first message's turn ended: it folds under that turn's "Worked for", where it arrived.
+      // The second's turn has not ended, so it stays in sight as its prompt.
+      await incoming(page).first().waitFor({ timeout: 10_000 });
+      expect(await page.locator("button.cv-worked.is-toggle").count()).toBe(1);
+      expect(await incoming(page).count()).toBe(1);
+      await openFolds(page);
       await incoming(page).nth(1).waitFor({ timeout: 10_000 });
       for (const index of [0, 1])
         await incoming(page)
@@ -910,13 +927,19 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
           }),
         ],
       });
+      await page.locator(".cv-user__bubble").filter({ hasText: "Ship the grid fix" }).waitFor({ timeout: 10_000 });
+      // The notification's finished turn folds it under its "Worked for": no raw XML closed or open.
+      const rawFree = async () => {
+        const body = await page.locator("body").innerText();
+        expect(body).not.toContain("<task-notification>");
+        expect(body).not.toContain("<system-reminder>");
+        expect(body).not.toContain("The date changed.");
+        expect(body).not.toContain("The branch moved.");
+      };
+      await rawFree();
+      await openFolds(page);
       await page.getByText("Build finished").first().waitFor({ timeout: 10_000 });
-      const body = await page.locator("body").innerText();
-      expect(body).not.toContain("<task-notification>");
-      expect(body).not.toContain("<system-reminder>");
-      expect(body).not.toContain("The date changed.");
-      expect(body).not.toContain("The branch moved.");
-      await page.locator(".cv-user__bubble").filter({ hasText: "Ship the grid fix" }).waitFor({ timeout: 5_000 });
+      await rawFree();
       // The reminder alone gets no row: the first prompt, the notice's and the typed prompt's.
       expect(await page.locator(".cv-user__bubble").count()).toBe(2);
       expect(await page.locator(".acpmux-row.acpmux-user").count()).toBe(3);

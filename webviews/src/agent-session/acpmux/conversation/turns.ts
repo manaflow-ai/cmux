@@ -792,7 +792,9 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
   if (!waiting.length) return NO_ASKS;
   // The newest card counts only once a turn came after it: before that it is the chat's last row.
   const newest = nextSteps.at(-1)!;
-  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some((row) => row.kind === "user")) waiting.shift();
+  // A turn another agent's message started draws its prompt folded into its "Worked for" (`foldedPrompt`).
+  const startsTurn = (row: AcpmuxRow) => row.kind === "user" || (row.kind === WORKED && row.foldedPrompt !== undefined);
+  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some(startsTurn)) waiting.shift();
   return waiting.length ? waiting.reverse() : NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
@@ -1336,6 +1338,7 @@ function shapeTurn(
   const id = `${WORKED}-${user.id}`;
   // A family with no turn fold draws as an open "Worked for" without the line.
   const open = !style.conclusion || foldOpen || expanded.has(id);
+  const held = expanded.has(`${id}${HELD_FOLD}`);
   // Folds stay in place and never reorder the transcript (Leo, 2026-11-11: "Why is it a top-level
   // fold, though? ... it sort of, like, steals commands that came in, perhaps, like, in between
   // something, and it just shunts them to the top, like it rewrites the transcript in a way").
@@ -1351,7 +1354,16 @@ function shapeTurn(
     steerDialogue.has(row.id) ||
     replies.has(row.id) ||
     (taskLook === "card" && startsTask(row)) ||
-    (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)));
+    waitsOnPermission(row);
+  // A row of the turn's work as an open fold draws it: a run folds into its summary line, an edit's
+  // copy takes its own id so the edits card keeps the step's (TurnRows.tsx `runStretches`).
+  const foldedRun = (row: AcpmuxRow): AcpmuxRow => ({
+    ...endedPlan(row),
+    id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
+    settled: true,
+    // A folded run draws otherwise, so its version moves (memos compare versions).
+    ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
+  });
   // The turn's todo list closes the turn, under the answer, where it stood pinned while the turn ran
   // (shapeLiveTurn): it neither splits a stretch nor draws in one.
   const drawn = body.filter((row) => row.kind !== "typing" && !isPlan(row));
@@ -1432,7 +1444,14 @@ function shapeTurn(
     if (part.sight) {
       const row = part.sight;
       if (row !== answer) {
-        shaped.push(endedPlan(row));
+        // A step with a call waiting for its permission draws as an open fold draws it, open or
+        // closed: the call keeps its own row between the summary lines of the step's other calls, and
+        // its edits are on the turn's edits card too.
+        if (waitsOnPermission(row)) {
+          const kept = withoutDrafts(row);
+          edits.push(...kept.filter(isEdit));
+          shaped.push(...kept.map(foldedRun));
+        } else shaped.push(endedPlan(row));
         continue;
       }
       const underAnswer = Boolean(nextStep && !cutOff);
@@ -1461,25 +1480,17 @@ function shapeTurn(
     const ended = parts[at + 1]?.sight?.at ?? summary.at;
     if (style.conclusion) {
       folded = true;
-      shaped.push(workedLine(work, foldIndex, part.began, ended));
+      // Right under the prompt it is the turn's conclusion line, over its rule; between two rows that
+      // stay in sight it is a step line where its work stood (model.ts `inline`).
+      const line = workedLine(work, foldIndex, part.began, ended);
+      if (!held) shaped.push(at === 0 ? line : { ...line, inline: true, version: line.version * 2 + 1 });
     }
     if (taskLine && taskLook === "after-fold" && foldIndex === 0) shaped.push(taskLine);
     foldIndex += 1;
     // Open, each run of its work folds into its summary line between the commentary, as in a running
     // turn (codexRuns). A run that edited folds too: its edits stay in sight between the summary lines
     // of the work around them (TurnRows.tsx `runStretches`).
-    if (open)
-      shaped.push(
-        ...mergeShortNotes(work, steerDialogue, style.runs)
-          .flatMap(withoutDrafts)
-          .map((row) => ({
-            ...endedPlan(row),
-            id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
-            settled: true,
-            // A folded run draws otherwise, so its version moves (memos compare versions).
-            ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
-          })),
-      );
+    if (open) shaped.push(...mergeShortNotes(work, steerDialogue, style.runs).flatMap(withoutDrafts).map(foldedRun));
     // A render card keeps its place: right after the work that drew it.
     shaped.push(...renderRows(work, version));
   }
@@ -1636,6 +1647,10 @@ type Stretch = { sight?: AcpmuxRow; work?: AcpmuxRow[]; began: number };
 
 /// `rows` in order, split at each row `inSight` keeps: the rows between two of them are one stretch of
 /// work. Nothing moves: concatenated, the stretches are `rows`.
+/// Whether a step of an ended turn has a call still waiting for the person's permission.
+const waitsOnPermission = (row: AcpmuxRow) =>
+  row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool));
+
 function workStretches(rows: readonly AcpmuxRow[], inSight: (row: AcpmuxRow) => boolean, began: number): Stretch[] {
   const out: Stretch[] = [];
   let work: AcpmuxRow[] | undefined;
@@ -1664,11 +1679,23 @@ const callsIn = (rows: readonly AcpmuxRow[]): number =>
 /// own, a footer under words the agent said, and the cards a person acts on. Everything else the
 /// agent did on its own after the turn (a background command's end, a subagent's report, the calls a
 /// task notification woke it to make) is work.
+/// What of a finished turn's tail folds is named, not guessed: the agent's calls and thoughts, its notes
+/// between them, its own work's ends (`isAgentWork`), other agents' and acpmux's lines, the bookkeeping
+/// of the turns it ran on its own, and its plans. Every other row stays in sight where it came: a reply,
+/// the person's own words in whatever row draws them (a prompt, a queued or declined message), a card
+/// they act on, a failure. A row kind added later stays in sight until it is named here.
 const tailInSight = (row: AcpmuxRow) =>
   isReply(row) ||
-  (row.kind === "user" && !isAgentPromptLine(row)) ||
-  (row.kind === "turnSummary" && (row.answerId !== undefined || isFailed(row) || row.resumable === true)) ||
-  (staysOut(row) && !isAgentWork(row) && row.kind !== "plan");
+  (row.kind === "turnSummary"
+    ? row.answerId !== undefined || isFailed(row) || row.resumable === true
+    : !isTailWork(row));
+const isTailWork = (row: AcpmuxRow) =>
+  row.kind === "activity" ||
+  row.kind === "assistant" ||
+  row.kind === "plan" ||
+  row.kind === "typing" ||
+  isAgentWork(row) ||
+  isAgentPromptLine(row);
 
 /// Another agent's or acpmux's line in a tail, which folds like work (``isAgentPrompt``).
 const isAgentPromptLine = (row: AcpmuxRow) => isReceivedLine(row) && (isAgentPrompt(row) || isNoticePrompt(row));
@@ -1692,6 +1719,10 @@ function foldTail(tail: AcpmuxRow[], user: AcpmuxRow, summary: AcpmuxRow, expand
     const id = `${WORKED}-${user.id}${TAIL_FOLD}${first.id}`;
     const open = expanded.has(id);
     const ended = parts[at + 1]?.sight?.at ?? work.at(-1)!.at;
+    if (open && expanded.has(`${id}${HELD_FOLD}`)) {
+      out.push(...mergeShortNotes(work, undefined, runs).map((row) => (row.kind === "activity" ? { ...row, settled: true, foldRun: true, version: row.version * RUN_STATES + 3 } : row)));
+      return;
+    }
     const durationMs = Math.max(0, ended - part.began);
     const calls = callsIn(work);
     out.push({
@@ -1703,6 +1734,8 @@ function foldTail(tail: AcpmuxRow[], user: AcpmuxRow, summary: AcpmuxRow, expand
       status: "completed",
       toolCount: calls,
       durationMs,
+      // After the turn's footer, among the rows that came on their own: a step line (model.ts `inline`).
+      inline: true,
     });
     if (open)
       out.push(
@@ -1821,6 +1854,11 @@ const FOLD_PART = "~";
 /// The id part of a fold in a turn's tail (the turns the agent ran on its own after it): each opens on
 /// its own (``foldTail``).
 const TAIL_FOLD = "~tail-";
+/// A fold a turn's end held open while the reader was scrolled up (turnEndHold.ts) answers
+/// `has(key + HELD_FOLD)` too: it draws its work open with no "Worked for" line, so the rows the
+/// reader has in view stay where they were (a line per stretch pushed every row under it down a row).
+/// Back at the latest row it becomes the reader's own open fold, lines and all (App.tsx).
+export const HELD_FOLD = "#held";
 /// A turn's later fold's suffix, as ``turnFoldKeys`` strips it.
 const FOLD_PART_ID = /~\d+$/;
 

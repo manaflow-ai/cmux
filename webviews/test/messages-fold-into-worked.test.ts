@@ -13,7 +13,8 @@
 // Before: the notice that started the turn drew above its closed "Worked for" as "Received 2
 // messages", and the fold's count left the messages out. After: the closed turn draws "Worked for"
 // and the reply; opened, the messages are its first entries, then the calls, each where it came.
-// The turn's prompt stays in sight while the turn runs, and in a turn that did nothing to fold.
+// The turn's prompt stays in sight while the turn runs. A finished turn that only replied still folds
+// its messages ahead of the reply, where they came (turns.ts `foldsPrompt`; turn-fold-keeps-order.test.ts).
 import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { LANE_NOTICE_BATCH } from "../src/agent-session/acpmux/model";
@@ -202,13 +203,18 @@ for (const family of ["codex", "claude"]) {
     }
   });
 
-  test(`the messages that start a turn stay in sight as its prompt while it runs and when it did no work (${family})`, () => {
+  test(`the messages that start a turn stay in sight while it runs, and fold ahead of a lone reply once it ends (${family})`, () => {
     const running = chat().slice(0, -2);
     expect(secondTurn(drawn(running, family, new Set(), true)).flatMap(holds)).toContain("notice");
     const replyOnly = [...chat().slice(0, 5), row("assistant", { id: "ack", text: "Noted." }), summary("summary-1", 0)];
+    // Ended, the messages fold where they came, ahead of the reply, which stays in sight.
     const rows = secondTurn(drawn(replyOnly, family));
-    expect(rows.flatMap(holds)).toContain("notice");
-    expect(rows.some((r) => r.kind === WORKED)).toBe(false);
+    expect(rows.map((r) => r.id)).toEqual([`${WORKED}-notice`, "ack", "summary-1"]);
+    expect(rows[0]!.foldedPrompt?.id).toBe("notice");
+    // Opened, they draw right under its line.
+    const opened = secondTurn(drawn(replyOnly, family, new Set([`${WORKED}-notice`]))).flatMap(holds);
+    expect(opened.indexOf("notice")).toBeGreaterThan(opened.indexOf(`${WORKED}-notice`));
+    expect(opened.indexOf("notice")).toBeLessThan(opened.indexOf("ack"));
   });
 
   test(`the person's own prompt stays above its closed Worked for (${family})`, () => {

@@ -11,6 +11,9 @@
 // - Each message is its own row: three from three senders between two replies are three rows in
 //   their order, never one card; ones queued behind the running turn draw after that turn, with
 //   one "Read after this turn" over the first of them.
+// - A finished turn another agent's message started folds that message into its "Worked for", in
+//   place (turns.ts `foldedPrompt`): the tests open the fold first, as the reader would, and the
+//   message draws right under it where it arrived.
 //
 // The page is the pane's dev entry (vite.config.acpmux-pane.mjs) talking JSON-RPC over a WebSocket
 // to a stand-in acpmux daemon (as agent-pane-suggested-tasks.test.ts). Real Chromium from
@@ -252,6 +255,16 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       }
       return document.querySelector(query) !== null;
     }, selector);
+  /// Opens every closed "Worked for" drawn (a finished turn a message started folds it there), as the
+  /// reader would, and waits until none is left closed.
+  const openFolds = async (page: Page) => {
+    const shut = page.locator('.acpmux-scroll button.cv-worked.is-toggle[aria-expanded="false"]');
+    for (let round = 0; round < 12 && (await shut.count()) > 0; round++) {
+      await shut.first().click();
+      await rest(page);
+    }
+    expect(await shut.count()).toBe(0);
+  };
   const atLatest = (page: Page) =>
     page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -267,6 +280,9 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       "Merged the grid fix.",
     );
     try {
+      // The finished turn the message started folds it under its "Worked for": open it.
+      await page.locator(".acpmux-scroll button.cv-worked.is-toggle").first().waitFor({ timeout: 10_000 });
+      await openFolds(page);
       const row = page.locator(".cv-received");
       await row.waitFor({ timeout: 10_000 });
       expect(await row.count()).toBe(1);
@@ -333,6 +349,9 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       const line = page.locator(".cv-received > .cv-agentmsg__line");
       const chevron = line.locator(".cv-agentmsg__chevron");
       await page.getByText("Answer 15.2").first().waitFor({ timeout: 10_000 });
+      // The message's finished turn folds it under its "Worked for", the one fold in the chat: open it.
+      expect(await scrollUntilDrawn(page, ".acpmux-scroll button.cv-worked.is-toggle")).toBe(true);
+      await openFolds(page);
       expect(await scrollUntilDrawn(page, ".cv-received > .cv-agentmsg__line")).toBe(true);
       // The transcript scrolls: there is more above and below than the view holds.
       const scroll = await page
@@ -461,13 +480,18 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       "Second reply: two landed, one in review.",
     );
     try {
+      // Each message's finished turn folds it under its own "Worked for", where it arrived: open them.
+      await page.locator(".acpmux-scroll button.cv-worked.is-toggle").nth(2).waitFor({ timeout: 10_000 });
+      await openFolds(page);
       await page.locator(".cv-received").nth(2).waitFor({ timeout: 10_000 });
-      // Every row in the transcript's DOM order: the two replies and the three messages between them.
+      // Every row in the transcript's order: the two replies, and the three messages between them,
+      // each under its own turn's fold line.
       const order = await page.evaluate(() =>
         [...document.querySelectorAll<HTMLElement>(".acpmux-scroll [data-row-id]")]
           .filter((row) => !row.parentElement?.closest("[data-row-id]"))
           .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)
           .flatMap((row) => {
+            if (row.querySelector("button.cv-worked")) return ["worked"];
             const received = row.querySelectorAll(".cv-received");
             if (received.length)
               return [...received].map((el) => `from ${el.querySelector(".cv-received__from")?.textContent}`);
@@ -479,8 +503,11 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       );
       expect(order).toEqual([
         "first reply",
+        "worked",
         "from composer-caret",
+        "worked",
         "from sidebar-cleanup",
+        "worked",
         "from grid-fix",
         "second reply",
       ]);

@@ -100,7 +100,7 @@ export function WorkedFor({
   return (
     <button
       type="button"
-      className="cv-worked has-divider is-toggle"
+      className={`cv-worked is-toggle${row.inline ? " is-inline" : " has-divider"}`}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}

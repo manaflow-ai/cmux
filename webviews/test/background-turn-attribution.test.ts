@@ -9,7 +9,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { BackgroundTurnLine } from "../src/agent-session/acpmux/conversation/BackgroundTurnLine";
 import { BACKGROUND_TURN } from "../src/agent-session/acpmux/conversation/backgroundTurns";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
@@ -51,8 +51,15 @@ const ended = (id: string): Step => [
   "background_turn",
   { state: "ended", id, trigger: "task_notification", quiet: true, reason: "result" },
 ];
-const lineOf = (rows: AcpmuxRow[]) =>
-  turnView(rows, new Set()).find((row) => row.kind === BACKGROUND_TURN && row.background !== undefined)!;
+/// The line as the reader sees it: once the person's turn ended, it is that turn's tail's work, folded
+/// in place under the tail's own "Worked for" (turns.ts `foldTail`), so the reader opens that first.
+const lineOf = (rows: AcpmuxRow[]) => {
+  const closed = turnView(rows, new Set());
+  expect(closed.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
+  const tail = closed.filter((row) => row.kind === WORKED && row.id.includes("~tail-")).map((row) => row.id);
+  expect(tail).toHaveLength(1);
+  return turnView(rows, new Set(tail)).find((row) => row.kind === BACKGROUND_TURN && row.background !== undefined)!;
+};
 // In the pane, as App.tsx provides it: a helper's name opens its transcript.
 const html = (row: AcpmuxRow) =>
   renderToStaticMarkup(

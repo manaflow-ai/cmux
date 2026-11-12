@@ -2,7 +2,7 @@
 // its plan row `turnEnded`, and only a running turn's plan stays live.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -38,7 +38,10 @@ test("a plan sent after the answer ends with the turn", () => {
 
 test("a plan arriving after the summary ends with the turn", () => {
   const rows = [row("u", "user"), row("a", "assistant", { text: "done" }), summary("s"), plan("p")];
-  expect(planRow(rows, "p")?.turnEnded).toBe(true);
+  // After the summary it is the turn's tail, which folds in place (turns.ts `foldTail`): open it.
+  expect(planRow(rows, "p")).toBeUndefined();
+  const opened = turnView(rows, new Set([`${WORKED}-u~tail-p`])).find((shaped) => shaped.id === "p");
+  expect(opened?.turnEnded).toBe(true);
 });
 
 test("an earlier turn without a summary ends a plan sent after its answer", () => {

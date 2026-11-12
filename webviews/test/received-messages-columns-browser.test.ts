@@ -3,6 +3,8 @@
 // line: "why bother indenting here"): every message's mark centres on the head's icon centre, and
 // its sender starts where the head's words do, as an opened tool group's steps do. Measured in the
 // page from the real transcript (gallery entry agent-pane.received-messages, variant level-1).
+// Other agents' messages are a finished turn's work: they fold under its "Worked for", in place
+// (turns.ts `foldedPrompt`), and the row is read with that fold opened (the variants' plays open it).
 // design/chat-transcript.md "One icon column".
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -57,10 +59,17 @@ await requireBrowserLane("received-messages-columns-browser.test.ts", async () =
   test('the turn draws one "Received 7 messages" row, with no session names at rest', async () => {
     const page = await open("collapsed");
     try {
-      const heads = await page
-        .locator(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle")
-        .evaluateAll((all) => all.map((head) => head.textContent?.trim()));
-      expect(heads).toEqual(["Received 7 messages"]);
+      const head = page.locator(".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle");
+      const heads = () => head.evaluateAll((all) => all.map((node) => node.textContent?.trim()));
+      // At rest the turn's messages are under its one closed "Worked for", above the answer.
+      const worked = page.locator("button.cv-worked.is-toggle");
+      expect(await worked.count()).toBe(1);
+      expect(await worked.getAttribute("aria-expanded")).toBe("false");
+      expect(await heads()).toEqual([]);
+      // Opened, they are one row, closed.
+      await worked.click();
+      await head.first().waitFor({ timeout: 10_000 });
+      expect(await heads()).toEqual(["Received 7 messages"]);
       expect(await page.locator(".cv-received").count()).toBe(0);
     } finally {
       await page.close();

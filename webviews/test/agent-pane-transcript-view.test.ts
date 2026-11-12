@@ -3,9 +3,10 @@
 // talking JSON-RPC over a WebSocket to a stand-in acpmux daemon that serves one finished recorded
 // chat (replay/replayFixture.ts: a thought, a read, test runs and an edit).
 //
-// - Normal is today's transcript: the finished turn folds its work under "Worked for". Its reply
-//   between the calls stays in sight, the work around it on closed run lines (turns.ts
-//   `aroundReplies`; Leo, 2026-11-06: "your intermediate message got lost. that can never happen").
+// - Normal is today's transcript: the finished turn folds its work in place. Its reply between the
+//   calls stays in sight (Leo, 2026-11-06: "your intermediate message got lost. that can never
+//   happen"), and the work on each side of it folds under its own "Worked for" where it ran (turns.ts
+//   `workStretches`), so no call of the turn is in sight while its folds are closed.
 // - Thinking, picked from the menu, opens that fold: the thought shows, each call's output stays folded.
 // - Verbose also opens each call to its output.
 // - Closing the turn's fold by hand in Verbose keeps it closed there; Normal keeps its own folds.
@@ -288,8 +289,11 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       // A call's own row, not a closed run line beside a reply in sight.
       const calls = page.locator(".cv-tools .cv-tool.is-toggle:not(.cv-thought):not(.is-run)");
       const reply = page.getByText("The loop allows one attempt too many");
+      // The turn's "Worked for" lines: one before the reply, one after it.
+      const folds = page.locator("button.cv-worked.is-toggle");
       const normal = {
         worked: await worked.getAttribute("aria-expanded"),
+        folds: await folds.count(),
         thoughts: await thought.count(),
         commands: await calls.count(),
         reply: await reply.isVisible(),
@@ -328,8 +332,8 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await openCommands.first().waitFor();
       const verbose = { open: (await openCommands.count()) === (await commands.count()) };
 
-      // The reader's own close of the turn holds in Verbose: a finished turn has one fold (turns.ts
-      // foldSegments), so closing it takes every call out of sight.
+      // The reader's own close of the turn holds in Verbose: a finished turn's folds share one open
+      // state (turns.ts, keyed `worked-<promptId>`), so closing its first takes every call out of sight.
       const before = await commands.count();
       await worked.click();
       await page.waitForFunction(
@@ -344,19 +348,21 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
       await pick(page, "Normal");
       const backToNormal = {
         worked: await worked.getAttribute("aria-expanded"),
+        folds: await folds.count(),
         thoughts: await thought.count(),
         commands: await calls.count(),
         reply: await reply.isVisible(),
       };
 
-      // Closed, the second test run is the one call in sight: its step also made the edit, which the
-      // turn's edits card draws, and the run keeps its own row after the reply (turns.ts lineWork).
+      // Closed, no call of the turn is in sight: the read and the failed run fold under the first
+      // "Worked for", the edit and the second run under the one after the reply, each where it ran.
+      // Thinking and Verbose still open them all.
       expect({ normal, thinking, verbose, closedByHand, backToNormal }).toEqual({
-        normal: { worked: "false", thoughts: 0, commands: 1, reply: true },
+        normal: { worked: "false", folds: 2, thoughts: 0, commands: 0, reply: true },
         thinking: { worked: "true", thoughts: true, commands: true, someClosed: true },
         verbose: { open: true },
         closedByHand: { worked: "false", fewer: true },
-        backToNormal: { worked: "false", thoughts: 0, commands: 1, reply: true },
+        backToNormal: { worked: "false", folds: 2, thoughts: 0, commands: 0, reply: true },
       });
       await page.close();
     });

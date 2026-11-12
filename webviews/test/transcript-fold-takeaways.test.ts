@@ -1,7 +1,9 @@
-// A completed turn folds its work into one disclosure and keeps every reply to the person in sight,
-// the final answer and each earlier one, with the work around each folded into its own line (Leo,
-// 2026-11-06: "your intermediate message got lost. that can never happen"; turn-fold-keeps-replies.test.ts).
-// Short narration between steps folds with them. While running, intermediate dialogue remains visible.
+// A completed turn keeps every reply to the person in sight, the final answer and each earlier one,
+// and each run of work between two of them folds in place under its own "Worked for" (Leo,
+// 2026-11-06: "your intermediate message got lost. that can never happen"; turn-fold-keeps-replies.test.ts;
+// Leo, 2026-11-11, on the old top-level fold: "it rewrites the transcript in a way";
+// turn-fold-keeps-order.test.ts). The turn's folds open together under `worked-<prompt>`. Short
+// narration between steps folds with them. While running, intermediate dialogue remains visible.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { isTakeaway, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -47,17 +49,18 @@ const leosTurn = () => [
 ];
 
 test("the final answer and every earlier answer stay in sight; the work around each folds", () => {
-  // Every call stays under the closed Worked for, as chatgpt.com draws it (turn-fold-hides-every-call.test.ts).
+  // Every call stays under a closed Worked for, each run where it ran (turn-fold-keeps-order.test.ts).
   expect(drawn(leosTurn())).toEqual([
     "user:u",
     "worked:worked-u",
     "assistant:first",
+    "worked:worked-u~1",
     "assistant:second",
     "turnSummary:end",
   ]);
 });
 
-test("the one fold opens every intermediate answer and command in order", () => {
+test("the turn's one open state opens every fold, each answer and command in order", () => {
   const rows = leosTurn();
   expect(drawn(rows, new Set(["worked-u"]))).toEqual([
     "user:u",
@@ -67,6 +70,7 @@ test("the one fold opens every intermediate answer and command in order", () => 
     "activity:ran-3",
     "activity:ran-4",
     "assistant:first",
+    "worked:worked-u~1",
     "activity:ran-5",
     "activity:ran-6",
     "assistant:second",
@@ -118,7 +122,14 @@ test("short narration between tools folds with them", () => {
 
 test("long reply, then a tool, then 'Pushed.': both replies stay in sight, each tool under Worked for", () => {
   const rows = [row("u", "user"), ran("read"), answer("reply"), ran("git push"), say("pushed", "Pushed."), summary()];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:reply", "assistant:pushed", "turnSummary:end"]);
+  expect(drawn(rows)).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "assistant:reply",
+    "worked:worked-u~1",
+    "assistant:pushed",
+    "turnSummary:end",
+  ]);
 });
 
 test("completed compactions and subagent reports fold, while a refusal stays available", () => {
@@ -171,7 +182,8 @@ test("Find opens the right fold past a prompt that failed to send mid-turn", () 
     answer("longB"),
     summary(),
   ];
-  expect(drawn(rows).filter((entry) => entry.startsWith("worked:"))).toEqual(["worked:worked-u"]);
+  // One fold on each side of the first answer; the unsent prompt waits under the turn for Retry.
+  expect(drawn(rows).filter((entry) => entry.startsWith("worked:"))).toEqual(["worked:worked-u", "worked:worked-u~1"]);
   expect(
     turnFoldFor(
       rows,
@@ -186,16 +198,17 @@ test("Find opens the right fold past a prompt that failed to send mid-turn", () 
   ).toBe("worked-u");
 });
 
-test("a stopped turn says so on its one Worked for line", () => {
+test("a stopped turn says so on its last Worked for line; the work before it ran on", () => {
   const stopped = (rows: AcpmuxRow[]) =>
     turnView([...rows, row("end", "turnSummary", { status: "cancelled", durationMs: 9_000 })], new Set())
       .filter((shaped) => shaped.kind === "worked")
       .map((shaped) => `${shaped.id}:${shaped.status ?? ""}`);
-  // Intermediate answers fold with every other completed step.
+  // The intermediate answer stays in sight between two folds; only the last says the turn stopped.
   expect(stopped([row("u", "user"), ran("a"), answer("first"), ran("b"), say("tail", "Stopping here.")])).toEqual([
-    "worked-u:cancelled",
+    "worked-u:completed",
+    "worked-u~1:cancelled",
   ]);
-  // A short closing answer leaves the same stop line.
+  // A short closing answer right after it leaves one fold, with the stop.
   expect(stopped([row("u", "user"), ran("a"), answer("first"), say("tail", "Stopping here.")])).toEqual([
     "worked-u:cancelled",
   ]);
@@ -214,8 +227,20 @@ test("Find opens the right fold for a row after a summary a steer continued", ()
     answer("longC"),
     summary(),
   ];
-  const folds = drawn(rows).filter((entry) => entry.startsWith("worked:"));
-  expect(folds).toEqual(["worked:worked-u"]);
+  // The cut summary draws nothing; each run folds where it ran, the steer in sight between them, and
+  // the stretch the person came in on ends on its own footer (turns.ts supersededFooters).
+  expect(drawn(rows)).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "assistant:longA",
+    "worked:worked-u~1",
+    "assistant:longB",
+    "turnSummary:superseded-s1",
+    "user:s1",
+    "worked:worked-u~2",
+    "assistant:longC",
+    "turnSummary:end",
+  ]);
   expect(
     turnFoldFor(
       rows,

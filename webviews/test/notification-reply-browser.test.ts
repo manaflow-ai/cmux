@@ -5,7 +5,9 @@
 // weirdly folded into the rende?". Opened, a "Subagent finished" row keeps every field its shut line
 // has (its mark, its name chip, its new dot, its time, its chevron), each drawn on the line; and the
 // agent's own reply after a subagent's or a background command's end draws as the agent's own
-// message, outside the row's box, never as a muted paragraph inside it.
+// message, outside the row's box, never as a muted paragraph inside it. The subagent's end is agent
+// work after the turn ended (turns.ts `isAgentWork`, `foldTail`): it folds under its own "Worked
+// for" in place, above the reply that stays in sight, so the tests open that fold first.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -58,6 +60,17 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
   };
   const settled = (page: Page) =>
     page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  /** Opens every closed "Worked for", where the subagent's end folds, as the reader would. */
+  const openFolds = async (page: Page) => {
+    const shut = page.locator('button.cv-worked.is-toggle[aria-expanded="false"]');
+    await shut.first().waitFor({ timeout: 10_000 });
+    for (let round = 0; round < 12 && (await shut.count()) > 0; round++) {
+      await shut.first().click();
+      await settled(page);
+    }
+    expect(await shut.count()).toBe(0);
+    await page.locator(`.acpmux-row[data-row-id="subagentDone:${AGENT}"]`).waitFor({ timeout: 10_000 });
+  };
 
   type Field = { shown: boolean; text: string; onLine: boolean; inRow: boolean };
   /** Each field of the subagent's line: drawn, on the line's own 22px band, inside the row's box. */
@@ -130,6 +143,7 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
   for (const width of [900, 560, 380])
     test(`an opened Subagent finished row keeps its mark, name, new dot, time and chevron on its line at ${width}px`, async () => {
       const page = await open("collapsed", width);
+      await openFolds(page);
       const shut = await fields(page);
       expectFields("shut", shut);
       expect(shut.open).toBe(false);
@@ -153,6 +167,15 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
   test("the agent's reply after a subagent's end is its own message, open or shut", async () => {
     const page = await open("collapsed");
     const row = `.acpmux-row[data-row-id="subagentDone:${AGENT}"]`;
+    // Closed, the fold that holds the subagent's end is right above the reply, which stays in sight.
+    const folded = await placed(page, REPLY.slice(0, 40), ".acpmux-row button.cv-worked.is-toggle");
+    expect(folded, JSON.stringify(folded)).toMatchObject({
+      found: true,
+      insideNotification: false,
+      muted: false,
+      below: true,
+    });
+    await openFolds(page);
     const shut = await placed(page, REPLY.slice(0, 40), row);
     expect(shut, JSON.stringify(shut)).toMatchObject({
       found: true,
@@ -183,6 +206,7 @@ await requireBrowserLane("notification-reply-browser.test.ts", async () => {
 
   test("a notification with no reply draws its row alone", async () => {
     const page = await open("no-reply");
+    await openFolds(page);
     expectFields("no reply", await fields(page));
     expect(await page.locator(".cv-reaction-reply").count()).toBe(0);
     await page.close();

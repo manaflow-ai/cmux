@@ -68,16 +68,16 @@ const completed = (id: string, prompt: string, answer: string): AcpmuxRow[] => [
   { ...row(`${id}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
 ];
 
-async function copyRange(source: AcpmuxRow[], from: string, to: string) {
+async function copyRange(source: AcpmuxRow[], from: string, to: string, expanded: ReadonlySet<string> = new Set()) {
   const root = createRoot(dom.window.document.getElementById("root")!);
-  const rows = turnView(source, new Set());
+  const rows = turnView(source, expanded);
   const start = rows.findIndex((row) => row.id === from);
   const end = rows.findIndex((row) => row.id === to);
   if (start < 0 || end < start) throw new Error("invalid fixture selection");
   copied.length = 0;
   try {
     await act(async () =>
-      root.render(<VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set()} />),
+      root.render(<VirtualTranscript rows={rows} onToggleActivity={() => {}} expanded={new Set(expanded)} />),
     );
     const article = dom.window.document.querySelector<HTMLElement>(`[data-row-id="${from}"]`)!;
     const first = article.querySelector<HTMLButtonElement>(".acpmux-row__copy") ?? article;
@@ -113,14 +113,17 @@ test("keyboard range copy includes a finished answer once", async () => {
 
 // A prompt drawn as the person's bubble has no floating Copy of its own (#24267), and an answer's
 // and its footer's Copy are the turn's, not the range's. Another agent's message, drawn as a line,
-// keeps its own message Copy; the keyboard copies the selected range.
+// keeps its own message Copy; the keyboard copies the selected range. A finished turn the message
+// started folds it under its "Worked for" (turns.ts `foldsPrompt`), so the fold is opened to select it.
 test("range copy from a received message includes a finished answer once", async () => {
   const [prompt, answer, end] = completed("one", "Explain retries", "Retry **twice**.");
   const message: AcpmuxRow = {
     ...prompt!,
     incoming: { kind: "message", message: { name: "Retry lane", text: "Explain retries", raw: "" } },
   };
-  expect(await copyRange([message, answer!, end!], "one-user", "one-end")).toBe("Explain retries\n\nRetry **twice**.");
+  expect(
+    await copyRange([message, answer!, end!], "one-user", "one-end", new Set(["worked-one-user"])),
+  ).toBe("Explain retries\n\nRetry **twice**.");
 });
 
 test("a selected footer still copies its answer when the answer row is outside the selection", async () => {

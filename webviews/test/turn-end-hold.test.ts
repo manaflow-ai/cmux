@@ -65,6 +65,19 @@ test("work in view stays open at the turn's end; the reader's place keeps its ro
   for (const id of ["t1", "answer"]) expect(ids(open)).toContain(id);
 });
 
+test("a held turn draws its work with no Worked for lines until the reader opens it", () => {
+  // A line per stretch pushed every row under it down a row while the reader was scrolled up
+  // (agent-pane-turn-end-keeps-place.test.ts); held, the work draws as it ran, with no line.
+  const held = new Set(hold(["t1", "answer"]));
+  const heldView = turnView(ended, withHeldFolds(new Set(), held));
+  expect(heldView.filter((each) => each.kind === "worked")).toEqual([]);
+  expect(ids(heldView)).toContain("t1");
+  // Once the reader's own (App.tsx moves it there back at the latest row), its lines draw.
+  const own = turnView(ended, withHeldFolds(new Set(held), held));
+  expect(own.some((each) => each.kind === "worked")).toBe(true);
+  expect(ids(own)).toContain("t1");
+});
+
 test("a reader in older turns, or only on the prompt and the reply, holds nothing open", () => {
   expect(hold(["old", "old-reply"])).toEqual([]);
   expect(hold(["u", "answer"])).toEqual([]);
