@@ -23,8 +23,11 @@
 //! (`cmux_config::watch`) rereads the setting when the file changes, and one
 //! thread per process waits with no timeout until a count makes the rollup
 //! dirty, then writes the file [`FLUSH_EVERY`] later (at most that often).
-//! Both live as long as the process. A 5-second gate loop here woke every
-//! idle daemon 12 times a minute (`idle_wakeups.rs`).
+//! Both live as long as the process. That thread also rereads the setting
+//! each time it leaves its untimed wait and before each timed write (it
+//! never wakes for the setting alone), so a change to off still stops the
+//! counting when the watch cannot start. A 5-second gate loop here woke every idle daemon 12 times
+//! a minute (`idle_wakeups.rs`).
 //!
 //! Reset: `cmux usage-patterns reset` deletes the files. A recorder that wrote its file
 //! and finds it gone drops what it holds instead of writing it back.
@@ -450,8 +453,10 @@ impl Recorder {
     /// [`FLUSH_EVERY`] after the last write (at once when counting stopped).
     /// Each time it wakes, and again before a timed write, it rereads the
     /// setting ([`Recorder::refresh_gate`]). So a recorder with no watch
-    /// stops counting after the setting went off: at the next count when the
-    /// thread was asleep, else at the timed write it was waiting for.
+    /// stops counting after the setting went off: when the thread was
+    /// asleep, after the next count (each count made before the thread has
+    /// reread the setting is still taken), else at the timed write it was
+    /// waiting for.
     /// Returns only when `stop` says so (tests); the installed one never does.
     pub fn run_writer(&self, flush_every: Duration, stop: &dyn Fn() -> bool) {
         loop {
@@ -625,13 +630,16 @@ pub fn install(writer: &str) -> Option<Arc<Recorder>> {
 /// whenever the file changes: written in place, replaced by rename (editors,
 /// the settings writer), created later, or its folder created later
 /// (`cmux_config::watch` watches the nearest existing folder until then).
-/// None when the watch cannot start. The writer thread's own rereads
-/// ([`Recorder::run_writer`]) are then the only ones: counting stops at the
-/// next count after the change to off, or at the timed write when counts
-/// were already waiting for one (about [`FLUSH_EVERY`] at most). A change to
-/// on is then read only at the next start, because a recorder that counts
-/// nothing has no thread awake to read it. That holds also for a settings
-/// file that such a reread finds half written: it reads as off.
+/// None when the watch cannot start. After the read at start
+/// ([`Recorder::open`]), the writer thread's own rereads
+/// ([`Recorder::run_writer`]) are then the only ones: counting stops after
+/// the next count that follows the change to off, or, when the writer was
+/// already in its timed wait, at that write (about [`FLUSH_EVERY`] at
+/// most). A change to on is then read only at the next start, because a
+/// recorder that counts nothing has no thread awake to read it. A settings
+/// file that such a reread finds half written reads as off; the change to
+/// off wakes the writer, which rereads one more time, and a file that is
+/// still not whole then stays off until the next start.
 pub fn watch_gate(recorder: &Arc<Recorder>) -> Option<cmux_config::watch::Watcher> {
     let gate = Arc::clone(recorder);
     cmux_config::watch::Watcher::start(vec![recorder.config.clone()], move || {
