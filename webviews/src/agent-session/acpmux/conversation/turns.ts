@@ -1580,6 +1580,18 @@ function shapeTurn(
     // it stays drawn as it ran, the steer between the replies (agent-pane-steer-split.test.ts).
     // Reports received from other agents fold like work.
     const dialogue = work.every((row) => (row.kind === "user" && !row.incoming) || isAnswer(row));
+    // Opened, the person's steer after the answer draws in the fold, in its place: the answer draws
+    // in its own place too, above the steer it came before, never moved under it (Leo, 2026-11-12:
+    // "in this case you didnt respond to me at all..."). A card or strip under it keeps it last.
+    // Only where the fold draws its work: a turn of dialogue alone draws as it ran.
+    const inPlace =
+      open &&
+      work.length > 0 &&
+      !dialogue &&
+      said !== undefined &&
+      !(nextStep && !cutOff && said === answer) &&
+      !(walked && said === answer && !walkedDrawn) &&
+      after.some((row) => row.kind === "user" && steerDialogue.has(row.id));
     // The tasks this fold hides, as one line each beside it (TaskLine.tsx).
     const tasks = !open && taskLook && taskLook !== "card" && work.length && !dialogue ? startedTasks(work) : [];
     const taskLine: AcpmuxRow | undefined = tasks.length
@@ -1648,27 +1660,32 @@ function shapeTurn(
       // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
       // summary lines of the work around them (TurnRows.tsx `runStretches`).
       // A steer's reply never joins a run: it stays in sight beside the steer.
+      const merge = (rows: readonly AcpmuxRow[]) =>
+        mergeShortNotes(
+          rows.filter((row) => !out(row)),
+          steerDialogue,
+          style.runs,
+        );
       if (open)
         shaped.push(
-          ...mergeShortNotes(work, steerDialogue, style.runs)
-            .flatMap(withoutDrafts)
-            .map((row) => ({
-              ...endedPlan(row),
-              id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
-              settled: true,
-              // A finished turn's earlier replies fold here too; each keeps its action row, while a
-              // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
-              ...(replies.has(row.id) && { foldedReply: true }),
-              // A folded run draws otherwise, so its version moves (memos compare versions).
-              ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
-              // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,
-              // doubled, so the run redraws without a sixth `RUN_STATES` (`OPEN_RUN_STATES`).
-              ...(runsOpen &&
-                row.kind === "activity" && {
-                  runOpen: true as const,
-                  version: (row.version * RUN_STATES + 3) * OPEN_RUN_STATES + 1,
-                }),
-            })),
+          // The answer between `before` and `after` is a seam: the runs on either side of it stay apart.
+          ...[...merge(before), ...(inPlace ? [said] : []), ...merge(after)].flatMap(withoutDrafts).map((row) => ({
+            ...endedPlan(row),
+            id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
+            settled: true,
+            // A finished turn's earlier replies fold here too; each keeps its action row, while a
+            // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
+            ...(replies.has(row.id) && row !== said && { foldedReply: true }),
+            // A folded run draws otherwise, so its version moves (memos compare versions).
+            ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
+            // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,
+            // doubled, so the run redraws without a sixth `RUN_STATES` (`OPEN_RUN_STATES`).
+            ...(runsOpen &&
+              row.kind === "activity" && {
+                runOpen: true as const,
+                version: (row.version * RUN_STATES + 3) * OPEN_RUN_STATES + 1,
+              }),
+          })),
         );
     }
     // Context and actionable rows stay available beside the fold. Render cards keep their
@@ -1712,7 +1729,7 @@ function shapeTurn(
       if (stripUnder) shaped.push(strip(said!.at));
       shaped.push(card(said!.at));
       cardDrawn = true;
-    } else if (said) {
+    } else if (said && !inPlace) {
       shaped.push(said);
       if (stripUnder) shaped.push(strip(said.at));
     }
@@ -2804,6 +2821,10 @@ const isRun = (row: AcpmuxRow | undefined) => row?.kind === "activity" && !isEdi
 /// merged row keeps the first run's id; its version moves with each part's.
 /// `keep`: notes that never join a run (a reply before a steer, `steerDialogueIn`). `edits`: a run
 /// that edited takes notes too, as Claude desktop's groups do ("Edited 2 files, ran 3 commands").
+/// A seam the reader never sees never splits a run either (Leo, 2026-11-12, ask-bc2af01f6e: "how come
+/// these aren't folded? they were missed in the logic?"): two runs with nothing between them (a todo
+/// update that ended the first run and moved to the turn's end, `staysOut`) and two runs with only an
+/// agent message of no visible text between them are one run, with no note line.
 export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<string>, edits = false): AcpmuxRow[] {
   const run = (row: AcpmuxRow | undefined) => isRun(row) || (edits && row?.kind === "activity");
   const out: AcpmuxRow[] = [];
@@ -2818,20 +2839,34 @@ export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<s
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     const previous = out.at(-1);
+    let to = index;
+    while (drawsNothing(rows[to])) to += 1;
+    const note = to === index && isShortNote(row) && !keep?.has(row.id);
+    if (note) to += 1;
     // A stretch being joined is a run already (`items`): its first run is not read again per note.
-    if ((items !== undefined || run(previous)) && isShortNote(row) && !keep?.has(row.id) && run(rows[index + 1])) {
-      const next = rows[index + 1]!;
+    // A run of a turn the agent ran on its own never joins another turn's run (backgroundTurns.ts).
+    if (
+      (items !== undefined || run(previous)) &&
+      (note || to > index || run(row)) &&
+      run(rows[to]) &&
+      rows[to]!.inBackground === previous!.inBackground
+    ) {
+      const next = rows[to]!;
       items ??= [...(previous!.items ?? [])];
       joined ??= [...(previous!.joined ?? [previous!.id])];
-      items.push({ kind: "note", text: row.text!.trim() });
+      if (note) items.push({ kind: "note", text: row.text!.trim() });
       for (const item of next.items ?? []) items.push(item);
-      joined.push(row.id, next.id);
+      let version = previous!.version;
+      for (let at = index; at <= to; at += 1) {
+        joined.push(rows[at]!.id);
+        version = mixVersion(version, rows[at]!.version);
+      }
       out[out.length - 1] = {
         ...previous!,
         toolCount: (previous!.toolCount ?? 0) + (next.toolCount ?? 0),
-        version: mixVersion(mixVersion(previous!.version, row.version), next.version),
+        version,
       };
-      index += 1;
+      index = to;
     } else {
       close();
       out.push(row);
@@ -2840,6 +2875,10 @@ export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<s
   close();
   return out.length === rows.length ? (rows as AcpmuxRow[]) : out;
 }
+
+/// An agent message with no visible text: it draws no row (visibleMessage.ts), so it splits nothing.
+const drawsNothing = (row: AcpmuxRow | undefined) =>
+  row?.kind === "assistant" && !row.incoming && isVisiblyEmptyText(row.text);
 
 const mixVersion = (a: number, b: number) => (a * 1_009 + b * 7 + 1) % 2_147_483_647;
 
