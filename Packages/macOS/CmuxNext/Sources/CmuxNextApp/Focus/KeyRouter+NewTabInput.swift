@@ -25,7 +25,7 @@ final class NewTabInputCoordinator {
     weak var router: KeyRouter?
     private var buffers: [Int: Entry] = [:]
     /// The longest a key may wait for the New Tab field. Its readiness normally comes within one
-    /// page render; past this the field (or whatever has focus) takes the keys directly.
+    /// page render; past this the hold ends with no field ready (see the class comment), and later keys go where the keyboard is.
     var holdLimit: Duration = .seconds(2)
     /// The same for a page that does not exist yet (Cmd-N): the daemon makes the workspace and its
     /// first tab first, so the field comes later than in a pane that already shows.
@@ -219,7 +219,7 @@ final class NewTabInputCoordinator {
     }
 
     /// The creation behind `token` ended. With no page made for it (it failed, or made a terminal),
-    /// its keys go on to whatever has focus; a page made keeps the hold until its readiness.
+    /// the hold ends with no field ready (see the class comment); a page made keeps the hold until its readiness.
     func endIncoming(_ token: String?, pageMade: Bool) {
         guard let token, let (number, entry) = buffers.first(where: { $0.value.buffer.token == token }) else { return }
         guard !pageMade || entry.incoming?.claimed != true else { return }
@@ -317,7 +317,7 @@ final class NewTabInputCoordinator {
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
     func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
 
-    /// The opening failed: its keys go on to whatever has focus.
+    /// The opening failed: the hold ends with no field ready (see the class comment).
     func cancel(in window: NSWindow?) { if let window { release(in: window, why: "open failed") } }
 
     func capture(_ event: NSEvent, in keyWindow: NSWindow?) -> Bool {
