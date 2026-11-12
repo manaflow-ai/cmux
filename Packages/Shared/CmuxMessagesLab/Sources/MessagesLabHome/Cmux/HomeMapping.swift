@@ -109,6 +109,9 @@ enum HomeMapping {
         message.parent = parent(item, roots: roots)
         // The Chief's messages to its agents and their reports: asides under its reply (no avatar, no name).
         if item.agentMessage != nil { message.cmuxAside = true }
+        // A Feed row (an update, a merged pull request) is a line from the Feed, not a message: no
+        // sender's name or avatar over it, and it never joins the Chief's run (HomeFeedRow.author).
+        if item.feedRow != nil { message.cmuxAside = true }
         if item.isRetracted, hidesRetracted(summary, me: me) {
             // A Chief chat shows no "unsent" row: a deleted message is gone (#36019).
             message.deletedAt = message.retractedAt

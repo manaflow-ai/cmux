@@ -32,6 +32,7 @@ import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
+import { customizeMessage } from "./customizeCommand";
 import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
 import {
   TAB_KINDS,
@@ -204,6 +205,11 @@ export function NewTabPage({
       : (firstProject(started ? [started.replace(/(.)\/+$/, "$1")] : [], home, knownProjects) ??
         mostRecentProject(snapshot.sessions, home, knownProjects) ??
         cwd));
+  // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
+  // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
+  // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
+  // the tab's folder (`projectCwd`).
+  const chatCwd = projectCwd === cwd && !isStartableProject(cwd) ? undefined : projectCwd;
   // Agent's harness and model before a pick, as the New Tab screen reads them (newTabStart): the
   // chips pick on this snapshot, and Return starts the chat on the same harness and model.
   const remembered = useLastPick(projectCwd);
@@ -238,7 +244,10 @@ export function NewTabPage({
     const attachments = next === "agent" ? attachmentRef.current : [];
     const chat = next === "agent" && harness ? { harness, ...(chipModel ? { model: chipModel } : {}) } : undefined;
     if (next === "agent" && command.intercept(value, harness, attachments.length)) return;
-    const result = onSubmit(next, value, folder, attachments.length ? attachments : undefined, chat);
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts). Here, the one place every
+    // way of starting a chat passes: Enter on the field, Enter on the Ask row, a click on that row.
+    const sent = next === "agent" ? (customizeMessage(value.trim()) ?? value) : value;
+    const result = onSubmit(next, sent, folder, attachments.length ? attachments : undefined, chat);
     // The suggestions float over the note: they close until the next edit, so it shows.
     if (result)
       void result.catch((error: unknown) => {
@@ -698,7 +707,7 @@ export function NewTabPage({
         {kind === "agent" && Chips && (
           <div className="acpmux-newtab-foot">
             <ComposerFoot ref={foot} plain={plainFooter}>
-              <Chips snapshot={chipSnapshot} cwd={projectCwd} />
+              <Chips snapshot={chipSnapshot} {...(chatCwd ? { cwd: chatCwd } : {})} />
             </ComposerFoot>
           </div>
         )}

@@ -1044,7 +1044,8 @@
           {
             "key" : "settings.group.toolbar",
             "rows" : [
-              "browser.toolbarButtons"
+              "browser.toolbarButtons",
+              "browser.showLoadingBar"
             ],
             "title" : {
               "key" : "settings.group.toolbar",
@@ -1947,6 +1948,16 @@
             "title" : {
               "key" : "settings.group.hangReports",
               "text" : "Hang Reports"
+            }
+          },
+          {
+            "key" : "settings.group.usagePatterns",
+            "rows" : [
+              "diagnostics.usagePatterns"
+            ],
+            "title" : {
+              "key" : "settings.group.usagePatterns",
+              "text" : "Usage Patterns"
             }
           },
           {
@@ -61480,7 +61491,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "dot",
+      "default" : "leftRail",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -81055,6 +81066,140 @@
       "title" : {
         "key" : "settings.browser.toolbarButtons",
         "text" : "Toolbar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : {
+        "key" : "settings.browser.showLoadingBar.help",
+        "text" : "A thin progress line under the address bar while a page loads. The Stop button shows either way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.showLoadingBar",
+      "keywords" : [
+        "loading",
+        "progress",
+        "bar",
+        "line",
+        "omnibar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "showLoadingBar"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:browser.showLoadingBar"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.showLoadingBar",
+        "text" : "Show Loading Bar"
       },
       "validation" : "portable"
     },
@@ -103176,6 +103321,146 @@
       "title" : {
         "key" : "settings.diagnostics.hangReports",
         "text" : "Send Hang Reports"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.usagePatterns",
+        "text" : "Usage Patterns"
+      },
+      "help" : {
+        "key" : "settings.diagnostics.usagePatterns.help",
+        "text" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "diagnostics.usagePatterns",
+      "keywords" : [
+        "usage",
+        "patterns",
+        "stats",
+        "statistics",
+        "analytics",
+        "tracking",
+        "metrics",
+        "privacy",
+        "counts",
+        "habits"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diagnostics",
+        "usagePatterns"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : {
+        "key" : "settings.diagnostics.usagePatterns.summary",
+        "text" : "Stays on this computer. Counts only, no text."
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:diagnostics.usagePatterns"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.diagnostics.usagePatterns",
+        "text" : "Record Usage Patterns"
       },
       "validation" : "portable"
     },
