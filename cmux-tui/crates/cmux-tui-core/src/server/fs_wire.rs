@@ -386,6 +386,12 @@ impl transport::Stream for Prefixed {
     }
 }
 
+/// Tests: the remote entry's stream, `prefix` replayed before `inner`.
+#[cfg(test)]
+pub(super) fn prefixed_for_test(prefix: Vec<u8>, inner: UnixStream) -> Box<dyn transport::Stream> {
+    Box::new(Prefixed { prefix, at: 0, inner })
+}
+
 #[cfg(test)]
 #[path = "fs_wire_tests.rs"]
 mod tests;

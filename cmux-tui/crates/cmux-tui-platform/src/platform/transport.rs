@@ -36,6 +36,14 @@ pub trait Stream: Read + Write + Send + Sync {
     fn peer_gone(&self) -> bool {
         false
     }
+    /// Waits until a read will not block: data, the end or an error is
+    /// waiting. The socket's read timeout still bounds the wait, which then
+    /// fails as the read would (`WouldBlock`). The default does not wait.
+    /// The daemon's line reader calls it before every read (server
+    /// line_connection.rs, `LineSocket`).
+    fn wait_readable(&self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub struct Listener {
