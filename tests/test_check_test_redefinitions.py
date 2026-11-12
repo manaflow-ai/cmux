@@ -198,6 +198,13 @@ class RedefinitionTest(unittest.TestCase):
             self.assertEqual(dirty.returncode, 1, dirty.stdout + dirty.stderr)
             self.assertIn("tests/nested/test_dup.py:5: a redefines line 1", dirty.stdout)
 
+    def test_a_path_with_a_colon_is_scanned_without_crashing(self) -> None:
+        # #41827 review: the hits were sorted by `int(hit.split(":")[1])`, which raised on `tests/a:b.py`.
+        hits = check.scan_source("def a():\n    pass\n\n\ndef a():\n    pass\n\n\ndef b():\n    pass\n\n\n"
+                                 "def b():\n    pass\n", "tests/test_a:b.py")
+        self.assertEqual([hit.split(";")[0] for hit in hits],
+                         ["tests/test_a:b.py:5: a redefines line 1", "tests/test_a:b.py:13: b redefines line 9"])
+
     def test_a_file_that_does_not_parse_is_no_verdict(self) -> None:
         # #41818 review (F2): it exited 1, a verdict, and the gate took that as "no redefinition" for the file.
         with tempfile.TemporaryDirectory() as tmp:

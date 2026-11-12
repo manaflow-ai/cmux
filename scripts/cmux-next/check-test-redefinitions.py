@@ -88,11 +88,13 @@ def scan_source(source: str, path: str) -> list[str]:
             if not isinstance(node, DEFINITIONS) or _reuses_its_name(node):
                 continue
             if node.name in first:
-                hits.append(f"{path}:{node.lineno}: {scope}{node.name} redefines line {first[node.name]}; "
-                            "Python keeps only this one, so the first is dead code. Keep one.")
+                hits.append((node.lineno, f"{path}:{node.lineno}: {scope}{node.name} redefines line {first[node.name]}; "
+                             "Python keeps only this one, so the first is dead code. Keep one."))
             else:
                 first[node.name] = node.lineno
-    return sorted(hits, key=lambda hit: (hit.split(":")[0], int(hit.split(":")[1])))
+    # Sorted by line before it is text: a path may hold `:` (`tests/a:b.py`), so a line number is never read back out
+    # of a hit (#41827 review: that read crashed the checker on such a path).
+    return [hit for _, hit in sorted(hits)]
 
 
 def test_files(root: Path) -> list[Path]:
