@@ -89,6 +89,8 @@ class Tree:
         return None
 
     def excluded(self, root: str, directory: str) -> bool:
+        if not under(directory, root):
+            return False  # a member beside the root ("../x") is outside every `exclude` entry
         relative = str(PurePosixPath(directory).relative_to(root))
         return any(relative == path.rstrip("/") or relative.startswith(path.rstrip("/") + "/")
                    for path in self.manifests[root]["workspace"].get("exclude", []))
@@ -100,6 +102,8 @@ class Tree:
             if "workspace" in manifest:
                 found.add(directory)
             elif "package" in manifest:
+                if isinstance(manifest["package"].get("workspace"), str):
+                    continue  # a member of the workspace it names (cmux-rd-ffi names ../cmux-app-ffi)
                 above = self.workspace_above(directory)
                 if above is None or self.excluded(above, directory):
                     found.add(directory)
@@ -112,7 +116,8 @@ class Tree:
         found = {root} if "package" in manifest else set()
         if table is None:
             return found
-        patterns = [str(PurePosixPath(root) / member) for member in table.get("members", [])]
+        # Normalized: a member may sit beside the root (cmux-app-ffi's members are "../cmux-rd-ffi" and its siblings).
+        patterns = [os.path.normpath(str(PurePosixPath(root) / member)) for member in table.get("members", [])]
         for directory, other in self.manifests.items():
             if "package" in other and any(fnmatch(directory, pattern) for pattern in patterns) \
                     and not self.excluded(root, directory):
