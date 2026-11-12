@@ -588,11 +588,67 @@ def _wrapped(term: str) -> bool:
     return True
 
 
+def _property_chain(stream: list[tuple[str, str]]) -> list[str | int] | None:
+    """The keys of a property chain (`.a`, `['a']`, `[0]`) that is the whole of STREAM, or None."""
+    keys: list[str | int] = []
+    index = 0
+    while index < len(stream):
+        if stream[index] == ("op", ".") and index + 1 < len(stream) and stream[index + 1][0] == "name":
+            keys.append(stream[index + 1][1])
+            index += 2
+        elif (stream[index] == ("op", "[") and index + 2 < len(stream) and stream[index + 2] == ("op", "]")
+              and stream[index + 1][0] in ("string", "number")):
+            key = stream[index + 1]
+            if key[0] == "string":
+                keys.append(_literal(key) or "")
+            elif key[1].isdigit():
+                keys.append(int(key[1]))
+            else:
+                return None
+            index += 3
+        else:
+            return None
+    return keys
+
+
+def constant_from_json(term: str) -> list[str] | None:
+    """The values a `fromJSON('<literal>')` term takes, with any property chain after it (`.mac`, `['mac']`,
+    `[0]`): a string is itself, a number or boolean its text, an array of those each of its items (a runs-on
+    array is its labels). None for anything else: not that shape, JSON that does not parse, a key it lacks
+    (GitHub reads null), or a value that is an object or null. Object keys match without case, as GitHub's do."""
+    try:
+        stream = tokens(term)
+    except Unreadable:
+        return None
+    if (len(stream) < 4 or stream[0][0] != "name" or stream[0][1].lower() != "fromjson" or stream[1] != ("op", "(")
+            or stream[2][0] != "string" or stream[3] != ("op", ")")):
+        return None
+    keys = _property_chain(stream[4:])
+    if keys is None:
+        return None
+    try:
+        value = json.loads(_literal(stream[2]) or "")
+    except ValueError:
+        return None
+    for key in keys:
+        if isinstance(value, Mapping) and isinstance(key, str):
+            value = next((v for k, v in value.items() if str(k).lower() == key.lower()), None)
+        elif isinstance(value, list) and isinstance(key, int) and key < len(value):
+            value = value[key]
+        else:
+            return None
+    items = value if isinstance(value, list) else [value]
+    if not items or any(item is None or isinstance(item, (Mapping, list)) for item in items):
+        return None
+    return [_scalar_text(item) for item in items]
+
+
 def expression_values(expression: str) -> tuple[set[str], set[str]]:
     """The literal values a `${{ }}` expression can take, and the operands it can take a value
     from that are not literals. `c && 'a' || d && 'b' || 'e'` yields ({a, b, e}, set()); a value
     read from a context (`needs.x.outputs.y`) comes back in the second set, and the guard decides.
-    `||` and `&&` split only outside quotes and parentheses, so `(a || b) && 'x' || 'y'` is {x, y}."""
+    `||` and `&&` split only outside quotes and parentheses, so `(a || b) && 'x' || 'y'` is {x, y}.
+    A constant `fromJSON('<literal>')` is its values (constant_from_json): `fromJSON('["a"]')` is {a}."""
     values: set[str] = set()
     unresolved: set[str] = set()
     for alternative in _split_top(expression, "||"):
@@ -603,8 +659,11 @@ def expression_values(expression: str) -> tuple[set[str], set[str]]:
             unresolved |= open_terms
             continue
         quoted = _QUOTED.match(term)
+        constant = None if quoted else constant_from_json(term)
         if quoted:
             values.add(quoted.group(1).replace("''", "'"))
+        elif constant is not None:
+            values.update(constant)
         else:
             unresolved.add(term)
     return values, unresolved
