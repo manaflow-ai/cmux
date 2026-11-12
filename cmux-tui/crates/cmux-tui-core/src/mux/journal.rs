@@ -389,6 +389,16 @@ impl Mux {
     }
 
     #[cfg(test)]
+    pub(crate) fn install_journal_failing_statement_after_hold_for_test(&self) {
+        self.registry_connection.set_journal_failing_statement_after_hold_for_test();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_journal_statement_until_deadline_for_test(&self) {
+        self.registry_connection.set_journal_statement_until_deadline_for_test();
+    }
+
+    #[cfg(test)]
     pub(crate) fn install_journal_after_commit_admission_for_test(
         &self,
         entered: SyncSender<()>,

@@ -1736,3 +1736,150 @@ fn agent_hook_ingress_throughput_probe() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+fn stall_probe_ingress(key: &str) -> crate::JournalIngress {
+    crate::agent_hook_journal_ingress(
+        "codex",
+        "SubagentStop",
+        None,
+        serde_json::json!({
+            "session_id":"stall-root",
+            "root_session_id":"stall-root",
+            "parent_session_id":"stall-root",
+            "child_agent_id":"stall-child",
+            "message":key,
+        }),
+    )
+    .unwrap()
+}
+
+/// JOURNAL STALL: a statement runs until the deadline's own SQLite interrupt ("Error code 9")
+/// stops it, under an append that waits. The waiter gets its timeout; the writer stays alive.
+#[test]
+fn a_real_deadline_interrupt_under_a_waiter_keeps_the_writer() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-journal-interrupt-waiter-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let mux =
+        Mux::open_persistent("journal-interrupt-waiter", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+    let (failed, failed_receiver) = sync_channel(1);
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
+    mux.install_journal_failure_notifier_for_test(failed);
+    mux.install_journal_statement_until_deadline_for_test();
+    let first =
+        mux.append_journal_ingress(&stall_probe_ingress("first"), "client_i", "interrupt_1");
+    let first = first.map(|_| ()).map_err(|error| format!("{error:#}"));
+    assert!(
+        first.as_ref().is_err_and(|error| error.contains("interrupted")),
+        "the waiter gets the deadline's interrupt as its timeout: {first:?}"
+    );
+    let stored = failed_receiver.try_recv();
+    let second =
+        mux.append_journal_ingress(&stall_probe_ingress("second"), "client_i", "interrupt_2");
+    assert!(stored.is_err(), "the interrupt stored a writer failure: {stored:?}");
+    assert!(second.is_ok(), "the append after the interrupt failed: {:?}", second.err());
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn stall_test_root(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "cmux-{name}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ))
+}
+
+fn stall_test_database(root: &std::path::Path) -> std::path::PathBuf {
+    std::fs::read_dir(root)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+        .find(|path| path.is_file())
+        .expect("persistent journal database")
+}
+
+/// JOURNAL STALL (ii): a commit slower than its deadline once, which then ends in an error that
+/// is not contention (a store error, not the deadline's interrupt). The writer must not stop for
+/// good: the output nobody waits on is kept and commits on the next try, no failure is stored,
+/// and later appends are durable.
+#[test]
+fn a_store_error_after_a_late_commit_keeps_the_writer() {
+    let root = stall_test_root("journal-stall-store-error");
+    let mux =
+        Mux::open_persistent("journal-stall-store-error", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+    let terminal = Arc::new(public_id("term", 31, TerminalPublicId::parse));
+    let (failed, failed_receiver) = sync_channel(1);
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
+    mux.install_journal_failure_notifier_for_test(failed);
+    let (entered, entered_receiver) = sync_channel(1);
+    let (release, release_receiver) = sync_channel(1);
+    mux.install_journal_before_commit_for_test(entered, release_receiver);
+    mux.install_journal_failing_statement_after_hold_for_test();
+    mux.try_journal_terminal_output(terminal, Arc::from("stall-generation"), 1, b"kept".to_vec())
+        .unwrap();
+    entered_receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+    // Hold the commit until its deadline has passed (the writer may not fail meanwhile).
+    let early =
+        failed_receiver.recv_timeout(JOURNAL_DEADLINE_TEST_WAIT + Duration::from_millis(500));
+    assert!(early.is_err(), "the writer failed while its commit was held: {early:?}");
+    release.send(()).unwrap();
+
+    let after =
+        mux.append_journal_ingress(&stall_probe_ingress("after"), "client_s", "after_store");
+    let stored = failed_receiver.try_recv();
+    assert!(stored.is_err(), "one late commit stopped the writer for good: {stored:?}");
+    assert!(after.is_ok(), "the append after the late commit failed: {:?}", after.err());
+    mux.flush_terminal_journal().unwrap();
+    let records = mux.session_journal_after(0, 1024).unwrap().records;
+    let output = records.iter().position(|record| {
+        record.kind == "terminal.output"
+            && record.terminal_output.as_deref() == Some(b"kept".as_slice())
+    });
+    let append =
+        records.iter().position(|record| record.correlation_id.as_deref() == Some("after_store"));
+    assert!(output.is_some(), "the held output was kept and committed");
+    assert!(append.is_some(), "the append after the late commit is in the journal");
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// JOURNAL STALL (iii), c-persist's case: the only queued record is a geometry change nobody
+/// waits on, and the store rejects it every time, so the writer drops it. Nothing else is queued.
+/// A later durable append must still commit: a drop must not leave admission shut.
+#[test]
+fn a_dropped_last_resize_does_not_shut_admission() {
+    let root = stall_test_root("journal-stall-dropped-resize");
+    let mux = Mux::open_persistent(
+        "journal-stall-dropped-resize",
+        crate::SurfaceOptions::default(),
+        &root,
+    )
+    .unwrap();
+    let injector = rusqlite::Connection::open(stall_test_database(&root)).unwrap();
+    injector
+        .execute_batch(
+            "CREATE TRIGGER reject_test_terminal_resize
+                 BEFORE INSERT ON session_journal
+                 WHEN NEW.kind = 'terminal.resized'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'injected terminal resize failure');
+                 END;",
+        )
+        .unwrap();
+    let terminal = Arc::new(public_id("term", 32, TerminalPublicId::parse));
+    mux.journal_terminal_resize(terminal, Arc::from("dropped-generation"), 100, 30, 8, 16);
+    // The barrier is answered once the resize is dropped (it is queued behind it).
+    let flushed = mux.flush_terminal_journal();
+    let after =
+        mux.append_journal_ingress(&stall_probe_ingress("after-drop"), "client_d", "after_drop");
+    assert!(flushed.is_ok(), "the barrier behind a dropped resize failed: {:?}", flushed.err());
+    assert!(after.is_ok(), "a dropped resize shut journal admission: {:?}", after.err());
+    drop(injector);
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
