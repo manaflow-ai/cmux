@@ -34,6 +34,8 @@ struct WorkspaceGroupHeaderModel: Equatable {
     var macID: String
     var count: Int
     var canEdit: Bool
+    /// Its id in the collection (`group.<section>` or `group.empty.<group>`).
+    var itemID: String
 }
 
 struct WorkspaceFolderHeaderModel: Equatable {
