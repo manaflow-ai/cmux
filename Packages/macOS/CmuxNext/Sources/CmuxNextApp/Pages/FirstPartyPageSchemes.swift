@@ -98,7 +98,9 @@ enum FirstPartyPageSchemes {
         var out: [String: CEFPageSchemes.Entry] = [:]
         for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
             guard let page = descriptors.first(where: { $0.id == id }) else { continue }
-            out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.sorted(),
+            // The shared build assets use the same scheme adapter as WebKit, including outside
+            // the live loop; the shim's ordinary file path is confined to the individual page.
+            out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.union(["__shared"]).sorted(),
                                            entry: page.entry)
         }
         return out
@@ -108,7 +110,7 @@ enum FirstPartyPageSchemes {
     @MainActor static func install(bundle: Bundle = .main) {
         guard let resources = bundle.resourceURL else { return }
         CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources)
-        // A browser tab at a first-party address, while the live web loop runs (no page host answers it).
+        // A browser tab without a page host uses this for shared chunks and the live web loop.
         CEFPageSchemes.liveFallback = { url, range in
             guard let id = url.host?.lowercased(), let entry = CEFPageSchemes.firstParty[id],
                   let page = descriptors.first(where: { $0.id == id }) else { return .notFound }
