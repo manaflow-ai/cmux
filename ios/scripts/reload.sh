@@ -326,6 +326,11 @@ if [[ "$REVIEW" -eq 1 ]]; then
     exit 2
   fi
   RELOAD_DEVICE=1
+  # xcode-select may point at the Command Line Tools, which have no simctl or
+  # devicectl; use the installed Xcode then instead of failing mid-hand-off.
+  if ! xcrun --find simctl >/dev/null 2>&1 && [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  fi
 elif [[ -n "$REVIEW_WORKSPACE" ]]; then
   echo "error: --workspace applies only to --review" >&2
   exit 2
@@ -682,11 +687,6 @@ review_finish() {
 }
 
 if [[ "$REVIEW" -eq 1 ]]; then
-  # xcode-select may point at the Command Line Tools, which have no simctl or
-  # devicectl; use the installed Xcode then instead of failing mid-hand-off.
-  if ! xcrun --find simctl >/dev/null 2>&1 && [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
-    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
-  fi
   if [[ -z "${DEVICE_ID:-$DEFAULT_DEVICE_ID}" ]]; then
     echo "error: --review needs the iPhone: pass --device-id, set CMUX_IPHONE_DEVICE_ID, or write ~/.config/cmux/iphone-device-id" >&2
     exit 2
