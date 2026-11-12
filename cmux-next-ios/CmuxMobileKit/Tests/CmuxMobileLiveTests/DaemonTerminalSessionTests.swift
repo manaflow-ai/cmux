@@ -601,17 +601,23 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(session.isAlternateScreen)
     }
 
-    @Test func attachFailureIsShownInTheTerminal() async throws {
+    /// The reason an attach failed is shown in the page's label (the
+    /// connection state), over the cached screen; nothing is written into the
+    /// mirror (Leo 2026-11-12: "just show the cache").
+    @Test func attachFailureIsShownInTheLabel() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let session = DaemonTerminalSession(surface: 9) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
+        session.reattachBackoff = []
         var events: [TerminalSessionEvent] = []
         session.start { events.append($0) }
-        try await waitUntil { session.lastError != nil }
+        try await waitUntil { if case .failed = session.connectionState { true } else { false } }
         #expect(session.lastError?.contains("unknown surface") == true)
-        #expect(events.contains { if case .output = $0 { true } else { false } })
+        #expect(session.connectionState.label?.contains("unknown surface") == true)
+        #expect(events.contains(.connection(session.connectionState)))
+        #expect(!events.contains { if case .output = $0 { true } else { false } })
     }
 
     /// The link dropped (background, transport switch, Mac restart): the
