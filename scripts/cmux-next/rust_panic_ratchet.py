@@ -174,12 +174,18 @@ def read_clippy(path):
 
 
 def source_text(span):
-    """A hit's source line, stripped (its identity without the line number); the line number when
-    clippy printed no text."""
+    """A hit's source line, stripped: its identity without the line number. None when clippy printed
+    no text; the hit is then known by its line number."""
     text = span.get("text") or []
     if text and isinstance(text[0], dict) and text[0].get("text") is not None:
         return text[0]["text"].strip()
-    return f"line {span.get('line_start')}"
+    return None
+
+
+def _identity(hit):
+    """(file, source text), or (file, line) for a hit clippy printed no text for."""
+    name, text, where = hit
+    return (name, text) if text is not None else (name, where.rsplit(":", 2)[-2])
 
 
 def new_hits(head, base):
@@ -187,12 +193,13 @@ def new_hits(head, base):
     beyond BASE's, counted: a (file, text) the head has more often than the base is new that many times."""
     out = {}
     for key, found in head.items():
-        left = collections.Counter((name, text) for name, text, _ in base.get(key, []))
-        for name, text, where in found:
-            if left[(name, text)] > 0:
-                left[(name, text)] -= 1
+        left = collections.Counter(_identity(hit) for hit in base.get(key, []))
+        for hit in found:
+            name, text, where = hit
+            if left[_identity(hit)] > 0:
+                left[_identity(hit)] -= 1
             else:
-                out.setdefault(key, []).append(f"{where}: {text}")
+                out.setdefault(key, []).append(where if text is None else f"{where}: {text}")
     return out
 
 
