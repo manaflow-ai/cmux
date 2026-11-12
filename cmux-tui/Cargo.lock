@@ -113,13 +113,28 @@ name = "acpmux-book"
 version = "0.1.0"
 dependencies = [
  "crc32fast",
+ "imbl",
  "libc",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 
 [[package]]
 name = "acpmux-build-id"
 version = "1.0.0"
+
+[[package]]
+name = "acpmux-core"
+version = "1.0.0"
+dependencies = [
+ "acpmux-book",
+ "arc-swap",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+]
 
 [[package]]
 name = "acpmux-hot"
