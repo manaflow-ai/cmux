@@ -56,6 +56,10 @@ mod codex_processes;
 #[cfg(unix)]
 #[path = "codex_usage_limits.rs"]
 mod codex_usage_limits;
+// A Codex fork resumes its own thread in its own app-server (the fake's one-writer rule).
+#[cfg(unix)]
+#[path = "codex_fork_resume.rs"]
+mod codex_fork_resume;
 // Claude's skills in the slash command list, which share these helpers too.
 #[path = "claude_skill_commands.rs"]
 mod claude_skill_commands;
