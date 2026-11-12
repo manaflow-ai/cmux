@@ -16,12 +16,19 @@ import WebKit
         var visible: Double??
     }
 
-    /// A page web view that never loads its document.
-    private static func neverLoadingPage(_ id: String) -> PageWebView {
-        let configuration = WKWebViewConfiguration()
-        return PageWebView(descriptor: PageDescriptor(id: id, resource: "never-loads", namespaces: []), configuration: configuration,
-                           inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
-                           options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false, chromium: nil)
+    /// A page web view that never loads its document: it serves only its own scratch `index.html`
+    /// (no built bundle), and is never told to load it. The caller removes `root`.
+    private static func neverLoadingPage(_ id: String) throws -> (page: PageWebView, root: URL) {
+        let root = FileManager.default.temporaryDirectory.appending(path: "never-loads-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("<!doctype html><title>Never loads</title>".utf8).write(to: root.appending(path: "index.html"))
+        let descriptor = PageDescriptor(id: id, resource: "never-loads", namespaces: [])
+        let host = PageWebView.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root, devServer: nil),
+                                                 documentAttributes: [:], options: .standard)
+        let page = PageWebView(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
+                               routes: [], route: nil, options: .standard, surface: nil, dynamicResources: nil,
+                               pooled: false, load: false, chromium: nil)
+        return (page, root)
     }
 
     /// Lets main-actor tasks run until `condition` holds, for at most about two seconds.
@@ -36,9 +43,9 @@ import WebKit
     /// The permission-feed-peer row: the pinned Needs you page never loads. The scene's load wait
     /// (``PageWebView/waitUntilLoaded(within:)``, bounded by the row's deadline) answers by that
     /// deadline that the page did not load.
-    @Test func aPageThatNeverLoadsAnswersByTheDeadline() async {
-        let page = Self.neverLoadingPage("test.capture-never-loads")
-        defer { page.close() }
+    @Test func aPageThatNeverLoadsAnswersByTheDeadline() async throws {
+        let (page, root) = try Self.neverLoadingPage("test.capture-never-loads")
+        defer { page.close(); try? FileManager.default.removeItem(at: root) }
         let outcome = Outcome()
         let started = ContinuousClock.now
         let wait = Task { @MainActor in
@@ -54,9 +61,9 @@ import WebKit
     }
 
     /// A cancelled load wait returns at once: the deadline that won leaves no waiter parked on the page.
-    @Test func aCancelledPageLoadWaitReturns() async {
-        let page = Self.neverLoadingPage("test.capture-cancelled-load")
-        defer { page.close() }
+    @Test func aCancelledPageLoadWaitReturns() async throws {
+        let (page, root) = try Self.neverLoadingPage("test.capture-cancelled-load")
+        defer { page.close(); try? FileManager.default.removeItem(at: root) }
         let outcome = Outcome()
         let wait = Task { @MainActor in
             await page.waitUntilLoaded()
