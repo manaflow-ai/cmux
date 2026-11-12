@@ -1,0 +1,62 @@
+/* The follow-motion preview (followMotionPreview.gallery.tsx): one transcript per arm, side by side. Gallery only. */
+.follow-motion-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--ds-space-2);
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  font-family: var(--font-ui);
+}
+.follow-motion-preview__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  flex: none;
+}
+.follow-motion-preview__state {
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.follow-motion-preview__grid {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  gap: var(--ds-space-2);
+  grid-auto-rows: minmax(0, 1fr);
+}
+.follow-motion-preview__cell {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: clip;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+}
+.follow-motion-preview__caption {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  flex: none;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-bottom: 1px solid var(--agent-border);
+}
+.follow-motion-preview__label {
+  font-size: var(--text-control);
+  font-weight: var(--weight-emphasis);
+}
+.follow-motion-preview__note {
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.follow-motion-preview__cell .acpmux-shell {
+  flex: 1;
+  min-height: 0;
+}
