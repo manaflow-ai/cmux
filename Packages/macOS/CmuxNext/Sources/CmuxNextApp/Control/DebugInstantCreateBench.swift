@@ -37,12 +37,15 @@ private typealias JSON = CmuxNextSettings.JSONValue
 /// `link_right` opens `url` (default example.com) from the focused pane as a link opened to the right (split right):
 /// visible once the window shows another pane, `page_ms` once that pane's page painted. `dock_respawn` docks the focused pane's lone tab into a new left
 /// dock and leaves a fresh terminal (a lone chat's new tab, ``ChatColumnPlacement``): visible once the window shows another pane.
+/// `newtab_url` is Return on an address typed into the focused pane's New Tab page (`url`, default example.com), through the
+/// host path the page's `tab.open` takes (``NewTabPage/replace(_:with:cwd:in:keep:)``); `beside` true is Option-Return (a new
+/// tab where links go). Visible once a pane of the window shows a browser it did not show before, `page_ms` once that page painted.
 @MainActor
 enum DebugInstantCreateBench {
     private static let frames = BenchFrames()
 
     enum Command: String, CaseIterable {
-        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser", linkRight = "link_right", githubRight = "github_right", diffRight = "diff_right", splitBrowser = "split_browser", dockRespawn = "dock_respawn"
+        case newWorkspace = "new_workspace", newTab = "new_tab", newTerminal = "new_terminal", splitRight = "split_right", splitDown = "split_down", newBrowser = "new_browser", linkRight = "link_right", githubRight = "github_right", diffRight = "diff_right", splitBrowser = "split_browser", dockRespawn = "dock_respawn", newTabURL = "newtab_url"
 
         var key: (String, [String]) {
             switch self {
@@ -51,7 +54,7 @@ enum DebugInstantCreateBench {
             case .newTerminal: ("`", ["control"])
             case .splitRight: ("d", ["command"])
             case .splitDown: ("d", ["command", "shift"])
-            case .newBrowser, .linkRight, .githubRight, .diffRight, .splitBrowser, .dockRespawn: ("l", ["command", "shift"])
+            case .newBrowser, .linkRight, .githubRight, .diffRight, .splitBrowser, .dockRespawn, .newTabURL: ("l", ["command", "shift"])
             }
         }
     }
@@ -95,6 +98,15 @@ enum DebugInstantCreateBench {
         } else if command == .diffRight, let folder = params["folder"]?.stringValue, let pane = controller.content?.focusedPane {
             // task-owner: one bench open of the folder's diff tab in the pane (as `openDiffViewer`); ends when it opens or is refused
             Task { [diffPages = services.viewers.diffPages] in _ = try? await diffPages.open(folder: URL(fileURLWithPath: folder, isDirectory: true), in: pane, focus: true) }
+        } else if command == .newTabURL {
+            guard let pane = controller.content?.focusedPane, let key = pane.currentTabKey, services.agentTabs.isNewTabPage(key) else {
+                _ = frames.stop()
+                _ = BenchSpans.end()
+                return .object(["error": .string("newtab_url: the focused pane shows no New Tab page")])
+            }
+            let request = AgentPaneOpenTab(kind: .browser, text: params["url"]?.stringValue ?? "https://example.com/",
+                                           beside: params["beside"]?.boolValue == true)
+            NewTabPage.replace(key, with: request, cwd: nil, in: pane)
         } else if command == .dockRespawn, let pane = controller.content?.focusedPane, let tab = pane.pane.tabs.first {
             TabMoves.toNewDockColumn(tab, anchor: pane.pane, edge: .left, role: .agentChat, respawn: .terminal(SpawnOptions()), services: services)
         } else if let action = params["run"]?.stringValue ?? (command == .splitBrowser ? "splitBrowserRight" : nil) {
@@ -106,7 +118,7 @@ enum DebugInstantCreateBench {
         let committed = frames.lastCommitted
         let chrome = visible == nil || (command != .newBrowser && !(command == .newWorkspace && params["run"] != nil)) ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
-        let opensRight = command == .linkRight || command == .splitBrowser
+        let opensRight = command == .linkRight || command == .splitBrowser || command == .newTabURL
         // The GitHub page: the frame after it drew the pull request (its `shown` mark, not its loading state), with or without `visible`.
         let github = command == .githubRight ? params["url"]?.stringValue : nil
         // The diff tab: the frame after its page reported the first hunk drawn (`cmux.diff.shown`).
@@ -150,6 +162,7 @@ enum DebugInstantCreateBench {
         /// The focused pane's browser, when its view is in the pane and the tab is selected in the strip.
         var browser: BrowserEntry?
         var selected: String? // the focused pane's selected tab in its strip
+        var browsers: Set<String> // the browser tabs the window's panes show
 
         init(_ controller: WindowController) {
             let content = controller.content
@@ -160,6 +173,7 @@ enum DebugInstantCreateBench {
             paneCount = content?.panes.count ?? 0
             tab = focused?.currentTabKey
             selected = focused?.stripModel.selectedID?.rawValue
+            browsers = Self.browserTabs(controller)
             if let focused, focused.view.hostsContent, focused.stripModel.selectedID?.rawValue == tab,
                case .browser(let entry) = focused.currentContent { browser = entry }
         }
@@ -195,6 +209,7 @@ enum DebugInstantCreateBench {
             case .newBrowser: now.pane == pane && now.tab != nil && now.tab != tab && now.tab == now.selected
             case .splitRight, .splitDown: now.workspace == workspace && now.pane != pane && now.paneCount > paneCount
             case .linkRight, .githubRight, .splitBrowser, .dockRespawn: now.workspace == workspace && now.paneCount > paneCount
+            case .newTabURL: now.workspace == workspace && !now.browsers.subtracting(browsers).isEmpty
             }
         }
 
@@ -203,6 +218,7 @@ enum DebugInstantCreateBench {
             switch command {
             case .newWorkspace, .newTab, .newTerminal, .newBrowser, .diffRight: return realTab
             case .splitRight, .splitDown, .linkRight, .githubRight, .splitBrowser, .dockRespawn: return realTab && (paneHandle ?? .max) < (1 << 62)
+            case .newTabURL: return !browsers.contains { $0.hasPrefix(ProvisionalTab.idPrefix) }
             }
         }
     }
