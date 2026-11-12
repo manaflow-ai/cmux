@@ -509,19 +509,34 @@ fn field_types(fields: &syn::Fields) -> impl Iterator<Item = Type> + '_ {
 /// at one of its meanings: `defs` keeps every definition of a name and `uses` every path it is
 /// imported as, and a name is read at all of them, definitions and imports alike (reviews of
 /// cmux#41693 F1 and cmux#41707 F1).
+/// An import as written.
+struct Import {
+    /// The name it binds.
+    name: String,
+    path: String,
+    /// The module it sits in, from the file's root: for one in a function or block body, the
+    /// module around that body, which its `self::` and `super::` read from.
+    module: Vec<String>,
+    /// Whether it sits in a function or block body, so it binds `name` in that body only, not
+    /// in `module` (review of cmux#41769 F1).
+    in_body: bool,
+}
+
 #[derive(Default)]
 struct Names {
     defs: HashMap<String, Vec<Def>>,
     uses: HashMap<String, Vec<String>>,
     mods: HashSet<String>,
-    /// Every import as written: its local name, its path and the module it sits in.
-    imports: Vec<(String, String, Vec<String>)>,
+    /// Every import as written.
+    imports: Vec<Import>,
     /// The file's own module in its crate (`hub::watches` for `src/hub/watches.rs`), when its path
     /// shows it.
     root: Option<Vec<String>>,
-    /// Every module the file declares, from the file's root (`tests`, `tests::inner`).
+    /// Every module the file declares, from the file's root (`tests`, `tests::inner`); none in a
+    /// function or block body, where no `use` path reaches it.
     modules: HashSet<Vec<String>>,
-    /// The type-namespace names `defs` leaves out (traits, `extern crate`s), with their module.
+    /// The type-namespace names `defs` leaves out (traits, `extern crate`s), with their module;
+    /// none in a function or block body.
     others: HashSet<(Vec<String>, String)>,
     /// Every glob import at a module's top level: the module it sits in and the path before `*`.
     globs: Vec<(Vec<String>, String)>,
@@ -554,10 +569,10 @@ impl Names {
         let Some(defs) = self.defs.get(name) else {
             return false;
         };
-        let mut sites = self.imports.iter().filter(|(n, f, _)| n == name && f == full).peekable();
+        let mut sites = self.imports.iter().filter(|i| i.name == name && i.path == full).peekable();
         sites.peek().is_some()
-            && sites.all(|(_, _, module)| {
-                self.resolve(full, module).is_some_and(|(at, last)| {
+            && sites.all(|i| {
+                self.resolve(full, &i.module).is_some_and(|(at, last)| {
                     last == name && defs.iter().any(|d| d.module.as_ref() == Some(&at))
                 })
             })
@@ -625,7 +640,9 @@ impl Names {
     }
 
     /// Whether `module` has a type-namespace name `first` of its own: a module, a definition, an
-    /// import, a trait or an `extern crate`.
+    /// import, a trait or an `extern crate`, at its top level. One in a function or block body
+    /// is that body's, and hides nothing from the module's own `use` paths (review of cmux#41769
+    /// F1).
     fn names_here(&self, first: &str, module: &[String]) -> bool {
         let mut child = module.to_vec();
         child.push(first.to_string());
@@ -634,12 +651,18 @@ impl Names {
                 .defs
                 .get(first)
                 .is_some_and(|defs| defs.iter().any(|d| d.module.as_deref() == Some(module)))
-            || self.imports.iter().any(|(n, _, at)| n == first && at == module)
+            || self.imports.iter().any(|i| !i.in_body && i.name == first && i.module == module)
             || self.others.contains(&(module.to_vec(), first.to_string()))
     }
 
     fn bind_use(&mut self, local: String, path: String, module: &[String]) {
-        self.imports.push((local.clone(), path.clone(), module.to_vec()));
+        let import = Import {
+            name: local.clone(),
+            path: path.clone(),
+            module: module.to_vec(),
+            in_body: false,
+        };
+        self.imports.push(import);
         let paths = self.uses.entry(local).or_default();
         if !paths.contains(&path) {
             paths.push(path);
@@ -719,7 +742,9 @@ impl<'ast> Visit<'ast> for Collect<'_> {
     fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
         self.names.mods.insert(i.ident.to_string());
         self.module.push(i.ident.to_string());
-        self.names.modules.insert(self.module.clone());
+        if self.blocks == 0 {
+            self.names.modules.insert(self.module.clone());
+        }
         visit::visit_item_mod(self, i);
         self.module.pop();
     }
@@ -729,20 +754,25 @@ impl<'ast> Visit<'ast> for Collect<'_> {
         self.blocks -= 1;
     }
     fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
-        let globs = self.names.globs.len();
+        let (globs, imports) = (self.names.globs.len(), self.names.imports.len());
         self.names.use_tree("", &i.tree, &self.module);
         if self.blocks > 0 {
-            // A glob in a function body scopes that body, not the module's `use` paths.
+            // An import or glob in a function body scopes that body, not the module's `use` paths.
             self.names.globs.truncate(globs);
+            self.names.imports[imports..].iter_mut().for_each(|i| i.in_body = true);
         }
     }
     fn visit_item_trait(&mut self, i: &'ast syn::ItemTrait) {
-        self.names.others.insert((self.module.clone(), i.ident.to_string()));
+        if self.blocks == 0 {
+            self.names.others.insert((self.module.clone(), i.ident.to_string()));
+        }
         visit::visit_item_trait(self, i);
     }
     fn visit_item_extern_crate(&mut self, i: &'ast syn::ItemExternCrate) {
         let name = i.rename.as_ref().map_or(&i.ident, |(_, rename)| rename);
-        self.names.others.insert((self.module.clone(), name.to_string()));
+        if self.blocks == 0 {
+            self.names.others.insert((self.module.clone(), name.to_string()));
+        }
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         if process_wide(mac) {
