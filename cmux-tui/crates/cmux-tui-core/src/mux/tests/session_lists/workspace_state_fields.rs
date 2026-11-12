@@ -208,3 +208,177 @@ fn the_bulk_decorations_equal_the_decoration_of_each_value() {
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&fields.folder_root);
 }
+
+/// Close `workspace` through the operation a client sends.
+fn close_workspace(mux: &Arc<Mux>, workspace: &str) {
+    let envelope = json!({"protocol": "cmux.protocol/2", "type": "request", "id": "close",
+                          "operation": "workspace.close", "idempotency_key": "close-a-creator",
+                          "params": {"machine": "current", "session": "current",
+                                     "workspace": workspace}});
+    let response =
+        crate::resource_router::handle_resource_message(mux, &envelope.to_string()).unwrap();
+    assert_eq!(response["ok"], true, "workspace.close: {response}");
+}
+
+/// Give each of `workspaces` a row in every state table that a workspace's `extra` reads: all 5
+/// presentation fields, the ephemeral flag, an app kind, an agent folder, and a creator (`created`
+/// pairs each workspace with its creator's key, which may be of a closed workspace, and a kind).
+fn give_every_state_field(mux: &Arc<Mux>, workspaces: &[(String, Option<String>, &str)]) {
+    let connection = mux.registry_connection.get();
+    let key_of = |id: &str| -> String {
+        connection
+            .query_row(
+                "SELECT workspace_key FROM resource_workspaces WHERE public_id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|error| panic!("the key of {id}: {error}"))
+    };
+    for (index, (id, creator_key, created_kind)) in workspaces.iter().enumerate() {
+        let key = key_of(id);
+        let run = |sql: &str, params: &[&dyn rusqlite::ToSql]| {
+            connection.execute(sql, params).unwrap_or_else(|error| panic!("{sql}: {error}"));
+        };
+        run(
+            "INSERT INTO workspace_presentation(workspace_key, color, icon, title, description,
+                                                task_status)
+             VALUES(?1, ?2, ?3, ?4, ?5, 'working')
+             ON CONFLICT(workspace_key) DO UPDATE SET color = excluded.color,
+               icon = excluded.icon, title = excluded.title, description = excluded.description,
+               task_status = excluded.task_status",
+            &[
+                &key,
+                &format!("#00000{index}"),
+                &format!("icon{index}"),
+                &format!("Title {index}"),
+                &format!("about {index}"),
+            ],
+        );
+        run("INSERT OR REPLACE INTO workspace_state(workspace_id, ephemeral) VALUES(?1, 1)", &[id]);
+        run(
+            "INSERT OR REPLACE INTO workspace_kind(workspace_id, kind, app_id, workspace_key)
+             VALUES(?1, 'app', ?2, ?3)",
+            &[id, &format!("app{index}"), &key],
+        );
+        run(
+            "INSERT OR REPLACE INTO workspace_agent_folder(workspace_id, path) VALUES(?1, ?2)",
+            &[id, &format!("/tmp/folder{index}")],
+        );
+        run(
+            "INSERT OR REPLACE INTO workspace_created_by(workspace_key, kind, creator_key, session)
+             VALUES(?1, ?2, ?3, ?4)",
+            &[&key, created_kind, creator_key, &(index % 2 == 0).then(|| format!("sess{index}"))],
+        );
+    }
+}
+
+/// The replies are byte-equal to the per-workspace path when every workspace has every state
+/// field. Four workspaces each have all 7 kinds of field (one made by a closed workspace, one by
+/// a live one, one by a script, one by an agent), one workspace has none, and one is closed.
+/// `workspace.list` is compared as the whole serialized array, in its own order; the snapshot's
+/// workspaces, screens and tabs as serialized arrays.
+#[test]
+fn the_replies_are_byte_equal_to_the_per_workspace_path_when_each_workspace_has_every_field() {
+    let mux = session_of(6);
+    let ids = resource(&mux, "workspace.list", json!({}))
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|workspace| workspace["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(ids.len(), 6);
+    let closed_key = mux
+        .registry_connection
+        .get()
+        .query_row(
+            "SELECT workspace_key FROM resource_workspaces WHERE public_id = ?1",
+            [&ids[5]],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let live_key = mux
+        .registry_connection
+        .get()
+        .query_row(
+            "SELECT workspace_key FROM resource_workspaces WHERE public_id = ?1",
+            [&ids[0]],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    close_workspace(&mux, &ids[5]);
+    give_every_state_field(
+        &mux,
+        &[
+            (ids[0].clone(), Some(closed_key), "script"),
+            (ids[1].clone(), Some(live_key), "agent"),
+            (ids[2].clone(), None, "script"),
+            (ids[3].clone(), None, "agent"),
+        ],
+    );
+
+    let each = mux
+        .read_registry_state(|connection| {
+            let mut each =
+                crate::resource_api::undecorated_snapshot_values_for_test(connection, &mux)?;
+            crate::state::values::decorate_snapshot_one_by_one(connection, &mut each)?;
+            Ok(each)
+        })
+        .unwrap();
+    let per_workspace = each["workspaces"].as_array().unwrap();
+    assert_eq!(per_workspace.len(), 5, "the closed workspace is not listed");
+    let fields = [
+        "title",
+        "color",
+        "icon",
+        "description",
+        "task_status",
+        "ephemeral",
+        "kind",
+        "app",
+        "agent_folder",
+        "name_source",
+        "name_revision",
+        "created_by",
+        "key",
+    ];
+    for id in &ids[..4] {
+        let value = per_workspace.iter().find(|value| value["id"] == id.as_str()).unwrap();
+        for field in fields {
+            assert!(value["extra"].get(field).is_some(), "{id} has no {field}: {value}");
+        }
+    }
+    let bare = per_workspace.iter().find(|value| value["id"] == ids[4].as_str()).unwrap();
+    assert!(bare["extra"].get("title").is_none() && bare["extra"].get("kind").is_none());
+    let creators = ids[..4]
+        .iter()
+        .map(|id| {
+            per_workspace.iter().find(|value| value["id"] == id.as_str()).unwrap()["extra"]
+                ["created_by"]
+                .clone()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(creators[0], json!({"kind": "script", "session": "sess0"}), "closed creator");
+    assert_eq!(creators[1]["workspace"], ids[0].as_str(), "live creator");
+
+    let listed = resource(&mux, "workspace.list", json!({}));
+    let expected_list = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|value| per_workspace.iter().find(|each| each["id"] == value["id"]).cloned().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        serde_json::to_vec(&listed).unwrap(),
+        serde_json::to_vec(&expected_list).unwrap(),
+        "workspace.list, then the per-workspace path in the list's order"
+    );
+    let snapshot = resource(&mux, "session.snapshot", json!({}));
+    for collection in ["workspaces", "screens", "tabs"] {
+        assert_eq!(
+            serde_json::to_vec(&snapshot[collection]).unwrap(),
+            serde_json::to_vec(&each[collection]).unwrap(),
+            "session.snapshot's {collection}, then the per-value path"
+        );
+    }
+    mux.shutdown();
+}
