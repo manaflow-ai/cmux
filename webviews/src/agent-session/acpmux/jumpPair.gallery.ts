@@ -58,6 +58,8 @@ const park: Play = async (ctx) => {
   const view = scroller(ctx)!;
   await ctx.scroll({ selector: ".acpmux-scroll" }, view.scrollHeight - view.clientHeight - 700);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]"));
+  // The single look draws no Jump up.
+  if (ctx.document.querySelector('.acpmux-jump-latest:not(.acpmux-jump-up)[data-look="single"]')) return;
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-up[data-shown]"));
 };
 
@@ -110,6 +112,12 @@ export default agentPaneEntry({
       snapshot,
       play: park,
       ...look("stacked"),
+    },
+    single: {
+      note: 'Single: the frosted disc alone, no Jump up over it (Leo, 2026-11-12: "maybe a bit extra?").',
+      snapshot,
+      play: park,
+      ...look("single"),
     },
     lens: {
       note: "Before: the fisheye lens disc; the words under it magnify and bend behind the arrow.",
