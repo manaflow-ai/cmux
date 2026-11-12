@@ -190,6 +190,13 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Whether this phone's size should count on the Mac now (the terminal
     /// is on screen in the foreground app). Set by ``setClaimsSize(_:)``.
     private var claimsSize = true
+    /// The Mac's grid while this page is hidden, held until a claim brings
+    /// the phone's grid back (`TerminalReclaimHold`).
+    private var reclaimHold = TerminalReclaimHold()
+    /// Shows what is held when a claim has not brought the phone's grid back.
+    private var reclaimDeadline: Task<Void, Never>?
+    /// How long a claim may take (tests shorten it).
+    var reclaimWait: Duration = TerminalReclaimHold.reclaimWait
     /// The Mac holds a size of this session's now (a sized attach or a
     /// `resize-surface` went out, and no release after it).
     private var sizeClaimed = false
@@ -380,7 +387,10 @@ public final class DaemonTerminalSession: TerminalSession {
                 log.notice("surface \(self.surface, privacy: .public): shown again, claiming \(size.columns, privacy: .public)x\(size.rows, privacy: .public)")
                 enqueue(.size(columns: size.columns, rows: size.rows))
             }
+            settleReclaimHold()
         } else {
+            reclaimDeadline?.cancel()
+            reclaimDeadline = nil
             stopLeaseRefresh()
             if attached, sizeClaimed {
                 log.notice("surface \(self.surface, privacy: .public): left the screen, releasing its size")
@@ -397,6 +407,9 @@ public final class DaemonTerminalSession: TerminalSession {
         inbox = nil
         outputPaused = false
         handler = nil
+        reclaimDeadline?.cancel()
+        reclaimDeadline = nil
+        reclaimHold = TerminalReclaimHold()
         stopLeaseRefresh()
         // The Mac drops this attach (a tab cooled out of the warm set, or
         // gone). The size is released first and answered, so the Mac never
@@ -711,12 +724,16 @@ public final class DaemonTerminalSession: TerminalSession {
             // TUI left TUI mode and came back: the page showed the empty
             // primary screen with nothing held over it (termfix-r13 D2, `top`:
             // blank for ~170 ms, then half drawn).
-            handler?(.output(Data("\u{1B}c".utf8)))
+            // Hidden and holding the Mac's grid, the reset and the replay
+            // after it are held too: what was held before is superseded.
+            reclaimHold.restart(alternate: isAlternateScreen)
+            show(.output(TerminalReclaimHold.reset))
             let held = heldEvents ?? []
             heldEvents = nil
             for event in held { apply(event) }
             attachRetries = 0
             attached = true
+            settleReclaimHold()
             refusingInput = false
             everAttached = true
             handler?(.connection(.attached))
@@ -823,7 +840,7 @@ public final class DaemonTerminalSession: TerminalSession {
     private func apply(_ event: DaemonTerminalInbound) {
         switch event {
         case .output(let data):
-            handler?(.output(data))
+            show(.output(data))
         case .alternateScreen(let on):
             setAlternate(on)
         case .columns(let columns):
@@ -835,7 +852,7 @@ public final class DaemonTerminalSession: TerminalSession {
             reportedRows = rows
             if hostGridChanged, let columns = reportedColumns {
                 hostGridChanged = false
-                handler?(.hostGrid(columns: columns, rows: rows))
+                show(.hostGrid(columns: columns, rows: rows))
             }
             // The Mac answered a size other than the one asked for (another
             // view of this terminal, the Mac's own window, sets the grid): the
@@ -843,7 +860,8 @@ public final class DaemonTerminalSession: TerminalSession {
             // instead of resizing its PTY to the phone's grid and back, which
             // made an inline TUI (Codex) redraw its whole transcript twice
             // over the link (termqa D4/D8).
-            if attached, let asked = lastSize, let columns = reportedColumns,
+            // Hidden, the phone asks for nothing: a grid then is not an answer.
+            if attached, claimsSize, let asked = lastSize, let columns = reportedColumns,
                asked.columns != columns || asked.rows != rows {
                 overruled = Overruled(asked: asked, mac: (columns, rows))
             } else if attached, let asked = lastSize, asked.columns == reportedColumns, asked.rows == rows {
@@ -856,7 +874,7 @@ public final class DaemonTerminalSession: TerminalSession {
             historyRowsOmitted = 0
             log.notice("surface \(self.surface, privacy: .public): mirror reset cause=resized-event (rows \(self.reportedRows ?? -1, privacy: .public), last size asked \(self.lastSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public))")
             setAlternate(alternate)
-            handler?(.output(Data("\u{1B}c".utf8)))
+            show(.output(TerminalReclaimHold.reset))
         case .detached(let reason):
             ended(reason: reason)
         case .sameGridResize(let columns, let rows):
@@ -885,14 +903,71 @@ public final class DaemonTerminalSession: TerminalSession {
     /// terminal (its process exited, the Mac closed it, the daemon detached
     /// it), never for the connection to it. Transport states travel as
     /// `.connection` events (a quiet line by the composer).
+    /// It goes after whatever the reclaim hold has, in stream order.
     private func emitText(_ text: String) {
+        releaseReclaimHold()
         handler?(.output(Data(text.utf8)))
+    }
+
+    /// An event for the screen, through the reclaim hold: hidden, the Mac's
+    /// own grid and what follows it wait there (`TerminalReclaimHold`).
+    private func show(_ event: TerminalSessionEvent) {
+        let phoneGrid = lastSize.map { TerminalReclaimHold.Grid(columns: $0.columns, rows: $0.rows) }
+        let wasHolding = reclaimHold.isHolding
+        let events = reclaimHold.take(event, claims: claimsSize, phoneGrid: phoneGrid, alternate: isAlternateScreen)
+        if wasHolding != reclaimHold.isHolding {
+            log.notice("surface \(self.surface, privacy: .public): \(wasHolding ? "reclaim hold ended" : "hidden: holding the Mac's grid", privacy: .public)")
+            if wasHolding {
+                reclaimDeadline?.cancel()
+                reclaimDeadline = nil
+            }
+        }
+        for event in events { handler?(event) }
+    }
+
+    /// Shows what the reclaim hold has, in order (`from`: the Mac's grid
+    /// now, see `TerminalReclaimHold.release(from:)`).
+    private func releaseReclaimHold(from grid: TerminalReclaimHold.Grid? = nil) {
+        reclaimDeadline?.cancel()
+        reclaimDeadline = nil
+        let events = reclaimHold.release(from: grid)
+        guard !events.isEmpty else { return }
+        log.notice("surface \(self.surface, privacy: .public): reclaim hold released, \(events.count, privacy: .public) events shown")
+        for event in events { handler?(event) }
+    }
+
+    /// Shown with the Mac's grid held. The Mac already at the phone's grid
+    /// (no resize will answer the claim): what was held shows now.
+    /// Otherwise, once attached, the claim has its deadline.
+    private func settleReclaimHold() {
+        guard claimsSize, reclaimHold.isHolding else { return }
+        if let size = lastSize, reportedColumns == size.columns, reportedRows == size.rows {
+            releaseReclaimHold(from: TerminalReclaimHold.Grid(columns: size.columns, rows: size.rows))
+        } else if attached {
+            armReclaimDeadline()
+        }
+    }
+
+    /// Shown and attached with the Mac's grid held: the claim has
+    /// `reclaimWait` to bring the phone's grid back (the Mac's policy may
+    /// keep its own grid); then what was held shows.
+    private func armReclaimDeadline() {
+        reclaimDeadline?.cancel()
+        let wait = reclaimWait
+        reclaimDeadline = Task { [weak self] in
+            // An intentional, bounded deadline (the claim's answer), not a
+            // synchronization wait.
+            do { try await Task.sleep(for: wait) } catch { return }
+            guard let self, self.claimsSize, self.attached else { return }
+            self.reclaimDeadline = nil
+            self.releaseReclaimHold()
+        }
     }
 
     private func setAlternate(_ on: Bool) {
         guard isAlternateScreen != on else { return }
         isAlternateScreen = on
-        handler?(.alternateScreen(on))
+        show(.alternateScreen(on))
     }
 
     private func ended(reason: String?) {
