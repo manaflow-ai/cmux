@@ -780,6 +780,11 @@ class QuotaRetry(unittest.TestCase):
         with self.assertRaisesRegex(tier.QuotaExhausted, "core REST quota"):
             api.get("repos/o/r/git/ref/heads/x")
 
+# A bound for a call that is meant to succeed: far above any runner's delay, and still an end for a server
+# that never answers.
+LONG_BOUND = 30.0
+
+
 class TricklingServer:
     """One HTTP server on 127.0.0.1 that answers every connection with ANSWER, a byte every GAP seconds
     (0: all at once). It stops trickling when stop() is called or the client hangs up. FINISHED is set once
@@ -850,11 +855,11 @@ class WholeRequestBound(unittest.TestCase):
         self.addCleanup(server.stop)
         return server
 
-    def clients(self, url: str):
+    def clients(self, url: str, bound: float | None = None):
         tree = notify.GitHub("t", url)
         kick = quota.QuotaGitHub("t", url, deadline=quota.Deadline(60), sleep=lambda _: self.fail("slept"))
         for api in (tree, kick):
-            api.timeout = self.BOUND
+            api.timeout = self.BOUND if bound is None else bound
         return {"tree notify": tree, "QuotaGitHub": kick}
 
     def test_trickled_headers_end_the_call_at_its_bound(self):
@@ -874,8 +879,11 @@ class WholeRequestBound(unittest.TestCase):
                     self.assertIsInstance(outcome, notify.RequestTimeout)
 
     def test_a_fast_answer_still_returns_its_body(self):
+        # The claim is that a bounded call still returns an answer's body, not that a loaded runner answers
+        # within 0.3 s: the cold first name lookup alone took 75 ms on an idle fleet Mac, and a busy one ran
+        # past the bound (a RequestTimeout on 127.0.0.1). LONG bounds a server that never answers.
         server = self.serve(self.FAST, 0)
-        for name, api in self.clients(server.url).items():
+        for name, api in self.clients(server.url, bound=LONG_BOUND).items():
             with self.subTest(client=name):
                 self.assertEqual(api.get("repos/o/r"), {"ok": True})
 
@@ -900,11 +908,11 @@ class NothingAfterTheBound(unittest.TestCase):
         self.addCleanup(server.stop)
         return server
 
-    def clients(self, url: str):
+    def clients(self, url: str, bound: float | None = None):
         tree = notify.GitHub("t", url)
         kick = quota.QuotaGitHub("t", url, deadline=quota.Deadline(60), sleep=lambda _: self.fail("slept"))
         for api in (tree, kick):
-            api.timeout = self.BOUND
+            api.timeout = self.BOUND if bound is None else bound
         return {"tree notify": tree, "QuotaGitHub": kick}
 
     def slow_lookup(self, seconds: float) -> None:
@@ -1002,14 +1010,16 @@ class NothingAfterTheBound(unittest.TestCase):
         self.assertEqual(len(server.arrivals), 1)
 
     def test_an_answer_within_the_bound_still_succeeds(self):
+        # A bounded call that gets its answer before the bound succeeds and sends once. The bound is LONG: a
+        # 0.1 s bound held the loaded runner's lookup of 127.0.0.1 as well ("resolving 127.0.0.1: past the
+        # 0.1 s deadline"), so the test measured the runner, not the call.
         server = self.serve()
-        for name, api in self.clients(server.url).items():
+        for name, api in self.clients(server.url, bound=LONG_BOUND).items():
             with self.subTest(client=name):
                 server.arrivals.clear()
-                outcome, started, ended = self.dispatch(api)
+                outcome, _, _ = self.dispatch(api)
                 self.assertEqual(outcome, 204)
                 self.assertEqual(len(server.arrivals), 1)
-                self.assertLess(ended - started, self.BOUND + 0.4)
 
 
 class DispatchWithNoAnswer(unittest.TestCase):
