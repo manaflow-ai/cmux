@@ -189,6 +189,44 @@ import Testing
         #expect(store.workspace(id: made[0].id) != nil)
     }
 
+    /// A3: a task takes at most four agents, always keeps one, and never an agent a phone can't start;
+    /// with no pick, the agent shown checked becomes the first real pick.
+    @Test func pickingAgentsKeepsOneAndStopsAtTheLimit() {
+        func agent(_ id: String, start: Bool = true) -> AgentHarnessChoice {
+            AgentHarnessChoice(id: id, name: id.capitalized, family: "claude", unavailableReason: start ? nil : "No")
+        }
+        var draft = TaskDraft(prompt: "go")
+        #expect(draft.toggle(agent("b"), fallback: agent("a")) == .added)
+        #expect(draft.picks.map(\.harness) == ["a", "b"])
+        #expect(draft.toggle(agent("a"), fallback: nil) == .removed)
+        #expect(draft.toggle(agent("b"), fallback: nil) == .keptLast)
+        #expect(draft.picks.map(\.harness) == ["b"])
+        for id in ["c", "d", "e"] { #expect(draft.toggle(agent(id), fallback: nil) == .added) }
+        #expect(draft.toggle(agent("f"), fallback: nil) == .atLimit)
+        #expect(draft.picks.count == TaskDraft.agentLimit)
+        #expect(draft.toggle(agent("x", start: false), fallback: nil) == .unavailable)
+    }
+
+    /// A4: another Mac has its own agents, so its picks start over; the same Mac keeps them.
+    @Test func choosingAnotherMacClearsThePicks() {
+        var draft = TaskDraft(prompt: "go", picks: [TaskAgentPick(harness: "claude")], macID: "mac-studio")
+        draft.chooseMac("mac-studio")
+        #expect(draft.picks.count == 1)
+        draft.chooseMac("mbp")
+        #expect(draft.picks.isEmpty && draft.macID == "mbp")
+    }
+
+    /// A8: Start clears what the task said (prompt, photos, name) and keeps its agents, Mac and folder.
+    @Test func startClearsTheNameToo() async throws {
+        let (_, creator, _) = make()
+        let draft = TaskDraft(prompt: "go", picks: [TaskAgentPick(harness: "claude")], directory: "~/Development/web", name: "web fix")
+        creator.taskDraft = draft
+        creator.startTask(draft)
+        #expect(creator.taskDraft.name.isEmpty && creator.taskDraft.prompt.isEmpty)
+        #expect(creator.taskDraft.directory == "~/Development/web" && creator.taskDraft.picks == draft.picks)
+        await creator.settle()
+    }
+
     @Test func imageTypeIsReadFromItsBytes() {
         #expect(TaskImage(data: Data([0xFF, 0xD8, 0xFF] + Array(repeating: 0, count: 9))).mimeType == "image/jpeg")
         #expect(TaskImage(data: Data(Array("RIFF".utf8) + [0, 0, 0, 0] + Array("WEBP".utf8))).mimeType == "image/webp")

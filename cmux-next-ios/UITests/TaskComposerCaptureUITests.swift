@@ -14,7 +14,31 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             { longPress(any(app, "workspaces.new"), "New Workspace button") },
             { tap(any(app, "workspaces.newTask"), "New Task…") },
             { any(app, "taskComposer.prompt").waitForExistence(timeout: 10) ? nil : "composer did not open" },
+            { dismissKeyboardTip(app); return nil },
         ])
+    }
+
+    /// The system keyboard's one-time "Speed up your typing" tip covers the sheet: put it away.
+    @MainActor
+    private static func dismissKeyboardTip(_ app: XCUIApplication) {
+        let next = app.buttons["Continue"].firstMatch
+        if next.waitForExistence(timeout: 1.5), next.isHittable { next.tap() }
+    }
+
+    /// Opens the sheet straight from launch (`-cmux-mobile-open-new-task`), the tip put away.
+    @MainActor
+    private static func openedAtLaunch(_ app: XCUIApplication) -> String? {
+        guard any(app, "taskComposer.prompt").waitForExistence(timeout: 15) else { return "composer did not open" }
+        dismissKeyboardTip(app)
+        return nil
+    }
+
+    /// A short drag up inside the sheet (a fraction of a screen), to bring the next rows in.
+    @MainActor
+    private static func nudgeUp(_ app: XCUIApplication, by fraction: Double = 0.3) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7 - fraction)))
+        pause(0.6)
     }
 
     @MainActor
@@ -134,6 +158,96 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }])
             },
             // Made: a new chat whose first message is the task, the agent answering.
+            // A1: with no Mac starting agents from the phone, New Task is not offered.
+            Scene(group: g, id: "entry-hidden-no-agents", args: Self.list + ["-cmux-mobile-no-agents"]) { app in
+                C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
+            },
+            // A1: a plain tap still makes a terminal workspace at once.
+            Scene(group: g, id: "plain-tap-terminal", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
+                C.tap(C.any(app, "workspaces.new"), "New Workspace button")
+            },
+            // The rest of the hold menu, unchanged below New Task.
+            Scene(group: g, id: "new-workspace-menu-rest", args: Self.list) { app in
+                C.steps([{ C.longPress(C.any(app, "workspaces.new"), "New Workspace button") },
+                         { app.swipeUp(); C.pause(0.8); return nil }])
+            },
+            // A3: four agents chosen; a fifth stays unchosen and the footer says why.
+            Scene(group: g, id: "agents-at-limit", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
+                         { Self.nudgeUp(app, by: 0.35); return nil },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-work"), "work") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-review"), "review") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-docs"), "docs, the fifth") },
+                         { Self.nudgeUp(app, by: 0.2); return nil }])
+            },
+            // A3: a model the account can't use is listed with why and can't be chosen.
+            Scene(group: g, id: "model-unavailable", args: Self.list + ["-cmux-mobile-task-catalog", "many"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Review the release branch") },
+                         { Self.nudgeUp(app, by: 0.3); return nil },
+                         { C.tap(C.any(app, "taskComposer.model.claude"), "Claude Code's model menu") }])
+            },
+            // A4: two Macs online: the Mac picker.
+            Scene(group: g, id: "mac-picker", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") },
+                         { app.swipeUp(); C.pause(0.6); return nil },
+                         { C.tap(C.any(app, "taskComposer.mac"), "Mac picker") }])
+            },
+            // A4: another Mac: the two agents chosen go (Start 2 becomes Start).
+            Scene(group: g, id: "mac-switched-clears-agents", args: Self.list + ["-cmux-mobile-mock-second-mac"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Update the docs") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
+                         { app.swipeUp(); C.pause(0.6); return nil },
+                         { C.tap(C.any(app, "taskComposer.mac"), "Mac picker") },
+                         { C.tap(app.buttons["MacBook Pro"].firstMatch, "MacBook Pro") },
+                         { C.pause(1.5); return nil }])
+            },
+            // A8: Cancel keeps all of it: prompt, photos, agents (Start 2), then folder and name.
+            Scene(group: g, id: "draft-full-kept-top", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
+                         { app.swipeUp(); C.pause(0.6); return nil },
+                         { C.tap(C.any(app, "taskComposer.name"), "name field") },
+                         { C.any(app, "taskComposer.name").typeText("design pass"); return nil },
+                         { C.tap(C.any(app, "taskComposer.cancel"), "Cancel") },
+                         { C.pause(1); return Self.openComposer(app) }])
+            },
+            Scene(group: g, id: "draft-full-kept-bottom", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "2"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Match this design") },
+                         { C.tap(C.any(app, "taskComposer.agent.claude-cr"), "Router") },
+                         { app.swipeUp(); C.pause(0.6); return nil },
+                         { C.tap(C.any(app, "taskComposer.name"), "name field") },
+                         { C.any(app, "taskComposer.name").typeText("design pass"); return nil },
+                         { C.tap(C.any(app, "taskComposer.cancel"), "Cancel") },
+                         { C.pause(1); return Self.openComposer(app) },
+                         { app.swipeUp(); C.pause(0.6); return nil }])
+            },
+            // A10: the workspace is made but its task doesn't reach the agent, three ways.
+            Scene(group: g, id: "delivery-not-sent", args: Self.list + ["-cmux-mobile-mock-create-delay", "1", "-cmux-mobile-task-delivery", "not-sent"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil }])
+            },
+            Scene(group: g, id: "delivery-uncertain", args: Self.list + ["-cmux-mobile-mock-create-delay", "1", "-cmux-mobile-task-delivery", "uncertain"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil }])
+            },
+            Scene(group: g, id: "delivery-refused", args: Self.list + ["-cmux-mobile-mock-create-delay", "1", "-cmux-mobile-task-delivery", "refused"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil }])
+            },
+            // A11 at Accessibility Large: the agent row with its model menu, and each list state.
+            Scene(group: g, id: "large-agent-row", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"]) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.type(app, "Fix it") }, { Self.nudgeUp(app, by: 0.45); return nil }])
+            },
+            Scene(group: g, id: "large-agents-loading", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"] + ["-cmux-mobile-task-catalog", "slow"]) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.nudgeUp(app, by: 0.45); return nil }])
+            },
+            Scene(group: g, id: "large-agents-failed", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"] + ["-cmux-mobile-task-catalog", "failed"]) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.nudgeUp(app, by: 0.45); return nil }])
+            },
+            Scene(group: g, id: "large-agents-empty", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"] + ["-cmux-mobile-task-catalog", "empty"]) { app in
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.nudgeUp(app, by: 0.45); return nil }])
+            },
             Scene(group: g, id: "started-one-opens", args: Self.list + ["-cmux-mobile-mock-create-delay", "1"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(5); return nil }])

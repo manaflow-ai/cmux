@@ -185,6 +185,23 @@ final class ShellModel {
         if let mode = UserDefaults.standard.string(forKey: "cmux-mobile-task-catalog").flatMap(MockWorkspaceCreationBackend.CatalogMode.init) {
             mock.catalogMode = mode
         }
+        // `-cmux-mobile-no-agents`: the Mac starts no agents from the phone (New Task is not offered).
+        if CommandLine.arguments.contains("-cmux-mobile-no-agents") { mock.offersAgents = false }
+        // `-cmux-mobile-task-delivery not-sent|uncertain|refused`: the next task doesn't reach its agent.
+        switch UserDefaults.standard.string(forKey: "cmux-mobile-task-delivery") {
+        case "not-sent": mock.taskFailure = .notSent("Not connected to the Mac")
+        case "uncertain": mock.taskFailure = .uncertain("The connection dropped")
+        case "refused": mock.taskFailure = .refused("The prompt is too large for this agent")
+        default: break
+        }
+        // `-cmux-mobile-mock-second-mac`: the team's other Mac is online too (New Task's Mac picker).
+        if CommandLine.arguments.contains("-cmux-mobile-mock-second-mac") {
+            store.teams = store.teams.map { team in
+                var team = team
+                team.macs = team.macs.map { mac in var mac = mac; if mac.id == "mbp" { mac.isOnline = true }; return mac }
+                return team
+            }
+        }
         // `-cmux-mobile-refuse-next-create`: the next workspace the Mac makes is refused (New Task's draft comes back).
         if CommandLine.arguments.contains("-cmux-mobile-refuse-next-create") {
             mock.failNext = "web is a new folder on this Mac. Open cmux on the Mac and trust web, then start the task again."
@@ -499,7 +516,8 @@ final class ShellModel {
         case .uncertain:
             text = "The connection dropped while sending your task. Open \(workspace.title) to check that \(agent) got it."
         case .refused(let reason):
-            text = "\(agent) didn't take your task: \(reason)"
+            // The agent's answer to the task (its turn may have run): said as its words, not a refusal.
+            text = "\(agent) reported a problem with your task: \(reason)"
         }
         toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: text)
         theme.haptics.error()

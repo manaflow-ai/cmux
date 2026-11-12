@@ -891,8 +891,11 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func canCreate(on macID: String) -> Bool { true }
 
+    /// Agents can start from the phone (off: no agent entries, so no New Task).
+    public var offersAgents = true
+
     public func options(on macID: String) -> WorkspaceCreationOptions {
-        WorkspaceCreationOptions(directories: true, agents: ["claude", "codex"], browser: true, cloneFromGit: false)
+        WorkspaceCreationOptions(directories: true, agents: offersAgents ? ["claude", "codex"] : [], browser: true, cloneFromGit: false)
     }
 
     public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {
@@ -943,7 +946,7 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// What `agentCatalog` answers: the catalog, none (`empty`), a refusal (`failed`), or the
     /// catalog after `catalogDelay` (`slow`, the loading state).
-    public enum CatalogMode: String, Sendable { case normal, empty, failed, slow }
+    public enum CatalogMode: String, Sendable { case normal, empty, failed, slow, many }
     public var catalogMode: CatalogMode = .normal
     public var catalogDelay: Duration = .seconds(30)
 
@@ -953,6 +956,19 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         case .empty: return AgentCatalog(harnesses: [])
         case .failed: throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
         case .slow: try await clock.sleep(for: catalogDelay)
+        case .many:
+            // More agents than a task takes (agentLimit), and a model the account can't use.
+            let sonnet = AgentModelChoice(id: "sonnet", name: "Sonnet")
+            let locked = AgentModelChoice(id: "opus-max", name: "Opus Max", unavailableReason: "Not on this plan")
+            return AgentCatalog(harnesses: [
+                AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
+                                   models: [AgentModelChoice(id: "opus", name: "Opus"), sonnet, locked], defaultModel: "opus"),
+                AgentHarnessChoice(id: "claude-cr", name: "Claude Code Router", family: "claude"),
+                AgentHarnessChoice(id: "claude-work", name: "Claude Code (work)", family: "claude"),
+                AgentHarnessChoice(id: "claude-review", name: "Claude Code (review)", family: "claude"),
+                AgentHarnessChoice(id: "claude-docs", name: "Claude Code (docs)", family: "claude"),
+                AgentHarnessChoice(id: "codex", name: "Codex", family: "codex", unavailableReason: AgentCatalog.refusedReason),
+            ])
         }
         return AgentCatalog(harnesses: [
             AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,

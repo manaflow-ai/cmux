@@ -34,6 +34,8 @@ public final class AcpmuxHub {
     /// loading state says "Starting <agent>…" until its first records, not "Loading chat…".
     @ObservationIgnored private(set) var startedHere: [String] = []
 
+    func forgetStartedHere(_ sessionID: String) { startedHere.removeAll { $0 == sessionID } }
+
     /// Notes a session this phone started (`session/new`); the newest 32 are kept.
     func noteStartedHere(_ sessionID: String) {
         startedHere.removeAll { $0 == sessionID }
@@ -1561,6 +1563,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attachTask = nil
         failures = 0
         attached = true
+        // Its history is here: a later load of it reads "Loading chat…", not "Starting…".
+        hub?.forgetStartedHere(sessionID)
         keptRestored = false
         let pending = held
         held = []

@@ -88,6 +88,40 @@ public struct TaskDraft: Hashable, Sendable {
     /// A title from the prompt is cut to this many characters.
     static let titleLength = 48
 
+    /// What a tap on an agent's row did (``toggle(_:fallback:)``).
+    public enum PickChange: Equatable, Sendable {
+        case added, removed
+        /// The last agent stays: a task always has one.
+        case keptLast
+        /// ``agentLimit`` agents are chosen already.
+        case atLimit
+        /// A phone can't start this agent.
+        case unavailable
+    }
+
+    /// A tap on `harness`'s row: picks it, or unpicks it unless it is the last. With no pick,
+    /// the agent the task would start (`fallback`, shown checked) becomes a real pick first.
+    @discardableResult
+    public mutating func toggle(_ harness: AgentHarnessChoice, fallback: AgentHarnessChoice?) -> PickChange {
+        guard harness.canStart else { return .unavailable }
+        if picks.isEmpty, let fallback { picks = [TaskAgentPick(harness: fallback.id, name: fallback.name)] }
+        if let index = picks.firstIndex(where: { $0.harness == harness.id }) {
+            guard picks.count > 1 else { return .keptLast }
+            picks.remove(at: index)
+            return .removed
+        }
+        guard picks.count < Self.agentLimit else { return .atLimit }
+        picks.append(TaskAgentPick(harness: harness.id, name: harness.name))
+        return .added
+    }
+
+    /// Another Mac: its agents are its own, so the picks go (the folder is checked against its list).
+    public mutating func chooseMac(_ macID: String) {
+        guard macID != self.macID else { return }
+        self.macID = macID
+        picks = []
+    }
+
     /// The workspace title: the typed name, else the prompt's first line, shortened at a word.
     public var title: String {
         let typed = name.trimmingCharacters(in: .whitespacesAndNewlines)

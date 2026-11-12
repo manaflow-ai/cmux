@@ -90,11 +90,19 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 throw error
             }
             if request.task != nil { taskSessions[key] = session }
-            let tree = try await sync.listNow()
-            guard let workspace = tree.workspaces.first(where: { $0.id == key }) else {
-                throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+            do {
+                let tree = try await sync.listNow()
+                guard let workspace = tree.workspaces.first(where: { $0.id == key }) else {
+                    throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
+                }
+                return workspace
+            } catch {
+                // The phone reports this start as failed (a task's draft comes back): the
+                // workspace and its unprompted chat go too, so nothing is left to start twice.
+                taskSessions[key] = nil
+                if request.task != nil { _ = try? await client.request("close-workspace", params: ["key": key]) }
+                throw error
             }
-            return workspace
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
@@ -133,15 +141,11 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
-    /// ACP content for a task: the text, then each image a model takes as an `image` block.
+    /// ACP content for a task, as the chat's own Send builds it (``AcpmuxSessionSource/promptBlocks``):
+    /// the text, then each photo an agent takes as an `image` block.
     nonisolated static func taskPromptBlocks(_ task: AgentTask) -> [JSONValue] {
-        var blocks: [JSONValue] = [.object(["type": .string("text"), "text": .string(task.prompt)])]
-        for image in task.images {
-            guard let mime = image.mimeType else { continue }
-            blocks.append(.object(["type": .string("image"), "mimeType": .string(mime),
-                                   "data": .string(image.data.base64EncodedString())]))
-        }
-        return blocks
+        let photos = task.images.map { AgentAttachment(id: $0.id, kind: .image, name: "Photo", data: $0.data) }
+        return AcpmuxSessionSource.promptBlocks(text: task.prompt, attachments: photos)
     }
 
     nonisolated static let chatFolderRefusal = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."

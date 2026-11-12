@@ -119,12 +119,18 @@ struct TaskComposerSheet: View {
             if !draft.images.isEmpty || loadingPhotos > 0 {
                 attachments
             }
-            PhotosPicker(selection: $photoItems, maxSelectionCount: max(1, TaskDraft.imageLimit - draft.images.count),
-                         matching: .images) {
-                Label(draft.images.isEmpty ? "Add Photos" : "Add More Photos", systemImage: "photo.on.rectangle.angled")
+            if draft.images.count >= TaskDraft.imageLimit {
+                // Full: the row says so instead of offering a picker that adds nothing.
+                Label("\(TaskDraft.imageLimit) of \(TaskDraft.imageLimit) photos", systemImage: "photo.on.rectangle.angled")
+                    .foregroundStyle(theme.colors.label2.color)
+                    .accessibilityIdentifier("taskComposer.photosFull")
+            } else {
+                PhotosPicker(selection: $photoItems, maxSelectionCount: TaskDraft.imageLimit - draft.images.count,
+                             matching: .images) {
+                    Label(draft.images.isEmpty ? "Add Photos" : "Add More Photos", systemImage: "photo.on.rectangle.angled")
+                }
+                .accessibilityIdentifier("taskComposer.addPhotos")
             }
-            .disabled(draft.images.count >= TaskDraft.imageLimit)
-            .accessibilityIdentifier("taskComposer.addPhotos")
         } footer: {
             if draft.images.count >= TaskDraft.imageLimit {
                 Text("A task takes up to \(TaskDraft.imageLimit) photos.")
@@ -182,14 +188,18 @@ struct TaskComposerSheet: View {
         } header: {
             Text("Agents")
         } footer: {
-            Text(agentsFooter)
+            // Only when an agent can run the task (loading, failed and empty say why themselves).
+            if case .loaded(let catalog) = phase, !draft.picks.isEmpty || Self.defaultHarness(catalog) != nil {
+                Text(agentsFooter)
+            }
         }
     }
 
     private var agentsFooter: String {
         let count = max(draft.picks.count, 1)
+        let limit = count >= TaskDraft.agentLimit ? " A task takes up to \(TaskDraft.agentLimit) agents." : ""
         return count == 1 ? "The task opens in a new workspace with this agent."
-            : "Each agent gets the task in its own new workspace (\(count) workspaces)."
+            : "Each agent gets the task in its own new workspace (\(count) workspaces).\(limit)"
     }
 
     /// Whether `harness` runs the task: chosen, or the Mac's default while nothing is chosen.
@@ -267,7 +277,7 @@ struct TaskComposerSheet: View {
         Section {
             let macs = creator.taskMacs
             if macs.count > 1, let mac {
-                Picker(selection: Binding(get: { mac.id }, set: { creator.taskDraft.macID = $0; creator.taskDraft.picks = [] })) {
+                Picker(selection: Binding(get: { mac.id }, set: { creator.taskDraft.chooseMac($0) })) {
                     ForEach(macs) { Text(sameNames.displayName($0)).tag($0.id) }
                 } label: {
                     Label("Mac", systemImage: "desktopcomputer")
@@ -321,22 +331,11 @@ struct TaskComposerSheet: View {
     // MARK: Actions
 
     private func toggle(_ harness: AgentHarnessChoice, catalog: AgentCatalog) {
-        guard harness.canStart else { return }
-        theme.haptics.selection()
-        var picks = draft.picks
-        // The Mac's default shown as chosen becomes a real pick once another is added.
-        if picks.isEmpty, let fallback = Self.defaultHarness(catalog) { picks = [TaskAgentPick(harness: fallback.id, name: fallback.name)] }
-        if let index = picks.firstIndex(where: { $0.harness == harness.id }) {
-            guard picks.count > 1 else { return }
-            picks.remove(at: index)
-        } else {
-            guard picks.count < TaskDraft.agentLimit else {
-                theme.haptics.warning()
-                return
-            }
-            picks.append(TaskAgentPick(harness: harness.id, name: harness.name))
+        switch creator.taskDraft.toggle(harness, fallback: Self.defaultHarness(catalog)) {
+        case .added, .removed: theme.haptics.selection()
+        case .keptLast, .atLimit: theme.haptics.warning()
+        case .unavailable: break
         }
-        creator.taskDraft.picks = picks
     }
 
     private func setModel(_ model: String?, for harness: AgentHarnessChoice) {
