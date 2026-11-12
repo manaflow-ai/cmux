@@ -122,9 +122,9 @@ final class NewTabInputCoordinator {
     func begin(for pane: PaneController) -> String? {
         guard let router, let window = pane.view.window else { return nil }
         // One opening at a time per window: an earlier one ends here, and its keys wait for this page.
-        let earlier = entry(for: window)?.buffer.takeKeys() ?? []
+        let replaced = entry(for: window), earlier = replaced?.buffer.takeKeys() ?? []
         release(in: window)
-        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction() || !earlier.isEmpty, standIn: TerminalHostView.keyboardOwner)
+        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction() || replaced?.keyboard.persons == true, standIn: TerminalHostView.keyboardOwner)
         // The pane focus had at the opening, when the opening may move focus (a person's, not a script's).
         var focusedAtOpening = ActionRunScope.viewChangeAllowed() ? pane.services.windowController(showing: pane)?.focus.state.pane : nil
         let buffer = NewTabInputBuffer(began: now(), held: earlier, focusField: { [weak pane, weak window] in
@@ -176,9 +176,9 @@ final class NewTabInputCoordinator {
     /// creation ends the hold when it fails or makes no page (`endIncoming`).
     func beginIncoming(in window: NSWindow?, followsNewWindow: Bool = false) -> String? {
         guard let router, let window else { return nil }
-        let earlier = entry(for: window)?.buffer.takeKeys() ?? []
+        let replaced = entry(for: window), earlier = replaced?.buffer.takeKeys() ?? []
         release(in: window)
-        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction() || !earlier.isEmpty, standIn: TerminalHostView.keyboardOwner)
+        let keyboard = NewTabHoldKeyboard(in: window, persons: ActionRunScope.isPersonsAction() || replaced?.keyboard.persons == true, standIn: TerminalHostView.keyboardOwner)
         let target = IncomingPage()
         target.followsNewWindow = followsNewWindow
         let services = router.services

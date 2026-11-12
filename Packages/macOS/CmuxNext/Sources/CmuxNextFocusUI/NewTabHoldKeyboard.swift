@@ -9,6 +9,8 @@ public final class NewTabHoldKeyboard {
     /// What a responder stands for when its own object can be made again while the hold lives; nil: itself.
     public typealias StandIn = @MainActor (NSResponder) -> AnyObject?
 
+    /// The opening was the person's (a key, a click, a menu), or it replaced a hold of such an opening.
+    public let persons: Bool
     private weak var owner: AnyObject?
     private let standIn: StandIn
     /// The hold ended with no field ready. Its owner sets this before the keys go on.
@@ -19,6 +21,7 @@ public final class NewTabHoldKeyboard {
     /// `standIn`: a terminal makes its surface view again at a replay, so that view stands for the terminal's host view.
     public init(in window: NSWindow, persons: Bool = true, standIn: @escaping StandIn = { _ in nil }) {
         self.standIn = standIn
+        self.persons = persons
         // An opening that is not the person's (a script, the CLI, an agent): the held keys are what the person types
         // in the view they are in. No owner is recorded, so no key is dropped: that view gets them at an unready end.
         guard persons else { return }
