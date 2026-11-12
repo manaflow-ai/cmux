@@ -31,6 +31,8 @@ before it stops a process (about 20 s; needs python3 and ps).
 from __future__ import annotations
 
 import ast
+import builtins
+import importlib.util
 import json
 import os
 import plistlib
@@ -42,6 +44,7 @@ import textwrap
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 KILL_CALLS = {"kill", "killpg", "terminate", "shutdown", "send_signal", "pidfd_send_signal"}
@@ -127,6 +130,14 @@ def closed_pipe() -> int:
     return write_end
 
 
+# tests/process_gone.py, loaded by path (`python3 -I` puts no script folder on sys.path). Its probe reads /proc where
+# /proc exists and asks `ps` where it does not: macOS has no /proc, and a probe that read a missing /proc entry as
+# "gone" passed assert_gone with the target still running (review of cmux#41850 F1).
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", ROOT / "tests" / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
+
+
 def alive(pid: int) -> bool:
     """A process still running (a zombie counts as gone)."""
     try:
@@ -138,6 +149,29 @@ def alive(pid: int) -> bool:
         pass
     state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
     return bool(state) and not state.startswith("Z")
+
+
+class NoProcfs:
+    """No /proc and no pidfd, as on macOS: the probe must still see a live process."""
+
+    def __enter__(self) -> "NoProcfs":
+        real_open, real_isdir, real_exists = builtins.open, os.path.isdir, os.path.exists
+
+        def no_proc(path, *args, **kwargs):
+            if str(path).startswith("/proc"):
+                raise FileNotFoundError(2, "No such file or directory", str(path))
+            return real_open(path, *args, **kwargs)
+        self.patches = [mock.patch.object(os, "pidfd_open", side_effect=AttributeError, create=True),
+                        mock.patch("builtins.open", no_proc),
+                        mock.patch.object(os.path, "isdir", lambda p: False if str(p).startswith("/proc") else real_isdir(p)),
+                        mock.patch.object(os.path, "exists", lambda p: False if str(p).startswith("/proc") else real_exists(p))]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        for patch in reversed(self.patches):
+            patch.stop()
 
 
 # Runs one script's cleanup(): the script's module code without its closing `try: main() ...`, rpc and the CLI stubbed
@@ -157,16 +191,15 @@ DRIVER = textwrap.dedent("""\
     ns["CLI"] = "/bin/true"
     ns["time"] = types.SimpleNamespace(**{**vars(time), "sleep": lambda seconds: time.sleep(min(seconds, 0.5))})
     ns.update(state.get("set", {}))
-    if state.get("helper_pid_file"):
-        helper = subprocess.Popen(["sleep", "600"], start_new_session=True)
-        with open(state["helper_pid_file"], "w") as out:
-            out.write(str(helper.pid))
-        ns["VDISPLAY"] = helper
+    if state.get("helper_pid"):  # the test's own live helper, standing in for the display helper the script starts
+        pid = state["helper_pid"]
+        ns["VDISPLAY"] = types.SimpleNamespace(pid=pid, poll=lambda: None,
+                                               terminate=lambda: os.kill(pid, __import__("signal").SIGTERM))
     ns["cleanup"]()
     """)
 
 
-class CleanupRow(unittest.TestCase):
+class Fixture(unittest.TestCase):
     def setUp(self) -> None:
         tmp = tempfile.TemporaryDirectory(prefix="cmux-pyguard.")
         self.addCleanup(tmp.cleanup)
@@ -207,8 +240,8 @@ class CleanupRow(unittest.TestCase):
             os.close(err)
         proc.wait(timeout=60)
 
-    def assert_gone(self, pid: int, what: str) -> None:
-        deadline = time.monotonic() + 10
+    def assert_gone(self, pid: int, what: str, within: float = 10) -> None:
+        deadline = time.monotonic() + within
         while alive(pid) and time.monotonic() < deadline:
             try:
                 os.waitpid(pid, os.WNOHANG)
@@ -217,11 +250,18 @@ class CleanupRow(unittest.TestCase):
             time.sleep(0.1)
         self.assertFalse(alive(pid), what)
 
+    def assert_seen_alive(self, pid: int) -> None:
+        """The probe's self-check: a process this test just started must read as alive, or assert_gone proves nothing."""
+        self.assertTrue(alive(pid), f"the probe cannot see live pid {pid}; assert_gone would pass on any target")
+
     def check_leftover(self, script: str) -> None:
         target = self.leftover()
+        self.assert_seen_alive(target)
         self.run_cleanup(script, {"set": {"LAUNCHED": [target]}})
         self.assert_gone(target, f"{script}: a line before the kill raised on the closed stdout; the leftover lives on")
 
+
+class CleanupRow(Fixture):
     def test_tab_switch_stages_ends_leftovers_with_stdout_unread(self) -> None:
         self.check_leftover("tab-switch-stages.py")
 
@@ -233,12 +273,27 @@ class CleanupRow(unittest.TestCase):
         self.check_leftover("terminal-keys-e2e.py")
 
     def test_palette_open_stages_ends_its_display_helper_with_stdout_unread(self) -> None:
-        pid_file = self.tmp / "helper.pid"
-        self.run_cleanup("palette-open-stages.py", {"set": {"LAUNCHED": []}, "helper_pid_file": str(pid_file)})
-        self.assertTrue(pid_file.exists(), "the driver did not start the helper")
-        helper = int(pid_file.read_text())
+        proc = subprocess.Popen(["sleep", "600"], stdin=subprocess.DEVNULL, start_new_session=True)
+        self.addCleanup(proc.wait)
+        helper = proc.pid
         self.kill_at_cleanup(helper)
+        self.assert_seen_alive(helper)
+        self.run_cleanup("palette-open-stages.py", {"set": {"LAUNCHED": []}, "helper_pid": helper})
         self.assert_gone(helper, "palette-open-stages.py: the cleanup line raised on the closed stdout; the helper lives on")
+
+
+class ProbeWithoutProcfs(Fixture):
+    """Review of cmux#41850 F1: on macOS there is no /proc; the probe must still see a live process."""
+
+    def test_a_live_process_reads_as_alive_with_procfs_hidden(self) -> None:
+        target = self.leftover()
+        with NoProcfs():
+            self.assertTrue(alive(target), "with /proc hidden, a live process read as gone")
+
+    def test_a_surviving_target_fails_assert_gone_with_procfs_hidden(self) -> None:
+        target = self.leftover()
+        with NoProcfs(), self.assertRaises(AssertionError, msg="assert_gone passed with its target still running"):
+            self.assert_gone(target, "the target lives on", within=1)
 
 
 class ScanPrintInCleanup(unittest.TestCase):
