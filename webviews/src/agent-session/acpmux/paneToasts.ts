@@ -5,7 +5,8 @@
 // - `transient`: feedback on a click or an action (a sender with no chat, an action the app did not
 //   run). It belongs to the moment, not the chat: a toast in the pane's stack over the transcript's
 //   foot, by the composer where the person is looking (Leo, 2026-11-07: "it should have sent, like,
-//   that bottom toast area"). The same text twice is one toast with a count (NoticeStack).
+//   that bottom toast area"). The same text twice is one toast with a count (NoticeStack). A click
+//   that failed (`failed`) is the same toast drawn as an error, so it never reads as plain news.
 import { anchorMemory } from "../../ui/anchors";
 import { createNoticeQueue, type NoticeQueue } from "../../ui/NoticeStack";
 import { translate } from "./i18n";
@@ -26,6 +27,8 @@ export interface PaneNotices {
   transcript(text: string): void;
   /** `group`: the kind of toast, which a drag's anchor is remembered under. */
   transient(text: string, group?: string): void;
+  /** A click or action that failed: a transient toast drawn as an error. `text` is plain words. */
+  failed(text: string): void;
   /** A sender chip whose name acpmux resolves to no chat. */
   senderMissing(name: string): void;
 }
@@ -42,12 +45,13 @@ export function createPaneToasts(): NoticeQueue {
 
 export function paneNotices(sinks: PaneNoticeSinks): PaneNotices {
   const transcript = (text: string) => void sinks.transcript()?.notice(text);
-  const transient = (text: string, group = "feedback") => {
-    if (text) sinks.toasts.show({ message: text, group });
+  const transient = (text: string, group = "feedback", kind?: "error") => {
+    if (text) sinks.toasts.show({ message: text, group, ...(kind ? { kind } : {}) });
   };
   return {
     transcript,
-    transient,
+    transient: (text, group) => transient(text, group),
+    failed: (text) => transient(text, "feedback", "error"),
     senderMissing: (name) => transient(translate("message.senderNotFound", { name }), "senderMissing"),
   };
 }
