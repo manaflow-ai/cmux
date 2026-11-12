@@ -35,6 +35,11 @@ Arms, each on its own APFS clone of the generated state, with real owner process
          starts), after synth_registry appended --kept-records sealed records. The row: the
          registry lock by site, each pass that deleted (seconds, segments), and the request
          times in two groups: while a pass deleted, and with no pass.
+  in-place-kept-nowatch, in-place-kept-quiet  (not in the default list) the in-place-kept arm
+         with NO read of the registry file by this script while the owner runs (nowatch), and
+         with no request of the probe either (quiet: no rename, so the WAL bytes are those of
+         the owner's own work). Both run for --kept-dwell seconds and give no pass rows. They
+         say whether a large WAL comes from this script's reader or from the owner.
   in-place-stacks, in-place-kept-stacks  (not in the default list) the same two arms, each on
          its own clone, with the macOS stack sampler (/usr/bin/sample, each --stack-ms
          milliseconds) on the owner: of the samples inside the delete of one segment (the
@@ -55,7 +60,9 @@ Arms, each on its own APFS clone of the generated state, with real owner process
 After each arm: the counts of the registry (synth_registry --counts) against the counts before.
 Equal = workspaces, tabs, terminals, roster agents, History sessions; the journal head never
 goes back. The owner's answers over the socket (history.entries.list, agent.list) are compared
-too: the count and a one-way mark (SHA-256, 16 hex digits) of the sorted ids. Output: RMP
+too: the count and a one-way mark (SHA-256, 16 hex digits) of the sorted ids. agent.list gives
+the agent rows of terminals: on a state with no terminal each answer is 0 rows, and the verdict
+then says that this comparison is void. Output: RMP
 {json} per step and a Markdown table. The report holds counts, sizes, times, those marks and
 the source file names of lock sites only: no paths and no row contents. A time from a loaded
 host is not a perf number.
@@ -256,6 +263,20 @@ def lock_sites(owner):
     return {"hold_us": registry.get("hold_us"), "stalls": registry.get("stalls"),
             "sites_seen": seen, "site_lists_cut": cut, "longest_holds": longest,
             "retention_sites": ours}
+
+
+def wal_stats(owner):
+    """The registry WAL of this owner since its start (server-stats `write_path`): the commits,
+    the bytes of the WAL frames that they appended, the size of the WAL file now and the
+    largest size that the owner saw. None when the owner gives no such section."""
+    request = {"id": 4, "cmd": "server-stats", "include": ["write_path"]}
+    reply, _ = request_line(owner, request, 60)
+    section = ((reply or {}).get("data") or {}).get("write_path")
+    if not isinstance(section, dict):
+        return None
+    return {key: section.get(key) for key in (
+        "wal_commits", "registry_wal_frame_bytes", "registry_wal_file_bytes",
+        "registry_wal_file_high_water_bytes")}
 
 
 def cpu_seconds(text):
@@ -1066,8 +1087,9 @@ def space_arm(args, state, before, report):
     report["steps"].append(step)
 
 
-IN_PLACE_KEYS = ("registry_bytes", "wal_bytes", "records", "segments", "pruned_ranges",
-                 "retention_floor", "journal_head", "history_cursor", "roster_cursor")
+IN_PLACE_KEYS = ("registry_bytes", "wal_bytes", "freelist_pages", "records", "segments",
+                 "pruned_ranges", "retention_floor", "journal_head", "history_cursor",
+                 "roster_cursor")
 NO_REBUILD = "output cleanup: no rebuild in this start"
 # The in-place-kept arm ends when no read saw a delete for this long (a pass each 30 s).
 KEPT_QUIET_SECONDS = 75
@@ -1109,6 +1131,7 @@ def in_place_arm(args, state, before, report, name="in-place"):
     sampler.stop()
     step["samples"] = sampler.phase(ready, owner.elapsed())
     step["locks"] = lock_sites(owner)
+    step["wal"] = wal_stats(owner)
     if stacks:
         stacks.stop()
         step["stacks"] = stacks.result()
@@ -1182,34 +1205,46 @@ def in_place_kept_arm(args, state, before, report, name="in-place-kept"):
         report["steps"].append(step)
         return
     # Memory and CPU by the sampler (it sends no rename here); the request times by the probe.
-    sampler, probe = Sampler(owner, write_every=0), PassProbe(owner)
-    watch = SegmentWatch(registry_of(state))
+    # The nowatch and quiet arms: no read of the registry file by this script while the owner
+    # runs (a reader of the file can hold the WAL at its size); quiet: no probe request either.
+    watched = not name.endswith(("-nowatch", "-quiet"))
+    sampler = Sampler(owner, write_every=0)
+    probe = None if name.endswith("-quiet") else PassProbe(owner)
+    watch = SegmentWatch(registry_of(state)) if watched else None
     stacks = StackSampler(owner, args.stack_ms) if name.endswith("-stacks") else None
-    for thread in (watch, sampler, probe, *([stacks] if stacks else [])):
+    threads = [thread for thread in (watch, sampler, probe, stacks) if thread is not None]
+    for thread in threads:
         thread.start()
     began = time.monotonic()
     deadline = began + dwell
     step["ended_by"] = "the dwell"
+    step["reads_the_file_while_the_owner_runs"] = watched
     while time.monotonic() < deadline and owner.child.poll() is None:
         time.sleep(1)
-        last = watch.last_delete()
+        last = watch.last_delete() if watch else None
         # 2 passes with no delete (they are 30 s apart): no segment is left at the floor.
         if last is not None and time.monotonic() - last > KEPT_QUIET_SECONDS:
             step["ended_by"] = f"no delete for {KEPT_QUIET_SECONDS} s"
             break
     for thread in (probe, sampler, watch):
-        thread.stop()
-    passes = watch.passes()
+        if thread is not None:
+            thread.stop()
+    passes = watch.passes() if watch else []
     step["samples"] = sampler.phase(ready, owner.elapsed())
     step["ran_s"] = round(time.monotonic() - began, 1)
-    step["passes"] = len(passes)
-    step["pass_rows_first_40"] = [
-        {"at_s": round(start - began, 1), "seconds": round(end - start, 2), "segments": segments}
-        for start, end, segments in passes[:40]]
-    step["watch_period_s"] = watch.period
-    step["probe_requests"] = len(probe.rows)
-    step["requests"] = probe.split(passes, watch.period)
+    if watch:
+        step["passes"] = len(passes)
+        step["pass_rows_first_40"] = [
+            {"at_s": round(start - began, 1), "seconds": round(end - start, 2),
+             "segments": segments}
+            for start, end, segments in passes[:40]]
+        step["watch_period_s"] = watch.period
+    if probe:
+        step["probe_requests"] = len(probe.rows)
+        # With no watch no pass is known: each request is then in the group "with_no_pass".
+        step["requests"] = probe.split(passes, watch.period if watch else 0.1)
     step["locks"] = lock_sites(owner)
+    step["wal"] = wal_stats(owner)
     if stacks:
         stacks.stop()
         step["stacks"] = stacks.result()
@@ -1252,6 +1287,7 @@ def base_sample_arm(args, state, report):
         sampler.stop()
         step["samples"] = sampler.phase(ready, owner.elapsed())
         step["locks"] = lock_sites(owner)
+        step["wal"] = wal_stats(owner)
         # That build's own answer: not an answer of the head build, so no verdict rule reads it.
         step["base_served"] = served(owner)
     step["exit"] = owner.stop()
@@ -1482,7 +1518,8 @@ def table(report):
                                 .get("agent_sessions")) for n in (1, 2, 3, 4))
                  + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
     names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "in-place-stacks",
-             "in-place-kept", "in-place-kept-stacks", "base-sample", "second-swap"]
+             "in-place-kept", "in-place-kept-stacks", "in-place-kept-nowatch",
+             "in-place-kept-quiet", "base-sample", "second-swap"]
     names += [name for name in steps if name.startswith(("old", "control"))
               and not name.endswith("-new")]
     for name in names:
@@ -1509,7 +1546,8 @@ def table(report):
                                "first_name_bytes", "load_1m",
                                "appended_records", "ended_by", "ran_s", "passes",
                                "pass_rows_first_40", "watch_period_s", "probe_requests",
-                               "requests", "stacks")}
+                               "requests", "stacks", "wal",
+                               "reads_the_file_while_the_owner_runs")}
             if name == "second-swap":
                 keep["build"] = {key: step.get("build", {}).get(key) for key in
                                  ("ready_s", "staging_started_s", "built_s", "cleanup_lines",
@@ -1621,7 +1659,8 @@ def main():
     if "base-sample" in args.arms:
         base_sample_arm(args, scratch / "base-sample", report)
         shutil.rmtree(scratch / "base-sample")
-    for name in ("in-place-kept", "in-place-kept-stacks"):
+    for name in ("in-place-kept", "in-place-kept-stacks", "in-place-kept-nowatch",
+                 "in-place-kept-quiet"):
         if name in args.arms and ok:
             in_place_kept_arm(args, clone(args.state, scratch / name), before, report, name)
             shutil.rmtree(scratch / name)
@@ -1702,6 +1741,8 @@ def main():
             if mark is not None and mark != roster_mark(first):
                 (roster_apart if arm.startswith("control-")
                  else roster_differs)[arm] = [roster_mark(first), mark]
+    roster_void = bool(answers) and all(
+        (roster_mark(value) or [1])[0] == 0 for value in answers.values())
     # Failures by time, not by a loss: the History fold was not at the head after the last try
     # (SERVED_TRIES, 3 s apart), or no retention pass deleted in the dwell of the in-place arm.
     by_time = sorted(set(head_pending) | {step["arm"] for step in report["steps"]
@@ -1719,6 +1760,9 @@ def main():
                         "head_served_roster_not_read_in": roster_unread,
                         "head_served_roster_differs_from_start_1_in": roster_differs,
                         "head_served_roster_differs_named_apart": roster_apart,
+                        # agent.list gives the agent rows of TERMINALS: a generated state has
+                        # no terminal, so each answer is 0 rows and equal answers prove nothing.
+                        "head_served_roster_void_0_rows_in_each_answer": roster_void,
                         "failed_by_time_not_by_a_loss_in": by_time,
                         "raised_not_clean_in": not_clean, "control": control,
                         "an_older_build_as_the_last_writer_shows_less": shows_less,

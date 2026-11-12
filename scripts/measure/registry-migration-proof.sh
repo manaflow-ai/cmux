@@ -37,6 +37,9 @@
 # same two arms on their own clones with the macOS stack sampler on the owner each stack_ms=
 # milliseconds: the share of the delete that waits for another writer, syncs, writes, reads or
 # runs. The sampler slows the owner: the times of those two arms are not the arms' times.
+# arms= can also name in-place-kept-nowatch and in-place-kept-quiet: the in-place-kept arm with no
+# read of the registry file by the script while the owner runs, and (quiet) with no probe request.
+# Each in-place row and the base-sample row has `wal`: the owner's own WAL counters.
 # base_bin= adds the base-sample arm: that build owns a clone from before start 1 for
 # in_place_dwell= seconds with the same sampler, so the lock and request times of the in-place
 # arm have a row that shows what the size of the file and the host cost with no delete.
