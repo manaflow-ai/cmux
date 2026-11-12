@@ -1440,6 +1440,9 @@ def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[l
             _nested(text, defined, depth + 1, found)
         return
     if program in _SHELLS:
+        if program == "fish":
+            found.append([])
+            return
         text = _shell_text(args)
         if text is None or _unreadable(text):
             found.append([])

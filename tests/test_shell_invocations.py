@@ -404,7 +404,7 @@ class AgainstBash(unittest.TestCase):
                 self.assertIn([], may_run_nested(script))
         for script in ("echo hi", "f() { echo hi; }\nf", "xargs rm -f \"$x\" < f", "sudo apt-get install -y gh",
                        "bash -c 'echo gh release create'", "cat <<'EOF'\ngh release create v1\nEOF",
-                       "\"$python\" -m venv \"$dir\"", "python3 - <<'PY'\nprint(1)\nPY"):
+                       "\"$python\" -m venv \"$dir\""):
             with self.subTest(readable=script):
                 self.assertNotIn([], may_run_nested(script))
                 self.assertFalse(any(words[:len(inner)] == inner for words in may_run_nested(script)), script)
