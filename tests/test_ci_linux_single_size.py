@@ -30,10 +30,14 @@ falling only to a [...] Blacksmith that isn't available". Same ratchet: it only 
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -250,12 +254,22 @@ def fixed_pair(runs_on: object) -> bool:
     return tail is not None and LIVE_SOURCE.search(expression[:tail.start()]) is None
 
 
+def runs_on_cells(job: dict, workflow: str, job_id: str) -> list[str]:
+    """The job's runs-on per matrix cell. A matrix nothing resolves fails, unless audited by name ([])."""
+    cells = workflow_jobs.runs_on_cells(job)
+    if cells is None:
+        if workflow_jobs.audited_matrix(workflow, job_id):
+            return []
+        raise AssertionError(f"{workflow} {job_id}: runs-on has a matrix value nothing resolves")
+    return cells
+
+
 def counts(rule=single_size) -> dict[str, int]:
     found: dict[str, int] = {}
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        for job in (document.get("jobs") or {}).values():
-            if isinstance(job, dict) and rule(job.get("runs-on")):
+        for job_id, job in (document.get("jobs") or {}).items():
+            if isinstance(job, dict) and any(rule(cell) for cell in runs_on_cells(job, path.name, job_id)):
                 found[path.name] = found.get(path.name, 0) + 1
     return found
 
@@ -299,7 +313,9 @@ class FixedPairRuleTests(unittest.TestCase):
 class WorkflowTests(unittest.TestCase):
     def test_the_ghosttykit_release_check_reads_the_linux_pool(self) -> None:
         document = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
-        runs_on = document["jobs"]["ghosttykit-release-check"]["runs-on"]
+        cells = runs_on_cells(document["jobs"]["ghosttykit-release-check"], "ci.yml", "ghosttykit-release-check")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
         self.assertTrue(runs_on.rstrip().endswith("fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)
 
@@ -307,7 +323,9 @@ class WorkflowTests(unittest.TestCase):
         # Run 41275619982 (2026-11-01): job 124762739841 waited 50 minutes unassigned on LINUX_RUNNER's
         # stalled 32 vCPU size while every webview shard waited behind it.
         document = yaml.safe_load((WORKFLOWS / "ci-web.yml").read_text(encoding="utf-8"))
-        runs_on = document["jobs"]["web-subarea-scope"]["runs-on"]
+        cells = runs_on_cells(document["jobs"]["web-subarea-scope"], "ci-web.yml", "web-subarea-scope")
+        self.assertEqual(len(cells), 1, cells)
+        runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
         self.assertNotIn("LINUX_RUNNER", runs_on)
         self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux }}"), runs_on)

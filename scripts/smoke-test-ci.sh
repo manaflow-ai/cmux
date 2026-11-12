@@ -137,8 +137,9 @@ if [ "$FINAL_PING" != "PONG" ]; then
   exit 1
 fi
 
-echo "=== Smoke test passed ==="
-
 # --- Cleanup ---
+# Before the message: an echo to a stdout nobody reads would otherwise end this script before the kill
+# (tests/test_guard_logs_survive_closed_pipe.py).
 kill "$APP_PID" 2>/dev/null || true
 wait "$APP_PID" 2>/dev/null || true
+echo "=== Smoke test passed ==="

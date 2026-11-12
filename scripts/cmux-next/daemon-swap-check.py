@@ -85,6 +85,8 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 FILES = "https://files.cmux.com/cmux-tui"
 APPCAST = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
@@ -285,13 +287,13 @@ def kill_owned(owned: Owned) -> None:
     left unclaimed that still runs is reported too."""
     for pid, why in sorted(UNCLAIMED.items()):
         if pid not in owned and pid_alive(pid):
-            print(f"daemon-swap-check: left pid {pid} alive: {why}", file=sys.stderr)
+            safe_print(f"daemon-swap-check: left pid {pid} alive: {why}", file=sys.stderr)
     UNCLAIMED.clear()
     for pid, (start, pidfd) in owned.items():
         if pidfd is None:
             if pid_alive(pid):
                 same = "" if process_start(pid) == start else " (its start time changed: maybe another process now)"
-                print(f"daemon-swap-check: left pid {pid} alive: no pidfd to signal it safely{same}", file=sys.stderr)
+                safe_print(f"daemon-swap-check: left pid {pid} alive: no pidfd to signal it safely{same}", file=sys.stderr)
             continue
         try:
             signal.pidfd_send_signal(pidfd, signal.SIGKILL)

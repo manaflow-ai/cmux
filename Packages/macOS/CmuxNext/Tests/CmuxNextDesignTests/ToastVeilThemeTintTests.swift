@@ -36,7 +36,7 @@ struct ToastVeilThemeTintTests {
         // The toast role's glass with Reduce Transparency off (the glass, not the opaque fallback).
         let surface = OverlaySurfaceView(interactive: false, cornerRadius: SurfaceRole.toast.cornerRadius,
                                          reduceTransparency: ReduceTransparency(system: { false }, changes: NotificationCenter()),
-                                         tone: SurfaceRole.toast.tone)
+                                         tone: SurfaceRole.toast.tone, glassVariant: .veilTinted)
         surface.frame = NSRect(x: 20, y: 20, width: 300, height: 44)
         root.addSubview(surface)
         scope.setOverride(try #require(ThemeSpec("Glass \(theme.name)")), input: theme.input, animated: false)
