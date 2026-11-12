@@ -9,6 +9,9 @@
 //! not only drop pages: it moves the live pages at the end of the file into
 //! free ones and rewrites what points at them, in a commit of its own.
 //!
+//! Now the registry keeps 64 MiB of free pages and a tick returns a step
+//! only of what is free over them, so the worker settles.
+//!
 //! The tests run a real `Mux` on an on-disk registry, make a free-page
 //! backlog (rows written, then deleted), run maintenance ticks through the
 //! worker's own tick function and count, at the registry: WAL commits, WAL
