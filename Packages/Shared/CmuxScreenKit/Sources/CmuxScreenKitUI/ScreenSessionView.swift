@@ -36,11 +36,12 @@ public struct ScreenFeatures: OptionSet, Sendable {
     /// A Direct Touch / Trackpad choice in the options menu
     /// (`ScreenPreferences.inputMode`).
     public static let inputModeToggle = ScreenFeatures(rawValue: 1 << 11)
-    /// A trackpad drawer under the screen: closed by default (only its handle
-    /// shows at the bottom edge), swiped up to slide it in under the screen
-    /// (the screen moves up above it) and swiped down to hide it. It holds a
-    /// trackpad surface that moves the Mac's pointer and the viewer settings,
-    /// which are then not on the screen's top bar.
+    /// An always-visible trackpad under the screen: the toolbar, the screen and
+    /// the trackpad stack top to bottom, the screen fitted to the width and the
+    /// trackpad filling the rest. Its notch drags down to tuck it away to a
+    /// strip at the bottom edge (the screen takes the room) and up to bring it
+    /// back; a tap on the notch toggles. Up by default, remembered per computer
+    /// (`ScreenPreferences.showTrackpad`).
     public static let trackpadOverlay = ScreenFeatures(rawValue: 1 << 12)
 
     /// A Paste Image button: pick a photo, and the Mac pastes it (⌘V) where
@@ -70,18 +71,19 @@ public struct ScreenSessionView: View {
     @State private var signInUser = ""
     @State private var signInPassword = ""
     @State private var orientation = OrientationLock.saved
-    /// The trackpad drawer is closed until it is swiped up.
-    @State private var trackpadOpen = false
-    /// The finger's vertical travel on the drawer's handle while it drags; springs back to 0.
+    /// The finger's vertical travel on the drawer's notch while it drags; springs back to 0.
     @GestureState(resetTransaction: Transaction(animation: .spring(duration: 0.3, bounce: 0.1)))
     private var trackpadDrag: CGFloat = 0
     @State private var trackpadLink = ScreenTrackpadLink()
     /// The drawer's measured height (above the bottom safe area).
     @State private var trackpadDrawerHeight: CGFloat = 300
-    /// The drawer content's measured height, kept while closed so the drawer's travel stays the same.
-    @State private var trackpadContentHeight: CGFloat = 224
-    /// The drawer's content is drawn: from opening until a close has finished sliding down.
-    @State private var trackpadContentShown = false
+    /// The drawer's content is drawn: from opening until a close has finished sliding down
+    /// (nil until the view appears, then the remembered choice).
+    @State private var trackpadContentShown: Bool?
+    /// The viewer's size inside the safe area, which sizes the trackpad.
+    @State private var containerSize = CGSize.zero
+    /// The toolbar's measured height (with the shortcuts bar) while it shows.
+    @State private var chromeHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pickedPhoto: PhotosPickerItem?
     /// Reading and preparing the picked photo, before it is sent.
@@ -98,34 +100,36 @@ public struct ScreenSessionView: View {
 
     public var body: some View {
         ZStack(alignment: .top) {
-            // The open trackpad drawer sits under the screen: the screen ends at its top.
-            VStack(spacing: 0) {
-                ScreenView(session: session, fitToDisplay: session.preferences.fitToDisplay,
-                           displayPaging: features.contains(.displayPaging), keyboardVisible: $keyboardVisible,
-                           inputMode: session.preferences.inputMode, trackpadLink: trackpadLink,
-                           trackpadPadActive: trackpadShown)
-                    .ignoresSafeArea(edges: trackpadShown ? [.top, .horizontal] : .all)
-                if trackpadShown { Color.clear.frame(height: trackpadDrawerHeight) }
-            }
-            if chromeVisible {
-                VStack(spacing: 6) {
-                    topBar
-                    if features.contains(.shortcutsBar), case .connected = session.phase {
-                        MacShortcutsBar(session: session, shortcuts: shortcuts)
+            if hasTrackpadOverlay {
+                // Toolbar, screen and trackpad stack: none covers another.
+                VStack(spacing: 0) {
+                    if chromeVisible {
+                        chrome
+                            .padding(.bottom, 6)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chromeHeight = $0 }
                     }
+                    screenView
+                        .ignoresSafeArea(edges: chromeVisible ? .horizontal : [.top, .horizontal])
+                    if trackpadReserved > 0 { Color.clear.frame(height: trackpadReserved) }
                 }
-                .transition(.move(edge: .top).combined(with: .opacity))
+            } else {
+                screenView.ignoresSafeArea()
+                if chromeVisible { chrome }
             }
             stateCard
             if hasTrackpadOverlay, case .connected = session.phase { trackpadDrawer }
             if features.contains(.pasteImage) { pasteBanner }
         }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { containerSize = $0 }
         .background(.black)
         // Remote screens sit on black: dark chrome keeps the bar and stats legible.
         .preferredColorScheme(.dark)
         .statusBarHidden(!chromeVisible)
         .persistentSystemOverlays(.hidden)
-        .onAppear { if features.contains(.orientationLock) { ScreenOrientation.shared.lock(orientation) } }
+        .onAppear {
+            if trackpadContentShown == nil { trackpadContentShown = session.preferences.showTrackpad }
+            if features.contains(.orientationLock) { ScreenOrientation.shared.lock(orientation) }
+        }
         .onChange(of: orientation) {
             OrientationLock.saved = orientation
             ScreenOrientation.shared.lock(orientation)
@@ -140,6 +144,24 @@ public struct ScreenSessionView: View {
             if features.contains(.orientationLock) { ScreenOrientation.shared.lock(.auto) }
             session.close()
         }
+    }
+
+    private var screenView: some View {
+        ScreenView(session: session, fitToDisplay: session.preferences.fitToDisplay,
+                   displayPaging: features.contains(.displayPaging), keyboardVisible: $keyboardVisible,
+                   inputMode: session.preferences.inputMode, trackpadLink: trackpadLink,
+                   trackpadPadActive: trackpadShown)
+    }
+
+    /// The toolbar and, once connected, the Mac shortcuts under it.
+    private var chrome: some View {
+        VStack(spacing: 6) {
+            topBar
+            if features.contains(.shortcutsBar), case .connected = session.phase {
+                MacShortcutsBar(session: session, shortcuts: shortcuts)
+            }
+        }
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private var hasMenu: Bool {
@@ -160,8 +182,7 @@ public struct ScreenSessionView: View {
                 if features.contains(.stats), session.preferences.showStats, case .connected = session.phase { stats }
             }
             Spacer(minLength: 8)
-            // With the trackpad drawer, the viewer settings live inside it, not on the screen.
-            if hasMenu, !hasTrackpadOverlay { optionsMenu }
+            if hasMenu { optionsMenu }
             if features.contains(.pasteImage), session.supportsImagePaste, case .connected = session.phase {
                 PhotosPicker(selection: $pickedPhoto, matching: .images, preferredItemEncoding: .current) {
                     Label("Paste Image", systemImage: "photo.badge.plus").labelStyle(.iconOnly)
@@ -199,20 +220,47 @@ public struct ScreenSessionView: View {
 
     private var hasTrackpadOverlay: Bool { features.contains(.trackpadOverlay) }
 
-    /// The drawer is open on a connected screen (its pad drives the pointer).
+    /// The trackpad is up (the remembered choice; up by default).
+    private var trackpadOpen: Bool { session.preferences.showTrackpad }
+
+    /// The trackpad is up on a connected screen (its pad drives the pointer).
     private var trackpadShown: Bool {
         guard hasTrackpadOverlay, trackpadOpen, case .connected = session.phase else { return false }
         return true
     }
 
-    /// The handle's height: all of the drawer that shows while it is closed.
-    private static let trackpadPeek: CGFloat = 52
+    /// The notch's strip: all of the drawer that shows while it is tucked away.
+    private static let trackpadPeek: CGFloat = 30
+    private static let trackpadBottomPadding: CGFloat = 8
 
-    /// How far the drawer travels between closed (handle only) and open.
+    /// The room kept under the screen for the drawer: all of it while up, the
+    /// notch's strip while tucked away, none before the screen connects.
+    private var trackpadReserved: CGFloat {
+        guard hasTrackpadOverlay, case .connected = session.phase else { return 0 }
+        return trackpadOpen ? trackpadDrawerHeight : Self.trackpadPeek
+    }
+
+    /// The pad's height: what is left under the toolbar and the screen fitted
+    /// to the width, within a floor that keeps it usable and a ceiling that
+    /// keeps the screen readable (lower in landscape, where height is short).
+    private var trackpadPadHeight: CGFloat {
+        let size = containerSize
+        guard size.width > 0, size.height > 0 else { return 240 }
+        let frame = session.frameSize
+        let aspect = frame.width > 0 ? min(max(frame.height / frame.width, 0.4), 1) : 0.625
+        let landscape = size.width > size.height
+        let chrome = chromeVisible ? chromeHeight : 0
+        let room = size.height - chrome - size.width * aspect - Self.trackpadPeek - Self.trackpadBottomPadding
+        let floor: CGFloat = landscape ? 110 : 160
+        let ceiling = max(floor, size.height * (landscape ? 0.42 : 0.6))
+        return min(max(room, floor), ceiling)
+    }
+
+    /// How far the drawer travels between tucked away (notch only) and up.
     private var trackpadTravel: CGFloat { max(0, trackpadDrawerHeight - Self.trackpadPeek) }
 
-    /// The drawer's offset below its open position: 0 open, `trackpadTravel` closed,
-    /// in between while the handle is dragged.
+    /// The drawer's offset below its open position: 0 up, `trackpadTravel` tucked
+    /// away, in between while the notch is dragged.
     private var trackpadOffset: CGFloat {
         min(max((trackpadOpen ? 0 : trackpadTravel) + trackpadDrag, 0), trackpadTravel)
     }
@@ -221,34 +269,33 @@ public struct ScreenSessionView: View {
         // Reduce Motion: the drawer moves in one frame.
         if open { trackpadContentShown = true }
         withAnimation(reduceMotion ? nil : .spring(duration: 0.35, bounce: 0.1)) {
-            trackpadOpen = open
+            session.preferences.showTrackpad = open
         } completion: {
             if !trackpadOpen { trackpadContentShown = false }
         }
     }
 
-    /// The trackpad drawer: its handle at the bottom edge, and above the
-    /// home indicator once swiped up, the trackpad surface and the viewer settings.
+    /// The trackpad drawer: the notch, and under it the trackpad surface,
+    /// above the home indicator. Tucked away, only the notch's strip shows.
     private var trackpadDrawer: some View {
         let progress = trackpadTravel > 0 ? 1 - trackpadOffset / trackpadTravel : (trackpadOpen ? 1 : 0)
-        return VStack(spacing: 10) {
+        return VStack(spacing: 0) {
             trackpadHandle
-            // Closed (and not being dragged), the content is not drawn: only its room is kept below
-            // the handle, so nothing hidden can take touches or show to VoiceOver.
-            if trackpadContentShown || trackpadDrag != 0 {
+            // Tucked away (and not being dragged), the pad is not drawn: only its room is kept under
+            // the notch, so nothing hidden can take touches or show to VoiceOver.
+            if (trackpadContentShown ?? trackpadOpen) || trackpadDrag != 0 {
                 trackpadContent
                     .opacity(progress)
                     .allowsHitTesting(trackpadOpen)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { trackpadContentHeight = $0 }
             } else {
-                Color.clear.frame(height: trackpadContentHeight).accessibilityHidden(true)
+                Color.clear.frame(height: trackpadPadHeight).accessibilityHidden(true)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 10)
+        .padding(.bottom, Self.trackpadBottomPadding)
         .frame(maxWidth: .infinity)
         .background {
-            UnevenRoundedRectangle(topLeadingRadius: 20, topTrailingRadius: 20)
+            UnevenRoundedRectangle(topLeadingRadius: 22, topTrailingRadius: 22)
                 .fill(.regularMaterial)
                 .ignoresSafeArea(edges: .bottom)
         }
@@ -262,73 +309,61 @@ public struct ScreenSessionView: View {
         .accessibilityValue(trackpadOpen ? "open" : "closed")
     }
 
-    /// The open drawer's content: the trackpad surface and the viewer settings.
+    /// The trackpad surface: fills the drawer under the notch.
     private var trackpadContent: some View {
-        VStack(spacing: 10) {
-            ScreenTrackpadPad(link: trackpadLink, active: trackpadOpen)
-                .frame(maxWidth: .infinity)
-                .frame(height: 180)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.18)))
-            if hasMenu {
-                Menu {
-                    optionsItems
-                } label: {
-                    Label("Viewer Settings", systemImage: "slider.horizontal.3")
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                }
-                .accessibilityIdentifier("screen.options")
+        ScreenTrackpadPad(link: trackpadLink, active: trackpadOpen)
+            .frame(maxWidth: .infinity)
+            .frame(height: trackpadPadHeight)
+            .background {
+                RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.07))
+                // A quiet mark of what the surface is; the pad itself is clear and takes the touches.
+                Image(systemName: "hand.point.up.left")
+                    .font(.title2)
+                    .foregroundStyle(Color.white.opacity(0.16))
+                    .accessibilityHidden(true)
             }
-        }
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.14)))
     }
 
-    /// The drawer's handle: swipe it up to open the drawer, down to hide it (a tap toggles too).
+    /// The drawer's notch: drag it down to tuck the trackpad away, up to bring it back (a tap toggles).
     private var trackpadHandle: some View {
-        VStack(spacing: 6) {
-            Capsule()
-                .fill(Color.white.opacity(0.35))
-                .frame(width: 36, height: 5)
-            HStack(spacing: 8) {
-                Label("Trackpad", systemImage: "rectangle.and.hand.point.up.left")
-                    .font(.subheadline.weight(.semibold))
-                Spacer(minLength: 8)
-                Image(systemName: trackpadOpen ? "chevron.down" : "chevron.up")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.top, 8)
-        .frame(height: Self.trackpadPeek, alignment: .top)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 6, coordinateSpace: .global)
-                .updating($trackpadDrag) { value, drag, _ in drag = value.translation.height }
-                .onEnded { value in
-                    // Where the swipe would come to rest decides: past halfway opens.
-                    let resting = (trackpadOpen ? 0 : trackpadTravel) + value.predictedEndTranslation.height
-                    setTrackpad(open: resting < trackpadTravel / 2)
-                }
-        )
-        .onTapGesture { setTrackpad(open: !trackpadOpen) }
-        .accessibilityElement(children: .ignore)
-        // Not "Trackpad": that is the Input picker's row in Viewer Settings.
-        .accessibilityLabel("Trackpad drawer")
-        .accessibilityValue(trackpadOpen ? "Shown" : "Hidden")
-        .accessibilityHint("Swipe up to show the trackpad and viewer settings, swipe down to hide them.")
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { setTrackpad(open: !trackpadOpen) }
-        .accessibilityIdentifier("screen.trackpad.handle")
+        Capsule()
+            .fill(Color.white.opacity(0.4))
+            .frame(width: 40, height: 5)
+            .frame(maxWidth: .infinity)
+            .frame(height: Self.trackpadPeek)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 4, coordinateSpace: .global)
+                    .updating($trackpadDrag) { value, drag, _ in drag = value.translation.height }
+                    .onEnded { value in
+                        // Where the drag would come to rest decides: past halfway goes there.
+                        let resting = (trackpadOpen ? 0 : trackpadTravel) + value.predictedEndTranslation.height
+                        setTrackpad(open: resting < trackpadTravel / 2)
+                    }
+            )
+            .onTapGesture { setTrackpad(open: !trackpadOpen) }
+            .accessibilityElement(children: .ignore)
+            // Not "Trackpad": that is the Input picker's row in the viewer settings.
+            .accessibilityLabel("Trackpad drawer")
+            .accessibilityValue(trackpadOpen ? "Shown" : "Hidden")
+            .accessibilityHint("Swipe down to tuck the trackpad away, swipe up to bring it back.")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { setTrackpad(open: !trackpadOpen) }
+            .accessibilityIdentifier("screen.trackpad.handle")
     }
 
-    /// The viewer settings: the top bar's options menu, or the trackpad drawer's.
+    /// The viewer settings in the top bar's options menu.
     @ViewBuilder private var optionsItems: some View {
         if features.contains(.inputModeToggle) {
             Picker("Input", systemImage: session.preferences.inputMode.symbol, selection: $session.preferences.inputMode) {
                 ForEach(ScreenInputMode.allCases) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode) }
             }
             .pickerStyle(.menu)
+        }
+        if hasTrackpadOverlay {
+            checkItem("Show Trackpad", systemImage: "rectangle.and.hand.point.up.left",
+                      isOn: Binding(get: { session.preferences.showTrackpad }, set: { setTrackpad(open: $0) }))
         }
         if features.contains(.fitToggle) {
             checkItem("Fit to Display", systemImage: "rectangle.dashed", isOn: $session.preferences.fitToDisplay)
@@ -459,7 +494,7 @@ public struct ScreenSessionView: View {
 
     private var pasteBannerInset: CGFloat {
         guard hasTrackpadOverlay, case .connected = session.phase else { return 24 }
-        return (trackpadShown ? trackpadDrawerHeight : Self.trackpadPeek) + 12
+        return trackpadReserved + 12
     }
 
     /// Where the last Paste Image is: sending, pasted, or why it failed (tap to dismiss).
@@ -494,7 +529,7 @@ public struct ScreenSessionView: View {
                 .buttonStyle(.plain)
                 .disabled(state == .sending)
                 .accessibilityIdentifier("screen.pasteImage.status")
-                // Above the trackpad drawer (its handle, or all of it when open).
+                // Above the trackpad drawer (its notch, or all of it when up).
                 .padding(.bottom, pasteBannerInset)
             }
         }

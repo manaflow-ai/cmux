@@ -1,18 +1,23 @@
 import XCTest
 
-/// CMUX-14: the Screen Sharing viewer's trackpad is a drawer under the screen.
-/// Closed by default, only its handle shows at the bottom edge; swiping the
-/// handle up slides it in under the screen (the screen moves up above it),
-/// and swiping down hides it. The viewer settings live inside it instead of
-/// on the screen. Runs on the built-in demo desktop
+/// The Screen Sharing viewer's always-visible trackpad. The toolbar, the
+/// screen (fitted to the width) and the trackpad stack top to bottom, the
+/// trackpad up by default and filling the rest. Dragging its notch down
+/// tucks it away to a strip at the bottom edge and the screen takes the
+/// room; dragging it up (or tapping the notch) brings it back. The viewer
+/// settings stay on the top bar. Runs on the built-in demo desktop
 /// (`-CmuxMobileScreenSharingDemo`), so no Mac is needed.
 final class ScreenTrackpadOverlayUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
     }
 
+    override func tearDown() {
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     @MainActor
-    func testTrackpadDrawerSwipesUpUnderTheScreenAndSwipesDownToHide() throws {
+    func testTrackpadIsUpUnderTheScreenAndItsNotchTucksItAwayAndBack() throws {
         let app = XCUIApplication()
         app.launchArguments += ["-CmuxMobileScreenSharingDemo", "-cmux-mobile-no-restore"]
         app.launch()
@@ -20,53 +25,100 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         let screen = app.scrollViews["screen.view"]
         XCTAssertTrue(screen.waitForExistence(timeout: 30), "viewer\n\(app.debugDescription)")
         let handle = app.descendants(matching: .any)["screen.trackpad.handle"]
-        XCTAssertTrue(handle.waitForExistence(timeout: 30), "trackpad handle once connected\n\(app.debugDescription)")
+        XCTAssertTrue(handle.waitForExistence(timeout: 30), "trackpad notch once connected\n\(app.debugDescription)")
         let drawer = app.otherElements["screen.trackpad.drawer"]
         let pad = app.descendants(matching: .any)["screen.trackpad.pad"]
+        let options = app.buttons["screen.options"]
         let window = app.windows.firstMatch.frame
-        settle(app, 1)
-        attach(app, "01-closed-by-default")
+        settle(app, 1.5)
+        attach(app, "01-portrait-trackpad-up-by-default")
 
-        // Closed by default: only the handle, at the bottom edge; no settings on the screen.
-        XCTAssertEqual(drawer.value as? String, "closed")
-        XCTAssertFalse(pad.exists, "trackpad surface shown while closed")
-        XCTAssertFalse(app.buttons["screen.options"].exists, "viewer settings on the screen")
-        XCTAssertGreaterThan(handle.frame.minY, window.maxY - 140, "handle not at the bottom edge (\(handle.frame))")
-        XCTAssertTrue(handle.isHittable, "handle not reachable")
-        let fullScreenBottom = screen.frame.maxY
-
-        // Swipe up: the drawer slides in under the screen, which moves up above it.
-        handle.swipeUp()
-        XCTAssertTrue(wait(for: drawer, value: "open"), "drawer did not open on swipe up\n\(app.debugDescription)")
-        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad surface\n\(app.debugDescription)")
+        // Up by default: the pad fills the lower part, the screen sits above it, the toolbar above that.
+        XCTAssertEqual(drawer.value as? String, "open")
+        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad surface shown by default\n\(app.debugDescription)")
         XCTAssertTrue(pad.isHittable, "trackpad surface not reachable")
-        XCTAssertGreaterThanOrEqual(pad.frame.minY, window.midY - 40, "drawer is not at the bottom (\(pad.frame))")
+        XCTAssertGreaterThan(pad.frame.height, window.height * 0.3, "trackpad too small (\(pad.frame))")
+        XCTAssertGreaterThan(pad.frame.minY, window.midY - 120, "trackpad not in the lower part (\(pad.frame))")
         XCTAssertLessThanOrEqual(screen.frame.maxY, handle.frame.minY + 1,
-                                 "screen not above the drawer (screen \(screen.frame), handle \(handle.frame))")
-        XCTAssertLessThan(screen.frame.maxY, fullScreenBottom - 150, "screen did not move up")
-        settle(app, 1)
-        attach(app, "02-swiped-up")
+                                 "screen not above the trackpad (screen \(screen.frame), notch \(handle.frame))")
+        XCTAssertTrue(options.exists, "viewer settings on the top bar\n\(app.debugDescription)")
+        XCTAssertLessThanOrEqual(options.frame.maxY, screen.frame.minY + 1, "toolbar covers the screen (\(options.frame), \(screen.frame))")
+        let upScreenHeight = screen.frame.height
 
-        // The viewer settings are inside the drawer.
-        let settings = app.buttons["screen.options"]
-        XCTAssertTrue(settings.exists, "viewer settings in the drawer\n\(app.debugDescription)")
-        settings.tap()
-        XCTAssertTrue(app.buttons["Refresh Screen"].firstMatch.waitForExistence(timeout: 5), "settings menu\n\(app.debugDescription)")
-        attach(app, "03-settings")
+        // A stroke on the pad moves the pointer and leaves the trackpad up.
+        pad.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.6))
+            .press(forDuration: 0.05, thenDragTo: pad.coordinate(withNormalizedOffset: CGVector(dx: 0.75, dy: 0.35)))
+        settle(app, 0.6)
+        attach(app, "02-stroke-moved-the-pointer")
+        pad.tap()
+        settle(app, 0.6)
+        XCTAssertEqual(drawer.value as? String, "open", "the pad's stroke or tap moved the drawer")
+
+        // The options menu has the toggle too.
+        options.tap()
+        let showTrackpad = app.buttons["Show Trackpad"].firstMatch
+        XCTAssertTrue(showTrackpad.waitForExistence(timeout: 5), "Show Trackpad in the options menu\n\(app.debugDescription)")
+        attach(app, "03-options-menu")
         app.buttons["Refresh Screen"].firstMatch.tap()
 
-        // A stroke on the pad moves the pointer and leaves the drawer open.
-        pad.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
-            .press(forDuration: 0.05, thenDragTo: pad.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.4)))
-        XCTAssertEqual(drawer.value as? String, "open", "a stroke on the pad closed the drawer")
-
-        // Swipe down: hidden again, the screen back to full height.
+        // Drag the notch down: tucked away to a strip, the screen takes the room.
         handle.swipeDown()
-        XCTAssertTrue(wait(for: drawer, value: "closed"), "drawer did not hide on swipe down\n\(app.debugDescription)")
-        XCTAssertFalse(pad.exists, "trackpad surface still shown after swipe down")
-        XCTAssertGreaterThanOrEqual(screen.frame.maxY, fullScreenBottom - 1, "screen did not return to full height")
+        XCTAssertTrue(wait(for: drawer, value: "closed"), "notch drag down did not tuck the trackpad away\n\(app.debugDescription)")
+        XCTAssertFalse(pad.exists, "trackpad surface still shown while tucked away")
+        XCTAssertGreaterThan(handle.frame.minY, window.maxY - 90, "notch strip not at the bottom edge (\(handle.frame))")
+        XCTAssertTrue(handle.isHittable, "notch not reachable while tucked away")
         settle(app, 1)
-        attach(app, "04-swiped-down")
+        XCTAssertGreaterThan(screen.frame.height, upScreenHeight + 150, "screen did not take the room")
+        XCTAssertLessThanOrEqual(screen.frame.maxY, handle.frame.minY + 1, "the notch strip covers the screen")
+        attach(app, "04-portrait-tucked-away")
+
+        // Drag it up: back.
+        handle.swipeUp()
+        XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up did not bring the trackpad back\n\(app.debugDescription)")
+        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad surface after drag up")
+        settle(app, 1)
+        XCTAssertEqual(screen.frame.height, upScreenHeight, accuracy: 2, "screen height after bringing it back")
+        attach(app, "05-portrait-brought-back")
+
+        // A tap on the notch toggles.
+        handle.tap()
+        XCTAssertTrue(wait(for: drawer, value: "closed"), "notch tap did not tuck it away")
+        handle.tap()
+        XCTAssertTrue(wait(for: drawer, value: "open"), "notch tap did not bring it back")
+
+        // The menu toggle tucks it away too.
+        options.tap()
+        XCTAssertTrue(showTrackpad.waitForExistence(timeout: 5))
+        showTrackpad.tap()
+        XCTAssertTrue(wait(for: drawer, value: "closed"), "Show Trackpad off did not tuck it away")
+        options.tap()
+        XCTAssertTrue(showTrackpad.waitForExistence(timeout: 5))
+        showTrackpad.tap()
+        XCTAssertTrue(wait(for: drawer, value: "open"), "Show Trackpad on did not bring it back")
+
+        // Hide Toolbar: the screen moves up to the top, the trackpad stays.
+        options.tap()
+        app.buttons["Hide Toolbar"].firstMatch.tap()
+        settle(app, 1)
+        XCTAssertFalse(options.exists, "toolbar still shown")
+        XCTAssertTrue(pad.isHittable, "trackpad gone with the toolbar")
+        attach(app, "06-portrait-toolbar-hidden")
+        app.buttons["Show Toolbar"].firstMatch.tap()
+        settle(app, 1)
+
+        // Landscape: up, then tucked away.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        settle(app, 2.5)
+        XCTAssertTrue(pad.exists, "trackpad up in landscape")
+        attach(app, "07-landscape-trackpad-up")
+        handle.swipeDown()
+        XCTAssertTrue(wait(for: drawer, value: "closed"), "notch drag down in landscape")
+        settle(app, 1)
+        attach(app, "08-landscape-tucked-away")
+        handle.swipeUp()
+        XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up in landscape")
+        XCUIDevice.shared.orientation = .portrait
+        settle(app, 2)
     }
 
     @MainActor
