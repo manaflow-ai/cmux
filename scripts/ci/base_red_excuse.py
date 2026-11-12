@@ -2468,6 +2468,21 @@ FFI_PIN_PATHS = (FFI_PIN_FILE, FFI_PIN_MANIFEST)  # a PR changing either moves t
 # --list-inputs); the other bindings (cpp, python, rust-sidebar) are not.
 FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/bindings/rust/", "cmux-tui/rust-toolchain.toml",
               "scripts/cmux-next/build-app-ffi.sh")
+FFI_CRATE_PARENTS = ("cmux-tui/crates/",)  # each folder below one is a crate; the other FFI_INPUTS folders are crates
+
+
+def ffi_input(path: str) -> bool:
+    """PATH may change the app FFI library: under FFI_INPUTS, and not in a crate's tests/, benches/ or examples/,
+    which Cargo never builds into it (app_ffi_pin.NOT_BUILT, the one definition check-app-ffi-pin.sh and the router
+    read). The pin check keeps such a folder an input when a library file names it; this tree-free reading calls
+    it not an input, the stricter verdict here: a pull request that changes no input needs a published base pin."""
+    if not any(touches(path, read) for read in FFI_INPUTS):
+        return False
+    crate = next((parent + path[len(parent):].split("/", 1)[0] for parent in FFI_CRATE_PARENTS
+                  if path.startswith(parent)), None)
+    crate = crate or next((read.rstrip("/") for read in FFI_INPUTS if read.endswith("/") and path.startswith(read)),
+                          None)
+    return crate is None or app_ffi_pin.is_input(path, [crate], [f"{crate}/{n}" for n in app_ffi_pin.NOT_BUILT])
 # The files that decide the pin check's verdict: the check, the pin reader it runs, every step's BASH_ENV, this
 # classifier and the workflow holding the pin step and its rollup (the checks job uses no .github/actions/). A PR
 # changing one could make the pin error print for any change, so neither rule below excuses it (review of cmux#39194,
@@ -2475,6 +2490,14 @@ FFI_INPUTS = ("cmux-tui/crates/", "cmux-tui/bindings/rust/", "cmux-tui/rust-tool
 # licence list (cmux#37869), which do not decide the verdict (review of cmux#39471).
 FFI_PIN_CHECK_CODE = ("scripts/cmux-next/check-app-ffi-pin.sh", "scripts/ci/app_ffi_pin.py", "scripts/ci/api_call_log/",
                       "scripts/ci/base_red_excuse.py", ".github/workflows/cmux-next.yml")
+# Generated Swift that is data only, never a call into the app FFI: step A's "changes Swift" rule ignores it. A step-A
+# Rust PR that changes the daemon's request schema regenerates it in the same PR (generated-files.json keeps it fresh),
+# so the rule refused every such PR (cmux#40449 at d375f032 and #40455, 2026-11-12: their one Swift file is this). Only
+# a file whose generator emits literals and nothing callable belongs here.
+FFI_PIN_DATA_SWIFT = frozenset({
+    # scripts/cmux-next/gen-phone-lane-fields.py from cmux-tui/spec/sdk-schema.json: one [String: Set<String>] literal.
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift",
+})
 FFI_RELEASE_SECONDS = 30
 FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 
@@ -2569,6 +2592,49 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
             "against that pin and passed"), ""
 
 
+# The checks job's rollup ("Fail on any red check") lets a style guard's red pass as a warning: it lists each one
+# under "### N style guard(s) reported findings (warn-only)" and gives it no `red check:` line. Its step is
+# continue-on-error, so a placed head view keeps its ERRORED section, and that guard's `##[error]` lines (cmux#40449 at
+# d375f032: `##[error]./scripts/lint-ios-package-conventions.sh`, run-checks-concurrently.sh's line for a failed
+# check) stood beside the pin as another red and set the step-A excuse aside, though the job was red on the pin alone.
+# The pin rule drops the error lines that only those listed steps printed. The list is the head's own rollup, but a PR
+# that edits it edits cmux-next.yml, which FFI_PIN_CHECK_CODE refuses first; the pin's own step is never warn-only.
+WARN_ONLY_HEADER = re.compile(r"^### \d+ style guard\(s\) reported findings \(warn-only\)$")
+WARN_ONLY_ITEM = re.compile(r"^- (\S.*)$")
+
+
+def warn_only_steps(view: "FailedView | Unplaced") -> frozenset[str]:
+    """The step names VIEW's rollup step (FFI_PIN_ROLLUP_STEP) lists as warn-only style guards (WARN_ONLY_HEADER),
+    never FFI_PIN_CHECK; empty for an unplaced view or a rollup that lists none."""
+    if view is UNPLACED:
+        return frozenset()
+    found: set[str] = set()
+    for step, lines in section_lines(view):
+        if step.get("name") != FFI_PIN_ROLLUP_STEP:  # step-name: classify
+            continue
+        listing = False
+        for line in lines:
+            text = STAMP.sub("", line, count=1).strip()
+            if WARN_ONLY_HEADER.match(text):
+                listing = True
+            elif listing and (item := WARN_ONLY_ITEM.match(text)):
+                found.add(item[1].strip())
+            elif listing and text:
+                listing = False
+    return frozenset(found - {FFI_PIN_CHECK})
+
+
+def without_warn_only(view: FailedView, errors: set[str]) -> set[str]:
+    """ERRORS less each line printed only by steps VIEW's rollup lists as warn-only (warn_only_steps)."""
+    warned = warn_only_steps(view)
+    if not warned:
+        return errors
+    printers: dict[str, set[str]] = {}
+    for step, error in step_errors(view):
+        printers.setdefault(error, set()).add(step)
+    return {error for error in errors if not (printers.get(error) and printers[error] <= warned)}
+
+
 def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, errors: set[str], tests: set[str],
                    crashes: set[str], github, *, seen: dict | None = None) -> tuple[str | None, str | None]:
     """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR, or of a
@@ -2596,10 +2662,10 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, er
     if moved := [path for path in FFI_PIN_PATHS if path in paths]:
         why = (f"#{number} changes {moved[0]}: a PR that moves the pin must pin a release built from its own "
                "sources")
-    elif swift := [path for path in paths if path.endswith(".swift")]:
+    elif swift := [path for path in paths if path.endswith(".swift") and path not in FFI_PIN_DATA_SWIFT]:
         why = (f"#{number} changes Swift ({'; '.join(swift[:5])}): app code may call what the pinned library lacks; "
                "land the Rust alone, then the Swift after the re-pin")
-    elif not any(touches(path, read) for path in paths for read in FFI_INPUTS):
+    elif not any(ffi_input(path) for path in paths):
         why = f"#{number} changes no app FFI input"
     else:
         why = None
@@ -4676,6 +4742,28 @@ def infra(name: str, job: dict, why: str) -> Infra:
                  "and needs a re-run, like a cancelled job")
 
 
+# A check that runs on pull requests only (language-boundaries.yml, classic-api-guard.yml: pull_request_target) never
+# has a base verdict, so each of its reds was refused as "no feat-cmux-next run of its workflow has a verdict for it to
+# compare with", the one an agent reads as "the red cannot be judged". When its failed steps printed nothing but the
+# check's own "could not read its input; re-run this check" line, it decided nothing about the PR: cmux#41500 at
+# d059d7bd (job 130862862041, 2026-11-11), whose PR-files listing hit the installation's rate limit and whose merge-ref
+# fallback did not match the moved base; its re-run passed. Such a red is Infra: still refused (never excused, the PR
+# is not judged by it), named as the re-run it needs. Any other error line, a failing test, or a log not placed on its
+# steps keeps the refusal below.
+RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
+
+
+def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
+    """The error line VIEW's failed steps printed when each of them only asks for a re-run (RERUN_ASK), else None."""
+    sig = signature(view)
+    if sig is UNPLACED:
+        return None
+    steps, tests, errors = sig
+    if not steps or tests or not errors or not all(RERUN_ASK.search(error) for error in errors):
+        return None
+    return sorted(errors)[0].strip()
+
+
 def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
     no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
@@ -6158,7 +6246,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if early is not UNPLACED:
             head_steps, head_tests, head_errors = early
             # By (name, conclusion), counted (failed_step_keys), never the names signature() keeps.
-            pinned, aside = ffi_pin_step_a(repo, base, sha, name, failed_step_keys(view.job), head_errors, head_tests,
+            pinned, aside = ffi_pin_step_a(repo, base, sha, name, failed_step_keys(view.job),
+                                           without_warn_only(view, head_errors), head_tests,
                                            crash_signals(view), github, seen=run_reads)
         elif got.unplaced is not None:
             # The pin's rules read this PR's paths, never the log's layout: an unplaced head is judged by them too.
@@ -6222,6 +6311,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, evidence) is None):
                 base_run, base_job, verdicts, base_workflow = pushed_run, pushed_job, pushed, caller
         if base_run is None:
+            if (asked := asks_only_rerun(view)) is not None:
+                raise infra(name, job, f"its check could not run and printed only {asked!r}")
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "

@@ -47,7 +47,7 @@ final class AppHealthPageFeed: PageHealthFeed {
             let visible = timedVisible(page)
             shown[key] = visible
             followSight(of: page)
-            health.register(id, kind: .page, label: page.healthLabel, visible: visible)
+            health.register(id, kind: .page, label: AppHealthStrings.pageLabel(resource: page.descriptor.resource, fallback: page.healthLabel), visible: visible)
         } else {
             pageVisibilityChanged(page)
         }
@@ -105,7 +105,7 @@ final class AppHealthPageFeed: PageHealthFeed {
     func pageRenderer(_ page: PageWebView, unresponsive: Bool) {
         let key = ObjectIdentifier(page), id = Self.rendererID(page)
         if unresponsive, renderers.insert(key).inserted {
-            health.register(id, kind: .renderer, label: page.healthLabel, visible: page.isShownForHealth)
+            health.register(id, kind: .renderer, label: AppHealthStrings.pageLabel(resource: page.descriptor.resource, fallback: page.healthLabel), visible: page.isShownForHealth)
         }
         guard renderers.contains(key) else { return }
         health.event(id, unresponsive ? .unresponsive : .responsive)

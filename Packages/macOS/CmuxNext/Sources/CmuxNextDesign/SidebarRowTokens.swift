@@ -49,7 +49,18 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
 
     public var isComfortable: Bool { density == .comfortable }
     /// A comfortable row's extra height, plus the text size's.
-    public var extraHeight: CGFloat { (isComfortable ? base.space2 : 0) + textSize.rowStep }
+    public var extraHeight: CGFloat { Self.extraHeight(density: density, textSize: textSize, space2: base.space2) }
+
+    /// The rule behind ``extraHeight``, on its inputs alone: `Metrics.chromeRowHeight` reads it
+    /// without building the whole token set, whose corner radius depends on the tab height.
+    /// - Parameters:
+    ///   - density: `sidebar.density`.
+    ///   - textSize: `sidebar.textSize`.
+    ///   - space2: The density's `space2`, a comfortable row's extra height.
+    /// - Returns: The height a one-line row adds to the app density's row.
+    public static func extraHeight(density: SidebarDensity, textSize: SidebarTextSize, space2: CGFloat) -> CGFloat {
+        (density == .comfortable ? space2 : 0) + textSize.rowStep
+    }
     /// A one-line workspace row, group header or band row.
     public var rowHeight: CGFloat { base.rowHeight + extraHeight }
     /// The tokens of the bands above the list (Home, pinned rows) and of the workspace hover card: at
@@ -71,7 +82,17 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     public var matchesCodex: Bool { base.isCodexDensity && density == .compact }
     /// A list or band row's height: the row and the gap under it as one fill when ``matchesCodex``, so the pitch
     /// stays the row step and the fill grows into the gap (28 + 2 = 30 at Default).
-    public var listRowHeight: CGFloat { rowHeight + (matchesCodex ? base.space1 : 0) }
+    public var listRowHeight: CGFloat { rowHeight + Self.listFillGain(isCodexDensity: base.isCodexDensity, density: density, space1: base.space1) }
+    /// The rule behind ``listRowHeight``'s growth into the gap, on its inputs alone: `Metrics.chromeRowHeight`
+    /// reads it without building the whole token set.
+    /// - Parameters:
+    ///   - isCodexDensity: The app is at Default density (``Base/isCodexDensity``).
+    ///   - density: `sidebar.density`.
+    ///   - space1: The density's `space1`, the gap a ``matchesCodex`` row fills.
+    /// - Returns: The height a list row's fill adds to ``rowHeight``.
+    public static func listFillGain(isCodexDensity: Bool, density: SidebarDensity, space1: CGFloat) -> CGFloat {
+        isCodexDensity && density == .compact ? space1 : 0
+    }
     /// The gap between list rows: none when ``matchesCodex`` (Codex's rows touch), else `space1`.
     public var rowGap: CGFloat { matchesCodex ? 0 : base.space1 }
     /// A row's content (icon, title, trailing marks) from its fill's edge: `space4` (8 pt) when ``matchesCodex``,

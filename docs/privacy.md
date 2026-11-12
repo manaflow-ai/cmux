@@ -235,6 +235,7 @@ time. Reserved names (`.example`, `.test`, `.invalid`, `localhost`, `example.com
 | Host | Kind | What for |
 |---|---|---|
 | `x.ai` | identifier | an xAI tool method name, not a host |
+| `customize.io` | identifier | the error code `cmux customize` prints when a file read or write fails, not a host |
 | `netlify.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `ngrok-free.app` | identifier | a shared hosting domain, so sites under it are told apart |
 | `vercel.app` | identifier | a shared hosting domain, so sites under it are told apart |

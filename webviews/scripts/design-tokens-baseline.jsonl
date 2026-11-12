@@ -767,7 +767,7 @@
 {"file":"ui/MinimapTick.gallery.css","kind":"radius","property":"border-radius","values":{"2px":1}}
 {"file":"ui/MinimapTick.gallery.css","kind":"spacing","property":"gap","values":{"14px":1,"5px":1}}
 {"file":"ui/MinimapTick.gallery.css","kind":"spacing","property":"padding","values":{"28px":1,"6px":1}}
-{"file":"ui/popupSurface.css","kind":"easing","property":"transition","values":{"opacity var(--ui-popup-close) ease-in":1,"opacity var(--ui-popup-open) ease-out, scale var(--ui-dialog-open) var(--ui-dialog-ease)":1,"opacity var(--ui-dialog-open) ease-out":1}}
+{"file":"ui/popupSurface.css","kind":"easing","property":"transition","values":{"opacity var(--ui-popup-open) ease-out, scale var(--ui-dialog-open) var(--ui-dialog-ease)":1,"opacity var(--ui-dialog-open) ease-out":1}}
 {"file":"ui/popupSurface.css","kind":"height","property":"height","values":{"1px":1,"6px":1}}
 {"file":"ui/popupSurface.css","kind":"spacing","property":"gap","values":{"6px":1}}
 {"file":"ui/popupSurface.css","kind":"spacing","property":"padding","values":{"6px var(--ui-row-padding-inline) 2px":1,"2px var(--ui-row-padding-inline)":1}}
