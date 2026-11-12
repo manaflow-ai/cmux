@@ -60,8 +60,7 @@ pub(super) const FULL_STARTS_META_KEY: &str = "output_cleanup_full_starts";
 /// output cleanup's (and a rebuild at a retention floor), the version 1
 /// cleanup's, and a journal compaction's. The rules of this file are the
 /// same for a swap of each.
-const SWAP_RECORD_KEYS: [&str; 3] =
-    [DONE_META_KEY, V1_DONE_META_KEY, journal_compact::DONE_META_KEY];
+const SWAP_RECORD_KEYS: [&str; 2] = [DONE_META_KEY, V1_DONE_META_KEY];
 
 /// The file a swap replaced stays at least this long after the swap.
 const BACKUP_KEEP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
