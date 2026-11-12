@@ -448,13 +448,13 @@ while read -r run_sha; do
   fi
   # <sha> itself goes to request(), which names a missing gate.
   [[ "$run_sha" == "$sha" ]] || has_notary_gate "$run_sha" || continue
-  # A commit the direct-push gates quarantine (scripts/ci/direct_push_quarantine.py: a direct push failed the fast
-  # gates and no later push passed them) is never promoted: nightly-next stays on its last build and skips forward
-  # once a fix or revert passes. Read once a run, on the first candidate that gets this far; unreadable, nothing is
-  # held (the gates' page still reaches the base-reds owner).
+  # A commit the direct-push quarantine holds (scripts/cmux-next/nightly_quarantine.py: cmuxterm-hq's base-red-watch
+  # found a direct push red on feat-cmux-next's push runs and no later push green) is never promoted: nightly-next
+  # stays on its last build and skips forward once a fix or revert passes. Read once a run, on the first candidate
+  # that gets this far; unreadable, nothing is held (base-red-watch still pages the base-reds owner).
   if [[ -z "$quarantine_read" ]]; then
     quarantine_read=1
-    if ! quarantined_list="$(python3 "$repo_root/scripts/ci/direct_push_quarantine.py" quarantined --repo "$repo" --tip "$tip" 2>/dev/null)"; then
+    if ! quarantined_list="$(python3 "$repo_root/scripts/cmux-next/nightly_quarantine.py" quarantined --repo "$repo" --tip "$tip" 2>/dev/null)"; then
       echo "warning: the direct-push quarantine is unreadable; promoting as if none were open" >&2
       quarantined_list=""
     fi

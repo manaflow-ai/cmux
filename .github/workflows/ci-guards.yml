@@ -262,12 +262,6 @@ jobs:
 
       # Every host NEXT's code names is listed in docs/privacy.md, and the list
       # stays exact (a row whose host left the code fails too).
-      # A direct push to feat-cmux-next gets the fast gates and a red one quarantines the branch
-      # (cmux-next-direct-push-gates.yml): its resolver, quarantine walk and the workflow's shape.
-      - name: Validate the direct-push gates and quarantine
-        if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_direct_push_quarantine.py
-
       - name: Validate NEXT's outbound hosts are listed
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_outbound_hosts.py

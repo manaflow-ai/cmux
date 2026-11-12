@@ -158,10 +158,6 @@ lane = "manual"
 reason = "Run by hand (cmux-ci) before changing the devbox bubblewrap recipe: it builds the Dockerfile's devtools and bubblewrap layers in Docker and runs an unprivileged sandbox; no new CI tests (CLAUDE.md, Verification)."
 
 [[test]]
-path = "tests/test_direct_push_quarantine.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_docs_deploy_auth_guard.py"
 lane = "linux-guard"
 
