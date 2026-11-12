@@ -708,6 +708,12 @@ pub fn in_menu_bar(el: &Ax) -> bool {
 /// an AXObserver for the app's kAXApplicationActivatedNotification, its
 /// source on this thread's run loop in a private mode, run until a wake
 /// finds the app in front or the time is up. True when it is in front.
+/// CFRunLoopRunInMode's kCFRunLoopRunFinished.
+const RUN_LOOP_FINISHED: i32 = 1;
+
+/// An app that takes no AX observer (some non-AppKit apps) gets one check
+/// right after it was asked to activate, which can come too early: callers
+/// see a refusal they can retry. No polling replaces the notification.
 pub fn wait_activated(pid: i32, limit: std::time::Duration, is_front: &dyn Fn() -> bool) -> bool {
     if is_front() {
         return true;
@@ -755,7 +761,14 @@ pub fn wait_activated(pid: i32, limit: std::time::Duration, is_front: &dyn Fn() 
         if added && !source.is_null() {
             // SAFETY: runs this thread's loop in the private mode until a
             // source fires or the remaining time passes.
-            unsafe { CFRunLoopRunInMode(mode.ptr(), (deadline - now).as_secs_f64(), 1) };
+            let result =
+                unsafe { CFRunLoopRunInMode(mode.ptr(), (deadline - now).as_secs_f64(), 1) };
+            // kCFRunLoopRunFinished: no source left in the mode (the observer's
+            // was invalidated); nothing more can wake it.
+            if result == RUN_LOOP_FINISHED {
+                front = is_front();
+                break;
+            }
         } else {
             // No observer (the app does not take one): one last look at the
             // deadline, no polling.

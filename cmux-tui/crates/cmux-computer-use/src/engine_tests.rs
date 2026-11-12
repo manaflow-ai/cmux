@@ -775,3 +775,18 @@ fn the_menu_guard_follows_the_deny_list_as_settings_change() {
     e.set_config(PolicyConfig { denied_apps: vec![], ..PolicyConfig::default() });
     assert!(!guard.app_blocked("com.apple.Terminal", "Terminal"));
 }
+
+#[test]
+fn a_name_for_several_apps_is_refused_before_anyone_is_asked() {
+    // A desktop whose launch_app takes an identity (macOS: a bundle id) and
+    // whose name resolves to two apps: refused with no approval and nothing
+    // launched.
+    let desktop = Arc::new(FakeDesktop::standard());
+    *desktop.launch_names.lock().unwrap() =
+        Some(vec!["com.example.One".into(), "com.example.Two".into()]);
+    let e = engine(desktop.clone(), PolicyConfig::default());
+    let out = e.call(&ctx(None), "launch_app", &json!({"app_id": "Twin"}));
+    assert!(out.is_error, "{:?}", out.body);
+    assert!(out.body["error"].as_str().unwrap().contains("names several apps"), "{:?}", out.body);
+    assert!(!desktop.events().iter().any(|e| matches!(e, Event::Launch(_))));
+}
