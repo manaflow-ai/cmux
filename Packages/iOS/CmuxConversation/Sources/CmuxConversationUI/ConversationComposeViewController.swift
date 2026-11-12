@@ -44,6 +44,8 @@ public final class ConversationComposeViewController: UIViewController {
     /// The list under To: ends at the composer while it shows, at the keyboard while it hides.
     private var listAboveComposer: NSLayoutConstraint?
     private var listAboveKeyboard: NSLayoutConstraint?
+    private var listUnderField: NSLayoutConstraint?
+    private var listUnderNotice: NSLayoutConstraint?
     /// The docked keyboard's top edge: the composer sits on it.
     private var keyboardDock: MobileKeyboardDock?
     private let keyboardTracker = MobileKeyboardFrameTracker()
@@ -168,6 +170,10 @@ public final class ConversationComposeViewController: UIViewController {
         suggestionsTable.backgroundColor = ConversationTheme.background
         suggestionsTable.isHidden = true
         suggestionsTable.accessibilityIdentifier = "conversation.compose.suggestions"
+        // Rows size to the text size: a change redraws them.
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (self: Self, _) in
+            self.suggestionsTable.reloadData()
+        }
         view.addSubview(suggestionsTable)
 
         existingContainer.translatesAutoresizingMaskIntoConstraints = false
@@ -213,7 +219,7 @@ public final class ConversationComposeViewController: UIViewController {
             serviceSubtitle.topAnchor.constraint(equalTo: serviceTitle.bottomAnchor, constant: 1),
             serviceSubtitle.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             serviceSubtitle.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            suggestionsTable.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: 8),
+
             suggestionsTable.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             suggestionsTable.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
@@ -233,6 +239,11 @@ public final class ConversationComposeViewController: UIViewController {
             composerHeight,
         ])
 
+        // The list starts under To:, or under the refusal line while it shows (the Mac's
+        // `HomeNewMessageView` lays its list under the notice, so the Chiefs never hide it).
+        listUnderField = suggestionsTable.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: 8)
+        listUnderNotice = suggestionsTable.topAnchor.constraint(equalTo: notice.bottomAnchor, constant: 8)
+        listUnderField?.isActive = true
         listAboveComposer = suggestionsTable.bottomAnchor.constraint(equalTo: composerContainer.topAnchor)
         listAboveKeyboard = suggestionsTable.bottomAnchor.constraint(equalTo: keyboard.guide.topAnchor)
         listAboveComposer?.isActive = true
@@ -387,7 +398,10 @@ public final class ConversationComposeViewController: UIViewController {
         guard notice.text != text || notice.isHidden != (text == nil) else { return }
         notice.text = text
         notice.isHidden = text == nil
+        listUnderField?.isActive = text == nil
+        listUnderNotice?.isActive = text != nil
         if text != nil { updateServiceLine() }
+        view.setNeedsLayout()
     }
 
     private func showSendError(_ error: any Error) {
@@ -537,8 +551,13 @@ extension ConversationComposeViewController: UITableViewDataSource, UITableViewD
     }
 
     public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        guard indexPath.row < session.rows.count, case .header = session.rows[indexPath.row] else { return ComposeSuggestionCell.height }
-        return ComposeSectionCell.height
+        guard indexPath.row < session.rows.count else { return ComposeSuggestionCell.height }
+        let traits = tableView.traitCollection
+        switch session.rows[indexPath.row] {
+        case .header: return ComposeSectionCell.height(traits)
+        case .contact: return ComposeSuggestionCell.height(traits)
+        case let .action(action): return ComposeSuggestionCell.height(action.title, width: tableView.bounds.width, traits: traits)
+        }
     }
 
     public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -612,6 +631,7 @@ final class ComposeSuggestionCell: UITableViewCell {
         name.font = .systemFont(ofSize: 17)
         detail.font = .systemFont(ofSize: 15)
         detail.textColor = .secondaryLabel
+        detail.adjustsFontForContentSizeCategory = false
         contentView.addSubview(name)
         contentView.addSubview(detail)
     }
@@ -619,18 +639,38 @@ final class ComposeSuggestionCell: UITableViewCell {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Text size: 1 at the default size, larger with Dynamic Type (Messages' rows grow with it).
+    static func scale(_ traits: UITraitCollection) -> CGFloat {
+        max(1, UIFontMetrics(forTextStyle: .body).scaledValue(for: 17, compatibleWith: traits) / 17)
+    }
+
+    static func height(_ traits: UITraitCollection) -> CGFloat { (height * scale(traits)).rounded(.up) }
+
+    /// An action row's height: one line, or two for a long title ("Invite … to <team>").
+    static func height(_ title: String, width: CGFloat, traits: UITraitCollection) -> CGFloat {
+        let s = scale(traits)
+        let text = NSAttributedString(string: title, attributes: [.font: UIFont.systemFont(ofSize: 17 * s)])
+        let lines = text.boundingRect(with: CGSize(width: max(1, width - textLeading - 16), height: .greatestFiniteMagnitude),
+                                      options: [.usesLineFragmentOrigin], context: nil).height
+        return max(height(traits), (min(lines, 2 * 22 * s) + 20 * s).rounded(.up))
+    }
+
+    private var s: CGFloat { Self.scale(traitCollection) }
+
     func configure(_ contact: ConversationContact, query: String) {
         suggestion = true
         avatar.isHidden = false
         symbolCircle.isHidden = true
+        name.numberOfLines = 1
+        detail.font = .systemFont(ofSize: 15 * s)
         avatar.configure(initials: contact.initials, colorHex: contact.colorHex)
-        let text = NSMutableAttributedString(string: contact.name, attributes: [.font: UIFont.systemFont(ofSize: 17), .foregroundColor: UIColor.label])
+        let text = NSMutableAttributedString(string: contact.name, attributes: [.font: UIFont.systemFont(ofSize: 17 * s), .foregroundColor: UIColor.label])
         // Bold the matched word prefix, as Messages does.
         let words = contact.name.split(separator: " ")
         var offset = 0
         for word in words {
             if !query.isEmpty, word.lowercased().hasPrefix(query.lowercased()) {
-                text.addAttribute(.font, value: UIFont.systemFont(ofSize: 17, weight: .semibold), range: NSRange(location: offset, length: query.count))
+                text.addAttribute(.font, value: UIFont.systemFont(ofSize: 17 * s, weight: .semibold), range: NSRange(location: offset, length: query.count))
                 break
             }
             offset += word.count + 1
@@ -663,7 +703,8 @@ final class ComposeSuggestionCell: UITableViewCell {
         avatar.isHidden = true
         symbolCircle.isHidden = false
         symbol.image = UIImage(systemName: action.systemImage)
-        name.attributedText = NSAttributedString(string: action.title, attributes: [.font: UIFont.systemFont(ofSize: 17), .foregroundColor: UIColor.systemBlue])
+        name.numberOfLines = 2
+        name.attributedText = NSAttributedString(string: action.title, attributes: [.font: UIFont.systemFont(ofSize: 17 * s), .foregroundColor: UIColor.systemBlue])
         detail.text = nil
         accessibilityLabel = action.title
         accessibilityValue = nil
@@ -678,6 +719,7 @@ final class ComposeSuggestionCell: UITableViewCell {
         suggestion = false
         avatar.isHidden = false
         symbolCircle.isHidden = true
+        name.numberOfLines = 1
         avatar.configure(initials: contact.initials, colorHex: nil)
         let text = NSMutableAttributedString(string: contact.name, attributes: [.font: UIFont.systemFont(ofSize: 17), .foregroundColor: UIColor.label])
         let key = ComposeContactPickerController.sortKey(contact.name)
@@ -702,8 +744,15 @@ final class ComposeSuggestionCell: UITableViewCell {
         symbol.frame = symbolCircle.bounds
         let x = Self.textLeading
         let hasDetail = !(detail.text ?? "").isEmpty
-        name.frame = CGRect(x: x, y: hasDetail ? (compact ? 8.3 : 9) : (bounds.height - 22) / 2, width: bounds.width - x - 16, height: 22)
-        detail.frame = CGRect(x: x, y: compact ? 28.7 : 31, width: bounds.width - x - 16, height: 19)
+        let s = suggestion ? s : 1
+        let width = bounds.width - x - 16
+        if name.numberOfLines == 1 {
+            name.frame = CGRect(x: x, y: hasDetail ? (compact ? 8.3 : 9) * s : (bounds.height - 22 * s) / 2, width: width, height: 22 * s)
+        } else {
+            let fit = name.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+            name.frame = CGRect(x: x, y: (bounds.height - fit) / 2, width: width, height: fit)
+        }
+        detail.frame = CGRect(x: x, y: (compact ? 28.7 : 31) * s, width: width, height: 19 * s)
     }
 }
 
@@ -712,6 +761,7 @@ final class ComposeSuggestionCell: UITableViewCell {
 final class ComposeSectionCell: UITableViewCell {
     static let reuseID = "compose.section"
     static let height: CGFloat = 32
+    static func height(_ traits: UITraitCollection) -> CGFloat { (height * ComposeSuggestionCell.scale(traits)).rounded(.up) }
     private let title = UILabel()
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -729,6 +779,7 @@ final class ComposeSectionCell: UITableViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(_ text: String) {
+        title.font = .systemFont(ofSize: 15 * ComposeSuggestionCell.scale(traitCollection), weight: .semibold)
         title.text = text
         accessibilityLabel = text
         accessibilityTraits = .header
@@ -737,7 +788,8 @@ final class ComposeSectionCell: UITableViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        title.frame = CGRect(x: 16, y: bounds.height - 24, width: bounds.width - 32, height: 20)
+        let s = ComposeSuggestionCell.scale(traitCollection)
+        title.frame = CGRect(x: 16, y: bounds.height - 24 * s, width: bounds.width - 32, height: 20 * s)
     }
 }
 

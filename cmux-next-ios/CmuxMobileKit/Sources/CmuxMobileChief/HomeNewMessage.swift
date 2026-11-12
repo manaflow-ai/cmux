@@ -93,6 +93,23 @@ public final class HomeNewMessage {
         return true
     }
 
+    /// Builds New Message's views once, off screen, while Home is idle: the first sheet then
+    /// skips the one-time costs (symbol binding, class setup) that otherwise land in the tap's
+    /// frame. Once per process.
+    static func prewarm() {
+        guard !prewarmed else { return }
+        prewarmed = true
+        let compose = ConversationComposeViewController(directory: HomeNewMessageDirectory(
+            snapshot: HomeRecipientSnapshot(chiefs: [], team: [], agentTabs: [], teamName: nil, canCreateChief: false,
+                                            canInvite: false, openCloudChiefAgent: nil),
+            cloud: nil, me: nil))
+        compose.loadViewIfNeeded()
+        compose.view.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        compose.view.layoutIfNeeded()
+    }
+
+    private static var prewarmed = false
+
     /// Home's compose button as a view: its identifier, else the navigation bar control
     /// labeled New Message (SwiftUI may keep the identifier on the accessibility element only).
     static func composeButton(in window: UIWindow) -> UIView? {
@@ -234,7 +251,8 @@ public final class HomeNewMessage {
             let session = context.sources.cloudConversation(cloud)
             dismissSheet { [context] in
                 context.open(.cloud(cloud))
-                session?.send(message)
+                // People, not a Chief: no Chief alert permission prompt.
+                session?.send(message, asksForAlerts: false)
             }
             return
         }

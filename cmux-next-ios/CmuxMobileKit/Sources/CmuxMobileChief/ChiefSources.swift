@@ -484,7 +484,8 @@ public final class ChiefSources {
         } else {
             #if DEBUG
             guard DeveloperOptions.mockContentEnabled else { return nil }
-            backend = ChiefMockBackend(identity: identity)
+            // A conversation with people starts empty and nobody answers in the demo.
+            backend = ChiefMockBackend(identity: identity, quiet: route.chief == nil)
             #else
             return nil
             #endif

@@ -89,6 +89,11 @@ import Testing
         #expect(lines[0]?.hasPrefix("Chief · Cloud · Active ") == true)
         #expect(lines[1] == "Chief · Cloud · No messages yet")
         #expect(lines[2] == "Chief · Studio", "a row unlike any other keeps its line")
+        // Still alike after the activity (both new): the second gets a number, as on the Mac.
+        let d = Self.chief("d", "Ops", "Chief · Cloud", .cloudChief(agentID: "d", conversation: "d"))
+        let e = Self.chief("e", "Ops", "Chief · Cloud", .cloudChief(agentID: "e", conversation: "e"))
+        let twins = HomeNewMessageDirectory.withLines([d, e], now: now).map(\.contact.detail)
+        #expect(twins == ["Chief · Cloud · No messages yet", "Chief · Cloud · No messages yet · 2"])
     }
 
     @Test func teamMembersComeFromTheCloudListWithoutThisAccount() throws {

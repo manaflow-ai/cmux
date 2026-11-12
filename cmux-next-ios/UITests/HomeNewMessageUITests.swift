@@ -53,7 +53,21 @@ final class HomeNewMessageUITests: XCTestCase {
             XCTAssertTrue(app.cells["conversation.compose.section.Chiefs"].exists, "Chiefs section")
             XCTAssertTrue(app.cells["conversation.compose.action.newChief"].exists, "New Chief row")
             XCTAssertTrue(app.cells["conversation.compose.suggestion.team:user_demo_grace"].waitForExistence(timeout: 5), "the team")
+            // N3: two Chiefs named Builder on the same Mac tell apart by their last activity.
+            let builders = app.cells.matching(NSPredicate(format: "label == %@", "Builder"))
+            XCTAssertEqual(builders.count, 2, "both Builder Chiefs listed")
+            if builders.count == 2 {
+                let lines = (0..<2).map { builders.element(boundBy: $0).value as? String ?? "" }
+                XCTAssertTrue(lines.allSatisfy { $0.contains("Active") }, "look-alike Chiefs get their last activity: \(lines)")
+                XCTAssertNotEqual(lines[0], lines[1], "the two Builder rows read differently")
+            }
             attach(app, look, "01-sheet-empty-sections")
+            // A2: the Team section under the Chiefs (the list scrolls above the message bar).
+            app.tables["conversation.compose.suggestions"].swipeUp()
+            Self.pause(0.6)
+            XCTAssertTrue(app.cells["conversation.compose.section.Team"].isHittable, "Team section on screen")
+            attach(app, look, "01b-team-section")
+            app.tables["conversation.compose.suggestions"].swipeDown()
 
             // A3: typing finds by word start.
             to.typeText("ho")
@@ -80,10 +94,16 @@ final class HomeNewMessageUITests: XCTestCase {
             attach(app, look, "05-invite-to-team-confirm")
             app.alerts.firstMatch.buttons["Cancel"].tap()
 
-            // Clear the typed address and Grace.
+            // Clear the typed address; then A4: Backspace on an empty field selects Grace, the next deletes her.
             clearTo(to)
             to.typeText(XCUIKeyboardKey.delete.rawValue)
+            let grace = app.descendants(matching: .any)["conversation.compose.token.c:team:user_demo_grace"].firstMatch
+            XCTAssertTrue(grace.exists, "Grace still a token after the first Backspace")
+            XCTAssertTrue(grace.isSelected, "the first Backspace selects the last token")
+            attach(app, look, "05b-backspace-selects-token")
             to.typeText(XCUIKeyboardKey.delete.rawValue)
+            XCTAssertFalse(grace.waitForExistence(timeout: 1), "the second Backspace deletes it")
+            attach(app, look, "05c-backspace-deletes-token")
 
             // A4: Return on a name nobody has is a red token; A8: Send then says why under To:.
             to.typeText("zzz\n")
@@ -189,6 +209,12 @@ final class HomeNewMessageUITests: XCTestCase {
             app.buttons["conversation.composer.send"].tap()
             let notice = app.staticTexts["conversation.compose.notice"]
             XCTAssertTrue(notice.waitForExistence(timeout: 5), "Add someone in To: first.\n\(app.debugDescription)")
+            // A8: the line is seen, above the Chiefs list (never under it).
+            XCTAssertTrue(notice.isHittable, "the refusal line is on screen")
+            let firstSection = app.cells["conversation.compose.section.Chiefs"]
+            if firstSection.exists {
+                XCTAssertLessThanOrEqual(notice.frame.maxY, firstSection.frame.minY + 1, "the list starts under the refusal line")
+            }
             attach(app, look, "15-refusal-nobody-in-to")
             to.typeText("Grace")
             app.cells["conversation.compose.suggestion.team:user_demo_grace"].firstMatch.tap()
@@ -199,6 +225,10 @@ final class HomeNewMessageUITests: XCTestCase {
             app.buttons["conversation.composer.send"].tap()
             XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Lunch?")).firstMatch
                 .waitForExistence(timeout: 10), "the new conversation with its first message\n\(app.debugDescription)")
+            // A new conversation with Grace: her name, only the first message, no Chief in it.
+            XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "BUILD SUCCEEDED")).firstMatch.exists,
+                           "no Chief transcript in a new conversation with a teammate")
+            XCTAssertFalse(app.alerts.firstMatch.exists, "no Chief alert prompt for a conversation with people")
             Self.pause(1.0)
             attach(app, look, "17-sent-new-conversation")
             app.terminate()
@@ -228,20 +258,48 @@ final class HomeNewMessageUITests: XCTestCase {
             XCTAssertTrue(invite.waitForExistence(timeout: 5), "Invite for a team of one\n\(app.debugDescription)")
             attach(app, look, "19-mac-only-invite")
             invite.tap()
-            Self.pause(2.0)
+            // The share sheet up (its list of apps), not mid-animation.
+            let share = app.otherElements["ActivityListView"].firstMatch
+            XCTAssertTrue(share.waitForExistence(timeout: 8) || app.navigationBars["UIActivityContentView"].waitForExistence(timeout: 2),
+                          "the Invite share sheet\n\(app.debugDescription)")
+            Self.pause(1.0)
             attach(app, look, "20-invite-share-sheet")
             app.terminate()
         }
     }
 
-    /// L4: the largest accessibility text size.
+    /// L4: the largest accessibility text size: rows grow with the text and never overlap.
     @MainActor
     func testAccessibilityTextSize() {
         let app = launch(look: .light, extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         _ = openSheet(app, .light)
+        // The system's one-time slide-to-type tip covers the keyboard on a fresh simulator.
+        let tip = app.buttons["Continue"].firstMatch
+        if tip.waitForExistence(timeout: 2) { tip.tap() }
+        let atlas = app.cells["conversation.compose.suggestion.chief:cloud"]
+        let chief = app.cells["conversation.compose.suggestion.chief:mac"]
+        XCTAssertTrue(atlas.waitForExistence(timeout: 10) && chief.exists, "rows at AX size\n\(app.debugDescription)")
+        XCTAssertGreaterThan(atlas.frame.height, 80, "the row grew with the text: \(atlas.frame)")
+        XCTAssertLessThanOrEqual(atlas.frame.maxY, chief.frame.minY + 1, "rows do not overlap")
         Self.pause(1.0)
         attach(app, .light, "21-ax5-sheet")
         app.terminate()
+    }
+
+    /// A11: Forward from a Chief's select mode opens the same New Message, with the draft.
+    @MainActor
+    func testForwardOpensNewMessage() {
+        for look in Look.allCases {
+            let app = launch("new-message-forward", look: look)
+            let to = app.textFields["conversation.compose.to"]
+            XCTAssertTrue(to.waitForExistence(timeout: 30), "New Message from Forward\n\(app.debugDescription)")
+            XCTAssertTrue(app.cells["conversation.compose.section.Chiefs"].waitForExistence(timeout: 10), "the Mac's sections")
+            let body = app.textViews["conversation.composer.text"].firstMatch
+            XCTAssertFalse((body.value as? String ?? "").isEmpty, "the forwarded text is the draft")
+            Self.pause(0.8)
+            attach(app, look, "22-forward-new-message")
+            app.terminate()
+        }
     }
 
     // MARK: Helpers

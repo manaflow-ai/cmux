@@ -464,6 +464,8 @@ public final class MacHomeFeed {
             (chiefRow, "chief", "Chief", "agent_mux", 4, "The nightly is green. Two flaky tests were retried."),
             ("conv-builder", "chief", "Builder", "agent_builder", 52, "I opened the release branch and bumped the version."),
             ("conv-reviewer", "chief", "Reviewer", "agent_reviewer", 60 * 26, "Three PRs are waiting for your review."),
+            // A second Chief named like the first: New Message tells them apart by their last activity.
+            ("conv-builder-2", "chief", "Builder", "agent_builder_2", 60 * 50, "Nightly packaging is done."),
             ("conv-infra", "group", "Infra", nil, 90, "Lawrence: the mini fleet is back up."),
             ("conv-design", "channel", "Design", nil, 60 * 5, "New tab bar mocks are in the folder."),
         ]

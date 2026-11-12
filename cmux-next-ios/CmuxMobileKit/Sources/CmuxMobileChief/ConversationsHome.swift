@@ -420,7 +420,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .navigationDestination(for: CloudConversationRoute.self) { route in
             if let session = sources.cloudConversation(route) {
-                ChiefConversationScreen(session: session)
+                ChiefConversationScreen(session: session, options: route.chief == nil ? .people(route.title) : .chief)
             } else {
                 ContentUnavailableView(String(localized: "Sign in to see this conversation."), systemImage: "cloud")
             }
@@ -451,6 +451,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .task {
             sources.recheck()
             feed.refresh()
+            // After Home's first frames: New Message's views, so the compose tap only presents.
+            await Task.yield()
+            HomeNewMessage.prewarm()
         }
         .alert("New Chief", isPresented: $namingChief) {
             TextField("Name", text: $newChiefName)
