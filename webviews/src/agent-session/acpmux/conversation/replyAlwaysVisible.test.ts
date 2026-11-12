@@ -201,7 +201,7 @@ test("the coordinator's 07:51Z turn draws its answer under Leo's prompt, as logg
     helper("deploys", "agent_thought_chunk", {
       content: { type: "text", text: "Reading ws-deploy" },
     }),
-    ...ANSWER.split(/(?<= )/).map(say),
+    ...ANSWER.split(/(?<= )/).map((piece) => say(piece)),
     progress("inventory", "customize"),
     helper("deploys", "tool_call", {
       toolCallId: "read-9",
@@ -384,7 +384,7 @@ test("each answer to the person draws closed, in order, never in a fold, for ran
       // after that fold above it (`answerAt`).
       const words =
         stretch.stepped && !stretch.steered
-          ? stretch.replies.findLast((_, index) => stretch.takeaways[index])
+          ? stretch.replies.filter((_, index) => stretch.takeaways[index]).at(-1)
           : stretch.replies.at(-1);
       if (words === undefined) continue;
       const at = closed.findIndex(
