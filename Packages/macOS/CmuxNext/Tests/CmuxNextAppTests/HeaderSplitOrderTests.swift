@@ -192,7 +192,7 @@ struct HeaderSplitOrderTests {
 
     /// The header's Terminal opens in the chat's folder, the folder a split inherits; Ghostty's
     /// `split-inherit-working-directory = false` turns that off as for any split (cx-zld.1): the
-    /// terminal names no folder, so the split starts in the home folder (NewTerminalStart).
+    /// terminal names no folder, so the split starts in the `working-directory` folder, else home (NewTerminalStart).
     @Test func terminalInheritsTheChatsFolderOnlyWhenSplitsInherit() {
         let row = Row(), toggles = AgentChatSplitToggles()
         for inherits in [true, false] {

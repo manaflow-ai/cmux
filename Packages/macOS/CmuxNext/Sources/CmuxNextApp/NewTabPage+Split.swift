@@ -35,7 +35,8 @@ extension NewTabPage {
                       insertion: DividerInsertion? = nil, placed: (@MainActor (String) -> Void)? = nil) -> Bool {
         let services = source.services
         let machineID = source.daemon.machineID
-        var page = Self.page(services, selected: source.selectedTab, pane: source, paletteActions: false)
+        let sourceTab = source.selectedTab
+        var page = Self.page(services, selected: sourceTab, pane: source, paletteActions: false)
         let cwd = page.cwd
         page.openTabs = openTabs(services, in: source.pane)
         page.draft = services.windowController(showing: source).flatMap { services.agentTabs.unsentDrafts.leftover(inWindow: $0.state.id) }
@@ -47,9 +48,9 @@ extension NewTabPage {
         page.inputToken = keys
         if let keys { input.attachIncoming(keys) }
         // The page moves to the new pane: its choices act in the pane that shows it now.
-        var handler = Self.handler(services, cwd: cwd) { [weak services] key, request in
+        var handler = Self.handler(services, cwd: cwd) { [weak services, weak sourceTab] key, request in
             guard let services, let pane = Self.hosting(key, services, onMachine: machineID) else { return }
-            Self.replace(key, with: request, cwd: NewTerminalStart.pagePick(request, page: cwd, kind: .split, in: pane), in: pane)
+            Self.replace(key, with: request, cwd: NewTerminalStart.pagePick(request, page: cwd, kind: .split, besides: sourceTab, in: pane), in: pane)
         }
         handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
         let jump = handler.jump

@@ -40,7 +40,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private(set) lazy var reservedContent = WorkspaceSpareSlot<WorkspaceContentController>(owner: "WorkspaceSpare", on: services.mainWork, wanted: { [weak self] in
         self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace } ?? false
     }, reserve: { [weak self] in
-        self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: $0.services.daemon.defaultCwd)) }
+        self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: NewTerminalStart.defaultStart)) }
     }, build: { [weak self] model in
         self.map { window in BenchSpans.measure("cmdN.reserved.build.init") { WorkspaceContentController(workspace: model, daemon: window.services.daemon, services: window.services, state: window.state, parked: true) } }
     }, mount: { [weak self] content in BenchSpans.measure("cmdN.reserved.build.mount") { self?.root.contentHost.addHiddenSubview(content.contentView) } },

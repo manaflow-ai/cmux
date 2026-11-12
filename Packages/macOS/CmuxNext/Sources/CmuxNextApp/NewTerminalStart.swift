@@ -37,11 +37,13 @@ enum NewTerminalStart {
     /// page's own folder follows Ghostty's `kind` key (`tab-` for Cmd-T's page, `split-` for a
     /// split's): false starts it in the `working-directory` folder (``uninherited``), as does a page
     /// with no folder to inherit on this Mac (no terminal or chat in its workspace or window).
+    /// `source` is the tab the page opened beside: beside a remote terminal tab, the page's folder is
+    /// that machine's, and this Mac's folders never replace it.
     @MainActor static func pagePick(_ request: AgentPaneOpenTab, page: String?, kind: GhosttyWorkingDirectoryInheritance.Kind,
-                                    in pane: PaneController) -> String? {
+                                    besides source: TabModel?, in pane: PaneController) -> String? {
         let folder = request.cwd ?? page
-        guard request.kind == .terminal, folder == page else { return folder }
-        if let start = uninherited(kind, services: pane.services, daemon: pane.daemon, besides: nil) { return start }
+        guard request.kind == .terminal, folder == page, source?.kind != .remoteTerminal else { return folder }
+        if let start = uninherited(kind, services: pane.services, daemon: pane.daemon, besides: source) { return start }
         return folder ?? (pane.daemon === pane.services.daemon ? defaultStart : nil)
     }
 

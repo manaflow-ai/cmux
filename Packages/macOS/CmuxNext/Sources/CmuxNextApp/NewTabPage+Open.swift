@@ -56,7 +56,8 @@ extension NewTabPage {
             openingPanes.remove(openingKey)
             return
         }
-        var page = Self.page(services, selected: pane.selectedTab, window: pane.view.window, pane: pane, paletteActions: false)
+        let source = pane.selectedTab
+        var page = Self.page(services, selected: source, window: pane.view.window, pane: pane, paletteActions: false)
         // The page's folder: the selected tab's, or (an empty pane of another machine) its workspace's there.
         let cwd = page.cwd
         page.inputToken = inputToken
@@ -65,9 +66,9 @@ extension NewTabPage {
         // opened its pick in the pane it left, or nowhere once that pane closed. Its folder stays
         // the one the page shows (`page.cwd`), as a split's page does.
         let machineID = pane.daemon.machineID
-        var handler = Self.handler(services, cwd: cwd) { [weak pane, weak services] key, request in
+        var handler = Self.handler(services, cwd: cwd) { [weak pane, weak services, weak source] key, request in
             guard let target = services.flatMap({ Self.hosting(key, $0, onMachine: machineID) }) ?? pane else { return }
-            BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: NewTerminalStart.pagePick(request, page: cwd, kind: .tab, in: target), in: target) }
+            BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: NewTerminalStart.pagePick(request, page: cwd, kind: .tab, besides: source, in: target), in: target) }
         }
         handler.inputReady = { [weak pane] _, token in
             guard let pane else { return }
