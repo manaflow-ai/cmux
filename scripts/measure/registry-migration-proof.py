@@ -1295,6 +1295,59 @@ def base_sample_arm(args, state, report):
     report["steps"].append(step)
 
 
+def base_kept_arm(args, state, report):
+    """The control of the in-place-kept arms: a build with NONE of this change (--base-bin) as
+    the owner of a clone of the SMALL registry after the swap, with the same appended records
+    and the same probe (one identify and one rename-workspace back to back, PassProbe) for the
+    same dwell. That build has no retention pass, so its WAL numbers and request times are what
+    the probe's own requests cost on that file: the bytes of one rename, and how large the WAL
+    file gets with no delete in place. Its counts are not compared (not a step of the
+    migration), and no verdict rule reads its answer."""
+    records = args.kept_records or args.second_records
+    dwell = args.kept_dwell or args.in_place_dwell
+    step = {"arm": "base-kept", "dwell_s": dwell, "appended_records": records}
+    out = subprocess.run(
+        [args.synth, "--advance-checkpoints", "16", "--append-records",
+         str(records), "--out", str(state), "--session", args.session,
+         "--seal-age-minutes", str(args.seal_age_minutes), "--quiet"],
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3600, check=False)
+    if out.returncode != 0:
+        step["base_error"] = "synth_registry --advance-checkpoints failed: " + out.stderr[-300:]
+        say("RMP", step)
+        report["steps"].append(step)
+        return
+    advanced = counts(args, state)
+    step["before"] = {key: advanced.get(key) for key in IN_PLACE_KEYS}
+    owner = Owner(args, state, "base-kept", binary=args.base_bin)
+    ready = owner.wait_ready()
+    step.update(ready_s=ready, load_1m=os.getloadavg()[0])
+    if ready is None:
+        step["base_error"] = "not ready"
+    else:
+        sampler = Sampler(owner, write_every=0)
+        probe = PassProbe(owner)
+        for thread in (sampler, probe):
+            thread.start()
+        began = time.monotonic()
+        deadline = began + dwell
+        while time.monotonic() < deadline and owner.child.poll() is None:
+            time.sleep(1)
+        for thread in (probe, sampler):
+            thread.stop()
+        step["samples"] = sampler.phase(ready, owner.elapsed())
+        step["ran_s"] = round(time.monotonic() - began, 1)
+        step["probe_requests"] = len(probe.rows)
+        step["requests"] = probe.split([], 0.1)
+        step["locks"] = lock_sites(owner)
+        step["wal"] = wal_stats(owner)
+        step["base_served"] = served(owner)
+    step["exit"] = owner.stop()
+    after = counts(args, state)
+    step["after"] = {key: after.get(key) for key in IN_PLACE_KEYS}
+    say("RMP", step)
+    report["steps"].append(step)
+
+
 # Owner log lines that say what an older owner did with the state (no row contents).
 OLD_LOG_WORDS = ("schema", "roster", "snapshot", "quarantin", "recover", "registry", "reducer")
 
@@ -1519,7 +1572,7 @@ def table(report):
                  + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
     names = ["kill-stage", "kill-swap", "kill-renamed", "space", "in-place", "in-place-stacks",
              "in-place-kept", "in-place-kept-stacks", "in-place-kept-nowatch",
-             "in-place-kept-quiet", "base-sample", "second-swap"]
+             "in-place-kept-quiet", "base-sample", "base-kept", "second-swap"]
     names += [name for name in steps if name.startswith(("old", "control"))
               and not name.endswith("-new")]
     for name in names:
@@ -1664,6 +1717,9 @@ def main():
         if name in args.arms and ok:
             in_place_kept_arm(args, clone(args.state, scratch / name), before, report, name)
             shutil.rmtree(scratch / name)
+    if "base-kept" in args.arms and ok and args.base_bin:
+        base_kept_arm(args, clone(args.state, scratch / "base-kept"), report)
+        shutil.rmtree(scratch / "base-kept")
     if "second-swap" in args.arms and ok:
         second_swap_arm(args, clone(args.state, scratch / "second-swap"), before, report)
         shutil.rmtree(scratch / "second-swap")

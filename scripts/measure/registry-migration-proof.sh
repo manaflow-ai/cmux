@@ -43,6 +43,10 @@
 # base_bin= adds the base-sample arm: that build owns a clone from before start 1 for
 # in_place_dwell= seconds with the same sampler, so the lock and request times of the in-place
 # arm have a row that shows what the size of the file and the host cost with no delete.
+# arms= can also name base-kept (with base_bin=): that build owns a clone of the SMALL registry
+# after the swap, with the same appended records and the same probe as the in-place-kept arms
+# for kept_dwell= seconds. It has no retention pass: the row is what the probe's requests cost
+# on that file with no delete in place (the WAL counters, the request times).
 # It builds release `cmux-tui` and cmux-tui-core's `synth_registry` example (and a debug
 # `cmux-tui` with debug=1, for the free-space arm: only a debug owner has that test seam), writes
 # the registry (synth_registry --shape lawrence), then runs registry-migration-proof.py: real owner
