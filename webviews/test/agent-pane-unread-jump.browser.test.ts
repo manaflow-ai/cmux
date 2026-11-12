@@ -130,6 +130,19 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
   /// Presses Jump up and waits for its glide to end: the scroll offset holds for three painted frames
   /// (its length follows the theme's motion tokens, so a fixed frame count reads it mid-glide).
   const press = async (page: Page) => {
+    await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const log: string[] = ((window as unknown as { __dbg: string[] }).__dbg = []);
+      const line = () => document.querySelector('[data-row-id="sinceDivider"]');
+      const tick = () => {
+        const l = line()?.getBoundingClientRect().top;
+        log.push(
+          `${Math.round(performance.now())} st=${Math.round(node.scrollTop)} sh=${node.scrollHeight} line=${l === undefined ? "-" : Math.round(l - node.getBoundingClientRect().top)}`,
+        );
+        if (log.length < 400) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
     await page.click(".acpmux-jump-up");
     await page.waitForFunction(
       async () => {
@@ -144,6 +157,7 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
   };
   /// The line near the top: inside the view's top fifth, the first unseen row right under it.
   const landedNearTop = (at: Awaited<ReturnType<typeof read>>) => {
+    console.log("DBG at", JSON.stringify(at));
     expect(at.line).toBeDefined();
     expect(at.line!).toBeGreaterThanOrEqual(0);
     expect(at.line!).toBeLessThanOrEqual(at.height / 5);
@@ -167,6 +181,12 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
           expect(before.jump).toBe("up");
           await press(page);
           const after = await read(page);
+          console.log(
+            "DBG trace",
+            (await page.evaluate(() => (window as unknown as { __dbg: string[] }).__dbg))
+              .filter((_, i, all) => i < 40 || i % 10 === 0 || i === all.length - 1)
+              .join("\n"),
+          );
           landedNearTop(after);
           // There, nothing unseen lies above the view: the same control is Jump to latest, and it
           // goes back down with its own glide.
