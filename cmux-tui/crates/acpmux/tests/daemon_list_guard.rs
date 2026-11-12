@@ -21,8 +21,23 @@ use std::time::{Duration, Instant};
 const CHATS: usize = 400;
 /// How long each client runs while the daemon's CPU is measured.
 const WINDOW: Duration = Duration::from_secs(15);
-/// The daemon's CPU allowed while a client asks, in a share of one core.
-const MAX_SHARE: f64 = 0.08;
+/// The daemon CPU of one list in each phase, after the daemon's idle CPU, at most this many
+/// times the CPU of one list of the plain reconnect phase of the same run. A share of a core
+/// over wall time moved with the host (one testbox host: 5.5% in the fast phase, another:
+/// 8.7%, the same code), so each phase is measured against the same run's plain reconnect.
+/// Each limit is the worst ratio of 39 runs times 1.5 (2026-11-12: 20 runs of one host, an A/B
+/// of 6 runs on another, the red run, and 12 runs of this test): 1.279, 0.525 and 0.591.
+const MAX_PER_LIST_RATIO: [(&str, f64); 3] = [
+    ("one connection at 1 Hz", 1.92),
+    ("three clients reconnecting at 1 Hz", 0.79),
+    ("reconnect as fast as it reads", 0.89),
+];
+/// The phase every ratio is measured against.
+const BASE_PHASE: &str = "reconnect at 1 Hz";
+/// One list of the plain reconnect phase, after the idle CPU, at most this much daemon CPU on
+/// any host: it was 19 to 29 ms on two testbox hosts, so ten times the fast host's cost fails
+/// on that host too.
+const MAX_BASE_PER_LIST: Duration = Duration::from_millis(100);
 
 /// CPU time the process has used, user and system: `/proc` on Linux, `ps` elsewhere.
 fn cpu(pid: u32) -> Duration {
@@ -196,6 +211,12 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
     let daemon = start(&dir, &home);
     assert_eq!(list_once(&daemon.1).len(), CHATS);
     std::thread::sleep(Duration::from_secs(5));
+    // The daemon's own CPU with no client, taken off each phase's.
+    let idle = {
+        let (start, before) = (Instant::now(), cpu(daemon.0.id()));
+        std::thread::sleep(WINDOW);
+        (cpu(daemon.0.id()) - before).as_secs_f64() / start.elapsed().as_secs_f64()
+    };
 
     let reconnect: fn(&Path, &mut Option<Rpc>) =
         |socket, _| assert_eq!(list_once(socket).len(), CHATS);
@@ -213,14 +234,26 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
         ("reconnect as fast as it reads", 1, true, reconnect),
     ] {
         let (share, lists) = measured(&daemon, clients, fast, ask);
+        assert!(lists > 0, "{name}: no list was read in {WINDOW:?}");
+        // Daemon CPU of one list, after the idle CPU of the same time.
+        let per_list =
+            Duration::from_secs_f64((share - idle).max(0.0) * WINDOW.as_secs_f64() / lists as f64);
         report.push((
             name,
-            share,
-            format!("{name}: {:.1}% of a core, {lists} lists", share * 100.0),
+            per_list,
+            format!(
+                "{name}: {:.1}% of a core, {lists} lists, {:.1} ms of CPU each",
+                share * 100.0,
+                per_list.as_secs_f64() * 1000.0
+            ),
         ));
     }
     let lines: Vec<&str> = report.iter().map(|r| r.2.as_str()).collect();
-    eprintln!("daemon CPU while a client asks ({CHATS} chats):\n  {}", lines.join("\n  "));
+    eprintln!(
+        "daemon CPU while a client asks ({CHATS} chats, idle {:.2}% of a core):\n  {}",
+        idle * 100.0,
+        lines.join("\n  ")
+    );
 
     // Still correct: a watcher hears each change, and every list after a change shows it.
     let mut watcher = Rpc::connect(&daemon.1);
@@ -247,7 +280,9 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
             std::thread::sleep(Duration::from_millis(50));
         }
     });
-    let (mut told, mut lists) = (String::new(), 0);
+    // `lagged`: the lists read again after a `_acpmux/lagged` notice; `owed`: the notice a list
+    // read again must not be older than.
+    let (mut told, mut lists, mut lagged, mut owed) = (String::new(), 0, 0, None::<String>);
     while !renames.is_finished() || lists < 3 {
         // One list, page by page, to the page that holds the renamed chat.
         let mut params = json!({});
@@ -270,7 +305,29 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
                 let rows = v["result"]["sessions"].as_array().unwrap();
                 if let Some(row) = rows.iter().find(|s| s["sessionId"] == id(9).as_str()) {
                     let listed = row["name"].as_str().unwrap();
-                    assert!(listed >= told.as_str(), "listed {listed} after a notice of {told}");
+                    if let Some(notice) = owed.take() {
+                        assert!(
+                            listed >= notice.as_str(),
+                            "the list read again after a lag shows {listed}, older than the \
+                             notice of {notice} it lagged behind"
+                        );
+                    }
+                    if listed < told.as_str() {
+                        // A notice overtook this list twice, so it went anyway, and the very
+                        // next message tells the client to read again (`server/list_reply.rs`).
+                        let next = watcher.line();
+                        assert!(
+                            next["method"] == "_acpmux/lagged"
+                                && next["params"]["watch"] == true
+                                && next["params"]["reason"] == "list_changed",
+                            "listed {listed} after a notice of {told}, and the next message is \
+                             not `_acpmux/lagged {{watch: true, reason: list_changed}}`: {next}"
+                        );
+                        lagged += 1;
+                        owed = Some(told.clone());
+                        params = json!({});
+                        break;
+                    }
                     break 'list;
                 }
                 let next = &v["result"]["nextCursor"];
@@ -282,6 +339,7 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
         lists += 1;
     }
     renames.join().unwrap();
+    eprintln!("watcher: {lists} lists in the rename race, {lagged} read again after a lag");
     // Pages cut from the shared list by count are the whole list, in order: newest first, ties
     // by id. A whole list past one reply page comes in its own page order
     // (`session_pages::byte_page`), and its reader puts it in that order (`client.rs`
@@ -305,11 +363,17 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
     assert_eq!(paged, whole);
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
-    let over: Vec<&str> = report.iter().filter(|r| r.1 > MAX_SHARE).map(|r| r.0).collect();
-    assert!(
-        over.is_empty(),
-        "over {:.0}% of a core: {over:?}\n  {}",
-        MAX_SHARE * 100.0,
-        lines.join("\n  ")
-    );
+    let per_list = |phase: &str| report.iter().find(|r| r.0 == phase).map(|r| r.1).unwrap();
+    let base = per_list(BASE_PHASE);
+    let mut over = Vec::new();
+    if base > MAX_BASE_PER_LIST {
+        over.push(format!("{BASE_PHASE}: {base:?} a list (ceiling {MAX_BASE_PER_LIST:?})"));
+    }
+    for (phase, limit) in MAX_PER_LIST_RATIO {
+        let cost = per_list(phase);
+        if cost.as_secs_f64() > base.as_secs_f64() * limit {
+            over.push(format!("{phase}: {cost:?} a list, over {limit} x {base:?}"));
+        }
+    }
+    assert!(over.is_empty(), "list CPU over its limit: {over:?}\n  {}", lines.join("\n  "));
 }
