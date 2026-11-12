@@ -35,9 +35,17 @@ export const followMotion = defineExperiment({
       description:
         "Every move of the rows in view is chased home at a constant 450 px/s (faster as it nears two lines behind), then stops.",
     },
-    instant: { label: "At once", description: "Every move lands in the frame it happens, as with motion off." },
+    instant: {
+      label: "At once",
+      description:
+        "Every move lands in the frame it happens, as with motion off: no frame loop runs, nothing is drawn back or chased home.",
+    },
   },
-  defaultArm: "blocks",
+  // Leo, 2026-11-12: "this loop is just so fundamentally fucking stupid ... where is the better
+  // architecture ... I ALREADY [told you] THIS FUCKING STUPID FUCKING ANIMATION LOOP". The rows land
+  // in the frame that moves them, as the browser lays them out: no translate drawn back and chased
+  // home on a frame loop. The chasing arms stay selectable to compare.
+  defaultArm: "instant",
 });
 
 export type FollowMotionArm = keyof typeof followMotion.arms;

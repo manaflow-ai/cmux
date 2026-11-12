@@ -14,12 +14,13 @@
 // and the composer's room move together, and a move that comes while one plays continues from where
 // the thread is drawn and how fast it is going: no restart, no jolt per chunk.
 //
-// The chase (the `spring` arm and the default `blocks` arm of followMotion.experiment.ts) is a
+// The chase (the `spring` and `blocks` arms of followMotion.experiment.ts; the default `instant`
+// arm chases nothing and starts no frame loop) is a
 // critically damped spring over the motion scale's standard step (no overshoot, so nothing moves
 // away from where it rests), at most CHASE_MAX_SPEED px/s (under 4 px a 120 Hz frame) while it
 // trails by under a line, and faster past that. The trail is bounded to CHASE_MAX_TRAIL_LINES (two
 // lines): a block that lands past it catches up within BURST_S (six 120 Hz frames), never in one
-// jump, and no frame moves more than CHASE_MAX_FRAME_LINES (a line). In the default `blocks` arm
+// jump, and no frame moves more than CHASE_MAX_FRAME_LINES (a line). In the `blocks` arm
 // content may pass under the glass composer while it settles, held only by that bound (cmux#37614);
 // the `spring` arm keeps new text at most a line under the bottom stack (VirtualTranscript
 // CHASE_UNDER_STACK_PX) and moves the rest at once, as followGlide.ts did. A

@@ -1481,8 +1481,9 @@ function TranscriptView({
     () => (index: number) => references.scopeOf(turnOpener(references.cache, rows, index)),
     [rows, references],
   );
-  /// The follow motion's arm (followMotion.experiment.ts), read once per transcript. Every arm but
-  /// `eased` (followGlide, the view before) chases each move of the rows in view (followChase.ts).
+  /// The follow motion's arm (followMotion.experiment.ts), read once per transcript. The default
+  /// `instant` lands every move in its frame and runs no chase loop; the other arms but `eased`
+  /// (followGlide, the view before) chase each move of the rows in view (followChase.ts).
   const [followArm] = useState(() => experimentArm(followMotion));
   const chasing = followArm !== "eased";
   const followChase = useRef<FollowChase>(undefined);
