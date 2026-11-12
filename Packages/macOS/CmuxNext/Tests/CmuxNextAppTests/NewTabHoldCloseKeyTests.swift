@@ -303,6 +303,32 @@ struct NewTabHoldCloseKeyTests {
         }
     }
 
+    /// A script opens a page and the person types a line in their terminal; then the person opens a page (a click
+    /// on +, a menu pick: not a key). The line was typed in the terminal, not for the person's page: it goes on to
+    /// the terminal at the replacement, in order, and the person's hold starts with no keys.
+    @Test func aLineTypedDuringAScriptsHoldGoesToThePersonsTerminalWhenThePersonThenOpensAPage() async throws {
+        try await Self.withAHeldLine(besideTheFocusedPane: true, byScript: true) { held in
+            _ = try #require(held.input.begin(for: held.pane), "the person's opening began no hold")
+            #expect(held.probe.typed == "ls\r", "the line typed in the terminal during a script's hold did not reach it when the person opened a page: \"\(held.probe.typed)\" (hold log \(held.input.log))")
+            #expect(held.input.isHolding(in: held.window), "the person's opening holds no keys: \(held.input.log)")
+            held.passTheLimit()
+            #expect(held.probe.typed == "ls\r", "the end of the person's hold changed what the terminal got: \"\(held.probe.typed)\" (hold log \(held.input.log))")
+            #expect(!held.input.log.contains { $0.hasPrefix("dropped") }, "keys typed in the terminal during a script's hold were dropped: \(held.input.log)")
+        }
+    }
+
+    /// The person's hold has a line for the new page, and a script's opening replaces it: the line is still the
+    /// person's line for a page. It waits in the newer hold and, at its limit, does not go to the terminal that
+    /// had the keyboard at the person's opening.
+    @Test func aLineHeldForThePersonsPageGoesToNoTerminalWhenAScriptsOpeningReplacesTheHold() async throws {
+        try await Self.withAHeldLine { held in
+            _ = try #require(ActionRunScope.$current.withValue(Self.scriptRun) { held.input.begin(for: held.pane) }, "the script's opening began no hold")
+            #expect(held.probe.typed.isEmpty, "the script's opening gave the person's line to the view that had the keyboard before: \"\(held.probe.typed)\" (hold log \(held.input.log))")
+            held.passTheLimit()
+            Self.expectNoKeyReachedTheOldView(held, "the limit of a script's hold that replaced the person's hold with keys")
+        }
+    }
+
     /// The same for the rule's own type: a hold whose opening is not the person's records no owner and drops no key.
     @Test func aHoldOfAnOpeningThatIsNotThePersonsDropsNoKey() throws {
         _ = NSApplication.shared
