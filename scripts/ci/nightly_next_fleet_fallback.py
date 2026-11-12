@@ -7,6 +7,8 @@ testing.": "Yeah, IMO, we should just definitely do these." That day 20:17Z-21:3
 anywhere (every run queued with 0 jobs or startup_failure); git kept working, and the nightly waited 81 minutes.
 
   nightly_next_fleet_fallback.py run --sha SHA --build N|auto [--workdir D] [--git-dir G] [--dry-run]
+  nightly_next_fleet_fallback.py run --sha SHA --build N|auto --candidate-out DIR [--no-smoke]
+                                                            an unsigned candidate, no credentials (run_candidate)
   nightly_next_fleet_fallback.py plan [--workflow FILE]     the steps a run executes and skips, as JSON
   nightly_next_fleet_fallback.py gh-shim ARGS...            the `gh` every step sees (see below)
 
@@ -562,17 +564,19 @@ def references(value, kind: str) -> set[str]:
     return found
 
 
-def drift(workflow: dict) -> list[str]:
-    """Why the fallback's tables no longer cover this nightly.yml (empty: they do)."""
+def drift(workflow: dict, mirrored: tuple[str, ...] = MIRRORED_JOBS) -> list[str]:
+    """Why the fallback's tables no longer cover this nightly.yml (empty: they do). MIRRORED: the jobs a run executes
+    (a candidate run checks only CANDIDATE_JOBS, so drift in the signing and publishing jobs it never runs does not
+    stop it)."""
     problems = []
     jobs = workflow["jobs"]
     seen_skips = set()
-    for job in MIRRORED_JOBS:
+    for job in mirrored:
         if job not in jobs:
             problems.append(f"nightly.yml has no job {job}")
             continue
         for need in as_list(jobs[job].get("needs")):
-            if need not in MIRRORED_JOBS and need not in SYNTHETIC_JOBS and need not in JOB_ALIASES:
+            if need not in mirrored and need not in SYNTHETIC_JOBS and need not in JOB_ALIASES:
                 problems.append(f"{job} needs {need}, which the fallback neither runs nor stands in for")
         reviewed = set(REVIEWED_SCRIPTS.get(job, ()))
         for step in jobs[job].get("steps", []):
@@ -597,6 +601,8 @@ def drift(workflow: dict) -> list[str]:
             if output not in DECIDE_OUTPUT_NAMES:
                 problems.append(f"{job} reads needs.decide.outputs.{output}, which decide_outputs() does not give")
     for job, name in sorted(set(SKIPPED_STEPS) - seen_skips):
+        if job not in mirrored:
+            continue
         problems.append(f"SKIPPED_STEPS names {job}: {name!r}, which nightly.yml no longer has")
     return problems
 
@@ -1154,6 +1160,8 @@ def run(args, environ: dict | None = None, interpreter_class=Interpreter) -> int
     result = Result(args.sha, args.build)
     if not re.fullmatch(r"[0-9a-f]{40}", args.sha or ""):
         return result.finish(EXIT_FAILED, "failed", f"--sha {args.sha!r} is not a full commit SHA")
+    if getattr(args, "candidate_out", None):
+        return run_candidate(args, environ, interpreter_class)
     missing = missing_credentials(environ)
     if missing:
         return result.finish(EXIT_NO_CREDENTIALS, "no-credentials",
@@ -1265,6 +1273,148 @@ def conclude(result: Result, publish: dict, feed_base: str) -> int:
                          f"{outputs.get('feed_written')!r}")
 
 
+# ------------------------------------------------------------------------------------------------ candidate
+
+# A candidate run (`run --candidate-out DIR`): the nightly's own build of SHA, unsigned, on any owned Mac with no
+# credentials, for the continuous tip loop (cmuxterm-hq build-fleet/tip-loop). Leo, 2026-11-11: "we still want to
+# ensure that things work. there is the fallback simple route of "this one just keeps building that s***"". It runs
+# the jobs up to the prepared (unsigned, thinned, helper-injected) app, the same steps as above, then a fresh-home
+# launch smoke of that app (fresh_home_launch_smoke.py, nightly.yml's own harness). It never signs, notarizes or
+# publishes, reads no credential and moves nothing. The app is kept in DIR as the ready candidate.
+#
+# Exit: 0 green (built, webview checks passed, the smoke passed or could not run here), 1 red (a job failed, or the
+# app crashed at launch twice), 75 no verdict (drift, no commit, an unreadable feed for --build auto, no app to
+# smoke). The result line carries `failed: {job, step}`, `build_sha` (the commit the resolver built, which can be
+# older than SHA while a newer cmux-tui tree publishes), `candidate_app` and `smoke`.
+CANDIDATE_JOBS = MIRRORED_JOBS[:MIRRORED_JOBS.index("prepare-nightly-variant-primary") + 1]
+EXIT_NO_VERDICT = 75
+PREPARED_APP = "*-prepared-app-arm64-*/cmux-prepared-app.tar.gz"
+SMOKE_SECONDS = 300
+
+
+def first_failure(record: list[dict]) -> dict:
+    """The first failed step of a run's record: {job, step} (step "(job)" when the job failed with no step)."""
+    for row in record:
+        if row.get("outcome") == "failure":
+            return {"job": row.get("job"), "step": row.get("step")}
+    return {}
+
+
+def smoke_candidate(app: Path, out: Path, timeout: float = SMOKE_SECONDS, log=print) -> dict:
+    """nightly.yml's launch smoke of APP from a fresh and a seeded home, two attempts on a crash, as
+    launch-smoke-gate.sh runs it: {verdict: pass|crash|cannot-run, attempts: [exit codes], out}."""
+    harness = HERE / "fresh_home_launch_smoke.py"
+    attempts: list[int] = []
+    for attempt in (1, 2):
+        where = out / f"attempt-{attempt}"
+        where.mkdir(parents=True, exist_ok=True)
+        try:
+            code = subprocess.run([sys.executable, "-I", str(harness), "--app", str(app), "--out", str(where),
+                                   "--arms", "empty,seeded"], timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            code = 124
+        except OSError as error:
+            log(f"launch smoke attempt {attempt}: could not run: {error}")
+            code = 3
+        attempts.append(code)
+        log(f"launch smoke attempt {attempt}: exit {code}")
+        if code != 1:
+            break
+    verdict = "pass" if attempts[-1] == 0 else "crash" if attempts[-1] == 1 else "cannot-run"
+    return {"verdict": verdict, "attempts": attempts, "out": str(out)}
+
+
+def unpack_candidate(artifacts: Path, dest: Path) -> Path | None:
+    """The prepared app's tarball from the run's artifact store, unpacked into DEST: the .app, or None."""
+    found = sorted(artifacts.glob(PREPARED_APP))
+    if not found:
+        return None
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    subprocess.run(["tar", "-xzf", str(found[-1]), "-C", str(dest)], check=True)
+    apps = sorted(dest.glob("*.app"))
+    return apps[0] if apps else None
+
+
+def run_candidate(args, environ: dict, interpreter_class=Interpreter, smoke=None) -> int:
+    result = Result(args.sha, args.build)
+    result.data.update(mode="candidate", github_names="none", failed={}, build_sha=None, candidate_app=None,
+                       smoke=None)
+    git_dir = args.git_dir
+    if subprocess.run(["git", "--git-dir", git_dir, "cat-file", "-e", f"{args.sha}^{{commit}}"],
+                      capture_output=True).returncode != 0:
+        return result.finish(EXIT_NO_VERDICT, "no-verdict", f"{git_dir} does not have {args.sha}")
+    try:
+        variables, variables_file = load_variables(args.vars)
+        workflow = load_workflow(git_show(git_dir, args.sha, WORKFLOW))
+    except RuntimeError as error:
+        return result.finish(EXIT_NO_VERDICT, "no-verdict", str(error))
+    problems = drift(workflow, CANDIDATE_JOBS)
+    if problems:
+        return result.finish(EXIT_NO_VERDICT, "no-verdict", "the fallback does not cover nightly.yml's build jobs at "
+                             f"{args.sha} (update scripts/ci/nightly_next_fleet_fallback.py):\n  " + "\n  ".join(problems))
+    workflow_env = {k: str(v) for k, v in (workflow.get("env") or {}).items() if "${{" not in str(v)}
+    feed_base = environ.get("NIGHTLY_FALLBACK_FEED_BASE") or workflow_env.get("NIGHTLY_NEXT_FEED_BASE", "")
+    live_build, live_source = 0, None
+    try:
+        live_build, live_source = live_state(read_public_feed(f"{feed_base.rstrip('/')}/{FEED}"))
+    except Exception as error:  # noqa: BLE001 - only --build auto needs it
+        if args.build == "auto":
+            return result.finish(EXIT_NO_VERDICT, "no-verdict", f"could not read the live feed for --build auto: {error}")
+    result.data["feed_build_before"] = live_build
+    try:
+        build = resolve_build(args.build, live_build)
+    except Exception as error:  # noqa: BLE001
+        return result.finish(EXIT_NO_VERDICT, "no-verdict", str(error))
+    result.data["build"] = build
+    workdir = Path(args.workdir).resolve()
+    if workdir.exists():
+        shutil.rmtree(workdir)  # a candidate starts clean: no artifact of an older SHA can stand in for this one's
+    workdir.mkdir(parents=True)
+    shim = install_shim(workdir / "bin")
+    snapshot_file = workdir / "vars.json"
+    if variables_file:
+        snapshot_file.write_text(json.dumps(variables))
+    secrets = (*REQUIRED_CREDENTIALS, *OPTIONAL_CREDENTIALS)
+    base_env = {k: v for k, v in environ.items() if k not in secrets and not k.startswith(("GITHUB_", "RUNNER_", "OP_"))}
+    base_env["NIGHTLY_NEXT_SOURCE_GIT_DIR"] = os.path.abspath(git_dir)
+    base_env["CMUX_CEF_NO_GITHUB"] = "1"
+    base_env["NIGHTLY_FALLBACK_VARS_FILE"] = str(snapshot_file) if variables_file else ""
+    known = {name: variables.get(name, "") for name in KNOWN_VARS}
+    needs = synthetic_needs(args.sha, live_source or "", workflow_env, variables, build)
+    # Only the read-only Chromium engine key reaches a step, when the host has it; nothing signs or publishes.
+    credentials = {k: (environ.get(k, "") if k.startswith("CMUX_CEF_R2_") else "") for k in secrets}
+    interpreter = interpreter_class(workflow, sha=args.sha, build=build, workdir=workdir, git_dir=git_dir,
+                                    variables={**known, **variables}, credentials=credentials, base_env=base_env,
+                                    needs=needs, shim_dir=shim)
+    try:
+        for job in CANDIDATE_JOBS:
+            outcome = interpreter.run_job(job)
+            if job == "resolve-nightly-cmux-tui-client":
+                result.data["build_sha"] = (interpreter.needs.get(job, {}).get("outputs") or {}).get("build_sha") or None
+            if outcome == "failure":
+                result.data["failed"] = first_failure(interpreter.record) or {"job": job, "step": "(job)"}
+                return result.finish(EXIT_FAILED, "red", f"{job} failed; no candidate")
+    finally:
+        result.data["steps"] = interpreter.record
+    dest = Path(args.candidate_out) / f"{args.sha[:12]}-{build}"
+    app = unpack_candidate(workdir / "artifacts", dest)
+    if app is None:
+        return result.finish(EXIT_NO_VERDICT, "no-verdict", "the build jobs passed but left no prepared app "
+                             f"({PREPARED_APP} in {workdir / 'artifacts'})")
+    result.data["candidate_app"] = str(app)
+    if getattr(args, "no_smoke", False):
+        result.data["smoke"] = {"verdict": "not-run"}
+    else:
+        result.data["smoke"] = (smoke or smoke_candidate)(app, dest / "launch-smoke")
+        if result.data["smoke"]["verdict"] == "crash":
+            result.data["failed"] = {"job": "launch smoke", "step": "Launch smoke from a fresh home"}
+            return result.finish(EXIT_FAILED, "red", f"the candidate {app} crashed at launch on both attempts")
+    return result.finish(EXIT_PUBLISHED, "green", f"candidate {app} (build {build}, smoke "
+                         f"{result.data['smoke']['verdict']})")
+
+
 def plan_steps(workflow: dict) -> list[dict]:
     plan = []
     for job in MIRRORED_JOBS:
@@ -1299,6 +1449,9 @@ def main(argv: list[str]) -> int:
     r.add_argument("--git-dir", default=DEFAULT_GIT_DIR)
     r.add_argument("--vars", help="the repository variables snapshot (JSON object)")
     r.add_argument("--dry-run", action="store_true", help="check credentials, the live feed and the plan; build nothing")
+    r.add_argument("--candidate-out", help="a candidate run: build the unsigned app, smoke it, keep it in this "
+                   "directory; no credentials, no signing, no publishing (see run_candidate)")
+    r.add_argument("--no-smoke", action="store_true", help="with --candidate-out: skip the launch smoke")
     p = sub.add_parser("plan")
     p.add_argument("--workflow", default=str(HERE.parent.parent / WORKFLOW))
     args = parser.parse_args(argv)

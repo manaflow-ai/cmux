@@ -473,6 +473,94 @@ class RunTests(unittest.TestCase):
         self.assertFalse(self.workdir.exists())
 
 
+class CandidateInterpreter(StubbedInterpreter):
+    """The stubbed run, plus the prepared app's tarball where prepare-nightly-variant-primary uploads it."""
+
+    fail_step: tuple | None = None
+
+    def run_shell(self, job, name, body, shell, env, cwd, timeout):
+        if (job, name) == self.fail_step:
+            self.ran.append((job, name))
+            return 1
+        if (job, name) == ("prepare-nightly-variant-primary", "Package prepared app for signing"):
+            self.ran.append((job, name))
+            app = cwd / "stage" / "cmux.app" / "Contents"
+            app.mkdir(parents=True)
+            (app / "Info.plist").write_text("<plist/>")
+            store = self.workdir / "artifacts" / f"cmux-nightly-prepared-app-arm64-{self.sha[:7]}"
+            store.mkdir(parents=True)
+            subprocess.run(["tar", "-C", str(cwd / "stage"), "-czf", str(store / "cmux-prepared-app.tar.gz"),
+                            "cmux.app"], check=True)
+            return 0
+        return super().run_shell(job, name, body, shell, env, cwd, timeout)
+
+
+class CandidateTests(unittest.TestCase):
+    """run --candidate-out: the unsigned build for the tip loop, with no credentials at all. It borrows RunTests'
+    fixture (a local mirror, a local feed) without inheriting its publishing tests."""
+
+    live = RunTests.live
+    parse = staticmethod(RunTests.parse)
+
+    def setUp(self) -> None:
+        RunTests.setUp(self)
+        self.env = {k: v for k, v in self.env.items() if k not in fb.REQUIRED_CREDENTIALS}
+        self.out = Path(self.dir.name) / "candidates"
+        CandidateInterpreter.fail_step = None
+        self.smoked: list = []
+
+    def run_candidate(self, verdict: str = "pass") -> tuple[int, dict]:
+        self.live(4310027042601, self.older)
+        args = self.parse(["run", "--sha", self.sha, "--build", "auto", "--git-dir", str(self.mirror),
+                           "--workdir", str(self.workdir), "--vars", str(self.vars), "--candidate-out", str(self.out)])
+
+        def smoke(app, out):
+            self.smoked.append(app)
+            return {"verdict": verdict, "attempts": [0 if verdict == "pass" else 1], "out": str(out)}
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
+            code = fb.run_candidate(args, self.env, CandidateInterpreter, smoke=smoke)
+        line = stdout.getvalue().strip().splitlines()[-1]
+        return code, json.loads(line[len(fb.RESULT_PREFIX):])
+
+    def test_a_candidate_builds_and_smokes_the_unsigned_app_with_no_credentials(self) -> None:
+        code, result = self.run_candidate()
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["outcome"], "green")
+        self.assertEqual(result["build_sha"], self.sha)
+        self.assertTrue(result["candidate_app"].endswith("cmux.app"))
+        self.assertEqual([str(a) for a in self.smoked], [result["candidate_app"]])
+        jobs = {job for job, _ in StubbedInterpreter.ran}
+        self.assertTrue(jobs <= set(fb.CANDIDATE_JOBS), jobs - set(fb.CANDIDATE_JOBS))
+        self.assertFalse((self.workdir / "signed").exists())
+        self.assertFalse((self.r2_dir / "appcast-arm64.xml").read_text().count(self.sha))  # nothing published
+
+    def test_a_failed_compile_is_red_naming_the_step(self) -> None:
+        CandidateInterpreter.fail_step = ("build-nightly-app", "Build nightly app (Release)")
+        code, result = self.run_candidate()
+        self.assertEqual(code, 1)
+        self.assertEqual(result["outcome"], "red")
+        self.assertEqual(result["failed"], {"job": "build-nightly-app", "step": "Build nightly app (Release)"})
+        self.assertEqual(self.smoked, [])
+
+    def test_a_launch_crash_is_red(self) -> None:
+        code, result = self.run_candidate("crash")
+        self.assertEqual(code, 1)
+        self.assertEqual(result["failed"]["job"], "launch smoke")
+
+    def test_a_smoke_that_cannot_run_here_stays_green(self) -> None:
+        code, result = self.run_candidate("cannot-run")
+        self.assertEqual(code, 0)
+        self.assertEqual(result["smoke"]["verdict"], "cannot-run")
+
+    def test_drift_in_jobs_a_candidate_never_runs_does_not_stop_it(self) -> None:
+        workflow = copy.deepcopy(WF)
+        workflow["jobs"]["publish-nightly"]["steps"].append({"name": "A new publish step", "run": "bash scripts/ci/new.sh"})
+        self.assertTrue(fb.drift(workflow))
+        self.assertEqual(fb.drift(workflow, fb.CANDIDATE_JOBS), [])
+
+
 class GhShimTests(unittest.TestCase):
     def test_variables_compare_and_refusal(self) -> None:
         with tempfile.TemporaryDirectory() as d:
