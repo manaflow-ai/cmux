@@ -30,10 +30,10 @@ import yaml
 
 ALL_SECRETS = "*"
 
-# `secrets.NAME` anywhere in a value, inside `${{ }}` or not (a guard counts more, never less; an `if:` is an
-# expression without the braces). Every other form is read inside `${{ }}` only, by tokens (context_reads), never by
-# a regex over the expression: in a run script `secrets[@]` is a shell array, and a name inside a string literal is
-# text (review F1 on #41015: `'inputs.runner'` read as a self-reference and made a false loop).
+# `secrets.NAME` in text outside `${{ }}`: an `if:` is an expression without the braces. Inside `${{ }}` every form
+# is read by tokens (context_reads), never by a regex over the expression: in a run script `secrets[@]` is a shell
+# array, and a name inside a string literal is text (review F1 on #41015: `'inputs.runner'` read as a self-reference
+# and made a false loop).
 # Context names and properties are case-insensitive in GitHub expressions.
 _SECRET_DOT = re.compile(r"\bsecrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
 _QUOTED = re.compile(r"^'((?:[^']|'')*)'$")
@@ -290,15 +290,22 @@ def strings(value: Any) -> Iterator[str]:
             yield from strings(item)
 
 
-def _expression_bodies(text: str) -> list[str]:
-    """The body of each `${{ }}` in `text` (expression_spans), and of one that never closes, read to the end of
-    `text`: what a guard counts in it is counted, never dropped."""
+def _expression_parts(text: str) -> tuple[str, list[str]]:
+    """`text` outside every `${{ }}`, and the body of each (expression_spans), one that never closes read to the end
+    of `text` as a body: what a guard counts in it is counted, never dropped."""
     spans = expression_spans(text)
-    bodies = [text[start + 3:end - 2] for start, end in spans]
-    tail = text.find("${{", spans[-1][1] if spans else 0)
+    outside, bodies, at = [], [], 0
+    for start, end in spans:
+        outside.append(text[at:start])
+        bodies.append(text[start + 3:end - 2])
+        at = end
+    tail = text.find("${{", at)
     if tail != -1:
+        outside.append(text[at:tail])
         bodies.append(text[tail + 3:])
-    return bodies
+    else:
+        outside.append(text[at:])
+    return " ".join(outside), bodies
 
 
 def expression_secrets(expression: str) -> set[str]:
@@ -323,8 +330,10 @@ def secret_names(value: Any) -> set[str]:
     if isinstance(value, Mapping) and str(value.get("secrets", "")).strip().lower() == "inherit":
         names.add(ALL_SECRETS)
     for text in strings(value):
-        names.update(match.upper() for match in _SECRET_DOT.findall(text))
-        for body in _expression_bodies(text):
+        outside, bodies = _expression_parts(text)
+        # Outside `${{ }}` only the dot form (an `if:`): in a run script `secrets[@]` is a shell array.
+        names.update(match.upper() for match in _SECRET_DOT.findall(outside))
+        for body in bodies:
             names |= expression_secrets(body)
     return names
 
