@@ -26,7 +26,8 @@ matches the pushed head:
       continuation, an attribute, a struct's stored property without a default, an enum case changed or removed, a
       protocol requirement, an initializer, a conformance) or added one, and the other side's new lines name it: a changed or
       new member only where that code also names a type it sits in, a removed or top-level one by name alone, a
-      private one only in its own file. An enum whose cases changed (a new case too) also meets a `switch` the
+      private one only in its own file. A member of a type the side removes whole counts only through the type's
+      own removal (2026-11-12: a deleted enum's `case back` met an unrelated `let back`). An enum whose cases changed (a new case too) also meets a `switch` the
       other side adds in a file that names the enum or one of its cases. A side's unchanged lines are the other side's base, which built with that side's change, so
       only its new lines (and the types they sit in) count (2026-10-28, a803: a file both sides edited held
       upstream's own new declaration, and that refused).
@@ -787,7 +788,16 @@ def side_effect(path: str, old: SwiftFile | None, new: SwiftFile | None, removed
                 return not other_modules_see(inner[0], inner[2], file.code[index])
         return False
 
+    # A type this change removes whole (no type of that name left on its new side): its members are reached only through
+    # the type's name or an API that returns it, each a removal of its own, so a member's bare name meets nothing
+    # (2026-11-12: deleting an enum's `case back` refused upstream's unrelated `let back = ...`, then `ready`, `cancel`).
+    kept = {key[1] for key in after if key[0] in TYPE_KINDS - {"extension"}}
+    gone = {key[1] for key in before if key[0] in TYPE_KINDS - {"extension"}} - kept
+    if gone:
+        effect.changed = [row for row in effect.changed if not (row[2] & gone)]
     for inner, why, file in shape:
+        if inner[1] in gone or scope_of(inner[2]) & gone:
+            continue  # the shape of a type that is gone: its own removal row covers it
         row = Change(inner[1], path, scope_of(inner[2]), False, inner[3], type_internal(inner, file))
         if why == "case":
             effect.cases.append(row)
