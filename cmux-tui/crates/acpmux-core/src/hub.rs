@@ -79,6 +79,8 @@ pub enum HubError {
     Frame(#[from] FrameError),
     #[error("index log failed: {0}")]
     Log(#[from] std::io::Error),
+    #[error("published summary {0:?} is missing after apply")]
+    MissingSummary(String),
 }
 
 impl Hub {
@@ -157,10 +159,10 @@ impl HubWriter {
             log.flush()?;
         }
         let next = self.published.load_full().apply(record.seq, record.summary);
-        let event = SummaryEvent {
-            seq: record.seq,
-            summary: next.get(&record.chat_id).expect("the applied summary is indexed"),
-        };
+        let summary = next
+            .get(&record.chat_id)
+            .ok_or_else(|| HubError::MissingSummary(record.chat_id.clone()))?;
+        let event = SummaryEvent { seq: record.seq, summary };
         self.published.store(Arc::new(next));
         let _ = self.events.send(event.clone());
         Ok(event)

@@ -303,7 +303,9 @@ impl FrameDecoder {
                 self.bytes.drain(..HEADER_BYTES);
                 self.expected = Some(len);
             }
-            let expected = self.expected.expect("set above");
+            let Some(expected) = self.expected else {
+                return Err(FrameError::Truncated);
+            };
             if self.bytes.len() < expected {
                 break;
             }
