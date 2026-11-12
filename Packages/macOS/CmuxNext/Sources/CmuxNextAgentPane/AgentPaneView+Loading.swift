@@ -58,6 +58,8 @@ public final class AgentPaneLoadingView: NSView {
     var isLeaving: Bool { leaving }
     /// Whether the give-up (``giveUpWhenSeenUnpainted(_:)``) is still armed.
     var awaitsGiveUp: Bool { onGiveUp != nil }
+    /// Whether the mark's delay runs: a timer that will wake the main thread and put the mark in this view.
+    var markIsPending: Bool { markTimer.isScheduled }
     #endif
     /// Whether the page was asked to fade in when this left, nil until it has. The decision, not
     /// what was drawn of it: with motion off a fade and no fade both end in one frame, so this is
