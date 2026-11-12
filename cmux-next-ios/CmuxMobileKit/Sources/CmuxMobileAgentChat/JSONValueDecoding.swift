@@ -266,3 +266,49 @@ private struct UnkeyedValues: UnkeyedDecodingContainer {
         return ValueDecoder(value: v, codingPath: p)
     }
 }
+
+extension JSONValue {
+    /// The JSON text `data` parsed by `JSONSerialization` (nil when it refuses it): the value
+    /// `JSONDecoder().decode(JSONValue.self, from: data)` gives, without `JSONValue`'s
+    /// `Decodable` trying each JSON type in turn, a thrown error per miss, at every value.
+    public init?(jsonData data: Data) {
+        guard let object = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              let value = JSONValue(foundation: object) else { return nil }
+        self = value
+    }
+
+    /// A `JSONSerialization` value as a `JSONValue` (nil for anything JSON does not hold).
+    init?(foundation object: Any) {
+        switch object {
+        case is NSNull:
+            self = .null
+        case let string as String:
+            self = .string(string)
+        case let number as NSNumber:
+            // A JSON true or false is a CFBoolean; every other number is a number.
+            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+                self = .bool(number.boolValue)
+            } else {
+                self = .number(number.doubleValue)
+            }
+        case let array as [Any]:
+            var values: [JSONValue] = []
+            values.reserveCapacity(array.count)
+            for element in array {
+                guard let value = JSONValue(foundation: element) else { return nil }
+                values.append(value)
+            }
+            self = .array(values)
+        case let dictionary as [String: Any]:
+            var values: [String: JSONValue] = [:]
+            values.reserveCapacity(dictionary.count)
+            for (key, element) in dictionary {
+                guard let value = JSONValue(foundation: element) else { return nil }
+                values[key] = value
+            }
+            self = .object(values)
+        default:
+            return nil
+        }
+    }
+}

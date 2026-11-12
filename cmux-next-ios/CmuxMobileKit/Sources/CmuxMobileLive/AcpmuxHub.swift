@@ -1801,9 +1801,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// or the oldest record of the turn above it, kept in `earlierCarry`); nil when the chat
     /// shows its start (or has not opened).
     private var earlierBefore: Int?
-    /// Records read before the oldest prompt shown (the end of the turn above it), with their
-    /// events: they go in with the page that reaches their prompt, and are not read again.
-    private var earlierCarry: [AcpmuxEarlierRecord] = []
+    /// Records read before the oldest prompt shown (the end of the turn above it): they go in
+    /// with the page that reaches their prompt, and are not read again.
+    private var earlierCarry: [JSONValue] = []
     /// The older read on the wire, from this `before` (nil: none).
     private var readingEarlier: Int?
     /// The chat asked for an older page and has none yet: the read on the wire shows when it lands.
@@ -1846,23 +1846,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
     }
 
-    /// Reads byte-capped pages before `before` until one holds a prompt or the log starts, and
-    /// maps each read's records to chat events off the main actor while the next read is on the
-    /// wire. `carry` (the end of the turn above the last page, read with it) goes in at the end.
+    /// Reads byte-capped pages before `before` until one holds a prompt or the log starts.
+    /// Each read's records map to chat events off the main actor while the next read is on the
+    /// wire, and only those the page shows: the records of the last read before its prompt are
+    /// the turn above it, carried raw to the next page. `carry` (the last page's) maps at once,
+    /// while the first read is on the wire, and goes in at the end.
     private static func fetchEarlier(_ hub: AcpmuxHub, sessionID: String, before: Int,
-                                     carry: [AcpmuxEarlierRecord], mapper: AcpmuxRecords) async -> AcpmuxEarlierPage {
+                                     carry: [JSONValue], mapper: AcpmuxRecords) async -> AcpmuxEarlierPage {
         var page = AcpmuxEarlierPage(before: before)
+        let carried = Task.detached(priority: .userInitiated) { carry.flatMap(mapper.map) }
         var cursor = before
-        /// Each read, newest first, with its records' events on their way.
-        var reads: [Task<[AcpmuxEarlierRecord], Never>] = []
-        var more = false
+        /// Each read's events on their way, newest read first.
+        var reads: [Task<[AgentSessionEvent], Never>] = []
         do {
             while true {
                 let reply = try await hub.request("_acpmux/events", .object([
                     "sessionId": .string(sessionID), "beforeSeq": .number(Double(cursor)),
                     "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": kinds(hub),
                 ]), timeout: pageTimeout)
-                let events = reply["events"]?.arrayValue ?? []
+                var events = reply["events"]?.arrayValue ?? []
                 let hasMore = reply["hasMore"] == .bool(true)
                 // hasMore means the server promises older records. An empty or
                 // non-advancing page is a failed read, never the start of history:
@@ -1874,12 +1876,18 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                         break
                     }
                 }
-                reads.append(Task.detached(priority: .userInitiated) {
-                    events.map { AcpmuxEarlierRecord(record: $0, events: mapper.map($0)) }
-                })
-                more = !events.isEmpty && hasMore
-                guard more, let oldest = events.first?["seq"]?.numberValue,
-                      !events.contains(where: isPrompt) else { break }
+                let more = !events.isEmpty && hasMore
+                let prompt = more ? events.firstIndex(where: isPrompt) : nil
+                if let prompt {
+                    // The page starts at its oldest prompt; what is before it is the turn above.
+                    page.carry = Array(events[..<prompt])
+                    page.nextBefore = (events.first?["seq"]?.numberValue).map { Int($0) }
+                    events = Array(events[prompt...])
+                }
+                page.records += events.count
+                let shown = events
+                reads.append(Task.detached(priority: .userInitiated) { shown.flatMap(mapper.map) })
+                guard more, prompt == nil, let oldest = events.first?["seq"]?.numberValue else { break }
                 cursor = Int(oldest)
             }
         } catch {
@@ -1887,24 +1895,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         guard !page.failed else {
             for read in reads { read.cancel() }
+            carried.cancel()
+            page.carry = []
             return page
         }
-        var all: [AcpmuxEarlierRecord] = []
-        for read in reads.reversed() { all += await read.value }
-        all += carry
-        if !more {
-            page.events = all.flatMap(\.events)
-            page.records = all.count
-        } else if let first = all.firstIndex(where: { isPrompt($0.record) }), let seq = all[first].record["seq"]?.numberValue {
-            page.events = all[first...].flatMap(\.events)
-            page.records = all.count - first
-            page.carry = Array(all[..<first])
-            page.nextBefore = page.carry.first?.record["seq"]?.numberValue.map { Int($0) } ?? Int(seq)
-        } else {
-            // Reads stop only at a prompt or the start: no prompt with more to read is a reply
-            // that broke its promise. Nothing shows; the next ask reads it again.
-            page.failed = true
-        }
+        for read in reads.reversed() { page.events += await read.value }
+        page.events += await carried.value
+        page.records += carry.count
         return page
     }
 
@@ -2086,12 +2083,6 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
 // MARK: - Older history pages (AcpmuxSessionSource.loadEarlierHistory)
 
-/// One record read for an older page, and its chat events (mapped off the main actor).
-struct AcpmuxEarlierRecord: Sendable {
-    var record: JSONValue
-    var events: [AgentSessionEvent]
-}
-
 /// An older page: the records from the oldest prompt read on, as chat events, and where the
 /// page before it starts. `before` is the `earlierBefore` it was read from: it shows only while
 /// that is still the chat's.
@@ -2099,7 +2090,7 @@ struct AcpmuxEarlierPage: Sendable {
     var before: Int
     var events: [AgentSessionEvent] = []
     /// The records read past the page's prompt (the turn above it): the next page's start.
-    var carry: [AcpmuxEarlierRecord] = []
+    var carry: [JSONValue] = []
     /// Where the page before this one is read from (nil: this page reaches the chat's start).
     var nextBefore: Int?
     var records = 0

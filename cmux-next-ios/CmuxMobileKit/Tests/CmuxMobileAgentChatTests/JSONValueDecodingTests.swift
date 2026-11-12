@@ -61,4 +61,15 @@ struct JSONValueDecodingTests {
         #expect(direct.blob == Data([1, 2, 3]))
         #expect(direct.flag == nil && direct.missing == nil)
     }
+
+    /// `JSONValue(jsonData:)` (what the link parses replies with) gives the value
+    /// `JSONDecoder` gives: booleans stay booleans (never 1 or 0), numbers stay numbers.
+    @Test func serializationParseMatchesJSONDecoder() throws {
+        let json = #"{"t":true,"f":false,"one":1,"zero":0,"half":1.5,"neg":-2,"big":9007199254740993,"n":null,"s":"caf\u00e9 \ud83d\ude00 \"q\"\n","a":[1,"x",[],{}],"o":{"deep":{"k":[true,null]}}}"#
+        let data = Data(json.utf8)
+        let parsed = try #require(JSONValue(jsonData: data))
+        #expect(parsed == (try JSONDecoder().decode(JSONValue.self, from: data)))
+        #expect(parsed["t"] == .bool(true) && parsed["one"] == .number(1))
+        #expect(JSONValue(jsonData: Data("{".utf8)) == nil)
+    }
 }
