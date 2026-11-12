@@ -180,7 +180,7 @@ def main():
         page = reply.get("pid")
         if check("agent: an agent page reports its WebContent process", bool(page), reply):
             os.kill(int(page), signal.SIGKILL)
-            print(f"killed agent WebContent {int(page)}", flush=True)
+            safe_print(f"killed agent WebContent {int(page)}", flush=True)
             time.sleep(1.0)  # test harness wait: WebKit reports the process ended
             check("agent: app still runs", alive(pid))
             fresh = wait(lambda: (lambda p: p if p and p != page else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
@@ -197,7 +197,7 @@ def main():
                     break
                 previous = current
                 current = wait(lambda: (lambda p: p if p and p != previous else None)((rpc("debug.agent_pane", {"action": "pid", "pane": pane}) or {}).get("pid")), 30)
-            print(f"agent: notice after crash {crash}", flush=True)
+            safe_print(f"agent: notice after crash {crash}", flush=True)
             texts = (notice or {}).get("texts") or []
             check("agent: a page that keeps crashing shows the crashed page with Reload", len(texts) == 2 and all(texts), texts)
             check("agent: app still runs after repeated crashes", alive(pid))
@@ -216,14 +216,14 @@ def main():
             if check("renderer: the Chromium tab has its own renderer process", bool(renderers), children(pid, "renderer")):
                 for renderer in renderers:
                     os.kill(renderer, signal.SIGKILL)
-                print(f"killed renderer {renderers}", flush=True)
+                safe_print(f"killed renderer {renderers}", flush=True)
                 sad_tab_reloads("renderer", cef_tab, pid)
         if cef_tab and "gpu" in only:
             gpus = children(pid, "gpu-process")
             if check("gpu: Chromium runs a GPU process", bool(gpus)):
                 for gpu in gpus:
                     os.kill(gpu, signal.SIGKILL)
-                print(f"killed gpu-process {gpus}", flush=True)
+                safe_print(f"killed gpu-process {gpus}", flush=True)
                 time.sleep(2.0)  # test harness wait: Chromium notices the GPU process ended
                 check("gpu: app still runs", alive(pid))
                 restarted = wait(lambda: set(children(pid, "gpu-process")) - set(gpus), 20)
@@ -238,7 +238,7 @@ def main():
         page = tab and wait(lambda: status(tab).get("page_pid"), 20)
         if check("webkit: the WebKit tab reports its WebContent process", bool(page), status(tab) if tab else None):
             os.kill(int(page), signal.SIGKILL)
-            print(f"killed WebContent {page}", flush=True)
+            safe_print(f"killed WebContent {page}", flush=True)
             sad_tab_reloads("webkit", tab, pid)
             fresh = status(tab).get("page_pid")
             check("webkit: the page runs in a new WebContent process", bool(fresh) and fresh != page, fresh)
@@ -246,7 +246,7 @@ def main():
     check("app still runs at the end", alive(pid))
     if failures:
         sys.exit(f"FAIL {len(failures)}: {', '.join(failures)}")
-    print("PASS every child process crash is contained")
+    safe_print("PASS every child process crash is contained")
 
 
 main()

@@ -93,21 +93,21 @@ try:
     if not wins:
         sys.exit("no window")
     time.sleep(3)  # let providers (settings, apps) publish their first rows
-    print("entries:", json.dumps(rpc("debug.palette.entries", {"path": os.path.join(OUT, "root-entries.json")}, timeout=60)),
-          flush=True)
+    safe_print("entries:", json.dumps(rpc("debug.palette.entries", {"path": os.path.join(OUT, "root-entries.json")}, timeout=60)),
+               flush=True)
     results = {}
     for query in queries:
         reply = rpc("palette.query", {"scope": "root", "query": query, "limit": 10}, timeout=30)
         results[query] = [{"id": item["id"], "title": item["title"], "section": item.get("section"), "score": item["score"]}
                           for item in (reply or {}).get("items", [])] if "items" in (reply or {}) else reply
     json.dump({"tag": TAG, "results": results}, open(os.path.join(OUT, "live-results.json"), "w"), indent=1)
-    print("live queries: %d" % len(results), flush=True)
+    safe_print("live queries: %d" % len(results), flush=True)
     for n, query in enumerate(SHOTS):
         opened = rpc("action.run", {"action": "palette.open", "args": {"query": query}, "focus": True}, timeout=20)
         time.sleep(1.5)
         path = os.path.join(OUT, "shot-%d-%s.png" % (n, slug(query)))
         shot = rpc("debug.palette.capture", {"path": path}, timeout=30)
-        print("shot %r: open=%s capture=%s" % (query, json.dumps(opened)[:120], json.dumps(shot)[:160]), flush=True)
+        safe_print("shot %r: open=%s capture=%s" % (query, json.dumps(opened)[:120], json.dumps(shot)[:160]), flush=True)
         rpc("debug.key", {"key": "escape"}, timeout=10)
         time.sleep(0.5)
     rc = 0
@@ -115,7 +115,7 @@ finally:
     safe_print("quit:", json.dumps(rpc("action.run", {"action": "quitEndSessions"}, timeout=10))[:200], flush=True)
     try:
         app.wait(timeout=30)
-        print("app exited %s" % app.returncode, flush=True)
+        safe_print("app exited %s" % app.returncode, flush=True)
     except subprocess.TimeoutExpired:
         safe_print("app did not quit in 30s; SIGKILL pid %d" % app.pid, flush=True)
         os.kill(app.pid, signal.SIGKILL)
