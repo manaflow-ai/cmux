@@ -122,11 +122,9 @@ fn an_unchanged_row_is_read_and_hashed_once() {
     let mut known = Known::default();
     known.listed(rows);
     let param = known.to_param();
-    assert_eq!(
-        listed.delta(param.as_object().unwrap()),
-        delta(&listed.text, param.as_object().unwrap()).unwrap()
-    );
     let unchanged: Value = serde_json::from_str(&listed.delta(param.as_object().unwrap())).unwrap();
+    let theirs = delta(&listed.text, param.as_object().unwrap()).unwrap();
+    assert_eq!(unchanged, serde_json::from_str::<Value>(&theirs).unwrap());
     assert_eq!(unchanged["unchanged"], 3, "{unchanged}");
     // b changed, c went, d came: only b and d are read.
     let listed =

@@ -552,12 +552,19 @@ async fn peer_reconnect_ack_bench() {
         for _ in 0..RECONNECT_PEERS {
             let link = Client::on(&hub, Origin::Peer).await;
             let mut known = crate::watch_delta::Known::default();
-            let mut rows = Vec::new();
-            for (reply, _) in
-                link.whole(method::MUX_WATCH, json!({"enabled": true, "withTools": true})).await
-            {
-                rows.extend(reply["result"]["sessions"].as_array().cloned().unwrap_or_default());
+            let (mut rows, mut params) = (Vec::new(), json!({"enabled": true, "withTools": true}));
+            let mut m = method::MUX_WATCH;
+            // As the link reads a whole list (`peer.rs` `watch_pages`): its pages with tools, and
+            // only this daemon's own rows, none mirrored from its peers.
+            loop {
+                let (reply, _) = link.call(m, params).await;
+                let page = &reply["result"];
+                let own = page["sessions"].as_array().into_iter().flatten();
+                rows.extend(own.filter(|row| row.get("peer").is_none()).cloned());
+                let Some(cursor) = page["nextCursor"].as_str() else { break };
+                (m, params) = (method::MUX_SESSIONS, json!({"withTools": true, "cursor": cursor}));
             }
+            assert_eq!(rows.len(), RECONNECT_CHATS);
             known.listed(&rows);
             peers.push((link, Arc::new(known.to_param())));
         }
@@ -591,12 +598,18 @@ async fn peer_reconnect_ack_bench() {
         };
         let reads = async {
             let (started, mut rows_sent) = (Instant::now(), 0);
+            let mut read_times = Vec::new();
             for _ in 0..RECONNECT_ROUNDS {
                 let reads = peers.iter().map(|(link, known)| {
                     let params = json!({"enabled": true, "withTools": true, "known": **known});
-                    link.whole(method::MUX_WATCH, params)
+                    async move {
+                        let asked = Instant::now();
+                        let read = link.whole(method::MUX_WATCH, params).await;
+                        (asked.elapsed(), read)
+                    }
                 });
-                for read in futures::future::join_all(reads).await {
+                for (took, read) in futures::future::join_all(reads).await {
+                    read_times.push(took);
                     for (reply, _) in read {
                         assert!(reply.get("error").is_none(), "{reply}");
                         rows_sent += reply["result"]["sessions"].as_array().map_or(0, Vec::len);
@@ -604,16 +617,20 @@ async fn peer_reconnect_ack_bench() {
                 }
             }
             busy.store(false, std::sync::atomic::Ordering::SeqCst);
-            (started.elapsed(), rows_sent)
+            read_times.sort_unstable();
+            (started.elapsed(), rows_sent, read_times)
         };
-        let ((reconnects, rows_sent), (), mut latencies) = tokio::join!(reads, churn, acks);
+        let ((reconnects, rows_sent, reads), (), mut latencies) = tokio::join!(reads, churn, acks);
         latencies.sort_unstable();
         println!(
             "PERF peer_reconnect_acks fixture={} chats={RECONNECT_CHATS} peers={RECONNECT_PEERS} \
-             rounds={RECONNECT_ROUNDS} rows_sent={rows_sent} reconnects_ms={:.0} acks={} \
+             rounds={RECONNECT_ROUNDS} rows_sent={rows_sent} reconnects_ms={:.0} \
+             watch_p50_ms={:.1} watch_p95_ms={:.1} acks={} \
              ack_p50_ms={:.2} ack_p95_ms={:.2} ack_p99_ms={:.2} ack_max_ms={:.2}",
             if god { "god" } else { "small" },
             ms(reconnects),
+            ms(quantile(&reads, 0.5)),
+            ms(quantile(&reads, 0.95)),
             latencies.len(),
             ms(quantile(&latencies, 0.5)),
             ms(quantile(&latencies, 0.95)),
