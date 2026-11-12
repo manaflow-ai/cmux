@@ -21,8 +21,8 @@ public import CoreGraphics
 public final class PageTabPictures {
     /// The kept pictures, by ``PagePictureSubject/pictureKey``.
     public let cache = PreviewImageCache(capacityBytes: 8 << 20)
-    /// Takes a picture of a page; tests inject one. Default: the page's own ``PagePictureSubject/picture()``.
-    public var capture: @MainActor (any PagePictureSubject) async -> CGImage? = { await $0.picture() }
+    /// Takes a picture of a page; tests inject one. Default: the page's own ``PagePictureSubject/picture(maxPixelWidth:)``, at the kept width.
+    public var capture: @MainActor (any PagePictureSubject) async -> CGImage? = { await $0.picture(maxPixelWidth: PreviewImageCache.pagePixelSize.width) }
     /// The clock the lifetimes and the capture deadline count on; tests inject one.
     public var now: () -> ContinuousClock.Instant = { .now }
     /// How long a picture of a page on screen stands for it.

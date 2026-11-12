@@ -24,20 +24,48 @@ extension PageWebView {
     /// is the app's main thread, and a full retina PNG took 80-140 ms there (see `CEFThumbnail`).
     /// The picture is a cover shown while the page draws again, so JPEG is plenty. The reply (a
     /// multi-megabyte base64 string) is parsed and decoded off the main actor.
-    ///
-    /// - Parameter afterScreenUpdates: WebKit waits for the page's next screen update first (the
-    ///   default). Pass false for a page that may be parked: a hidden page makes no screen update,
-    ///   so the picture is of what it last drew.
-    public func snapshot(afterScreenUpdates: Bool = true) async -> NSImage? {
-        guard let page = chromiumSession?.page else {
-            let configuration = WKSnapshotConfiguration()
-            configuration.afterScreenUpdates = afterScreenUpdates
-            return try? await webView.takeSnapshot(configuration: configuration)
-        }
+    public func snapshot() async -> NSImage? {
+        guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
         guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
               let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
         image.size = bounds.size
         return image
+    }
+
+    /// A small picture of the page as it last drew, at most `maxPixelWidth` pixels wide, its clear
+    /// areas kept clear; nil when there is none. For a hover card: it does not wait for the next
+    /// screen update (a parked page makes none), and Chromium scales it down before it encodes it.
+    ///
+    /// Chromium's is a PNG, not ``snapshot()``'s JPEG: a JPEG has no alpha, so a page's clear areas came
+    /// out black and a light Markdown page's card showed a dark page (capture of 2026-11-11). Scaled
+    /// down first, the PNG is small and quick to encode.
+    ///
+    /// - Parameter maxPixelWidth: The widest the picture may be, in pixels.
+    /// - Returns: The picture, or nil when the page has no size or the engine gave none.
+    public func picture(maxPixelWidth: CGFloat) async -> CGImage? {
+        let size = bounds.size
+        guard size.width >= 1, size.height >= 1 else { return nil }
+        guard let page = chromiumSession?.page else {
+            let configuration = WKSnapshotConfiguration()
+            configuration.afterScreenUpdates = false
+            configuration.snapshotWidth = NSNumber(value: Double(min(size.width, maxPixelWidth)))
+            return (try? await webView.takeSnapshot(configuration: configuration))?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+        let params = Self.pictureParams(viewSize: size, zoom: pageZoom, maxPixelWidth: maxPixelWidth)
+        guard let json = try? await page.devTools("Page.captureScreenshot", params: params),
+              let data = await Self.screenshotData(json),
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    /// `Page.captureScreenshot` for ``picture(maxPixelWidth:)``: a PNG of the viewport (CSS pixels:
+    /// points over the page zoom), scaled so it is at most `maxPixelWidth` pixels wide.
+    nonisolated static func pictureParams(viewSize: CGSize, zoom: Double, maxPixelWidth: CGFloat) -> [String: any Sendable] {
+        let zoom = zoom > 0 ? zoom : 1
+        let width = Double(viewSize.width) / zoom, height = Double(viewSize.height) / zoom
+        let scale = min(1, Double(maxPixelWidth) / max(width, 1))
+        let clip: [String: any Sendable] = ["x": 0.0, "y": 0.0, "width": width, "height": height, "scale": scale]
+        return ["format": "png", "clip": clip, "optimizeForSpeed": true]
     }
 
     /// Whether ``snapshot()`` keeps the page's clear areas the color the pane shows under them. A
