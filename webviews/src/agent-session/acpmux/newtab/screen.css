@@ -416,16 +416,80 @@
   --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
   --acpmux-text-drop: calc(var(--text-content) / 14);
   --acpmux-composer-inset: var(--nt-composer-inset);
+  --acpmux-chip-glyph: var(--acpmux-composer-glyph);
+  --acpmux-chip-chevron: calc(12px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
 }
-/* The suggestions' popover frosts what is under it (the Chats header and cards read through its lower
-   half at the plain popup tint, as the pills did through the + menu, Leo 2026-10-31: "they show
-   through"): the + menu's denser tint (86%, cmux #28798; still glass, under the 0.9 that
-   glass-never-opaque holds) and the menus' blur (desktop.css --ds-glass-menu-blur). Reduce
-   Transparency keeps the solid popup surface (glass.css). */
-.nt-popover.ui-glass {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) 86%, transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur);
+/* The folder and computer chips over the box draw what the permission and model chips under it do
+   (composerLocation.css, the chip tokens): the label in the control style, a 16 px glyph and a 12 px
+   chevron. The ghost button keeps its 14 px slots, so the glyph overhangs its slot by a pixel a side
+   and the chevron centers in its own: no chip moves, and the folder stays on the + and shield's
+   column (newtab-icon-column.test.ts). test/newtab-chip-scale.test.ts measures it. */
+.nt-above .acpmux-composer-context .acpmux-location-label {
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
 }
+/* A project's badge is a glyph like the rest: the chip glyph's box, no tile behind it, overhanging
+   its slot as the folder glyph does, so a picked project's name starts where "No folder" and the
+   permission mode's label start. Its 16 px image or mark fills the box. */
+.nt-above .acpmux-location-button:has(> .acpmux-project-badge:first-child) {
+  --acpmux-project-badge-size: var(--acpmux-chip-glyph);
+}
+.nt-above .acpmux-location-button > .acpmux-project-badge:first-child {
+  margin-inline-end: calc((var(--acpmux-location-box, var(--ui-ghost-icon-size)) - var(--acpmux-chip-glyph)) / 2);
+  background: none;
+}
+.nt-above .acpmux-location-button > .acpmux-project-badge:first-child > svg {
+  width: var(--acpmux-chip-glyph);
+  height: var(--acpmux-chip-glyph);
+}
+.nt-above .acpmux-location-button > .ui-ghost-icon:last-child:not(:first-child) > svg {
+  width: var(--acpmux-chip-chevron);
+  height: var(--acpmux-chip-chevron);
+}
+/* One ink, no emphasis at rest (Lawrence 2026-11-09: "think what do we want to emphasize, if anything
+   at all (maybe we should just make them all the same color)"). The four chips are settings the user
+   reads, not content, so none outranks another: the folder, the computer, the permission mode and
+   the model, glyph, name and effort alike, rest in the muted ink the folder, computer and model
+   already drew (the more readable of the two secondary inks in the default themes: 170 against the
+   soft ink's 136 on dark). The prompt is the one emphasis.
+   Hover, an open menu and Full access still change a chip's ink: those carry state, and their rules
+   outrank these. Base drew the mode one step dimmer (soft) than the rest and the effort at 68 %. */
+.nt-composer {
+  --acpmux-chip-ink: var(--agent-muted);
+}
+.nt-above .acpmux-location-button,
+.nt-foot :is(.acpmux-access-trigger, .acpmux-model .acpmux-picker-button, .acpmux-effort .acpmux-picker-button) {
+  color: var(--acpmux-chip-ink);
+}
+.nt-foot :is(.acpmux-mode-text, .acpmux-model-name, .acpmux-model-short, .acpmux-model-detail) {
+  color: inherit;
+}
+/* The left column: the permission chip's shield overhangs its box as the folder's glyph does, so
+   both glyphs and both labels start on one edge each (the shield's center stays under +). */
+.nt-foot .acpmux-mode .acpmux-access-trigger > .acpmux-icon:first-child {
+  margin-inline-end: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2);
+}
+/* The right column: the model's text ends where Send's ink ends. Send's glyph stands the composer's
+   inset plus half the control's spare room in from the box, and the ↑ path's ink stops 3.225 of its
+   16 units short of its box (M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1, 1.35 line). The model's button
+   still ends on the box's edge (the row spans the box, test/composer-side-inset.test.ts) and takes
+   that distance as its end padding, in a row with room for it: at the composer's narrow steps the
+   row keeps every pixel for its labels (at 320 px a 12 px pad pushed the mode chip off the icon
+   column). */
+@container composer (min-width: 421px) {
+  .nt-foot .acpmux-composer-foot .acpmux-model .acpmux-picker-button {
+    --nt-send-ink-bearing: calc(var(--acpmux-composer-trail-glyph) * 3.225 / 16);
+    padding-inline-end: calc(
+      var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-composer-trail-glyph)) / 2 +
+        var(--nt-send-ink-bearing)
+    );
+  }
+}
+/* The suggestions' popover frosts what is under it (the Chats header and cards, Leo 2026-10-31: "they
+   show through") with every popup's glass, the menu level (ui/glass/glass.css GLASS LEVELS): its own
+   86% tint made it a different material from the menus opened from the same box (Leo, 2026-11-11:
+   "the styles mix and they don't look good"). */
 /* The suggestions' rows: each row's 16 px glyph centered under the + glyph (inset + 14), past the
    popover's padding (Leo 2026-10-31: the suggestion rows start at a different x than + and the text). */
 .nt-popover .nt-rows > .nt-row {

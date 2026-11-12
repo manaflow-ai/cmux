@@ -54,6 +54,7 @@ import {
   type AcpmuxSince,
   type AcpmuxTurnRetry,
   rowFrameKey,
+  PROMPT_PENDING_AFTER_MS,
 } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
@@ -107,6 +108,7 @@ import {
   rememberReadAhead,
   rememberTail,
   shareReadAhead,
+  olderThanShown,
 } from "./tailCache";
 import { HOVER_RECENT, HoverPrefetch, type HoverOptions } from "./hoverPrefetch";
 import { type PeerCopy, PEER_COPY_READ_MS, peerBack, peerCopyTail, peerDown, sameGeneration } from "./peerCopy";
@@ -150,7 +152,7 @@ import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled } from "./transportErrors";
-import { failedSendText, retryHelps, sendCause } from "./sendFailure";
+import { failedSendText, retryHelps, sendCause, heldSendNotice } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
@@ -1227,6 +1229,31 @@ function sameQueuedEntry(a: QueuedPrompt, b: QueuedPrompt): boolean {
     a.listedRevision === b.listedRevision &&
     a.turnId === b.turnId
   );
+}
+
+/// What a sent prompt carries and how its row draws it before acpmux's echo: its blocks, its placed
+/// parts (`inlinePrompt`), and the bubble's text with each paste's range, as the echo will have them.
+/// A send and a lost prompt's recovered row (`drawLostPrompt`) draw the same prompt the same way.
+function sentPromptShape(input: string, carried: ComposerAttachment[], options: { dropped: (id: string) => boolean }) {
+  const blocks = promptBlocks(input, carried, options);
+  const inline = inlinePrompt(input, carried);
+  const isFrame = frameTextOf(imageNames(blocks));
+  const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
+  const { text, pasted } = inline
+    ? blocks.reduce(
+        (shown, block) => {
+          // A video's frames note is the agent's; the bubble draws the video's tile.
+          if (block.type !== "text" || isFrame(block.text)) return shown;
+          if (shown.text) shown.text += "\n";
+          const start = shown.text.length;
+          shown.text += block.text;
+          if (block._meta?.cmux.pasted) shown.pasted.push({ start, end: shown.text.length });
+          return shown;
+        },
+        { text: "", pasted: [] as { start: number; end: number }[] },
+      )
+    : shownPrompt(promptText(input, carried, options), carried);
+  return { blocks, inline, fileDisplay, text, pasted };
 }
 
 export function settleOptimisticPrompt(
@@ -4442,7 +4469,10 @@ export class AcpmuxDirectClient {
     // Nor what its summary said the chat was doing: a chat kept while running would read as working
     // (`workingNow`), with a Stop for a chat this pane has not opened.
     const { peerCopy: _copy, ...rows } = kept;
-    this.drawKeptTail(sessionId, { ...rows, summary: rows.summary && { ...rows.summary, status: undefined } });
+    if (
+      this.drawKeptTail(sessionId, { ...rows, summary: rows.summary && { ...rows.summary, status: undefined } }) === 0
+    )
+      return false;
     this.copyLive = undefined;
     this.turnOpen = false;
     this.turnStartedAtMs = undefined;
@@ -4452,7 +4482,10 @@ export class AcpmuxDirectClient {
   }
 
   private drawKeptTail(sessionId: string, kept = keptTail(sessionId)): number {
-    if (!kept) return 0;
+    // One source wins: a copy older than what this page already showed of the chat (another tab's
+    // tail, the Mac's copy, a map entry from before a reconnect) is never drawn over it; the open
+    // waits for its attach instead (tailCache.ts `olderThanShown`).
+    if (!kept || olderThanShown(sessionId, kept)) return 0;
     if (kept.peerCopy) this.peerCopy = { ...kept.peerCopy, attaching: true };
     this.drawnGeneration = typeof kept.summary?.createdAt === "number" ? kept.summary.createdAt : undefined;
     this.rowsGeneration = this.drawnGeneration;
@@ -7389,6 +7422,8 @@ export class AcpmuxDirectClient {
         settleOptimisticPrompt(this.rows, this.optimisticPromptRows, msg);
         this.optimisticPromptTexts.delete(id);
         this.queuedSends.add(id);
+        // A row that had failed waiting for it (`failLostPrompt`) is the queue row's now.
+        this.setDelivery(id, { state: "delivered", acceptedAt: event.at });
         this.promptAccepts.get(id)?.();
       }
     } else if (event.kind === "queue_approved") {
@@ -10062,24 +10097,7 @@ export class AcpmuxDirectClient {
       const linked = new Map(carried.map((chip) => [chip.id, chip]));
       attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);
     }
-    const blocks = promptBlocks(input, carried, options);
-    const inline = inlinePrompt(input, carried);
-    const isFrame = frameTextOf(imageNames(blocks));
-    const fileDisplay = inline?.display ?? stripFileDisplay(blocks, carried);
-    const { text, pasted } = inline
-      ? blocks.reduce(
-          (shown, block) => {
-            // A video's frames note is the agent's; the bubble draws the video's tile.
-            if (block.type !== "text" || isFrame(block.text)) return shown;
-            if (shown.text) shown.text += "\n";
-            const start = shown.text.length;
-            shown.text += block.text;
-            if (block._meta?.cmux.pasted) shown.pasted.push({ start, end: shown.text.length });
-            return shown;
-          },
-          { text: "", pasted: [] as { start: number; end: number }[] },
-        )
-      : shownPrompt(promptText(input, carried, options), carried);
+    const { blocks, inline, fileDisplay, text, pasted } = sentPromptShape(input, carried, options);
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.promptRowKeys.set(promptId, rowId);
@@ -10110,6 +10128,7 @@ export class AcpmuxDirectClient {
       promptId,
       sessionId,
       sentAt: at,
+      ...(steer ? { queued: true } : {}),
       ...(this.summary?.host ? { connection: String(this.summary.host) } : {}),
     };
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
@@ -10354,12 +10373,15 @@ export class AcpmuxDirectClient {
         // for want of a real key or click (dictation's autoSend after a session ended by itself)
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
         // A lost prompt the host sends again says nothing yet: its sender says it if it never shows.
-        if (held && !isTrustRefusal(error) && !lostPrompt(error))
-          this.notice(
-            code === "transport.gesture_required"
+        // One that waited for the agent service and gave up says nothing here (sendFailure.ts
+        // heldSendNotice): its words are back in the composer and the host line says why.
+        const line =
+          held && !isTrustRefusal(error) && !lostPrompt(error)
+            ? code === "transport.gesture_required"
               ? translate("prompt.notSentAgain")
-              : failedSendText(error, false, sendAttachments),
-          );
+              : heldSendNotice(error, sendAttachments)
+            : undefined;
+        if (line) this.notice(line);
         else this.emit();
         throw error;
       }
@@ -10437,7 +10459,10 @@ export class AcpmuxDirectClient {
     const entry = this.deliveries.get(promptId);
     if (!entry) return false;
     const { delivery } = entry;
-    const timedOut = delivery.state === "failed" && delivery.code === "timeout";
+    // A failure that only meant no answer came in time (the send's deadline, or a lost prompt whose
+    // connection went: `failLostPrompt`) gives way to acpmux's late word that it has the prompt.
+    const timedOut =
+      delivery.state === "failed" && (delivery.code === "timeout" || delivery.code === "native.timed_out");
     if (patch.state && patch.state !== "failed") {
       if (delivery.state === "failed" && !timedOut) return false;
       if (!timedOut && DELIVERY_RANK[patch.state] < DELIVERY_RANK[delivery.state]) return false;
@@ -12315,15 +12340,85 @@ export class AcpmuxDirectClient {
   get isClosed(): boolean {
     return this.closed;
   }
-  /// The shown chat `sessionId` has prompt `promptId`: its record or its queue row.
+  /// The shown chat `sessionId` has prompt `promptId`: its record, its queue row, or a sent row the
+  /// attach drew for it (a chat opened from acpmux's view holds rows, not every record).
   showsPrompt(sessionId: string, promptId: string): boolean {
     if (this.selectedSessionId !== sessionId) return false;
-    return (
-      this.queue.some((entry) => entry.id === promptId) ||
+    if (this.queue.some((entry) => entry.id === promptId)) return true;
+    if (
       this.events.some(
         (event) => (event.kind === "user_message" || event.kind === "queued") && event.msg?.promptId === promptId,
       )
-    );
+    )
+      return true;
+    for (const row of this.rows.values())
+      if (row.kind === "user" && row.promptId === promptId && !row.pending && !row.failed) return true;
+    return false;
+  }
+  /// A prompt an earlier connection lost before this pane heard acpmux take it (lostPrompt.ts): it
+  /// shows here as its own row, on its way, until acpmux's record of it lands on that same row (the
+  /// echo settles it as any send's does) or the wait gives up (`failLostPrompt`). Never a second
+  /// copy: nothing when the chat already shows it, or shows another chat.
+  drawLostPrompt(sessionId: string, promptId: string, input: string, attachments: ComposerAttachment[]): boolean {
+    if (this.closed || this.selectedSessionId !== sessionId || this.showsPrompt(sessionId, promptId)) return false;
+    const rowId = `local-${promptId}`;
+    if (this.rows.has(rowId)) return true;
+    const at = Date.now();
+    const delivery: PromptDelivery = { state: "sending", promptId, sessionId, sentAt: at - PROMPT_PENDING_AFTER_MS };
+    this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
+    this.deliveries.set(promptId, { delivery, rowId, timers: [] });
+    // Drawn as its send drew it (`sentPromptShape`): a paste is the bubble's text, never a token.
+    const { inline, text, pasted } = sentPromptShape(input, attachments, { dropped: () => false });
+    this.promptRowKeys.set(promptId, rowId);
+    this.optimisticPromptRows.set(promptId, rowId);
+    this.optimisticPromptTexts.set(promptId, text);
+    this.optimisticPromptInputs.set(promptId, input);
+    if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
+    if (inline) this.optimisticPromptParts.set(promptId, inline.parts);
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at,
+      kind: "user",
+      text,
+      ...(pasted.length ? { pasted } : {}),
+      ...(inline ? { inlineParts: inline.parts } : {}),
+      ...(attachments.length ? { images: attachedImages(attachments), retryAttachments: attachments } : {}),
+      pending: true,
+      delivery,
+    });
+    this.emit();
+    return true;
+  }
+  /// The lost prompt drawn by `drawLostPrompt` never showed in acpmux's record: its row fails with
+  /// Retry, which sends it again under the same prompt id (acpmux runs a prompt id once), never a
+  /// line apart from the row while the row still looks sent. False when there is no such row.
+  failLostPrompt(promptId: string, error: unknown): boolean {
+    const entry = this.deliveries.get(promptId);
+    const row = entry ? this.rows.get(entry.rowId) : undefined;
+    if (!entry || !row || entry.delivery.state !== "sending") return false;
+    const input = this.optimisticPromptInputs.get(promptId) ?? row.text ?? "";
+    const attachments = this.optimisticPromptAttachments.get(promptId) ?? [];
+    // The mapping stays until the row settles: acpmux's record may still come (the prompt waited
+    // behind the turn), and it lands on this row, which then is the sent one, never a failed copy.
+    const code = (error as { code?: unknown } | null)?.code;
+    this.rows.set(entry.rowId, {
+      ...row,
+      pending: false,
+      failed: true,
+      error: failedSendText(error, false, attachments),
+      version: row.version + 1,
+    });
+    this.failedPrompts.set(entry.rowId, { input, attachments, promptId });
+    this.setDelivery(promptId, {
+      state: "failed",
+      failedAt: Date.now(),
+      hop: "connection",
+      ...(typeof code === "string" ? { code } : {}),
+      error: error instanceof Error ? error.message : errorMessage(error),
+    });
+    this.emit();
+    return true;
   }
   /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
   /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux.
@@ -12337,10 +12432,17 @@ export class AcpmuxDirectClient {
   /// sends again on this one: true once this chat shows it (its record, its queue row, or acpmux's
   /// acceptance), false when it does not within `timeoutMs`, this pane shows (or moves to) another
   /// chat, or this connection closes.
-  awaitResent(sessionId: string, promptId: string, timeoutMs: number): Promise<boolean> {
+  /// `draw`: the prompt as it was sent, drawn meanwhile as its own row on its way (`drawLostPrompt`).
+  awaitResent(
+    sessionId: string,
+    promptId: string,
+    timeoutMs: number,
+    draw?: { input: string; attachments: ComposerAttachment[] },
+  ): Promise<boolean> {
     if (this.closed || this.selectedSessionId !== sessionId) return Promise.resolve(false);
     const shown = () => this.showsPrompt(sessionId, promptId);
     if (shown()) return Promise.resolve(true);
+    if (draw) this.drawLostPrompt(sessionId, promptId, draw.input, draw.attachments);
     return new Promise((resolve) => {
       const done = (landed: boolean) => {
         clearTimeout(timer);
@@ -12348,7 +12450,11 @@ export class AcpmuxDirectClient {
         this.resendWaits.delete(gone);
         resolve(landed);
       };
-      const accept = () => done(true);
+      // acpmux took it (`_acpmux/prompt_accepted`) before its echo: the row says so now.
+      const accept = () => {
+        if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
+        done(true);
+      };
       const gone = () => done(false);
       const timer = setTimeout(() => done(shown()), timeoutMs);
       this.promptAccepts.set(promptId, accept);

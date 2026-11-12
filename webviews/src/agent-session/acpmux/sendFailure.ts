@@ -97,6 +97,18 @@ export function failedSendText(
   });
 }
 
+/// The line a send that went back to the composer says in the transcript, or nothing. A send that
+/// waited for the agent service and gave up (`host-away`: acpmux restarting, the app's connection
+/// going) says nothing there: its words are back in the composer, the pane's own host line says
+/// the service is away, and acpmux may well have the prompt already (its journal sends a lost one
+/// again under the same id), so "Not sent yet" was wrong as often as right (Leo, 2026-11-12:
+/// "STOP FUCKING SHOWING THESE FUCKING MESSAGES"). A failed row keeps its sentence and Retry.
+export function heldSendNotice(error: unknown, attachments: readonly ComposerAttachment[] = []): string | undefined {
+  const fields = error && typeof error === "object" ? (error as { code?: unknown; reason?: unknown }) : undefined;
+  if (sendCause(fields) === "host-away") return undefined;
+  return failedSendText(error, false, attachments);
+}
+
 /// acpmux words a refusal `<code>: <words>`: the words without the code the error already names.
 function withoutCode(message: string, code: string | undefined): string {
   if (!code || !message.startsWith(`${code}:`)) return message;

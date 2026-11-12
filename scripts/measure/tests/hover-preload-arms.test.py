@@ -6,6 +6,14 @@ the base build; it must launch it with the setting off (--wake-on-hover=0), or "
 base that has the setting. The script ran every arm with wake=1 and set 0 only when there was no base build.
 No app, no build: the script runs in a temporary git repository with reload.sh and the bench replaced by stubs that
 record their arguments, and `git submodule` stubbed out. Run: python3 -I scripts/measure/tests/hover-preload-arms.test.py"""
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
+# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), '..', '..', '..', 'tests', "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 import json, os, shutil, stat, subprocess, sys, tempfile, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))

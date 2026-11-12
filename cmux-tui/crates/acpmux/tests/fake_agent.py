@@ -37,6 +37,9 @@ advertises steering; a prompt while a turn runs is read into that turn and
 answered at once with stopReason "steered"; the turn runs on and its own
 prompt is answered when it ends. With FAKE_STEER_STEP=<fifo> a steer is
 answered only once the test writes to that FIFO (the agent's next tool step).
+With FAKE_STEER_NO_TURN_AT_END=1 a steer is never read: the turn ends first, and the
+steer is answered "steer: no turn is running" after the turn's own answer, as
+Claude Code's translator answers a message it held for a tool step that never came.
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -332,6 +335,8 @@ claude_turns = set()
 # taken back (`_acpmux/steer_withdraw`, as Claude Code's cancel_async_message drops one).
 claude_unread = set()
 claude_withdrawn = set()
+# FAKE_STEER_NO_TURN_AT_END: the steers each session's running turn holds unread, by request id.
+claude_held = {}
 
 
 def claude_prompt(rid, params):
@@ -342,6 +347,10 @@ def claude_prompt(rid, params):
         steer = sid in claude_turns
         if not steer:
             claude_turns.add(sid)
+    if steer and os.environ.get("FAKE_STEER_NO_TURN_AT_END") == "1":
+        with lock:
+            claude_held.setdefault(sid, []).append(rid)
+        return
     if steer:
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
         # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
@@ -365,6 +374,9 @@ def claude_prompt(rid, params):
     finally:
         with lock:
             claude_turns.discard(sid)
+            held = claude_held.pop(sid, [])
+        for steer_id in held:
+            send({"jsonrpc": "2.0", "id": steer_id, "error": {"code": -32602, "message": "steer: no turn is running"}})
 
 
 def run_hostname(rid, sid):
@@ -736,6 +748,15 @@ def handle_prompt(rid, params):
             gate.read()
         update("child-1", {"sessionUpdate": "tool_call_update", "toolCallId": "cg-1", "status": "completed"})
         update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "notice-gate: PATH" anywhere in the prompt (an inbox notice carries another agent's message
+    # after its own lines) works as "gate: PATH".
+    if "notice-gate:" in text:
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text.split("notice-gate:", 1)[1].split()[0].rstrip("\"'`).,;")) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "gate: PATH" streams "before-gate", blocks until the test writes to

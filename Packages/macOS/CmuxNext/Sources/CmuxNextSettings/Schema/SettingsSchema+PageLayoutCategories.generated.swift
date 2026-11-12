@@ -5,11 +5,11 @@ extension SettingsPageLayout {
     /// The sidebar's sections: what a person looks for together sits together under one small header.
     public static let sidebarSections: [SidebarSection] = [
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
-        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, themeCategory, appearanceCategory]),
+        SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [personalizationCategory, appearanceCategory, sidebarCategory, tabsCategory, newTabCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
-        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [agentsCategory, chiefCategory]),
+        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [chatCategory, agentsCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
-        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory, serverCategory]),
+        SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory]),
         SidebarSection(id: "system", title: SettingsText.keyed("settings.sidebarSection.system", "Data and System"), categories: [importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory]),
     ]
 
@@ -17,33 +17,20 @@ extension SettingsPageLayout {
         SettingText(key: section.titleKey, text: section.title)
     }
 
-    /// Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section. The Screenshots pane's folders sit beside the other file-viewer groups.
+    /// General holds the app itself: windows, quitting, history and housekeeping. The sidebar, tabs and panes, the New Tab page, the viewers and chats each have their own page (settings overhaul, 2026-11-07).
     private static let generalCategory = CategorySpec(
         id: "general", title: section(.general), symbol: "gearshape",
         groups: [
             GroupSpec(group: "settings.group.window"),
-            GroupSpec(group: "settings.group.tabs"),
-            GroupSpec(keys: ["appearance.metrics.tabMaxWidth", "appearance.metrics.tabMinActiveWidth", "appearance.metrics.tabMinInactiveWidth", "appearance.metrics.tabPinnedWidth"], title: SettingsText.keyed("settings.pageGroup.tabWidths", "Tab Widths")),
-            GroupSpec(keys: ["tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order"], title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page")),
-            GroupSpec(keys: ["tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.machines", "tabs.newTabWidgets.weather", "tabs.newTabWidgets.weatherCity", "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.quote"], title: SettingsText.keyed("settings.pageGroup.newTabWidgets", "New Tab Widgets")),
-            GroupSpec(group: "settings.group.columns"),
-            GroupSpec(keys: ["layout.newPanePlacement", "layout.tileBrowsers", "layout.linkPlacement"], title: SettingsText.keyed("settings.pageGroup.newPanes", "New Panes")),
-            GroupSpec(keys: ["layout.dockColumnEdge", "layout.dockColumnMode", "layout.frameOrientation"], title: SettingsText.keyed("settings.pageGroup.dockedColumns", "Docked Columns")),
-            GroupSpec(keys: ["layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"], title: SettingsText.keyed("settings.pageGroup.scrollFocus", "Scrolling and Focus")),
-            GroupSpec(group: "settings.group.autoArchive"),
-            GroupSpec(group: "settings.group.workspaceHibernation"),
-            GroupSpec(group: "settings.group.history"),
             GroupSpec(group: "settings.group.quit"),
+            GroupSpec(group: "settings.group.history"),
+            GroupSpec(group: "settings.group.workspaceHibernation"),
+            GroupSpec(group: "settings.group.autoArchive"),
             GroupSpec(group: "settings.group.picker"),
             GroupSpec(group: "settings.group.tasks"),
-            GroupSpec(group: "settings.group.diffViewer"),
-            GroupSpec(group: "settings.group.markdownViewer"),
-            GroupSpec(group: "settings.group.files"),
-            GroupSpec(group: "settings.group.screenshots"),
             GroupSpec(group: "settings.group.announcements"),
-            GroupSpec(group: "settings.group.chats"),
         ],
-        trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]
+        actions: [.general], aliases: [.general]
     )
 
     /// The app update's status, how this Mac updates, then every channel's recent builds (docs/release-rings.md in hq). After the groups: the Web UI card (the web half of Updates; NIGHTLY only), then the channels.
@@ -56,27 +43,19 @@ extension SettingsPageLayout {
         lead: [.appUpdate], trail: [.webUpdates, .channels]
     )
 
-    /// Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key.
+    /// Leo 2026-11-07: the profile menu's Personalization is a fast jump into the look of the app. Its one card draws rows whose homes stay in Theme, Appearance, Chief and Notifications, so it holds no group and claims no key. The one home of the theme (the Theme page's card moved here; old theme links open this page), the wallpaper, density, the Chief's look, chat text and sounds: no other page draws them.
     private static let personalizationCategory = CategorySpec(
         id: "personalization", title: SettingsText.keyed("settings.category.personalization", "Personalization"), symbol: "wand.and.stars",
-        groups: [],
-        lead: [.personalization]
-    )
-
-    /// appearance.theme and appearance.appTheme are drawn by the theme studio (search still shows them as rows).
-    private static let themeCategory = CategorySpec(
-        id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
         groups: [
             GroupSpec(group: "settings.group.appTheme"),
         ],
-        lead: [.themeStudio]
+        lead: [.personalization], legacyIDs: ["theme"]
     )
 
     /// Change Background… lands here: the art picker draws appearance.background and appearance.backgroundOpacity (search still shows them as rows). The density card draws appearance.density, .customDensity and .customDensities.
     private static let appearanceCategory = CategorySpec(
         id: "appearance", title: section(.appearance), symbol: "paintbrush",
         groups: [
-            GroupSpec(group: "settings.group.terminalFont"),
             GroupSpec(group: "settings.group.densityMotion"),
             // Text Size (appearance.metrics.chromeFontSize) is in the Density card.
             GroupSpec(keys: ["app.uiScale", "appearance.metrics.sidebarWidth", "appearance.metrics.columnGap", "appearance.metrics.dividerThickness", "appearance.metrics.dividerHitWidth", "appearance.metrics.titlebarHeight"], title: SettingsText.keyed("settings.pageGroup.sizes", "Sizes")),
@@ -84,31 +63,61 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.motion"),
             GroupSpec(group: "settings.group.colorTransition"),
             GroupSpec(group: "settings.group.windowBackground"),
-            GroupSpec(group: "settings.group.panes"),
-            GroupSpec(group: "settings.group.focusRing"),
-            // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384).
-            GroupSpec(group: "settings.group.sidebar"),
-            GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
-            // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.
-            GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.floatOnHover"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),
-            GroupSpec(keys: ["sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps", "home.channelsEnabled"], title: SettingsText.keyed("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces")),
-            GroupSpec(keys: ["sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting", "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.maxRows"], title: SettingsText.keyed("settings.pageGroup.workspaceCards", "Workspace Hover Cards")),
-            GroupSpec(keys: ["sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups", "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers", "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members", "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git", "sidebar.hoverCards.groups.sections.ports"], title: SettingsText.keyed("settings.pageGroup.groupCards", "Group Hover Cards")),
-            GroupSpec(group: "settings.group.workspaceRows"),
             GroupSpec(group: "settings.group.statusIndicator"),
             GroupSpec(group: "settings.group.surfaces"),
             GroupSpec(keys: ["appearance.surfaces.sidebar.color", "appearance.surfaces.sidebar.opacity", "appearance.surfaces.tabBar.color", "appearance.surfaces.tabBar.opacity", "appearance.surfaces.browserChrome.color", "appearance.surfaces.browserChrome.opacity", "appearance.surfaces.splitDivider.color", "appearance.surfaces.splitDivider.opacity", "appearance.surfaces.docks.color", "appearance.surfaces.docks.opacity"], title: SettingsText.keyed("settings.pageGroup.windowSurfaces", "Surfaces: Window")),
             GroupSpec(keys: ["appearance.surfaces.diff.color", "appearance.surfaces.diff.opacity", "appearance.surfaces.markdown.color", "appearance.surfaces.markdown.opacity", "appearance.surfaces.editor.color", "appearance.surfaces.editor.opacity"], title: SettingsText.keyed("settings.pageGroup.viewerSurfaces", "Surfaces: Viewers")),
         ],
-        lead: [.backdrops, .density], actions: [.appearance], aliases: [.appearance]
+        actions: [.appearance], aliases: [.appearance]
+    )
+
+    private static let sidebarCategory = CategorySpec(
+        id: "sidebar", title: SettingsText.keyed("settings.category.sidebar", "Sidebar"), symbol: "sidebar.left",
+        groups: [
+            // Show Workspace Tabs leads the Sidebar card: it is off by default, and this is where a person turns each workspace's tabs back on (#26384).
+            GroupSpec(group: "settings.group.sidebar"),
+            // The three list shapes (#31140) get their own card so Sidebar Workspaces stays under max_rows_per_card. Float Hidden Sidebar on Hover (f53a01f2ebaf) is claimed here so the Sidebar card stays under it too.
+            GroupSpec(keys: ["sidebar.workspacesAsTabs", "sidebar.chromeGroups", "sidebar.sideBySide", "sidebar.groupPalette", "sidebar.groupGradient", "sidebar.floatOnHover"], title: SettingsText.keyed("settings.pageGroup.sidebarLayout", "Sidebar Layout")),
+            GroupSpec(keys: ["workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree", "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount", "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"], title: SettingsText.keyed("settings.pageGroup.sidebarWorkspaces", "Sidebar Workspaces")),
+            GroupSpec(group: "settings.group.workspaceRows"),
+            GroupSpec(keys: ["sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl", "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps", "home.channelsEnabled"], title: SettingsText.keyed("settings.pageGroup.sidebarExtras", "Sidebar Buttons and Spaces")),
+            GroupSpec(keys: ["sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting", "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.maxRows"], title: SettingsText.keyed("settings.pageGroup.workspaceCards", "Workspace Hover Cards")),
+            GroupSpec(keys: ["sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups", "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers", "sidebar.hoverCards.groups.sections.status", "sidebar.hoverCards.groups.sections.members", "sidebar.hoverCards.groups.sections.activity", "sidebar.hoverCards.groups.sections.git", "sidebar.hoverCards.groups.sections.ports"], title: SettingsText.keyed("settings.pageGroup.groupCards", "Group Hover Cards")),
+        ],
+        trail: [.spaces], actions: [.rooms], aliases: [.rooms]
+    )
+
+    private static let tabsCategory = CategorySpec(
+        id: "tabs", title: SettingsText.keyed("settings.category.tabsAndPanes", "Tabs and Panes"), symbol: "rectangle.split.2x1",
+        groups: [
+            GroupSpec(group: "settings.group.tabs"),
+            GroupSpec(keys: ["appearance.metrics.tabMaxWidth", "appearance.metrics.tabMinActiveWidth", "appearance.metrics.tabMinInactiveWidth", "appearance.metrics.tabPinnedWidth"], title: SettingsText.keyed("settings.pageGroup.tabWidths", "Tab Widths")),
+            GroupSpec(group: "settings.group.columns"),
+            GroupSpec(keys: ["layout.newPanePlacement", "layout.tileBrowsers", "layout.linkPlacement"], title: SettingsText.keyed("settings.pageGroup.newPanes", "New Panes")),
+            GroupSpec(keys: ["layout.dockColumnEdge", "layout.dockColumnMode", "layout.frameOrientation"], title: SettingsText.keyed("settings.pageGroup.dockedColumns", "Docked Columns")),
+            GroupSpec(keys: ["layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"], title: SettingsText.keyed("settings.pageGroup.scrollFocus", "Scrolling and Focus")),
+            GroupSpec(group: "settings.group.panes"),
+            GroupSpec(group: "settings.group.focusRing"),
+        ]
+    )
+
+    private static let newTabCategory = CategorySpec(
+        id: "newTab", title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page"), symbol: "plus.square",
+        groups: [
+            GroupSpec(keys: ["tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order"], title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page")),
+            GroupSpec(keys: ["tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.machines", "tabs.newTabWidgets.weather", "tabs.newTabWidgets.weatherCity", "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.quote"], title: SettingsText.keyed("settings.pageGroup.newTabWidgets", "New Tab Widgets")),
+        ]
     )
 
     private static let terminalCategory = CategorySpec(
         id: "terminal", title: section(.terminal), symbol: "terminal",
         groups: [
-            GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
+            GroupSpec(group: "settings.group.terminalFont"),
             // The TERM new terminals start with (terminal.term).
             GroupSpec(group: "settings.group.terminalCompatibility"),
+            // The program that opens links from a terminal, and its rules, beside the terminal they come from.
+            GroupSpec(keys: ["terminal.linkOpener.default", "terminal.linkOpener.rules"], title: SettingsText.keyed("settings.group.links", "Links")),
+            GroupSpec(keys: ["newTerminal.opensWorkspace", "app.warnBeforeClosingTab"], title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
         ],
         lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]
     )
@@ -124,6 +133,10 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.editorCursor"),
             GroupSpec(group: "settings.group.editorEditing"),
             GroupSpec(group: "settings.group.editorSaving"),
+            GroupSpec(group: "settings.group.diffViewer"),
+            GroupSpec(group: "settings.group.markdownViewer"),
+            GroupSpec(group: "settings.group.files"),
+            GroupSpec(group: "settings.group.screenshots"),
         ],
         actions: [.editor], aliases: [.editor]
     )
@@ -148,15 +161,24 @@ extension SettingsPageLayout {
         trail: [.browserProfiles], actions: [.browser], aliases: [.browser]
     )
 
+    /// How the agent chat looks and reads. Agents keeps what the agents may do.
+    private static let chatCategory = CategorySpec(
+        id: "chat", title: SettingsText.keyed("settings.category.chat", "Chat"), symbol: "bubble.left",
+        groups: [
+            GroupSpec(keys: ["agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom", "agentPane.needsYou.enabled", "agentPane.showMachineLoadWarnings"], title: SettingsText.keyed("settings.pageGroup.transcript", "Transcript")),
+            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
+            GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
+            GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement", "agentPane.display.promptCoach"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
+            GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
+            GroupSpec(group: "settings.group.chats"),
+        ]
+    )
+
     /// Computer Use (#28997) comes first among the trailing cards: its card draws the on/off switch, the guided setup and the helper's grants together, and the `settings.group.computerUse` rows (the page does not draw that group a second time). Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and removes the ones you added. Agent integrations (optional help, collapsed) installs the hooks that report an agent's state, through `cmux agent hook`.
     private static let agentsCategory = CategorySpec(
         id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
         groups: [
-            GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
-            GroupSpec(keys: ["agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap", "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle", "agentPane.display.unreadBanner", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner", "agentPane.display.rail.side", "agentPane.display.sessionInfo.placement", "agentPane.display.environment.placement"], title: SettingsText.keyed("settings.pageGroup.chatLayout", "Chat Layout")),
-            GroupSpec(keys: ["agentPane.display.font.ui", "agentPane.display.font.preset", "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family", "agentPane.display.code.scale"], title: SettingsText.keyed("settings.pageGroup.chatText", "Chat Text")),
-            GroupSpec(keys: ["agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking", "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement"], title: SettingsText.keyed("settings.pageGroup.messageBox", "Message Box")),
-            GroupSpec(keys: ["agentPane.links.outsideRoots", "agentPane.images.remote", "agentPane.editedFiles.show", "agentPane.editedFiles.maxRows", "agentPane.editedFiles.scope"], title: SettingsText.keyed("settings.pageGroup.filesLinks", "Files and Links")),
+            GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"], title: SettingsText.keyed("settings.pageGroup.agentDefaults", "Defaults")),
             GroupSpec(group: "settings.group.computerUse"),
             GroupSpec(group: "settings.group.cmuxRemote"),
             // The free AI model while signed out (cx-ds09i).
@@ -194,7 +216,7 @@ extension SettingsPageLayout {
             // Whether the Chief may route each subagent to the harness best at its task (spawn harness).
             GroupSpec(group: "settings.group.chiefSubagents"),
         ],
-        lead: [.chiefs, .chiefPet, .voiceInput], trail: [.notices]
+        lead: [.chiefs, .voiceInput], trail: [.notices]
     )
 
     /// A core cmux feature: banners, sounds, the attention ring and the feed for agents, terminal programs and `cmux notify`.
@@ -234,7 +256,6 @@ extension SettingsPageLayout {
     private static let accountsCategory = CategorySpec(
         id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
         groups: [
-            GroupSpec(group: "settings.group.phone"),
             GroupSpec(group: "settings.group.messagesServer"),
             GroupSpec(group: "settings.group.machineColors"),
             GroupSpec(group: "settings.group.cloudWorkspaces"),
@@ -242,27 +263,21 @@ extension SettingsPageLayout {
         lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines]
     )
 
-    /// Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
+    /// Phones reaching this Mac: the iPhone host's switch and Phone Access, then its live status and phones (Lucas 2026-11-11: Mobile stays its own page).
     private static let mobileCategory = CategorySpec(
         id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",
         groups: [
             GroupSpec(group: "settings.group.mobile"),
+            GroupSpec(group: "settings.group.phone"),
         ],
         trail: [.mobile]
     )
 
-    /// This Mac and the person's other devices on the device hub: names, fingerprints, Mac Screen access, relays and the access history (docs/device-hub). Every build: NIGHTLY and Release use the built-in hub (DeviceHubSettings.resolvedBaseURL), and Mac Screen's sharing switch, permissions and relays live only here.
+    /// Devices holds what the Server page showed; its old links open it (legacy_ids).
     private static let devicesCategory = CategorySpec(
         id: "devices", title: SettingsText.keyed("settings.category.devices", "Devices"), symbol: "laptopcomputer",
         groups: [],
-        lead: [.devices]
-    )
-
-    /// The servers behind the app (cmux-tui, acpmux): status, versions, restart when one is older.
-    private static let serverCategory = CategorySpec(
-        id: "server", title: SettingsText.keyed("settings.category.server", "Server"), symbol: "server.rack",
-        groups: [],
-        lead: [.server, .tailnet]
+        lead: [.devices], trail: [.server, .tailnet], legacyIDs: ["server"]
     )
 
     /// Bring things over from other browsers, agents and terminals on this Mac.
