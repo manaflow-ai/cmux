@@ -45,7 +45,7 @@ public final class BenchFrames {
         var visible: Double?
         var committed: Double?
         var continuation: CheckedContinuation<Double?, Never>
-        /// Ends the wait at its deadline when no display tick does, or at once when it is cancelled.
+        /// Ends the wait at its deadline when no display tick does.
         var timer: DemandTimer
     }
 
@@ -79,7 +79,12 @@ public final class BenchFrames {
                 timer.schedule(after: .milliseconds(cancelled ? 0 : left)) { @MainActor [weak self] in self?.expire(id) }
             }
         } onCancel: {
-            timer.schedule(after: .zero) { @MainActor [weak self] in self?.expire(id) }
+            // A cancel ends the wait on the main actor, never by rescheduling the deadline timer: the
+            // registration's own schedule could replace that (#41480 F1). The registration is one main-actor
+            // job, so this hop runs after it and finds the waiter; a cancel before the registration read
+            // `Task.isCancelled` also gave it a zero deadline.
+            // task-owner: one hop that ends waiter `id`; it does nothing once that waiter has ended.
+            Task { @MainActor [weak self] in self?.expire(id) }
         }
     }
 
