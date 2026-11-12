@@ -168,11 +168,19 @@ pub fn setting_on(config: &Path) -> bool {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Told(pub Option<bool>);
 
+/// The daemon-long scope that owns [`start`]'s task.
+static TASKS: OnceLock<cmux_scope::Scope> = OnceLock::new();
+
 /// Starts the one task that follows the choice and sends pending counts
-/// (inside the daemon's runtime). Lives as long as the daemon.
+/// (inside the daemon's runtime). Lives as long as the daemon; a second call
+/// starts nothing.
 pub fn start() {
     let Some(path) = pending_path() else { return };
-    tokio::spawn(run(path));
+    if TASKS.get().is_some() {
+        return;
+    }
+    let tasks = TASKS.get_or_init(|| cmux_scope::Scope::new("install-share"));
+    tasks.spawn_until_cancelled("install-share", run(path));
 }
 
 async fn run(path: PathBuf) {
