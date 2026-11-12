@@ -266,10 +266,10 @@ extension WorkspaceCreator {
         var workspace = placeholder(for: request, existing: [], now: now)
         workspace.title = title
         if case .agent(let harness) = request.start, !workspace.tabs.isEmpty {
-            // The tab is the agent (its chat names it so, "What should Claude do?"); the task is
-            // what it works on, as a running chat's tab reads.
+            // The tab is the agent, as the Mac's tab for the chat reads once listed (its pill
+            // then shows the agent's name, with no flip); the workspace's title is the task.
             workspace.tabs[0].title = agentTitle(harness)
-            workspace.tabs[0].subtitle = task
+            workspace.tabs[0].subtitle = nil
             workspace.tabs[0].agentStatus = .working
         }
         return workspace

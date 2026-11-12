@@ -393,6 +393,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 creationLog.error("set_model \(model, privacy: .public) refused: \(AcpmuxSessionSource.message(error), privacy: .public)")
             }
         }
+        acpmux.noteStartedHere(session)
         return (choice.id, session)
     }
 

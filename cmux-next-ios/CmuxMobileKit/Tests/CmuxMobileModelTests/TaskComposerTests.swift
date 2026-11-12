@@ -63,10 +63,10 @@ import Testing
         // Instant: the row is in the list, titled for the task, and opens ready to type.
         #expect(store.isPending(placeholder.id))
         #expect(placeholder.title == "Fix the flaky upload test")
-        #expect(placeholder.tabs.first?.task == "Fix the flaky upload test")
-        // The tab is the agent, its task the subtitle (no "task · task" title, no chat named for the task).
+        // The tab is the agent, as the Mac's tab reads once listed (live run 3: the pill flipped
+        // from the task to the agent's name); the workspace carries the task.
         #expect(placeholder.tabs.first?.title == "Claude")
-        #expect(placeholder.tabs.first?.subtitle == "Fix the flaky upload test")
+        #expect(placeholder.tabs.first?.subtitle == nil)
         #expect(placeholder.tabs.first?.agentStatus == .working)
         #expect(store.takeFocusOnOpen(placeholder.id))
         // The prompt goes; the agents and folder stay for the next task.

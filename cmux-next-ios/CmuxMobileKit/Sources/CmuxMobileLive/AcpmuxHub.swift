@@ -30,6 +30,16 @@ public final class AcpmuxHub {
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var sources: [String: WeakSource] = [:]
+    /// Sessions this phone started (New Task, New Agent Chat), newest last: their chat's
+    /// loading state says "Starting <agent>…" until its first records, not "Loading chat…".
+    @ObservationIgnored private(set) var startedHere: [String] = []
+
+    /// Notes a session this phone started (`session/new`); the newest 32 are kept.
+    func noteStartedHere(_ sessionID: String) {
+        startedHere.removeAll { $0 == sessionID }
+        startedHere.append(sessionID)
+        if startedHere.count > 32 { startedHere.removeFirst(startedHere.count - 32) }
+    }
     /// The read of the list's later pages on the current connection (`AcpmuxHub+SessionPages.swift`).
     @ObservationIgnored var restOfList: Task<Void, Never>?
     /// Chats a `session_changed` told since this connection's watch began: newer than any page row.
@@ -492,6 +502,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var replay: [AgentSessionEvent] = []
     private var lastSeq = 0
     private var attached = false
+    /// The phone started this session moments ago (``AcpmuxHub/noteStartedHere(_:)``).
+    public var isStarting: Bool { hub?.startedHere.contains(sessionID) == true }
     private var attaching = false
     /// Records that arrive while attaching are applied after the attach page.
     private var held: [JSONValue] = []
