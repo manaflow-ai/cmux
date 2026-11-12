@@ -277,16 +277,21 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
             t0 = time.monotonic()
             # Watch for run-agent.sh's "started" file on a second connection, so a
             # guest lost later is known to have run the agent.
+            done = threading.Event()
             def watch_started(vm=vm, deadline=time.monotonic() + args.timeout):
-                while time.monotonic() < deadline and not getattr(vm, "agent_started", False):
+                while time.monotonic() < deadline and not done.is_set() and not getattr(vm, "agent_started", False):
                     p = vm.ssh("test -f ~/cub/out/started && echo started")
                     if p.returncode == 0 and "started" in p.stdout:
                         vm.agent_started = True
                         return
-                    time.sleep(5)  # bounded poll of a guest file over ssh (no event to wait on)
-            threading.Thread(target=watch_started, daemon=True).start()
-            r = vm.ssh(f"bash ~/cub/run-agent.sh {arm} {shlex.quote(args.model)} {args.effort} "
-                       f"{args.timeout} ~/cub/prompt.txt ~/cub/out", timeout=args.timeout + 120)
+                    done.wait(5)  # until the attempt ends, or 5 s for the next look at the guest file
+            watcher = threading.Thread(target=watch_started, daemon=True)
+            watcher.start()
+            try:
+                r = vm.ssh(f"bash ~/cub/run-agent.sh {arm} {shlex.quote(args.model)} {args.effort} "
+                           f"{args.timeout} ~/cub/prompt.txt ~/cub/out", timeout=args.timeout + 120)
+            finally:
+                done.set()
             row["agent_seconds"] = round(time.monotonic() - t0, 1)
             row["agent_rc"] = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else f"ssh {r.returncode}"
             if row["agent_rc"] == "setup":
