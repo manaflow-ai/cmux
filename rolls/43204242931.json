@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43204242931",
+  "recorded_at": "2026-11-12T11:03:52Z",
+  "reason": "cmux-tui df781661ff49 changes the image's cmux-tui (pinned 3cecf753d1ce)",
+  "dry_run": false,
+  "cmux_tui": "df781661ff497b5b9348c3f094d352234cc2de5a",
+  "fixes": [
+    {
+      "sha": "df781661ff497b5b9348c3f094d352234cc2de5a",
+      "mergedAt": "2026-11-12T04:34:40-06:00",
+      "subject": "palette: move the focused tab by what a person types"
+    },
+    {
+      "sha": "c5e5236d79a35530f46edd1007bfd557139b7640",
+      "mergedAt": "2026-11-12T04:34:39-06:00",
+      "subject": "palette: failing tests for moving a tab by the words a person types"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T11:03:52Z",
+    "snapshot_id": "sh-de3659091f5c4b4cb1c760cc7822d6af",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43204242931): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a2130d9f5ff5a8c3fc017b026c128301a4996c6e",
+    "image": "cloud-native-auto-df781661-43204242931-1",
+    "revision": "ci-43204242931-1",
+    "at": "2026-11-12T11:03:52Z"
+  },
+  "rolled_back": false
+}
