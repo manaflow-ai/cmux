@@ -63,7 +63,9 @@ fn resident_stack_bytes(thread: libc::pthread_t) -> usize {
     // for each page of it.
     let status = unsafe { libc::mincore(low as _, size, pages.as_mut_ptr()) };
     assert_eq!(status, 0, "mincore: {}", std::io::Error::last_os_error());
-    pages.iter().filter(|&&state| (state as u8) & 1 != 0).count() * page
+    // mincore fills c_char on macOS (i8) and c_uchar on Linux (u8); bit 0
+    // (MINCORE_INCORE) is set for a resident page either way.
+    pages.iter().filter(|&&state| state & 1 != 0).count() * page
 }
 
 #[cfg(target_vendor = "apple")]

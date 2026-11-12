@@ -116,9 +116,12 @@ public enum TerminalConnectionState: Sendable, Equatable {
         return true
     }
 
-    /// Why the composer's Send did not go (nil: attached, it goes). The text
-    /// stays in the composer: a command must never run long after it was
-    /// typed (termfix-r13 D5, T-INPUT-17).
+    /// Why the composer's Send did not go (nil: it goes). The text stays in
+    /// the composer: a command must never run long after it was typed
+    /// (termfix-r13 D5, T-INPUT-17). A reattach (a blip) is not refused: the
+    /// send waits in the session's bounded hold (`inputHoldLimit`) and goes
+    /// once the terminal is back, or comes back to the composer if it never
+    /// comes (``TerminalSessionEvent/inputNotSent(bytes:)``).
     public var composerNotSentNotice: String? {
         func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
@@ -129,7 +132,7 @@ public enum TerminalConnectionState: Sendable, Equatable {
         // goes to the session, which holds it that long and says so if the
         // terminal never came (r13 review: a quick Send on a new tab was refused).
         case .connecting: return nil
-        case .reattaching(let mac): return "Not sent: reconnecting to \(named(mac)). Send again when it's back."
+        case .reattaching: return nil
         }
     }
 

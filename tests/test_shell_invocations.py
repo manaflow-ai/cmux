@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shell_invocations import may_run, may_run_program, must_run  # noqa: E402
 
-STUBS = ("a", "b", "c", "sign", "create")
+STUBS = ("a", "b", "c", "sign", "create", "gh")
 
 # (name, script, the stubs bash runs, the stubs must_run() reports or None for "the same as bash ran")
 FIXTURES = [
@@ -106,6 +106,21 @@ FIXTURES = [
     ("an alias is not expanded in a non-interactive shell", "alias sign=a\nb", {"b"}, set()),
     ("a variable as the program", "p=a\n$p", {"a"}, set()),
     ("a substitution as the program", "$(echo a)", {"a"}, set()),
+    # A parameter or arithmetic expansion runs the substitutions inside it (#40784 review F2): may_run() must allow
+    # them. Nested commands are never certain.
+    ("a substitution in a double-quoted default (#40784 F2)", 'echo "${X:-$(gh release create v1 dist/x)}" >/dev/null',
+     {"gh"}, set()),
+    ("a substitution in an assigned default", "echo ${X:=$(a)} >/dev/null", {"a"}, set()),
+    ("backticks in an alternate value", "X=1\necho ${X:+`a`} >/dev/null", {"a"}, set()),
+    ("a substitution in a replacement pattern", "X=p\necho ${X/$(a)/q} >/dev/null", {"a"}, set()),
+    ("a substitution in a substring offset", "X=abc\necho ${X:$(a)0} >/dev/null", {"a"}, set()),
+    ("a double-quoted substitution in a double-quoted default", 'echo "${X:-"$(a)"}" >/dev/null', {"a"}, set()),
+    ("a single-quoted substitution in a double-quoted default", "echo \"${X:-'$(a)'}\" >/dev/null", {"a"}, set()),
+    ("a substitution in a nested default", 'echo "${X:-${Y:-$(a)}}" >/dev/null', {"a"}, set()),
+    ("a process substitution in a default", "cat ${X:-<(a)} >/dev/null 2>&1", {"a"}, set()),
+    ("a substitution in an arithmetic expansion", "echo $(( $(a) + 1 )) >/dev/null", {"a"}, set()),
+    ("a substitution in a heredoc body's arithmetic expansion", "cat <<EOF >/dev/null\n$(( $(a) + 1 ))\nEOF",
+     {"a"}, set()),
 ]
 
 
