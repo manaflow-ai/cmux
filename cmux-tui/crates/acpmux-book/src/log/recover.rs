@@ -22,7 +22,7 @@ pub(crate) struct Scan {
 
 /// Reads the records of `file` from `from`, handing each whole one to `apply` with its offset.
 /// `apply` returns false for a record that cannot follow the one before (its seq is not the
-/// next one); the scan treats it as torn, like a bad crc.
+/// next one); the scan treats it as a stale tail. A complete invalid record is damage.
 pub(crate) fn scan(
     file: &File,
     from: u64,
