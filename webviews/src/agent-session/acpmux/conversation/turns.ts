@@ -844,8 +844,19 @@ const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
 function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expanded: Folds): string {
   if (expanded.size === 0) return "";
   if (foldsInOrder()) {
-    let open = expanded.has(`${WORKED}-${rows[start]!.id}`) ? "1" : "0";
-    for (const index of foldStarts(rows, start, end)) open += expanded.has(`${WORKED}-${rows[index]!.id}`) ? "1" : "0";
+    // A fold is open under its own key or a provisional one: a received message inside it that a
+    // history page started at (it splits nothing, so its key names no fold once the prompt loads).
+    const bounds = [start, ...foldStarts(rows, start, end), end];
+    let open = "";
+    for (let fold = 0; fold + 1 < bounds.length; fold += 1) {
+      let shown = false;
+      for (let at = bounds[fold]!; at < bounds[fold + 1]! && !shown; at += 1) {
+        const row = rows[at]!;
+        shown =
+          (at === bounds[fold] || (row.kind === "user" && continuesTurn(row))) && expanded.has(`${WORKED}-${row.id}`);
+      }
+      open += shown ? "1" : "0";
+    }
     return open.includes("1") ? open : "";
   }
   if (expanded.has(`${WORKED}-${rows[start]!.id}`)) return "1";
@@ -2877,12 +2888,23 @@ const foldKeyId = (row: AcpmuxRow) => row.inboxSource ?? row.id;
 
 /// The keys a click on fold `id` covers: `id`, and when it is a turn's "Worked for", that turn's
 /// original prompt's (`key`) and each of its steers' (openFolds reads them all).
-/// Split in order (`foldsInOrder`), each fold is its own disclosure: a click covers its key alone.
+/// Split in order (`foldsInOrder`), each fold is its own disclosure: a click covers its key (`key`) and
+/// the provisional keys of the received messages inside it (openFolds), never another fold's.
 function turnFoldKeys(rows: readonly AcpmuxRow[], id: string): { keys: string[]; key?: string } {
   const keys = [id];
-  if (foldsInOrder()) return { keys };
   const index = id.startsWith(`${WORKED}-`) ? rows.findIndex((row) => `${WORKED}-${row.id}` === id) : -1;
   const key = index >= 0 ? turnFoldFor(rows, index) : undefined;
+  if (foldsInOrder()) {
+    const start = key ? rows.findIndex((row) => `${WORKED}-${row.id}` === key) : -1;
+    if (start < 0) return { keys };
+    if (key !== id) keys.push(key!);
+    const { end } = foldSpan(rows, start);
+    for (let at = start + 1; at < end; at += 1) {
+      const row = rows[at]!;
+      if (row.kind === "user" && continuesTurn(row)) keys.push(`${WORKED}-${row.id}`);
+    }
+    return { keys, key };
+  }
   if (key) {
     const start = rows.findIndex((row) => `${WORKED}-${row.id}` === key);
     for (let at = start; at >= 0 && at < rows.length; at += 1) {

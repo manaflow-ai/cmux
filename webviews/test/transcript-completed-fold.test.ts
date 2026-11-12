@@ -156,7 +156,6 @@ test("an expanded provisional steer fold stays open when its older prompt arrive
 });
 
 test("App's toggle call shape (raw snapshot rows) closes a fold a provisional steer key opened", () => {
-  oneFoldPerTurn();
   // App.tsx passes `snapshot.rows` (turnRowsRef), never the derived turnView rows with their
   // synthetic worked-* rows. The clicked fold must still resolve and clear the provisional key.
   const full = completedTurn();
@@ -303,7 +302,6 @@ test("a completed turn of only replies and the person's own steer has no work to
 });
 
 test("Find in Thinking or Verbose opens a turn closed by hand, steer keys included", () => {
-  oneFoldPerTurn();
   // toggleViewTurnFold marks the prompt's key and each steer's; a reveal must forget them all, or
   // the steer's key keeps the turn closed (cmux#28782 review at 7e02fd5c).
   const full = completedTurn();
