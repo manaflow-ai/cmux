@@ -136,6 +136,15 @@ import Testing
         #expect(resolver.textForPaste("example.com/\n%93%FA%96%7B日本") == "example.com/%93%FA%96%7B日本")
     }
 
+    /// All-ASCII wrapped text resolves as it did before escapes were kept:
+    /// the encoder leaves it unchanged, so wrap removal must judge it the same way.
+    @Test func wrappedAllASCIITextWithNonUTF8EscapesResolvesAsBefore() {
+        for text in ["example.com/\n%FF", "example.com?\nq=%93%FA", "example.com#\n%FF"] {
+            #expect(resolver.navigableURL(from: text) == nil, "\(text)")
+            #expect(resolver.textForPaste(text) == text, "\(text)")
+        }
+    }
+
     @Test func doesNotCompactTextThatConstructsADifferentAuthority() {
         let explicitInput = "https://trusted.example\n@evil.example/path"
         let schemeLessInput = "trusted.example\n@evil.example/path"
