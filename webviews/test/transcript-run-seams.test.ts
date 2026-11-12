@@ -120,3 +120,15 @@ test("a run of a turn the agent ran on its own never joins the chat's own run be
   const joined = mergeShortNotes([background, activity([run("gh workflow run")], "own-run")]);
   expect(joined.map((r) => r.id)).toEqual(["bg-run", "own-run"]);
 });
+
+test("a compaction at a run's edge, or between two turns' runs, folds nothing", () => {
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+  const compaction = () => row("compaction", { compaction: { state: "failed", inferred: true } as never });
+  const edge = [
+    row("user", { id: "p-edge", text: "Go" }),
+    activity([run("ls"), read("/tmp/a")], "edge-run"),
+    compaction(),
+    row("turnSummary", { id: "edge-summary", status: "completed", durationMs: 1_000, toolCount: 2 }),
+  ];
+  expect(turnView(edge, new Set(), { agentFamily: "claude" }).some((r) => r.kind === "messageRun")).toBe(false);
+});

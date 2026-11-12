@@ -146,8 +146,19 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     const onlyReceived = sent === 0 && members.every(joinsReceivedRow);
     // Two runs a compaction alone splits are one stretch of work too, message or not (spec "Compaction
     // folds with the work"; Leo, 2026-11-12, ask-bc2af01f6e: "how come these aren't folded?").
+    // Two runs a compaction alone splits are one stretch of work too, message or not (spec "Compaction
+    // folds with the work"; Leo, 2026-11-12, ask-bc2af01f6e: "how come these aren't folded?"): only a
+    // compaction between two runs of the same turn, never one at a run's edge or between two turns.
+    const runs = members.filter((row) => row.kind === "activity");
     const compacted =
-      members.some((row) => row.kind === "compaction") && members.filter((row) => row.kind === "activity").length > 1;
+      runs.length > 1 &&
+      runs.every((row) => row.inBackground === runs[0]!.inBackground) &&
+      members.some(
+        (row, at) =>
+          row.kind === "compaction" &&
+          members.slice(0, at).some((m) => m.kind === "activity") &&
+          members.slice(at + 1).some((m) => m.kind === "activity"),
+      );
     if (lines < 2 || (sent + received === 0 && !compacted) || onlyReceived) {
       out?.push(...members);
       index = end;
