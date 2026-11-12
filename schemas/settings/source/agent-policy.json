@@ -885,6 +885,7 @@
         "appearance.metrics.dividerThickness",
         "appearance.metrics.dividerHitWidth",
         "appearance.metrics.titlebarHeight",
+        "appearance.metrics.sidebarRowHeight",
         "browser.toolbar.back",
         "browser.toolbar.forward",
         "browser.toolbar.reload",
