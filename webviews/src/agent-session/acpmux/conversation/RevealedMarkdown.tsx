@@ -28,6 +28,9 @@ export function RevealedMarkdown({
   return (
     <MessageBoundary source={text}>
       <Revealed
+        // A recreated reply gets a fresh reveal loop; unmount cancels the old queued frame.
+        // Keep this key separate from artifactIdentity, which must remain the original row ID.
+        key={`${artifactIdentity ?? ""}:${messageAt ?? ""}`}
         text={text}
         streaming={streaming}
         githubRepository={githubRepository}
@@ -57,7 +60,7 @@ function Revealed({
   artifactIdentity?: string;
   artifactRevision?: number;
 }) {
-  const { visible, fresh, now } = useStreamReveal(text, streaming, artifactIdentity);
+  const { visible, fresh, now } = useStreamReveal(text, streaming);
   // Marks draw on the whole reply only: a phrase still revealing would move under its mark.
   const whole = !streaming && visible.length === text.length;
   // Until all of it shows, the reply draws as streaming: the frame after the stream ends still
