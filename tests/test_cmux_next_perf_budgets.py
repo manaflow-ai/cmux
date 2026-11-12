@@ -90,6 +90,25 @@ class BuildConfigTests(unittest.TestCase):
             self.assertEqual(pb.build_config(debug), "debug")
             self.assertEqual(pb.build_config(os.path.join(root, "missing.app")), "debug")
         self.assertEqual(pb.baseline_name("apple-m4-pro-macos27", "bench"), "apple-m4-pro-macos27-bench.json")
+
+    def test_the_marker_is_the_one_the_app_and_the_ship_check_use(self):
+        import glob
+        swift = glob.glob(os.path.join(ROOT, "Packages", "**", "BenchHooksMarker.swift"), recursive=True)
+        self.assertTrue(swift)
+        self.assertIn(pb.BENCH_MARKER.decode(), open(swift[0]).read())
+        script = open(os.path.join(ROOT, "scripts/cmux-next/check-no-bench-hooks.sh")).read()
+        self.assertIn('marker="CMUX_BENCH_HOOKS""_BUILD"', script)
+
+    def test_a_marker_across_a_read_chunk_is_found(self):
+        import plistlib
+        with tempfile.TemporaryDirectory() as root:
+            app = os.path.join(root, "x.app")
+            os.makedirs(os.path.join(app, "Contents", "MacOS"))
+            with open(os.path.join(app, "Contents", "Info.plist"), "wb") as handle:
+                plistlib.dump({"CFBundleExecutable": "x"}, handle)
+            with open(os.path.join(app, "Contents", "MacOS", "x"), "wb") as handle:
+                handle.write(b"\0" * ((1 << 22) - 5) + pb.BENCH_MARKER + b"\0")
+            self.assertEqual(pb.build_config(app), "bench")
         self.assertEqual(pb.baseline_name("apple-m4-pro-macos27", "debug"), "apple-m4-pro-macos27.json")
 
 

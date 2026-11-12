@@ -13,7 +13,8 @@ name: cmux NEXT Stable
 #
 # Gates, all on the candidate's exact nightly-next commit or on the signed stable DMG itself:
 #   crash-class   the cmux-next-crash-class.yml rules on the whole tree (Linux)
-#   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) on an
+#   perf-budgets  scripts/cmux-next/perf-budgets.py --gate (split-spring.sh --suite=budgets) of a Release-
+#                 optimized build (--config=bench) against its Release baseline (…-bench.json), on an
 #                 exclusive macOS 27 M4 Pro measure worker, against apple-m4-pro-macos27's baseline.
 #                 A measured regression blocks, and so does no verdict (no idle worker in 3 h, three
 #                 host faults): stable ships only a measured build. The next run re-attaches to the step.

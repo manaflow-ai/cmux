@@ -116,9 +116,17 @@ def build_config(app):
         with open(os.path.join(app, "Contents", "Info.plist"), "rb") as handle:
             import plistlib
             exe = plistlib.load(handle).get("CFBundleExecutable") or ""
+        if not exe:
+            raise ValueError("no CFBundleExecutable")
         with open(os.path.join(app, "Contents", "MacOS", exe), "rb") as handle:
-            return "bench" if BENCH_MARKER in handle.read() else "debug"
-    except (OSError, ValueError):
+            tail = b""
+            while chunk := handle.read(1 << 22):  # a Release executable can be 100 MB or more
+                if BENCH_MARKER in tail + chunk:
+                    return "bench"
+                tail = chunk[-len(BENCH_MARKER):]
+        return "debug"
+    except (OSError, ValueError) as error:
+        print(f"PERF-BUDGETS-CONFIG cannot read the build of {app} ({error}); judged as a Debug build", flush=True)
         return "debug"
 
 
