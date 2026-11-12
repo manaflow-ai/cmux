@@ -251,7 +251,7 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                         format!("Note {seed}-{t}-{step}: checking.")
                     };
                     stretch.stepped = false;
-                    if !open || stretch.replies.is_empty() {
+                    if !open {
                         message = format!("msg-{seed}-{t}-{step}");
                         stretch.replies.push(words.clone());
                         stretch.takeaways.push(full);
@@ -282,8 +282,6 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     c.mux("user_message",&format!(r#"{{"text":"Steer {seed}-{t}-{step}: also check CI","promptId":"p-{seed}-{t}-{step}","steer":true}}"#));
                     c.mux("steer_read", &format!(r#"{{"promptId":"p-{seed}-{t}-{step}"}}"#));
                     stretch.steered = true;
-                    stretches.push(stretch);
-                    stretch = Stretch::default();
                 }
             }
         }
