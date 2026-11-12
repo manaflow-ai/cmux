@@ -7,5 +7,37 @@
 mod home;
 
 fn main() {
-    home::print_report();
+    let mut measures = Vec::new();
+    let mut output = None;
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].to_string_lossy().as_ref() {
+            "--measures" => {
+                index += 1;
+                while index < args.len() && !args[index].to_string_lossy().starts_with("--") {
+                    measures.push(std::path::PathBuf::from(&args[index]));
+                    index += 1;
+                }
+                continue;
+            }
+            "--output" => {
+                index += 1;
+                let Some(path) = args.get(index) else {
+                    eprintln!("v2 bench: --output needs a path");
+                    std::process::exit(2);
+                };
+                output = Some(std::path::PathBuf::from(path));
+            }
+            argument => {
+                eprintln!("v2 bench: unknown argument {argument}");
+                std::process::exit(2);
+            }
+        }
+        index += 1;
+    }
+    if let Err(error) = home::print_report(&measures, output.as_deref()) {
+        eprintln!("v2 bench: {error}");
+        std::process::exit(2);
+    }
 }

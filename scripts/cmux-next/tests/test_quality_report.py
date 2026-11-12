@@ -312,6 +312,22 @@ class Inputs(unittest.TestCase):
         self.assertEqual(got["worst_ratio"], 1.25)
         self.assertEqual(qr.god_vs_small(None, "no input given")["why"], "no input given")
 
+    def test_god_vs_small_keeps_skipped_rows_in_markdown(self):
+        r = qr.build_report(24, T, None, None, None, None, hang_watch=lambda since: [])
+        r["god_vs_small"] = qr.god_vs_small({"rows": [
+            {"name": "v2.pr01.measure", "status": "skipped", "reason": "PR 1 not landed"},
+            {"name": "v2.pr02.measure", "status": "ok", "small_p95": 10, "god_p95": 11},
+            {"name": "v2.pr03.measure", "status": "red", "small_p95": 10, "god_p95": 13},
+        ]}, None)
+        self.assertEqual([row["status"] for row in r["god_vs_small"]["rows"]], ["skipped", "ok", "red"])
+        encoded = json.dumps(r["god_vs_small"])
+        for name in ("v2.pr01.measure", "v2.pr02.measure", "v2.pr03.measure"):
+            self.assertIn(name, encoded)
+        md = qr.render_markdown(r, public=False)
+        self.assertIn("v2.pr01.measure", md)
+        self.assertIn("v2.pr03.measure", md)
+        self.assertIn("PR 1 not landed", md)
+
     def test_anim_coverage_shapes(self):
         self.assertEqual(qr.anim_coverage({"coverage": 0.875}, None)["value"], 0.875)
         self.assertEqual(qr.anim_coverage({"covered": 3, "total": 4}, None)["value"], 0.75)

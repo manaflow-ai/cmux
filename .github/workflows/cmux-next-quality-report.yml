@@ -35,7 +35,7 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 15
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:
@@ -61,6 +61,8 @@ jobs:
             scripts/cmux-next/perf-cron.py
             scripts/cmux-next/perf-budgets.json
             scripts/cmux-next/perf-budgets.py
+            .github/actions/setup-cmux-tui-rust/action.yml
+            cmux-tui/
           sparse-checkout-cone-mode: false
 
       - name: Test the report
@@ -107,6 +109,19 @@ jobs:
           GH_TOKEN: ${{ steps.hq-read.outputs.token }}
         run: python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-state"
 
+      - name: Measure agent-service v2 god and small rows
+        if: steps.done.outputs.cache-hit != 'true'
+        timeout-minutes: 30
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Write the v2 god-small input
+        if: steps.done.outputs.cache-hit != 'true'
+        timeout-minutes: 30
+        working-directory: cmux-tui
+        run: |
+          mkdir -p "$RUNNER_TEMP/quality"
+          cargo bench -q -p acpmux --bench v2 -- --output "$RUNNER_TEMP/quality/v2-god-small.json"
+
       - name: Build the report
         if: steps.done.outputs.cache-hit != 'true'
         env:
@@ -119,6 +134,7 @@ jobs:
           mkdir -p "$out"
           python3 -I scripts/cmux-next/quality-report.py report --hours 24 \
             --perf-state "$RUNNER_TEMP/perf-state/state.json" \
+            --god-small "$RUNNER_TEMP/quality/v2-god-small.json" \
             --ci-branches feat-cmux-next,main --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
             --md "$out/quality-report.md" --public-md "$out/quality-summary.md"
