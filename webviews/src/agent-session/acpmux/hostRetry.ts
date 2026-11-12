@@ -38,6 +38,17 @@ export function hostRefusedTooLarge(error: unknown): boolean {
   return (error as { reason?: unknown } | null)?.reason === "message.too_large";
 }
 
+/// Whether the failure is one the pane clears by itself by asking again, so the person has nothing
+/// to do: a lost or never-opened connection, a chat's machine that is reconnecting or rebooting, an
+/// agent service that is starting (`hostIsReconnecting`). Not a chat too large to open (asking again
+/// gets the same reply), not another build's acpmux holding this app's socket (`restartOffered`:
+/// only Restart agent service clears it), not a refusal that waits on the person (an untrusted
+/// folder, acpmux missing). Such a failure is one quiet "Reconnecting…" (HostError.tsx), however
+/// long it lasts (Leo, 2026-11-12: "it should just automatically do stuff").
+export function hostSelfRetrying(error: unknown, restartOffered: boolean): boolean {
+  return hostIsReconnecting(error) && !hostRefusedTooLarge(error) && !restartOffered;
+}
+
 /// How long a pane's handshakes may keep failing while the host is still recovering (an update's
 /// handoff, a daemon starting or restarting, a start that lost the lock race) before the pane says
 /// so. Until then the pane shows nothing: no card, no header status, no button (Leo, 2026-10-29:
@@ -66,9 +77,13 @@ export function hostErrorShows(
 
 /// The wait before the next handshake. Looking for a daemon is cheap, so while the host is
 /// recovering it is asked again within 2 s and the chat appears soon after the daemon answers; a
-/// refusal that waits on the person backs off without a terminal retry cap.
+/// refusal that waits on the person backs off to one ask every 30 s, never stopping, so one the
+/// host clears on its own (a daemon that is back after its machine rebooted) is found within 30 s
+/// instead of hours later.
+export const REFUSED_RETRY_MAX_MS = 30_000;
+
 export function nextRetryDelay(delay: number, recovering: boolean): number {
-  return Math.min(delay * 2, recovering ? 2_000 : 2_147_483_647);
+  return Math.min(delay * 2, recovering ? 2_000 : REFUSED_RETRY_MAX_MS);
 }
 
 /// What the pane's handshake loop does around a Restart acpmux.
