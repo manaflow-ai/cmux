@@ -1427,7 +1427,6 @@
   ],
   "src/agent-session/acpmux/promptBudgetSend.test.ts": [
     "module state: src/agent-session/acpmux/attention.ts `page` is still set",
-    "module state: src/agent-session/acpmux/conversation/imageEntries.ts `headless` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/conversation/prefixFlatMap.ts `serial` is still set",
     "module state: src/agent-session/acpmux/direct.ts `knownCommands` holds entries it did not hold when loaded",
     "module state: src/agent-session/acpmux/i18n.ts `followed` is still set",
