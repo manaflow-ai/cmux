@@ -30,6 +30,7 @@ def _load(name: str, path: Path):
 check = _load("check_test_redefinitions", SCRIPT)
 git_fixture_env = _load("git_fixture_env", ROOT / "tests/git_fixture_env.py")
 gate = _load("cmux_next_prepush_gate", ROOT / "scripts/cmux-next/prepush-gate.py")
+py39_names = _load("py39_names", ROOT / "tests/test_py39_names.py")  # its python39(): a real 3.9
 gate.load_push_range(ROOT, ROOT / "scripts/cmux-next")  # gate_own reads it from sys.modules
 
 
@@ -211,6 +212,40 @@ class RedefinitionTest(unittest.TestCase):
     def test_the_tree_is_clean(self) -> None:
         result = subprocess.run([sys.executable, "-I", str(SCRIPT)], capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class Python39Test(unittest.TestCase):
+    """The checker as a Mac's hook runs it: install-git-hooks.sh takes any python3, and macOS's is 3.9.6."""
+
+    def test_a_39_run_on_a_plain_file_passes(self) -> None:
+        # cmux#41827 review (F1): `ast.match_case` (3.10+) in the scope walk raised AttributeError on 3.9 for any file
+        # with a block in it, so the gate refused clean pushes as no verdict.
+        python = py39_names.python39()
+        if python is None:
+            self.fail("no Python 3.9 (PY39, python3.9, /usr/bin/python3 or uv): this row needs a real 3.9")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests" / "test_plain.py").write_text(textwrap.dedent("""
+                import unittest
+
+
+                class Plain(unittest.TestCase):
+                    def setUp(self):
+                        if True:
+                            self.x = 1
+
+                    def test_x(self):
+                        for _ in range(2):
+                            with self.subTest():
+                                try:
+                                    self.assertEqual(self.x, 1)
+                                except AssertionError:
+                                    raise
+            """))
+            result = subprocess.run([python, "-I", str(SCRIPT), "--root", str(root)], capture_output=True, text=True,
+                                    check=False)
+        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stdout + result.stderr)
 
 
 LOCKED = "class T:\n    def helper(self):\n        return 1\n"
