@@ -38,6 +38,11 @@ impl std::ops::Deref for RemoteRows {
 
 impl RemoteRows {
     pub(crate) fn insert(&mut self, key: String, row: RemoteSession) {
+        self.insert_shared(key, Arc::new(row));
+    }
+
+    /// Inserts a row its writer shares too (a peer's list announces the rows it changed).
+    pub(crate) fn insert_shared(&mut self, key: String, row: Arc<RemoteSession>) {
         self.take(&key);
         self.writes += 1;
         if let Some(pair) = pair_of(&row.summary) {
@@ -45,7 +50,7 @@ impl RemoteRows {
         }
         let peer = self.by_peer.entry(row.peer.clone()).or_default();
         peer.entry(row.receipt.mux_session_id.clone()).or_default().insert(key.clone());
-        self.rows.insert(key, Arc::new(row));
+        self.rows.insert(key, row);
     }
 
     pub(crate) fn remove(&mut self, key: &str) -> Option<RemoteSession> {
