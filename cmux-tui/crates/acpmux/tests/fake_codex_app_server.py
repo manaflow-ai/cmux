@@ -27,12 +27,6 @@ FAKE_CODEX_HOLD_SUGGESTIONS=1 never answers a prompt suggestion's ask
 (`thread/prediction/request`, `thread/sample`, a prediction `thread/fork`): what the bridge asks
 after a turn completes stays in flight, as on a loaded machine whose answer lands
 after the prompt's own.
-`thread/fork` (not a prediction's) makes a new thread and `thread/resume` takes
-the thread it names; `thread/unsubscribe` lets go of one. FAKE_CODEX_WRITERS=<dir>
-keeps Codex's one-writer rule across app-servers: the process that starts, forks
-or resumes a thread holds it (a file <dir>/<thread id> with its pid) until it
-unsubscribes, and another process's `thread/resume` of a thread whose holder
-still runs is refused (-32600 "thread <id> already has an active writer").
 """
 import json
 import os
@@ -134,47 +128,6 @@ def background_turn(thread, turn, cwd, text):
         running["1003"] = (thread, turn, watch)
 
 
-def hold(thread_id):
-    """Holds the thread for this process under FAKE_CODEX_WRITERS. Returns the
-    pid of another live process that holds it instead, or None."""
-    writers = os.environ.get("FAKE_CODEX_WRITERS")
-    if not writers:
-        return None
-    path = os.path.join(writers, thread_id)
-    try:
-        with open(path) as f:
-            holder = int(f.read().strip() or "0")
-    except (OSError, ValueError):
-        holder = 0
-    if holder and holder != os.getpid():
-        try:
-            os.kill(holder, 0)
-            return holder
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            return holder
-    os.makedirs(writers, exist_ok=True)
-    with open(path, "w") as f:
-        f.write(str(os.getpid()))
-    return None
-
-
-def let_go(thread_id):
-    """This process stops holding the thread (FAKE_CODEX_WRITERS)."""
-    writers = os.environ.get("FAKE_CODEX_WRITERS")
-    if not writers or not thread_id:
-        return
-    path = os.path.join(writers, thread_id)
-    try:
-        with open(path) as f:
-            mine = f.read().strip() == str(os.getpid())
-        if mine:
-            os.remove(path)
-    except OSError:
-        pass
-
-
 def reply(message):
     delay = float(os.environ.get("FAKE_DELAY", "0"))
     if delay:
@@ -219,24 +172,7 @@ for line in sys.stdin:
                 rows = json.load(f)
             asked = message.get("params", {}).get("model")
             model = asked or next((r["id"] for r in rows if r.get("isDefault")), rows[0]["id"])
-        hold(thread["id"])
         reply({"id": rid, "result": {"thread": thread, "model": model, "reasoningEffort": None}})
-    elif method == "thread/fork" and not predicting:
-        params = message.get("params", {})
-        thread = {"id": "fake-fork-%d-%s" % (os.getpid(), rid), "cwd": params.get("cwd"), "turns": []}
-        hold(thread["id"])
-        reply({"id": rid, "result": {"thread": thread, "model": "gpt-6.1-sol", "reasoningEffort": None}})
-    elif method == "thread/resume":
-        params = message.get("params", {})
-        thread_id = params.get("threadId") or ""
-        if hold(thread_id) is not None:
-            reply({"id": rid, "error": {"code": -32600, "message": "thread %s already has an active writer" % thread_id}})
-            continue
-        thread = {"id": thread_id, "cwd": params.get("cwd"), "turns": []}
-        reply({"id": rid, "result": {"thread": thread, "model": "gpt-6.1-sol", "reasoningEffort": None}})
-    elif method == "thread/unsubscribe":
-        let_go((message.get("params") or {}).get("threadId"))
-        reply({"id": rid, "result": {"status": "unsubscribed"}})
     elif method == "turn/start":
         params = message.get("params", {})
         thread, turn = params.get("threadId"), "fake-turn-%s" % rid

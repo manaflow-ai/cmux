@@ -20,9 +20,7 @@ pub(super) async fn codex_hub() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
 }
 
 /// `codex_hub` with the fake's `env` (FAKE_CODEX_* switches).
-pub(super) async fn codex_hub_env(
-    env: &[(&str, &str)],
-) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+async fn codex_hub_env(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!("acpmux-cxproc-{}", uuid::Uuid::now_v7()));
     let bin = root.join("bin");
     let home = root.join("codex-home");
