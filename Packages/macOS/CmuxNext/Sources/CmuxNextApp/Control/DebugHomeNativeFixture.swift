@@ -18,6 +18,9 @@ extension InternalPageID {
 @MainActor
 final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
+    /// The tabs `debug.home_native_fixture.open` made in this launch, oldest first. A fixture tab the
+    /// window restored from an earlier session is not one of them: captures act on the newest of these.
+    private var openedKeys: [String] = []
     /// The app's made-ahead file picker, for each fixture's "+".
     private let openPanel: MadeAheadOpenPanel
     private weak var homes: HomeChiefHomes? // registers each shown transcript's Start now row (startsOwnAgents)
@@ -65,6 +68,12 @@ final class DebugHomeNativeFixture: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         fixtures.removeValue(forKey: key)?.close()
+        openedKeys.removeAll { $0 == key }
+    }
+
+    /// The fixture the newest `open` made (captures act on it alone), with its tab key.
+    private var target: (key: String, fixture: HomeNativeFixture)? {
+        openedKeys.last.flatMap { key in fixtures[key].map { (key, $0) } }
     }
 
     /// `debug.home.attach`: the shown Home composer of the active window
@@ -261,8 +270,13 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         guard let provider = services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture else {
             return .object(["error": .string("no fixture open")])
         }
-        let shown = Array(provider.fixtures.values)
-        if shown.isEmpty { return .object(["error": .string("no fixture open")]) }
+        // Only the tab the newest `open` made: a fixture tab restored from an earlier session draws
+        // the mock with no gate, so its state and its Try Again are not the capture's.
+        guard let target = provider.target else {
+            return .object(["error": .string("no fixture opened by debug.home_native_fixture.open in this launch"),
+                            "other_fixture_tabs": .number(Double(provider.fixtures.count))])
+        }
+        let shown = [target.fixture]
         var answers: [JSONValue] = []
         switch params["action"]?.stringValue ?? "state" {
         case "release":
@@ -286,7 +300,26 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         let folder = captureCacheURL.deletingLastPathComponent()
         let files = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
         let windows = ((try? FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent("home-windows").path)) ?? []).sorted()
-        return .object(["ok": .bool(true), "fixtures": .array(answers), "cache_files": .array(files.map { .string($0) }),
+        // `expect` {first_page, panel, served}: the capture's check that the tab shows the state it set up
+        // (a held or failing gate serves no page). A mismatch fails the step, with the readout kept.
+        if let expect = params["expect"]?.objectValue, let state = answers.first?.objectValue {
+            var mismatches: [String] = []
+            if let want = expect["first_page"]?.stringValue, state["first_page"]?.stringValue != want {
+                mismatches.append("first_page \(state["first_page"]?.stringValue ?? "nil") != \(want)")
+            }
+            if let want = expect["panel"]?.stringValue, (state["panel"]?.stringValue ?? "none") != want {
+                mismatches.append("panel \(state["panel"]?.stringValue ?? "none") != \(want)")
+            }
+            if let want = expect["served"]?.doubleValue, state["gate"]?.objectValue?["served"]?.doubleValue != want {
+                mismatches.append("served \(state["gate"]?.objectValue?["served"]?.doubleValue ?? -1) != \(Int(want))")
+            }
+            if !mismatches.isEmpty {
+                return .object(["error": .string("state mismatch: " + mismatches.joined(separator: ", ")), "fixtures": .array(answers)])
+            }
+        }
+        let others = provider.fixtures.keys.filter { $0 != target.key }.sorted()
+        return .object(["ok": .bool(true), "fixtures": .array(answers), "tab": .string(target.key),
+                        "other_fixture_tabs": .array(others.map { .string($0) }), "cache_files": .array(files.map { .string($0) }),
                         "cache_windows": .array(windows.map { .string($0) })])
     }
 
@@ -312,8 +345,16 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextNewChief = newChief
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextHold = hold
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAfterInbox = afterInbox
+        let provider = services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture
+        let before = Set(provider?.fixtures.keys.map { $0 } ?? [])
         let window = services.windows.active, view = fresh ? services.pages.openNew(.homeNativeFixture, in: window, focus: true) : services.pages.show(.homeNativeFixture, in: window, focus: true)
-        return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
+        // The tab this call returned, when it made a fixture now (`show` that focused a tab made
+        // earlier, a restored one too, makes none): captures act on it alone.
+        let made = view.map { !before.contains($0.key) && provider?.fixtures[$0.key] != nil } ?? false
+        if made, let key = view?.key { provider?.openedKeys.append(key) }
+        return .object(["ok": .bool(view != nil && made), "page": .string(InternalPageID.homeNativeFixture.rawValue),
+                        "made_fixture": .bool(made), "tab": provider?.target.map { .string($0.key) } ?? .null,
+                        "fixture_tabs": .number(Double(provider?.fixtures.count ?? 0))])
     }
 }
 #endif

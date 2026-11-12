@@ -11,7 +11,8 @@
       "rpc": {
         "method": "debug.home_native_fixture.open",
         "params": {
-          "cache": "reset"
+          "cache": "reset",
+          "new": true
         }
       },
       "wait": 4,
@@ -77,7 +78,11 @@
       "rpc": {
         "method": "debug.home_native_fixture.capture",
         "params": {
-          "action": "state"
+          "action": "state",
+          "expect": {
+            "first_page": "loaded",
+            "served": 0
+          }
         }
       },
       "wait": 0.5,

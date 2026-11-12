@@ -57,6 +57,16 @@ export default agentPaneEntry({
       snapshot: uncounted({ connection: "failed" }),
       play: chatLoadShown("failed"),
     },
+    // ui-state-fixes round-6 capture: the attach that never answers. The pane's own LOAD_DEADLINE_MS
+    // (10 s) runs on the page's real timer; the play waits past it.
+    "existing-chat-attach-deadline": {
+      note: "Capture (round 6): the same chat whose attach never answers: Loading conversation…, then past the 10 s deadline Couldn't load this conversation. with Try Again.",
+      snapshot: uncounted(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("[data-chat-load='loading']"));
+        await ctx.waitFor(() => ctx.document.querySelector("[data-chat-load='failed']"), { capMs: 15_000 });
+      },
+    },
     "existing-chat-read-empty": {
       note: "The same chat once its attach answered with no rows and no older history (chatRead): it has no turns, the hero shows.",
       snapshot: uncounted({ chatRead: true }),
@@ -80,6 +90,16 @@ export default agentPaneEntry({
       note: "Play: type /zzz when the chat's command list could not be read (commandsFailed): Couldn't load commands. with Try Again.",
       snapshot: chat([], { commandsFailed: true }),
       play: slashNoMatch,
+    },
+    // ui-state-fixes round-6 capture: the command list that never arrives. "Loading commands…" first,
+    // then past the pane's 10 s LOAD_DEADLINE_MS (real timer) "Couldn't load commands." with Try Again.
+    "slash-commands-deadline": {
+      note: "Capture (round 6): type /zzz while the chat's command list is never read (commandsPending, no answer): Loading commands…, then past the 10 s deadline Couldn't load commands. with Try Again.",
+      snapshot: chat([], { commandsPending: true }),
+      play: async (ctx) => {
+        await slashNoMatch(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-slash-empty .acpmux-slash-retry"), { capMs: 15_000 });
+      },
     },
     "slash-no-matching-commands": {
       note: "Play: type /zzz with a read list that has commands: No matching commands.",
