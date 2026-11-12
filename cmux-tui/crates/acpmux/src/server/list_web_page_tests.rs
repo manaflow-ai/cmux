@@ -210,9 +210,15 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
 /// Bench: bytes and time of the first watch reply, and of the whole list read in pages, on a Web
 /// connection against the app's own one (both paged now; the app's read its list in one reply
 /// up to the message limit before), on about 9,000 closed chats (a whole list of about 15 MB;
-/// summaries cap their titles).
-/// `cargo test -p acpmux list_web_page_bench -- --nocapture`.
+/// summaries cap their titles). It asserts only that each reply comes within `Client::call`'s
+/// 60 s: a debug build took 42 to 53 s in the lib's parallel run beside 16 busy loops on 8 CPUs,
+/// and 65 to 67 s in 2 of 10, so it is a check for its own run, one test at a time:
+/// `cargo test -p acpmux --lib server::list_web_page_tests::list_web_page_bench -- --ignored --exact --test-threads=1 --nocapture`.
+/// The default run checks what the paging holds by bytes and ids, on 3,000 chats:
+/// `a_web_connection_reads_a_large_whole_list_in_bounded_pages` (every page under the bound,
+/// every row once), the two peer-link tests, and `no_list_reply_passes_a_few_megabytes_on_any_connection`.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "own run, one test at a time: a bench, 15 MB through a debug build within a 60 s reply wait"]
 async fn list_web_page_bench() {
     let hub = hub_of(9_000, 2_600, "closed").await;
     let mut local = Client::on(&hub, Origin::Local).await;

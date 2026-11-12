@@ -70,7 +70,7 @@ import {
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
-import { finishCarry, notePinPass, pinLiveLine } from "./conversation/pinnedLiveLine";
+import { finishCarry, notePinPass, pinLiveLine, refreshPinned } from "./conversation/pinnedLiveLine";
 import { ARRIVAL_EASE, arrivalStepMs, createFollowChase, type FollowChase } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
@@ -1456,6 +1456,8 @@ function TranscriptView({
   const jumpUpHint = useRef(-1);
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
   const placedTop = useRef<number | undefined>(undefined);
+  /// Jump up's glide is in flight (`placeView`): its steps are its own, not the reader's stops.
+  const placing = useRef(false);
   const sinceHint = useRef(-1);
   // Without the folder's GitHub remote, a bare `#N` in a row means the repository the transcript
   // mentioned last (conversation/transcriptRepositories.ts); each row's text is read once per change.
@@ -4059,6 +4061,7 @@ function TranscriptView({
       pinLive ? LIVE_THINKING : undefined,
       carry,
     );
+    refreshPinned(thread.current);
     finishCarry(thread.current, carry, (px) => {
       const style = thread.current ? getComputedStyle(thread.current) : undefined;
       const floor = cssTimeMs(style?.getPropertyValue("--agent-motion-arrive") ?? "") ?? MOTION_MS.quick;
@@ -4805,10 +4808,11 @@ function TranscriptView({
     // The reader's own scroll: where it rests is where they left off (Jump up, jumpUp.ts), and a way
     // back Jump up held is theirs no longer.
     // Jump up's own move (`placeView`) lands inside the press's input hold, so it reads as the
-    // reader's: the offset it set is not a stop, and it keeps the way back it holds.
+    // reader's: the offsets its glide steps through and the one it lands on are not stops, and it
+    // keeps the way back it holds.
     const placed = placedTop.current;
     placedTop.current = undefined;
-    if (!programmatic && (placed === undefined || Math.abs(next - placed) > 1)) {
+    if (!programmatic && !placing.current && (placed === undefined || Math.abs(next - placed) > 1)) {
       if (seenAnchor.current) stoppedMark.current = { place: seenAnchor.current, at: Date.now(), why: "stopped" };
       if (jumpBack.current) {
         jumpBack.current = undefined;
@@ -4861,19 +4865,51 @@ function TranscriptView({
   };
   jumpToLatestRef.current = jumpToLatest;
   /// Jump up (jumpUp.ts): to where the reader left off, holding where the view is; pressed again
-  /// (or Esc), back there. An instant move, as a Find reveal's: the reader asked for this place, so
-  /// the view stops following the reply.
-  const placeView = (top: number) => {
+  /// (or Esc), back there. The reader asked for this place, so the view stops following the reply.
+  /// It glides on Jump to latest's ride (curve, distance duration, move token): a long way skips at
+  /// once to one viewport from the place, with those rows mounted before the frame paints, and eases
+  /// the rest, so the view never cuts to a far place in one frame nor draws the rows it crosses.
+  /// `top` is read each frame: rows that measure on the way move the landing with them. Reduce
+  /// Motion and motion off still cut.
+  const placeView = (top: () => number) => {
     const node = ref.current;
     if (!node) return;
     revealing.current = undefined;
     revealWindow.current = 0;
     stopJump();
     unlift();
-    node.scrollTop = physicalScrollTop(node, Math.max(0, top));
-    placedTop.current = node.scrollTop;
     scrolledTo.current = { top: node.scrollTop, atLatest: false };
     follow(false);
+    const target = () => physicalScrollTop(node, Math.max(0, top()));
+    const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    placing.current = true;
+    const glideFrom = jumpGlideStart(node.scrollTop, target(), node.clientHeight);
+    if (!reduce && glideFrom !== node.scrollTop) {
+      node.scrollTop = glideFrom;
+      flushSync(() => setScrollAt(node.scrollTop));
+    }
+    const move = cssTimeMs(
+      node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "",
+    );
+    const duration = reduce
+      ? 0
+      : jumpDuration(target() - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
+    animateScroll(
+      node,
+      target,
+      duration,
+      JUMP_CURVE,
+      () => {
+        placing.current = false;
+        placedTop.current = node.scrollTop;
+        scrolledTo.current = { top: node.scrollTop, atLatest: false };
+      },
+      () => {
+        // The reader's own input took the view mid-glide: from here their scroll is theirs.
+        placing.current = false;
+      },
+      { explicit: true },
+    );
   };
   const pressUp = () => {
     const node = ref.current;
@@ -4883,14 +4919,25 @@ function TranscriptView({
       jumpBack.current = undefined;
       setJumpBackHeld(false);
       if (press.back.atLatest) jumpToLatest(false, "jump-back");
-      else placeView(press.back.top);
+      else {
+        const back = press.back.top;
+        placeView(() => back);
+      }
       return;
     }
-    const top = upTopRef.current;
-    if (top === undefined) return;
+    const { top, place } = upTopRef.current;
+    if (top === undefined || !place) return;
     jumpBack.current = press.back;
     setJumpBackHeld(true);
-    placeView(top - node.clientHeight / 3);
+    // The place pressed for, a third down the view, where its row measures on the way. Held by its
+    // row: the target can change under the glide (the New line read as it comes into view), and the
+    // view must not turn round to it.
+    const hint = { current: -1 };
+    placeView(() => {
+      const { layout: placed, rows: shown } = latestLayout.current;
+      const index = indexOfRow(shown, place.rowId, hint);
+      return (index >= 0 ? placed.geometry.topAt(index) + place.offset : top) - node.clientHeight / 3;
+    });
   };
   const pressUpRef = useRef(pressUp);
   pressUpRef.current = pressUp;
@@ -5431,8 +5478,8 @@ function TranscriptView({
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
   const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
   const upShown = jumpButton && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
-  const upTopRef = useRef(upTop);
-  upTopRef.current = upTop;
+  const upTopRef = useRef({ top: upTop, place: upTarget });
+  upTopRef.current = { top: upTop, place: upTarget };
   // The button's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
   // moves in the same frame the button starts to fade in or out.
   const jumpVisible = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);

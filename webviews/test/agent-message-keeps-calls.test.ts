@@ -17,10 +17,19 @@
 // from a GCP thing, and that tool call has completely disappeared."
 //
 // The events follow a real acpmux log (a Claude chat, 2026-11-07), with names and text replaced.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { LANE_NOTICE_BATCH, MESSAGE_RUN, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnViewFrom } from "../src/agent-session/acpmux/conversation/turns";
+
+// The closed fold keeps the replies beside it (turnFoldReplies.experiment.ts `replies`); the shipped
+// `answer` keeps only the final answer, covered by turn-fold-keeps-replies.test.ts.
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-replies": "replies" };
+});
+afterAll(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const TURN = "0190a000-0000-7000-8000-00000000c701";
