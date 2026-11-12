@@ -132,8 +132,9 @@ Prevention, in the desktop (macOS):
     an app fills when it opens. Otherwise, whether or not anything is
     denied (a protected app's item could sit under a submenu), it is closed
     again and its titles listed (`menu.state` `listed`, submenu parents
-    marked); while something is denied and the names are still loading the
-    call says so instead (retry).
+    marked). While the app names are still loading (the protected apps
+    always apply, whatever the deny list), a menu holding the keyboard is
+    closed, no menu item is picked, and the call says so (retry).
   - Picks run in one call: `click` with `menu_item` (a right click or
     control-click, a pop-up or menu button), with a path for a submenu's
     item ("Open With > TextEdit", "Sort By > Name"), or `set_value` on a

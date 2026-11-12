@@ -102,7 +102,8 @@ pub fn title_names_blocked_app(
                 return true;
             }
             match resolve(&run) {
-                None if guard.denies_any() => return true,
+                // Names still loading: fail closed (protected apps always apply).
+                None => return true,
                 Some(ids) if ids.iter().any(|id| guard.app_blocked(id, &run)) => return true,
                 _ => {}
             }

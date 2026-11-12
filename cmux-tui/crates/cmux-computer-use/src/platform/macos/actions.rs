@@ -262,7 +262,7 @@ impl MacDesktop {
         // A point on the recorded menu's window is hit-tested in that
         // window's owner (a System Settings pane draws its menus in a
         // helper process); there, a point that reaches no readable menu
-        // item is refused while something is denied.
+        // item is refused, whatever the deny list.
         // A submenu opened later shows in a window of the same owner at the
         // menu layer: it counts as the menu's too.
         let on_menu = self.recorded_menu().and_then(|(_, windows)| {
@@ -284,7 +284,7 @@ impl MacDesktop {
             self.refuse_submenu_open(&current)?;
             el = current.element("AXParent");
         }
-        if on_menu.is_some() && !found_item && self.denies_any() {
+        if on_menu.is_some() && !found_item {
             return Err(DesktopError::Unsupported(menus::denied_item_refusal(None)));
         }
         Ok(())
@@ -921,6 +921,11 @@ fn pick_closed(
     if items.is_empty() {
         return Ok(None);
     }
+    // Items are checked against the app names: none is chosen while they
+    // load (the protected apps always apply).
+    if !workspace::app_names_ready() {
+        return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
+    }
     let titles: Vec<String> = items.iter().map(|i| i.info.title.clone()).collect();
     let hidden: Vec<bool> = items.iter().map(|i| i.denied).collect();
     let mut items = items;
@@ -933,9 +938,6 @@ fn pick_closed(
             return Err(DesktopError::Unsupported(menus::denied_item_refusal(Some(value))));
         }
         menus::Pick::Missing(found) => {
-            if d.denies_any() && !workspace::app_names_ready() {
-                return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
-            }
             let shown: Vec<String> =
                 items.iter().filter(|i| !i.denied).map(|i| i.info.title.clone()).collect();
             return Err(DesktopError::Unsupported(format!(

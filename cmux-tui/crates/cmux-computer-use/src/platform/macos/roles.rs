@@ -440,9 +440,9 @@ pub fn menu_item_blocked(
             return true;
         }
         match resolve(candidate) {
-            // The name index is still being built: fail closed while any
-            // app is denied.
-            None => return guard.denies_any(),
+            // The name index is still being built: fail closed (the
+            // protected apps always apply, whatever the deny list).
+            None => return true,
             Some(ids) if ids.iter().any(|id| guard.app_blocked(id, candidate)) => return true,
             Some(_) => {}
         }

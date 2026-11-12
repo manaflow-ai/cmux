@@ -276,7 +276,7 @@ fn a_path_pick_opens_each_submenu_and_holds_every_level_to_the_deny_list() {
 }
 
 #[test]
-fn a_menu_with_a_protected_item_is_listed_and_closed_even_with_nothing_denied() {
+fn a_protected_item_is_hidden_from_a_menu_listing_with_nothing_denied() {
     // An empty deny list still protects the security UI: a menu item that
     // names a protected app never sits open under the person's keys.
     let (d, e) = rig(MenuMode::Open);
