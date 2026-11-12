@@ -940,6 +940,13 @@ mod model {
         }
     }
 
+    struct Bind {
+        binding: u64,
+        prefetch: bool,
+        /// A ticket was actually supplied, independently of later invalidation.
+        seeded: bool,
+    }
+
     struct Request {
         generation: u64,
         /// The binding whose client the request runs on.
@@ -956,7 +963,7 @@ mod model {
     }
 
     struct Model {
-        core: Core<(u64, bool), u64>,
+        core: Core<Bind, u64>,
         now_ms: u64,
         /// The fetch thread's clients, the same `Hands` as `Fetcher`'s: each
         /// client is the binding it was made for.
@@ -977,12 +984,15 @@ mod model {
         /// Resumes that found no client and acted once one came back.
         waited_resumes: u64,
         /// A job that acts on a resume, picked and not yet acted on.
-        picked: Option<Job<(u64, bool), u64>>,
+        picked: Option<Job<Bind, u64>>,
         /// Resumes picked with a bind or another resume landing before
         /// they were acted on.
         overtaken_resumes: u64,
         /// Initial-bind ticket requests, before any resume invalidates the seed.
         initial_prefetches: u64,
+        seeded_binds: u64,
+        invalidated_seeds: u64,
+        local_binds: u64,
         trace: Vec<String>,
     }
 
@@ -1006,6 +1016,9 @@ mod model {
                 picked: None,
                 overtaken_resumes: 0,
                 initial_prefetches: 0,
+                seeded_binds: 0,
+                invalidated_seeds: 0,
+                local_binds: 0,
                 trace: Vec::new(),
             }
         }
@@ -1146,7 +1159,7 @@ mod model {
             self.act(seed, rng, job);
         }
 
-        fn act(&mut self, seed: u64, rng: &mut Rng, job: Job<(u64, bool), u64>) {
+        fn act(&mut self, seed: u64, rng: &mut Rng, job: Job<Bind, u64>) {
             if let Job::Resume(generation) | Job::Done(_, Back { resume: true, .. }, generation) =
                 &job
                 && *generation != self.core.generation
@@ -1155,9 +1168,18 @@ mod model {
             }
             match job {
                 Job::Bind(bind, generation, seed_valid) => {
-                    let (binding, prefetch) = *bind;
+                    let Bind { binding, prefetch, seeded } = *bind;
                     self.hands.bound(binding, prefetch);
-                    let ticket = (prefetch && !seed_valid).then_some(("prefetched", false));
+                    // Like Fetcher: validity alone cannot stand in for seed presence.
+                    let keep_seed = seeded && seed_valid && self.core.generation == generation;
+                    if !prefetch {
+                        self.local_binds += 1;
+                    } else if keep_seed {
+                        self.seeded_binds += 1;
+                    } else if seeded {
+                        self.invalidated_seeds += 1;
+                    }
+                    let ticket = (prefetch && !keep_seed).then_some(("prefetched", false));
                     self.start(seed, rng, Task { mint: true, ticket }, generation);
                 }
                 Job::Resume(generation) => {
@@ -1188,6 +1210,26 @@ mod model {
             }
         }
 
+        fn ticket(&mut self, generation: u64, binding: u64) -> Value {
+            self.issued += 1;
+            json!({ "ok": true, "ticket": format!("g{generation}-b{binding}-{}", self.issued), "expires_at": self.now_ms / 1000 + 300 })
+        }
+
+        fn bind(&mut self, rng: &mut Rng) {
+            self.binds += 1;
+            let prefetch = rng.below(2) == 0;
+            let seeded = prefetch && rng.below(2) == 0;
+            let warm = if seeded {
+                // Bind creates the next generation; use the model clock, just as
+                // replies do, so these tickets can be handed out and invalidated.
+                let reply = self.ticket(self.core.generation.wrapping_add(1), self.binds);
+                Some(Warm::of(&reply, self.now_ms).expect("fresh model seed"))
+            } else {
+                None
+            };
+            self.core.bind_with(Bind { binding: self.binds, prefetch, seeded }, warm);
+        }
+
         fn reply(&mut self, rng: &mut Rng) {
             if self.in_flight.is_empty() {
                 return;
@@ -1198,8 +1240,7 @@ mod model {
                 if rng.below(6) == 0 {
                     json!({ "ok": false, "error": { "code": "carrier.unavailable" } })
                 } else {
-                    self.issued += 1;
-                    json!({ "ok": true, "ticket": format!("g{generation}-b{binding}-{}", self.issued), "expires_at": self.now_ms / 1000 + 300 })
+                    self.ticket(generation, binding)
                 }
             });
             self.core.finished(Done {
@@ -1217,6 +1258,7 @@ mod model {
         let (mut handed, mut refused, mut wanted, mut stale, mut waited) = (0, 0, 0, 0, 0);
         let mut overtaken = 0;
         let mut initial_prefetches = 0;
+        let (mut seeded_binds, mut invalidated_seeds, mut local_binds) = (0, 0, 0);
         for seed in 0..SEEDS {
             let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
             let mut model = Model::new();
@@ -1244,10 +1286,7 @@ mod model {
                     2 => model.hand_out(seed),
                     3 if rng.below(4) == 0 => model.leave(),
                     4 => model.core.note_resume(),
-                    5 if rng.below(3) == 0 => {
-                        model.binds += 1;
-                        model.core.bind((model.binds, rng.below(2) == 0));
-                    }
+                    5 if rng.below(3) == 0 => model.bind(&mut rng),
                     6..=8 => model.fetch_step(seed, &mut rng),
                     9 | 10 => model.reply(&mut rng),
                     11 => model.now_ms += rng.below(120_000),
@@ -1261,10 +1300,16 @@ mod model {
             waited += model.waited_resumes;
             overtaken += model.overtaken_resumes;
             initial_prefetches += model.initial_prefetches;
+            seeded_binds += model.seeded_binds;
+            invalidated_seeds += model.invalidated_seeds;
+            local_binds += model.local_binds;
         }
         // Every path the invariants guard was driven, many times over.
         let reached = [
             ("initial-bind prefetches", initial_prefetches),
+            ("seeded binds retaining their seed", seeded_binds),
+            ("seeded binds replacing an invalidated seed", invalidated_seeds),
+            ("binds without a carrier", local_binds),
             ("tickets handed out", handed),
             ("replies refused at the hand-out as stale", refused),
             ("ticket requests for asks", wanted),
@@ -1273,6 +1318,7 @@ mod model {
             ("resumes a bind or another resume overtook before they were acted on", overtaken),
         ];
         for (what, count) in reached {
+            println!("model coverage: {what}: {count}");
             assert!(count >= SEEDS / 10, "the model reached {what} only {count} times");
         }
     }
