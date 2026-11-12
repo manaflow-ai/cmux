@@ -3365,6 +3365,29 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     return refused or refuse
 
 
+def tree_sites(repo: Path, head: str, rule_id: str) -> list[str]:
+    """Every site RULE_ID finds in HEAD's whole tree (base debt included), as `path:line: text`, sorted.
+
+    The rule judges what HEAD adds over the empty tree, so each count is the debt a slice of work pays down
+    (threading item 1, #25852: `--sites main-blocking` counts the main-thread blocking sites). A warning rule's
+    sites (maybe-main-blocking) count the same way."""
+    # The empty tree (git knows it without storing it), not a written empty commit: no loose objects.
+    empty = subprocess.run(["git", "-C", str(repo), "hash-object", "-t", "tree", "--stdin"], input=b"",
+                           capture_output=True, check=True).stdout.decode().strip()
+    found, warnings = measure(repo, empty, git(repo, "rev-parse", head).strip())
+    # measure() fails open (a warning) when the diff, the generic-signature context or this rule fails; a count
+    # that silently left the rule out would read as debt paid down, so the count fails closed instead.
+    failed = [text for source, text in warnings if source == "guardrails"
+              and text.startswith(("could not read", "generic-signature context", f"rule {rule_id} "))]
+    if failed:
+        raise SystemExit("guardrails --sites: no count, the rule did not run on the whole tree:\n" + "\n".join(failed))
+    refusals, _ = settle(found, [])
+    sites = [f"{h.path}:{h.number}: {h.text.strip()}" for rule, hits in refusals if rule.id == rule_id for h in hits]
+    sites += [f"{h.path}:{h.number}: {h.text.strip()}" for rule, hits in found if rule.id == rule_id
+              for h in hits if getattr(h, "warn", False) and not (isinstance(h, NetHit) and h.additive and h.excess <= 0)]
+    return sorted(sites)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo")
@@ -3373,10 +3396,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--main-thread-counts", metavar="REV", nargs="?", const="HEAD",
                         help="print main-hop and blocking counts at REV (default HEAD) as JSON and exit")
+    parser.add_argument("--sites", metavar="RULE",
+                        help="print every site of RULE in HEAD's whole tree and their count (base debt included)")
     args = parser.parse_args(argv)
     if args.main_thread_counts:
         repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
         print(json.dumps(main_thread_counts(repo, args.main_thread_counts), indent=2))
+        return 0
+    if args.sites:
+        if args.sites not in {rule.id for rule in RULES}:
+            raise SystemExit(f"guardrails: no rule {args.sites} (--list prints them)")
+        repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip())
+        sites = tree_sites(repo, args.head, args.sites)
+        for site in sites:
+            print(site)
+        print(f"guardrails --sites {args.sites}: {len(sites)} at {git(repo, 'rev-parse', '--short=11', args.head).strip()}")
         return 0
     if args.list:
         for rule in RULES:

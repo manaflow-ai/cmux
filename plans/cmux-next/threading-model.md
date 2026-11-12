@@ -48,6 +48,9 @@ How it is enforced:
   `await` of an `@MainActor` function. Escape: `// main-hop-allow: <why no scheduler path fits and what bounds
   the work>`. Old hops are not refused; the count only goes down. `guardrails.py --main-thread-counts [REV]`
   prints the hop, scheduler-entry, raw-blocking and checked-seam counts.
+- **The count (the debt left to pay down).** `scripts/cmux-next/guardrails.py --sites main-blocking` judges the
+  whole tree (base debt included) and prints every main-blocking site and their count: 75 at 01facc1b131
+  (feat-cmux-next). Any rule id works.
 
 ## Threads and queues
 
