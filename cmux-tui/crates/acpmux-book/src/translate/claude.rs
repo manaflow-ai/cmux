@@ -174,10 +174,21 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
             if body.get().starts_with('[') {
                 input::each(body, |raw| {
                     let block: Block<'_> = input::value(raw)?;
+                    if let Some(raw) = block.text.or(block.thinking) {
+                        let _ = input::text(raw)?;
+                    }
+                    if let Some(raw) = block.input {
+                        let _: &RawValue = raw;
+                    }
+                    if let Some(raw) = block.content {
+                        input::content(raw, 0, &mut |_| Ok(()))?;
+                    }
                     super::bounded(&block.id)?;
                     super::bounded(&block.name)?;
                     super::bounded(&block.tool_use_id)
                 })?;
+            } else if body.get().starts_with('"') {
+                let _ = input::text(body)?;
             }
         }
     }

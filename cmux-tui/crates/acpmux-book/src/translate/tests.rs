@@ -372,7 +372,11 @@ fn claude_split_property_and_final_reply_visibility() {
         assert_eq!(state, whole);
         assert_eq!(view, full);
     }
-    assert!(full.visible(full.reply("Working note.Final answer?")));
+    let note = full.reply("Working note.");
+    let answer = full.reply("Final answer?");
+    assert!(full.visible(note));
+    assert!(full.visible(answer));
+    assert!(note.id < answer.id);
 }
 
 #[test]

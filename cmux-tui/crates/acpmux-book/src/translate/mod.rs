@@ -114,6 +114,7 @@ struct Stream {
     block: blocks::Block,
     facts: fold::Reply,
     deferred_cut: bool,
+    plain_next: bool,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Prompt {
@@ -311,6 +312,7 @@ impl State {
                 reply.row.open = false;
                 out.row(&reply.row);
             }
+            reply.plain_next = true;
         }
     }
     fn mark_steer(&mut self) {
@@ -593,16 +595,19 @@ impl State {
                 block: blocks::Block::default(),
                 facts,
                 deferred_cut: false,
+                plain_next: false,
             }
         };
         let mut start = 0;
         for (offset, ch) in text.char_indices() {
             if stream.deferred_cut {
                 stream.deferred_cut = false;
-                self.continue_text(&mut stream, false, out)?;
+                self.continue_text(&mut stream, false, true, out)?;
             } else if !stream.row.open {
                 let inside_line = stream.block.line_bytes() != 0;
-                self.continue_text(&mut stream, inside_line, out)?;
+                let continuation = !stream.plain_next;
+                stream.plain_next = false;
+                self.continue_text(&mut stream, inside_line, continuation, out)?;
             }
             // A single line cannot retain a body in the checkpoint or wait forever
             // for a newline. Split before this character if UTF-8 would cross 16 KiB.
@@ -613,7 +618,7 @@ impl State {
                     out.text(stream.row.id, &text[start..offset], start);
                 }
                 start = offset;
-                self.continue_text(&mut stream, true, out)?;
+                self.continue_text(&mut stream, true, true, out)?;
             }
             let boundary = stream.block.push(ch);
             // BeforeLine is decided by this line's first byte, never lookahead.
@@ -626,7 +631,7 @@ impl State {
                     out.text(stream.row.id, &text[start..offset], start);
                 }
                 start = offset;
-                self.continue_text(&mut stream, false, out)?;
+                self.continue_text(&mut stream, false, true, out)?;
             }
             stream.row.bytes = stream.row.bytes.saturating_add(ch.len_utf8() as u64);
             stream.facts.push(ch);
@@ -644,7 +649,7 @@ impl State {
             }
             if cut {
                 if ch != '\n' || end < text.len() {
-                    self.continue_text(&mut stream, ch != '\n', out)?;
+                    self.continue_text(&mut stream, ch != '\n', true, out)?;
                 } else {
                     // Start the continuation when the next event supplies a byte;
                     // never emit an empty row at the end of this event.
@@ -666,6 +671,7 @@ impl State {
         &mut self,
         stream: &mut Stream,
         inside_line: bool,
+        continuation: bool,
         out: &mut input::Output<'_>,
     ) -> Result<(), Error> {
         if stream.row.open {
@@ -675,8 +681,12 @@ impl State {
         let mut row = self.row(stream.row.kind, out)?;
         row.turn = stream.row.turn;
         row.group = stream.row.group;
-        row.fields.insert("cont".into(), "true".into());
-        if inside_line {
+        if continuation {
+            row.fields.insert("cont".into(), "true".into());
+        } else {
+            stream.block = blocks::Block::default();
+        }
+        if continuation && inside_line {
             stream.block.mark_cut_inside_line();
         }
         if stream.block.take_cut_inside_line() {
