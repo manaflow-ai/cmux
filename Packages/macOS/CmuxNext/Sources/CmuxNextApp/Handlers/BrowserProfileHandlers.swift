@@ -75,21 +75,20 @@ enum BrowserProfileHandlers {
         BrowsingDataClear.bind(bind, context: context)
     }
 
-    /// `cmux browser profile move|proxy set|proxy clear` from the palette. The daemon's answer is the action's tracked
-    /// work, so a refusal (a proxy host it does not take) shows instead of closing the palette silently.
+    /// `cmux browser profile move|proxy set|proxy clear` from the palette; a daemon refusal shows as the action's failure.
     private static func bindDaemonVerbs(into registry: ActionRegistry, context: AppActionContext) {
         let profiles = context.services.browserProfiles
-        func bind(_ id: ActionID, _ edit: @escaping @MainActor (String, ActionInvocation) throws -> ActionConfirmation) {
+        func bind(_ id: ActionID, _ edit: @escaping @MainActor (String, ActionInvocation) throws -> ActionEffect) {
             registry.bindEffect(id, requires: nil, effect: { invocation in
-                do { return .applied(try edit(context.browserProfile(invocation).id, invocation)) } catch let error as BrowserProfileBookError {
+                do { return try edit(context.browserProfile(invocation).id, invocation) } catch let error as BrowserProfileBookError {
                     throw ActionFailure.invalidTarget(BrowserProfileAppStrings.message(error))
                 }
             })
         }
         bind("browserProfile.move") { id, invocation in
             guard let position = invocation["index"]?.intValue else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.positionRequired) }
-            let order = context.services.machines.local.store.personal.browserProfiles, old = order.firstIndex { $0.id == id } ?? 0
-            return try profiles.move(id, to: BrowserProfileSnapshot.moveIndex(position: position, from: old, count: order.count))
+            let order = context.services.machines.local.store.personal.browserProfiles
+            return try profiles.move(id, to: BrowserProfileSnapshot.moveIndex(of: id, to: position, in: order))
         }
         bind("browserProfile.setProxy") { id, invocation in
             guard let proxy = BrowserProfileSnapshot.Proxy.palette(scheme: invocation["scheme"]?.stringValue, host: invocation["host"]?.stringValue,

@@ -8,6 +8,11 @@ extension BrowserProfileSnapshot {
         let place = min(max(position - 1, 0), max(count - 1, 0))
         return place > old ? place + 1 : place
     }
+
+    /// ``moveIndex(position:from:count:)`` for profile `id` in `order`, the store's current list.
+    public static func moveIndex(of id: String, to position: Int, in order: [BrowserProfileSnapshot]) -> Int {
+        moveIndex(position: position, from: order.firstIndex { $0.id == id } ?? 0, count: order.count)
+    }
 }
 
 extension BrowserProfileSnapshot.Proxy {
