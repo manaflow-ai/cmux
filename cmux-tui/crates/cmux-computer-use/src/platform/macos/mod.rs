@@ -107,9 +107,15 @@ impl MacDesktop {
             roles::ItemCheck::Allowed => {}
         }
         let path = menus::item_path_checked(item);
-        // These rules read the built index alone: while it loads, a block
-        // there may only mean a name is not known yet.
-        opened_rules(&*guard, &title, path.as_deref()).then(|| {
+        // What blocks with no names at all is a real block (a `name:` entry,
+        // a protected name, an unreadable path, a launch list).
+        let no_names = |_: &str| -> Option<Vec<String>> { Some(Vec::new()) };
+        if opened_rules(&*guard, &title, path.as_deref(), &no_names) {
+            return Some(BlockReason::Denied);
+        }
+        // The rest reads the built index alone: while it loads, a block may
+        // only mean a name is not known yet.
+        opened_rules(&*guard, &title, path.as_deref(), &workspace::apps_named_indexed).then(|| {
             if workspace::app_names_ready() { BlockReason::Denied } else { BlockReason::Loading }
         })
     }
@@ -132,7 +138,7 @@ impl MacDesktop {
             launch: Some(it.launch),
         };
         roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named_indexed)
-            || opened_rules(&*guard, it.title, it.path)
+            || opened_rules(&*guard, it.title, it.path, &workspace::apps_named_indexed)
     }
 
     /// Whether items at this menu depth need their menu's titles: only a
@@ -152,18 +158,23 @@ impl MacDesktop {
 /// installed app may run ("Services Settings…", "Make Sticky", "Customize…"
 /// can open or hand data to any app); and any run of words in its title or
 /// in the items above that names a denied or protected app blocks it.
-fn opened_rules(guard: &dyn MenuGuard, title: &str, path: Option<&[String]>) -> bool {
+fn opened_rules(
+    guard: &dyn MenuGuard,
+    title: &str,
+    path: Option<&[String]>,
+    resolve: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> bool {
     if guard.denies_any() && roles::in_opened_launch_list(path, workspace::launch_submenu_titles())
     {
         let name = roles::menu_app_name(title).0;
-        let ids = workspace::apps_named_indexed(name).unwrap_or_default();
+        let ids = resolve(name).unwrap_or_default();
         if ids.is_empty() || ids.iter().any(|id| guard.app_blocked(id, name)) {
             return true;
         }
     }
     std::iter::once(title)
         .chain(path.unwrap_or_default().iter().map(String::as_str))
-        .any(|t| crate::menus::title_names_blocked_app(guard, t, &workspace::apps_named_indexed))
+        .any(|t| crate::menus::title_names_blocked_app(guard, t, resolve))
 }
 
 /// A resolved window: the window server's entry and its app's identity.

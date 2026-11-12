@@ -683,7 +683,9 @@ pub(super) fn add_prefixed_running(
     running: &[(String, String)],
 ) {
     for (id, name) in running {
-        if !prefixes.iter().any(|p| id.starts_with(p.as_str())) {
+        // Bundle ids compare in any case, as the deny list's matcher does.
+        let lower = id.to_ascii_lowercase();
+        if !prefixes.iter().any(|p| lower.starts_with(&p.to_ascii_lowercase())) {
             continue;
         }
         let key = name.trim().to_lowercase();
@@ -726,35 +728,53 @@ pub fn set_blocked_ids_source(source: BlockedIds) {
     *blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
 }
 
-/// The blocked apps' names, built once for a set of ids (again if it
-/// changes). None with no guard yet or when LaunchServices cannot be asked.
+/// The blocked apps' names: the exact ids' names built once per id set
+/// (again when it changes), and, only when there are `prefix*` entries, the
+/// windowed apps they cover, refreshed every few seconds. None with no guard
+/// yet or when LaunchServices cannot be asked.
 fn cold_blocked_names() -> Option<std::sync::Arc<NameMap>> {
-    // (entries, when, map): rebuilt when the entries change, and every few
-    // seconds for the running apps a prefix entry covers.
-    type Cached = (Vec<String>, std::time::Instant, std::sync::Arc<NameMap>);
-    static CACHE: std::sync::Mutex<Option<Cached>> = std::sync::Mutex::new(None);
+    // The exact ids and their names.
+    static EXACT: std::sync::Mutex<Option<(Vec<String>, std::sync::Arc<NameMap>)>> =
+        std::sync::Mutex::new(None);
+    // (prefixes, the exact map it was built on, when, the merged map).
+    type Merged =
+        (Vec<String>, std::sync::Arc<NameMap>, std::time::Instant, std::sync::Arc<NameMap>);
+    static MERGED: std::sync::Mutex<Option<Merged>> = std::sync::Mutex::new(None);
     const RUNNING_FRESH: Duration = Duration::from_secs(5);
     let entries = {
         let source = blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner());
         (source.as_ref()?)()
     };
-    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((cached, at, map)) = cache.as_ref()
-        && *cached == entries
+    let (prefixes, ids): (Vec<String>, Vec<String>) =
+        entries.into_iter().partition(|e| e.ends_with('*'));
+    let prefixes: Vec<String> =
+        prefixes.into_iter().map(|p| p.trim_end_matches('*').to_ascii_lowercase()).collect();
+    let exact = {
+        let mut cache = EXACT.lock().unwrap_or_else(|e| e.into_inner());
+        match cache.as_ref() {
+            Some((cached, map)) if *cached == ids => map.clone(),
+            _ => {
+                let map = std::sync::Arc::new(names_of_bundles(&ids)?);
+                *cache = Some((ids, map.clone()));
+                map
+            }
+        }
+    };
+    if prefixes.is_empty() {
+        return Some(exact);
+    }
+    let mut merged = MERGED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((cached, base, at, map)) = merged.as_ref()
+        && *cached == prefixes
+        && std::sync::Arc::ptr_eq(base, &exact)
         && at.elapsed() < RUNNING_FRESH
     {
         return Some(map.clone());
     }
-    let (prefixes, ids): (Vec<String>, Vec<String>) =
-        entries.iter().cloned().partition(|e| e.ends_with('*'));
-    let prefixes: Vec<String> =
-        prefixes.into_iter().map(|p| p.trim_end_matches('*').to_string()).collect();
-    let mut map = names_of_bundles(&ids)?;
-    if !prefixes.is_empty() {
-        add_prefixed_running(&mut map, &prefixes, &running_ids_and_names());
-    }
+    let mut map = (*exact).clone();
+    add_prefixed_running(&mut map, &prefixes, &running_ids_and_names());
     let map = std::sync::Arc::new(map);
-    *cache = Some((entries, std::time::Instant::now(), map.clone()));
+    *merged = Some((prefixes, exact, std::time::Instant::now(), map.clone()));
     Some(map)
 }
 

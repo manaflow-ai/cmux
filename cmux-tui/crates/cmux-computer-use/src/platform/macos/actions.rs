@@ -112,10 +112,10 @@ impl MacDesktop {
             return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
         }
         if check == roles::ItemCheck::Blocked {
-            return Err(DesktopError::Unsupported(
-                "this menu item would open or hand data to an app on the Computer Use deny list"
-                    .into(),
-            ));
+            return Err(DesktopError::Unsupported(menus::block_message(
+                menus::BlockReason::Denied,
+                None,
+            )));
         }
         // Menu commands act on the app's key window: the same rule as keys.
         // In the foreground the window is raised first (it becomes the key

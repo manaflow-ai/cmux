@@ -1394,6 +1394,11 @@ fn a_running_app_a_prefix_entry_covers_is_known_by_its_name_before_the_index() {
     workspace::add_prefixed_running(&mut map, &["com.agilebits.".to_string()], &running);
     assert_eq!(map.get("1password 7"), Some(&vec!["com.agilebits.onepassword7".to_string()]));
     assert_eq!(map.get("textedit"), None);
+    // Bundle ids compare in any case, as the deny list's matcher does.
+    let mut map = workspace::NameMap::new();
+    let running = vec![("com.apple.ActivityMonitor".to_string(), "Aktivitätsanzeige".to_string())];
+    workspace::add_prefixed_running(&mut map, &["com.apple.activitymonitor".to_string()], &running);
+    assert_eq!(map.get("aktivitätsanzeige"), Some(&vec!["com.apple.ActivityMonitor".to_string()]));
 }
 
 #[test]
