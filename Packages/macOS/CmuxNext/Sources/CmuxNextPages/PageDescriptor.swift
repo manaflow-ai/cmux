@@ -213,7 +213,7 @@ public extension PageDescriptor {
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
                   "import.card", "importFromBrowser"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop", "museum", "icon", "symbol"], ownsSearchField: true, acceptsFirstMouse: false)
+        dynamicPrefixes: ["backdrop", "museum", "icon", "symbol", "symbol-bold"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
@@ -262,11 +262,6 @@ public extension PageDescriptor {
         "https://camo.githubusercontent.com", "https://private-user-images.githubusercontent.com",
         "https://user-images.githubusercontent.com", "https://avatars.githubusercontent.com",
     ]
-
-    /// The browser's Page Info bubble (webviews/src/pages/page-info, its owner CmuxNextBrowser's
-    /// PageInfoController through the App's BrowserChromeWebHost): one page per pane, kept between
-    /// opens. `cmux.page-info.state` brings the bubble's state; the page sends its commands and size.
-    static let pageInfo = PageDescriptor(id: "cmux.page-info", resource: "page-info", namespaces: ["cmux.page-info."])
 
     /// Page Info's windows (webviews/src/pages/site-settings, site-data, certificate), each in a
     /// native window CmuxNextBrowser's PageInfoWindows owns: `cmux.<page>.state` brings the

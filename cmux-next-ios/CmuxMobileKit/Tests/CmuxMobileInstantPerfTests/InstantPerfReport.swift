@@ -110,11 +110,16 @@ enum InstantPerfReport {
             .ratio: ratio <= ratioLimit || godMs - max(smallMs, ratioFloorMs) <= max(noiseMs, target * noiseShareOfTarget),
         ]
         // A known-red check has to pass with room to spare before its mark must come off; one
-        // that only just passes on a quick runner stays marked, and never fails the run.
+        // that only just passes on a quick runner stays marked, and never fails the run. The
+        // ratio must also clear against small's quickest run: a few slow small runs raise its
+        // median and fake a low ratio (an iOS simulator's chat_older_page small ran 33 to 756 ms
+        // in one job, median 96 ms, ratio 0.64x, while god / quickest small was 1.84x).
+        let quickestSmallMs = small.min() ?? smallMs
         let clearlyPasses: [InstantPerfCheck: Bool] = [
             .smallBudget: smallMs <= budget * clearMargin,
             .godBudget: godMs <= budget * clearMargin,
-            .ratio: ratio <= ratioLimit * clearMargin,
+            .ratio: ratio <= ratioLimit * clearMargin
+                && godMs / max(quickestSmallMs, ratioFloorMs) <= ratioLimit * clearMargin,
         ]
         let result = InstantPerfResult(
             metric: metric, platform: platform, small_ms: rounded3(smallMs), god_ms: rounded3(godMs), ratio: rounded3(ratio),
@@ -154,6 +159,8 @@ enum InstantPerfReport {
         guard let json = try? encoder.encode(result), let text = String(data: json, encoding: .utf8) else { return }
         let line = "INSTANTPERF \(text)"
         print(line)
+        // Also on the test's result (the fleet's simulator step keeps attachments, not the console).
+        Attachment.record(Array(text.utf8), named: "instantperf-\(result.metric)-\(result.platform).json")
         guard let path = ProcessInfo.processInfo.environment["CMUX_INSTANT_PERF_OUT"], !path.isEmpty else { return }
         lock.withLock {
             let url = URL(fileURLWithPath: path)

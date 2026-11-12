@@ -209,7 +209,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         List {
             let tiles = pinnedTiles(list)
             if !tiles.isEmpty {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0, alignment: .bottom), count: 3), spacing: 4) {
+                // Messages' three across every phone (359 pt on a 375 pt iPhone to 424 pt on a 440 pt
+                // one: a 112 pt minimum fits three, never four); a wider screen (an unfolded
+                // foldable) adds columns instead of stretching three tiles.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 112, maximum: 160), spacing: 0, alignment: .bottom)], spacing: 4) {
                     ForEach(tiles) { $0 }
                 }
                 .padding(.horizontal, 8)

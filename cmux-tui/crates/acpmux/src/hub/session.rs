@@ -210,6 +210,10 @@ pub struct Session {
     pub(super) asks_in_flight: std::sync::atomic::AtomicUsize,
     pub(super) asks_landed: Notify,
     pub(super) rehydrate: AtomicBool,
+    /// What the rehydrated transcript's note tells the agent, when not the restore's own: a fork
+    /// onto another harness says it was forked from the chat (`fork.rs` `Retarget`). Taken with
+    /// `rehydrate`.
+    pub(super) rehydrate_note: StdMutex<Option<String>>,
     /// The agent's context was emptied (`/clear`, `/compact`): its next
     /// prompt is told every forum rule again (`hub/forum.rs`).
     pub(super) forum_retell: AtomicBool,

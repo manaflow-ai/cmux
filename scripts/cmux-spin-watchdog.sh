@@ -28,7 +28,7 @@ while [ "$elapsed" -lt "$TIMEOUT" ]; do
     fi
     if [ "$hits" -ge "$NEED" ]; then
       STAMP=$(date +%H%M%S)
-      OUT="/tmp/cmux-spin-$TAG-$STAMP.sample"
+      OUT="$(mktemp "/tmp/cmux-spin-$TAG-$STAMP.XXXXXX")"
       echo "SPIN DETECTED tag=$TAG pid=$PID cpu=${CPU}% time=$(date +%T)"
       sample "$PID" 2 -file "$OUT" 2>/dev/null && echo "stack sample: $OUT"
       kill "$PID" 2>/dev/null && echo "killed pid $PID"

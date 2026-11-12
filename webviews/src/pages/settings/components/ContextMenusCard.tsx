@@ -44,7 +44,6 @@ import {
 import type { ContextMenuState, MenuLayout, MenuNode, MenuRow } from "../ops";
 import { sectionHref } from "../router";
 import { t } from "../strings";
-import { ResetSpacer } from "./ResetButton";
 
 const AREAS = ["workspace", "tabs", "terminal", "browser", "other"] as const;
 
@@ -542,7 +541,6 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
                       .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)));
                   }}
                 />
-                <ResetSpacer />
               </div>
             </div>
           </div>

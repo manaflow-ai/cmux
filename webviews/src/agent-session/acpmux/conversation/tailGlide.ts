@@ -48,6 +48,7 @@
 import { MOTION_MS, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_EASE, arrivalStepMs } from "./followChase";
+import type { PinCarry } from "./pinnedLiveLine";
 import { LIVE_THINKING } from "./turns";
 
 /// How the rows under a change move. `arrive` (shipped): on the arrival step, with the follow chase on
@@ -116,7 +117,16 @@ export type TailGlide = {
   /// `track`: the view is followed with the chase on, so a later pass may glide. Otherwise the pass
   /// reads nothing and forgets the tops (a token streamed while the reader holds an older turn open
   /// runs no row reads: transcript-fold-anchor.test.tsx).
-  place(thread: HTMLElement | null, glide: boolean, anchor: string | undefined, track?: boolean): void;
+  /// `pinned`: a row drawn against the chase itself (pinnedLiveLine.ts): it never glides. `carry`: the
+  /// line let go this pass, drawn `y` back from the thread's offset: its glide starts from there.
+  place(
+    thread: HTMLElement | null,
+    glide: boolean,
+    anchor: string | undefined,
+    track?: boolean,
+    pinned?: string,
+    carry?: PinCarry,
+  ): void;
   /// Ends what plays, the rows drawn at their places, and forgets where they were.
   stop(): void;
   /// The reader took the view: what plays holds where it is drawn (as the follow chase does).
@@ -124,8 +134,11 @@ export type TailGlide = {
   /// Followed again: what the reader's input held plays on.
   resume(): void;
   /// Ends each held glide whose row lies wholly outside `view` (the scroller's box): nobody sees it
-  /// land, so it never plays on under a view the reader comes back to. O(held glides).
-  dropUnseen(view: DOMRect): void;
+  /// land, so it never plays on under a view the reader comes back to. O(held glides). `view` is read
+  /// only when a glide is held: a scroll event with none reads no layout (a forced layout in every
+  /// scroll handler cost a frame budget's share on a long scroll up; Leo, 2026-11-11: "scrolling up
+  /// is slow and it layout shift and everythng lag").
+  dropUnseen(view: () => DOMRect): void;
   /// Whether a row is drawn away from its place now (a glide playing or held).
   moving(): boolean;
 };
@@ -264,16 +277,25 @@ export function createTailGlide(): TailGlide {
     resume() {
       for (const animation of playing) if (animation.playState === "paused") animation.play();
     },
-    dropUnseen(view) {
+    dropUnseen(readView) {
       // By glide: a row out of view ends all it plays, and each clip it guarded ends with it.
+      let view: DOMRect | undefined;
       for (const animation of playing) {
         const row = glides.get(animation);
         if (!row || animation.playState !== "paused") continue;
+        view ??= readView();
         const box = row.getBoundingClientRect();
         if (box.bottom <= view.top || box.top >= view.bottom) cancelOn(row);
       }
     },
-    place(thread, glide, anchor, track = true) {
+    place(thread, glide, anchor, track = true, pinned, carry) {
+      // A row the virtualizer unmounted mid-glide: its glide ends with it, and the clips it guarded
+      // on the row above with it, so that row never stays clipped over nothing until the glide's
+      // time runs out (its last lines hidden). O(playing).
+      for (const animation of playing) {
+        const row = glides.get(animation);
+        if (row && !row.isConnected) cancelOn(row);
+      }
       if (!thread || !track || foldMs(thread) <= 0) {
         last = undefined;
         return;
@@ -295,13 +317,16 @@ export function createTailGlide(): TailGlide {
       let below = false;
       for (const [id, { row, top }] of now) {
         if (id === anchor) below = true;
-        if (!below) continue;
+        if (!below || id === pinned) continue;
         if (typeof row.animate !== "function") return;
         const was = before.get(id);
         const shift = id === anchor || !was ? 0 : top - was.top - (to.top - from.top);
         const moved = Math.abs(shift) < MIN_MOVE_PX ? 0 : shift;
         if (moved !== 0) moves = true;
-        parts.push({ row, top, bottom: row.offsetTop + row.offsetHeight, moved, start: -moved });
+        // The line let go this pass starts where it was held: back by the thread's offset too.
+        const held = carry && !carry.used && carry.id === id ? carry.y : 0;
+        if (held) moves = true;
+        parts.push({ row, top, bottom: row.offsetTop + row.offsetHeight, moved, start: -moved - held });
       }
       if (!moves) return;
       // A row still gliding starts from where it is drawn: the glide's own part of its translate, read
@@ -318,6 +343,7 @@ export function createTailGlide(): TailGlide {
         parts.reduce((most, part) => Math.max(most, Math.abs(part.start)), 0),
       );
       if (!(ms > 0)) return;
+      if (carry && parts.some((part) => part.row.dataset.rowId === carry.id)) carry.used = true;
       const timed = { duration: ms, easing };
       /// This pass's glide on each row: the clips over a row guard the glide it plays now.
       const slides = new Map<HTMLElement, Animation>();
@@ -332,7 +358,18 @@ export function createTailGlide(): TailGlide {
       // (an empty row, the turn's footer before it lands, can sit between the reply and the live
       // line), and against every row under it, not only the next. With both on one curve, a clip of
       // (start above - start below - gap) at the first frame covers every frame after it.
-      const laid = parts.filter((part) => part.bottom > part.top).sort((a, b) => a.top - b.top);
+      // A row over the anchor glides with no part here, yet a row under it can start drawn over it: the
+      // live line let go of its pin starts back by the thread's offset, up over the reply (or a send's
+      // prompt) above the anchor. Those rows are clipped too, never moved. O(rows over the anchor that
+      // the highest start reaches).
+      const reach = Math.min(...parts.map((part) => part.top + Math.min(0, part.start)));
+      const above: Part[] = [];
+      for (const [id, { row }] of now) {
+        if (id === anchor) break;
+        const bottom = row.offsetTop + row.offsetHeight;
+        if (bottom > reach && row.offsetHeight > 0) above.push({ row, top: row.offsetTop, bottom, moved: 0, start: 0 });
+      }
+      const laid = [...above, ...parts].filter((part) => part.bottom > part.top).sort((a, b) => a.top - b.top);
       for (let index = 0; index < laid.length; index++) {
         const upper = laid[index]!;
         const over: { glide?: Animation; by: number }[] = [];

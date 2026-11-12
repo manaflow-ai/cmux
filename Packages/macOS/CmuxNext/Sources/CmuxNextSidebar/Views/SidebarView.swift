@@ -108,8 +108,9 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// App health's dot and line on the footer line after the avatar (design/app-health.md); it shows and
-    /// hides itself and asks for a layout. It never fades with the footer.
+    /// App health's dot and line (design/app-health.md), over the sidebar just above the footer row, never in
+    /// its flow (``SidebarFooterBand/placeHealthIndicator(above:)``); it shows and hides itself and asks for a
+    /// layout. It never fades with the footer.
     public var healthIndicator: NSView? {
         didSet {
             oldValue?.removeFromSuperview()
@@ -485,6 +486,9 @@ public final class SidebarView: NSView {
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
+        // App health's line over the sidebar, above the footer row and its cards: placed after the row, from
+        // nothing in it.
+        footerBand.placeHealthIndicator(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)
