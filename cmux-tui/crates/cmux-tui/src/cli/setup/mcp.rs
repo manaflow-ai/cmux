@@ -250,6 +250,9 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     let mut undo = Vec::new();
     let off = match &enabled {
         _ if choice == AgentsCmuxMcp::Off => Some(declined()),
+        // No answer yet: the question is the person's to answer, whatever
+        // `mcp.enabled` says (an agent can write that key; it is no answer).
+        _ if choice == AgentsCmuxMcp::Ask => Some(unanswered()),
         Ok(true) => None,
         Ok(false) => Some(switch(&settings, None)),
         Err(error) => Some(switch(&settings, Some(error.as_str()))),
@@ -285,10 +288,10 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
                 failed = true;
                 "failed"
             }
-            // Nothing is written while the person's answer is no, or while
-            // the switch is off: the server would refuse the harness.
+            // Nothing is written until the person said yes (agents.cmuxMcp
+            // `on`), or while the switch is off: the server would refuse the harness.
             Plan::Add | Plan::Replace
-                if choice == AgentsCmuxMcp::Off || enabled != Ok(true) || request.dry_run =>
+                if choice != AgentsCmuxMcp::On || enabled != Ok(true) || request.dry_run =>
             {
                 planned = true;
                 "planned"
@@ -315,7 +318,7 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     // The switch comes first, but only when a harness is there to wire:
     // with none installed there is nothing to do, or the install comes first.
     // A person's no names itself only when it kept something from being written.
-    let declined = choice == AgentsCmuxMcp::Off;
+    let declined = choice != AgentsCmuxMcp::On;
     if let Some(action) = off.filter(|_| installed && (!declined || planned)) {
         user_action = action;
     }
@@ -457,6 +460,7 @@ pub(super) fn status() -> Value {
     let (settings, enabled) = super::super::mcp::outside_chats();
     let choice = AgentsCmuxMcp::from_config_file(&settings);
     let declined = choice == AgentsCmuxMcp::Off;
+    let unanswered = choice == AgentsCmuxMcp::Ask;
     let path = std::env::var_os("PATH");
     let clients: Vec<Value> = CLIENTS
         .into_iter()
@@ -467,6 +471,8 @@ pub(super) fn status() -> Value {
                 Plan::Ok => "ok",
                 // The person said no: nothing is missing.
                 Plan::Add | Plan::Replace | Plan::Person(_) if declined => "off",
+                // The person has not answered: waiting on them, not on setup.
+                Plan::Add | Plan::Replace | Plan::Person(_) if unanswered => "ask",
                 Plan::Add | Plan::Replace => "needs_setup",
                 Plan::Person(_) => "needs_user",
                 Plan::Failed(_) => "failed",
@@ -477,9 +483,10 @@ pub(super) fn status() -> Value {
     let ready = declined
         || ((clients.is_empty() || enabled == Ok(true))
             && clients.iter().all(|client| client["state"] == "ok"));
+    let asking = !ready && clients.iter().any(|client| client["state"] == "ask");
     json!({
         "task": TASK,
-        "state": if ready { "ok" } else { "needs_setup" },
+        "state": if ready { "ok" } else if asking { "needs_user" } else { "needs_setup" },
         "settings": settings,
         "enabled": enabled == Ok(true),
         "choice": choice.as_str(),
@@ -658,6 +665,25 @@ fn declined() -> Value {
             AgentsCmuxMcp::KEY
         ),
         "command": format!("cmux settings set {} on", AgentsCmuxMcp::KEY),
+        "url": Value::Null,
+    })
+}
+
+/// The person has not answered whether cmux may add its tools to their coding
+/// agents (`agents.cmuxMcp` unset or `ask`): only they answer it, in the
+/// onboarding step or Settings > Agents.
+fn unanswered() -> Value {
+    json!({
+        "kind": "setting",
+        "text": format!(
+            "The person has not chosen whether cmux may add its tools to their coding agents \
+             ({} is \"ask\"). Ask them: they answer in cmux's cmux Tools step or in Settings > \
+             Agents > cmux Tools in Your Coding Agents (Add to My Agents), or run `cmux settings \
+             set {} on` themselves; then run `cmux setup mcp` again",
+            AgentsCmuxMcp::KEY,
+            AgentsCmuxMcp::KEY
+        ),
+        "command": Value::Null,
         "url": Value::Null,
     })
 }

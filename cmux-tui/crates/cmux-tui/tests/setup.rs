@@ -1159,10 +1159,13 @@ fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoe
     let status = world.json(&["setup", "status"]);
     let check = &status["checks"][3];
     assert_eq!(check["task"], "mcp", "{status}");
-    assert_eq!(check["state"], "needs_setup", "{check}");
+    // Nobody answered the cmux Tools question yet: waiting on the person.
+    assert_eq!(check["state"], "needs_user", "{check}");
     assert_eq!(check["enabled"], false, "{check}");
     assert_eq!(check["fix"], "cmux setup mcp", "{check}");
 
+    // The person says yes (the onboarding step or Settings writes the answer).
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}));
     // The switch is the person's: setup names it and writes nothing.
     let off = world.follow(check["fix"].as_str().unwrap());
     assert_eq!(off["state"], "needs_user", "{off}");
@@ -1178,7 +1181,7 @@ fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoe
     assert!(!claude_json.exists() && !codex_toml.exists());
 
     // The person turns it on. A dry run plans and runs no CLI.
-    world.settings(&json!({"mcp": {"enabled": true}}));
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": true}}));
     let planned = world.json(&["setup", "mcp", "--dry-run"]);
     assert_eq!(planned["state"], "planned", "{planned}");
     assert_eq!(planned["dry_run"], true);
@@ -1267,7 +1270,7 @@ fn cmux_setup_mcp_with_neither_harness_installed_is_ok() {
 fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
     let world = World::new("mcpold").with_fake_mcp_clients();
     let cmux = env!("CARGO_BIN_EXE_cmux-tui");
-    world.settings(&json!({"mcp": {"enabled": true}}));
+    world.settings(&json!({"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": true}}));
     let gone = "/Applications/gone.app/Contents/Resources/bin/cmux";
     let claude_json = world.home.join(".claude.json");
     let old = json!({"mcpServers": {"cmux": {"type": "stdio", "command": gone, "args": ["mcp", "serve"]}}});
