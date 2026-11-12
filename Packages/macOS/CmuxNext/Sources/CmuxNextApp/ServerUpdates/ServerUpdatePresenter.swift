@@ -41,10 +41,14 @@ final class ServerUpdatePresenter {
         let servers = servers
         observers.append(Task { [weak self] in
             for await identity in ObservationStream({ daemon.identity }) {
-                guard let identity, daemon.offersRestart(for: identity) else { continue }
-                servers.report(ServerHandshake(daemon: identity, host: .local),
-                               appCapabilities: ServerHandshake.appCmuxTUICapabilities, bundledBuild: nil)
-                self?.sync()
+                guard let identity else { continue }
+                // Settings > Server's facts follow every daemon; a restart offer only one that is not
+                // already being handed off.
+                if daemon.offersRestart(for: identity) {
+                    servers.report(ServerHandshake(daemon: identity, host: .local),
+                                   appCapabilities: ServerHandshake.appCmuxTUICapabilities, bundledBuild: nil)
+                    self?.sync()
+                }
                 await self?.refreshFacts()
             }
         })
