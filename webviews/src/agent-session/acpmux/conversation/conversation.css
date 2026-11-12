@@ -176,6 +176,57 @@
   --cv-activity-text: color-mix(in srgb, var(--cv-fg) 64%, transparent);
 }
 
+/* A fork's cut (ForkDividerLine.tsx): a hairline across the column with its label at the middle,
+   one notice line tall. Tokens only: the rule is --cv-rule, the text the notice's muted tone. */
+.cv-fork-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: 20px;
+  letter-spacing: var(--cv-tracking, 0px);
+  color: var(--cv-text-muted);
+}
+.cv-fork-divider__rule {
+  flex: 1 1 0;
+  min-width: 16px;
+  border-top: 1px solid var(--cv-rule);
+}
+.cv-fork-divider__label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cv-fork-divider[data-look="chip"] .cv-fork-divider__label {
+  padding: 0 8px;
+  border-radius: var(--ds-radius-control);
+  box-shadow: inset 0 0 0 1px var(--cv-rule);
+  background: var(--cv-bubble);
+}
+.cv-fork-divider__action {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: inherit;
+  color: var(--cv-link);
+}
+.cv-fork-divider__action:hover {
+  color: var(--cv-text);
+  text-decoration: underline;
+}
+.cv-fork-divider__action:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* ---------- User bubble ---------- */
 
 /* The date over the first prompt of a day (DateLine.tsx). */

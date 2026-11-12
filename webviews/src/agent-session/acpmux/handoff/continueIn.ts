@@ -1,6 +1,9 @@
-import { continueTargets } from "../cmuxCommands";
 import type { AcpmuxSnapshot } from "../model";
 
+/// Continue In…'s review no longer starts from any surface: a model switch, the chat menu's Continue
+/// In…, `/continue` and the app's command all fork the chat in place (App.tsx `chat.switchModel`;
+/// Leo 2026-11-11: "An extra menu with a questionnaire is not seamless"). Only a draft an earlier
+/// build made still shows, so it can be started or discarded.
 /// The chat's own continuation waits for its review in this tab: a draft or starting handoff that
 /// targets this chat and has no receipt yet.
 export function reviewingHandoff(snapshot: AcpmuxSnapshot): boolean {
@@ -10,21 +13,5 @@ export function reviewingHandoff(snapshot: AcpmuxSnapshot): boolean {
     handoff.target.sessionId === snapshot.sessionId &&
     ["draft", "starting"].includes(handoff.state) &&
     !snapshot.handoff?.receipt
-  );
-}
-
-/// Continue In… can start now, wherever it is offered (the chat menu, `/continue`, the composer's
-/// send with a held pick of another harness, forkHold.ts): the host can hand off and its handoff is
-/// ready and idle, no turn or queue runs, no review is open, and another harness in the chat's
-/// catalog can take the chat.
-export function canContinueIn(snapshot: AcpmuxSnapshot): boolean {
-  return (
-    !!snapshot.canHandoff &&
-    !!snapshot.handoff?.ready &&
-    !snapshot.isWorking &&
-    !snapshot.queue.length &&
-    !snapshot.handoff?.busy &&
-    !reviewingHandoff(snapshot) &&
-    continueTargets(snapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family).length > 0
   );
 }

@@ -7,6 +7,12 @@ import Testing
 @Suite
 @MainActor
 struct AgentPaneForkOwnTabTests {
+    @Test func theDefaultForkContinuesHereButExplicitDestinationsArePreserved() {
+        #expect(AgentPaneView.forkScript(nil) == "window.cmuxAcpmuxActions?.['chat.forkTo']?.({});")
+        #expect(AgentPaneView.forkScript(.right).contains("placement: 'right'"))
+        #expect(AgentPaneView.forkScript(.tab).contains("placement: 'tab'"))
+    }
+
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }

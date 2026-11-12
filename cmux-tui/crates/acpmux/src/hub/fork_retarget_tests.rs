@@ -93,6 +93,11 @@ async fn a_fork_onto_another_harness_carries_the_conversation_and_switches_back(
     let back =
         hub.fork_to(&fork, to("fake"), None, None, Default::default(), None, true).await.unwrap();
     assert_eq!(back.meta().harness, "fake");
+    // The pane's replay sees both switch boundaries, not only the newest one.
+    assert_eq!(
+        hub.events(&back.id, 0, 10_000).unwrap().iter().filter(|e| e.kind == "forked").count(),
+        2
+    );
     assert_eq!(prompts(&hub, &back), vec!["PARENT-WORDS".to_owned(), "FORK-WORDS".to_owned()]);
     hub.prompt(&back, vec![json!({"type":"text", "text":"BACK-WORDS"})], "test", false)
         .await
@@ -212,4 +217,80 @@ async fn a_switch_whose_named_model_the_harness_refuses_fails_and_leaves_no_fork
         .await
         .unwrap();
     assert_eq!(fork.meta().harness, "picky");
+}
+
+// Leo 2026-11-11: "it looks like there's a line, and it's like, you know, forked from previous" and
+// "ChatGPT can have, like, a small little briefing of, like, you were forked from this chat". The
+// fork records what the chat ran (its summary's `forkOrigin`, which every client draws the line
+// from), its `forked` record never says the agent could not fork mid-turn (not why a switch reads
+// the transcript), and the new agent's first prompt says in one sentence where the chat came from.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_switch_records_what_the_chat_ran_and_briefs_the_new_agent() {
+    let hub = hub();
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"PARENT-WORDS"})], "test", false)
+        .await
+        .unwrap();
+    parent.meta.lock().unwrap().model_request = Some("fake-large".into());
+
+    let fork = hub
+        .fork_to(&parent, to("other"), None, None, Default::default(), None, true)
+        .await
+        .unwrap();
+    let origin = fork.meta().fork_origin.expect("a switch records its origin");
+    assert_eq!(origin.session_id, parent.id);
+    assert_eq!(origin.harness, "fake");
+    assert_eq!(origin.model.as_deref(), Some("fake-large"));
+    // The summary every client lists carries it.
+    let summary = hub.session_list_summary(&fork);
+    assert_eq!(summary["forkOrigin"]["harness"], json!("fake"), "{summary}");
+    assert_eq!(summary["forkOrigin"]["model"], json!("fake-large"), "{summary}");
+    assert_eq!(summary["forkOrigin"]["sessionId"], json!(parent.id), "{summary}");
+    // The `forked` record names both harnesses and the model, and no `from: transcript`.
+    let forked = hub
+        .events(&fork.id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == "forked")
+        .expect("forked record");
+    assert!(forked.msg.get("from").is_none(), "{}", forked.msg);
+    assert_eq!(forked.msg["fromHarness"], json!("fake"));
+    assert_eq!(forked.msg["harness"], json!("other"));
+    assert_eq!(forked.msg["fromModel"], json!("fake-large"));
+    // The new agent's briefing: one sentence, then the conversation.
+    hub.prompt(&fork, vec![json!({"type":"text", "text":"FORK-WORDS"})], "test", false)
+        .await
+        .unwrap();
+    let said = replies(&hub, &fork);
+    assert!(
+        said.contains(&format!("forked from fake chat {} ({})", parent.meta().name, parent.id)),
+        "{said}"
+    );
+    assert!(!said.contains("acpmux restored this conversation"), "{said}");
+    assert!(said.contains("PARENT-WORDS") && said.contains("FORK-WORDS"), "{said}");
+
+    // An ordinary fork records none, and its summary has no `forkOrigin`.
+    let plain =
+        hub.fork_to(&parent, to("fake"), None, None, Default::default(), None, true).await.unwrap();
+    assert!(plain.meta().fork_origin.is_none());
+    assert!(hub.session_list_summary(&plain).get("forkOrigin").is_none());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_default_pick_is_no_model_name() {
+    let hub = hub();
+    let chat = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    let mut meta = chat.meta();
+    meta.model_request = Some("default".into());
+    meta.config_options = Some(json!([{"id": "model", "currentValue": "claude-opus-5-5"}]).into());
+    meta.models = None;
+    assert_eq!(super::fork::ran_model(&meta).as_deref(), Some("claude-opus-5-5"));
+    meta.config_options = None;
+    assert_eq!(super::fork::ran_model(&meta), None);
 }

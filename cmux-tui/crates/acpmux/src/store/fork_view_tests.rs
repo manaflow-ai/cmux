@@ -48,6 +48,34 @@ fn expected(through: u64, own: u64) -> Vec<u64> {
 }
 
 #[test]
+fn successive_forks_keep_switch_boundaries_after_replay_and_materialization() {
+    let view = forked(
+        Box::new(LocalStore::new(tempfile::tempdir().unwrap().keep(), 1 << 20).unwrap()),
+        6,
+        5,
+        0,
+    );
+    view.append("fork", &record(6, "forked")).unwrap();
+    view.append("fork", &record(7, "user_message")).unwrap();
+    view.save(&meta("back", Some(HistoryRef { session: "fork".into(), through_seq: 7 }))).unwrap();
+    view.append("back", &record(8, "forked")).unwrap();
+    let cuts = || {
+        view.events("back", 0, usize::MAX)
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.kind == "forked")
+            .map(|event| event.seq)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(cuts(), vec![6, 8]);
+    // Deleting the parent materializes its inherited history before it disappears.
+    view.delete("fork").unwrap();
+    assert_eq!(cuts(), vec![6, 8]);
+    view.delete("chat").unwrap();
+    assert_eq!(cuts(), vec![6, 8]);
+}
+
+#[test]
 fn a_fork_shows_its_chats_history_then_its_own() {
     let view = forked(Box::new(MemoryStore::default()), 30, 20, 4);
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 4));

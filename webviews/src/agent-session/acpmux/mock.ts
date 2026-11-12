@@ -1094,10 +1094,46 @@ export class MockAcpmuxSocket {
       this.events.push({ ...event, sessionId, seq: this.seq, msg });
     }
     const turns = this.events.filter((entry) => entry.sessionId === sessionId && entry.kind === "turn_result").length;
+    // Onto another harness (a model switch), as acpmux's hub/fork.rs records it: what the chat ran
+    // (`forkOrigin`, the divider's "Forked from <model>") and the `forked` record at the cut.
+    const switched = harness !== undefined && harness !== source.harness;
+    const origin = switched
+      ? {
+          sessionId: target,
+          harness: String(source.harness),
+          ...(typeof source.family === "string" ? { family: source.family } : {}),
+          ...(typeof source.model === "string" && source.model !== "default" ? { model: source.model } : {}),
+        }
+      : undefined;
+    this.record(sessionId, {
+      mux: "forked",
+      msg: {
+        parentId: target,
+        ...(origin && {
+          harness,
+          fromHarness: origin.harness,
+          ...(origin.model && { fromModel: origin.model }),
+        }),
+      },
+    });
+    // A switch runs the new harness's agent: its own modes, options and family, never the old
+    // agent's (hub/fork.rs clears them and sets the new harness's start mode).
+    const fresh = origin
+      ? newSessionSummary("", String(source.cwd ?? ""), 0, harness === "codex" ? "codex" : "claude")
+      : undefined;
     const created = {
       ...source,
+      ...(fresh && {
+        family: harness,
+        modes: fresh.modes,
+        configOptions: fresh.configOptions,
+        backgroundsWork: fresh.backgroundsWork,
+        model: fresh.model,
+      }),
       ...(harness ? { harness } : {}),
       ...(model ? { model } : {}),
+      parentId: target,
+      forkOrigin: origin,
       sessionId,
       status: "idle",
       unread: false,

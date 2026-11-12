@@ -1,4 +1,4 @@
-/** Place a completed fork without replacing its parent; a refused host open selects and focuses it. */
+/** Continue a completed fork here by default; preserve explicitly requested destinations. */
 export async function openFork(
   session: string | undefined,
   parent: string | undefined,
@@ -12,8 +12,7 @@ export async function openFork(
   },
 ): Promise<string | undefined> {
   if (!session) return session;
-  // The native destination parser owns the default. Hand-offs can still explicitly request a tab.
-  if (await host.open(session, typeof placement === "string" ? placement : "default")) return session;
+  if (typeof placement === "string" && placement !== "default" && (await host.open(session, placement))) return session;
   if (host.selected() !== parent) return session;
   const selected = await host.select(session);
   await host.persist(selected);

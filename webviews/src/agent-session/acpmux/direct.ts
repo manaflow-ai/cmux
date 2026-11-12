@@ -8805,6 +8805,7 @@ export class AcpmuxDirectClient {
           typeof msg.parentId === "string" ? this.sessions.find((s) => s.sessionId === msg.parentId) : undefined;
         this.rows.set(`forked-from-${event.seq}`, {
           id: `forked-from-${event.seq}`,
+          forkParentId: typeof msg.parentId === "string" ? msg.parentId : undefined,
           version: 1,
           at: event.at,
           kind: "notice",

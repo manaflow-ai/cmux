@@ -426,6 +426,21 @@ export type EventsResult = {
 } & Record<string, unknown>;
 
 /**
+ * Where a model switch's fork came from (`SessionMeta::fork_origin`): the chat it was forked
+ * from and what that chat ran. Ids only; a client names them from its catalog.
+ */
+export type ForkOrigin = {
+  /** That harness's family, when known (`claude`, `codex`). */
+  family?: (string | null);
+  /** That chat's harness profile (`claude`, `codex`, `claude-work`). */
+  harness: string;
+  /** The model that chat ran, when known (never the `default` placeholder). */
+  model?: (string | null);
+  /** The chat it was forked from. */
+  sessionId: string;
+} & Record<string, unknown>;
+
+/**
  * `acp.session.fork`: a completed-turn, live, or before-prompt fork.
  * Before-prompt requests require requestId and omit both throughSeq and live.
  */
@@ -1415,6 +1430,12 @@ export type SessionDetail = {
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
+  /**
+   * A model switch's fork (`hub/fork.rs` `Retarget`): the chat it was forked from and the
+   * harness and model that chat ran, which a client names at the cut ("Forked from Claude
+   * Opus 5.5"). Absent for any other chat, and from a peer on an older acpmux.
+   */
+  forkOrigin?: (ForkOrigin | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
   harness: string;
@@ -1742,6 +1763,12 @@ export type SessionSummary = {
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
+  /**
+   * A model switch's fork (`hub/fork.rs` `Retarget`): the chat it was forked from and the
+   * harness and model that chat ran, which a client names at the cut ("Forked from Claude
+   * Opus 5.5"). Absent for any other chat, and from a peer on an older acpmux.
+   */
+  forkOrigin?: (ForkOrigin | null);
   /** Where a fork branched off its parent. */
   forkSeq?: (number | null);
   harness: string;

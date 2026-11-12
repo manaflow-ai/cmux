@@ -28,11 +28,13 @@ function host(opens = true) {
   };
 }
 
-test("an unspecified destination delegates to the native default and keeps the parent selected", async () => {
+test("an unspecified destination continues in this pane and persists the fork", async () => {
   const h = host();
   expect(await openFork("fork", "parent", undefined, h)).toBe("fork");
-  expect(h.opened).toEqual([["fork", "default"]]);
-  expect(h.selected()).toBe("parent");
+  expect(h.opened).toEqual([]);
+  expect(h.selected()).toBe("fork");
+  expect(h.persisted).toEqual(["fork"]);
+  expect(h.focused).toEqual(["fork"]);
 });
 
 for (const placement of ["right", "left", "up", "down", "tab", "workspace", "window"]) {

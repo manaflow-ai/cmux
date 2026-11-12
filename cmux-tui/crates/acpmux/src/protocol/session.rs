@@ -114,6 +114,12 @@ pub struct SessionSummary {
     pub parent_id: Option<String>,
     /// Where a fork branched off its parent.
     pub fork_seq: Option<u64>,
+    /// A model switch's fork (`hub/fork.rs` `Retarget`): the chat it was forked from and the
+    /// harness and model that chat ran, which a client names at the cut ("Forked from Claude
+    /// Opus 5.5"). Absent for any other chat, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub fork_origin: Option<crate::store::ForkOrigin>,
     /// The session whose agent started this one, kept only while that parent
     /// is listed and is a root itself: one level, for lists that fold one level.
     /// `parent` without those rules, else an older client's `spawnedBy` tag.

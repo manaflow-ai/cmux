@@ -488,6 +488,11 @@ export type AcpmuxRow = {
   since?: AcpmuxSince;
   /// A plan build row's builds (planBuild/PlanBuildCard.tsx): what a plan approval started off this chat.
   planBuild?: PlanBuild;
+  /// A fork's cut drawn as a divider (conversation/forkDivider.ts): "Forked from Claude Opus 5.5",
+  /// and for a model switch shown in this pane, Open in new tab.
+  forkDivider?: import("./conversation/forkDivider").ForkDivider;
+  /// The fork event's source chat, retained even when inherited history is renumbered.
+  forkParentId?: string;
   /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
   memory?: MemoryOffer;
   /// A prompt coach row's rewrite (conversation/promptCoach.ts): the chat's first prompt said at once.

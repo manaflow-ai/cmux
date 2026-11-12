@@ -645,7 +645,7 @@ test("familyProfiles lists every global profile of the running profile's family"
 });
 
 // Codex review of #24355 (BLOCK at 443c6a9): the composer's fork read its own readiness, not
-// Continue In…'s. The fork now runs on send (sendHeldFork, ready from canContinueIn); a pick only
+// Continue In…'s. The fork now runs on send (sendHeldFork, App.tsx `chat.switchModel`); a pick only
 // holds. The pane's own chips, from the snapshot alone.
 async function mountChat(snapshot: Snapshot) {
   const { createRoot } = await import("react-dom/client");
@@ -737,49 +737,6 @@ for (const [source, catalogFamily] of [
     expect(await heldHarness()).toBe("codex");
     expect(calls.filter((call) => call.method.startsWith("chat."))).toEqual([]);
   });
-
-test("Continue In uses the live session's family after its profile is reloaded", async () => {
-  const { canContinueIn } = await import("../src/agent-session/acpmux/handoff/continueIn");
-  const catalog = [
-    { id: "work", name: "Work", family: "codex" },
-    { id: "codex", name: "Codex", family: "codex" },
-  ] as Snapshot["catalog"];
-  const snapshot = chat(catalog, 1, { canHandoff: true, handoff: { ready: true } });
-  snapshot.summary = { ...snapshot.summary!, harness: "work", family: "claude" };
-  expect(canContinueIn(snapshot)).toBe(true);
-  snapshot.catalog = [catalog[0]!, { id: "claude", name: "Claude", family: "claude" }] as Snapshot["catalog"];
-  expect(canContinueIn(snapshot)).toBe(false);
-});
-
-test("canContinueIn is Continue In…'s whole check", async () => {
-  const { canContinueIn } = await import("../src/agent-session/acpmux/handoff/continueIn");
-  const catalog = await acpmuxCatalog();
-  const ready = { canHandoff: true, handoff: { ready: true } } as Partial<Snapshot>;
-  expect(canContinueIn(chat(catalog, 1, ready))).toBe(true);
-  expect(canContinueIn(chat(catalog, 1, { ...ready, isWorking: true }))).toBe(false);
-  expect(canContinueIn(chat(catalog, 1, { ...ready, queue: [{ id: "q", prompt: "p" }] } as Partial<Snapshot>))).toBe(
-    false,
-  );
-  expect(canContinueIn(chat(catalog, 1, { ...ready, handoff: { ready: true, busy: "preparing" } }))).toBe(false);
-  expect(
-    canContinueIn(
-      chat(catalog, 1, {
-        ...ready,
-        sessionId: "s1",
-        handoff: { ready: true, record: { target: { sessionId: "s1" }, state: "starting" } },
-      } as unknown as Partial<Snapshot>),
-    ),
-  ).toBe(false);
-  expect(
-    canContinueIn(
-      chat(
-        catalog.filter((harness) => harness.id === "claude"),
-        1,
-        ready,
-      ),
-    ),
-  ).toBe(false);
-});
 
 // Regression (cmux NEXT nightly, 2026-10-29): #26969 folded every harness drawing the Claude or
 // Codex mark into one tab, so a custom harness such as claude-sr2 (its own profile, `icon =

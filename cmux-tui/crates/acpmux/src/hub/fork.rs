@@ -643,6 +643,8 @@ impl Hub {
                 through_seq: fork_seq,
             }),
             history_kept_through: None,
+            // Set below for a fork onto another harness.
+            fork_origin: None,
             fork_requests: Default::default(),
             fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
@@ -791,6 +793,14 @@ impl Hub {
             meta.chat_store = None;
             meta.preset_mode_approval = None;
             meta.harness_cost_usd = None;
+            // What the chat ran before the switch: the pane's "Forked from <model>" line and the
+            // transcript divider; the new agent is briefed by `rehydrate_note` below.
+            meta.fork_origin = Some(crate::store::ForkOrigin {
+                session_id: session.id.clone(),
+                harness: parent_meta.harness.clone(),
+                family: parent_meta.family.clone(),
+                model: ran_model(&parent_meta),
+            });
         }
         if (empty || target.is_some()) && !meta.remote_origin {
             let cfg = self.config.read().await;
@@ -975,10 +985,15 @@ impl Hub {
             forked.set("from", json!("transcript"));
             forked.set("harness", json!(parent_meta.harness));
         }
+        // A model switch: the harness it left and the one it runs now. Never `from: transcript`,
+        // whose line says the agent could not fork mid-turn, which is not why a switch reads the
+        // transcript (a client draws the switch from `forkOrigin` instead).
         if let Some(t) = &target {
-            forked.set("from", json!("transcript"));
             forked.set("harness", json!(t.agent));
             forked.set("fromHarness", json!(parent_meta.harness));
+            if let Some(model) = ran_model(&parent_meta) {
+                forked.set("fromModel", json!(model));
+            }
         }
         self.ledger.unsuppress(&new.id);
         self.append(&new, "mux", "forked", forked);
@@ -1108,6 +1123,25 @@ impl Hub {
         }
         Ok(())
     }
+}
+
+/// The model a chat runs, as a person would name it: its pick, else what its agent reports.
+/// `default` (a pick of the harness's own default) is no model's name, so it is skipped for
+/// the one the agent says it runs.
+pub(super) fn ran_model(meta: &SessionMeta) -> Option<String> {
+    let named = |m: &str| !m.is_empty() && !m.eq_ignore_ascii_case("default");
+    let option = meta.config_options.as_deref().and_then(Value::as_array).and_then(|opts| {
+        opts.iter()
+            .find(|o| o.get("id").and_then(Value::as_str) == Some("model"))
+            .and_then(|o| o.get("currentValue").and_then(Value::as_str))
+    });
+    let current =
+        meta.models.as_ref().and_then(|x| x.get("currentModelId")).and_then(Value::as_str);
+    [meta.model_request.as_deref(), option, current]
+        .into_iter()
+        .flatten()
+        .find(|m| named(m))
+        .map(str::to_owned)
 }
 
 /// A fork that is its parent's sub-session ([`Hub::fork_with_boundary`]).

@@ -7,7 +7,7 @@ extension AgentPaneView {
     /// (no turn yet, a harness without fork) says why in its transcript.
     ///
     /// The request is the user's gesture, as a native permission shortcut is.
-    public func forkConversation(to destination: AgentForkDestination, offerDestinations: Bool = false) {
+    public func forkConversation(to destination: AgentForkDestination?, offerDestinations: Bool = false) {
         AgentPanePersonInput.record(model.transport.gestures, sources: eventSources)
         if offerDestinations, let event = NSApp.currentEvent, event.type == .leftMouseUp, event.modifierFlags.contains(.option) {
             popUpForkMenu()
@@ -23,7 +23,8 @@ extension AgentPaneView {
 
     /// The page call the fork action runs; the destination is one of a closed set of
     /// raw values, so the script never carries outside text.
-    static func forkScript(_ destination: AgentForkDestination) -> String {
-        "window.cmuxAcpmuxActions?.['chat.forkTo']?.({ placement: '\(destination.rawValue)' });"
+    static func forkScript(_ destination: AgentForkDestination?) -> String {
+        guard let destination else { return "window.cmuxAcpmuxActions?.['chat.forkTo']?.({});" }
+        return "window.cmuxAcpmuxActions?.['chat.forkTo']?.({ placement: '\(destination.rawValue)' });"
     }
 }
