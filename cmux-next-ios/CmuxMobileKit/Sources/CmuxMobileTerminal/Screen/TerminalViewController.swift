@@ -87,6 +87,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// The Jump to bottom row, the stack's top row (CMUX-10).
     private var jumpRowHost: UIHostingController<TerminalJumpToBottomRow>!
     private var tuiHeight: NSLayoutConstraint!
+    /// The grid host's vertical anchor (`TerminalTUIPlacement`): on the
+    /// composer for the phone's own grid, at the top of the TUI area for a
+    /// grid another device set. Exactly one is active.
+    private var tuiHostOnComposer: NSLayoutConstraint!
+    private var tuiHostAtTop: NSLayoutConstraint!
 
     /// Rows of the local grid: the screen plus the largest keyboard, so the
     /// surface covers the old and new visible ranges during a keyboard animation.
@@ -457,6 +462,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return constraint
         }
         tuiHeight = tuiHost.heightAnchor.constraint(equalToConstant: 0)
+        tuiHostOnComposer = tuiHost.bottomAnchor.constraint(equalTo: tuiClip.bottomAnchor)
+        tuiHostAtTop = tuiHost.topAnchor.constraint(equalTo: view.topAnchor)
         switch chrome {
         case .standalone:
             stackRestingLimit = bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor)
@@ -545,7 +552,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiClip.bottomAnchor.constraint(equalTo: bottomStack.topAnchor),
             tuiClip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tuiClip.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tuiHost.bottomAnchor.constraint(equalTo: tuiClip.bottomAnchor),
+            tuiHostOnComposer,
             tuiHost.leadingAnchor.constraint(equalTo: tuiClip.leadingAnchor, constant: Self.sidePadding),
             tuiHost.trailingAnchor.constraint(equalTo: tuiClip.trailingAnchor, constant: -Self.sidePadding),
             tuiHeight,
@@ -1185,6 +1192,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 appliedHostColumns = columns
                 appliedHostRows = rows
                 syncHostGrid()
+                // The rows decide the anchor and the letterbox from these bytes on.
+                applyTUIPlacement()
             case .bytes(let data):
                 syncHostGrid()
                 pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
@@ -1369,7 +1378,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func outputProcessed(_ raw: Int) {
         pacer.finished()
         // A full-screen app taller than the phone: keep its cursor row on screen.
-        if model.isTUI, tuiRowShift > 0 || (model.session.remoteRows ?? 0) > tuiRows {
+        if model.isTUI, tuiRowShift > 0 || (model.session.remoteRows ?? 0) > hostLayout.visibleRows {
             applyTUIPlacement()
         }
         #if DEBUG
@@ -1619,7 +1628,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         if columns > 0 { measuredGrid(columns: columns, rows: newTUIRows) }
         applyContentWidth()
-        applyTUIPlacement()
+        // In the keyboard's layout pass: the grid moves with it, once.
+        applyTUIPlacement(ridesLayout: true)
 
         // Insets: content starts under the toolbar and ends above the composer.
         let top = chromeTop
@@ -3053,10 +3063,16 @@ public enum TerminalChrome: Sendable {
 extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     var hostLayout: TerminalHostGridLayout {
         let remoteColumns = appliedHostColumns ?? model.session.remoteColumns
+        let hostRows = remoteColumns == nil ? nil : appliedHostRows ?? model.session.remoteRows
         return TerminalHostGridLayout(viewportWidth: view.bounds.width - 2 * Self.sidePadding, cell: cell,
                                       scale: view.window?.screen.scale ?? surface.renderScale, hostColumns: remoteColumns,
-                                      hostRows: remoteColumns == nil ? nil : appliedHostRows ?? model.session.remoteRows,
-                                      visibleRows: tuiRows)
+                                      hostRows: hostRows, visibleRows: tuiPlacement(hostRows: hostRows).visibleRows)
+    }
+
+    /// The grid's vertical placement in this layout pass (`TerminalTUIPlacement`).
+    func tuiPlacement(hostRows: Int?) -> TerminalTUIPlacement {
+        TerminalTUIPlacement(cellHeight: cell.height, hostRows: hostRows, phoneRows: tuiRows,
+                             chromeTop: chromeTop, stackTop: bottomStack.frame.minY)
     }
 
     /// The page's scrollable width: the mirror plus its side padding.
@@ -3103,26 +3119,48 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
         }
     }
 
-    /// The full-screen app's surface in its host: panned, shifted to keep
+    /// The full-screen app's surface in its host: anchored (on the composer,
+    /// or at the top for another device's grid), panned, shifted to keep
     /// the cursor row, and the letterbox note under a shorter grid.
-    func applyTUIPlacement() {
+    ///
+    /// `ridesLayout`: called from a layout pass, so the shift joins that
+    /// pass's frames (the keyboard's animation when the keyboard moves, none
+    /// otherwise) like the constraint-placed host and composer around it.
+    /// Elsewhere (output, a pan) it applies at once.
+    func applyTUIPlacement(ridesLayout: Bool = false) {
         guard model.isTUI, surface.superview === tuiHost, cell.height > 0 else {
             hostGridNote.isHidden = true
             return
         }
         let layout = hostLayout
+        let placement = tuiPlacement(hostRows: layout.hostRows)
+        if placement.ridesComposer {
+            if tuiHostAtTop.isActive { tuiHostAtTop.isActive = false }
+            if !tuiHostOnComposer.isActive { tuiHostOnComposer.isActive = true }
+        } else {
+            if tuiHostAtTop.constant != placement.hostTop { tuiHostAtTop.constant = placement.hostTop }
+            if tuiHostOnComposer.isActive { tuiHostOnComposer.isActive = false }
+            if !tuiHostAtTop.isActive { tuiHostAtTop.isActive = true }
+        }
         tuiPanX = layout.clampPan(tuiPanX)
         tuiRowShift = layout.rowShift(keeping: surface.cursorViewportRow, from: tuiRowShift)
         let origin = CGPoint(x: -tuiPanX, y: -CGFloat(tuiRowShift) * cell.height)
         if surface.frame.origin != origin {
-            UIView.performWithoutAnimation { surface.frame.origin = origin }
+            if ridesLayout {
+                surface.frame.origin = origin
+            } else {
+                UIView.performWithoutAnimation { surface.frame.origin = origin }
+            }
         }
         if let box = layout.letterbox, let note = layout.note(owner: hostGridOwner) {
             hostGridNote.text = note
             hostGridNote.isHidden = false
             let height = ceil(hostGridNote.font.lineHeight)
-            hostGridNote.frame = CGRect(x: 0, y: box.top + min(8, max(0, box.height - height) / 2),
-                                        width: tuiHost.bounds.width, height: height)
+            // Under the grid at once (it moves with the host); never slid from a stale spot.
+            UIView.performWithoutAnimation {
+                hostGridNote.frame = CGRect(x: 0, y: box.top + min(8, max(0, box.height - height) / 2),
+                                            width: tuiHost.bounds.width, height: height)
+            }
             tuiHost.bringSubviewToFront(hostGridNote)
         } else {
             hostGridNote.isHidden = true

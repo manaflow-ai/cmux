@@ -142,3 +142,59 @@ public struct TerminalHostGridLayout: Equatable, Sendable {
         return "\(size) · set by \(owner)"
     }
 }
+
+/// Where a full-screen app's grid sits vertically in the TUI area, for the
+/// layout pass the keyboard animates (user report 2026-11-12, "the resizing
+/// is so wack": a letterboxed grid slid down with the hiding keyboard, then
+/// jumped back to the top once the keyboard settled).
+///
+/// - The phone's own grid (the Mac's rows are the rows the phone claims, or
+///   there is no Mac grid) rides the composer (design/terminal R1-1): its
+///   bottom row stays on the composer and the top is clipped while the
+///   keyboard is up, until the one resize at the settle.
+/// - A grid whose rows another device set does not resize with the
+///   keyboard, so it is pinned to the top of the TUI area with the keyboard
+///   up and down alike. Its letterbox and row shift follow the rows on
+///   screen in this pass (`visibleRows`), not the rows claimed at the last
+///   settle, so the keyboard's own layout pass places it once, at its end
+///   placement.
+///
+/// Pure geometry in the view's coordinates; the controller applies it.
+public struct TerminalTUIPlacement: Equatable, Sendable {
+    public var cellHeight: CGFloat
+    /// The Mac's rows (nil: the phone's own grid, a local session).
+    public var hostRows: Int?
+    /// The rows the phone claims (`TerminalTUISizing`), changed only when the keyboard settles.
+    public var phoneRows: Int
+    /// The top of the TUI area (under the toolbar or the status bar).
+    public var chromeTop: CGFloat
+    /// The composer stack's top in this layout pass (the TUI area's bottom).
+    public var stackTop: CGFloat
+
+    public init(cellHeight: CGFloat, hostRows: Int?, phoneRows: Int, chromeTop: CGFloat, stackTop: CGFloat) {
+        self.cellHeight = cellHeight
+        self.hostRows = hostRows
+        self.phoneRows = phoneRows
+        self.chromeTop = chromeTop
+        self.stackTop = stackTop
+    }
+
+    /// Whether the grid is the phone's own and rides the composer.
+    public var ridesComposer: Bool {
+        guard let hostRows, hostRows > 0, cellHeight > 0 else { return true }
+        return hostRows == phoneRows
+    }
+
+    /// The rows the grid shows in this pass: the claimed rows for the
+    /// phone's own grid, the rows that fit above the composer for another
+    /// device's (for `TerminalHostGridLayout.visibleRows`).
+    public var visibleRows: Int {
+        guard !ridesComposer else { return phoneRows }
+        return max(1, Int(floor((stackTop - chromeTop) / cellHeight)))
+    }
+
+    /// The grid host's top in the view (before the row shift).
+    public var hostTop: CGFloat {
+        ridesComposer ? stackTop - CGFloat(phoneRows) * cellHeight : chromeTop
+    }
+}
