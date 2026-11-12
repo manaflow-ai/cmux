@@ -148,6 +148,12 @@ PACKAGE_MANAGERS = {
 }
 # Scripts that run another subcommand by name: `npm run publish` runs the package's publish script.
 RUNS_SCRIPT = frozenset({"run", "run-script"})
+PACKAGE_EXEC = {
+    "npm": frozenset({"exec", "x"}),
+    "pnpm": frozenset({"exec", "dlx"}),
+    "yarn": frozenset({"exec", "dlx"}),
+    "bun": frozenset({"exec", "x", "dlx"}),
+}
 TWINE = _options(flags="--no-color -h --help --version")
 PYTHON = _options("-W -X", "-b -bb -B -d -E -h -i -I -O -OO -P -q -R -s -S -u -v -V -x")
 XCRUN = _options("--sdk --toolchain", "-v --verbose -l --log -n --no-cache -r --run -k --kill-cache")
@@ -174,6 +180,11 @@ def _package_publishes(program: str, args: list[str]) -> bool:
     if command in RUNS_SCRIPT and program != "cargo":
         script, _ = subcommand(rest, Options())
         return script is None or script == "publish"
+    if command in PACKAGE_EXEC.get(program, ()):
+        nested, nested_rest = subcommand(rest, Options())
+        if nested is None:
+            return True
+        return nested in PACKAGE_MANAGERS and _package_publishes(nested, nested_rest)
     if program == "yarn" and command == "workspace":
         return _package_publishes(program, rest[1:])  # `yarn workspace NAME COMMAND`
     if program == "yarn" and command == "npm":
@@ -191,7 +202,12 @@ def _python_module(args: list[str]) -> tuple[str | None, list[str]]:
     while index < len(args):
         word = args[index]
         if word in ("-m",):
-            return (args[index + 1], args[index + 2:]) if index + 1 < len(args) else ("", [])
+            if index + 1 >= len(args):
+                return "", []
+            module = args[index + 1]
+            if "$" in module or "\x00" in module or chr(96) in module:
+                return None, args[index + 2:]
+            return module, args[index + 2:]
         if not word.startswith("-") or word in ("-", "--") or word.startswith("-c"):
             return "", []
         if word in PYTHON.flags:
@@ -204,8 +220,15 @@ def _python_module(args: list[str]) -> tuple[str | None, list[str]]:
         if "m" in letters and all("-" + letter in PYTHON.flags for letter in letters[:letters.index("m")]):
             module = letters[letters.index("m") + 1:]
             if module:
+                if "$" in module or "\x00" in module or chr(96) in module:
+                    return None, args[index + 1:]
                 return module, args[index + 1:]
-            return (args[index + 1], args[index + 2:]) if index + 1 < len(args) else ("", [])
+            if index + 1 >= len(args):
+                return "", []
+            module = args[index + 1]
+            if "$" in module or "\x00" in module or chr(96) in module:
+                return None, args[index + 2:]
+            return module, args[index + 2:]
         return None, []
     return "", []
 
@@ -231,7 +254,8 @@ def publishing_command(words: list[str]) -> bool:
     if program.startswith("python"):
         module, rest = _python_module(rest)
         if module is None:
-            return "twine" in rest or any("twine" in word for word in words[1:])
+            return any(word in {"upload", "publish"} for word in rest) or "twine" in rest or any(
+                "twine" in word for word in words[1:])
         if module != "twine":
             return False
         program = "twine"

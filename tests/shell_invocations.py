@@ -1222,6 +1222,8 @@ def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[l
         found.append([])
         return
     if program == "eval":
+        if args[:1] == ["--"]:
+            args = args[1:]
         text = " ".join(args)
         if _unreadable(text):
             found.append([])
