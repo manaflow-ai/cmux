@@ -603,6 +603,25 @@ class UnderPython39(unittest.TestCase):
                   "if getattr(ast, 'match_case', None):\n    d = ast.match_case\n"
                   "if hasattr(thing, 'x'):\n    e = ast.match_case  # bare: ast.match_case\n")
 
+    def test_attribute_presence_is_separate_from_submodule_importability(self):
+        """cmux#41945 F1: importing importlib.resources succeeds even when the fresh importlib module has no
+        `resources` attribute; the 3.9 probe must preserve that distinction for hasattr guards."""
+        self.scan("import ast, importlib\\n"
+                  "if hasattr(importlib, 'resources'):\\n"
+                  "    pass\\n"
+                  "else:\\n"
+                  "    value = ast.match_case  # bare: ast.match_case\\n")
+
+    def test_a_shadowed_module_alias_is_unknown(self):
+        """cmux#41945 F2: a function parameter shadows an imported module alias, so its guard cannot hide the
+        incompatible read in the branch the scanner evaluates for Python 3.9."""
+        self.scan("import ast, sys\\n"
+                  "def check(sys):\\n"
+                  "    if hasattr(sys, 'version_info'):\\n"
+                  "        pass\\n"
+                  "    else:\\n"
+                  "        value = ast.match_case  # bare: ast.match_case\\n")
+
     def test_an_exit_gate_protects_what_follows_it(self):
         """devbuild's `if sys.version_info < (3, 11): ... raise SystemExit(...)`, codex-review-box's sys.exit, a return."""
         self.scan("import sys, ast\n"

@@ -308,7 +308,7 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         empty = Path(self.tmp.name) / "empty-path"
         empty.mkdir(exist_ok=True)
         with mock.patch.dict(os.environ, {"PATH": str(empty)}), \
-                mock.patch.object(self.gate, "resolve_rustfmt", return_value=Path("/fixture/bin/rustfmt")):
+                mock.patch.object(self.gate.subprocess, "run"):
             yield
 
     def test_a_whats_new_validator_that_crashes_refuses(self) -> None:
