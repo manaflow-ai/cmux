@@ -192,7 +192,8 @@ extension WorkspaceCreator {
         for pick in picks {
             let request = NewWorkspaceRequest(macID: mac.id, directory: folder, start: .agent(pick.harness),
                                               task: AgentTask(prompt: draft.trimmedPrompt, images: draft.images, model: pick.model))
-            let base = picks.count > 1 ? "\(draft.title) · \(pick.name ?? Self.agentTitle(pick.harness))" : draft.title
+            // The agent first: a long task title truncates, and rows of one task differ only by agent.
+            let base = picks.count > 1 ? "\(pick.name ?? Self.agentTitle(pick.harness)) · \(draft.title)" : draft.title
             let placeholder = Self.taskPlaceholder(for: request, title: Self.uniqueTitle(base, existing: titles), task: draft.title)
             titles.append(placeholder.title)
             var origin = draft

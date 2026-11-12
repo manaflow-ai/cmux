@@ -154,6 +154,15 @@ final class ShellModel {
         let delay = UserDefaults.standard.double(forKey: "cmux-mobile-mock-create-delay")
         let mock = delay > 0 ? MockWorkspaceCreationBackend(latency: .seconds(delay)) : MockWorkspaceCreationBackend()
         mockCreation = mock
+        // Mock mode: a New Task's task goes to its workspace's mock chat, as the Mac's agent gets it.
+        mock.onTaskSent = { [weak store] task, workspace in
+            guard let store, let ws = store.workspace(id: workspace.id) ?? Optional(workspace),
+                  let tab = ws.tabs.first(where: \.isAgent) else { return }
+            let mac = store.teams.flatMap(\.macs).first { $0.id == ws.macID }?.name ?? "Mac"
+            let chat = AgentSessionDirectory.shared.store(workspace: ws, tab: tab, macName: mac)
+            let images = task.images.map { AgentAttachment(kind: .image, name: "Photo.jpg", data: $0.data) }
+            chat.send(prompt: task.prompt, attachments: images)
+        }
         // `-cmux-mobile-refuse-next-tab`: the next tab request is refused like the live report's
         // (the Mac's cwd policy), for the new-tab captures.
         // `-cmux-mobile-task-catalog empty|failed|slow`: New Task's agent list states, for its captures.

@@ -202,6 +202,15 @@ public struct WorkspacesList: View {
             .sheet(item: $iconPicking) { ws in
                 WorkspaceIconPicker(workspace: ws) { icon in creator.setIcon(ws, icon) }
             }
+            #if DEBUG
+            // `-cmux-mobile-open-new-task`: New Task opens at launch (its captures at Accessibility sizes).
+            .task {
+                guard CommandLine.arguments.contains("-cmux-mobile-open-new-task"), !DebugLaunch.openedNewTask,
+                      !creator.taskMacs.isEmpty else { return }
+                DebugLaunch.openedNewTask = true
+                composingTask = true
+            }
+            #endif
             .sheet(isPresented: $composingTask) {
                 TaskComposerSheet(creator: creator, sameNames: sameNames) { made in startedTask(made) }
             }
@@ -2046,5 +2055,13 @@ struct NewWorkspaceButton: View, Equatable {
         directory == "~" ? "Home" : (directory as NSString).lastPathComponent
     }
 }
+
+#if DEBUG
+/// DEBUG launch arguments that act once per launch.
+@MainActor
+final class DebugLaunch {
+    static var openedNewTask = false
+}
+#endif
 
 #endif

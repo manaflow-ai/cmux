@@ -92,7 +92,8 @@ import Testing
         let draft = TaskDraft(prompt: "Write the release notes",
                               picks: [TaskAgentPick(harness: "claude"), TaskAgentPick(harness: "claude-cr", model: "kimi-k2", name: "Claude Code Router")])
         let made = creator.startTask(draft)
-        #expect(made.map(\.title) == ["Write the release notes · Claude", "Write the release notes · Claude Code Router"])
+        // The agent first: rows of one task differ only by it, and a long task title truncates.
+        #expect(made.map(\.title) == ["Claude · Write the release notes", "Claude Code Router · Write the release notes"])
         #expect(made.allSatisfy { !store.takeFocusOnOpen($0.id) })
         await creator.settle()
         #expect(backend.requests.map(\.start) == [.agent("claude"), .agent("claude-cr")])
@@ -129,7 +130,7 @@ import Testing
     @Test func onlyTheRefusedAgentComesBack() async throws {
         let (_, creator, backend) = make()
         backend.result = { placeholder in
-            placeholder.title.hasSuffix("Router") ? .failure(WorkspaceCreationError("Router is down", isForPerson: true)) : .success(placeholder)
+            placeholder.title.hasPrefix("Claude Code Router") ? .failure(WorkspaceCreationError("Router is down", isForPerson: true)) : .success(placeholder)
         }
         let claude = TaskAgentPick(harness: "claude", name: "Claude Code")
         let router = TaskAgentPick(harness: "claude-cr", name: "Claude Code Router")

@@ -91,8 +91,10 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([
                     { Self.openComposer(app) },
                     { Self.type(app, "Profile the list scroll\nand fix any hitch over 8 ms") },
+                    // The keyboard covers the name field: drag the form to put it away first.
+                    { app.swipeUp(); C.pause(0.6); return nil },
                     { C.tap(C.any(app, "taskComposer.name"), "name field") },
-                    { app.typeText("scroll perf"); return nil },
+                    { C.any(app, "taskComposer.name").typeText("scroll perf"); return nil },
                 ])
             },
             Scene(group: g, id: "composer-photos", args: Self.list, env: ["CMUX_MOBILE_TASK_DRAFT_IMAGES": "3"]) { app in
@@ -114,8 +116,17 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "agents-empty", args: Self.list + ["-cmux-mobile-task-catalog", "empty"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Anything") }, { app.swipeUp(); return nil }])
             },
-            Scene(group: g, id: "composer-large-type", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]) { app in
-                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") }])
+            // At Accessibility sizes the bar's hold is not reachable from XCUITest reliably (it lands
+            // as a tap): the DEBUG launch argument opens the same sheet.
+            Scene(group: g, id: "composer-large-type",
+                  args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"]) { app in
+                C.steps([{ C.any(app, "taskComposer.prompt").waitForExistence(timeout: 15) ? nil : "composer did not open" },
+                         { Self.type(app, "Fix the flaky upload test") }])
+            },
+            Scene(group: g, id: "composer-large-type-agents",
+                  args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"]) { app in
+                C.steps([{ C.any(app, "taskComposer.prompt").waitForExistence(timeout: 15) ? nil : "composer did not open" },
+                         { app.swipeUp(); C.pause(0.6); return nil }])
             },
             Scene(group: g, id: "started-one-opens", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
@@ -169,10 +180,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         let start = app.buttons["taskComposer.start"].firstMatch
         XCTAssertEqual(start.label, "Start 2")
         start.tap()
-        XCTAssertTrue(C.label(app, contains: "open a PR · Claude Code Router").waitForExistence(timeout: 5))
-        let plain = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND NOT (label CONTAINS %@)",
-                                                                         "open a PR · Claude Code", "Router"))
-        XCTAssertTrue(plain.firstMatch.exists, "a row for Claude Code")
+        XCTAssertTrue(C.label(app, contains: "Claude Code Router · Fix the flaky").waitForExistence(timeout: 5), "a row for Claude Code Router")
+        XCTAssertTrue(C.label(app, contains: "Claude Code · Fix the flaky").exists, "a row for Claude Code")
         XCTAssertTrue(C.any(app, "workspaces.new").exists, "the list stays on screen")
     }
 

@@ -897,7 +897,11 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {
         try await settle()
-        return placeholder
+        guard request.task != nil, !placeholder.tabs.isEmpty else { return placeholder }
+        // A task's chat is a new session, as the Mac's is (mock chats named so start empty).
+        var created = placeholder
+        created.tabs[0].subtitle = "New session"
+        return created
     }
 
     public func canManage(on macID: String) -> Bool { true }
@@ -909,13 +913,17 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// The tasks sent (Mock mode only: no agent reads them). `taskFailure` fails the next one.
     public var sentTasks: [AgentTask] = []
     public var taskFailure: TaskDeliveryFailure?
+    /// Mock mode: the shell sends a delivered task to the workspace's mock chat.
+    public var onTaskSent: (@MainActor (AgentTask, Workspace) -> Void)?
 
     public func sendTask(_ task: AgentTask, in workspace: Workspace, failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
         sentTasks.append(task)
         if let failure = taskFailure {
             taskFailure = nil
             failed(failure)
+            return
         }
+        onTaskSent?(task, workspace)
     }
 
     public func close(_ workspace: Workspace) async throws {
