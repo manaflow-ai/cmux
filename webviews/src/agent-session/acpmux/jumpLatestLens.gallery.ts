@@ -8,6 +8,12 @@ import { agentPaneEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import { fisheyeFilterId, type FisheyeStrength } from "../../ui/glass/Fisheye";
+import { jumpPairLook } from "./jumpPair.experiment";
+
+/** Every variant is the lens arm of the jump pair's look (jumpPair.experiment.ts), which no longer
+ * ships by default (Leo, 2026-11-12: "a little bit strange-looking"); test/jump-latest-lens-frost
+ * measures it here. The looks side by side are agent-pane.jump-pair-look. */
+const LENS = { experiments: { [jumpPairLook.id]: "lens" } };
 
 const snapshot = chat(
   Array.from({ length: 24 }, (_, index) => [
@@ -82,41 +88,49 @@ export default agentPaneEntry({
       note: "Soft: 1.4x in the middle; the words under the disc grow a little and bend at the rim.",
       snapshot,
       play: park("soft"),
+      ...LENS,
     },
     medium: {
-      note: "Selected strength (ships): 1.8x in the middle, at the shipped glass level (level-frost).",
+      note: "Selected strength (the lens arm's): 1.8x in the middle, at the shipped glass level (level-frost).",
       snapshot,
       play: park(),
+      ...LENS,
     },
     "level-clear": {
       note: "Before (cmux#32577): a 14% tint and almost no blur; the words under the disc read through.",
       snapshot,
       play: park(undefined, LEVELS.clear),
+      ...LENS,
     },
     "level-composer": {
       note: "The composer card's glass: its surface at 70% under a 24px blur.",
       snapshot,
       play: park(undefined, LEVELS.composer),
+      ...LENS,
     },
     "level-system": {
       note: "The native tooltip material the host sends (--cmux-tooltip-tint) under its 24px blur.",
       snapshot,
       play: park(undefined, LEVELS.system),
+      ...LENS,
     },
     "level-lens": {
       note: "The liquid glass's lens level: the surface at 40% under a 6px blur.",
       snapshot,
       play: park(undefined, LEVELS.lens),
+      ...LENS,
     },
     "level-frost": {
-      note: "Selected (ships): a stronger frost that keeps the bend, the surface at 50% under a 2.5px blur.",
+      note: "Selected (the lens arm's): a stronger frost that keeps the bend, the surface at 50% under a 2.5px blur.",
       snapshot,
       play: park(undefined, LEVELS.frost),
+      ...LENS,
     },
     strong: {
       note: "Strong: 2.5x in the middle; a letter or two fills the disc and the arrow fights the text.",
       snapshot,
       play: park("strong"),
+      ...LENS,
     },
   },
 });

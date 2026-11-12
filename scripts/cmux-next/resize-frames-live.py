@@ -15,6 +15,8 @@ thread; `--sample` also runs `sample` on the app (sample.txt). Kills only the
 app it started.
 """
 import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -141,7 +143,7 @@ try:
     report["steps"] = {"rounds": rounds, "resized": resized, "events": len(latencies),
                        "event_rpc_ms": {"p50": pct(latencies, 0.5), "p95": pct(latencies, 0.95), "p99": pct(latencies, 0.99),
                                         "max": round(max(latencies), 2)}}
-    print(json.dumps({"steps": report["steps"], "frames": report["frames"]}, indent=1), flush=True)
+    safe_print(json.dumps({"steps": report["steps"], "frames": report["frames"]}, indent=1), flush=True)
 finally:
     app.send_signal(signal.SIGTERM)
     try:

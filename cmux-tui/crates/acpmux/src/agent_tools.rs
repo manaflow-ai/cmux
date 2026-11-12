@@ -595,8 +595,22 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
-    let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
-    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+    resolve_gated(inputs, cua_helper::installed, || {
+        crate::cli::cloud_join::require_joined_consent("control").is_ok()
+    })
+}
+
+/// `resolve` with the OS account's answers passed in: `installed` finds an installed helper,
+/// `control_granted` says whether this machine may be controlled (a cloud-joined machine needs
+/// the person's "control" consent first). Tests pass their own, so no test reads or writes the
+/// account's machine consent, which a cloud-joined fleet Mac has.
+fn resolve_gated(
+    inputs: &Inputs,
+    installed: impl FnOnce(&Path) -> Option<PathBuf>,
+    control_granted: impl FnOnce() -> bool,
+) -> AgentTools {
+    let mut tools = resolve_with_cua_helper(inputs, installed);
+    if !control_granted() {
         tools.servers.retain(|server| server.name != "cmux-cua");
     }
     tools

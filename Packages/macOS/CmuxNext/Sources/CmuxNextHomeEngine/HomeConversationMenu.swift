@@ -31,14 +31,10 @@ public struct HomeMenuEntry: Hashable, Sendable {
         self.init(action: ActionID(rawValue: action), title: "", arguments: textArguments.mapValues(ActionValue.string))
     }
 
-    /// Runs it as the person's choice. Delete Conversation (`home.hideConversation`) asks first, as
-    /// Messages does (`HomeListActions.confirmDelete`), in `window`.
+    /// Runs it as the person's choice. Delete Conversation (`home.hideConversation`) runs at once and offers Undo.
     @MainActor
     public func perform(in registry: ActionRegistry, window: NSWindow?) {
-        let run: @MainActor @Sendable () -> Void = { [action, arguments] in
-            _ = registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
-        }
-        if action == "home.hideConversation" { HomeListActions.confirmDelete(in: window, run) } else { run() }
+        _ = registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
     }
 }
 

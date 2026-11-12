@@ -54,14 +54,14 @@ cmux_stop_app_instances() {
     [[ -n "$pid" ]] && survivors+=("$pid")
   done < <(cmux_wait_for_pids_exit "$timeout" "${pids[@]}" || true)
   [[ ${#survivors[@]} -gt 0 ]] || return 0
-  echo "cmux_stop_app_instances: clean quit of ${bundle_id} timed out after ${timeout}s; sending a second SIGTERM (the app's force exit) to PID(s) ${survivors[*]}" >&2
+  cmux_stop_app_log "cmux_stop_app_instances: clean quit of ${bundle_id} timed out after ${timeout}s; sending a second SIGTERM (the app's force exit) to PID(s) ${survivors[*]}"
   kill -TERM "${survivors[@]}" 2>/dev/null || true
   while IFS= read -r pid; do
     [[ -n "$pid" ]] && stuck+=("$pid")
   done < <(cmux_wait_for_pids_exit "$force_timeout" "${survivors[@]}" || true)
   [[ ${#stuck[@]} -gt 0 ]] || return 0
   if [[ "${CMUX_STOP_APP_FORCE_KILL:-0}" == 1 ]]; then
-    echo "cmux_stop_app_instances: ${bundle_id} PID(s) ${stuck[*]} still running ${force_timeout}s after the second SIGTERM; sending SIGKILL (CMUX_STOP_APP_FORCE_KILL=1)" >&2
+    cmux_stop_app_log "cmux_stop_app_instances: ${bundle_id} PID(s) ${stuck[*]} still running ${force_timeout}s after the second SIGTERM; sending SIGKILL (CMUX_STOP_APP_FORCE_KILL=1)"
     kill -KILL "${stuck[@]}" 2>/dev/null || true
     cmux_wait_for_pids_exit 2 "${stuck[@]}" >/dev/null && return 0
     echo "cmux_stop_app_instances: ${bundle_id} PID(s) ${stuck[*]} survived SIGKILL" >&2
@@ -69,6 +69,14 @@ cmux_stop_app_instances() {
   fi
   echo "cmux_stop_app_instances: ${bundle_id} PID(s) ${stuck[*]} still running ${timeout}s after SIGTERM and ${force_timeout}s after a second SIGTERM; left running, not replaced (no SIGKILL: it would lose the app's quit cleanup). Quit the app, then rerun; CMUX_STOP_APP_FORCE_KILL=1 kills it instead." >&2
   return 1
+}
+
+# Writes MESSAGE to stderr in a subshell that ignores SIGPIPE, and never fails: a
+# message before a kill must not end the caller (SIGPIPE from a stderr nobody
+# reads any more, or set -e on the failed write) before the kill
+# (tests/test_guard_logs_survive_closed_pipe.py).
+cmux_stop_app_log() {
+  ( trap '' PIPE; printf '%s\n' "$1" >&2 ) || true
 }
 
 # Prints the seconds in environment variable NAME, or DEFAULT when it is unset

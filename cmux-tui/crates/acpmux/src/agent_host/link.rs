@@ -356,25 +356,32 @@ static WATCHED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<S
 /// host, or at once when its lock can not be watched, which leaves its lines to their answer,
 /// receipt or `Exit` (fail closed).
 async fn watch_host_end(record: HostRecord) {
+    let gone = host_ended(&record).await;
+    WATCHED.lock_or_recover().remove(&record.incarnation);
+    if gone {
+        settle_receipts_of(&record.incarnation);
+    }
+}
+
+/// Resolves once host `record` is proven gone (true: no lock directory holds its live lock) or
+/// its lock can not be watched (false: a lock that can not be read proves nothing). No deadline
+/// and no poll: it waits on the host's live lock, which its death frees.
+pub async fn host_ended(record: &HostRecord) -> bool {
     let (sid, nonce) = (&record.session_id, &record.start_nonce);
-    let gone = loop {
-        let dirs = live_lock_dirs(&record);
+    loop {
+        let dirs = live_lock_dirs(record);
         let states: Vec<_> = dirs.iter().map(|d| (d, liveness(d, sid, nonce))).collect();
         if states.iter().any(|(_, l)| *l == Liveness::Unknown) {
-            break false;
+            return false;
         }
         // Gone once no directory holds it live; a move from the pool wakes the watch, which
         // looks again.
         let Some((dir, _)) = states.into_iter().find(|(_, l)| *l == Liveness::Live) else {
-            break true;
+            return true;
         };
         if !dead(dir, sid, nonce).await {
-            break false;
+            return false;
         }
-    };
-    WATCHED.lock_or_recover().remove(&record.incarnation);
-    if gone {
-        settle_receipts_of(&record.incarnation);
     }
 }
 
