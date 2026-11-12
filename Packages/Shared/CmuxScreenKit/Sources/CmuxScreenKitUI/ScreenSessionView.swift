@@ -81,6 +81,8 @@ public struct ScreenSessionView: View {
     /// In landscape the trackpad starts tucked away (height is short there) and
     /// does not touch the remembered choice, which is for portrait.
     @State private var landscapeTrackpadOpen = false
+    /// The trackpad's hint plays once per viewer: from its first showing until it ends or the pad is touched.
+    @State private var trackpadHintShown = true
     /// The toolbar's measured height (with the shortcuts bar) while it shows.
     @State private var chromeHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -330,14 +332,15 @@ public struct ScreenSessionView: View {
             .frame(maxWidth: .infinity)
             .frame(height: trackpadPadHeight)
             .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.07))
-                    // A quiet mark of what the surface is; the pad itself is clear and takes the touches.
-                    Image(systemName: "hand.point.up.left")
-                        .font(.title2)
-                        .foregroundStyle(Color.white.opacity(0.16))
+                RoundedRectangle(cornerRadius: 16).fill(Color.white.opacity(0.07)).accessibilityHidden(true)
+            }
+            // Shows what the surface is: a hand that plays at using it, until the first touch.
+            .overlay {
+                if trackpadHintShown, !trackpadLink.padTouched {
+                    ScreenTrackpadHint(reduceMotion: reduceMotion) { trackpadHintShown = false }
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .transition(.opacity)
                 }
-                .accessibilityHidden(true)
             }
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Color.white.opacity(0.14)))
     }
