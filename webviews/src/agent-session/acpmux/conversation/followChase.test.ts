@@ -15,7 +15,7 @@ import {
   chaseMaxTrail,
   createFollowChase,
 } from "./followChase";
-import type { FollowMotionArm } from "./followMotion.experiment";
+import { type FollowMotionArm, followMotion } from "./followMotion.experiment";
 
 /// A thread with a stand-in window whose frames the test runs one at a time (8.33 ms apart).
 function fixture(motion: { off?: boolean; reduce?: boolean; token?: string; optOut?: boolean; look?: string } = {}) {
@@ -564,4 +564,15 @@ test("carry in the `instant` arm: what the reader froze lands in the first frame
   expect(instant.drawn).toBe(0);
   expect(instant.outstanding).toBe(0);
   expect(instant.pending).toBe(0);
+});
+
+test("the default follow motion runs no chase loop: every move lands in its frame (ask-62ff53ee59)", () => {
+  // Leo, 2026-11-12: "I ALREADY [told you] THIS FUCKING STUPID FUCKING ANIMATION LOOP".
+  expect(followMotion.defaultArm).toBe("instant");
+  const { node, drawn, pending } = fixture();
+  const chase = createFollowChase(followMotion.defaultArm);
+  expect(chase.shift(node, -40)).toBe(false);
+  expect(chase.shift(node, -400, Number.POSITIVE_INFINITY, false, true)).toBe(false);
+  expect(pending()).toBe(0);
+  expect(drawn()).toBe(0);
 });
