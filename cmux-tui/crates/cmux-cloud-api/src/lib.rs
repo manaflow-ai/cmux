@@ -47,8 +47,8 @@
 
 #![cfg(unix)]
 
-pub mod classic_runs;
 mod chat;
+pub mod classic_runs;
 mod http;
 mod machine;
 pub mod machine_io;

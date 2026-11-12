@@ -155,33 +155,41 @@ impl AppVerbs {
             // The prompt is at most 16000 characters: one write, then EOF.
             let _ = input.write_all(text.as_bytes());
         }
-        let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-            std::thread::spawn(move || {
-                let mut text = String::new();
-                if let Some(pipe) = pipe {
-                    let _ = pipe.take(MAX_OUTPUT).read_to_string(&mut text);
+        let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
+        // The pipe readers belong to this call: the scope joins them before it returns.
+        std::thread::scope(|scope| {
+            let read = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+                scope.spawn(move || {
+                    let mut text = String::new();
+                    if let Some(pipe) = pipe {
+                        let _ = pipe.take(MAX_OUTPUT).read_to_string(&mut text);
+                    }
+                    text
+                })
+            };
+            let out = read(stdout.map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+            let err = read(stderr.map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+            let began = Instant::now();
+            let code = loop {
+                match child.wait_timeout(POLL) {
+                    Ok(Some(status)) => break status.code(),
+                    Ok(None) => {}
+                    Err(_) => break None,
                 }
-                text
-            })
-        };
-        let out = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-        let err = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-        let began = Instant::now();
-        let code = loop {
-            match child.wait_timeout(POLL) {
-                Ok(Some(status)) => break status.code(),
-                Ok(None) => {}
-                Err(_) => break None,
+                let cancelled = cancel.is_some_and(|flag| flag.load(Ordering::Acquire));
+                if cancelled || began.elapsed() >= bound {
+                    // Our own child, by its handle.
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+            };
+            Ran {
+                code,
+                stdout: out.join().unwrap_or_default(),
+                stderr: err.join().unwrap_or_default(),
             }
-            let cancelled = cancel.is_some_and(|flag| flag.load(Ordering::Acquire));
-            if cancelled || began.elapsed() >= bound {
-                // Our own child, by its handle.
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-        };
-        Ran { code, stdout: out.join().unwrap_or_default(), stderr: err.join().unwrap_or_default() }
+        })
     }
 
     /// The app's `cloud list-machines` answer.
