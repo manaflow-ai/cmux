@@ -154,7 +154,7 @@ extension WindowRootView {
         if contentHost.setCornerRadius(radius), let window {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        cornerFlush.apply(content: contentHost, radius: radius, isDark: themeTokens.isDark, page: presentsPage, sidebarOnLeft: sidebarSide == .left, shade: mainPaneShade, in: self)
+        cornerFlush.apply(content: contentHost, radius: radius, isDark: themeTokens.isDark, page: presentsPage, shade: mainPaneShade, in: self)
     }
 }
 

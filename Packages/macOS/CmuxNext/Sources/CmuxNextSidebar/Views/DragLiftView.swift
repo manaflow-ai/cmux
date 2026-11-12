@@ -36,7 +36,7 @@ final class DragLiftView: NSView {
         super.init(frame: .zero)
         card.wantsLayer = true
         card.layer?.cornerRadius = SidebarStyle.rowCornerRadius
-        card.layer?.cornerCurve = .continuous
+        card.layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
         card.layer?.masksToBounds = true
         wantsLayer = true
         layer?.masksToBounds = false
@@ -45,7 +45,7 @@ final class DragLiftView: NSView {
             let back = NSView()
             back.wantsLayer = true
             back.layer?.cornerRadius = SidebarStyle.rowCornerRadius
-            back.layer?.cornerCurve = .continuous
+            back.layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
             back.layer?.borderWidth = Metrics.lineWidth(0.5)
             back.identifier = NSUserInterfaceItemIdentifier("\(depth)")
             addSubview(back)

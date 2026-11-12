@@ -58,7 +58,7 @@ final class WorkspaceTabHoverCardRow: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = SidebarDensityTokens.rowCornerRadius
-        layer?.cornerCurve = .continuous
+        layer?.cornerCurve = Metrics.tabCornerCurve // one curve with the rows and tabs (`TabCornerCurve`)
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         // The line fits itself (`WorkspaceTabHoverCardLine.detail(fitting:font:)`): the place shortens first, and
