@@ -2393,6 +2393,9 @@ impl Peer {
                     let last = matches!(page_cursor(list), Ok(None));
                     match delta {
                         Some(removed) => {
+                            // It parses every kept row: one of a few whole-list parses at
+                            // once (`parse_budget.rs`), taken before the lock.
+                            let _parse = crate::parse_budget::permit().await;
                             rows = self
                                 .known
                                 .lock_or_recover()

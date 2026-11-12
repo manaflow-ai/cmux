@@ -101,7 +101,12 @@ async fn reply(
                 if live_only { guard.snapshot_live(hub).await } else { guard.snapshot(hub).await }
             }
         };
-        let text = make(&list)?;
+        // A build may parse the whole list (masking it, a delta): one of a few at once
+        // (`parse_budget.rs`).
+        let text = {
+            let _parse = crate::parse_budget::permit().await;
+            make(&list)?
+        };
         let Ok((id, method, claim)) = REPLY.try_with(|r| {
             let r = r.borrow();
             (r.id.clone(), r.method, r.claim.clone())
