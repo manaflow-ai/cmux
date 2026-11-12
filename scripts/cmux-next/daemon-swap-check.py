@@ -93,21 +93,38 @@ def now() -> float:
 
 def request(sock: Path, payload: dict, timeout: float = 10.0) -> dict:
     """One newline-delimited JSON request to the cmux-tui socket."""
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
-        conn.settimeout(timeout)
-        conn.connect(str(sock))
-        conn.sendall((json.dumps(payload) + "\n").encode())
-        buf = b""
-        while not buf.endswith(b"\n"):
-            chunk = conn.recv(65536)
-            if not chunk:
-                break
-            buf += chunk
+    started = now()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect(str(sock))
+            conn.sendall((json.dumps(payload) + "\n").encode())
+            buf = b""
+            while not buf.endswith(b"\n"):
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+    except TimeoutError as error:
+        # A bare "timed out" names no step: say which request the daemon left unanswered.
+        raise TimeoutError(f"{payload.get('cmd')} request: no answer in {now() - started:.1f}s ({error})") from None
     return json.loads(buf)
 
 
+# The slowest terminal open (`run`) of the setup, in seconds: a loaded host can take longer than the
+# 10 s request limit to spawn a host and its shell, which is setup, not the swap (reported, not failed).
+SETUP_SLOWEST_RUN = [0.0]
+# How long a setup `run` may take.
+SETUP_RUN_LIMIT_SECS = 60.0
+
+
 def data(sock: Path, payload: dict) -> dict:
-    response = request(sock, payload)
+    if payload.get("cmd") == "run":
+        asked = now()
+        response = request(sock, payload, timeout=SETUP_RUN_LIMIT_SECS)
+        SETUP_SLOWEST_RUN[0] = max(SETUP_SLOWEST_RUN[0], now() - asked)
+    else:
+        response = request(sock, payload)
     if response.get("ok") is not True:
         raise RuntimeError(f"{payload.get('cmd')}: {response}")
     return response.get("data") or {}
@@ -278,8 +295,19 @@ def kill_owned(owned: Owned) -> None:
     owned.clear()
 
 
+# `--sample-stop SECS`: sample the stopping daemon's stacks for SECS (macOS `sample`) into this dir.
+SAMPLE_STOP: dict = {}
+
+
 def stop(proc: subprocess.Popen) -> float:
     """SIGTERM a daemon this script started; returns the time it took to exit."""
+    sampler = None
+    if SAMPLE_STOP.get("secs") and Path("/usr/bin/sample").exists():
+        out = Path(SAMPLE_STOP["dir"]) / f"stop-sample-{proc.pid}.txt"
+        sampler = subprocess.Popen(["/usr/bin/sample", str(proc.pid), str(SAMPLE_STOP["secs"]), "1",
+                                    "-mayDie", "-file", str(out)],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.3)  # sample attaches before the signal
     start = now()
     proc.send_signal(signal.SIGTERM)
     try:
@@ -287,7 +315,13 @@ def stop(proc: subprocess.Popen) -> float:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
-    return now() - start
+    took = now() - start
+    if sampler is not None:
+        try:
+            sampler.wait(timeout=SAMPLE_STOP["secs"] + 30)
+        except subprocess.TimeoutExpired:
+            sampler.kill()
+    return took
 
 
 def digest(binary: Path) -> str:
@@ -596,6 +630,107 @@ def resolve(sock: Path, terminal_id: str) -> dict:
     return data(sock, {"cmd": "resolve-terminal", "terminal_id": terminal_id})
 
 
+class Timeline:
+    """Polls the new daemon from its start: when it first answers (`identify`), when each of
+    TERMINAL_IDS is running again (one `list-terminals` per poll, so the poll's own load does
+    not grow with the count), and the slowest answer it gave on the way."""
+
+    def __init__(self, sock: Path, terminal_ids: list[str], started_wall: float):
+        import threading
+        self.sock, self.ids, self.t0 = sock, {norm(t) for t in terminal_ids}, started_wall
+        self.first_answer: float | None = None
+        self.running_at: dict[str, float] = {}
+        self.slowest = (0.0, "")
+        self.errors: dict[str, int] = {}
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+
+    def run(self) -> None:
+        deadline = time.time() + TIMELINE_LIMIT_SECS
+        while not self.stop.is_set() and time.time() < deadline:
+            cmd = "identify" if self.first_answer is None else "list-terminals"
+            asked = time.time()
+            try:
+                answer = request(self.sock, {"cmd": cmd}, timeout=TIMELINE_LIMIT_SECS)
+            except (OSError, ValueError) as error:
+                self.errors[type(error).__name__] = self.errors.get(type(error).__name__, 0) + 1
+                time.sleep(0.025)
+                continue
+            took = time.time() - asked
+            if answer.get("ok") is True:
+                if took > self.slowest[0]:
+                    self.slowest = (took, cmd)
+                if self.first_answer is None:
+                    self.first_answer = time.time()
+                else:
+                    at = time.time()
+                    for row in (answer.get("data") or {}).get("terminals", []):
+                        tid = norm(row.get("terminal_id", ""))
+                        if tid in self.ids and row.get("lifecycle") == "running":
+                            self.running_at.setdefault(tid, at)
+                    if len(self.running_at) >= len(self.ids):
+                        return
+            time.sleep(0.025)
+
+    def report(self) -> dict:
+        self.stop.set()
+        self.thread.join(timeout=5)
+        rel = lambda at: None if at is None else round(at - self.t0, 3)
+        done = sorted(self.running_at.values())
+        return {
+            "first_answer_secs": rel(self.first_answer),
+            "all_running_secs": rel(done[-1]) if len(done) >= len(self.ids) else None,
+            "running": len(done), "of": len(self.ids),
+            "half_running_secs": rel(done[len(done) // 2]) if done else None,
+            "slowest_answer_secs": round(self.slowest[0], 3), "slowest_answer_cmd": self.slowest[1],
+            "poll_errors": self.errors,
+        }
+
+
+def load_average() -> list[float]:
+    try:
+        out = subprocess.run(["sysctl", "-n", "vm.loadavg"], capture_output=True, text=True, timeout=5).stdout
+        return [float(x) for x in out.replace("{", "").replace("}", "").split()[:3]]
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return []
+
+
+def shutdown_laps(root: Path, signal_wall: float, exit_wall: float) -> dict:
+    """The stopped daemon's `shutdown began at MS (unix ms), N ms with K surfaces; slowest: ...`
+    line (builds that log it): the signal to its shutdown, the shutdown, and after it to the exit."""
+    pattern = re.compile(r"shutdown began at (\d+) \(unix ms\), (\d+) ms with (\d+) surfaces; slowest: (.*)")
+    best = None
+    for log in root.glob("daemon-*.log"):
+        for line in log.read_text(errors="replace").splitlines():
+            m = pattern.search(line)
+            if m and signal_wall - 1 <= int(m.group(1)) / 1000 <= exit_wall + 1:
+                best = m
+    if not best:
+        return {}
+    began, took = int(best.group(1)) / 1000, int(best.group(2)) / 1000
+    return {"signal_to_shutdown_secs": round(began - signal_wall, 3), "shutdown_secs": round(took, 3),
+            "after_shutdown_to_exit_secs": round(exit_wall - began - took, 3),
+            "surfaces": int(best.group(3)), "slowest": best.group(4)}
+
+
+def startup_laps(root: Path, pid: int | None) -> dict:
+    """The daemon's own `startup-timings.jsonl` line for PID: its steps to the first answer."""
+    for path in root.rglob("startup-timings.jsonl"):
+        for line in reversed(path.read_text().splitlines()):
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if row.get("pid") == pid:
+                steps = row.get("steps", [])
+                slowest = sorted(steps, key=lambda s: -s.get("ms", 0))[:6]
+                return {"total_ms": row.get("total_ms"), "slowest_steps": slowest, "steps": steps}
+    return {}
+
+
+# How long the timeline watches a new daemon at most.
+TIMELINE_LIMIT_SECS = 120.0
+
 # How often a typist types a line (`--typist-every`).
 TYPIST_EVERY_SECS = 0.01
 
@@ -650,11 +785,47 @@ class Typist:
             wait_until("typist cat", now() + 15, lambda: path.exists())
             term["typing_into"] = path
         self.status: dict[int, str] = {}
+        self.arrived: dict[int, float] = {}
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
+        self.tail = threading.Thread(target=self.watch, daemon=True)
 
     def start(self) -> None:
         self.thread.start()
+        if self.kind == "cat":
+            self.tail.start()
+
+    def watch(self) -> None:
+        """When each line reaches the file (cat writes what it reads at once): the longest
+        time with no line arriving while the typist types is the input blackout."""
+        offset, rest = 0, b""
+        while not self.stop.is_set():
+            try:
+                with open(self.path, "rb") as file:
+                    file.seek(offset)
+                    chunk = file.read()
+            except OSError:
+                chunk = b""
+            if chunk:
+                at = time.time()
+                offset += len(chunk)
+                *lines, rest = (rest + chunk).split(b"\n")
+                for line in lines:
+                    word = line.strip()
+                    if word.isdigit():
+                        self.arrived.setdefault(int(word), at)
+            time.sleep(0.005)
+
+    def blackout(self, marks: dict) -> dict:
+        """The longest gap between lines reaching the file while the typist typed, and where."""
+        times = sorted(at for k, at in self.arrived.items() if k > self.base)
+        if len(times) < 2:
+            return {}
+        gap, start = max((b - a, a) for a, b in zip(times, times[1:]))
+        out = {"input_blackout_secs": round(gap, 3)}
+        for name, at in marks.items():
+            out[f"input_blackout_starts_secs_after_{name}"] = round(start - at, 3)
+        return out
 
     def run(self) -> None:
         k = self.base
@@ -692,6 +863,8 @@ class Typist:
         """MARKS: wall times of the swap's steps (`stop`, `ready`), for the lost lines' times."""
         self.stop.set()
         self.thread.join(timeout=30)
+        if self.tail.is_alive():
+            self.tail.join(timeout=5)
         end = f"END{self.base}"
         surface = resolve(self.daemon.socket, self.term["terminal_id"])["surface"]
         data(self.daemon.socket, {"cmd": "send", "surface": surface, "text": self.line(end)})
@@ -716,6 +889,7 @@ class Typist:
             for name, at in (marks or {}).items():
                 when[f"lost_first_secs_after_{name}"] = round(self.sent_at[lost[0]] - at, 3)
                 when[f"lost_last_secs_after_{name}"] = round(self.sent_at[lost[-1]] - at, 3)
+        when.update(self.blackout(marks or {}))
         return {"kind": self.kind, "typed": len(self.status), "acked": len(by("acked")), "refused": len(by("refused")),
                 "rejected": len(by("rejected")), "unknown": len(by("unknown")),
                 "unknown_delivered": len([k for k in by("unknown") if k in seen]),
@@ -793,6 +967,7 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
 
     t0 = now()
     marks = {"stop": time.time()}
+    load_at_stop = load_average()
     if scenarios.control:
         # The same steps with no swap: the daemon keeps running for about as long as a swap takes.
         time.sleep(CONTROL_PAUSE_SECS)
@@ -800,6 +975,7 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
         alive_after_stop = True
     else:
         stop_secs = stop(daemon.proc)
+        marks["old_exited"] = time.time()
         alive_after_stop = (all(pid_alive(t["shell_pid"]) for t in terms)
                             and all(pid_alive(hosts[norm(t["terminal_id"])]) for t in terms))
         try:
@@ -807,6 +983,9 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
         except FileNotFoundError:
             pass
         daemon.start(new)
+    timeline = Timeline(daemon.socket, [t["terminal_id"] for t in terms], marks["stop"])
+    timeline.thread.start()
+    if not scenarios.control:
         daemon.wait_ready(t0 + 60)
     ready_secs = now() - t0
     marks["ready"] = time.time()
@@ -860,6 +1039,11 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
             row.update(adopted=False, error=str(error))
         checks.append(row)
     swap_secs = now() - t0
+    start_report = timeline.report()
+    if "old_exited" in marks:
+        start_report["old_daemon_stop"] = shutdown_laps(daemon.root, marks["stop"], marks.pop("old_exited"))
+    start_report.update(load_at_stop=load_at_stop, load_after=load_average(),
+                        daemon_startup=startup_laps(daemon.root, daemon.proc.pid if daemon.proc else None))
     reported: dict = {}
     if typists:
         time.sleep(0.5)  # keep typing into the adopted terminals a little longer
@@ -889,7 +1073,7 @@ def one_swap(daemon: Daemon, builds: list[Path], step: int, terms: list[dict], s
         "old_binary": str(old), "new_binary": str(new),
         "old_daemon_exit_secs": round(stop_secs, 3), "new_daemon_answers_secs": round(ready_secs, 3),
         "swap_secs": round(swap_secs, 3), "processes_alive_while_no_daemon": alive_after_stop,
-        "same_host_pids": same_hosts, "terminals": checks, **extras, **reported,
+        "same_host_pids": same_hosts, "new_daemon_start": start_report, "terminals": checks, **extras, **reported,
         **({"control": True} if scenarios.control else {}),
         "marks_wall": {name: round(at, 3) for name, at in marks.items()},
     }
@@ -1112,6 +1296,9 @@ def main() -> int:
                              "are reported with their times, not a failure")
     parser.add_argument("--typist-every", type=float, default=10.0, metavar="MS",
                         help="milliseconds between a typist's lines (default 10)")
+    parser.add_argument("--sample-stop", type=int, default=0, metavar="SECS",
+                        help="sample the stopping daemon's stacks for SECS (macOS sample) into the work dir, "
+                             "which is kept")
     parser.add_argument("--control", action="store_true",
                         help="a control run: the same work, load and steps, with no swap (the daemon keeps "
                              "running); compares the typists' losses with and without a swap")
@@ -1158,6 +1345,9 @@ def main() -> int:
 
     args.work_root.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="cmux-swap-", dir=str(args.work_root)))
+    if args.sample_stop:
+        SAMPLE_STOP.update(secs=args.sample_stop, dir=str(work))
+        args.keep = True
     phases = []
     try:
         for phase in args.phases.split(","):
@@ -1174,11 +1364,14 @@ def main() -> int:
             except Exception as error:  # noqa: BLE001 - a failed phase is a red row, reported
                 phases.append({"phase": phase, "passed": False, "error": f"{type(error).__name__}: {error}"})
     finally:
-        if args.keep:
+        slow = any(not p.get("passed") or p.get("swap_secs", 1e9) >= args.budget for p in phases)
+        if args.keep or slow or not phases:
+            # A failed or slow run keeps its daemon logs and timings for the cause.
             report["work"] = str(work)
         else:
             subprocess.run(["rm", "-rf", str(work)], check=False)
     report["phases"] = phases
+    report["setup_slowest_run_secs"] = round(SETUP_SLOWEST_RUN[0], 3)
     shell = [p["typist_shell"] for p in phases if isinstance(p.get("typist_shell"), dict)]
     if shell:
         # Reported, not a failure: lines an interactive shell lost (its own typeahead limit or a cmux

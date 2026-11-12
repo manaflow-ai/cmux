@@ -47,6 +47,7 @@ dependencies = [
  "cmux-transport",
  "cmux-tui-platform",
  "cmux-unix-socket",
+ "cmux-usage-patterns",
  "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
@@ -64,6 +65,7 @@ dependencies = [
  "notify",
  "plist",
  "png",
+ "proc-macro2",
  "proptest",
  "pulldown-cmark",
  "ratatui",
@@ -78,6 +80,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signal-hook-registry",
+ "syn 2.0.119",
  "syntect",
  "tar",
  "tempfile",
@@ -1371,6 +1374,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-customize"
+version = "0.1.0"
+dependencies = [
+ "cmux-app-manifest",
+ "cmux-config",
+ "fs4",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
@@ -1819,6 +1835,7 @@ dependencies = [
  "rand_core 0.9.5",
  "rcgen",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2047,6 +2064,7 @@ dependencies = [
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
+ "cmux-customize",
  "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
@@ -2072,6 +2090,7 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-unix-socket",
+ "cmux-usage-patterns",
  "cmux-vm",
  "cmux-vnc",
  "cmux-wg",
@@ -2191,6 +2210,7 @@ dependencies = [
  "cmux-tui-util",
  "cmux-unix-socket",
  "cmux-url-input",
+ "cmux-usage-patterns",
  "flate2",
  "fs4",
  "futures-util",
@@ -2331,6 +2351,18 @@ dependencies = [
 [[package]]
 name = "cmux-url-input"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-usage-patterns"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cmux-config",
+ "cmux-tui-platform",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
 
 [[package]]
 name = "cmux-vault-egress"

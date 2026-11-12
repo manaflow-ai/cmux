@@ -741,13 +741,21 @@ impl Hub {
         })
         .await?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
+            crate::home_fs::create_dirs(parent)
                 .map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
         }
         let written = if web_turn {
             super::remote_floor::write_approved(&path, content.as_bytes())
         } else {
-            std::fs::write(&path, content.as_bytes())
+            // As `std::fs::write`: made 0666 less the umask when new (the agent's file in the
+            // user's project), cut and written in place when there.
+            crate::home_fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o666)
+                .open(&path)
+                .and_then(|mut file| std::io::Write::write_all(&mut file, content.as_bytes()))
         };
         written.map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))?;
         Ok(Value::Null)
