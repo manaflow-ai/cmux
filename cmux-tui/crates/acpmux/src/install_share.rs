@@ -19,6 +19,8 @@
 //!   (`GET /consent`, with its join credential) and counts only while the
 //!   answer is yes. The platform refuses an upload from anyone who has not
 //!   said yes, so a stale answer can't send anything.
+//! - Each upload is a batch with its own id, resent unchanged until the
+//!   platform accepts it, so a lost answer never counts twice.
 //! - Turning it off drops what was not sent yet.
 //!
 //! Cost: nothing is counted while off (one atomic load per shell call). One
@@ -55,6 +57,19 @@ pub struct Pending {
     pub counts: BTreeMap<String, u64>,
     #[serde(default)]
     pub manifests: BTreeMap<String, u64>,
+    /// The upload in flight: what it carries and its batch id (24 hex), kept
+    /// until the platform accepts it, so a retry after a lost answer resends
+    /// the same batch and the platform counts it once.
+    #[serde(default)]
+    pub sending: Option<Box<Batch>>,
+}
+
+/// One upload: its id and the counts it carries.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Batch {
+    pub id: String,
+    pub counts: BTreeMap<String, u64>,
+    pub manifests: BTreeMap<String, u64>,
 }
 
 impl Pending {
@@ -82,24 +97,26 @@ impl Pending {
         }
     }
 
-    /// Removes what an accepted upload `sent` carried, keeping counts added since.
-    pub fn subtract(&mut self, sent: &Pending) {
-        for (map, sent) in
-            [(&mut self.counts, &sent.counts), (&mut self.manifests, &sent.manifests)]
-        {
-            for (key, n) in sent {
-                if let Some(have) = map.get_mut(key) {
-                    *have = have.saturating_sub(*n);
-                    if *have == 0 {
-                        map.remove(key);
-                    }
-                }
-            }
+    /// The upload to send: the one in flight, else a new batch of everything
+    /// pending (moved out of the pending counts), else None.
+    pub fn next_batch(&mut self, new_id: impl FnOnce() -> Option<String>) -> Option<Batch> {
+        if let Some(batch) = &self.sending {
+            return Some((**batch).clone());
         }
+        if self.is_empty() {
+            return None;
+        }
+        let batch = Batch {
+            id: new_id()?,
+            counts: std::mem::take(&mut self.counts),
+            manifests: std::mem::take(&mut self.manifests),
+        };
+        self.sending = Some(Box::new(batch.clone()));
+        Some(batch)
     }
 
     fn is_empty(&self) -> bool {
-        self.counts.is_empty() && self.manifests.is_empty()
+        self.counts.is_empty() && self.manifests.is_empty() && self.sending.is_none()
     }
 }
 
@@ -226,29 +243,32 @@ fn set_sharing(share: bool, path: &Path) {
         let mut pending = pending().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !pending.is_empty() {
             *pending = Pending { install: pending.install.clone(), ..Pending::default() };
+            // (the batch in flight goes too)
             write_pending(path, &pending);
         }
     }
 }
 
-/// Sends what is pending; an accepted upload removes what it carried.
+/// Sends what is pending as one batch; an accepted (or already counted) batch
+/// is done, and a failed one is resent with the same id next time.
 async fn send_pending(path: &Path, cloud: bool) {
-    let body = {
+    let (install, batch) = {
         let mut pending = pending().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if pending.install.is_empty() {
             let Some(id) = new_install_id() else { return };
             pending.install = id;
         }
+        let batch = pending.next_batch(new_install_id);
         write_pending(path, &pending);
-        if pending.is_empty() {
-            return;
-        }
-        pending.clone()
+        let Some(batch) = batch else { return };
+        (pending.install.clone(), batch)
     };
-    match upload(&body, cloud).await {
+    match upload(&install, &batch, cloud).await {
         Ok(()) => {
             let mut pending = pending().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            pending.subtract(&body);
+            if pending.sending.as_ref().is_some_and(|sent| sent.id == batch.id) {
+                pending.sending = None;
+            }
             write_pending(path, &pending);
         }
         // The platform says the owner does not share: stop and drop.
@@ -283,13 +303,18 @@ fn client() -> Option<reqwest::Client> {
         .ok()
 }
 
-async fn upload(body: &Pending, cloud: bool) -> Result<(), Refused> {
+async fn upload(install: &str, batch: &Batch, cloud: bool) -> Result<(), Refused> {
     let (origin, bearer) = caller(cloud).await.ok_or(Refused::Other)?;
     let response = client()
         .ok_or(Refused::Other)?
         .post(format!("{origin}/v1/install-counts"))
         .bearer_auth(bearer.as_str())
-        .json(&serde_json::json!({ "install": body.install, "counts": body.counts, "manifests": body.manifests }))
+        .json(&serde_json::json!({
+            "install": install,
+            "batch": batch.id,
+            "counts": batch.counts,
+            "manifests": batch.manifests,
+        }))
         .send()
         .await
         .map_err(|_| Refused::Other)?;
@@ -352,7 +377,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn pending_keeps_clean_keys_bounded_and_subtracts_what_was_sent() {
+    fn pending_keeps_clean_keys_bounded() {
         let mut pending = Pending::default();
         pending.add("npm", Some("npm:react"));
         pending.add("npm", Some("npm:react"));
@@ -365,16 +390,6 @@ mod tests {
         assert_eq!(pending.manifests.get("uv"), Some(&1));
         assert_eq!(pending.manifests.len(), 1);
 
-        let sent = pending.clone();
-        pending.add("npm", Some("npm:react"));
-        pending.subtract(&sent);
-        assert_eq!(
-            pending.counts.get("npm:react"),
-            Some(&1),
-            "a count added during the upload stays"
-        );
-        assert!(pending.manifests.is_empty());
-
         let mut full = Pending::default();
         for i in 0..MAX_KEYS + 5 {
             full.add("npm", Some(&format!("npm:p{i}")));
@@ -382,6 +397,27 @@ mod tests {
         assert_eq!(full.counts.len(), MAX_KEYS);
         full.add("npm", Some("npm:p0"));
         assert_eq!(full.counts.get("npm:p0"), Some(&2), "a known key still counts past the cap");
+    }
+
+    #[test]
+    fn a_batch_is_resent_with_its_id_until_accepted() {
+        let mut pending = Pending::default();
+        assert!(
+            pending.next_batch(|| Some("a".repeat(24))).is_none(),
+            "nothing pending: no upload"
+        );
+        pending.add("npm", Some("npm:react"));
+        let first = pending.next_batch(|| Some("a".repeat(24))).unwrap();
+        assert_eq!(first.counts.get("npm:react"), Some(&1));
+        assert!(pending.counts.is_empty(), "the batch took the counts");
+        // A count made while the batch is out waits for the next batch.
+        pending.add("npm", Some("npm:zod"));
+        let retry = pending.next_batch(|| Some("b".repeat(24))).unwrap();
+        assert_eq!(retry, first, "a retry resends the same batch and id");
+        pending.sending = None;
+        let next = pending.next_batch(|| Some("b".repeat(24))).unwrap();
+        assert_eq!(next.id, "b".repeat(24));
+        assert_eq!(next.counts.keys().collect::<Vec<_>>(), ["npm:zod"]);
     }
 
     #[test]
