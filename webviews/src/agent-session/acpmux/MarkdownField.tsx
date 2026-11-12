@@ -30,6 +30,7 @@ import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
 import { deeplinkTokensPlugin } from "./composer/deeplinkTokens";
+import { spacedAfterDeeplink } from "./composer/deeplinks";
 import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTitles";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
@@ -373,6 +374,15 @@ function insertPlain(view: EditorView, text: string) {
   const tr = view.state.tr.replaceWith(from, to, fragment);
   tr.setSelection(TextSelection.near(tr.doc.resolve(tr.mapping.map(to))));
   view.dispatch(tr.scrollIntoView());
+}
+
+/** A paste's plain text inserted as `insertPlain` does, a space after a cmux deeplink it ends in
+ * (`spacedAfterDeeplink`) so the next key typed does not run into the link's chip. Not in code,
+ * where a link draws as text. */
+function insertPasted(view: EditorView, text: string) {
+  const { to, $to } = view.state.selection;
+  const next = view.state.doc.textBetween(to, Math.min(to + 1, $to.end()), "\n", "\n");
+  insertPlain(view, $to.parent.type.spec.code ? text : spacedAfterDeeplink(text, next));
 }
 
 /** Each newline in `fragment`'s text, outside code, as a line break: a pasted paragraph keeps its
@@ -1118,7 +1128,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   if (!data) return false;
                   if (literalNow.current) {
                     const text = data.getData("text/plain") || htmlText(data.getData("text/html"));
-                    if (text) insertPlain(editorView, text);
+                    if (text) insertPasted(editorView, text);
                     event.preventDefault();
                     showPastedEnd(editorView.state);
                     return true;
@@ -1147,7 +1157,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                       ? withoutMarkdownImages(lifted.text)
                       : lifted.text;
                   if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
-                  insertPlain(editorView, plain);
+                  insertPasted(editorView, plain);
                   showPastedEnd(editorView.state);
                   return true;
                 },
@@ -1157,7 +1167,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (literalNow.current) {
                   const data = event.clipboardData;
                   const text = data?.getData("text/plain") || htmlText(data?.getData("text/html") ?? "");
-                  if (text) insertPlain(editorView, text);
+                  if (text) insertPasted(editorView, text);
                   showPastedEnd(editorView.state);
                   return true;
                 }
@@ -1197,7 +1207,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   const plain = text ? withoutBreakPlaceholders(text) : html ? htmlText(html) : "";
                   if (plain) {
                     if (beforeInput(editorView, plain, true)) return true;
-                    insertPlain(editorView, plain);
+                    insertPasted(editorView, plain);
                     showPastedEnd(editorView.state);
                     return true;
                   }
