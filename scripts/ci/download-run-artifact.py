@@ -90,6 +90,22 @@ def retry_wait(error: urllib.error.HTTPError, attempt: int, now: float | None = 
     return min(120.0, 10.0 * 2 ** (attempt - 1))
 
 
+def explain(error: urllib.error.HTTPError, what: str) -> None:
+    """Name why GitHub refused before giving up: a bare "403 Forbidden" hid whether two nightly-next sign
+    stages (runs 43129190893, 43139032769 on 2026-11-12) lost their finished build to a spent token
+    quota or to a permission."""
+    headers = error.headers or {}
+    limits = " ".join(f"{k}={headers.get(k)}" for k in
+                      ("X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "X-RateLimit-Resource",
+                       "Retry-After") if headers.get(k) is not None)
+    try:
+        body = (error.read() or b"")[:300].decode("utf-8", "replace").replace("\n", " ")
+    except Exception:  # noqa: BLE001 - a diagnostic never replaces the error it explains
+        body = ""
+    print(f"{what}: gave up on HTTP {error.code} {limits or '(no rate-limit headers)'} {body}".rstrip(),
+          file=sys.stderr)
+
+
 def with_retries(call, what: str):
     """Run call(); retry a refused or failed GitHub response until the shared deadline or MAX_ATTEMPTS."""
     global retry_deadline
@@ -100,11 +116,15 @@ def with_retries(call, what: str):
             return call()
         except urllib.error.HTTPError as error:
             if not retryable(error.code) or attempt >= MAX_ATTEMPTS:
+                explain(error, what)
                 raise
             if retry_deadline is None:
                 retry_deadline = clock() + RETRY_BUDGET_SECONDS
             wait = retry_wait(error, attempt)
             if clock() + wait > retry_deadline:
+                print(f"{what}: HTTP {error.code}; the next try ({wait:.0f}s away) is past this download's "
+                      f"{RETRY_BUDGET_SECONDS:.0f}s retry budget (CMUX_ARTIFACT_RETRY_BUDGET_SECONDS)", file=sys.stderr)
+                explain(error, what)
                 raise
             print(f"{what}: HTTP {error.code}; retrying in {wait:.0f}s (attempt {attempt})", file=sys.stderr)
             sleep(wait)
