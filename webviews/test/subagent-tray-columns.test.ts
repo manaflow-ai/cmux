@@ -638,6 +638,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           await page.clock.setFixedTime(new Date(GALLERY_NOW));
           const head = page.locator(".acpmux-running-tray__head");
           if ((await head.count()) > 0 && (await head.getAttribute("aria-expanded")) !== "true") await head.click();
+          // What ended is one "N finished" line under what runs: open it, so its lines are measured too.
+          const ended = page.locator('.acpmux-running-tray [data-ended-fold] > button[aria-expanded="false"]');
+          if ((await ended.count()) > 0) await ended.click();
           await page.locator(".acpmux-running-tray .acpmux-agent-line").first().waitFor();
           // Captured before the checks, so the same capture also records a base (before) tree.
           if (process.env.CMUX_TRAY_CAPTURE_DIR) {

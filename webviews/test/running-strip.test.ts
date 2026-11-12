@@ -347,10 +347,13 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           )!;
         const measure = (each: HTMLElement) => {
           const text = each.querySelector<HTMLElement>(".acpmux-summary-text")!;
+          const name = each.querySelector<HTMLElement>(".acpmux-summary-agent__name")!;
           const time = each.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
+          // The title cuts in its own box now (subagents.css: it runs to the time, what it does now
+          // takes the rest), so the text's box itself never overflows.
           return {
             gap: time.getBoundingClientRect().left - text.getBoundingClientRect().right,
-            cut: text.scrollWidth > text.clientWidth,
+            cut: text.scrollWidth > text.clientWidth || name.scrollWidth > name.clientWidth,
           };
         };
         const command = [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].find(
