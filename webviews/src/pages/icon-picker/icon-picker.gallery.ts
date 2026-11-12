@@ -121,6 +121,17 @@ export default iconPickerPageEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".icon-actions-menu"));
       },
     },
+    "pick-refused": {
+      note: "Play: a pick the host refuses. The line that says so comes over the grid, above the bottom bar; no icon of the grid moves.",
+      session,
+      prefs,
+      finishState: "refused",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-cell"));
+        await ctx.click({ selector: ".icon-cell" });
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-picker-error"));
+      },
+    },
     loading: { session: { ...session, tab: "image" }, assetState: "loading", play: assetPlay(false) },
     error: { session: { ...session, tab: "image" }, assetState: "error", play: assetPlay(true) },
     image: { note: "The image sheet with paste, file and URL actions.", session: { ...session, tab: "image" } },
