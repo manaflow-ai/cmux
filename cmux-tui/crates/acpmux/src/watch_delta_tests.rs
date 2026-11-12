@@ -74,3 +74,50 @@ fn a_whole_list_reply_is_no_delta() {
     assert!(read_delta(&json!({"sessions": [], "delta": false})).is_none());
     assert!(delta("not json", &Map::new()).is_none());
 }
+
+/// The parsed-list delta this one replaced, as it was: the reply must stay byte for byte the same.
+fn delta_parsed(list: &str, known: &Map<String, Value>) -> Option<String> {
+    let list: Value = serde_json::from_str(list).ok()?;
+    let rows = list.get("sessions")?.as_array()?;
+    let mut listed = HashSet::new();
+    let mut sessions = Vec::new();
+    for row in rows {
+        let Some(id) = id_of(row) else {
+            sessions.push(row);
+            continue;
+        };
+        listed.insert(id);
+        let held = known.get(id).and_then(Value::as_str);
+        if held.is_none_or(|held| held != digest(row)) {
+            sessions.push(row);
+        }
+    }
+    let removed: Vec<&str> =
+        known.keys().map(String::as_str).filter(|id| !listed.contains(id)).collect();
+    let unchanged = rows.len().saturating_sub(sessions.len());
+    Some(
+        json!({"sessions": sessions, "removed": removed, "unchanged": unchanged, "delta": true})
+            .to_string(),
+    )
+}
+
+#[test]
+fn a_delta_read_row_by_row_is_the_parsed_lists_byte_for_byte() {
+    let mut known = Known::default();
+    known.listed(&[row("a", "idle"), row("b", "idle"), row("c", "idle")]);
+    let param = known.to_param();
+    let known = param.as_object().unwrap();
+    let odd =
+        json!({"name": "no id", "n": 1.5, "nested": {"z": [1, {"y": null}], "a": "\u{e9}\"\n"}});
+    let lists = [
+        list(&[row("a", "idle"), row("b", "working"), row("d", "idle"), odd.clone()]),
+        list(&[]),
+        list(&[json!({"sessionId": 7}), json!("text"), json!(null)]),
+        list(&[row("a", "idle"), row("b", "idle"), row("c", "idle")]),
+    ];
+    for text in &lists {
+        assert_eq!(delta(text, known), delta_parsed(text, known), "{text}");
+    }
+    assert_eq!(delta("{\"other\": 1}", known), None);
+    assert_eq!(delta("not json", known), None);
+}
