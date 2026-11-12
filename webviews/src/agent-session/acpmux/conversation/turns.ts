@@ -1142,16 +1142,14 @@ const isWork = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
 
-/// Where a finished turn's answer is in `rows`: its last takeaway, or its last nonempty reply
-/// after the final tool call. -1: none, so all of it folds. Earlier takeaways are intermediate
-/// dialogue once the turn ends; they remain readable when its disclosure opens.
+/// Where a finished turn's answer is in `rows`: its last nonempty reply, wherever the turn's work
+/// ends. -1: none, so all of it folds. Earlier replies are intermediate dialogue once the turn ends;
+/// they remain readable when its disclosure opens. A short reply the agent followed with a call (it
+/// answered, then sent a message) was once taken for narration and folded, so the person saw only
+/// "Worked for 27s · 1 tool call" under their prompt (Leo, 2026-11-12: "in this case you didnt
+/// respond to me at all..."): the turn's last words to the person always draw under its fold.
 function answerAt(rows: readonly AcpmuxRow[]): number {
-  let stepped = false;
-  for (let at = rows.length - 1; at >= 0; at -= 1) {
-    const row = rows[at]!;
-    if (isReply(row) && (isTakeaway(row) || !stepped)) return at;
-    if (isWork(row)) stepped = true;
-  }
+  for (let at = rows.length - 1; at >= 0; at -= 1) if (isReply(rows[at]!)) return at;
   return -1;
 }
 

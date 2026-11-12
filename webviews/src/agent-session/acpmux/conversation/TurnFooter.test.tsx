@@ -104,9 +104,10 @@ test("an empty footer adds no line; a footer with an answer is its 32 line of bu
 
 // Leo, 2026-11-02: "this spacing would be good + the latest copy buttons auto showing when the turn
 // is done like chatgpt". The chat's last turn that spoke and then ended on a run of commands drew an
-// empty footer: no buttons, a blank band where they go. Its row is a real 32 line now, 8 under the
-// run, whose Copy copies the turn; an earlier such turn keeps its hover-only footer.
-test("the chat's last turn that ended on work has a row of its own, 8 under the run", () => {
+// empty footer. Its last words now draw under its "Worked for" (Leo, 2026-11-12: "in this case you
+// didnt respond to me at all..."; turns.ts `answerAt`), and its footer, a real 32 line under them,
+// copies them.
+test("the chat's last turn that spoke and then ended on work draws its words over its footer", () => {
   const rows = [
     { id: "p", version: 1, at: 0, kind: "user", text: "Check what's installed" },
     { id: "a", version: 1, at: 1, kind: "assistant", text: "I'll check the installed apps." },
@@ -122,32 +123,17 @@ test("the chat's last turn that ended on work has a row of its own, 8 under the 
     { id: "s", version: 1, at: 3, kind: "turnSummary", status: "completed", durationMs: 5_000, toolCount: 1 },
   ] as AcpmuxRow[];
   const drawn = turnView(rows, new Set(), { agentFamily: "claude", now: 10_000 });
+  expect(drawn.map((row) => row.kind)).toEqual(["user", "worked", "assistant", "turnSummary"]);
   const at = drawn.findIndex((row) => row.kind === "turnSummary");
   const last = drawn[at]!;
-  expect(last.text).toBeUndefined();
-  expect(last.turnCopy?.length).toBeGreaterThan(0);
+  expect(last.text).toBe("I'll check the installed apps.");
   expect(isEmptyFooter(last)).toBe(false);
   expect(rowMark(last)).toBe(MARK_FOOTER_ROW);
   expect(renderToStaticMarkup(<TurnFooter row={last} />)).not.toContain("cv-turn-actions--empty");
   const layout = layoutConversation(drawn, 720);
   expect(layout.heights[at]).toBe(TRANSCRIPT_FOOTER_CONTROL);
-  const above = at - 1;
-  // The run folds under "Worked for": its own 8 under its rule stands in for the 8, as over a reply
-  // (transcriptGrid.ts MARK_WORKED), so the stack adds no gap; under an open run's last line, the 8.
-  expect(drawn[above]!.kind).toBe("worked");
-  expect(layout.tops[at]! - (layout.tops[above]! + layout.heights[above]!)).toBe(0);
   expect(transcriptGap(MARK_WORKED, MARK_FOOTER_ROW)).toBe(0);
   expect(transcriptGap(MARK_STEP, MARK_FOOTER_ROW)).toBe(TRANSCRIPT_FOOTER_GAP);
-  // Once a prompt follows, that turn is no longer the last: its footer is hover-only again.
-  const later = turnView(
-    [...rows, { id: "q", version: 1, at: 4, kind: "user", text: "Next" } as AcpmuxRow],
-    new Set(),
-    {
-      agentFamily: "claude",
-      now: 10_000,
-    },
-  );
-  expect(isEmptyFooter(later.find((row) => row.kind === "turnSummary")!)).toBe(true);
 });
 
 test("the retry hint only marks a completed edit with a known non-empty patch", () => {
