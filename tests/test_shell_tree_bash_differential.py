@@ -228,6 +228,17 @@ NESTABLE = (
     "env -S 'X=1 bash -e' -c c1",
     "env -S 'bash -c' -- c1",
     "env -S \"'bash\" -c c1; c2",
+    # A review of upstream #4647 (F1): an option group is one argument, and a character in it that is no option letter
+    # makes bash and sh refuse the command line: '-c c1' runs nothing, so c2 is no script; whether the shell is named
+    # plainly, by env, or by an env -S string that keeps the group whole. Then the rows that must still run.
+    "bash '-c c1' c2",
+    "sh '-c c1' c2",
+    "env -S bash '-c c1' c2",
+    "env -S \"bash '-c c1' c2\"",
+    "bash -c\\ c1 c2",
+    "bash -e1c c1",
+    "env -S bash -c c1 c2",
+    "env -S 'bash -e' -c c1",
 )
 WHOLE = (
     "exec c1",
@@ -443,6 +454,13 @@ class NoOracleIsNoVerdict(unittest.TestCase):
                                          (1, 1, [], []))
                         self.assertIn(hidden, result.skipped[0][1])
 
+    def test_an_oracle_that_raises_is_no_answer(self):
+        """#41862 review, F1's sweep: an error of one line's run (here Popen) is that line's answer, a string
+        differences() reports, never an exception that stops every line."""
+        with mock.patch.object(subprocess, "Popen", side_effect=OSError("injected")):
+            got = bash_runs("c1")
+            self.assertEqual(got, "the oracle raised OSError: injected")
+            self.assertEqual(differences(["c1"]), [("c1", got, ["c1"])])
 
 
 if __name__ == "__main__":

@@ -503,6 +503,83 @@ class NoclobberSweep(unittest.TestCase):
                 with self.subTest(text=text):
                     self.assertIs(shell_tree.bash_writes(text, timeout=10), wrote)
 
+    # The reaper as it runs on a host with no child subreaper, no /proc and no sigtimedwait (macOS), on this one.
+    @staticmethod
+    def no_subreaper_reaper() -> str:
+        reaper = shell_tree.REAPER
+        for real, fake in (("prctl(36, 1, 0, 0, 0)", "prctl(0, 0, 0, 0, 0)"), ('os.path.isdir("/proc/self")', "False")):
+            assert reaper.count(real) == 1, real
+            reaper = reaper.replace(real, fake)
+        return "import signal\ndel signal.sigtimedwait\n" + reaper
+
+    def test_with_no_subreaper_the_reaper_waits_for_the_group(self):
+        """A review of this copy's upstream (#4647), F2: with no child subreaper, no /proc and no sigtimedwait, a process bash leaves in
+        the background is init's child, so the reaper saw no child once bash exited and exited 0: bash_writes() read
+        the scratch folder while the process ran on, and its write came after the verdict. The reaper waits until
+        bash's process group is empty, and nothing of the run is left."""
+        roots = self.own_runs()
+        text = "{ x=0; while ((x < 150000)); do ((x++)); done; : > /tmp/late.$$; } & exit 0"
+        with mock.patch.object(shell_tree, "REAPER", self.no_subreaper_reaper()):
+            self.assertIs(shell_tree.bash_writes(text, timeout=30), True)
+        self.assertEqual(left(roots), [], "processes of the run outlived it")
+
+    def test_with_no_subreaper_a_run_that_may_leave_the_group_is_no_answer(self):
+        """The other half of that F2: a process that leaves bash's group (setsid) is seen by no one where the reaper
+        is no subreaper. Such a run is never started there: a skipped OracleUnavailable, never a verdict."""
+        if not shutil.which("setsid"):
+            self.skipTest("no setsid on this host")
+        roots = self.own_runs()
+        text = "setsid sh -c 'x=0; while [ $x -lt 100000 ]; do x=$((x+1)); done; : > /tmp/late.$$' & exit 0"
+        with mock.patch.object(shell_tree, "REAPER", self.no_subreaper_reaper()):
+            with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                shell_tree.bash_writes(text, timeout=30)
+        self.assertTrue(raised.exception.skipped, raised.exception.reason)
+        self.assertIn("subreaper", raised.exception.reason)
+        self.assertEqual(left(roots), [], "processes of the run outlived it")
+
+    def test_a_reaper_that_writes_no_pid_is_no_answer(self):
+        """A review of #41862, F2: past the reaper's time the pid file was opened as it is, and a reaper that never
+        wrote it crashed bash_writes() with FileNotFoundError; a reaper that exited 0 with no pid gave a verdict on a
+        run nothing knows ran. Missing pid data is OracleUnavailable, after what can be stopped is."""
+        self.own_runs()
+        for name, reaper, timeout in (("stuck", "import time\ntime.sleep(60)\n", 0.3),
+                                      ("exits 0", "import sys\nsys.exit(0)\n", 10)):
+            with self.subTest(reaper=name), mock.patch.object(shell_tree, "REAPER", reaper), \
+                    mock.patch.object(shell_tree, "REAPER_GRACE", 0.5):
+                with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                    shell_tree.bash_writes(": > /tmp/out.$$", timeout=timeout)
+                self.assertIn("wrote no pid", raised.exception.reason)
+                self.assertFalse(raised.exception.skipped)
+
+    def test_one_rows_error_is_that_rows_no_answer(self):
+        """A review of #41862, F1: bash_writes() raises ValueError for a shadowed mktemp with env -i, and bash_verdicts
+        caught only OracleUnavailable, so one row stopped the whole sweep. Any error of one row is that row's named
+        OracleUnavailable, and the other rows are answered."""
+        self.own_runs()
+        rows = ["mktemp() { :; }; env -i mktemp /tmp/x.XXXXXX", ": > /tmp/out.$$"]
+        shadowed, plain = shell_tree.bash_verdicts(rows)
+        self.assertIsInstance(shadowed, shell_tree.OracleUnavailable)
+        self.assertIn("ValueError", shadowed.reason)
+        self.assertIs(plain, True)
+        with mock.patch.object(shell_tree, "bash_writes", side_effect=OSError("injected")):
+            [injected] = shell_tree.bash_verdicts([": > /tmp/out.$$"])
+        self.assertIsInstance(injected, shell_tree.OracleUnavailable)
+        self.assertIn("OSError: injected", injected.reason)
+        with mock.patch.object(shell_tree, "bash_processes", side_effect=RecursionError("injected")):
+            self.assertIsInstance(shell_tree.bash_verdicts([": > /tmp/out.$$"])[0],
+                                  shell_tree.OracleUnavailable)
+
+    def test_a_row_the_tree_cannot_parse_never_runs_without_what_it_may_need(self):
+        """The sweep of the same class: needs() names no capability for text the tree cannot parse, so a row that
+        holds setsid ran on a host without it ("command not found") and gave a verdict on another script. The
+        oracle reads such a row's words, and a host without one skips it."""
+        with mock.patch.object(shell_tree, "programs", side_effect=shell_tree.Unparsed("injected")), \
+                mock.patch.object(shell_tree, "bash_writes", side_effect=AssertionError("ran")):
+            with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                shell_tree.oracle("setsid true", missing=lambda c: "absent here" if c == "setsid" else None)
+        self.assertTrue(raised.exception.skipped, raised.exception.reason)
+        self.assertIn("setsid", raised.exception.reason)
+
     def test_bash_source_in_a_sourced_file_is_that_file(self):
         """A review of this copy, F1: a test for "0" in the argument took ${BASH_SOURCE[0]} for $0, so a source inside
         a sourced file resolved against the script's folder. $0 is the script's in every file; each BASH_SOURCE form
