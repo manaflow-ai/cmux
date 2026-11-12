@@ -1330,24 +1330,35 @@ public func FfiConverterTypeChannelHandle_lower(_ value: ChannelHandle) -> UInt6
 
 /**
  * One Cloud machine's carrier.
+ *
+ * The live session sits in a slot behind a short, synchronous lock: a dial
+ * runs outside it (one at a time, behind `dialing`) and installs its session
+ * at the end, so [`CloudCarrier::is_connected`], [`CloudCarrier::wait_closed`]
+ * and [`CloudCarrier::close`] never wait out a dial. `close` is final: it ends
+ * the live session, cancels a dial in flight (its session is closed, never
+ * installed) and refuses later dials. A dropped carrier closes its session.
  */
 public protocol CloudCarrierProtocol: AnyObject, Sendable {
     
+    /**
+     * Ends the carrier for good: its session closes, a dial in flight stops.
+     */
     func close() async 
     
     /**
      * Dial the machine unless a live session is up, within `deadline_ms`.
+     * `Closed` once [`CloudCarrier::close`] ran (also for a dial it cut short).
      */
     func connect(deadlineMs: UInt32) async throws 
     
     /**
-     * Whether a live session is up.
+     * Whether a live session is up (never waits for a dial).
      */
     func isConnected() async  -> Bool
     
     /**
      * One more daemon line stream on the live session (`Closed` when there is
-     * none: the app dials again with [`CloudCarrier::connect`]).
+     * none: the app dials a new carrier).
      */
     func openStream() async throws  -> CloudCarrierStream
     
@@ -1357,9 +1368,22 @@ public protocol CloudCarrierProtocol: AnyObject, Sendable {
      */
     func setAccessToken(accessToken: String) 
     
+    /**
+     * Resolves once the live session ends or the carrier is closed (at once
+     * when there is no live session), so the app drops its link promptly.
+     */
+    func waitClosed() async 
+    
 }
 /**
  * One Cloud machine's carrier.
+ *
+ * The live session sits in a slot behind a short, synchronous lock: a dial
+ * runs outside it (one at a time, behind `dialing`) and installs its session
+ * at the end, so [`CloudCarrier::is_connected`], [`CloudCarrier::wait_closed`]
+ * and [`CloudCarrier::close`] never wait out a dial. `close` is final: it ends
+ * the live session, cancels a dial in flight (its session is closed, never
+ * installed) and refuses later dials. A dropped carrier closes its session.
  */
 open class CloudCarrier: CloudCarrierProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
@@ -1432,6 +1456,9 @@ public convenience init(apiBase: String, teamId: String?, machineId: String, acc
     
 
     
+    /**
+     * Ends the carrier for good: its session closes, a dial in flight stops.
+     */
 open func close()async   {
     return
         try!  await uniffiRustCallAsync(
@@ -1452,6 +1479,7 @@ open func close()async   {
     
     /**
      * Dial the machine unless a live session is up, within `deadline_ms`.
+     * `Closed` once [`CloudCarrier::close`] ran (also for a dial it cut short).
      */
 open func connect(deadlineMs: UInt32)async throws   {
     return
@@ -1471,7 +1499,7 @@ open func connect(deadlineMs: UInt32)async throws   {
 }
     
     /**
-     * Whether a live session is up.
+     * Whether a live session is up (never waits for a dial).
      */
 open func isConnected()async  -> Bool  {
     return
@@ -1493,7 +1521,7 @@ open func isConnected()async  -> Bool  {
     
     /**
      * One more daemon line stream on the live session (`Closed` when there is
-     * none: the app dials again with [`CloudCarrier::connect`]).
+     * none: the app dials a new carrier).
      */
 open func openStream()async throws  -> CloudCarrierStream  {
     return
@@ -1522,6 +1550,28 @@ open func setAccessToken(accessToken: String)  {try! rustCall() {
         FfiConverterString.lower(accessToken),$0
     )
 }
+}
+    
+    /**
+     * Resolves once the live session ends or the carrier is closed (at once
+     * when there is no live session), so the app drops its link promptly.
+     */
+open func waitClosed()async   {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_cloudcarrier_wait_closed(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_void,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_void,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: nil
+            
+        )
 }
     
 
@@ -4850,19 +4900,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_close() != 19682) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_close() != 2119) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_connect() != 1375) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_connect() != 62017) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_is_connected() != 11164) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_is_connected() != 53782) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_open_stream() != 374) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_open_stream() != 27538) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_set_access_token() != 7176) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrier_wait_closed() != 17069) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_cloudcarrierstream_close() != 54068) {
@@ -4938,4 +4991,4 @@ public func uniffiEnsureCmuxMobileLinkFfiInitialized() {
     }
 }
 
-// swiftlint:enable all
+// swiftlint:enable all===END===

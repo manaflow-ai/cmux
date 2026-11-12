@@ -2,7 +2,7 @@
 //! machine, dialed with the person's own access token and this phone's Noise
 //! key, and its `cmux.protocol/2` line streams for the app's daemon client.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use cmux_mobile_carrier::{CarrierError, CarrierSession, CarrierStream, NoiseIdentity, Platform};
@@ -36,12 +36,80 @@ pub fn cloud_carrier_new_key() -> Result<Vec<u8>, CmuxMobileError> {
 }
 
 /// One Cloud machine's carrier.
+///
+/// The live session sits in a slot behind a short, synchronous lock: a dial
+/// runs outside it (one at a time, behind `dialing`) and installs its session
+/// at the end, so [`CloudCarrier::is_connected`], [`CloudCarrier::wait_closed`]
+/// and [`CloudCarrier::close`] never wait out a dial. `close` is final: it ends
+/// the live session, cancels a dial in flight (its session is closed, never
+/// installed) and refuses later dials. A dropped carrier closes its session.
 #[derive(uniffi::Object)]
 pub struct CloudCarrier {
     platform: Arc<Platform>,
     identity: NoiseIdentity,
     device_name: String,
-    session: tokio::sync::Mutex<Option<Arc<CarrierSession>>>,
+    slot: Mutex<Slot>,
+    /// One dial at a time.
+    dialing: tokio::sync::Mutex<()>,
+    /// Set by `close`: wakes a dial in flight and every `wait_closed`.
+    closing: tokio::sync::watch::Sender<bool>,
+}
+
+#[derive(Default)]
+struct Slot {
+    session: Option<Arc<CarrierSession>>,
+    closed: bool,
+}
+
+impl CloudCarrier {
+    fn slot(&self) -> std::sync::MutexGuard<'_, Slot> {
+        self.slot.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The live session, if any (`Closed` once the carrier was closed).
+    fn live(&self) -> Result<Option<Arc<CarrierSession>>, CarrierError> {
+        let slot = self.slot();
+        if slot.closed {
+            return Err(CarrierError::Closed);
+        }
+        Ok(slot.session.clone().filter(|session| !session.is_closed()))
+    }
+
+    async fn dial(self: Arc<Self>, deadline_ms: u32) -> Result<(), CmuxMobileError> {
+        if self.live()?.is_some() {
+            return Ok(());
+        }
+        let _one = self.dialing.lock().await;
+        // Another dial may have finished while this one waited.
+        if self.live()?.is_some() {
+            return Ok(());
+        }
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(u64::from(deadline_ms));
+        let mut closing = self.closing.subscribe();
+        let dialed = tokio::select! {
+            dialed = CarrierSession::dial(
+                self.platform.clone(),
+                self.identity.clone(),
+                self.device_name.clone(),
+                deadline,
+            ) => dialed?,
+            _ = closing.wait_for(|closed| *closed) => return Err(CarrierError::Closed.into()),
+        };
+        let dialed = Arc::new(dialed);
+        let (old, installed) = {
+            let mut slot = self.slot();
+            if slot.closed { (None, false) } else { (slot.session.replace(dialed.clone()), true) }
+        };
+        if let Some(old) = old {
+            old.close().await;
+        }
+        if !installed {
+            // Closed while it dialed: nothing may keep this session.
+            dialed.close().await;
+            return Err(CarrierError::Closed.into());
+        }
+        Ok(())
+    }
 }
 
 #[uniffi::export]
@@ -66,7 +134,9 @@ impl CloudCarrier {
             platform: Arc::new(platform),
             identity: NoiseIdentity::from_private(private),
             device_name,
-            session: tokio::sync::Mutex::new(None),
+            slot: Mutex::new(Slot::default()),
+            dialing: tokio::sync::Mutex::new(()),
+            closing: tokio::sync::watch::channel(false).0,
         }))
     }
 
@@ -77,53 +147,65 @@ impl CloudCarrier {
     }
 
     /// Dial the machine unless a live session is up, within `deadline_ms`.
+    /// `Closed` once [`CloudCarrier::close`] ran (also for a dial it cut short).
     pub async fn connect(self: Arc<Self>, deadline_ms: u32) -> Result<(), CmuxMobileError> {
-        on_runtime(async move {
-            let mut session = self.session.lock().await;
-            if session.as_ref().is_some_and(|live| !live.is_closed()) {
-                return Ok(());
-            }
-            if let Some(old) = session.take() {
-                old.close().await;
-            }
-            let deadline = tokio::time::Instant::now() + Duration::from_millis(u64::from(deadline_ms));
-            let dialed = CarrierSession::dial(
-                self.platform.clone(),
-                self.identity.clone(),
-                self.device_name.clone(),
-                deadline,
-            )
-            .await?;
-            *session = Some(Arc::new(dialed));
-            Ok(())
-        })
-        .await
+        on_runtime(async move { self.dial(deadline_ms).await }).await
     }
 
     /// One more daemon line stream on the live session (`Closed` when there is
-    /// none: the app dials again with [`CloudCarrier::connect`]).
+    /// none: the app dials a new carrier).
     pub async fn open_stream(self: Arc<Self>) -> Result<Arc<CloudCarrierStream>, CmuxMobileError> {
         on_runtime(async move {
-            let session = self.session.lock().await.clone();
-            let session = session.filter(|live| !live.is_closed()).ok_or(CarrierError::Closed)?;
+            let session = self.live()?.ok_or(CarrierError::Closed)?;
             let stream = session.open_stream().await?;
             Ok(Arc::new(CloudCarrierStream { inner: Arc::new(stream) }))
         })
         .await
     }
 
-    /// Whether a live session is up.
+    /// Whether a live session is up (never waits for a dial).
     pub async fn is_connected(&self) -> bool {
-        self.session.lock().await.as_ref().is_some_and(|live| !live.is_closed())
+        matches!(self.live(), Ok(Some(_)))
     }
 
+    /// Resolves once the live session ends or the carrier is closed (at once
+    /// when there is no live session), so the app drops its link promptly.
+    pub async fn wait_closed(self: Arc<Self>) {
+        on_runtime(async move {
+            let Ok(Some(session)) = self.live() else { return };
+            let mut closing = self.closing.subscribe();
+            tokio::select! {
+                () = session.closed() => {}
+                _ = closing.wait_for(|closed| *closed) => {}
+            }
+        })
+        .await;
+    }
+
+    /// Ends the carrier for good: its session closes, a dial in flight stops.
     pub async fn close(self: Arc<Self>) {
         on_runtime(async move {
-            if let Some(session) = self.session.lock().await.take() {
+            let session = {
+                let mut slot = self.slot();
+                slot.closed = true;
+                slot.session.take()
+            };
+            self.closing.send_replace(true);
+            if let Some(session) = session {
                 session.close().await;
             }
         })
         .await;
+    }
+}
+
+impl Drop for CloudCarrier {
+    fn drop(&mut self) {
+        let session = self.slot.get_mut().unwrap_or_else(PoisonError::into_inner).session.take();
+        self.closing.send_replace(true);
+        if let Some(session) = session {
+            crate::runtime().spawn(async move { session.close().await });
+        }
     }
 }
 
@@ -150,5 +232,74 @@ impl CloudCarrierStream {
     pub async fn close(&self) {
         let inner = self.inner.clone();
         on_runtime(async move { inner.close().await }).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MACHINE: &str = "vm_0123456789abcdefghij";
+
+    fn carrier(base: &str) -> Arc<CloudCarrier> {
+        CloudCarrier::new(base.into(), None, MACHINE.into(), "token".into(), vec![7; 32], "iPhone".into())
+            .unwrap()
+    }
+
+    /// A platform that accepts the ask and never answers: a dial waits on it.
+    async fn silent_platform() -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                held.push(stream);
+            }
+        });
+        (base, task)
+    }
+
+    #[tokio::test]
+    async fn close_cuts_a_dial_short_and_is_final() {
+        let (base, server) = silent_platform().await;
+        let carrier = carrier(&base);
+        let dialing = tokio::spawn(carrier.clone().connect(20_000));
+        // The dial is waiting on the platform; probes and close never wait for it.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!carrier.is_connected().await);
+        let started = std::time::Instant::now();
+        carrier.clone().close().await;
+        let dialed =
+            tokio::time::timeout(Duration::from_secs(5), dialing).await.expect("the dial ended").unwrap();
+        assert!(matches!(dialed, Err(CmuxMobileError::Closed { .. })), "{dialed:?}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        // Closed for good: no later dial, stream or session.
+        assert!(matches!(carrier.clone().connect(1_000).await, Err(CmuxMobileError::Closed { .. })));
+        assert!(matches!(carrier.clone().open_stream().await, Err(CmuxMobileError::Closed { .. })));
+        assert!(!carrier.is_connected().await);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn wait_closed_returns_at_once_without_a_session() {
+        let carrier = carrier("http://127.0.0.1:9");
+        tokio::time::timeout(Duration::from_secs(2), carrier.clone().wait_closed())
+            .await
+            .expect("no session to wait on");
+        carrier.clone().close().await;
+        tokio::time::timeout(Duration::from_secs(2), carrier.wait_closed()).await.expect("closed");
+    }
+
+    #[tokio::test]
+    async fn no_daemon_key_keeps_its_code() {
+        let error: CmuxMobileError = CarrierError::Refused {
+            code: cmux_mobile_carrier::NO_DAEMON_KEY.into(),
+            message: "none".into(),
+            retryable: true,
+        }
+        .into();
+        assert!(
+            matches!(error, CmuxMobileError::Refused { ref code, .. } if code == "carrier.no_daemon_key")
+        );
     }
 }

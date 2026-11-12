@@ -169,3 +169,55 @@ async fn a_fresh_ticket_is_reused_and_a_stale_one_is_asked_again() {
     assert_eq!(tickets.ticket().await.unwrap(), "tkt.1", "a ticket inside the margin is replaced");
     assert!(server.await.unwrap().ends_with("\n{}"), "a ticket-only ask");
 }
+
+/// A platform that names no daemon key yet: the dial asks again while its
+/// deadline lasts, then ends with the refusal the app stops dialing on.
+#[tokio::test]
+async fn no_daemon_key_is_asked_again_then_refused_with_its_code() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let asks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = asks.clone();
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else { return };
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let (read, mut write) = tokio::io::split(stream);
+            let mut reader = BufReader::new(read);
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap();
+                }
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body).await;
+            let mut value = answer();
+            value.as_object_mut().unwrap().remove("daemon_key");
+            let reply = json!({"ok": true, "value": value}).to_string();
+            let head = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                reply.len()
+            );
+            let _ = write.write_all(head.as_bytes()).await;
+            let _ = write.write_all(reply.as_bytes()).await;
+        }
+    });
+    let platform = Arc::new(Platform::new(&base, None, MACHINE, "token".into()).unwrap());
+    let identity = StaticIdentity::from_private([3; 32]);
+    let deadline = Instant::now() + Duration::from_millis(1_500);
+    let error = CarrierSession::dial(platform, identity, "iPhone".into(), deadline).await.err().unwrap();
+    match error {
+        CarrierError::Refused { code, .. } => assert_eq!(code, NO_DAEMON_KEY),
+        other => panic!("{other:?}"),
+    }
+    assert!(asks.load(std::sync::atomic::Ordering::SeqCst) >= 2, "asked again inside the dial");
+    server.abort();
+}

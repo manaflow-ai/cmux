@@ -16,6 +16,7 @@
 //! client (list, attach, send, resize) runs over it unchanged.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -60,6 +61,15 @@ const TEAM_HEADER: &str = "x-cmux-team";
 const STREAM_BUFFER: usize = 256 * 1024;
 /// The longest read handed to the app at once.
 const READ_CHUNK: usize = 64 * 1024;
+/// How long a closed stream's bridge may take to flush and send its end to
+/// the daemon before it is cut.
+const STREAM_CLOSE_GRACE: Duration = Duration::from_millis(500);
+
+/// The refusal code when the platform names no daemon key for the machine
+/// yet (it binds within seconds of its start). Asked again inside one dial;
+/// after the dial's deadline the app stops dialing until its machine list
+/// changes, so it never mints grants forever.
+pub const NO_DAEMON_KEY: &str = "carrier.no_daemon_key";
 
 /// Why a carrier did not come up, or ended.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -312,6 +322,8 @@ pub struct CarrierSession {
     /// The stream opened to prove the grant admits mux control, handed to
     /// the first [`CarrierSession::open_stream`].
     first: Mutex<Option<OpenedMuxControl>>,
+    /// [`CarrierSession::close`] ran (a second one, or the drop, does nothing).
+    closed: AtomicBool,
 }
 
 impl CarrierSession {
@@ -361,19 +373,33 @@ impl CarrierSession {
         Ok(CarrierStream {
             read: tokio::sync::Mutex::new(read),
             write: tokio::sync::Mutex::new(Some(write)),
-            bridge,
+            bridge: Mutex::new(Some(bridge)),
         })
     }
 
     /// The session ended (its resume gave up, or it was closed).
     pub fn is_closed(&self) -> bool {
-        matches!(
-            *self.connection.subscribe_state().borrow(),
-            cmux_remote::observability::ConnectionState::Closed
-        )
+        self.closed.load(Ordering::Acquire)
+            || matches!(
+                *self.connection.subscribe_state().borrow(),
+                cmux_remote::observability::ConnectionState::Closed
+            )
     }
 
+    /// Resolves once the session ends (its resume gave up, or it was closed),
+    /// so the app learns of a dropped session at once, not at its next probe.
+    pub async fn closed(&self) {
+        let mut state = self.connection.subscribe_state();
+        let _ = state
+            .wait_for(|state| matches!(state, cmux_remote::observability::ConnectionState::Closed))
+            .await;
+    }
+
+    /// Ends the session and its streams (once).
     pub async fn close(&self) {
+        if self.closed.swap(true, Ordering::AcqRel) {
+            return;
+        }
         self.multiplexer.shutdown().await;
         let _ = self.connection.close().await;
     }
@@ -392,9 +418,11 @@ async fn attempt(
         .ok_or_else(|| CarrierError::Invalid("cmux-platform sent no carrier grant".into()))?;
     // A machine that has not bound yet has no stored key; it binds within
     // seconds of its start, so the next attempt has it. Never unpinned.
-    let daemon = answer
-        .daemon_key
-        .ok_or_else(|| CarrierError::transport("ticket", "the machine has no daemon key yet"))?;
+    let daemon = answer.daemon_key.ok_or_else(|| CarrierError::Refused {
+        code: NO_DAEMON_KEY.into(),
+        message: "the machine has no daemon key yet".into(),
+        retryable: true,
+    })?;
     let tickets = Tickets::new(platform.clone(), &answer);
     let credentials = RelayCredentialSource::callback(move || {
         let tickets = tickets.clone();
@@ -448,7 +476,12 @@ async fn attempt(
     // A grant that does not admit mux control is refused here, before the
     // dial reports success.
     match OpenedMuxControl::open(&multiplexer).await {
-        Ok(mux) => Ok(CarrierSession { connection, multiplexer, first: Mutex::new(Some(mux)) }),
+        Ok(mux) => Ok(CarrierSession {
+            connection,
+            multiplexer,
+            first: Mutex::new(Some(mux)),
+            closed: AtomicBool::new(false),
+        }),
         Err(error) => {
             multiplexer.shutdown().await;
             let _ = connection.close().await;
@@ -461,7 +494,7 @@ async fn attempt(
 pub struct CarrierStream {
     read: tokio::sync::Mutex<ReadHalf<DuplexStream>>,
     write: tokio::sync::Mutex<Option<WriteHalf<DuplexStream>>>,
-    bridge: tokio::task::JoinHandle<()>,
+    bridge: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl CarrierStream {
@@ -485,17 +518,27 @@ impl CarrierStream {
         Some(buffer)
     }
 
+    /// Ends the stream: our end of the pipe shuts down, so the bridge sends
+    /// what it still holds and the mux stream's end (a FIN, not a reset);
+    /// it is cut only if that takes longer than [`STREAM_CLOSE_GRACE`].
     pub async fn close(&self) {
         if let Some(mut writer) = self.write.lock().await.take() {
             let _ = writer.shutdown().await;
         }
-        self.bridge.abort();
+        let bridge = self.bridge.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(mut bridge) = bridge
+            && tokio::time::timeout(STREAM_CLOSE_GRACE, &mut bridge).await.is_err()
+        {
+            bridge.abort();
+        }
     }
 }
 
 impl Drop for CarrierStream {
     fn drop(&mut self) {
-        self.bridge.abort();
+        if let Some(bridge) = self.bridge.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            bridge.abort();
+        }
     }
 }
 
