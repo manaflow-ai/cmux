@@ -324,6 +324,66 @@ function orphans(orphan: boolean) {
   );
 }
 
+/// What names a notice's chip (Leo, 2026-11-12, on a chip reading cmux: "should this really be
+/// labelled as \"cmux\"?"): a task end with a description of its own reads that description, one
+/// without reads "Background task", a notice of cmux's own with no source has no chip, a tool's
+/// notice keeps its tool's name. The review's end lists its follow-ups and prints each again as
+/// `router-review: follow-up:`; opened, each shows once.
+const REVIEW: BgEnd = {
+  task: "bg-41780",
+  command: "router-review 41780",
+  exit: 0,
+  output: [
+    "Follow-ups:",
+    "- The chip test misses the digest path",
+    "- The gallery lacks a narrow variant",
+    "router-review: follow-up: The chip test misses the digest path",
+    "router-review: follow-up: The gallery lacks a narrow variant",
+    "router-review: SHIP at 091fe98",
+  ].join("\n"),
+};
+function chips() {
+  const turn = (text: string, at: number) => [
+    assistant(text, at),
+    summary(at - 0.1, { status: "completed", durationMs: 2_000, toolCount: 0 }),
+  ];
+  const own = "Session restarted";
+  return chat(
+    [
+      ...opening,
+      received(bgText(REVIEW), { ...bgProvenance(REVIEW), bgTaskDescription: "Review #41780" }, 25),
+      ...turn("The review says SHIP with two follow-ups.", 24.8),
+      received(bgText(FAILED), bgProvenance(FAILED), 20),
+      ...turn("One bg_notify test fails; reading it.", 19.8),
+      received(
+        `[notice from acpmux] ${own}`,
+        {
+          kind: "notice",
+          from: "fromAgent",
+          fromName: "acpmux",
+          to: SESSION_ID,
+          notice: { sender: "acpmux", severity: "info", title: own },
+        },
+        15,
+      ),
+      ...turn("Picking up where it left off.", 14.8),
+      notice(WARN, 10),
+      assistant("I'll check the two offline minis.", 9.8),
+      summary(9.7, { status: "completed", durationMs: 2_000, toolCount: 0 }),
+    ],
+    { title: "coordinator", sessions },
+  );
+}
+
+/// Opens the review's end.
+const openReview: Play = async (ctx) => {
+  const lines = () => [...ctx.document.querySelectorAll(".cv-received.cv-notice .cv-disclosure__toggle")];
+  await ctx.waitFor(() => lines().length >= 2 || null, { capMs: 10_000 });
+  const line = lines().find((el) => el.textContent?.includes("router-review")) as HTMLElement | undefined;
+  if (line && line.getAttribute("aria-expanded") !== "true") line.click();
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text"), { capMs: 10_000 });
+};
+
 /// Opens the end that wrote output, and its Details where it has them.
 const openOrphan: Play = async (ctx) => {
   const lines = () => [...ctx.document.querySelectorAll(".cv-received.cv-notice .cv-disclosure__toggle")];
@@ -413,7 +473,7 @@ const variants: Record<string, AgentPaneVariant> = {
     snapshot: before(),
   },
   background: {
-    note: "Background command ends (acpmux hub/bg_notify.rs): exit 0 with remote:/warning: output reads info; exit 101 warns; a long wt new and a multi-line command keep (exit N) on the line; two that went in together read as one notice +1, never acpmux · acpmux.",
+    note: "Background command ends (acpmux hub/bg_notify.rs): exit 0 with remote:/warning: output reads info; exit 101 warns; a long wt new and a multi-line command keep (exit N) on the line; two that went in together read as one notice +1; each chip reads 'Background task', never acpmux or cmux.",
     snapshot: background(),
   },
   "orphan-before": {
@@ -433,6 +493,20 @@ const variants: Record<string, AgentPaneVariant> = {
     note: "After, opened: only the command's output, no sentence to the model, no Details.",
     snapshot: orphans(true),
     play: openOrphan,
+  },
+  chips: {
+    note: 'Chips name what a notice is, never cmux: a task with a description of its own reads it ("Review #41780"), one without reads "Background task", a notice of cmux\'s own with no source has none, a tool\'s page keeps its tool\'s name.',
+    snapshot: chips(),
+  },
+  "chips-open": {
+    note: 'The review\'s end opened: its last lines once (each follow-up once, not again as router-review: follow-up:), no "Last N lines of its output:".',
+    snapshot: chips(),
+    play: openReview,
+  },
+  "chips-hover": {
+    note: "The described task's line under the pointer: its title lights, the chip stays the task's own words.",
+    snapshot: chips(),
+    play: async (ctx) => ctx.hover({ selector: ".cv-received.cv-notice .cv-notice__lead" }),
   },
   "background-digest-open": {
     note: "The two ends that went in together, opened: each under its own title, no [notice from …] head.",

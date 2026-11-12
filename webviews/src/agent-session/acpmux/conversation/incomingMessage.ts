@@ -563,16 +563,12 @@ function promptOf(
   // Messages from other agents that waited for a busy chat and went in as one turn (acpmux
   // hub/digest.rs `agent_digest`): one card from their senders, every message in it as sent.
   if (provenance?.kind === "agent_digest" && Array.isArray(provenance.messages)) {
-    const senders = [
-      ...new Set(
-        provenance.messages
-          .map((m) => (m as { from?: unknown } | null)?.from)
-          .filter((from): from is string => typeof from === "string" && from.trim() !== "")
-          // cmux's own parts read as cmux, never acpmux (agentNotice.ts `shownSender`).
-          .map((from) => shownSender(from.trim())),
-      ),
-    ];
-    if (senders.length > 0) {
+    const from = provenance.messages
+      .map((m) => (m as { from?: unknown } | null)?.from)
+      .filter((from): from is string => typeof from === "string" && from.trim() !== "");
+    // cmux's own parts are named by nothing, never acpmux or cmux (agentNotice.ts `shownSender`).
+    const senders = [...new Set(from.map((name) => shownSender(name.trim())).filter(Boolean))];
+    if (from.length > 0) {
       // A task end the person never needs to see (agentNotice.ts `orphan`) leaves the card.
       const read = digestParts(text, provenance.messages);
       const parts = read.filter((part) => part.notice?.orphan !== "none");
@@ -988,7 +984,12 @@ function digestParts(text: string, messages: readonly unknown[]): DigestPart[] {
     const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
     const sent = (messages[index] as { provenance?: Record<string, unknown> } | null)?.provenance;
     const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent, body) : undefined;
-    if (notice) return { sender, notice, text: shownNoticeBody(notice, noticeBody(body)) };
+    if (notice)
+      return {
+        sender: notice.system ? notice.sender : sender,
+        notice,
+        text: shownNoticeBody(notice, noticeBody(body)),
+      };
     // A notice an older acpmux kept no provenance for, or tell-coordinator's page, sent at a shell
     // (agentNotice.ts): read from its head, as a turn of its own reads it. cmux's own parts' text
     // is always read so: its `[notice from acpmux]` head never shows as words.
@@ -1010,7 +1011,11 @@ function digestBody(parts: readonly DigestPart[]): string {
   // A notice among messages is one line under its sender, never its body.
   return parts
     .map(({ sender, text, notice }) =>
-      notice ? `**${sender}** · ${escapeTitle(notice.title)}` : `**${sender}**\n${text}`,
+      notice
+        ? sender
+          ? `**${sender}** · ${escapeTitle(notice.title)}`
+          : escapeTitle(notice.title)
+        : `**${sender}**\n${text}`,
     )
     .join("\n\n");
 }

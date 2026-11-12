@@ -182,6 +182,12 @@ comes to you."
         let text = crate::prompt_provenance::notice_text(&notice, &body);
         let mut provenance = crate::prompt_provenance::notice(&notice, &session.id);
         provenance.set("bgTaskId", json!(id));
+        // What the chat's chip calls it: its own description, else "Background task".
+        if let Some(description) =
+            record.description.as_deref().map(str::trim).filter(|d| !d.is_empty())
+        {
+            provenance.set("bgTaskDescription", json!(description));
+        }
         if let Some(sub) = ended {
             provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
         }

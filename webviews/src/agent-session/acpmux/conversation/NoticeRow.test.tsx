@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import { LaneNoticeBatch } from "./LaneNoticeBatch";
-import { incomingPrompt, messagePreview, type IncomingMessage } from "./incomingMessage";
+import { incomingPrompt, type IncomingMessage } from "./incomingMessage";
 import { projectInboxRows } from "./laneNoticeBatches";
 import { LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
 import { findSkipped } from "./chatFind";
@@ -215,22 +215,24 @@ test("a failed command's warning shows its exit on the line", async () => {
   expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 2)");
 });
 
-// User, 2026-11-09: "generally in gui we should not mention stuff like \"acpmux\"". A background
-// command's end names cmux as its sender, and its opened body never shows the task's internal id or
-// the tool the model reads it with.
+// User, 2026-11-09: "generally in gui we should not mention stuff like \"acpmux\"", and Leo,
+// 2026-11-12, on its chip reading cmux: "should this really be labelled as \"cmux\"?". A background
+// command's end names what it is, "Background task", and its opened body never shows the task's
+// internal id, the tool the model reads it with, or "Last N lines of its output:".
 test("a background command's notice never shows acpmux, its task id or bg_output", async () => {
   const end = bgEnd("bg-b08e9de42d3e", "make test", 0, "lint: ok\ntest: 412 passed\nOK");
   const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
   if (read?.kind !== "message") throw new Error("not a message");
-  expect(read.message.name).toBe("cmux");
+  expect(read.message.name).toBe("");
+  expect(read.message.notice).toMatchObject({ system: true, task: true });
   const container = await render(<IncomingMessageLine id="n-9" message={read.message} onOpen={() => undefined} />);
   const line = container.querySelector(".cv-received.cv-notice")!;
-  expect(line.textContent).toContain("cmux");
-  expect(line.textContent).not.toMatch(/acpmux/i);
+  expect(line.querySelector(".cv-received__from")?.textContent).toBe("Background task");
+  expect(line.textContent).not.toMatch(/acpmux|\bcmux\b/i);
   await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
   const all = container.textContent ?? "";
   expect(all).toContain("test: 412 passed");
-  expect(all).not.toMatch(/acpmux|bg-b08e9de42d3e|bg_output/i);
+  expect(all).not.toMatch(/acpmux|bg-b08e9de42d3e|bg_output|lines of its output/i);
   for (const el of container.querySelectorAll("[aria-label],[title]"))
     expect(`${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`).not.toMatch(/acpmux/i);
 });
@@ -267,7 +269,7 @@ test("an orphan task end with output is one quiet line that opens to its output,
   const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
   if (read?.kind !== "message") throw new Error("not a message");
   expect(read.message.notice?.orphan).toBe("line");
-  expect(read.message.text).toBe("Last 3 lines of its output:\nmerged\nchecks green");
+  expect(read.message.text).toBe("merged\nchecks green");
   const container = await render(<IncomingMessageLine id="n-o1" message={read.message} onOpen={() => undefined} />);
   const line = container.querySelector(".cv-received.cv-notice")!;
   await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
@@ -299,7 +301,7 @@ function digest(...ends: { text: string; provenance: Record<string, unknown> }[]
 test("background command ends that went in together read as their notice, never acpmux twice", async () => {
   const read = digest(bgEnd("bg-3", LONG, 0, "note: one"), bgEnd("bg-4", "cargo fmt --check", 0, "ok"));
   if (read?.kind !== "message") throw new Error("not a message");
-  expect(read.message.name).toBe("cmux");
+  expect(read.message.name).toBe("");
   expect(read.message.notice?.title).toBe(`Background command finished: ${LONG} (exit 0)`);
   expect(read.message.notice?.more).toBe(1);
   const container = await render(<IncomingMessageLine id="n-3" message={read.message} onOpen={() => undefined} />);
@@ -323,7 +325,7 @@ test("one notice that went in as a digest reads as that notice", () => {
   if (read?.kind !== "message") throw new Error("not a message");
   expect(read.message.notice).toMatchObject({ severity: "warn", title: "Background command finished: make (exit 3)" });
   expect(read.message.notice?.more).toBeUndefined();
-  expect(read.message.text.startsWith("Last 3 lines of its output:")).toBe(true);
+  expect(read.message.text).toBe("boom");
 });
 
 test("the most severe notice of a digest names its line", () => {
@@ -345,9 +347,11 @@ test("a digest of a notice and an agent's message shows the first message's word
   ];
   const read = incomingPrompt(text, { _meta: { provenance: { kind: "agent_digest", messages } } });
   if (read?.kind !== "message") throw new Error("not a message");
-  expect(read.message.name).toBe("cmux, lane-a");
+  expect(read.message.name).toBe("lane-a");
   expect(read.message.preview).toBe(`Background command finished: ${LONG} (exit 0)`);
-  expect(messagePreview(read.message.text)).not.toBe(`Background command finished: ${LONG} (exit 0)`);
+  // The notice reads as its title alone, under no sender: never acpmux, cmux or an empty bold name.
+  expect(read.message.text.startsWith("Background command finished:")).toBe(true);
+  expect(read.message.text).not.toMatch(/acpmux|\*\*cmux\*\*|\*\*\*\*/);
   expect(read.message.text).not.toContain("[notice from");
 });
 
@@ -432,4 +436,60 @@ test("Find matches across a notice title's command and its exit", async () => {
   const title = container.querySelector(".cv-notice__title")!;
   expect(title.hasAttribute("data-find-join")).toBe(true);
   expect(title.textContent).toBe("Background command finished: make (exit 0)");
+});
+
+// Leo, 2026-11-12, on a background command's chip: "should this really be labelled as \"cmux\"?".
+// The chip names what the notice is: the task's own description when it has one; a notice of
+// cmux's own with no source has no chip; a tool's notice keeps its tool's name.
+test("a background task with a description is named by it", async () => {
+  const end = bgEnd("bg-20", "router-review 41780", 0, "SHIP");
+  const read = incomingPrompt(end.text, {
+    _meta: { provenance: { ...end.provenance, bgTaskDescription: "Review #41780" } },
+  });
+  if (read?.kind !== "message") throw new Error("not a message");
+  const container = await render(<IncomingMessageLine id="n-20" message={read.message} onOpen={() => undefined} />);
+  expect(container.querySelector(".cv-received__from")?.textContent).toBe("Review #41780");
+});
+
+test("a notice of cmux's own with no source draws no chip, and a tool's notice keeps its tool's name", async () => {
+  const own = `[notice from acpmux] Session restarted`;
+  const ownProvenance = {
+    kind: "notice",
+    from: "fromAgent",
+    fromName: "acpmux",
+    to: "s-1",
+    notice: { sender: "acpmux", severity: "info", title: "Session restarted" },
+  };
+  const read = incomingPrompt(own, { _meta: { provenance: ownProvenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice?.task).toBeUndefined();
+  const container = await render(<IncomingMessageLine id="n-21" message={read.message} onOpen={() => undefined} />);
+  expect(container.querySelector(".cv-received__from")).toBeNull();
+  expect(container.querySelector(".cv-notice__title")?.textContent).toBe("Session restarted");
+  const tool = notice("fire", "cmux-next fast tier failed on 3 PRs");
+  expect(tool.name).toBe("base-red-watch");
+});
+
+// The body shows a command's last lines once: a tool that lists its follow-ups and then prints each
+// as its own `NAME: follow-up: ITEM` line (router-review) shows each item once.
+test("a background task's body shows each follow-up once and no output lead", () => {
+  const output = [
+    "Follow-ups:",
+    "- **[follow-up]** The chip test misses the digest path",
+    "1. Gallery lacks a dark variant",
+    "router-review: follow-up: **[follow-up]** The chip test misses the digest path",
+    "router-review: follow-up: Gallery lacks a dark variant",
+    "router-review: SHIP at 091fe98",
+  ].join("\n");
+  const end = bgEnd("bg-22", "router-review 41780", 0, output);
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.text).toBe(
+    [
+      "Follow-ups:",
+      "- **[follow-up]** The chip test misses the digest path",
+      "1. Gallery lacks a dark variant",
+      "router-review: SHIP at 091fe98",
+    ].join("\n"),
+  );
 });
