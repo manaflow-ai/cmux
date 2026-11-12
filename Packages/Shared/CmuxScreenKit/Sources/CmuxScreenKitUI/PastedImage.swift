@@ -24,6 +24,12 @@ struct PastedImage: Sendable, Equatable {
     init?(photo: Data) {
         guard let source = CGImageSourceCreateWithData(photo as CFData, nil), CGImageSourceGetCount(source) > 0 else { return nil }
         let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] ?? [:]
+        self.init(photo: photo, source: source, properties: properties)
+    }
+
+    /// `photo` prepared from its `source` and the first image's `properties` as ImageIO read them
+    /// (the tests give properties ImageIO seldom reads, such as none for the pixel size).
+    init?(photo: Data, source: CGImageSource, properties: [CFString: Any]) {
         let upright = (properties[kCGImagePropertyOrientation] as? Int ?? 1) == 1
         let located = properties[kCGImagePropertyGPSDictionary] != nil
         if upright, !located, let type = Self.passThroughType(of: photo) {
