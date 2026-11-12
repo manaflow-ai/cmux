@@ -22,7 +22,7 @@ import WebKit
 /// 2026-10-11: they waited forever and Cmd-T opened nothing).
 /// `switch_and_type` (`tab`, `text`): in ONE main-actor turn, a click on `tab` (selected in its pane, the pane focused), then each character as a
 /// key-down straight through `debug.key`'s dispatch, with no wait for a key hold: a person who types at the click, while a Chromium page's focus
-/// grant still waits. Returns the page's `page_ready` at the click and whether the window held each key; without `tab`, the focused pane's tabs.
+/// grant still waits. Returns the page's `page_ready` at the click and whether the window held each key; with `probe`, only the report; without `tab`, the focused pane's tabs.
 /// `drop_spare` drops the prewarmed spare, so the next opening loads cold; with `slow`, WebKit's setup is also marked slow.
 @MainActor
 enum DebugNewTab {
@@ -118,11 +118,7 @@ enum DebugNewTab {
         if leave, let shown { pane.select(StripTabID(shown)) }
         // Where the first key goes: the adopted page's web view, or a stale responder.
         let responder = pane.view.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "none"
-        for character in text {
-            var key: [String: JSONValue] = ["key": .string(String(character))]
-            if let id = target?.state.id { key["window"] = .string(id) }
-            _ = DebugKey.send(key, services: services)
-        }
+        for character in text { _ = DebugKey.send(["key": .string(String(character))].merging(target.map { ["window": .string($0.state.id)] } ?? [:]) { $1 }, services: services) }
         return .object([
             "opening": services.newTabSpares.openings.last.map(opening) ?? .null,
             "first_responder": .string(responder),
@@ -134,11 +130,11 @@ enum DebugNewTab {
         guard let target = controller(params, services), let content = target.content else { return .object(["error": .string("no window")]) }
         guard let tab = params["tab"]?.stringValue else { return .object(["tabs": .array(content.focusedPane?.pane.tabs.map { JSONValue.object(["id": .string($0.id), "browser": .bool($0.kind == .browser)]) } ?? [])]) }
         guard let pane = content.panes.values.first(where: { $0.orderedIDs.contains(StripTabID(tab)) }) else { return .object(["error": .string("no pane shows that tab")]) }
-        pane.select(StripTabID(tab)); PaneHandlers.focus(pane.layoutPaneID, in: content)
-        var ready: JSONValue = .null
-        if case .browser(let entry)? = pane.currentContent, entry.tab.id.rawValue == tab { ready = .bool(entry.tab.pageReady) }
+        if params["probe"]?.boolValue != true { pane.select(StripTabID(tab)); PaneHandlers.focus(pane.layoutPaneID, in: content) }
+        var ready: JSONValue = .null, ask: JSONValue = .null
+        if case .browser(let entry)? = pane.currentContent, entry.tab.id.rawValue == tab { (ready, ask) = (.bool(entry.tab.pageReady), (entry.tab as? CEFTab).map { .string($0.focusAskState) } ?? .null) }
         let held = (params["text"]?.stringValue ?? "").map { character -> JSONValue in _ = DebugKey.send(["key": .string(String(character)), "window": .string(target.state.id)], services: services); return .bool(services.keyRouter.creationInputCoordinator.isHolding(in: target.window)) }
-        return .object(["page_ready": ready, "held": .array(held), "app_active": .bool(NSApp.isActive)])
+        return .object(["page_ready": ready, "held": .array(held), "app_active": .bool(NSApp.isActive), "focus_ask": ask, "first_responder": .string(target.window?.firstResponder.map { String(describing: type(of: $0)) } ?? "none")])
     }
 
     private static func field(_ params: [String: JSONValue], _ services: AppServices, before: String = "") async -> JSONValue {

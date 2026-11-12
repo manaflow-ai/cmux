@@ -286,14 +286,23 @@ def switch_keys(runs):
         rpc("debug.new_tab", {"action": "switch_and_type", "tab": terminal[0]})
         time.sleep(1.0)  # test harness: the terminal has the keyboard, the page is hidden
         rpc("browser.page.eval", {"tab": page, "script": "document.getElementById('i').value=''; window.at=[]; 1"})
+        last = ((rpc("debug.journal", {"last": 1}) or {}).get("stats") or {}).get("lastSeq") or 0
         clicked = time.time() * 1000
         sent = rpc("debug.new_tab", {"action": "switch_and_type", "tab": page, "text": "abc"}) or {}
         got = wait(lambda: (lambda state: state if len(state.get("v") or "") >= 3 else None)(read()), 4, step=0.02) or read()
         at = got.get("at") or []
+        after = rpc("debug.new_tab", {"action": "switch_and_type", "tab": page, "probe": True}) or {}
         row = {"run": index, "page_ready_at_click": sent.get("page_ready"), "held": sent.get("held"), "app_active": sent.get("app_active"),
                "field": got.get("v"), "page_has_focus": got.get("f"), "first_key_ms": round(at[0] - clicked, 1) if at else None,
-               "error": sent.get("error")}
-        print("switch-keys", json.dumps(row), flush=True)
+               "ask_at_click": sent.get("focus_ask"), "ask_after": after.get("focus_ask"), "responder_at_click": sent.get("first_responder"),
+               "responder_after": after.get("first_responder"), "error": sent.get("error")}
+        if index < 3:  # the switch's journal: what the page and the focus did after the click
+            entries = [e for e in (rpc("debug.journal", {"last": 400}) or {}).get("entries") or [] if (e.get("seq") or 0) > last]
+            first = entries[0].get("uptimeNanos", 0) if entries else 0
+            row["journal"] = [f"{(e.get('uptimeNanos', 0) - first) / 1e6:.1f} {json.dumps(e.get('kind'))[:260]}" for e in entries][:120]
+            for line in row["journal"]:
+                print("   journal", line, flush=True)
+        print("switch-keys", json.dumps({k: v for k, v in row.items() if k != "journal"}), flush=True)
         rows.append(row)
     return rows
 
