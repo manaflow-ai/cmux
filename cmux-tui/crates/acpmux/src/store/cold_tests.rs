@@ -452,3 +452,149 @@ fn an_append_during_another_rehydrate_goes_on_in_the_last_segment() {
     }
     assert_eq!(Store::events(&*store, "c", 0, usize::MAX).unwrap(), records);
 }
+
+/// Forced lost-home races for the cold archive (#41372 review F2): a settle or a rehydrate held
+/// past its home check, the home then replaced by a copy of itself (the new daemon's session
+/// tree, as restored from the old one). Every removal and rename lands in the held home; the new
+/// one is never changed. Each runs in a process of its own (`lost_home_race_tests::isolated`).
+#[cfg(unix)]
+mod lost_home {
+    use super::*;
+    use crate::lost_home_race_tests::{copy_tree, forced, isolated, replace, tree};
+
+    /// A chat archived beside its log (a crash before the commit moved the log aside), so a
+    /// settle removes the archive.
+    #[test]
+    fn a_cold_settle_held_past_its_check() {
+        isolated(
+            module_path!(),
+            "a_cold_settle_held_past_its_check",
+            |home| {
+                let store = LocalStore::new(home.join("sessions"), 64 * 1024).unwrap();
+                closed(&store, "c");
+                chat(&store, "c", 1);
+                archive(&store, "c");
+                let copy = std::fs::read(store.cold_path("c")).unwrap();
+                assert!(store.rehydrate("c").unwrap());
+                std::fs::write(store.cold_path("c"), &copy).unwrap();
+                let target = store.dir("c");
+                let old = home.with_extension("old");
+                let seed = move |home: &Path| copy_tree(&home.with_extension("old"), home);
+                forced(home, target, seed, None, move || {
+                    let _ = store.settle_cold("c");
+                });
+                assert!(
+                    !old.join("sessions").join("c").join(COLD_FILE).exists(),
+                    "the held home's covered archive was not removed"
+                );
+            },
+            |_, _| {},
+        );
+    }
+
+    /// #41462 review F1: the held home holds archive A and no log; the home that replaces it
+    /// holds another archive, B, beside a log that holds B. A settle held past its home check
+    /// must read the archive and its log in the held home, where A has no copy beside it, so A
+    /// is kept: read in the replacement, B is "covered" and the removal in the held home takes
+    /// A, the chat's only history.
+    #[test]
+    fn a_cold_settle_reads_the_held_home_not_its_replacement() {
+        isolated(
+            module_path!(),
+            "a_cold_settle_reads_the_held_home_not_its_replacement",
+            |home| {
+                let store = LocalStore::new(home.join("sessions"), 64 * 1024).unwrap();
+                closed(&store, "a");
+                chat(&store, "a", 1);
+                archive(&store, "a");
+                let a = std::fs::read(store.cold_path("a")).unwrap();
+                closed(&store, "c");
+                chat(&store, "c", 2);
+                archive(&store, "c");
+                let b = std::fs::read(store.cold_path("c")).unwrap();
+                assert_ne!(a, b, "the two archives must differ");
+                assert!(store.rehydrate("c").unwrap());
+                let b_log = home.with_extension("b-log");
+                copy_tree(&store.dir("c").join("events"), &b_log);
+                // The held home: the chat's only history is archive A, with no log beside it.
+                std::fs::remove_dir_all(store.dir("c").join("events")).unwrap();
+                std::fs::write(store.cold_path("c"), &a).unwrap();
+                let target = store.dir("c");
+                let old = home.with_extension("old");
+                let seed = move |home: &Path| {
+                    copy_tree(&home.with_extension("old"), home);
+                    let chat = home.join("sessions").join("c");
+                    std::fs::write(chat.join(COLD_FILE), &b).unwrap();
+                    copy_tree(&b_log, &chat.join("events"));
+                };
+                forced(home, target, seed, Some("sessions/c/cold.zst"), move || {
+                    let _ = store.settle_cold("c");
+                });
+                let kept = std::fs::read(old.join("sessions").join("c").join(COLD_FILE)).unwrap();
+                assert_eq!(kept, a, "the held home's archive A changed");
+            },
+            |_, _| {},
+        );
+    }
+
+    /// #41697 review F1: the held home holds the chat's archive and no log; the home that
+    /// replaces it holds neither. A rehydrate must read the archive in the held home: read by
+    /// path it finds none and answers "not archived" (Ok(false)), so the caller reads the chat
+    /// as empty while its history sits in the held home. Read there, it finds the archive and
+    /// goes on to thaw it, which a lost home refuses: an error, never "not archived", and the
+    /// held home's archive and the new home stay as they were.
+    #[test]
+    fn a_cold_rehydrate_reads_the_held_home_not_its_replacement() {
+        isolated(
+            module_path!(),
+            "a_cold_rehydrate_reads_the_held_home_not_its_replacement",
+            |home| {
+                let store = LocalStore::new(home.join("sessions"), 64 * 1024).unwrap();
+                closed(&store, "c");
+                chat(&store, "c", 1);
+                archive(&store, "c");
+                assert!(store.is_cold("c"), "the fixture is archived");
+                let archived = std::fs::read(store.cold_path("c")).unwrap();
+                crate::config::hold_home();
+                replace(home);
+                copy_tree(&home.with_extension("old"), home);
+                std::fs::remove_file(store.cold_path("c")).unwrap();
+                let seeded = tree(home);
+                let back = store.rehydrate("c");
+                assert!(
+                    back.is_err(),
+                    "the rehydrate read the replacement's missing archive, not the held \
+                     home's: {back:?}"
+                );
+                let old = home.with_extension("old").join("sessions").join("c").join(COLD_FILE);
+                assert_eq!(std::fs::read(old).unwrap(), archived, "the held home's archive");
+                assert_eq!(tree(home), seeded, "the rehydrate changed the new home");
+            },
+            |_, _| {},
+        );
+    }
+
+    /// A cold chat's first read decodes its archive into a folder beside it, then renames it to
+    /// `events/` and removes the archive: held at the check of the last file it decodes.
+    #[test]
+    fn a_cold_rehydrate_held_past_its_check() {
+        isolated(
+            module_path!(),
+            "a_cold_rehydrate_held_past_its_check",
+            |home| {
+                let store = LocalStore::new(home.join("sessions"), 64 * 1024).unwrap();
+                closed(&store, "c");
+                chat(&store, "c", 1);
+                let last = hashes(&store, "c").into_keys().last().unwrap();
+                archive(&store, "c");
+                let target = store.dir("c").join(THAW_DIR).join(&last);
+                let kept = format!("sessions/c/events/{last}");
+                let seed = |home: &Path| copy_tree(&home.with_extension("old"), home);
+                forced(home, target, seed, Some(&kept), move || {
+                    let _ = store.rehydrate("c");
+                });
+            },
+            |_, _| {},
+        );
+    }
+}

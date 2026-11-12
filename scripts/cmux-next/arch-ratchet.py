@@ -1406,7 +1406,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         push_range = load_push_range()
         own = (push_range.given_range(repo, args.base, head) if args.base
-               else push_range.own_range(repo, head, [], args.upstream))
+               else push_range.manual_range(repo, head, args.upstream))
     except ValueError as error:
         print(f"arch-ratchet: {error}", file=sys.stderr)
         return 2

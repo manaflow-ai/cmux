@@ -449,6 +449,7 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
+        backgroundLayer.cornerCurve = Metrics.tabCornerCurve
         // The flush corner: the selected tab runs down into the card, rounded only on top (no foot, no point).
         backgroundLayer.maskedCorners = runsIntoCard ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
             : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]

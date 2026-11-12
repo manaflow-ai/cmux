@@ -202,6 +202,38 @@ static W: Wrong<fn(bool)> = std::sync::OnceLock::new();
 RS
 refused cmux-tui/crates/acpmux/src/alias.rs 4 "a nested alias passing its closure on to the parameter used" "closure"
 case "$(python3 -I "$check" "$tmp" || true)" in *alias.rs:5:*) fail "a nested alias passing its closure to an unused parameter: refused" ;; esac
+# One ordered substitution pass (#41418 F1-F3): arguments, then defaults in order, then the body, then names.
+# F1: a default sees the parameters bound before it.
+cat >"$src/alias.rs" <<'RS'
+struct Pair<T, U = T> { first: T, second: U }
+static PAIR: std::sync::Mutex<Pair<u8>> = std::sync::Mutex::new(Pair { first: 0, second: 0 });
+RS
+passes "a default naming an earlier parameter (struct Pair<T, U = T>, Mutex<Pair<u8>>)"
+cat >"$src/alias.rs" <<'RS'
+type Later<T, U = T> = std::sync::OnceLock<U>;
+static LATER: Later<fn(bool)> = std::sync::OnceLock::new();
+RS
+refused cmux-tui/crates/acpmux/src/alias.rs 2 "a default naming an earlier parameter given a fn pointer" "closure"
+# F2: a parameter named as a prelude name is the parameter.
+cat >"$src/alias.rs" <<'RS'
+type Slot<Future> = Mutex<Option<Future>>;
+static S: Slot<fn()> = Mutex::new(None);
+RS
+refused cmux-tui/crates/acpmux/src/alias.rs 2 "a parameter named Future given a fn pointer" "closure"
+# F3: a projection of a parameter keeps its argument and is unresolved, never dropped.
+cat >"$src/alias.rs" <<'RS'
+trait Callback { type Hook; }
+impl Callback for fn() { type Hook = fn(); }
+type Slot<T: Callback> = Mutex<Option<T::Hook>>;
+static S: Slot<fn()> = Mutex::new(None);
+RS
+refused cmux-tui/crates/acpmux/src/alias.rs 4 "T::Hook with T a fn pointer"
+cat >"$src/alias.rs" <<'RS'
+struct Cached { at: u64 }
+type Slot<T: Callback> = Mutex<Option<T::Hook>>;
+static S: Slot<Cached> = Mutex::new(None);
+RS
+refused cmux-tui/crates/acpmux/src/alias.rs 3 "T::Hook with T a struct of the file" "unresolved"
 # A struct of the file is judged by its fields, and a renamed cell is a cell.
 cat >"$src/alias.rs" <<'RS'
 struct Hooks {
@@ -276,6 +308,12 @@ static LAST: std::sync::Mutex<Option<crate::route::RouteFile>> = std::sync::Mute
 RS
 passes "an unresolved static with a reasoned marker"
 rm "$src/unseen.rs"
+
+# BASE_CHECK: the check at origin/feat-cmux-next. Generated alias chains: whatever it refuses, this check refuses.
+if [ -n "${BASE_CHECK:-}" ]; then
+  python3 -I "$repo/scripts/cmux-next/tests/check-test-hooks-property.py" "$check" "$BASE_CHECK" \
+    || fail "every hook base finds the head refuses too, on generated alias chains"
+fi
 
 if [ "$failures" -gt 0 ]; then
   echo "check-test-hooks tests: $failures failed" >&2

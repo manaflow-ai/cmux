@@ -73,12 +73,14 @@ pub mod folder_instructions;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
+pub mod gauges;
 pub mod generic_goal;
 pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
 #[cfg(unix)]
 pub mod github_mcp;
+pub mod god_fixture;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -104,7 +106,10 @@ pub mod harness_icon_set;
 pub mod harness_install;
 pub mod harness_limits;
 pub(crate) mod heap_future;
+pub mod heap_profile;
 pub(crate) mod home_fs;
+#[cfg(test)]
+mod home_writers_by_path_tests;
 pub mod host_load;
 pub mod host_pressure;
 pub mod hosted_mcp;
@@ -139,6 +144,8 @@ pub mod mesh_control;
 pub mod mesh_http;
 pub mod model_copies;
 pub mod name_match;
+#[cfg(target_os = "macos")]
+mod named_files_watch;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;
@@ -181,6 +188,7 @@ mod route_probe;
 pub mod route_shadow;
 mod router_socket;
 pub mod routes;
+pub mod rows;
 pub mod rpc;
 pub mod run_elsewhere;
 pub mod schema;
@@ -226,6 +234,7 @@ pub mod tailnet;
 mod test_exec;
 #[cfg(test)]
 mod test_stack;
+pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
 pub mod trust;

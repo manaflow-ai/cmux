@@ -161,7 +161,7 @@ html[data-cmux-page="changelog"] body {
   appearance: none;
 }
 .cl-compare-range::-webkit-slider-thumb { -webkit-appearance: none; width: 32px; height: 100vh; }
-.cl-compare:has(.cl-compare-range:focus-visible) .cl-compare-handle svg { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+.cl-compare:has(.cl-compare-range:focus-visible) .cl-compare-handle .cl-compare-glyph { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 /* Side by side: each half its own picture, from its top left, under its label. */
 .cl-compare[data-mode="side"] { grid-template-columns: 1fr 1fr; gap: var(--ds-space-1); }
 .cl-compare[data-mode="side"] .cl-compare-pane[data-side="before"] { position: relative; inset: auto; grid-area: 1 / 1; }

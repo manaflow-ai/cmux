@@ -585,6 +585,26 @@ def app_ffi_inputs(root: Path) -> list[str]:
     return _READ["ffi", root]
 
 
+def app_ffi_excluded(root: Path) -> list[str]:
+    """The FFI crates' tests/, benches/ and examples/ that Cargo never builds into the library: not app FFI inputs.
+    One definition, app_ffi_pin.not_built, read by check-app-ffi-pin.sh (--list-excluded) and base_red_excuse.py too."""
+    if ("ffi-excluded", root) not in _READ:
+        import app_ffi_pin  # noqa: PLC0415 - scripts/ci, beside this file
+        _READ["ffi-excluded", root] = app_ffi_pin.not_built(root, app_ffi_inputs(root))
+    return _READ["ffi-excluded", root]
+
+
+def app_ffi_input(root: Path, path: str) -> bool:
+    """PATH reaches the CCmuxAppFFI archive: under app_ffi_inputs and outside app_ffi_excluded."""
+    import app_ffi_pin  # noqa: PLC0415 - scripts/ci, beside this file
+    return app_ffi_pin.is_input(path, app_ffi_inputs(root), app_ffi_excluded(root))
+
+
+def app_ffi_pathspecs(root: Path) -> list[str]:
+    """app_ffi_inputs, then app_ffi_excluded as git exclude pathspecs: what `git diff` compares."""
+    return list(app_ffi_inputs(root)) + [f":(exclude,literal){d}" for d in app_ffi_excluded(root)]
+
+
 def scheme_phase_rust_inputs(root: Path) -> list[str]:
     if ("scheme", root) not in _READ:
         _READ["scheme", root] = _scheme_phase_rust_inputs(root)
@@ -1023,7 +1043,7 @@ def pure_ffi_repin(root: Path, changed: list[str] | None, base_rev: str | None) 
       block (app_ffi_pin.py), the pin moved, and rewriting the base's pin to the head's release sha and checksum
       gives the head's two texts byte for byte: the pin and the loader's checksum line are the only change;
     - the release's source commit (its tag is cmux-app-ffi-<sha>, and the publish job checks SOURCE_SHA is that
-      sha) has HEAD's FFI sources: `git diff <sha> HEAD` over app_ffi_inputs, a superset of the paths
+      sha) has HEAD's FFI sources: `git diff <sha> HEAD` over app_ffi_pathspecs, a superset of the paths
       check-app-ffi-pin.sh compares, is empty. A shallow checkout fetches that one commit.
 
     Anything it cannot read (no base, a git or network error, a pin that is not canonical) is not a re-pin."""
@@ -1051,7 +1071,7 @@ def pure_ffi_repin(root: Path, changed: list[str] | None, base_rev: str | None) 
             shallow = git("rev-parse", "--is-shallow-repository").stdout.strip() == "true"
             if git("fetch", "--quiet", "--no-tags", *(["--depth=1"] if shallow else []), "origin", sha).returncode:
                 return None
-        if git("diff", "--quiet", sha, "HEAD", "--", *app_ffi_inputs(root)).returncode != 0:
+        if git("diff", "--quiet", sha, "HEAD", "--", *app_ffi_pathspecs(root)).returncode != 0:
             return None
     except (OSError, ValueError, subprocess.SubprocessError):  # app_ffi_pin.NotCanonical is a ValueError
         return None
@@ -1174,7 +1194,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
             # Rust: the daemon tier (tree inputs, below) builds and tests it. Only the
             # CCmuxAppFFI sources reach the Swift compiles, and only the app scheme's build
             # phases read the rest of what they name; nothing else needs a Mac compile.
-            if any(matches(path, prefix) for prefix in app_ffi_inputs(root)):
+            if app_ffi_input(root, path):
                 result.native = result.scheme = True
                 result.reasons.append(f"{path} is a CCmuxAppFFI source: the Swift compiles run")
             elif "dev-build" in labels or any(matches(path, prefix) for prefix in scheme_phase_rust_inputs(root)):

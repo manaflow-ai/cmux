@@ -2,6 +2,7 @@
 // within the speed limit, never past its rest, and the frame loop ends at rest. The live browser
 // behaviour at 120 Hz is in test/send-stream-motion.test.ts.
 import { expect, test } from "bun:test";
+import { bezierAt } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
 import {
   ARRIVAL_BURST_S,
@@ -377,6 +378,38 @@ test("a row that arrived holds all of its move back, then comes home on the arri
   }
 });
 
+test("a chase whose first frame comes long after it was asked for (a covered view) lands before that frame paints", () => {
+  // #41252: one block arrives while another workspace covers the chat and nothing moves after it.
+  // The page draws no frames for a second; the first one back must draw the rows home, not 79 px off.
+  const line = currentChatMetrics().lineHeight;
+  const real = performance.now.bind(performance);
+  try {
+    for (const arm of ["spring", "blocks", "chunk", "linear"] as FollowMotionArm[])
+      for (const arrived of [false, true])
+        for (const [lateMs, glides] of [
+          [1000, false],
+          // FRAMELESS_MS itself is a covered stretch: "150 ms or more".
+          [150, false],
+          [60, true],
+        ] as const) {
+          const chase = createFollowChase(arm);
+          const { node, frame, drawn, pending } = fixture();
+          let skew = 0;
+          performance.now = () => real() + skew;
+          chase.shift(node, -132, line * 10, false, arrived);
+          expect(drawn()).toBeGreaterThan(0);
+          skew = lateMs;
+          frame();
+          // Late past FRAMELESS_MS: home, the loop ended. A busy page's frame (60 ms) still glides.
+          expect({ arm, arrived, lateMs, moving: drawn() > 0 }).toEqual({ arm, arrived, lateMs, moving: glides });
+          if (!glides) expect(pending()).toBe(0);
+          performance.now = real;
+        }
+  } finally {
+    performance.now = real;
+  }
+});
+
 test("a move that comes during an arrival's step keeps the step's end", () => {
   const line = currentChatMetrics().lineHeight;
   const chase = createFollowChase("blocks");
@@ -419,4 +452,116 @@ test("in the earlier looks a row that arrived holds all of its move back, and is
   const other = fixture();
   growth.shift(other.node, -2 * line, line * 10);
   expect(other.drawn()).toBeCloseTo((2 - Math.min(2 - CHASE_HOLD_LINES, CHASE_LAND_LINES)) * line);
+});
+
+test("the reply draining while the turn's end fold plays: each frame of the two together keeps to the fold's bound", () => {
+  // turn-transition-jumps `thought-text` end: the fold's first frame (11.5 px of a 43 px fold on the
+  // settle) and the drain chase's (3.8 px of the reply's last line) moved the rows 15.3 px in one
+  // frame, each within its own bound.
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  const line = currentChatMetrics().lineHeight;
+  const clock = node.ownerDocument.timeline as unknown as { currentTime: number };
+  const start = clock.currentTime;
+  const span = 43;
+  const easing = "cubic-bezier(0.16, 1, 0.3, 1)";
+  const duration = 180;
+  const fold = {
+    playState: "running",
+    startTime: start,
+    effect: {
+      getKeyframes: () => [{ translate: `0px ${span}px` }, { translate: "0px 0px" }],
+      getTiming: () => ({ easing }),
+      getComputedTiming: () => ({ duration, delay: 0, localTime: clock.currentTime - start }),
+    },
+  } as unknown as Animation;
+  const curve = [0.16, 1, 0.3, 1] as const;
+  const foldAt = (time: number) => span * (1 - bezierAt(curve, Math.min(1, Math.max(0, (time - start) / duration))));
+  chase.alongside(new Set([fold]));
+  chase.shift(node, -line, Number.POSITIVE_INFINITY);
+  chase.land();
+  let previous = drawn();
+  let folded = foldAt(clock.currentTime);
+  let frames = 0;
+  while (pending() > 0 && frames < 240) {
+    const at = frame();
+    const foldNow = foldAt(clock.currentTime);
+    frames += 1;
+    expect(previous - at + (folded - foldNow)).toBeLessThanOrEqual(ARRIVAL_FRAME_LINES * line + 1e-6);
+    previous = at;
+    folded = foldNow;
+  }
+  expect(drawn()).toBe(0);
+  // Still home soon after the fold's fast first frames: within a few frames of BURST_S.
+  expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 4);
+});
+
+test("carry: another motion's part the reader froze is drawn by the chase, held there, and goes home when followed again", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  // The composer growth's rise drew the rows 14 px down when the reader's wheel came.
+  chase.carry(node, 14);
+  chase.hold();
+  expect(drawn()).toBeCloseTo(14);
+  expect(pending()).toBe(0);
+  frame();
+  frame();
+  // Held: nothing moves but the reader's own scroll.
+  expect(drawn()).toBeCloseTo(14);
+  expect(chase.outstanding()).toBeCloseTo(14);
+  // Followed again: home from where it was painted, never past it.
+  chase.resume();
+  let previous = drawn();
+  while (pending() > 0) {
+    const at = frame();
+    expect(at).toBeLessThanOrEqual(previous + 1e-9);
+    expect(at).toBeGreaterThanOrEqual(0);
+    previous = at;
+  }
+  expect(drawn()).toBe(0);
+  // Nothing to carry moves nothing.
+  chase.carry(node, 0);
+  expect(drawn()).toBe(0);
+});
+
+/// Runs a carried offset home after `resume`: every frame drawn, until the loop ends (at most 600).
+function carriedHome(arm: FollowMotionArm, px: number) {
+  const chase = createFollowChase(arm);
+  const { node, frame, drawn, pending } = fixture();
+  chase.carry(node, px);
+  chase.hold();
+  frame();
+  expect(drawn()).toBeCloseTo(px);
+  chase.resume();
+  const frames: number[] = [];
+  while (pending() > 0 && frames.length < 600) frames.push(frame());
+  return { frames, drawn: drawn(), outstanding: chase.outstanding(), pending: pending() };
+}
+
+test("carry in the `eased` arm: what the reader froze springs home when followed again, as in the default arm (#41478 F1)", () => {
+  // The eased arm chases nothing of its own, but the composer growth's rise it froze is held on the
+  // chase. Followed again it goes home on the default arm's spring, frame for frame, and rests at 0.
+  const eased = carriedHome("eased", 40);
+  const blocks = carriedHome("blocks", 40);
+  expect(eased.drawn).toBe(0);
+  expect(eased.outstanding).toBe(0);
+  expect(eased.pending).toBe(0);
+  expect(eased.frames.length).toBe(blocks.frames.length);
+  for (const [index, at] of eased.frames.entries()) expect(at).toBeCloseTo(blocks.frames[index]!, 6);
+  // Never past home, never back up.
+  let previous = 40;
+  for (const at of eased.frames) {
+    expect(at).toBeLessThanOrEqual(previous + 1e-9);
+    expect(at).toBeGreaterThanOrEqual(0);
+    previous = at;
+  }
+});
+
+test("carry in the `instant` arm: what the reader froze lands in the first frame it goes home in (#41478 F2)", () => {
+  // Every move in this arm lands in the frame it happens: no animation of the carried rise.
+  const instant = carriedHome("instant", 40);
+  expect(instant.frames).toEqual([0]);
+  expect(instant.drawn).toBe(0);
+  expect(instant.outstanding).toBe(0);
+  expect(instant.pending).toBe(0);
 });

@@ -129,7 +129,7 @@
      run of flush lines keeps --cv-note-gap (below) around it: the run gap, as for any prose by a run
      (design/transcript-spacing.md rule 4). */
   --cv-reply-room: 0px;
-  --cv-note-gap: var(--grid-gap-run);
+  --cv-note-gap: var(--grid-gap-inner); /* TRANSCRIPT_RUN_GAP (transcriptGrid.ts): 12, 2026-11-11 */
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--grid-gap);
   /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
@@ -665,22 +665,35 @@
 .cv-user__cancel:hover {
   color: var(--cv-text);
 }
-/* A sent prompt's way to the agent (PromptDelivery.tsx): a quiet clock or checks under its bubble,
-   and a failed prompt's actions and Details. */
-/* Beside the bubble's lower left, out of the layout: a mark appearing or changing never moves a row. */
+/* A sent prompt's way to the agent (PromptDelivery.tsx): while it is on its way, its footer's time
+   slot says so (a clock and one sentence) and the footer stays shown; once it lands the slot is its
+   time again, in the same place, so nothing moves. A failed prompt's card and Details below. */
 .cv-user__bubble {
   position: relative;
 }
-.cv-user__delivery {
-  position: absolute;
-  right: calc(100% + 6px);
-  bottom: 2px;
-  margin: 0;
-  padding: 0;
+/* Two classes: it wins over the action row's resting opacity (.cv-user__actions, later in this file). */
+.cv-user__actions.cv-user__actions--pending {
+  opacity: 1;
+}
+/* At rest only the pending state shows; the row's buttons come with the pointer, as on any prompt. */
+.cv-user:not(:hover, :focus-within) .cv-user__actions--pending .cv-message-footer-row > :not(.cv-user__pending-state) {
+  opacity: 0;
+}
+.cv-user__actions .cv-message-footer-row > .cv-user__pending-state {
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  white-space: nowrap;
+  gap: var(--grid-half-step);
+  margin: 0;
+  color: var(--cv-text-muted);
   user-select: none;
+}
+/* Gallery variant B (`data-prompt-pending-look="clock"`): the clock alone; the state's
+   aria-label still names it. Variant C (`"dim"`): the words, and the bubble's text muted until it lands. */
+:root[data-prompt-pending-look="clock"] .cv-user__pending-words {
+  display: none;
+}
+:root[data-prompt-pending-look="dim"] .cv-user:has(.cv-user__actions--pending) .cv-user__bubble {
+  color: var(--cv-text-muted);
 }
 .cv-user__status--failed {
   flex-direction: column;
@@ -1304,8 +1317,10 @@
   font-weight: 600;
 }
 /* A number of three or more digits (Markdown.tsx listNumberStyle) gets room for itself, so it never
-   draws over its item's text. */
-.cv-ol[style*="--cv-ol-digits"] > li {
+   draws over its item's text. Keyed on `data-wide-numbers`, never `[style*=...]`: a rule on the style
+   attribute restyled every list item under any element whose inline style changed, which the send motion
+   and the follow glide do each frame (test/css-invalidation-scope.test.ts). */
+.cv-ol[data-wide-numbers] > li {
   padding-left: calc(var(--cv-ol-digits) * 0.6em + 1.4em);
 }
 .cv-li__bullet {
@@ -1428,7 +1443,7 @@
   top: var(--cv-table-tools-pad);
 }
 .cv-table-block[data-actions="corner"] .cv-table thead th:last-child,
-.cv-table-block[data-actions="corner"] .cv-table:not(:has(thead)) tr:first-child td:last-child {
+.cv-table-block[data-actions="corner"] .cv-table[data-headless] tr:first-child td:last-child {
   padding-right: calc(var(--cv-table-tools-width) + var(--cv-action-gap, 4px));
 }
 /* Above: the pill rises just over the table's top-right corner, over the end of the line before. */
@@ -1901,9 +1916,10 @@
 /* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview.
    Unwrapped, Pierre keeps a lane for that box's scrollbar under the rows at all times, `--cv-lane`
    tall, inside the box's own bottom gap (its padding is the gap less the lane), so the box is as
-   tall with a scrollbar as without one. A cut preview shows eight rows and the lane under them,
-   Pierre's box cut with it (`--cv-block-cut`, sideways.ts PIERRE_BLOCK_CSS), and its bottom fade
-   stops above the lane. Wrapped rows never scroll sideways: no lane. */
+   tall with a scrollbar as without one. A long diff shows eight rows and the lane under them:
+   Pierre's box is cut with it (`--cv-block-cut`, sideways.ts PIERRE_BLOCK_CSS) and scrolls down
+   itself, its sideways scrollbar in view; the body scrolls on to the file's next edits. Wrapped
+   rows never scroll sideways: no lane. */
 .cv-edit-diff__body {
   --cv-lane: 6px;
   --cv-bar: var(--cv-lane);
@@ -1913,13 +1929,15 @@
 .cv-edit-diff[data-wrap="true"] > .cv-edit-diff__body {
   --cv-lane: 0px;
 }
+/* Past eight lines the diff scrolls inside an eight-line box (the lane under them added), as a Shell
+   block's output does; its bottom edge fades only while more lies under it (moreBelow.ts). */
 .cv-edit-diff__body[data-preview="cut"] {
   --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
   max-height: var(--cv-block-cut);
+  overflow-y: auto;
 }
-/* Show all N lines / Show less is the card's whole bottom row on the card's own fill (ExpandRow.tsx),
-   as tall as its header: a cut diff's last lines fade straight into it, and an open one's last line
-   ends on the same surface the row continues, with no strip of another colour under the lines. */
+/* An expand row is the card's whole bottom row on the card's own fill (ExpandRow.tsx), as tall as
+   its header, with no strip of another colour under the lines. */
 .cv-edit-diff > .cv-expand-row {
   min-height: calc(var(--cv-font-size) * 32 / 14);
   margin: 0;
@@ -2754,7 +2772,8 @@ pre.cv-math-source {
    line's time and counts after its words (`data-tail`), drawn past the words' own box, and the new
    line's time and counts roll in with its words (`.cv-worked--live[data-roll]`), so no count pops off
    or on and nothing slides sideways while the words roll. */
-.cv-roll-out {
+.cv-roll-out,
+.cv-roll-out__tail {
   display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -2779,14 +2798,30 @@ pre.cv-math-source {
     content: attr(data-lead);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::after {
-    content: attr(data-text) attr(data-tail);
+    content: attr(data-text);
   }
-  /* The old line's tail runs past its words' box: the copy is as wide as its text, and the live
-     line's own clip (above) bounds it. */
+  /* The old line as it was drawn: its words cut where they were (their drawn width, set inline, the
+     ellipsis kept), and its time and counts in a box of their own from there on, past the new words'
+     box; the live line's own clip (above) bounds them. Review of cmux#41078: one box running words
+     and tail together dropped the ellipsis and moved the tail. */
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out[data-tail] {
     right: auto;
-    overflow: visible;
-    text-overflow: clip;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail {
+    display: block;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    color: var(--cv-text-dim);
+    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail::after {
+    content: attr(data-tail);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-worked__count,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
@@ -2993,13 +3028,43 @@ pre.cv-math-source {
 :root[data-transcript-note-gap="roomy"] {
   --cv-note-gap: var(--cv-turn-gap);
 }
-/* An opened run's calls stay in the transcript's one vertical scroll surface. A run can be long,
-   but its summary and collapsed rows never become a second scroll box; opened shell/output bodies
-   own their horizontal overflow below. */
+/* An opened run's calls draw at their full height inside it; a long run's own scroll box is
+   `.cv-run-scroll` around it (RunScroll.tsx), and with the `inline` arm they stay in the
+   transcript's one scroll. Opened shell/output bodies own their horizontal overflow below. */
 .cv-tool-run {
   max-height: none;
   overflow: visible;
   overscroll-behavior: auto;
+}
+/* A long opened run as the Codex app draws it (runScroll.experiment.ts; Lucas, 2026-11-11): 14
+   lines tall, scrolled on its own, faded one line deep at the top and bottom where more is hidden
+   (`data-fade-top`, `data-fade-bottom`, RunScroll.tsx). A short run is its own height, unfaded. */
+.cv-run-scroll {
+  --cv-run-fade-top: 0px;
+  --cv-run-fade-bottom: 0px;
+  max-height: calc(var(--cv-tool-row-height) * 14);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--cv-run-fade-top),
+    #000 calc(100% - var(--cv-run-fade-bottom)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--cv-run-fade-top),
+    #000 calc(100% - var(--cv-run-fade-bottom)),
+    transparent
+  );
+}
+.cv-run-scroll[data-fade-top] {
+  --cv-run-fade-top: var(--cv-tool-row-height);
+}
+.cv-run-scroll[data-fade-bottom] {
+  --cv-run-fade-bottom: var(--cv-tool-row-height);
 }
 .cv-tool {
   all: unset;
@@ -4892,8 +4957,8 @@ a.cv-sha:focus-visible {
     transition: none;
   }
 }
-/* A tool-call block's body (BlockParts.tsx): past eight lines its first ones fade out at the bottom
-   (Show all N lines opens it), and an unwrapped line running past the right edge fades out there
+/* A tool-call block's body (BlockParts.tsx): past eight lines it scrolls in an eight-line box whose
+   bottom fades out while more lies under it, and an unwrapped line running past the right edge fades out there
    while more of it lies past (sideways.ts). A fade, never a hard edge; no transition, so it shows
    and goes at once whatever the motion settings. Under unwrapped lines that run past the edge, the
    box keeps a thin scrollbar thumb at rest (scrollers.ts SIDEWAYS_ATTRIBUTE), `--cv-bar` tall, in a
@@ -4922,7 +4987,7 @@ a.cv-sha:focus-visible {
 }
 /* A shell body scrolled to its end (moreBelow.ts) has a hard bottom edge. It comes after the shared
    fade above: the two selectors weigh the same, so the later one wins. */
-.cv-shell__body[data-preview="cut"]:not([data-more-below]) {
+:is(.cv-edit-diff__body, .cv-shell__body)[data-preview="cut"]:not([data-more-below]) {
   --cv-fade-bottom: 0px;
 }
 :is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-more-right] {
@@ -4940,6 +5005,14 @@ a.cv-sha:focus-visible {
     ),
     linear-gradient(to left, transparent, #000 var(--cv-fade-right, 0px));
   mask-composite: intersect;
+}
+/* A long diff's lane is inside each hunk's own box, which scrolls by under the body's edge, so the
+   body fades to its very bottom; its right edge fades in each hunk's box (sideways.ts). */
+.cv-edit-diff__body[data-preview="cut"][data-more-below] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-fade-bottom)), transparent);
+}
+.cv-edit-diff__body[data-preview="cut"]:not([data-more-below]) {
+  mask-image: none;
 }
 /* Its lines, one block each: wrapped, a long one hangs under its first row; unwrapped, it stays on
    one row and the body scrolls sideways (trackpad, Shift-wheel). */
@@ -5734,8 +5807,7 @@ a.cv-sha:focus-visible {
     animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 180ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       both;
   }
-  /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped, so
-     the "Sending" mark just outside its left edge (`.cv-user__delivery`) shows on a slow send. */
+  /* Backwards fill only: the clip is the entrance's, and once it ends the bubble draws unclipped. */
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
     animation: cv-send-reveal var(--agent-motion-send, 180ms) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       backwards;

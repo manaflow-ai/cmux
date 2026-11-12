@@ -791,7 +791,7 @@ impl Store {
             // Its files went one by one above; the directory goes only once it is empty, so a
             // peer added again under the name never loses a copy to a removal tried later.
             if let Some(dir) = disk::peer_dir(&self.root, peer) {
-                let _ = std::fs::remove_dir(dir);
+                let _ = crate::home_fs::remove_dir(dir);
             }
         } else {
             self.forget_unread(peer.to_owned());
@@ -1283,7 +1283,7 @@ impl Store {
     /// empty, and a write makes it again). Never recursive.
     fn emptied(&self, path: &Path) {
         if let Some(dir) = path.parent().filter(|d| *d != self.root) {
-            let _ = std::fs::remove_dir(dir);
+            let _ = crate::home_fs::remove_dir(dir);
         }
     }
 

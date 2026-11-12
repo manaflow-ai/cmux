@@ -20,8 +20,12 @@
 // from an unhovered copy of the same row.
 //
 // Real Chromium and WebKit (WebKit draws the pane in cmux NEXT); CI fails the file when one cannot launch.
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the rows the pointer
+// crosses are finished calls of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { papercutPane, type PapercutStep } from "./support/papercutChat";
 
@@ -208,7 +212,9 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
                   fading.push(`${animation.transitionProperty} still fading`);
               lit.push({ name: name(row), fading });
             }
-            const target = document.elementFromPoint(x, y)?.closest(rows);
+            // Static status text has no row-wide hover; only its link chip is interactive.
+            const control = document.elementFromPoint(x, y)?.closest("button, a, [role=button]");
+            const target = control?.closest(rows);
             resolve({ lit, under: target ? name(target) : undefined });
             return false;
           });
@@ -266,7 +272,12 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
           ready: ".cv-worked.is-below",
         });
         panes.push(pane);
-        const page = await pane.open({ width: 1100, height: 900 });
+        const page = await pane.open({ width: 1100, height: 900 }, pinLiveTurnRuns);
+        // Hover checks target the calls inside each finished run, which now starts closed.
+        for (const selector of ["[data-tool-run]", "[data-tool-group]"]) {
+          const closed = page.locator(`.acpmux-activity button${selector}[aria-expanded="false"]`);
+          while (await closed.count()) await closed.first().click();
+        }
         // Motion on, as the app runs it: the fades under test are the app's own.
         await page.evaluate(() => (document.documentElement.dataset.cmuxMotion = "on"));
         let tick = 0;

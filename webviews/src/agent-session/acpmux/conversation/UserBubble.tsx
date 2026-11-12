@@ -32,7 +32,7 @@ import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
-import { DeliveryMark } from "./PromptDelivery";
+import { PendingDelivery, usePendingShown } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
@@ -115,6 +115,8 @@ export function UserBubble({
     }) === "prompt";
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
+  // A prompt still on its way says so in its footer's time slot, and only there (PromptDelivery.tsx).
+  const pendingShown = usePendingShown(row.delivery);
   const through = edit?.seqs.get(row.id);
   // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
   const own = promptTurns?.get(row.id);
@@ -233,39 +235,19 @@ export function UserBubble({
   // No text to read draws no bubble: a prompt of images alone is its images (an empty glass
   // bubble under them read as a lost message; Leo 2026-10-21).
   const hasBubble = strip ? shownParts!.some(readsAsText) : hasInterleaved || Boolean(text.trim());
-  // Without a bubble, the sending clock sits beside the last attachment band drawn, as it sits
-  // beside a bubble, and takes no line of its own (model.ts reserves none).
-  const sendingMark =
-    !hasBubble && row.delivery?.state === "sending" && !row.steer ? <DeliveryMark delivery={row.delivery} /> : null;
   const showsLegacyImages = legacyBands && (Boolean(row.images?.length) || videos.length > 0);
   const showsLegacyFiles = legacyBands && Boolean(files?.length);
-  const lastBand =
-    stripMedia.length > 0
-      ? "strip"
-      : showsLegacyFiles
-        ? "files"
-        : looseImages.length > 0
-          ? "loose"
-          : showsLegacyImages
-            ? "images"
-            : undefined;
-  const markIn = (band: typeof lastBand) => (band === lastBand ? sendingMark : null);
   return (
     <>
       {showsLegacyImages && (
-        <SentImages
-          images={row.images ?? []}
-          leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null}
-          trailing={markIn("images")}
-        />
+        <SentImages images={row.images ?? []} leading={videos.length > 0 ? <SentVideoTiles videos={videos} /> : null} />
       )}
-      {looseImages.length > 0 && <SentImages images={looseImages} trailing={markIn("loose")} />}
+      {looseImages.length > 0 && <SentImages images={looseImages} />}
       {showsLegacyFiles && (
         <div className="cv-user__files">
           {files!.map((file, index) => (
             <FileAttachment key={index} file={file} />
           ))}
-          {markIn("files")}
         </div>
       )}
       {stripMedia.length > 0 && (
@@ -281,7 +263,6 @@ export function UserBubble({
               </Fragment>
             ),
           )}
-          {markIn("strip")}
         </div>
       )}
       <div className="cv-user__body">
@@ -298,17 +279,16 @@ export function UserBubble({
             ) : (
               <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
             )}
-            {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
-            {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           </div>
-        ) : sendingMark && !lastBand ? (
-          <div className="cv-user__bubble-wrap is-empty">{sendingMark}</div>
         ) : null}
         {/* A prompt held while its agent starts keeps the footer too (time and Copy), so nothing
             moves once it goes (Leo, 2026-11-01: "then the stupid ass layout shift"). */}
         {!row.failed && (text || hasAttachment || pending) && (
           <UserFooter
-            className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
+            className={
+              (branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions") +
+              (pendingShown ? " cv-user__actions--pending" : "")
+            }
             pending={
               pending &&
               ((actions) =>
@@ -353,7 +333,11 @@ export function UserBubble({
                   </button>
                 </span>
               )}
-              <MessageTime at={row.at} className="cv-user__time" />
+              {pendingShown && row.delivery ? (
+                <PendingDelivery delivery={row.delivery} queued={Boolean(row.steer || row.delivery.queued)} />
+              ) : (
+                <MessageTime at={row.at} className="cv-user__time" />
+              )}
               <MessageCopy text={row.text ?? text} />
               {through !== undefined && (
                 <button
@@ -412,13 +396,10 @@ export const SentImages = memo(function SentImages({
   images,
   className,
   leading,
-  trailing,
 }: {
   images: readonly PromptImage[];
   className?: string;
   leading?: ReactNode;
-  /// Drawn after the images: an attachment-only prompt's sending clock, positioned beside the band.
-  trailing?: ReactNode;
 }) {
   return (
     <div className={className ? `cv-user__images ${className}` : "cv-user__images"}>
@@ -426,7 +407,6 @@ export const SentImages = memo(function SentImages({
       {images.map((image) => (
         <SentImage key={image.id} image={image} />
       ))}
-      {trailing}
     </div>
   );
 });

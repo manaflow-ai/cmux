@@ -13,6 +13,7 @@ import { ACTIVITY_LINE } from "../src/agent-session/acpmux/conversation/turns";
 import type { RowProps } from "../src/agent-session/acpmux/rows/rowProps";
 import { RowContent } from "../src/agent-session/acpmux/VirtualTranscript";
 import { sameRowFrame } from "../src/agent-session/acpmux/virtualTranscriptModel";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];
@@ -30,12 +31,8 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const line = (to: string): AcpmuxRow => ({

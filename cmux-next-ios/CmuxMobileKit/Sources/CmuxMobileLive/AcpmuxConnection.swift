@@ -14,6 +14,8 @@ public actor AcpmuxConnection {
         public var message: String
         /// `error.data.reason` (for example `permission.person_required`, `trust.pending`).
         public var reason: String?
+        /// `error.data.retryAfterMs`: when acpmux paces a request (`list.paced`), how long to wait.
+        public var retryAfterMs: Int? = nil
     }
 
     public struct Notification: Sendable {
@@ -29,6 +31,10 @@ public actor AcpmuxConnection {
     var isClosed: Bool { terminalError != nil }
     public nonisolated let notifications: AsyncStream<Notification>
     private let continuation: AsyncStream<Notification>.Continuation
+
+    /// The `acpmux` channel's open args: large replies (the chat list) come compressed from a
+    /// Mac that can (`DeflatedMessage`, CMUX-563); an older Mac ignores them.
+    public static let channelArgs = ["compression": "deflate"]
 
     public init(channel: any LinkChannel) {
         self.channel = channel
@@ -181,7 +187,8 @@ public actor AcpmuxConnection {
                 continuation.resume(throwing: RPCError(
                     code: Int(error["code"]?.numberValue ?? 0),
                     message: error["message"]?.stringValue ?? "error",
-                    reason: error["data"]?["reason"]?.stringValue
+                    reason: error["data"]?["reason"]?.stringValue,
+                    retryAfterMs: error["data"]?["retryAfterMs"]?.numberValue.map { Int(min(max($0, 0), 60_000)) }
                 ))
             } else {
                 continuation.resume(returning: value["result"] ?? .null)
@@ -206,6 +213,10 @@ public actor AcpmuxConnection {
 
         /// The message once complete, else nil (waiting, or a frame that was dropped).
         mutating func push(_ frame: Data) -> JSONValue? {
+            // A compressed message (`DeflatedMessage`): its header says where it ends.
+            if (pending.first ?? frame.first) == DeflatedMessage.marker {
+                return pushDeflated(frame)
+            }
             pending.append(frame)
             // A whole JSON message ends with `}` or `]` (acpmux sends objects): parse only
             // then, so a large message is not parsed again on each of its chunks.
@@ -219,6 +230,26 @@ public actor AcpmuxConnection {
             let stale = pending.count > frame.count
             pending = Data()
             return stale && Self.mayEnd(frame) ? Self.decode(frame) : nil
+        }
+
+        private mutating func pushDeflated(_ frame: Data) -> JSONValue? {
+            pending.append(frame)
+            switch DeflatedMessage.state(pending, limit: Self.maxMessage) {
+            case .waiting:
+                return nil
+            case .whole(let text, let used):
+                // A frame never holds two messages, so bytes past the envelope that came with an
+                // earlier frame mean one of its frames was lost: this frame starts the next.
+                let lost = pending.count > used && pending.count > frame.count
+                pending = Data()
+                // More bytes than the envelope holds: a frame of it was lost and this frame
+                // starts the next message. Read that frame alone.
+                return lost ? push(frame) : Self.decode(text)
+            case .bad:
+                let lost = pending.count > frame.count
+                pending = Data()
+                return lost ? push(frame) : nil
+            }
         }
 
         private static func mayEnd(_ data: Data) -> Bool {

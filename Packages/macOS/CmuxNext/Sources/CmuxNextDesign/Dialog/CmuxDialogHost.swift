@@ -9,9 +9,8 @@ public protocol CmuxDialogHosting: AnyObject {
     func hide(_ dialog: CmuxDialogPresentation)
 }
 
-/// What draws dialogs for ``CmuxDialogOverlayHost``: the overlay page's React dialog (CmuxNextPages
-/// `OverlayDialogDrawing`), which the app's composition root gives the shared center's host. A view it returns fills the dialog's region (the
-/// window, or the tab) and draws the card in it, so the card's whole motion is the page's own.
+/// What draws dialogs for ``CmuxDialogOverlayHost``: ``CmuxDialogNativeDrawing`` (AppKit) by default; tests
+/// pass their own. A view it returns fills the dialog's region (the window, or the tab) and draws the card in it.
 @MainActor
 public protocol CmuxDialogDrawing: AnyObject {
     /// The view that draws `dialog` in `window` (nil: the app host); nil when none can.
@@ -56,7 +55,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         }
     }
 
-    /// What draws the dialogs (the overlay page); nil draws none (a host made before launch wired it), and
+    /// What draws the dialogs (``CmuxDialogNativeDrawing`` unless a test passes its own); nil draws none, and
     /// its dialogs wait for the center's next host (``CmuxDialogCenter/host``).
     private let drawing: (any CmuxDialogDrawing)?
     /// The least size of an app-scope dialog's region (no window to fill); it grows to hold the card.
@@ -82,7 +81,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     }
 
     /// A tab dialog's region, its tab (the blocked region) and its card (the dialog view's coordinates;
-    /// empty before the page laid it out): the region takes clicks only on the card, so a neighboring pane
+    /// empty before the card laid out): the region takes clicks only on the card, so a neighboring pane
     /// the region grew over keeps its clicks outside the card.
     private static func tabPlacement(_ entry: Shown) -> (region: NSRect, tab: NSRect, card: NSRect)? {
         guard case .tab(let view)? = entry.scope.live, let window = view.window else { return nil }
@@ -106,7 +105,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
     private let activate: () -> Void
     private let isAppActive: () -> Bool
 
-    public init(drawing: (any CmuxDialogDrawing)? = nil, activate: @escaping () -> Void = { if !WindowPlacement.noActivate { NSApp.activate() } },
+    public init(drawing: (any CmuxDialogDrawing)? = CmuxDialogNativeDrawing(), activate: @escaping () -> Void = { if !WindowPlacement.noActivate { NSApp.activate() } },
                 isAppActive: @escaping () -> Bool = { NSApp.isActive }) {
         self.drawing = drawing
         self.activate = activate
@@ -184,8 +183,8 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         }
         view.frame = NSRect(origin: .zero, size: options.anchor?.size ?? Self.appRegion(holding: entry.dialog.cardRect))
         entry.dialog.view = view
-        // The first show waits at its transparent first frame in the panel, where the page draws the card
-        // (in any scope, the app's too), and fades in once it is drawn.
+        // The first show waits at its transparent first frame in the panel until the drawing says the card
+        // drew (the native card at once), and fades in then.
         var presented = options
         presented.holdsEntrance = drawing != nil && !entry.drawn
         let handle = host.present(view, options: presented)
@@ -198,7 +197,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
         // The window closed (its host dismissed every overlay): the dialog ends.
         handle.onDismiss = entry.scopeGone
         if case .app = scope {
-            // The panel holds the card the page lays out: the region grows to it, and the panel follows.
+            // The panel holds the card as it lays out: the region grows to it, and the panel follows.
             entry.dialog.onCardRect = { [weak handle, weak view, weak dialog = entry.dialog] in
                 guard let handle, let view, let dialog else { return }
                 let size = Self.appRegion(holding: dialog.cardRect)
@@ -206,7 +205,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
                 view.setFrameSize(size)
                 handle.host?.layout(handle)
             }
-            // A card the page laid out while the view waited for it to draw.
+            // A card laid out before the panel showed.
             entry.dialog.onCardRect?()
         }
         if case .tab = scope {
@@ -220,7 +219,7 @@ public final class CmuxDialogOverlayHost: CmuxDialogHosting {
             entry.dialog.onCardRect?()
         }
         if case .window = scope {
-            // The page fills the window: it follows the window's size.
+            // The region fills the window: it follows the window's size.
             handle.onWindowGeometryChange = { [weak handle, weak view] in
                 guard let handle, let view, let region = Self.windowRegion(scope) else { return }
                 view.setFrameSize(region.size)

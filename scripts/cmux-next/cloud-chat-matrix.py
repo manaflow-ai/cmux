@@ -33,6 +33,8 @@ run kills any machine still named after it at the end.
     python3 -I scripts/cmux-next/cloud-chat-matrix.py --cli "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux" \\
         --out /tmp/matrix --only small-repo,secrets
 """
+from __future__ import annotations
+
 import argparse
 import base64
 import concurrent.futures
@@ -49,6 +51,8 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
@@ -564,6 +568,13 @@ class Matrix:
             shutil.rmtree(self.config_dir, ignore_errors=True)
             self.config_dir = None
 
+    def trust(self, folder: Path) -> str:
+        """Trusts a fixture this run made, as a person does on this Mac before a Cloud start: a start from a folder
+        this Mac doesn't trust is refused before any machine (#41079), which left every cell red at 0.0 s. Never
+        called on a --folder (a person's own folder): its refusal is the finding. Answers "" or the cell's failure."""
+        code, out, err = self.cmux("setup", "trust", str(folder))
+        return "" if code == 0 else f"fail: trust: {clean(self.error(out, err).get('message') or err or out, 300)}"
+
     def kill(self, machine: str) -> bool:
         for _ in range(2):
             code, _, _ = self.cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
@@ -850,6 +861,9 @@ def main(argv=None) -> int:
             word = f"w{random.token_hex(5)}"
             if folder is not None and kind != "empty":
                 write(folder / WORD_FILE, word + "\n")
+            if folder is not None:
+                note = matrix.trust(folder) or note
+                folder = None if note else folder
             jobs.append((kind, agents[0], folder, note, word, canary if kind == "secrets" else "", False,
                          round(time.monotonic() - started, 1)))
         for agent in agents[1:]:
@@ -857,7 +871,8 @@ def main(argv=None) -> int:
             small_repo(folder)
             word = f"w{random.token_hex(5)}"
             write(folder / WORD_FILE, word + "\n")
-            jobs.append(("small-repo", agent, folder, "", word, "", False, 0.0))
+            note = matrix.trust(folder)
+            jobs.append(("small-repo", agent, None if note else folder, note, word, "", False, 0.0))
         for spec in args.folder:
             name, _, path = spec.partition("=")
             folder = Path(path).expanduser()
@@ -875,7 +890,7 @@ def main(argv=None) -> int:
                     cell = {"workspace": job[0], "agent": job[1], "result": f"fail: {clean(repr(error), 300)}"}
                 cell["fixture_s"] = job[7]
                 report["cells"].append(cell)
-                print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
+                safe_print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
         finally:
             # A `with` would wait for every queued cell: on SystemExit, drop the ones not yet started.
             pool.shutdown(wait=True, cancel_futures=True)

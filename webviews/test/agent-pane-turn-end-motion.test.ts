@@ -481,7 +481,7 @@ await requireBrowserLane("agent-pane-turn-end-motion.test.ts", async () => {
 
   for (const [name] of engines)
     for (const lagging of [false, true])
-      test(`${name}${lagging ? ", lagging" : ""}: the end of a turn keeps Stop and pops nothing in`, async () => {
+      test(`${name}${lagging ? ", lagging" : ""}: the end of a turn keeps Stop, pops nothing in and the reply does not bob`, async () => {
         const page = await open(name);
         if (lagging) await lag(page, 40, 70);
         await sample(page);
@@ -494,12 +494,13 @@ await requireBrowserLane("agent-pane-turn-end-motion.test.ts", async () => {
         console.log(`TURN_END_REPORT ${JSON.stringify({ engine: name, lagging, ...report })}`);
         await page.close();
         expect(report.frames).toBeGreaterThan(60);
-        // What this file holds the pane to (cmux#41034's follow-up): Stop never goes and comes back
-        // mid-turn, and the received messages and the next turn's live line never pop in. The rows'
-        // jumps and reversals per step are reported above (TURN_END_REPORT) and not yet asserted: the
-        // turn's start (rows arriving under the history) and the reply's live line, which moves on
-        // two curves (tailGlide's arrival step down, the follow chase's spring up), still move more
-        // than a line in a frame; asserting them is that fix's to do.
+        // What this file holds the pane to: Stop never goes and comes back mid-turn, the received
+        // messages and the next turn's live line never pop in, and while the reply streams no row
+        // goes back the way it came more than twice (the live line bobbed on every line: 17 to 21
+        // times a reply before it held still against the chase, pinnedLiveLine.ts). Jumps per step
+        // are reported above (TURN_END_REPORT) and not yet asserted: the turn's start (rows
+        // arriving under the history) still moves more than two lines in a frame.
+        expect(report.steps.reply?.reversals ?? 0).toBeLessThanOrEqual(3);
         const popped = ["received", "next"].flatMap((name) => report.steps[name]?.pops ?? []);
         expect(popped).toEqual([]);
         const gaps = Object.entries(report.steps).flatMap(([name, step]) =>

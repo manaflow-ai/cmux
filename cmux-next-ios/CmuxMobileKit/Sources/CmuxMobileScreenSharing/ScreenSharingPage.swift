@@ -171,12 +171,14 @@ struct ScreenSharingViewerSettings: View {
             Picker("Quality", selection: $preferences.defaults.quality) {
                 ForEach(ScreenQuality.allCases) { Text($0.title).tag($0) }
             }
+            Toggle("Show Trackpad", isOn: $preferences.defaults.showTrackpad)
+                .accessibilityIdentifier("screenSharing.showTrackpad")
             Toggle("Fit to Display", isOn: $preferences.defaults.fitToDisplay)
             Toggle("Show Stats", isOn: $preferences.defaults.showStats)
         } header: {
             Text("Viewer")
         } footer: {
-            Text("Full Control lets this iPhone click and type on the Mac. Direct Touch clicks where you touch; Trackpad moves a pointer like a MacBook trackpad. Quality Auto keeps text sharp and lowers the frame rate on a slow network.")
+            Text("Full Control lets this iPhone click and type on the Mac. Direct Touch clicks where you touch; Trackpad moves a pointer like a MacBook trackpad. Show Trackpad keeps a trackpad under the screen; drag its notch down to tuck it away. Quality Auto keeps text sharp and lowers the frame rate on a slow network.")
         }
     }
 }

@@ -21,6 +21,15 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 ROOT = Path(__file__).resolve().parents[2]
 HOT = ROOT / "scripts/cmux-next/hot-apply.py"
@@ -131,14 +140,14 @@ def main() -> int:
     # New Tab page, which is native, so a terminal tab is asked for in it (as live-mode-swift.py seeds).
     control = wait_until("the copy's control socket", time.monotonic() + 120, lambda: control_socket(app_pid))
     opened = bench.rpc_at(control, "action.run", {"action": "workspace.newAtBottom"}, timeout=30)
-    print(f"HAN workspace.newAtBottom answered {json.dumps(opened)[:400]}", file=sys.stderr, flush=True)
+    safe_print(f"HAN workspace.newAtBottom answered {json.dumps(opened)[:400]}", file=sys.stderr, flush=True)
     workspace = next((str(i) for i in (opened or {}).get("created") or [] if str(i).startswith("ws_")), None) \
         if isinstance(opened, dict) else None
     went = bench.rpc_at(control, "action.run", {"action": "goToWorkspace", "args": {"workspace": workspace}},
                         timeout=30) if workspace else {"error": "workspace.newAtBottom created no workspace"}
-    print(f"HAN goToWorkspace answered {json.dumps(went)[:400]}", file=sys.stderr, flush=True)
+    safe_print(f"HAN goToWorkspace answered {json.dumps(went)[:400]}", file=sys.stderr, flush=True)
     surface = bench.rpc_at(control, "action.run", {"action": "newSurface"}, timeout=30)
-    print(f"HAN newSurface answered {json.dumps(surface)[:400]}", file=sys.stderr, flush=True)
+    safe_print(f"HAN newSurface answered {json.dumps(surface)[:400]}", file=sys.stderr, flush=True)
     replies = (opened, went, surface)
     receipt["checks"]["opened_terminal"] = all(isinstance(r, dict) and "error" not in r for r in replies)
     receipt["opened_replies"] = {"workspace": opened, "went": went, "terminal": surface}
@@ -192,7 +201,7 @@ def main() -> int:
     receipt["ok"] = all(receipt["checks"].values())
     receipt["seconds"] = round(time.monotonic() - t0, 1)
     (out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    print("HAN RECEIPT " + json.dumps(receipt))
+    safe_print("HAN RECEIPT " + json.dumps(receipt))
     return 0 if receipt["ok"] else 1
 
 

@@ -546,6 +546,16 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   message (a JSON value) is one write in each direction. A message above
   256 KiB arrives as several data frames, and the receiver joins frames until
   they parse as one JSON value (at most 32 MiB from the phone).
+  A phone that opens it with `{"compression":"deflate"}` (CMUX-563) gets each
+  message of 16 KiB or more from the Mac as one envelope instead of text:
+  `0x00`, the text length (u32 big-endian), the deflate length (u32 big-endian),
+  then the raw deflate (RFC 1951) of the JSON text; smaller messages stay text.
+  JSON never starts with `0x00`, and the lengths say where the envelope ends
+  among the frames and bound its inflate (hostd `link_deflate.rs`, phone
+  `DeflatedMessage.swift`). An older Mac ignores the argument and sends text.
+  The phone watches its chats in pages: `_acpmux/watch {limit: 100}` is the
+  newest page, and the phone is ready with it; the rest comes from
+  `_acpmux/sessions {limit, cursor}` after (`AcpmuxHub+SessionPages.swift`).
 - `cloud-directory` (link protocol 2): no arguments; one JSON data frame
   `{"paid","desktops","machines":[{"machine_id","team_id","name","status","ran","linked"}]}`
   followed by `eof`. `paid` says the account pays for cmux Cloud; `desktops` is the
@@ -1006,8 +1016,16 @@ Mechanisms, phone first, then the Mac:
   file importer). Losing that sends `release-surface-size {surface}` on the
   attach channel after a 1 s debounce (`TerminalSizeClaimDebounce`), so a
   quick switch away and back sends nothing and never resizes the Mac twice.
-  The app entering the background (or the lock screen) releases at once,
-  with no debounce, before iOS suspends it. Coming back claims at once:
+  The app entering the background (or the lock screen) keeps the claim
+  (2026-11-12, Leo: "surely this calculation of sort is doable on the phone
+  itself? it projection of text"): an app switch, a lock and unlock or a
+  link blip never moves the Mac's PTY, so the phone never redraws twice.
+  The phone releases only after 5 min in the background; a suspended app
+  cannot, so the Mac's size lease (45 s after the last refresh) is what
+  gives the Mac's pane its own size back. When the claim lapsed while the
+  app was away, the page as it was when the app left stays on screen until
+  the reclaim's mirror reset is replayed, so the Mac's wider grid is never
+  painted. Coming back claims at once:
   `resize-surface` with the last measured grid. While released, layout passes
   are remembered and not sent, and a reattach attaches without a size.
 - **Stop (phone).** A session that stops (its tab cooled out of the warm set
@@ -1049,9 +1067,9 @@ release and the daemon's size lease.
 | Page menu open longer than 1 s | page not interactive → release; claimed again on close | 1 s + RTT |
 | Files and Links, photo picker or file importer over the page | covered → release | 1 s + RTT |
 | A sheet the page does not own (Connected Devices) | still claims (the terminal shows behind it) | n/a |
-| App to the background, screen locked | `didEnterBackground` → release at once, inside a short background task | one round trip |
+| App to the background, screen locked | claim kept; a suspended phone stops refreshing, the lease ends | 45 s (back sooner: no change at all) |
 | Force quit, killed by iOS while foreground | no release; lease ends (or keepalive + hold, capped by the lease) | 45 s |
-| Killed by iOS in the background | already released on entering it | one round trip |
+| Killed by iOS in the background | no release; lease ends | 45 s |
 | Link drop: network loss, roaming | keepalive closes the socket; hold capped by the lease | 45 s (a reattach inside it keeps the phone's grid) |
 | Transport switch | link redialled; hold; reattach finds the grid | no change if it reattaches within 30 s; else 45 s |
 | Mac host (hostd) restarts: SIGTERM | hostd releases before exit | 0.7 s |

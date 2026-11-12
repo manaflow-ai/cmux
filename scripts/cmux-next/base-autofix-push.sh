@@ -101,6 +101,8 @@ output_areas() {
       web/data/next-docs/*.generated.json) echo actions; echo shortcuts ;;
       cmux-tui/crates/cmux-app-host/generated/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
+      # The display suite list (base-autofix.sh step 1e4, display_suites.py --fix), from the package test sources and manifests.
+      scripts/ci/display-suites.txt) echo displays ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f').
       Packages/*.swift | ios/cmux/*.swift) echo ratchets ;;
       clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;

@@ -191,7 +191,7 @@ where
             // A missing work folder is made (its path passed the policy above, so it is inside the
             // hand's roots and not one of its own files).
             if !path.exists() {
-                std::fs::create_dir_all(&path).map_err(|e| {
+                crate::home_fs::create_dirs(&path).map_err(|e| {
                     HandError::new("agent.bad_cwd", format!("cannot make {}: {e}", path.display()))
                 })?;
             }

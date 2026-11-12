@@ -4,7 +4,7 @@
 #
 # base-autofix-push.sh lands what is still right on the newest tip and holds a file whose inputs
 # the tip moved since it was made. When it holds a file this job can make itself (the CI target
-# graph, the SDK layers, the namespace ratchet, the cloud clients, cargo fmt), this checks out the
+# graph, the SDK layers, the namespace ratchet, the cloud clients, the display suite list, cargo fmt), this checks out the
 # new tip, makes the repair again there (CMUX_BASE_AUTOFIX_REPAIR with CMUX_BASE_AUTOFIX_AGAIN=1),
 # commits it as made at that tip, and pushes that, up to CMUX_BASE_AUTOFIX_ROUNDS rounds in all (3).
 # Any Packages/ change moves the graph's inputs, and feat-cmux-next takes one every minute or two,
@@ -75,12 +75,17 @@ main() {
   repair_script="${CMUX_BASE_AUTOFIX_REPAIR:-$root/scripts/cmux-next/base-autofix-repair.sh}"
 
   # A held file a round on the tip makes again (base-autofix-push.sh's output areas graph, sdk,
-  # ratchets, cloud and fmt; what is built from the exports when they are current on the tip). The
+  # ratchets, cloud, displays and fmt; what is built from the exports when they are current on the tip). The
   # rest needs the Mac job or an artifact made at an older commit.
   remade() {
     case "$1" in
       Packages/macOS/CmuxNext/ci-target-graph.json | plans/cmux-next/daemon-capabilities.json | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
         | clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
+      # The display suite list (base-autofix.sh step 1e4): pure Python, so every round makes it again.
+      scripts/ci/display-suites.txt) return 0 ;;
+      # The docs reference pages (base-autofix.sh step 1e1) follow the exports, as the docs shortcuts do.
+      web/data/next-docs/settings-reference.generated.json) ((actions_current && settings_current)) ;;
+      web/data/next-docs/*.generated.json) ((actions_current)) ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f', with --ratchets).
       Packages/*.swift | ios/cmux/*.swift) return 0 ;;
       web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/* \

@@ -148,19 +148,17 @@ fn write(path: &Path, file: &File) -> std::io::Result<()> {
     let text = serde_json::to_vec(file).map_err(std::io::Error::other)?;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent"))?;
     let temp = dir.join(format!(".{FILE_NAME}.{}.tmp", std::process::id()));
-    let written = write_private(&temp, &text).and_then(|()| std::fs::rename(&temp, path));
+    let written = write_private(&temp, &text).and_then(|()| crate::home_fs::rename(&temp, path));
     if written.is_err() {
-        let _ = std::fs::remove_file(&temp);
+        let _ = crate::home_fs::remove_file(&temp);
     }
     written
 }
 
 fn write_private(path: &Path, text: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut options = crate::home_fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true).mode(0o600);
     let mut file = options.open(path)?;
     file.write_all(text)?;
     file.sync_all()
