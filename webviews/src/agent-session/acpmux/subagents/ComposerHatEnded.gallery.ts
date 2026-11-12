@@ -4,11 +4,11 @@
 // right now ... why are there ellipses going so fast? Like they get truncated and cut off so soon."
 // Its header read "33 subagents running · 1 test run · 7 waits · 11 commands · 292 done · 25 sto…",
 // five failed lines stood in the open list, and titles cut right after their first words with half the
-// row empty. Here:
-// - what ended is one "N finished · N failed" line under what runs, which opens to its lines
-//   (`EndedFold`); the open list shows what still runs;
-// - the header counts what runs, the failures in red, then the commands, waits and plain commands last,
-//   and drops whole counts from the end when its row is full (`HeadParts`), never "25 sto…";
+// row empty. Failed lines now leave the hat at once (runningTray.ts `endedInFailure`, App.tsx). Here:
+// - what still ended (done, stopped) is one "N finished" line under what runs, which opens to its
+//   lines (`EndedFold`); the open list shows what still runs;
+// - the header counts what runs, then the commands, waits and plain commands last, and drops whole
+//   counts from the end when its row is full (`HeadParts`), never "25 sto…";
 // - a line's title runs to its time; what it does now takes the rest and cuts at the row's edge.
 // Every variant renders at the default width and at 360px (narrow).
 import { agentPaneEntry } from "../../../gallery/format";
@@ -51,7 +51,7 @@ const RUNNING_TASKS = [
 ] as const;
 
 /** Leo's hat, scaled to a gallery: eight subagents running, a test run, seven waits and eleven plain
- *  commands; behind them 40 done, 5 stopped and 9 failed. */
+ *  commands; behind them 40 done, 5 stopped and 9 failed (which leave the hat). */
 const crowded = chat(
   [
     user("Keep every lane moving and land what is green", 190),
@@ -156,31 +156,30 @@ export default agentPaneEntry({
   ],
   variants: {
     crowded: {
-      note: 'Leo\'s hat, open: eight running lines and one "40 finished · 9 failed" line under them. The header says "8 subagents running · 9 failed · 1 test run · 7 waits · 11 commands" as far as the row holds, dropping whole counts from the end; no done or stopped count, no "sto…". Each line\'s title runs to its time and what it does now cuts at the row\'s edge.',
+      note: 'Leo\'s hat, open: eight running lines and one "45 finished" line under them (the 9 failed left the hat). The header says "8 subagents running · 1 test run · 7 waits · 11 commands" as far as the row holds, dropping whole counts from the end; no done or stopped count, no "sto…". Each line\'s title runs to its time and what it does now cuts at the row\'s edge.',
       play: async (ctx) => {
         await open(ctx);
         checkFolded(ctx);
-        if (fold(ctx)!.textContent !== "45 finished· 9 failed")
-          throw new Error(`the ended line: ${fold(ctx)!.textContent}`);
+        if (fold(ctx)!.textContent !== "45 finished") throw new Error(`the ended line: ${fold(ctx)!.textContent}`);
       },
       snapshot: crowded,
     },
     "ended-open": {
-      note: 'The same hat with its "45 finished · 9 failed" line opened: the ended lines come under it, the failures first, and the list scrolls; one more click folds them back.',
+      note: 'The same hat with its "45 finished" line opened: the ended lines come under it and the list scrolls; one more click folds them back.',
       play: async (ctx) => {
         await open(ctx);
         await ctx.click({ selector: ".acpmux-running-tray [data-ended-fold] > button" });
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 54);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 45);
       },
       snapshot: crowded,
     },
     few: {
-      note: 'Three running, two done and one failed: "3 subagents running · 1 failed" heads, and "2 finished · 1 failed" is the one line under the three.',
+      note: 'Three running, two done and one failed (which left): "3 subagents running" heads, and "2 finished" is the one line under the three.',
       play: async (ctx) => {
         await open(ctx);
         checkFolded(ctx);
         const words = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (words !== "3 subagents running · 1 failed") throw new Error(`the header: ${words}`);
+        if (words !== "3 subagents running") throw new Error(`the header: ${words}`);
       },
       snapshot: few,
     },

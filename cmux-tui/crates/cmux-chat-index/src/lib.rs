@@ -23,6 +23,7 @@ pub mod transcript;
 pub use adapters::forget_codex_reads;
 pub use adapters::{
     CodexThreadRow, PathRole, classify_path, codex_thread_rows, find_opencode_session,
+    session_folders,
 };
 pub use entry::{AdapterKind, ChatEntry, ChatKey, Resume, TitleSource};
 pub use index::{ChatChange, ChatIndex, IndexedChat};

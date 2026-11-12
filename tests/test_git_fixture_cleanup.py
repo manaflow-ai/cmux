@@ -17,6 +17,7 @@ git-fixture-exit-trap fails a test that traps EXIT directly.
 from __future__ import annotations
 
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -562,6 +563,15 @@ class TrapMatchesTheBuiltin(unittest.TestCase):
                                              r"trap -p NOPE", r"trap -x", r"trap x"]),
         ("the EXIT action sees the exit command and its status",
          [r"""trap 'echo "cmd=$BASH_COMMAND status=$?"' EXIT""", r"false"]),
+        # Review of cmux#41810 / hq#9795: the wrapper isn't plain trap. An EXIT action that set a DEBUG trap had it
+        # fire on the dispatcher's appended `exit` (this exited 99, not 3); signals were joined with the caller's
+        # IFS (neither trap set, status 0); an action ending in a backslash ran into the appended exit; and the
+        # status step tripped ERR with a DEBUG trap live and no EXIT action.
+        ("an EXIT action that sets a DEBUG trap", [r"""trap 'trap "exit 99" DEBUG' EXIT"""]),
+        ("signals under a caller's IFS", [r"IFS=:", r"trap 'n=1' DEBUG ERR", r"builtin trap -p DEBUG ERR",
+                                          r"builtin trap - DEBUG ERR", r"trap 'echo int' INT TERM", r"trap -p INT TERM"]),
+        ("an EXIT action ending in a backslash", [r"trap 'echo bye\' EXIT"]),
+        ("ERR and DEBUG still set at exit, no EXIT action", [r"""trap 'echo "err $?"' ERR""", r"trap : DEBUG"]),
     ]
     # Set before the script (and before sourcing, under the wrapper).
     BEFORE = {"ignored before sourcing": "trap '' EXIT\n",
@@ -600,6 +610,192 @@ class TrapMatchesTheBuiltin(unittest.TestCase):
                     wrapped = self.run_side(before + 'source "$1"\n' + body, tmpdir)
                     self.assertEqual(wrapped, plain, f"script:\n{before}{body}")
                     self.assertEqual(sorted(os.listdir(tmpdir)), [], "a fixture folder was left")
+
+
+class RandomTraps:
+    """One seeded case for RandomTrapsMatchTheBuiltin: shell options and IFS before sourcing, then trap calls on EXIT,
+    DEBUG, ERR and RETURN (actions that install, ignore or reset other traps, nested two deep, some ending in a
+    backslash or a failing step), plain steps, and an exit status. Every action prints a tag (E1, D2, ...), and the
+    signals each tag was set on are kept, so the comparison knows which lines a DEBUG trap printed."""
+
+    SIGNALS = ["EXIT", "DEBUG", "ERR", "RETURN"]
+    IFS_VALUES = [None, ":", "", " ", "x", "EDX"]
+    STEPS = ["false", "true", "f", "g", "source /dev/null", "echo body", "(exit 5)", "false || true", "trap -p EXIT"]
+
+    def __init__(self, seed: int):
+        self.r = random.Random(seed)
+        self.count = 0
+        self.signals_of: dict[str, set[str]] = {}
+        self.flags = [flag for flag in ("-E", "-T", "-e") if self.r.random() < 0.3]
+
+    @staticmethod
+    def quote(text: str) -> str:
+        return "'" + text.replace("'", "'\\''") + "'"
+
+    def leaf(self, signals: list[str]) -> str:
+        self.count += 1
+        tag = f"{signals[0][0]}{self.count}"
+        self.signals_of[tag] = set(signals)
+        choice = self.r.randrange(7)
+        if choice == 0:
+            return f"echo {tag}\\"
+        if choice == 1:
+            return f'echo "{tag} $?"; false'
+        if choice == 2 and signals[0] == "EXIT":
+            return f'echo "{tag} $?"; exit {self.r.choice([0, 4, 99])}'
+        if signals[0] == "DEBUG":
+            return f'echo "{tag}:${{BASH_COMMAND%% *}}"'
+        if signals[0] == "RETURN":
+            return f'echo "{tag} ${{FUNCNAME[0]-top}}"'
+        return f'echo "{tag} $?"'
+
+    def reset(self, signals: list[str]) -> str:
+        """`trap - SIGNAL...`, through the builtin for the resets no function can make (bash puts DEBUG and RETURN
+        back as a function returns unless set -T is on, and ERR unless set -E is: see the wrapper)."""
+        needs = {"DEBUG": "-T", "RETURN": "-T", "ERR": "-E"}
+        wrapped = [s for s in signals if s not in needs or needs[s] in self.flags]
+        builtin = [s for s in signals if s not in wrapped]
+        return "; ".join(([f"trap - {' '.join(wrapped)}"] if wrapped else [])
+                         + ([f"builtin trap - {' '.join(builtin)}"] if builtin else []))
+
+    def action(self, signals: list[str], depth: int) -> str:
+        if depth < 2 and self.r.random() < 0.35:
+            inner = self.r.sample(self.SIGNALS, self.r.choice([1, 1, 2]))
+            op = self.r.random()
+            if op < 0.7:
+                install = f"trap {self.quote(self.action(inner, depth + 1))} {' '.join(inner)}"
+            elif op < 0.85:
+                install = f"trap '' {' '.join(inner)}"
+            else:
+                install = self.reset(inner)
+            parts = [self.leaf(signals), install]
+            self.r.shuffle(parts)
+            if parts[0].endswith("\\"):  # a trailing backslash only ends an action
+                parts.reverse()
+            return "; ".join(parts)
+        return self.leaf(signals)
+
+    def step(self) -> str:
+        if self.r.randrange(10) < 4:
+            signals = self.r.sample(self.SIGNALS, self.r.choice([1, 1, 1, 2, 3]))
+            op = self.r.random()
+            if op < 0.75:
+                return f"trap {self.quote(self.action(signals, 0))} {' '.join(signals)}"
+            if op < 0.88:
+                return f"trap '' {' '.join(signals)}"
+            return self.reset(signals)
+        if "-T" in self.flags and "-E" in self.flags and self.r.random() < 0.1:
+            return "trap -p"  # with both on, a function sees every trap, so the whole listing must match
+        return self.r.choice(self.STEPS)
+
+    def script(self) -> tuple[str, str]:
+        """(before, body): `before` runs before sourcing the file, `body` after it."""
+        before = [f"set {flag}" for flag in self.flags]
+        ifs = self.r.choice(self.IFS_VALUES)
+        if ifs is not None:
+            before.append(f"IFS={self.quote(ifs)}")
+        before.append("f() { false; }; g() { :; }")
+        body = [self.step() for _ in range(self.r.randint(1, 6))]
+        body += ["echo @exit", self.r.choice(["exit 0", "exit 3", "false", "true", "exit 141"])]
+        return "\n".join(before) + "\n", "\n".join(body) + "\n"
+
+    def signals(self, line: str) -> set[str]:
+        tag = re.match(r"([A-Z]\d+)", line)
+        return self.signals_of.get(tag.group(1), set()) if tag else set()
+
+    def allowed(self, plain: tuple[str, int, str], wrapped: tuple[str, int, str]) -> bool:
+        """The documented differences, each bounded (see RandomTrapsMatchTheBuiltin). Status and stderr always match."""
+        if plain[1:] != wrapped[1:]:
+            return False
+        # FUNCNAME after errexit in a function: bash drops it once the EXIT trap calls any function.
+        lines = [[re.sub(r"^(R\d+) (?:f|g|top)$", r"\1 *", line) for line in side[0].splitlines()]
+                 for side in (plain, wrapped)]
+        p, w = lines
+        if p == w:
+            return True
+        if "-T" in self.flags:
+            # Under set -T the caller's DEBUG trap runs for the wrapper's first two steps per call and the exit
+            # dispatcher's first two; a failing step in it also runs the ERR trap. Nothing else may differ.
+            p = [line for line in p if "DEBUG" not in self.signals(line)]
+            w = [line for line in w if "DEBUG" not in self.signals(line)]
+            matched = 0
+            for line in w:
+                if matched < len(p) and line == p[matched]:
+                    matched += 1
+                elif "ERR" not in self.signals(line):
+                    return False
+            return matched == len(p)
+        # Otherwise one extra run of a DEBUG trap at exit: the dispatcher's first step (what it prints, and the ERR
+        # trap a failing step in it runs), after the script's last step.
+        extra = len(w) - len(p)
+        if extra not in (1, 2):
+            return False
+        for start in range(len(w)):
+            block = w[start:start + extra]
+            if (w[:start] + w[start + extra:] == p and "DEBUG" in self.signals(block[0])
+                    and all(self.signals(line) & {"DEBUG", "ERR"} for line in block)):
+                return True
+        return False
+
+
+class RandomTrapsMatchTheBuiltin(unittest.TestCase):
+    """The detector for the class "the wrapper isn't plain trap" (review of cmux#41810 / hq#9795): seeded random trap
+    programs, each run through plain bash and through the file's wrapper, compared on stdout, exit status and stderr
+    (minus the `FILE: line N:` prefix). The review's four cases each fail here at the base (cmux 86713638, hq 9b216fe6):
+    an EXIT action that set a DEBUG trap had it fire on the dispatcher's appended `exit` (`trap 'trap "exit 99" DEBUG'
+    EXIT; exit 3` exited 99), signals were joined with the caller's IFS (`IFS=:` set neither DEBUG nor ERR, and the
+    call still succeeded), an action ending in a backslash ran into the appended exit, and the dispatcher's status
+    step tripped ERR when a DEBUG trap was live and no EXIT action was set.
+
+    The allow-list, each entry bounded in RandomTraps.allowed: one run of a DEBUG trap still set at exit, for the
+    dispatcher's first step (test_a_debug_trap_still_set_at_exit_sees_one_dispatcher_step); under set -T, two runs per
+    wrapper call and at exit; and bash's own FUNCNAME loss after errexit in a function (any function the EXIT trap
+    calls drops it: `set -e; f() { false; }; trap 'g; echo "${FUNCNAME[0]-top}"' EXIT; f` prints top). Seeds are
+    fixed so a failure names the program that shows it; GIT_FIXTURE_TRAP_SEEDS=N runs more."""
+
+    SEEDS = int(os.environ.get("GIT_FIXTURE_TRAP_SEEDS", "300"))
+    PREFIX = re.compile(r"^.*?\bline \d+: ", re.M)
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="git-fixture-random-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
+        self.env = Env.clean(self.tmp)
+
+    def run_side(self, script: str) -> tuple[str, int, str]:
+        done = subprocess.run(["bash", "-c", script, "_", str(LIB)], env=self.env, capture_output=True, text=True,
+                              timeout=60, stdin=subprocess.DEVNULL, cwd=self.tmp)
+        return done.stdout, done.returncode, self.PREFIX.sub("", done.stderr)
+
+    def test_random_trap_programs_match_the_builtin(self):
+        failures = []
+        for seed in range(self.SEEDS):
+            case = RandomTraps(seed)
+            before, body = case.script()
+            plain = self.run_side(before + body)
+            wrapped = self.run_side(before + 'source "$1"\n' + body)
+            if not case.allowed(plain, wrapped):
+                failures.append(f"seed {seed}:\n{before}{body}plain:   {plain!r}\nwrapped: {wrapped!r}")
+        self.assertEqual(failures, [], f"{len(failures)} of {self.SEEDS} differ; first:\n" + "\n\n".join(failures[:3]))
+        self.assertEqual(sorted(os.listdir(self.env["TMPDIR"])), [], "a fixture folder was left")
+
+
+class CallerIFS(unittest.TestCase):
+    """The differential sweep of the review of cmux#41810 / hq#9795 found the file splitting git's redirect list with
+    the caller's IFS: under `IFS=:` the list was one word, so a test run from a git hook kept GIT_DIR and its fixture
+    commits went to the hook's repository. Red at the base (GIT_DIR and GIT_INDEX_FILE survived sourcing)."""
+
+    def test_a_caller_ifs_still_unsets_the_repo_redirects(self):
+        tmp = Path(tempfile.mkdtemp(prefix="git-fixture-ifs-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)], check=False)
+        env = Env.clean(tmp)
+        for ifs in (":", "", "x", " "):
+            with self.subTest(ifs=ifs):
+                script = (f"IFS='{ifs}'\nexport GIT_DIR=/nonexistent GIT_INDEX_FILE=/nonexistent/index\n"
+                          'source "$1"\necho "${GIT_DIR-unset} ${GIT_INDEX_FILE-unset}"\n')
+                done = subprocess.run(["bash", "-c", script, "_", str(LIB)], env=env, capture_output=True, text=True,
+                                      timeout=60, stdin=subprocess.DEVNULL, cwd=tmp)
+                self.assertEqual((done.stdout, done.returncode), ("unset unset\n", 0), done.stderr)
+        self.assertEqual(sorted(os.listdir(env["TMPDIR"])), [], "a fixture folder was left")
 
 
 class Bash32(unittest.TestCase):

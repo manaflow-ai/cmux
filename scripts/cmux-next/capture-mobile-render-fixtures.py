@@ -107,8 +107,20 @@ def main():
         try:
             server.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            os.killpg(server.pid, signal.SIGTERM)
-            server.wait(timeout=5)
+            try:
+                os.killpg(server.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            # Whether or not the server exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
+            try:
+                os.killpg(server.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            server.wait()
         def running(pid):
             stat = subprocess.run(["ps", "-o", "stat=", "-p", pid], capture_output=True, text=True).stdout.strip()
             return stat[:1] not in ("", "Z")
