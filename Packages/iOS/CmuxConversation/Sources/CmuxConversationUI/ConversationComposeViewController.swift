@@ -155,7 +155,9 @@ public final class ConversationComposeViewController: UIViewController {
         suggestionsTable.register(ComposeSuggestionCell.self, forCellReuseIdentifier: ComposeSuggestionCell.reuseID)
         suggestionsTable.register(ComposeSectionCell.self, forCellReuseIdentifier: ComposeSectionCell.reuseID)
         suggestionsTable.rowHeight = ComposeSuggestionCell.height
-        suggestionsTable.separatorInset = UIEdgeInsets(top: 0, left: ComposeSuggestionCell.textLeading, bottom: 0, right: 0)
+        // iOS 27's Messages ends the hairline 20 pt from the trailing edge; iOS 26's runs to it.
+        suggestionsTable.separatorInset = UIEdgeInsets(top: 0, left: ComposeSuggestionCell.textLeading, bottom: 0,
+                                                       right: ComposeMetrics.iOS27 ? 20 : 0)
         suggestionsTable.keyboardDismissMode = .none
         suggestionsTable.backgroundColor = ConversationTheme.background
         suggestionsTable.isHidden = true

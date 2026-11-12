@@ -674,7 +674,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         var tabs: [HomeRecipientEntry] = []
         for workspace in store.activeWorkspaces {
             for tab in workspace.tabs where tab.kind == .agent {
-                let name = "\(tab.title) \u{00B7} \(workspace.title)"
+                // The line under it says where it runs; the name is the tab's own.
+                let name = tab.title
                 tabs.append(entry("tab:\(tab.id)", name, tab.harness == "codex" ? "CX" : String(tab.title.prefix(2)).uppercased(),
                                   [tab.harness?.capitalized ?? String(localized: "Agent"), workspace.title].joined(separator: " \u{00B7} "),
                                   .agentTab(AgentChatDestination(workspaceID: workspace.id, tabID: tab.id)), nil))
