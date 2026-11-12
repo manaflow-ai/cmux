@@ -51,7 +51,7 @@ import Testing
     /// sends 3, not 2, or Work stays second.
     @Test func aBrowserProfileMovesToThePositionAskedForInEitherDirection() {
         func finalPlace(_ position: Int, from old: Int, count: Int) -> Int {
-            let index = BrowserProfileHandlers.moveIndex(position: position, from: old, count: count)
+            let index = BrowserProfileSnapshot.moveIndex(position: position, from: old, count: count)
             return min(index > old ? index - 1 : index, count - 1)
         }
         for count in 1...4 {
@@ -63,7 +63,19 @@ import Testing
                 #expect(finalPlace(0, from: old, count: count) == 0, "before the start: first")
             }
         }
-        #expect(BrowserProfileHandlers.moveIndex(position: 3, from: 1, count: 3) == 3, "the last place is an insertion at count")
+        #expect(BrowserProfileSnapshot.moveIndex(position: 3, from: 1, count: 3) == 3, "the last place is an insertion at count")
+    }
+
+    /// A proxy the daemon would refuse for its scheme, an empty host or its port is refused on the action's turn with
+    /// the reason; one it may still refuse (a host it does not take) comes back as the action's tracked work.
+    @Test func aPaletteProxyIsCheckedBeforeItIsSent() {
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "socks5", host: " 127.0.0.1 ", port: 1080)
+            == BrowserProfileSnapshot.Proxy(scheme: "socks5", host: "127.0.0.1", port: 1080))
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "ftp", host: "proxy", port: 80) == nil)
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "http", host: "  ", port: 80) == nil)
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "https", host: "proxy", port: 0) == nil)
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: "https", host: "proxy", port: 65_536) == nil)
+        #expect(BrowserProfileSnapshot.Proxy.palette(scheme: nil, host: "proxy", port: 80) == nil)
     }
 
     @Test func aDeniedPermissionOpensTheAppsNotificationsPane() {

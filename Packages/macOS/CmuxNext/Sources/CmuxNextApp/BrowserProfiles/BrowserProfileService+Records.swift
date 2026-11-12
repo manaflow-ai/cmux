@@ -1,6 +1,8 @@
+import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import Foundation
 
 /// Where browser profile records live and how edits reach them
@@ -94,15 +96,24 @@ extension BrowserProfileService {
         try update(UpdateBrowserProfileRequest(id: id, icon: icon.map { .set($0) } ?? .clear))
     }
 
-    /// `cmux browser profile proxy set|clear` (nil clears) and `move` (0-based): only daemon records hold them.
-    func setProxy(_ id: String, _ proxy: BrowserProfileSnapshot.Proxy?) throws {
-        guard usesDaemonRecords else { throw DaemonError.missingCapabilities([DaemonCapability.browserProfiles.rawValue]) }
-        try update(UpdateBrowserProfileRequest(id: id, proxy: proxy.map { .set($0) } ?? .clear))
+    /// `cmux browser profile proxy set|clear` (nil clears) and `move` (an insertion index): only daemon records hold
+    /// them. Each returns the send for an action to track, so the daemon's refusal reaches the person.
+    func setProxy(_ id: String, _ proxy: BrowserProfileSnapshot.Proxy?) throws -> ActionConfirmation {
+        let request = UpdateBrowserProfileRequest(id: id, proxy: proxy.map { .set($0) } ?? .clear)
+        return try daemonOnly(id, "update-browser-profile") { _ = try await $0.updateBrowserProfile(request) }
     }
-    func move(_ id: String, to index: Int) throws {
+    func move(_ id: String, to index: Int) throws -> ActionConfirmation {
+        try daemonOnly(id, "move-browser-profile") { try await $0.moveBrowserProfile(id, to: max(index, 0)) }
+    }
+
+    private func daemonOnly(_ id: String, _ label: String,
+                            _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> Void) throws -> ActionConfirmation {
         guard usesDaemonRecords else { throw DaemonError.missingCapabilities([DaemonCapability.browserProfiles.rawValue]) }
         guard isKnown(id) else { throw BrowserProfileBookError.unknownProfile }
-        services.machines.local.send("move-browser-profile") { try await $0.moveBrowserProfile(id, to: max(index, 0)) }
+        let home = services.machines.local
+        return ActionConfirmation(send: {
+            do { try await home.perform(label, body); return nil } catch { return ActionWorkFailure(label, error) }
+        })
     }
 
     private func update(_ request: UpdateBrowserProfileRequest) throws {

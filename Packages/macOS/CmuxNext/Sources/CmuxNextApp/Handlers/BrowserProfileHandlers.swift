@@ -75,33 +75,29 @@ enum BrowserProfileHandlers {
         BrowsingDataClear.bind(bind, context: context)
     }
 
-    /// `cmux browser profile move|proxy set|proxy clear` from the palette; the daemon checks a proxy as it does the CLI's.
+    /// `cmux browser profile move|proxy set|proxy clear` from the palette. The daemon's answer is the action's tracked
+    /// work, so a refusal (a proxy host it does not take) shows instead of closing the palette silently.
     private static func bindDaemonVerbs(into registry: ActionRegistry, context: AppActionContext) {
         let profiles = context.services.browserProfiles
-        func bind(_ id: ActionID, _ edit: @escaping @MainActor (String, ActionInvocation) throws -> Void) {
+        func bind(_ id: ActionID, _ edit: @escaping @MainActor (String, ActionInvocation) throws -> ActionConfirmation) {
             registry.bindEffect(id, requires: nil, effect: { invocation in
-                do { try edit(context.browserProfile(invocation).id, invocation); return .done } catch let error as BrowserProfileBookError {
+                do { return .applied(try edit(context.browserProfile(invocation).id, invocation)) } catch let error as BrowserProfileBookError {
                     throw ActionFailure.invalidTarget(BrowserProfileAppStrings.message(error))
                 }
             })
         }
         bind("browserProfile.move") { id, invocation in
             guard let position = invocation["index"]?.intValue else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.positionRequired) }
-            let order = context.services.machines.local.store.personal.browserProfiles
-            try profiles.move(id, to: moveIndex(position: position, from: order.firstIndex { $0.id == id } ?? 0, count: order.count))
+            let order = context.services.machines.local.store.personal.browserProfiles, old = order.firstIndex { $0.id == id } ?? 0
+            return try profiles.move(id, to: BrowserProfileSnapshot.moveIndex(position: position, from: old, count: order.count))
         }
         bind("browserProfile.setProxy") { id, invocation in
-            guard let scheme = invocation["scheme"]?.stringValue, let host = invocation["host"]?.stringValue,
-                  let port = invocation["port"]?.intValue else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.invalidProxy) }
-            try profiles.setProxy(id, BrowserProfileSnapshot.Proxy(scheme: scheme, host: host.trimmingCharacters(in: .whitespaces), port: port))
+            guard let proxy = BrowserProfileSnapshot.Proxy.palette(scheme: invocation["scheme"]?.stringValue, host: invocation["host"]?.stringValue,
+                                                                  port: invocation["port"]?.intValue)
+            else { throw ActionFailure.invalidTarget(BrowserProfileAppStrings.invalidProxy) }
+            return try profiles.setProxy(id, proxy)
         }
         bind("browserProfile.clearProxy") { id, _ in try profiles.setProxy(id, nil) }
-    }
-
-    /// The insertion index `move-browser-profile` takes for a 1-based `position` among `count` profiles, the
-    /// moved one at `old` (0-based).
-    nonisolated static func moveIndex(position: Int, from old: Int, count: Int) -> Int {
-        min(position - 1, count - 1)
     }
 
     /// A new profile: the given name, color and icon, else "Profile N" and
