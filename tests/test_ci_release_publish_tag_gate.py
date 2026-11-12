@@ -500,6 +500,29 @@ class TagGate(unittest.TestCase):
                 gated_job = fixture(job("p", steps, f"    if: {PUSH_TAG}\n"))
                 self.assertEqual(self.check(gated_job), [], label)
 
+    def test_package_runner_exec_reaches_any_target_command(self) -> None:
+        commands = (
+            "npm exec gh release create v1",
+            "npm exec -- gh release create v1",
+            "npx gh release create v1",
+            "npx -- gh release create v1",
+            "pnpm exec gh release create v1",
+            "pnpm exec -- gh release create v1",
+            "pnpm dlx gh release create v1",
+            "pnpm dlx -- gh release create v1",
+            "yarn exec gh release create v1",
+            "yarn exec -- gh release create v1",
+            "yarn dlx gh release create v1",
+            "yarn dlx -- gh release create v1",
+            "bun x gh release create v1",
+            "bun x -- gh release create v1",
+            "bunx gh release create v1",
+            "bunx -- gh release create v1",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertEqual(len(self.check(fixture(job("p", f"      - run: {command}\n")))), 1)
+
     def test_text_that_only_names_a_publish_command_is_not_publishing(self) -> None:
         cases = ("      - run: echo gh release upload v1\n",
                  "      - run: |\n          # gh release upload v1 dist/*\n          true\n",
