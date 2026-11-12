@@ -100,6 +100,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn write_failure_stops_the_owner_until_reopen() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("folds.idx");
+        let mut folds = Folds::open(&path, 0)?;
+        folds.append(2, 8)?;
+        folds.sync()?;
+        drop(folds);
+        // A read-only descriptor makes the write fail without a filesystem-wide fault.
+        let mut stopped =
+            Folds { file: File::open(&path)?, len: ENTRY_BYTES, last_group: 2, stopped: false };
+        assert!(matches!(stopped.append(10, 20), Err(Error::Io(_))));
+        assert_eq!(stopped.len(), ENTRY_BYTES);
+        assert!(matches!(stopped.append(10, 20), Err(Error::Stopped)));
+        assert!(matches!(stopped.sync(), Err(Error::Stopped)));
+        drop(stopped);
+        let mut reopened = Folds::open(&path, ENTRY_BYTES)?;
+        reopened.append(10, 20)?;
+        reopened.sync()?;
+        assert_eq!(reopened.len(), 2 * ENTRY_BYTES);
+        Ok(())
+    }
+
+    #[test]
     fn checkpoint_suffix_is_replayed_once() -> Result<(), Box<dyn std::error::Error>> {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("folds.idx");
