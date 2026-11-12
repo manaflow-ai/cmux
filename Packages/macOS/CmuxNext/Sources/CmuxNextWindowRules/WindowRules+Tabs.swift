@@ -212,51 +212,6 @@ extension WindowRules {
         call("window_tabs_terminal_chat", AgentRequest(agent: agent, session: nil), as: AgentReply.self)?.harness
     }
 
-    /// Toggle Terminal and Chat's facts: the focused tab, and the agent session it runs (a terminal)
-    /// or resumes (a chat).
-    public nonisolated struct ToggleFacts: Encodable, Equatable, Sendable {
-        public var terminal, chat: Bool
-        public var agent, session: String?
-
-        public init(terminal: Bool = false, chat: Bool = false, agent: String?, session: String?) {
-            self.terminal = terminal
-            self.chat = chat
-            self.agent = agent
-            self.session = session
-        }
-    }
-
-    /// Toggle Terminal and Chat's route: the same session swaps between its terminal and its chat.
-    public nonisolated enum TerminalChatToggle: Decodable, Equatable, Sendable {
-        case notAgentTab
-        case noSession
-        case unsupportedHarness
-        /// The terminal's session shows as the chat resuming it over ACP.
-        case toChat(harness: String, session: String)
-        /// The chat shows the terminal running the session it resumes.
-        case toTerminal(harness: String, session: String)
-
-        private enum CodingKeys: String, CodingKey { case route, harness, session }
-
-        public init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            switch try container.decode(String.self, forKey: .route) {
-            case "notAgentTab": self = .notAgentTab
-            case "noSession": self = .noSession
-            case "unsupportedHarness": self = .unsupportedHarness
-            case "toChat": self = .toChat(harness: try container.decode(String.self, forKey: .harness),
-                                          session: try container.decode(String.self, forKey: .session))
-            case "toTerminal": self = .toTerminal(harness: try container.decode(String.self, forKey: .harness),
-                                                  session: try container.decode(String.self, forKey: .session))
-            case let other: throw DecodingError.dataCorruptedError(forKey: .route, in: container, debugDescription: "route \(other)")
-            }
-        }
-    }
-
-    public func terminalChatToggle(_ facts: ToggleFacts) -> TerminalChatToggle? {
-        call("window_tabs_terminal_chat_toggle", facts, as: TerminalChatToggle.self)
-    }
-
     // MARK: Duplicate, numbers, moves
 
     /// The facts of one tab Duplicate Tab acts on.
