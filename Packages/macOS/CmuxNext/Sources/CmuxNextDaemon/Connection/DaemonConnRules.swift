@@ -10,11 +10,6 @@ enum DaemonConnRules {
         reply(request) { bytes, count, out in cmux_daemon_conn_call(op, bytes, count, out) }
     }
 
-    /// One op on a command scope (`cmux_daemon_scope_call`).
-    static func call(_ scope: OpaquePointer, _ op: String, _ request: [String: Any] = [:]) -> [String: Any]? {
-        reply(request) { bytes, count, out in cmux_daemon_scope_call(scope, op, bytes, count, out) }
-    }
-
     private static func reply(
         _ request: [String: Any],
         _ body: (UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<CmuxDaemonConnBytes>) -> Int32

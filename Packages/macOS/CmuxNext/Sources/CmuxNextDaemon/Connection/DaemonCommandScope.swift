@@ -1,4 +1,4 @@
-internal import CCmuxDaemonConnFFI
+import CryptoKit
 public import Foundation
 import CmuxNextCompat
 
@@ -17,9 +17,6 @@ import CmuxNextCompat
 /// same key replays in the daemon instead of applying twice. A closed scope
 /// derives nothing and records nothing: a task that outlives the action
 /// sends ordinary commands.
-///
-/// The bookkeeping is Rust's (`cmux_daemon_scope_*`, cmux-daemon-conn-core src/scope.rs); the task local,
-/// the idle waiters and the types stay here.
 public final class DaemonCommandScope: Sendable {
     /// The scope of the action whose handler (or a task it started) is running.
     @TaskLocal public static var current: DaemonCommandScope?
@@ -49,51 +46,53 @@ public final class DaemonCommandScope: Sendable {
         let id: UInt64
     }
 
-    /// The Rust scope and the idle waiters, under one lock: an `end` that makes the scope idle and a
-    /// `waitUntilIdle` that finds it busy never miss each other.
-    private struct State: ~Copyable {
-        let scope: OpaquePointer?
+    private struct State {
+        var open: Set<UInt64> = []
+        var nextTicket: UInt64 = 0
+        var mutations = 0
+        var derived: [String: Int] = [:]
+        var failures: [Failure] = []
+        var created: [DaemonCreatedObject] = []
+        var barriers: [String: UInt64] = [:]
+        var closed = false
         var idleWaiters: [CheckedContinuation<Void, Never>] = []
-
-        deinit { cmux_daemon_scope_free(scope) }
-
-        func call(_ op: String, _ request: [String: Any] = [:]) -> [String: Any] {
-            scope.flatMap { DaemonConnRules.call($0, op, request) } ?? [:]
-        }
+        /// What the run did and when (`stageLog`): the first 16 entries and
+        /// the last 32 (`appendKeepingHead`).
+        var stages: [String] = []
     }
 
     public let idempotencyKey: String?
-    private let state: Mutex<State>
+    private let state = Mutex(State())
 
     public init(idempotencyKey: String? = nil) {
-        let key = idempotencyKey.flatMap { $0.isEmpty ? nil : $0 }
-        self.idempotencyKey = key
-        let bytes = Array((key ?? "").utf8)
-        state = Mutex(State(scope: bytes.withUnsafeBufferPointer { cmux_daemon_scope_new($0.baseAddress, $0.count) }))
+        self.idempotencyKey = idempotencyKey.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     // MARK: - Stage log
 
     private let createdAt = ContinuousClock.now
 
-    /// Milliseconds since the scope's creation, the stage log's `@ms`.
-    private var elapsedMilliseconds: UInt64 {
-        let elapsed = (ContinuousClock.now - createdAt).components
-        return UInt64(clamping: elapsed.seconds * 1000 + elapsed.attoseconds / 1_000_000_000_000_000)
-    }
-
     /// What this run did and when, as `stage@ms` from the scope's creation:
     /// its stages (`note`, `stage`), each command ticket opened (`open#N`)
     /// and closed (`close#N label`). A control timeout reports it as
     /// `data.waiting_on`, so a timed-out `action.run` says what it waited on.
     public var stageLog: [String] {
-        state.withLock { $0.call("stage_log")["log"] as? [String] ?? [] }
+        state.withLock { state in
+            state.stages + (state.open.isEmpty ? [] : ["open now: " + state.open.sorted().map { "#\($0)" }.joined(separator: " ")])
+        }
     }
 
     /// Records `stage` in the stage log.
     public func note(_ stage: String) {
-        let at = elapsedMilliseconds
-        state.withLock { _ = $0.call("note", ["stage": stage, "at_ms": at]) }
+        let entry = stamped(stage)
+        state.withLock { state in
+            state.stages.appendKeepingHead(entry)
+        }
+    }
+
+    private func stamped(_ stage: String) -> String {
+        let ms = (ContinuousClock.now - createdAt).components
+        return "\(stage)@\(ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000)"
     }
 
     /// `note(stage)`, then true (for a `guard` condition).
@@ -120,19 +119,26 @@ public final class DaemonCommandScope: Sendable {
 
     /// Opens a ticket for a command about to be sent, or nil once closed.
     public func begin(label: String? = nil) -> Ticket? {
-        let at = elapsedMilliseconds
-        let reply = state.withLock { $0.call("begin", ["label": label ?? NSNull(), "at_ms": at]) }
-        return (reply["ticket"] as? NSNumber).map { Ticket(id: $0.uint64Value) }
+        state.withLock { state -> Ticket? in
+            guard !state.closed else { return nil }
+            state.nextTicket &+= 1
+            state.open.insert(state.nextTicket)
+            return Ticket(id: state.nextTicket)
+        }.map { ticket in
+            note("open#\(ticket.id)" + (label.map { " " + $0 } ?? ""))
+            return ticket
+        }
     }
 
     /// Closes `ticket`, recording `failure` when the command failed.
     public func end(_ ticket: Ticket?, failure: Failure? = nil, label: String? = nil) {
         guard let ticket else { return }
-        let at = elapsedMilliseconds
-        let request: [String: Any] = ["ticket": ticket.id, "failure": failure.map(\.json) ?? NSNull(),
-                                      "label": label ?? NSNull(), "at_ms": at]
+        let entry = stamped("close#\(ticket.id)" + (label.map { " " + $0 } ?? ""))
         let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
-            guard state.call("end", request)["became_idle"] as? Bool == true else { return [] }
+            guard state.open.remove(ticket.id) != nil else { return [] }
+            state.stages.appendKeepingHead(entry)
+            if let failure { state.failures.append(failure) }
+            guard state.open.isEmpty else { return [] }
             defer { state.idleWaiters.removeAll() }
             return state.idleWaiters
         }
@@ -141,21 +147,23 @@ public final class DaemonCommandScope: Sendable {
 
     /// Records that `machine`'s events up to `sequence` cover a command's echo.
     public func noteBarrier(_ sequence: UInt64, machine: String) {
-        state.withLock { _ = $0.call("note_barrier", ["sequence": sequence, "machine": machine]) }
+        state.withLock { state in
+            guard !state.closed else { return }
+            state.barriers[machine] = max(state.barriers[machine] ?? 0, sequence)
+        }
     }
 
     /// Records objects a creating command made (`DaemonCreatingRequest`).
     public func noteCreated(_ objects: [DaemonCreatedObject]) {
         guard !objects.isEmpty else { return }
-        let request: [String: Any] = ["objects": objects.map { ["kind": $0.kind.rawValue, "id": $0.id] }]
-        state.withLock { _ = $0.call("note_created", request) }
+        state.withLock { state in
+            guard !state.closed else { return }
+            for object in objects where !state.created.contains(object) { state.created.append(object) }
+        }
     }
 
-    /// What the Rust scope holds (`state`).
-    private var snapshot: [String: Any] { state.withLock { $0.call("state") } }
-
     /// True while no ticket is open.
-    public var isIdle: Bool { snapshot["idle"] as? Bool ?? true }
+    public var isIdle: Bool { state.withLock { $0.open.isEmpty } }
 
     /// Returns once no ticket is open (at once when none is). A caller that
     /// must know no command follows re-checks ``isIdle`` on the actor the
@@ -164,7 +172,7 @@ public final class DaemonCommandScope: Sendable {
     public func waitUntilIdle() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let idle = state.withLock { state -> Bool in
-                if state.call("state")["idle"] as? Bool ?? true { return true }
+                if state.open.isEmpty { return true }
                 state.idleWaiters.append(continuation)
                 return false
             }
@@ -174,29 +182,21 @@ public final class DaemonCommandScope: Sendable {
 
     /// Stops deriving ids and recording; later commands are ordinary.
     public func close() {
-        state.withLock { _ = $0.call("close") }
+        state.withLock { $0.closed = true }
     }
 
     /// False once the action answered (``close()``): nobody reads what a later command records.
-    public var isOpen: Bool { snapshot["open"] as? Bool ?? false }
-    public var failures: [Failure] { (snapshot["failures"] as? [[String: Any]] ?? []).map(Failure.init(json:)) }
-    public var created: [DaemonCreatedObject] {
-        (snapshot["created"] as? [[String: Any]] ?? []).compactMap { object in
-            guard let kind = (object["kind"] as? String).flatMap(DaemonCreatedObject.Kind.init(rawValue:)),
-                  let id = object["id"] as? String else { return nil }
-            return DaemonCreatedObject(kind, id)
-        }
-    }
-    public var ticketCount: UInt64 { (snapshot["ticket_count"] as? NSNumber)?.uint64Value ?? 0 }
+    public var isOpen: Bool { state.withLock { !$0.closed } }
+    public var failures: [Failure] { state.withLock { $0.failures } }
+    public var created: [DaemonCreatedObject] { state.withLock { $0.created } }
+    public var ticketCount: UInt64 { state.withLock { $0.nextTicket } }
 
     /// The event sequence of `machine` that covers every command's echo, or
     /// nil when no command reported one.
-    public func barrier(machine: String) -> UInt64? { barriers[machine] }
+    public func barrier(machine: String) -> UInt64? { state.withLock { $0.barriers[machine] } }
 
     /// Every machine's barrier, by machine id.
-    public var barriers: [String: UInt64] {
-        (snapshot["barriers"] as? [String: NSNumber] ?? [:]).mapValues(\.uint64Value)
-    }
+    public var barriers: [String: UInt64] { state.withLock { $0.barriers } }
 
     // MARK: - Idempotency
 
@@ -204,30 +204,36 @@ public final class DaemonCommandScope: Sendable {
     /// key and the mutation's ordinal, or nil (a fresh id) without a key or
     /// once closed.
     public func nextMutationID() -> String? {
-        guard idempotencyKey != nil else { return nil }
-        return state.withLock { $0.call("next_mutation_id")["id"] as? String }
+        guard let key = idempotencyKey else { return nil }
+        let ordinal = state.withLock { state -> Int? in
+            guard !state.closed else { return nil }
+            state.mutations += 1
+            return state.mutations
+        }
+        return ordinal.map { Self.derivedUUID(key: key, kind: "mutation", ordinal: $0).uuidString.lowercased() }
     }
 
     /// The next generated id of `kind` (a new workspace key, a reserved
-    /// terminal id) for this action, derived like ``nextMutationID()``: a UUID
-    /// from SHA-256 of key, kind and ordinal in the version 4 layout
-    /// (cmux-tui accepts caller-chosen terminal ids only as UUIDv4).
+    /// terminal id) for this action, derived like ``nextMutationID()``.
     public func nextDerivedUUID(_ kind: String) -> UUID? {
-        guard idempotencyKey != nil else { return nil }
-        return state.withLock { $0.call("next_derived", ["kind": kind])["uuid"] as? String }.flatMap(UUID.init(uuidString:))
-    }
-}
-
-extension DaemonCommandScope.Failure {
-    /// The Rust scope's form (`scope::Failure`).
-    var json: [String: Any] {
-        ["label": label, "message": message, "may_have_applied": mayHaveApplied, "terminal_may_appear": terminalMayAppear]
+        guard let key = idempotencyKey else { return nil }
+        let ordinal = state.withLock { state -> Int? in
+            guard !state.closed else { return nil }
+            state.derived[kind, default: 0] += 1
+            return state.derived[kind, default: 0]
+        }
+        return ordinal.map { Self.derivedUUID(key: key, kind: kind, ordinal: $0) }
     }
 
-    init(json: [String: Any]) {
-        self.init(label: json["label"] as? String ?? "", message: json["message"] as? String ?? "",
-                  mayHaveApplied: json["may_have_applied"] as? Bool ?? false,
-                  terminalMayAppear: json["terminal_may_appear"] as? Bool ?? false)
+    /// A UUID from SHA-256 of key, kind and ordinal, in the version 4
+    /// layout: the hash bits stand in for the random bits, and cmux-tui
+    /// accepts caller-chosen terminal ids only as UUIDv4.
+    static func derivedUUID(key: String, kind: String, ordinal: Int) -> UUID {
+        var bytes = Array(SHA256.hash(data: Data("cmux-next/\(kind)/\(ordinal)/\(key)".utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x40
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                           bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
     }
 }
 
@@ -272,5 +278,14 @@ extension DaemonCommandScope {
     static func noteCreated(by request: some DaemonRequest, response: Any) {
         guard let scope = current, let creating = request as? any DaemonCreatingRequest else { return }
         scope.noteCreated(creating.createdObjects(inAny: response))
+    }
+}
+
+extension [String] {
+    /// Appends `entry`, keeping the first 16 entries and the newest 32 (the
+    /// end of a long run is what a timeout waited on).
+    fileprivate mutating func appendKeepingHead(_ entry: String) {
+        if count >= 48 { remove(at: 16) }
+        append(entry)
     }
 }
