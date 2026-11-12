@@ -103,14 +103,9 @@ test("a SendMessage's live line ends when its result arrives, through a steer an
   daemon.record(chat, { mux: "turn_started", msg: {} });
   let rows: Row[] = [];
   const snapshots: Array<() => void> = [];
+  // Each snapshot wakes the check; bun's test timeout bounds a check that never holds.
   const until = async (check: () => boolean) => {
-    for (let tries = 0; !check(); tries += 1) {
-      if (tries > 200) throw new Error(`timed out; rows: ${JSON.stringify(rows.map((row) => row.kind))}`);
-      await new Promise<void>((resolve) => {
-        snapshots.push(resolve);
-        setTimeout(resolve, 20);
-      });
-    }
+    while (!check()) await new Promise<void>((resolve) => snapshots.push(resolve));
   };
   const client = await AcpmuxDirectClient.connect(
     mockHost,
