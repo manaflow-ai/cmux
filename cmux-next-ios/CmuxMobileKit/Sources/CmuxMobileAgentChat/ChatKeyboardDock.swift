@@ -755,7 +755,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         followDraggedKeyboard(true)
     }
 
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { followDraggedKeyboard(false) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        followDraggedKeyboard(false)
+        #if DEBUG
+        if decelerate, Self.jumpsMidFling { jumpMidFling() }
+        #endif
+    }
+
+    #if DEBUG
+    /// `-cmux-mobile-jump-mid-fling` (AgentJumpDuringMomentumUITests): a fling's release taps Jump to
+    /// bottom 120 ms later, while the transcript still glides. A UI test's own tap waits for the app
+    /// to go idle, so it only lands once the fling has stopped and never sees the momentum.
+    static let jumpsMidFling = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-jump-mid-fling")
+
+    private func jumpMidFling() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard let self, self.scrollView.isDecelerating else { return }
+            self.surface.scrollToBottom()
+        }
+    }
+    #endif
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let y = scrollView.contentOffset.y
