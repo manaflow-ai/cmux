@@ -12,7 +12,7 @@
 //! | Tier | Who | macOS | Linux |
 //! |---|---|---|---|
 //! | [`Tier::Serving`] | the daemon | unchanged: acknowledged replies wait on the event journal's sync, so its disk I/O stays at the default tier ([`enter_daemon`]) | unchanged |
-//! | [`Tier::AgentStart`] | agent hosts and their harnesses | while the harness starts: the daemon's (unchanged); once its session's start is over: the harness and what it started at nice +11 (priority 20, as the utility clamp), or background class (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
+//! | [`Tier::AgentStart`] | agent hosts and their harnesses | disk I/O at `IOPOL_UTILITY`; CPU while the harness starts: the daemon's (unchanged); once its session's start is over: the harness and what it started at nice +11 (priority 20, as the utility clamp), or background class (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
 //! | [`Tier::Agent`] | background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
 //! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O at the background class's tier), then back | unchanged |
 //! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (its CPU; its disk I/O stays at the daemon's default tier), then back | unchanged |
@@ -31,8 +31,8 @@
 //! An agent's start is work a person waits on, so it is not agent work (W6, 2026-11-12): on
 //! Leo's Mac at load average 125 to 256, waking an agent took 10 to 82 s, and one start ran out
 //! its 90 s with 1.8 s of CPU used, its host and harness under the utility clamp and below every
-//! default-priority process on the machine. An agent host therefore starts at the daemon's tier
-//! and spawns its harness there; once the session's start is over (its `initialize` and
+//! default-priority process on the machine. An agent host therefore starts at the daemon's CPU
+//! priority (its disk I/O still at utility) and spawns its harness there; once the session's start is over (its `initialize` and
 //! `session/new` or `session/load` answered), the daemon lowers the running harness
 //! ([`AGENT_NICE`], `cpu_class::CpuClass::enter`): its builds and tests still run below the app.
 //!
@@ -157,9 +157,10 @@ pub fn enter(role: Role) {
         // Opt-in: the whole agent tree in background (hq#4947's 55 -> 6 ms
         // drag lag), at the cost of agent speed (module docs).
         Tier::Agent | Tier::AgentStart if agent_background() => imp::process_background(),
-        // Nothing yet: the start runs at the daemon's tier, and the harness is lowered once its
-        // session's start is over (`cpu_class::CpuClass::enter`).
-        Tier::AgentStart => {}
+        // Its disk I/O at utility, its CPU unclamped: the start runs at the daemon's CPU priority,
+        // and the harness is lowered once its session's start is over
+        // (`cpu_class::CpuClass::enter`).
+        Tier::AgentStart => imp::disk_utility(),
         Tier::Agent => {
             imp::disk_utility();
             imp::clamp_cpu_utility();

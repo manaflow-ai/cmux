@@ -20,13 +20,16 @@
 //!    clears one set on its starter by the starter itself (an agent host under
 //!    `ACPMUX_QOS=background`, [`start_at_normal`]), and right after the spawn the daemon clears
 //!    one that another process set ([`clear_running`]; a process cannot clear that one itself).
-//!    The exec and the harness's own start run at normal CPU class and the default disk tier.
+//!    The exec and the harness's own start run at normal CPU class. Disk I/O stays at the
+//!    host's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
 //! 2. Once the session's start is over (its `initialize` and `session/new` or `session/load`
 //!    answered, `hub/lifecycle.rs` `ensure_child`), the daemon puts the running harness in its
 //!    class ([`CpuClass::enter`]): `setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, which
-//!    macOS allows on another process of the same user; a `normal` harness and the processes it
-//!    started go to nice +11 instead, the utility clamp's base priority (`qos::AGENT_NICE`; on
-//!    Linux nice +5 and its host's session group). Every process the harness starts after
+//!    macOS allows on another process of the same user. A `normal` harness goes to the agent
+//!    tier's nice instead (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority;
+//!    +5 on Linux, and its host's session group), with its whole process group in one
+//!    `setpriority(PRIO_PGRP)`: the processes it started during its start, its MCP servers and a
+//!    launcher's agent, at its own priority as under the clamp they replace. Every process the harness starts after
 //!    that inherits it, so the builds and tests of its turns run below the GUI. A process it
 //!    started during its start keeps the class it started at: an MCP server, and the real agent
 //!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
@@ -360,9 +363,44 @@ impl std::fmt::Display for HarnessState {
     }
 }
 
+/// Every process of the harness `pid`'s process group (it leads one: `agent_host/host.rs`,
+/// `agent/command.rs`), so the harness, the processes it started during its start (its MCP
+/// servers, a launcher's agent) and on Linux every thread of each, at [`crate::qos::AGENT_NICE`],
+/// in one call and with no process listed. Processes they start later inherit it. Never raises
+/// one: a group already at or past it is left, and an unprivileged process cannot lower a nice.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn lower_group(pid: u32) -> bool {
+    let Ok(group) = libc::id_t::try_from(pid) else { return false };
+    if group == 0 {
+        return false;
+    }
+    // `getpriority` answers -1 both for nice -1 and for an error: errno says which.
+    #[cfg(target_os = "macos")]
+    // SAFETY: the calling thread's errno.
+    let errno = || unsafe { libc::__error() };
+    #[cfg(target_os = "linux")]
+    // SAFETY: the calling thread's errno.
+    let errno = || unsafe { libc::__errno_location() };
+    // SAFETY: plain syscalls on a group its caller holds the leader of; the kernel checks that
+    // each process runs as this user. `PRIO_PGRP`'s get answers the group's lowest nice.
+    unsafe {
+        *errno() = 0;
+        let now = libc::getpriority(libc::PRIO_PGRP, group);
+        if *errno() != 0 {
+            return false;
+        }
+        now >= crate::qos::AGENT_NICE
+            || libc::setpriority(libc::PRIO_PGRP, group, crate::qos::AGENT_NICE) == 0
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use super::HarnessState;
+
+    pub(super) fn to_agent_tier(pid: u32) -> bool {
+        super::lower_group(pid)
+    }
 
     /// `PRIO_DARWIN_BG` on (`on`) or off for the process `pid`, another process of this user.
     pub(super) fn set_background(pid: u32, on: bool) -> bool {
@@ -383,27 +421,6 @@ mod imp {
             );
         }
         set
-    }
-
-    /// The harness `pid` and the processes it started (its MCP servers, a launcher's agent) at
-    /// [`crate::qos::AGENT_NICE`]: the base priority of the utility clamp its host no longer
-    /// starts under (`qos.rs`). Processes they start later inherit it. Never raises one.
-    pub(super) fn to_agent_tier(pid: u32) -> bool {
-        let Some(root) = libc::c_int::try_from(pid).ok().filter(|p| *p > 0) else { return false };
-        let mut lowered = false;
-        for (id, _) in tree(root) {
-            let Ok(id) = libc::id_t::try_from(id) else { continue };
-            // SAFETY: plain syscalls; the kernel checks that `id` runs as this user. A process
-            // that is gone answers an error, which leaves it alone.
-            let set = unsafe {
-                // getpriority answers -1 both for nice -1 and an error: only a lower nice is raised.
-                let now = libc::getpriority(libc::PRIO_PROCESS, id);
-                now >= crate::qos::AGENT_NICE
-                    || libc::setpriority(libc::PRIO_PROCESS, id, crate::qos::AGENT_NICE) == 0
-            };
-            lowered |= set && id == pid;
-        }
-        lowered
     }
 
     /// `proc_pidinfo(pid, flavor)` into a `T`, or None.
@@ -540,28 +557,17 @@ mod imp {
         false
     }
 
-    /// The harness `pid` at [`crate::qos::AGENT_NICE`], and the session it runs in (its agent
-    /// host's, which leads one: `agent_host/link.rs`) at the same nice. Linux sets nice per
-    /// thread: its main thread is lowered, and every process it starts after this inherits that.
-    /// Where the scheduler groups processes by session (autogroup, a process outside a CPU
+    /// The harness's process group at [`crate::qos::AGENT_NICE`] ([`super::lower_group`]), and
+    /// the session it runs in (its agent host's, which leads one: `agent_host/link.rs`) at the same
+    /// nice. Where the scheduler groups processes by session (autogroup, a process outside a CPU
     /// cgroup), a session's share against the rest of the machine is its group's nice, not its
-    /// processes', so the group is lowered too: the whole agent, its MCP servers and its tools.
-    /// Never the daemon's own session (a harness it started directly), and never raises one.
+    /// processes', so the group is lowered too. Never the daemon's own session (a harness it
+    /// started directly).
     pub(super) fn to_agent_tier(pid: u32) -> bool {
-        let Ok(id) = libc::id_t::try_from(pid) else { return false };
-        if id == 0 {
-            return false;
-        }
-        // SAFETY: plain syscalls; the kernel checks that `id` runs as this user.
-        let lowered = unsafe {
-            *libc::__errno_location() = 0;
-            let now = libc::getpriority(libc::PRIO_PROCESS, id);
-            let read = *libc::__errno_location() == 0;
-            read && (now >= crate::qos::AGENT_NICE
-                || libc::setpriority(libc::PRIO_PROCESS, id, crate::qos::AGENT_NICE) == 0)
-        };
+        let lowered = super::lower_group(pid);
+        let Ok(target) = libc::pid_t::try_from(pid) else { return lowered };
         // SAFETY: getsid reads; a pid that is gone answers -1.
-        let (theirs, ours) = unsafe { (libc::getsid(pid as libc::pid_t), libc::getsid(0)) };
+        let (theirs, ours) = unsafe { (libc::getsid(target), libc::getsid(0)) };
         if lowered && theirs > 0 && theirs != ours {
             lower_autogroup(pid);
         }
