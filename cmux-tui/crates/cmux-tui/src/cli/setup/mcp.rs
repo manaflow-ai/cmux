@@ -660,11 +660,12 @@ fn declined() -> Value {
         "text": format!(
             "You chose not to add cmux's tools to your coding agents ({} is \"off\"). \
              To add them, choose Add to My Agents in cmux Settings > Agents > cmux Tools in \
-             Coding Agents, or run `cmux settings set {} on`; then run `cmux setup mcp` again",
+             Coding Agents, or run `cmux settings set {} on --confirm` and approve it in cmux; \
+             then run `cmux setup mcp` again",
             AgentsCmuxMcp::KEY,
             AgentsCmuxMcp::KEY
         ),
-        "command": format!("cmux settings set {} on", AgentsCmuxMcp::KEY),
+        "command": format!("cmux settings set {} on --confirm", AgentsCmuxMcp::KEY),
         "url": Value::Null,
     })
 }
@@ -679,7 +680,8 @@ fn unanswered() -> Value {
             "The person has not chosen whether cmux may add its tools to their coding agents \
              ({} is \"ask\"). Ask them: they answer in cmux's cmux Tools step or in Settings > \
              Agents > cmux Tools in Your Coding Agents (Add to My Agents), or run `cmux settings \
-             set {} on` themselves; then run `cmux setup mcp` again",
+             set {} on --confirm` themselves and approve it in cmux; then run `cmux setup mcp` \
+             again",
             AgentsCmuxMcp::KEY,
             AgentsCmuxMcp::KEY
         ),

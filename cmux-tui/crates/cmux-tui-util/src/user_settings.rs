@@ -238,7 +238,7 @@ pub fn ultra_mode() -> bool {
 pub enum AgentsCmuxMcp {
     /// Not answered yet (no value, `"ask"`, or anything else): cmux gives the
     /// person's agents nothing until they answer. The shims pass no server and
-    /// `cmux setup mcp` writes only once `mcp.enabled` is on. The app asks at
+    /// `cmux setup mcp` writes nothing (whatever `mcp.enabled` says). The app asks at
     /// launch (the cmux Tools step), so this lasts until the person answers.
     #[default]
     Ask,

@@ -1330,7 +1330,7 @@ fn cmux_setup_mcp_follows_the_persons_answer_and_removes_cmux_on_request() {
     assert_eq!(declined["state"], "needs_user", "{declined}");
     assert_eq!(declined["choice"], "off", "{declined}");
     assert_eq!(declined["user_action"]["kind"], "setting", "{declined}");
-    assert_eq!(declined["user_action"]["command"], "cmux settings set agents.cmuxMcp on");
+    assert_eq!(declined["user_action"]["command"], "cmux settings set agents.cmuxMcp on --confirm");
     let text = declined["user_action"]["text"].as_str().unwrap();
     assert!(text.contains("Settings > Agents"), "{text}");
     assert!(world.take_mcp_calls().is_empty(), "setup wrote after the person said no");
