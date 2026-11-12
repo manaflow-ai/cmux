@@ -1092,6 +1092,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 armReplayDeadline()
             }
             if isReset {
+                model.mirrorResets += 1
                 replayStartedAt = CACurrentMediaTime()
                 replayBytes = 0
             } else if replayGate.isReplaying {
@@ -1201,6 +1202,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             case .hostGrid(let columns, let rows):
                 appliedHostColumns = columns
                 appliedHostRows = rows
+                if !model.isTUI, columns != hostLayout.phoneColumns {
+                    model.wideGridsShown += 1
+                    sizingLog.notice("wide grid on the primary screen: \(columns, privacy: .public) columns (phone \(self.hostLayout.phoneColumns, privacy: .public))")
+                }
                 syncHostGrid()
             case .bytes(let data):
                 syncHostGrid()

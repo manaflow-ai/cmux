@@ -200,6 +200,13 @@ public protocol TerminalSession: AnyObject {
     /// terminal, `attach-replay-history-rows-v1`). Called as often as the page
     /// scrolls there; the session decides. Others ignore it.
     func loadOlderHistory()
+    /// The phone projects this terminal itself (``TerminalProjectingSession``):
+    /// the session claims a size only when told to, and never holds the
+    /// Mac's own grid back from the screen while the primary screen shows.
+    /// Sessions without a Mac ignore it.
+    func setProjectsLocally(_ projects: Bool)
+    /// The session itself, under any session wrapping it (the projection).
+    var underlyingSession: AnyObject { get }
 }
 
 extension TerminalSession {
@@ -227,6 +234,10 @@ extension TerminalSession {
     public func clearHistory() async throws {}
 
     public func loadOlderHistory() {}
+
+    public func setProjectsLocally(_ projects: Bool) {}
+
+    public var underlyingSession: AnyObject { self }
 
     public var hostGridOwnerName: String? { nil }
 }

@@ -432,6 +432,12 @@ public final class TerminalModel {
     /// Grid sizes this page sent the Mac (`TerminalViewController.sendResize`),
     /// for demos and UI tests: the soft keyboard must not add any.
     public internal(set) var ptyResizesSent = 0
+    /// Grids the page took on the primary screen whose columns were not the
+    /// phone's (the Mac's wide grid drawn on the phone: "uncompact"), for
+    /// the projection harness.
+    public internal(set) var wideGridsShown = 0
+    /// Mirror resets the page laid out again (each a replay).
+    public internal(set) var mirrorResets = 0
     #if DEBUG
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
