@@ -1062,8 +1062,12 @@ def merge(walks: list[tuple[list[str], list[str], list[str]]]) -> tuple[list[str
 # router (cmux_next_route: app_ffi_inputs, app_ffi_excluded, app_ffi_input; build_class.py and the dev-loop apply
 # tools through it) and base_red_excuse.py (ffi_input) through listed() and is_input() here.
 #
-# A reader that cannot fail when the walk refuses (the router, base_red_excuse.py) counts REFUSED_INPUTS as inputs and
-# nothing as excluded: all of cmux-tui and everything above the crates the build reads. The check itself refuses.
+# A walk that refuses raises Unresolved, and each reader takes its own fail-closed side, never one shared default (lead
+# decision 2, 2026-11-11). The check itself refuses (and --list-inputs with it, so the push paths test fails). The
+# router counts REFUSED_INPUTS as inputs and nothing as excluded, all of cmux-tui and everything above the crates the
+# build reads, so its routes run more, never less; build_class.py and the dev-loop apply tools read through it and take
+# that side too. base_red_excuse.py takes the other side: no path is an input, since there "an input" is what lets the
+# step-A rule excuse a pin red, so a refused walk never excuses one.
 REFUSED_INPUTS = ("cmux-tui",) + ABOVE
 
 

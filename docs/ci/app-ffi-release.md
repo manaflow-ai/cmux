@@ -102,6 +102,13 @@ definition (it replaced #41555's `NOT_BUILT` list): the pin check
 workflow's push paths, the router (`cmux_next_route.app_ffi_input`),
 `build_class.py`, the dev-loop apply tools and `base_red_excuse.py`
 (`ffi_input`, which walks the checkout it runs from) all read its output.
+When the walk refuses, each reader takes its own fail-closed side: the pin
+check and `--list-inputs` fail; the router, `build_class.py` and the apply
+tools count all of `cmux-tui` as inputs (more work); `base_red_excuse.py`
+counts no path as an input, so a refused walk never excuses a pin red. Since
+`base_red_excuse.py` walks the base, not the PR's head, it refuses the pin red
+of a PR that changes any `Cargo.toml` or `Cargo.lock`, or a `cmux-tui` path the
+walk neither lists nor excludes (a new crate or folder).
 
 1. **Step A: the Rust change only.** Make it additive, so that the Swift on
    `feat-cmux-next` keeps working with the new Rust. Do not change Swift,

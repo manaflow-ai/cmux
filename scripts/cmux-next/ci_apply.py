@@ -105,6 +105,7 @@ def app_linked_rust(paths: list[str], repo: Path = ROOT) -> list[str]:
     Read from REPO's tree, the one whose diff is being classified."""
     route = _router()
     inputs = [p for p in route.SWIFT_JOB_INPUTS if p.startswith("cmux-tui/")]
+    # A refused app FFI walk lists all of cmux-tui here, the router's side (lead decision 2): every Rust path is linked.
     try:
         inputs += list(route.app_ffi_inputs(Path(repo))) + list(route.scheme_phase_rust_inputs(Path(repo)))
         excluded = route.app_ffi_excluded(Path(repo))  # the walk's excluded paths: not linked

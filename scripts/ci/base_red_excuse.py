@@ -2442,7 +2442,8 @@ def pr_paths(repo: str, base: str, sha: str, github) -> tuple[int, list[str]]:
 #
 # Neither rule excuses a PR that changes a file that decides the pin verdict (FFI_PIN_CHECK_CODE; 2026-11-09, review of
 # cmux#39194): it could make the pin error print for any change, and the published base pin rule excuses nearly every
-# PR, since a head inherits the base's published pin.
+# PR, since a head inherits the base's published pin. Nor one that changes what the walk of this classifier's own
+# checkout cannot vouch for at the PR's head (ffi_walk_unvouched; lead decision 3, 2026-11-11).
 #
 # A published base pin (2026-11-07): step-A PRs change the FFI sources faster than releases publish, so a step-B PR (its
 # Swift, or a re-pin) could never pin a release built from its own sources. Any other PR with that error has it excused
@@ -2467,34 +2468,68 @@ FFI_PIN_PATHS = (FFI_PIN_FILE, FFI_PIN_MANIFEST)  # a PR changing either moves t
 # The app FFI inputs are the walk of scripts/ci/app_ffi_pin.py (listed), the one definition check-app-ffi-pin.sh lists
 # (--list-inputs, --list-excluded) and the router reads (lead decision, 2026-11-11, merging #41555, whose
 # not_built() and this file's FFI_INPUTS and FFI_CRATE_PARENTS it replaces). This classifier reads a pull request
-# through GitHub, with no checkout of its head, so it walks the checkout it runs from (FFI_WALK_ROOT, its HEAD), once.
+# through GitHub, with no checkout of its head, so it walks the checkout it runs from (FFI_WALK_ROOT, its HEAD), once:
+# the base's walk, which ffi_walk_unvouched below keeps to the PRs whose head it still describes (lead decision 3).
 FFI_WALK_ROOT = Path(__file__).resolve().parents[2]
-_FFI_LISTED: dict = {}  # FFI_WALK_ROOT -> (inputs, excluded), or None when the walk refused
+_FFI_LISTED: dict = {}  # FFI_WALK_ROOT -> (inputs, excluded), or the walk's refusal (why, a str)
 
 
 def ffi_listing() -> tuple[list[str], list[str]] | None:
     """(the inputs, the excluded paths) of the app FFI walk of FFI_WALK_ROOT's HEAD (app_ffi_pin.listed), read once a
-    process; None when the walk refuses (the reason goes to stderr)."""
+    process; None when the walk refuses (ffi_walk_refusal says why, and it goes to stderr)."""
     if FFI_WALK_ROOT not in _FFI_LISTED:
         try:
             _FFI_LISTED[FFI_WALK_ROOT] = app_ffi_pin.listed(FFI_WALK_ROOT)
         except (app_ffi_pin.Unresolved, OSError) as why:
-            print(f"base_red_excuse: the app FFI inputs cannot be listed ({why}); every cmux-tui path counts as one",
-                  file=sys.stderr)
-            _FFI_LISTED[FFI_WALK_ROOT] = None
-    return _FFI_LISTED[FFI_WALK_ROOT]
+            print(f"base_red_excuse: the app FFI inputs cannot be listed ({why}); no path counts as one, so no pin red "
+                  "is excused as a step-A change", file=sys.stderr)
+            _FFI_LISTED[FFI_WALK_ROOT] = f"the app FFI walk of this checkout refused: {why}"
+    listed = _FFI_LISTED[FFI_WALK_ROOT]
+    return None if isinstance(listed, str) else listed
+
+
+def ffi_walk_refusal() -> str | None:
+    """Why the app FFI walk of FFI_WALK_ROOT's HEAD refused, for a refusal to name; None when it listed."""
+    ffi_listing()
+    refusal = _FFI_LISTED[FFI_WALK_ROOT]
+    return refusal if isinstance(refusal, str) else None
 
 
 def ffi_input(path: str) -> bool:
     """PATH may change the app FFI library: one of the walk's inputs or inside one, and in none of its excluded paths (a
-    crate's tests/, benches/ or examples/ that nothing built names, a reviewed TEST_ONLY file). When the walk refuses
-    it fails closed as the lead's rule for #41555's readers says: every path under cmux-tui/ or above the crates
-    (app_ffi_pin.REFUSED_INPUTS) counts as an input, as before #41555. Here "an input" is the verdict that lets the
-    step-A rule excuse the pin red (a PR that changes no input needs a published base pin)."""
+    crate's tests/, benches/ or examples/ that nothing built names, a reviewed TEST_ONLY file).
+
+    When the walk refuses, no path is one. Lead decision 2 (2026-11-11): each reader of the walk takes its own
+    fail-closed side, and here "an input" is the verdict that lets the step-A rule excuse the pin red with no other
+    proof, so a refused walk must never reach it. A PR that changes no input goes to the published base pin rule, which
+    reads no walk and needs the pin's published release on the base and a passing app compile at the head; that excuses
+    no more than before, when the refused walk counted every cmux-tui path as an input (app_ffi_pin.REFUSED_INPUTS,
+    the router's side, which this reader no longer takes)."""
     listed = ffi_listing()
     if listed is None:
-        return app_ffi_pin.is_input(path, list(app_ffi_pin.REFUSED_INPUTS), [])
+        return False
     return app_ffi_pin.is_input(path, *listed)
+
+
+# Lead decision 3 (2026-11-11): the walk above is of this classifier's own checkout (the base), never the PR's head,
+# and a PR can change which files are inputs at its head without touching one the base's walk lists: a Cargo.toml (a
+# new dependency edge, the cmux-tui/Cargo.toml workspace members) or a Cargo.lock anywhere, or a path in the Rust tree
+# (cmux-tui/) under none of the walk's inputs and none of its excluded paths (a new crate directory, a new folder, a
+# crate no FFI crate reaches today). A pin red on such a PR is refused before either rule. Paths outside cmux-tui/ that
+# are not Cargo files (Swift, web, docs, scripts) are not this rule; those the walk lists above the crates (the cargo
+# configs, toolchain files, build-app-ffi.sh, the release workflow) are covered by its listing.
+FFI_RUST_TREE = "cmux-tui/"
+FFI_CARGO_FILES = ("Cargo.toml", "Cargo.lock")
+
+
+def ffi_walk_unvouched(paths: list[str]) -> list[str]:
+    """The PATHS the walk of this checkout cannot vouch for at the PR's head (lead decision 3 above): every Cargo.toml and
+    Cargo.lock, and every path under cmux-tui/ under none of the walk's inputs and none of its excluded paths (every
+    cmux-tui path when the walk refuses)."""
+    listed = ffi_listing()
+    covered = [*listed[0], *listed[1]] if listed is not None else []
+    return [path for path in paths if path.rsplit("/", 1)[-1] in FFI_CARGO_FILES
+            or (path.startswith(FFI_RUST_TREE) and not app_ffi_pin.is_input(path, covered, []))]
 
 
 # The files that decide the pin check's verdict: the check, the pin reader it runs, every step's BASH_ENV, this
@@ -2613,7 +2648,11 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, er
     Returns (audit line, set-aside line). The first is the excuse when the pin is the job's only red. The second, when
     other reds stand beside a pin a rule covers, says why the pin's own parts (without_ffi_pin) leave the base
     comparison: before 2026-11-07 they stayed in it, and since the base never has the pin error, a step-A PR whose
-    job also carried reds the base shares (cmux#37767: the iOS CmuxTabsKit notice, a next-batch line) was refused."""
+    job also carried reds the base shares (cmux#37767: the iOS CmuxTabsKit notice, a next-batch line) was refused.
+
+    Before either rule, a PR that changes the pin check's code (FFI_PIN_CHECK_CODE), or a path the walk of this
+    checkout cannot vouch for at its head (ffi_walk_unvouched: a Cargo.toml or Cargo.lock, or a cmux-tui path the walk
+    neither lists nor excludes), is Refused."""
     pin, rollup = normalise_error(FFI_PIN_ERROR), normalise_error(f"red check: {FFI_PIN_CHECK}")
     if name != FFI_PIN_JOB or not any(error.startswith(pin) for error in errors):
         return None, None
@@ -2622,6 +2661,13 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, er
         raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes the app FFI pin check's code "
                       f"({'; '.join(check_code[:5])}): a PR never excuses its own red by changing the check; land "
                       "the check change on its own, with the pin check green")
+    if unvouched := ffi_walk_unvouched(paths):
+        refusal = ffi_walk_refusal()
+        raise Refused(f"'{name}': its app FFI pin is red, and #{number} changes what the app FFI walk of this checkout "
+                      f"cannot vouch for ({'; '.join(unvouched[:5])}{'; ...' if len(unvouched) > 5 else ''}): a "
+                      "Cargo.toml or Cargo.lock, or a cmux-tui path the walk neither lists nor excludes (a new crate "
+                      "or folder), can change which files are inputs at its head, and this classifier walks only the "
+                      "base" + (f"; {refusal}" if refusal else ""))
     if moved := [path for path in FFI_PIN_PATHS if path in paths]:
         why = (f"#{number} changes {moved[0]}: a PR that moves the pin must pin a release built from its own "
                "sources")
@@ -2629,7 +2675,8 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, er
         why = (f"#{number} changes Swift ({'; '.join(swift[:5])}): app code may call what the pinned library lacks; "
                "land the Rust alone, then the Swift after the re-pin")
     elif not any(ffi_input(path) for path in paths):
-        why = f"#{number} changes no app FFI input"
+        refusal = ffi_walk_refusal()
+        why = f"#{number} changes no app FFI input" + (f" ({refusal}: no path counts as one)" if refusal else "")
     else:
         why = None
     published = None
