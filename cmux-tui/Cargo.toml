@@ -502,7 +502,7 @@ opt-level = 1
 # opt-level 1 with many codegen units turns on rustc's crate-local ThinLTO,
 # which reruns over every codegen unit of the edited crate: 5.3 s of a 9.8 s
 # cmux-tui rebuild after a one-line edit (-Z time-passes, crate-split lane 3).
-# Off: about 11 s -> 5.5 s per edit; release builds keep lto = "thin".
+# Off: about 11 s -> 5.5 s per edit; release builds use fat LTO for size.
 lto = "off"
 # Line tables keep file:line in panics, backtraces and profiles; full DWARF made
 # each worktree's target about twice the size (Huge Blue, 10-19: 11 GB -> 5.4 GB
