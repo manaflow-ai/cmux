@@ -54,6 +54,9 @@ pub struct Hub {
     events: broadcast::Sender<SummaryEvent>,
 }
 
+/// Explicit name for the published summary hub used by later actors.
+pub type SummaryHub = Hub;
+
 /// The sole owner that mutates the index. It can be driven by a tokio task via
 /// [`HubWriter::run`], or synchronously in deterministic unit tests with
 /// [`HubWriter::apply`].

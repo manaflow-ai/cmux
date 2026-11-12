@@ -37,6 +37,9 @@ pub struct Summary {
     pub extra: Box<RawValue>,
 }
 
+/// Name used by the design document for a summary's durable record.
+pub type SummaryRecord = Summary;
+
 fn empty_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).expect("a static JSON object is valid")
 }

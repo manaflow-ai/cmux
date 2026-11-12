@@ -13,7 +13,6 @@ workspace = true
 [dependencies]
 acpmux-book = { path = "../acpmux-book" }
 arc-swap.workspace = true
-bytes = "1"
 serde.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 thiserror = "2"

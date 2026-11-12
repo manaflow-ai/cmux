@@ -89,6 +89,9 @@ pub struct Sub {
     pub window: Option<u16>,
 }
 
+/// Descriptive aliases used by clients that model requests explicitly.
+pub type SubRequest = Sub;
+
 fn default_window() -> Option<u16> {
     Some(100)
 }
@@ -138,6 +141,9 @@ pub struct Page {
     #[serde(default = "default_page_bytes")]
     pub max_bytes: u32,
 }
+
+/// Descriptive alias used by request routers.
+pub type PageRequest = Page;
 
 fn default_page_bytes() -> u32 {
     256 * 1024
