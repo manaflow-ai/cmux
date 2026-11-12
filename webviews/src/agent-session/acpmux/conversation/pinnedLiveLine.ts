@@ -47,6 +47,7 @@ type Pinned = {
   held?: boolean;
 };
 const pinned = new WeakMap<HTMLElement, Pinned>();
+const watchedGlides = new WeakSet<Animation>();
 
 /// What the line was held back by when it was let go: the glide of the same pass (tailGlide.ts) starts
 /// it from there. `used` once a glide took it.
@@ -94,13 +95,27 @@ export function drawPinned(thread: HTMLElement, x: number): void {
   rows.x = x;
   // Held back by what the thread is drawn away past the line's cap.
   const held = x - rows.cap;
-  if (Math.abs(held) < 0.25) {
-    clear(rows);
-    return;
-  }
-  rows.live.style.translate = `0 ${-held}px`;
-  for (const { row, bottom } of rows.above) {
-    const over = bottom + held - rows.top;
+  // Read every gliding offset before changing any row's translate or clip.
+  const above = rows.above.map(({ row, bottom }) => {
+    const slides = translating(row);
+    const translate = slides.length ? row.ownerDocument.defaultView?.getComputedStyle(row).translate : undefined;
+    const offset = Number.parseFloat(translate?.split(" ")[1] ?? "") || 0;
+    return { row, slides, over: bottom + held + offset - rows.top };
+  });
+  if (Math.abs(held) < 0.25) rows.live.style.removeProperty("translate");
+  else rows.live.style.translate = `0 ${-held}px`;
+  for (const { row, slides, over } of above) {
+    for (const slide of slides) {
+      if (watchedGlides.has(slide)) continue;
+      watchedGlides.add(slide);
+      const done = () => {
+        slide.removeEventListener("finish", done);
+        slide.removeEventListener("cancel", done);
+        refreshPinned(thread);
+      };
+      slide.addEventListener("finish", done);
+      slide.addEventListener("cancel", done);
+    }
     if (over > 0.25) {
       // A glide's clip on the row (tailGlide.ts) would win over this one: where the line's held place
       // reaches the row, the pin's clip is its whole clip, so that one ends. Only there: a row the line
@@ -110,6 +125,11 @@ export function drawPinned(thread: HTMLElement, x: number): void {
       row.style.clipPath = `inset(-4096px -4096px ${Math.ceil(over)}px -4096px)`;
     } else row.style.removeProperty("clip-path");
   }
+}
+
+/// A placement pass started or retargeted tail glides after taking the pin: update its clips before paint.
+export function refreshPinned(thread: HTMLElement | null): void {
+  if (thread) drawPinned(thread, threadY(thread));
 }
 
 /// The placement pass begins: what the pin holds the line back by now is what the reader sees. A
@@ -126,8 +146,12 @@ export function notePinPass(thread: HTMLElement | null): void {
 /// to start from; `settle` plays it home if no glide takes it (`finish`).
 /// Whether `row` plays a translate of its own (a glide, a send's rise, a carry home). O(its own).
 function moving(row: HTMLElement): boolean {
-  if (typeof row.getAnimations !== "function") return false;
-  return row.getAnimations().some((animation) => {
+  return translating(row).length > 0;
+}
+
+function translating(row: HTMLElement): Animation[] {
+  if (typeof row.getAnimations !== "function") return [];
+  return row.getAnimations().filter((animation) => {
     if (animation.playState === "finished" || animation.playState === "idle") return false;
     const frames = (animation.effect as KeyframeEffect | null)?.getKeyframes?.();
     return frames?.some((frame) => "translate" in frame || "transform" in frame) ?? false;
