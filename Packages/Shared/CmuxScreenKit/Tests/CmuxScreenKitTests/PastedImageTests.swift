@@ -198,6 +198,83 @@ struct PastedImageTests {
         #expect(after.metadata == [])
     }
 
+    /// Text a file carries outside the metadata ImageIO reads (a JPEG comment, PNG text chunks)
+    /// never reaches the Mac: the sent bytes do not hold it, and the image still reads whole.
+    @Test(arguments: [UTType.jpeg, .png])
+    func textOutsideTheMetadataIsNotSent(_ type: UTType) throws {
+        let clean = try Self.photo(type, width: 320, height: 240, alpha: false)
+        let secret = "SpotPlace-Golden-Gate-Park"
+        let photo = type == .jpeg ? Self.withJPEGComment(clean, secret) : try Self.withPNGText(clean, secret)
+        #expect(photo.range(of: Data(secret.utf8)) != nil, "the test photo holds the text")
+        #expect((try Self.read(photo).width, try Self.read(photo).height) == (320, 240), "and still reads")
+        let pasted = try #require(PastedImage(photo: photo))
+        #expect(pasted.data.range(of: Data(secret.utf8)) == nil, "\(type.identifier): the text is not sent")
+        if type == .png {
+            for chunk in ["tEXt", "iTXt", "zTXt"] {
+                #expect(pasted.data.range(of: Data(chunk.utf8)) == nil, "no \(chunk) chunk")
+            }
+        }
+        let read = try Self.read(pasted.data)
+        #expect((read.width, read.height) == (320, 240))
+        #expect(read.isRed(.topLeft) && !read.isRed(.bottomRight))
+    }
+
+    /// `jpeg` with a comment segment (COM) holding `text`, right after its start marker.
+    static func withJPEGComment(_ jpeg: Data, _ text: String) -> Data {
+        let payload = Array(text.utf8)
+        let length = payload.count + 2
+        var out = Data(jpeg.prefix(2))
+        out.append(contentsOf: [0xFF, 0xFE, UInt8(length >> 8), UInt8(length & 0xFF)] + payload)
+        out.append(jpeg.dropFirst(2))
+        return out
+    }
+
+    /// `png` with a tEXt, an iTXt and a zTXt chunk whose keywords and text hold `text`, right after
+    /// its header chunk.
+    static func withPNGText(_ png: Data, _ text: String) throws -> Data {
+        let bytes = [UInt8](png)
+        let headerEnd = 8 + 4 + 4 + 13 + 4
+        try #require(bytes.count > headerEnd && Array(bytes[12..<16]) == Array("IHDR".utf8))
+        let keyword = Array(text.utf8)
+        // zTXt: keyword, 0, method 0, then zlib data (a stored block holding the text).
+        let stored: [UInt8] = [0x78, 0x01, 0x01, UInt8(keyword.count & 0xFF), UInt8(keyword.count >> 8),
+                               UInt8(~keyword.count & 0xFF), UInt8((~keyword.count >> 8) & 0xFF)] + keyword
+            + Self.adler32(keyword)
+        var out = Array(bytes[0..<headerEnd])
+        out += Self.chunk("tEXt", keyword + [0] + keyword)
+        out += Self.chunk("iTXt", keyword + [0, 0, 0, 0, 0] + keyword)
+        out += Self.chunk("zTXt", keyword + [0, 0] + stored)
+        out += bytes[headerEnd...]
+        return Data(out)
+    }
+
+    static func chunk(_ type: String, _ data: [UInt8]) -> [UInt8] {
+        let length = UInt32(data.count)
+        let body = Array(type.utf8) + data
+        let crc = crc32(body)
+        return [UInt8(length >> 24), UInt8((length >> 16) & 0xFF), UInt8((length >> 8) & 0xFF), UInt8(length & 0xFF)]
+            + body + [UInt8(crc >> 24), UInt8((crc >> 16) & 0xFF), UInt8((crc >> 8) & 0xFF), UInt8(crc & 0xFF)]
+    }
+
+    static func crc32(_ bytes: [UInt8]) -> UInt32 {
+        var crc: UInt32 = 0xFFFF_FFFF
+        for byte in bytes {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 { crc = crc & 1 == 1 ? (crc >> 1) ^ 0xEDB8_8320 : crc >> 1 }
+        }
+        return ~crc
+    }
+
+    static func adler32(_ bytes: [UInt8]) -> [UInt8] {
+        var (a, b): (UInt32, UInt32) = (1, 0)
+        for byte in bytes {
+            a = (a + UInt32(byte)) % 65521
+            b = (b + a) % 65521
+        }
+        let sum = (b << 16) | a
+        return [UInt8(sum >> 24), UInt8((sum >> 16) & 0xFF), UInt8((sum >> 8) & 0xFF), UInt8(sum & 0xFF)]
+    }
+
     /// A turned photo is sent with its pixels turned upright the right way: the stored top-left red
     /// quarter is where the orientation shows it (6: top right, 8: bottom left, 3: bottom right).
     @Test(arguments: [(6, Corner.topRight), (8, .bottomLeft), (3, .bottomRight)])
