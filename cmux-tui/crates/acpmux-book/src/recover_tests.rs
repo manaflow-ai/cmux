@@ -426,7 +426,7 @@ fn raw_map_precedes_records_and_replay_repairs_a_missing_index() {
 }
 
 #[test]
-fn a_damaged_checkpoint_costs_a_rebuild_not_the_book() {
+fn a_damaged_checkpoint_requests_a_rebuild_without_reading_history() {
     for damage in ["cut", "flip", "empty", "junk"] {
         let home = tempfile::tempdir().unwrap();
         {
@@ -446,16 +446,8 @@ fn a_damaged_checkpoint_costs_a_rebuild_not_the_book() {
         fs::write(&path, &bytes).unwrap();
         // A temporary file a killed checkpoint write left behind is not the checkpoint.
         fs::write(home.path().join(".checkpoint.1.0.tmp"), b"half a checkp").unwrap();
-        let (mut log, recovered) = open(home.path());
-        assert_eq!((recovered.checkpoint, recovered.replayed), (false, 520), "{damage}");
-        assert!(recovered.state.is_empty());
-        assert_rows(&mut log, 520);
-        assert_eq!(ids(&log.since(511, 1 << 20).unwrap().rows), (512..=520).collect::<Vec<_>>());
-        log.write_checkpoint(b"again", &[]).unwrap();
-        drop(log);
-        let (_, recovered) = open(home.path());
-        assert_eq!((recovered.checkpoint, recovered.replayed), (true, 0));
-        assert_eq!(recovered.state, b"again");
+        assert!(matches!(Log::open(home.path(), Options::default()), Err(Error::Rebuild(_))));
+        assert_eq!(fs::read(&path).unwrap(), bytes, "damage is preserved: {damage}");
     }
 }
 

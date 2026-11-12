@@ -134,7 +134,7 @@ pub enum Error {
         have: u32,
         got: u32,
     },
-    /// The checkpoint would be `bytes` long; it must be under 64 KB.
+    /// The checkpoint exceeds its non-queue or total budget.
     CheckpointTooLarge {
         bytes: usize,
     },
@@ -394,7 +394,8 @@ impl Log {
     /// Reads the checkpoint, then the records written after it: each is checked by its crc and
     /// its index entries are set again. The first failed record and all later segments are cut.
     /// The cost is one checkpoint interval, the same for a book of 40 rows and one of 2 million.
-    /// With no readable checkpoint the indexes are rebuilt from every segment.
+    /// With no checkpoint the indexes are rebuilt from every segment. An unreadable
+    /// checkpoint requests a rebuild from raw; it never makes open scan all history.
     pub fn open(dir: &Path, options: Options) -> Result<(Log, Recovered), Error> {
         Self::open_with_raw_end(dir, options, |_| Some(u64::MAX))
     }
@@ -440,8 +441,17 @@ impl Log {
         }
 
         let mut stats = Stats::default();
-        let saved = fs::read(dir.join("checkpoint")).ok();
-        let saved = saved.as_deref().and_then(checkpoint::decode);
+        let saved_bytes = match fs::read(dir.join("checkpoint")) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(Error::Io(error)),
+        };
+        let saved = match saved_bytes.as_deref() {
+            Some(bytes) => {
+                Some(checkpoint::decode(bytes).ok_or(Error::Rebuild("unreadable checkpoint"))?)
+            }
+            None => None,
+        };
         // With a checkpoint the last segment is found by stepping up from the checkpoint's (a
         // name or two), not by listing every segment: an open costs the same at any length.
         let mut last = match saved {
