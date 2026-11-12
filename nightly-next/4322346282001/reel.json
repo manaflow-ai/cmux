@@ -1,0 +1,347 @@
+{
+  "version": 1,
+  "build": "4322346282001",
+  "notes": "notes/4322346282001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41759,
+      "title": "Agent chat: a long tool block scrolls in its box instead of Show all N lines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41996,
+      "title": "cmux NEXT: declarative native popups follow a trackpad pinch zoom",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41847,
+      "title": "cmux-next: no \"Update ready for cmux-tui\" toast for the daemon the launch already hands off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41868,
+      "title": "Media viewers: one click-beside-closes rule for the image viewer, video viewer and Home lightbox",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41940,
+      "title": "base_red_excuse: place self-hosted runner checks logs past the job-hook notice; a base's rollup vouches for the checks it names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41939,
+      "title": "screen stream eval: computer-use preview targets (cu-png, rd-window)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41930,
+      "title": "iOS: keep showing the cache across a reconnect; no transport text in the terminal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40802,
+      "title": "Agent chat: the person's prompts stay proven theirs after an update",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41895,
+      "title": "cmux-next-ios: the soft keyboard never resizes the remote terminal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41902,
+      "title": "cmux-next-ios: app switch, lock and link blips keep the terminal size claim",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41541,
+      "title": "ci(cmux-tui, feat): a full run shows every red (core runner, core doc tests, later full-mode steps)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41896,
+      "title": "fix(scripts): every line in a function that stops a process goes through safe_print, at any depth",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41888,
+      "title": "prepush-gate: a checker's findings exit with no finding the gate can read is no verdict (#41827 review)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41891,
+      "title": "check-test-determinism: an opt-out or a load counts only where the parser shows it runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41850,
+      "title": "fix(guards): a message before a kill runs with SIGPIPE ignored, so a closed output cannot skip the kill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40784,
+      "title": "ci: job-list guards read workflows through one YAML module that matches every secret form",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41851,
+      "title": "prepush-gate: ast-grep and What's New output of the wrong shape is no verdict, not a crash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41913,
+      "title": "cmux-next-ios: scrolling a full-screen app never clicks the row the thumb lands on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41906,
+      "title": "cmux-next: an update's acpmux handoff that misses its shutdown deadline finishes by SIGTERM",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41393,
+      "title": "perf: a hidden chat does not run git for its worktree pill and its diff warm",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41922,
+      "title": "git-fixture.sh: free fd for the trap reads, no sticky ignored DEBUG, comparator held to its bound",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41948,
+      "title": "Webviews tests: two test files tear down their DOM through teardownDom (tip red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41943,
+      "title": "fix(webviews): new tab create strip is one arrow line",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41827,
+      "title": "prepush-gate: a scanner that could not read a file gives no verdict, never a pass (#41818 review)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41814,
+      "title": "Composer hat: failed lines leave, the rim drags to resize, lines cut at the row's edge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41861,
+      "title": "base_red_excuse: a check named another way than its check run is at the exact head",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41911,
+      "title": "fix(build): remove duplicate prompt timing import",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41893,
+      "title": "Agent chat: a hidden loading cover has no busy mark and no mark delay",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41791,
+      "title": "ios ffi: tests that read warm state dial on a WarmPool of their own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41881,
+      "title": "acpmux test: the remote Claude refusal test reads the refusal text of #41629",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41905,
+      "title": "base red: generated-ownership lists base-autofix step 1e1'",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41884,
+      "title": "cmux-next tests: the scroll-away header test says by the row's place when a header has no view",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41605,
+      "title": "Sidebar: a click that shows another workspace moves no key while a page holds it",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41540,
+      "title": "Agent chat: a row once shown stays shown across reconnects and paging (time-to-settled gate)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41618,
+      "title": "Agent chat: unsent prompts survive a relaunch as Not sent rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41855,
+      "title": "fix(scripts): a line right before a kill goes through safe_print, so a closed output cannot skip the kill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41767,
+      "title": "fix(ci): a bound covers the whole tree and the whole run (cmux#41742, cmux#41752 review)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41721,
+      "title": "acpmux: a rehydrate looks for the archive in the held home; the home detector checks reads in store/cold.rs (#41697 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41816,
+      "title": "acpmux tests: a held thread is released on every path out, so a timeout fails instead of hanging (#41627 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41858,
+      "title": "nightly: install the Rust toolchain through a local-first helper",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41835,
+      "title": "check-test-determinism: git-fixture rules read shell through shell_tree, not regexes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41844,
+      "title": "git-fixture.sh: the wrapper is plain trap under random trap programs (DEBUG at exit, IFS, trailing backslash, extra ERR; differential harness)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41809,
+      "title": "tests: vendor shell_tree.py byte for byte from its pinned upstream blob",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41824,
+      "title": "cmux-vm: mesh_vm_attach stamps the handler's entry and the work before its timer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34061,
+      "title": "fix(webviews): preserve popup glass while fading overflowing rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41837,
+      "title": "cmux ext shot: see what an extension rendered (scene outline + a picture of the window)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41669,
+      "title": "Webviews tests: a source folder is read by its file path, not by its URL path",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41794,
+      "title": "Fixture lints read code, not text; every git_fixture_trap_exit caller cleans up under set -e (#41447 F1 F2, #41677 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41610,
+      "title": "Launch smoke: a crash report counts only for its own launch, and the publish gate reads a cut attempt by its report",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41838,
+      "title": "ci: CMUX_NOW_EPOCH's error quotes the value (one line); leading zeros are accepted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41304,
+      "title": "fix(daemon): git requests run on a bounded git lane, off the reader thread",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40201,
+      "title": "Cloud: Share with Me grants chats through cmux-platform's chat-grants route",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41818,
+      "title": "tests: keep one count_fetches, and refuse a name defined twice in a tests/ file (F811)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41762,
+      "title": "acpmux: a chat's transcript folds to rows in the daemon (_acpmux/rows, hq#9655 stage 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41832,
+      "title": "fix(push-range): keep the fetch guard's kill in a finally so a cancel race cannot skip it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41627,
+      "title": "acpmux tests: two lib tests red under load wait for the state they assert on",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
