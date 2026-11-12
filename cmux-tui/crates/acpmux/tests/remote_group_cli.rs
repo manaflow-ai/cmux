@@ -17,7 +17,7 @@ use std::time::Duration;
 
 fn hub(root: &Path) -> Arc<Hub> {
     let mut config: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
         "defaultHarness": "fake",
         "webRoots": [root],
         "webAskingModes": {"fake": ["normal", "strict"]},

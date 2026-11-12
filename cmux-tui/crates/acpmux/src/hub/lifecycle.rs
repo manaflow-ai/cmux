@@ -811,10 +811,35 @@ impl Hub {
         // a slow git read skips.
         // So is the digest of the profile it starts from (`profile_respawn.rs`): an agent host
         // the next daemon adopts is judged by it, and this start settles a respawn that waited.
+        // And the family of the program this start runs, judged on the file it runs
+        // (`config::launch_family`): what a policy check reads when the entry names none. And the
+        // kind it starts under (`SessionMeta::started_kind`): what the gate is judged by.
+        let program_family = {
+            let meta = session.meta();
+            let home = dirs::home_dir().unwrap_or_default();
+            let model = meta.model_request.clone().unwrap_or_default();
+            let expand = |word: &str| crate::hub::expand_env_value(word, &meta.cwd, &home, &model);
+            let argv: Vec<String> = profile.argv.iter().map(|word| expand(word)).collect();
+            // The PATH the agent is spawned with (`agent/command.rs`): the entry's own first,
+            // then the login PATH (family-rev N1).
+            let path = match profile.env.get("PATH").map(|p| expand(p)).filter(|p| !p.is_empty()) {
+                Some(own) => Some(crate::login_env::with_agent_path(&own).into()),
+                None => crate::login_env::agent_path(),
+            };
+            let cwd = meta.cwd.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::config::launch_family(&argv, &cwd, path.as_deref())
+            })
+            .await
+            .ok()
+            .flatten()
+        };
         let argv_changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let changed = m.spawn_argv.as_ref() != Some(&profile.argv)
-                || m.launch_digest.as_ref() != Some(&profile.launch_digest);
+                || m.launch_digest.as_ref() != Some(&profile.launch_digest)
+                || m.program_family != program_family
+                || m.started_kind != Some(profile.kind);
             // What another launch's agent said at `initialize` (a fork's or a failover's copy)
             // is not this one's: an `asksBeforeTools` claim must come from the agent this start
             // runs (`policy_mode.rs` `claim_distrust`), which `initialize` records again.
@@ -823,6 +848,8 @@ impl Hub {
             }
             m.spawn_argv = Some(profile.argv.clone());
             m.launch_digest = Some(profile.launch_digest.clone());
+            m.program_family = program_family;
+            m.started_kind = Some(profile.kind);
             changed
         };
         self.settle_profile_respawn(session);

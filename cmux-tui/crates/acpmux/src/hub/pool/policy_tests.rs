@@ -9,6 +9,7 @@ fn key(cwd: &str, harness: &str) -> PoolKey {
         origin: Origin::Local,
         cwd: PathBuf::from(cwd),
         harness: harness.to_owned(),
+        kind: Default::default(),
         preset: None,
         args: Vec::new(),
         system_prompt_sha256: None,

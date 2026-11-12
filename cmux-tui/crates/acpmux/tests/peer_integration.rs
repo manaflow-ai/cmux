@@ -28,7 +28,7 @@ fn config(policy: PermissionPolicy) -> Config {
             env: BTreeMap::new(),
             description: None,
             fallback: None,
-            family: None,
+            family: Some("fake".into()),
             models: vec![],
             model: None,
             effort: None,

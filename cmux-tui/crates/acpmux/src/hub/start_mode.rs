@@ -475,8 +475,11 @@ pub(super) const NARROW_MODES: [&str; 2] = ["ask", "read-only"];
 
 /// The level of mode `mode` on a harness of `family`: a full-access mode,
 /// a mode that asks before each change (`asking`: the merged asking table's
-/// row for the family), or any other (the harness's own).
-fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
+/// row for the family; `ask` on any harness; `read-only` only on the Codex
+/// bridge, `bridge`), or any other (the harness's own). The codex-acp
+/// adapter's `read-only` writes in the workspace without asking
+/// (family-rev B1).
+fn level_of(mode: &str, family: &str, asking: &[String], bridge: bool) -> DefaultMode {
     if FULL_ACCESS_MODES.contains(&mode) {
         return DefaultMode::FullAccess;
     }
@@ -484,7 +487,8 @@ fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
         .iter()
         .find(|(f, _)| *f == family)
         .is_some_and(|(_, modes)| modes.contains(&mode));
-    if reviewed || asking.iter().any(|m| m == mode) || NARROW_MODES.contains(&mode) {
+    let narrow = mode == "ask" || (bridge && NARROW_MODES.contains(&mode));
+    if reviewed || asking.iter().any(|m| m == mode) || narrow {
         DefaultMode::Ask
     } else {
         DefaultMode::Standard
@@ -492,13 +496,14 @@ fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
 }
 
 /// Whether mode `mode` of a harness of `family` asks before each change (or only reads).
-pub(super) fn asks(mode: &str, family: &str) -> bool {
-    asks_in(mode, family, &[])
+/// `bridge`: the harness runs the Codex bridge (`policy_mode::runs_bridge`).
+pub(super) fn asks(mode: &str, family: &str, bridge: bool) -> bool {
+    asks_in(mode, family, &[], bridge)
 }
 
 /// `asks`, also counting `asking`: the configured asking modes of `family` (`webAskingModes`).
-pub(super) fn asks_in(mode: &str, family: &str, asking: &[String]) -> bool {
-    level_of(mode, family, asking) == DefaultMode::Ask
+pub(super) fn asks_in(mode: &str, family: &str, asking: &[String], bridge: bool) -> bool {
+    level_of(mode, family, asking, bridge) == DefaultMode::Ask
 }
 
 /// The policy a chat that names none inherits from its starter (module docs, "Inherit"):
@@ -594,10 +599,7 @@ impl Hub {
         let offered = available(meta);
         let claude = {
             let cfg = self.config.read().await;
-            crate::web_modes::trusted_mode_family(
-                cfg.profile(&meta.harness),
-                crate::web_modes::family_of(meta),
-            ) == "claude"
+            crate::web_modes::session_mode_family(meta, cfg.profile(&meta.harness)) == "claude"
         };
         if meta.remote_origin
             || mode != crate::claude_stdio::OWN_MODE
@@ -928,7 +930,8 @@ impl Hub {
         };
         // A narrower policy chooses the mode on every chat, eligible or not.
         if let Some(policy) = policy {
-            let mode = super::policy_mode::policy_mode(policy, &family, &ids);
+            let bridge = crate::codex_app_server::is_profile_launch(&profile.argv);
+            let mode = super::policy_mode::policy_mode(policy, &family, &ids, bridge);
             if mode.is_none() {
                 return Ok(mark(none));
             }

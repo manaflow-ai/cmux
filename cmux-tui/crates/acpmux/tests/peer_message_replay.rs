@@ -23,7 +23,7 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 fn hub(root: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         // A peer's load or resume is held to the Web's rules on the owning daemon
         // (`remote_guard.rs`): the chat must ask, in a mode the asking table lists.

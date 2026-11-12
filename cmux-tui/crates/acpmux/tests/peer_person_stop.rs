@@ -29,7 +29,7 @@ fn config() -> Config {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     // A chat the peer link starts is a remote one: its folder must be under a web root.
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", fake]}},
         "defaultHarness": "fake",
         "webRoots": [std::env::temp_dir()],
         "webAskingModes": {"fake": ["normal"]},

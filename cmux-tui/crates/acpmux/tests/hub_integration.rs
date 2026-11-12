@@ -224,7 +224,8 @@ async fn setup_inbox(
             env,
             description: None,
             fallback: None,
-            family: None,
+            // A program of no known name gets no family (W5-L family-exact): the entry names it.
+            family: Some("fake".to_owned()),
             models: vec![],
             model: None,
             effort: None,

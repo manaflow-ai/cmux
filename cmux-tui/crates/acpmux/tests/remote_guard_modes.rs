@@ -33,7 +33,7 @@ fn hub(d: &Path, store_root: Option<&Path>) -> Arc<Hub> {
     let profile = |family: &str| json!({"argv": ["python3", FAKE], "family": family});
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE]},
+            "fake": {"family": "fake", "argv": ["python3", FAKE]},
             "fclaude": profile("claude"),
             "fcodex": profile("codex"),
             "fopencode": profile("opencode"),

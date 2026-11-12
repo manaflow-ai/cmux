@@ -845,6 +845,8 @@ async fn mesh_controls_start_and_stop_through_shared_sender_and_replay_success()
     assert!(unreviewed.resolve("unreviewed").is_err());
     unreviewed.shutdown_all().await;
     // Configure the stand-in's actual mode before constructing the successful hub.
+    // The stand-in's own family: webAskingModes rows key by it (W5-L family-exact).
+    config.harnesses.get_mut("fake").unwrap().family = Some("fake".into());
     config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
     let hub = Hub::new(config, Box::new(MemoryStore::default()));
     let path = dir.path().join("controls.json");
@@ -1309,7 +1311,8 @@ async fn a_send_right_after_a_start_through_the_hub_reaches_the_new_session() {
     let cwd = root.join("project");
     std::fs::create_dir(&cwd).unwrap();
     let mut config = config();
-    config.harnesses.get_mut("fake").unwrap().family = None;
+    // The stand-in's own family: webAskingModes rows key by it (W5-L family-exact).
+    config.harnesses.get_mut("fake").unwrap().family = Some("fake".into());
     config.web_roots = vec![root.to_string_lossy().into_owned()];
     config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
     let b = Hub::new(config, Box::new(MemoryStore::default()));

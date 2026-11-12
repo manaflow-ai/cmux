@@ -16,6 +16,11 @@ async fn chat(env: &[&str], fails_over: bool) -> (Arc<Hub>, Arc<Session>) {
     argv.extend(env);
     argv.extend(["python3", fake]);
     let mut cfg = json!({"harnesses": {"fake": {"argv": argv}}, "defaultHarness": "fake"});
+    // The stand-in steers as Claude Code with `FAKE_CLAUDE_STEER=1`: the family it had when a
+    // setting word still named one.
+    if env.contains(&"FAKE_CLAUDE_STEER=1") {
+        cfg["harnesses"]["fake"]["family"] = json!("claude");
+    }
     if fails_over {
         cfg["harnesses"]["fake"]["fallback"] = json!("fake-fallback");
         let fallback = ["/usr/bin/env", "FAKE_FALLBACK=1", "python3", fake];

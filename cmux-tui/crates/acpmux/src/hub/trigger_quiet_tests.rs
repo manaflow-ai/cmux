@@ -7,7 +7,7 @@ const WAIT: Duration = Duration::from_secs(20);
 async fn fixture() -> (Arc<Hub>, Arc<Session>) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", fake]}},
+        "harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", fake], "family": "claude"}},
         "defaultHarness": "fake",
     }))
     .unwrap();

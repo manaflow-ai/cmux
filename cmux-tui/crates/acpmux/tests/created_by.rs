@@ -28,7 +28,7 @@ const WORKSPACE: &str = "0196f0a4-9c1e-7d2a-8b3c-4d5e6f708192";
 fn hub() -> Arc<Hub> {
     let _ = &HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         // A peer's start may use this folder (`remote.cwd_outside_roots` otherwise).

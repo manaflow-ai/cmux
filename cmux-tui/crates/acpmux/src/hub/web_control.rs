@@ -38,13 +38,15 @@ impl Hub {
         crate::web_modes::any_mode_for_web(m, cfg.harnesses.get(&m.harness))
     }
 
-    /// `web_modes::trusted_mode_family` for a session: against the config entry
-    /// its harness name runs now, else the session's own family. A config being
+    /// `web_modes::session_mode_family` for a session: the kind its agent started
+    /// under, the config entry its harness name runs now, else the family of the
+    /// program its agent runs (`SessionMeta::program_family`). A config being
     /// written counts as no entry.
     pub(crate) fn trusted_mode_family(&self, m: &SessionMeta) -> String {
-        let family = crate::web_modes::family_of(m);
-        let Ok(cfg) = self.config.try_read() else { return family };
-        crate::web_modes::trusted_mode_family(cfg.profile(&m.harness), family)
+        let Ok(cfg) = self.config.try_read() else {
+            return crate::web_modes::session_mode_family(m, None);
+        };
+        crate::web_modes::session_mode_family(m, cfg.profile(&m.harness))
     }
 
     /// Whether a session's mode asks, for a Web gate: the asking row of
@@ -661,6 +663,7 @@ mod mode_write_tests {
                 "name": "cloud mobile",
                 "harness": "claude",
                 "family": "claude",
+                "startedKind": "claude-stdio",
                 "cwd": "/tmp",
                 "status": "running",
                 "createdAt": 1,

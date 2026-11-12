@@ -56,8 +56,8 @@ fn config(policy: &str, extra: Value) -> Config {
     let env = json!({"FAKE_SESSION_PREFIX": "fake-session-"});
     let mut v = json!({
         "harnesses": {
-            "fake": {"argv": ["python3", FAKE], "env": env},
-            "claude": {"argv": ["python3", FAKE], "env": env},
+            "fake": {"family": "fake", "argv": ["python3", FAKE], "env": env},
+            "claude": {"family": "claude", "argv": ["python3", FAKE], "env": env},
             "fcodex": {"argv": ["python3", FAKE], "env": env, "family": "codex"},
             "plain": {"argv": ["python3", FAKE], "env": env, "family": "plain"},
         },

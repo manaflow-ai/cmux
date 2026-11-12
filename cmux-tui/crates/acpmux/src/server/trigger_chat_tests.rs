@@ -288,7 +288,7 @@ async fn status_returns_flat_scope_and_durable_turn_receipt() {
 async fn ensure_records_a_new_trigger_chat_as_a_scripts() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut config: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", fake]}},
         // A trigger's chat is remote: its folder must be a web root and its mode an asking one.
         "webRoots": [std::env::temp_dir()],
         "webAskingModes": {"fake": ["normal", "strict"]},

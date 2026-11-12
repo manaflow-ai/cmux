@@ -8237,6 +8237,28 @@ export class AcpmuxDirectClient {
             },
           });
         }
+      } else if (event.kind === "policy_refused") {
+        // acpmux stopped the chat's agent because it cannot keep the chat's policy
+        // (`hub/policy_mode.rs` `refusal_record`): the note says what to do from the record's codes,
+        // in the pane's language, never from acpmux's English `why` or its `message`.
+        if (typeof msg.policy === "string") {
+          const id = `policy-refused-${event.seq}`;
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "policyUnenforced",
+            policyUnenforced: {
+              policy: msg.policy,
+              why:
+                msg.startedBeforeUpdate === true
+                  ? "startedBeforeUpdate"
+                  : msg.noFamily === true
+                    ? "noFamily"
+                    : "noAskingMode",
+            },
+          });
+        }
       } else if (event.kind === "subagent_retry") {
         // acpmux's step of a subagent's retry: whether it gave up (subagents/retryState.ts).
         this.subagents.reduceRetryStep(msg);

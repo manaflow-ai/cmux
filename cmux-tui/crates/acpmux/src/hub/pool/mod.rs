@@ -374,6 +374,7 @@ impl Hub {
             origin: if draft.remote_origin { Origin::Remote } else { Origin::Local },
             cwd: draft.cwd.clone(),
             harness: draft.harness.clone(),
+            kind: spawn.kind,
             preset: draft.preset.clone(),
             args: spawn.argv.clone(),
             system_prompt_sha256: sha,
@@ -880,6 +881,13 @@ impl Hub {
         off: &crate::hub::full_access_bound::OffLatch,
     ) -> Option<Pooled> {
         let p = self.pool_take_claimed(id)?;
+        // Claimed under the entry as it was: one whose kind changed since is not taken, since
+        // the chat records the entry's kind now as the kind its agent started under (N5).
+        if p.key.kind != spawn.kind {
+            tracing::info!(session = %id, "pooled session not taken: its entry's kind changed");
+            self.pool_discard(vec![p]);
+            return None;
+        }
         let (model, effort) = started_on(spawn, meta);
         if p.key.model != model || p.key.effort != effort {
             tracing::info!(
@@ -1054,10 +1062,11 @@ impl Hub {
         });
     }
 
-    /// Config reload: every entry ends; none started under the old catalog
-    /// is served.
+    /// Config reload: every entry ends, claimed ones too (a claim not yet taken finds none and
+    /// its chat starts cold); none started under the old catalog is served (family-rev N5).
     pub(super) fn drain_pool(&self) {
-        let all = lock(&self.pool.pool).clear();
+        let mut all = lock(&self.pool.pool).clear();
+        all.extend(lock(&self.pool.claimed).drain().map(|(_, p)| p));
         self.pool_discard(all);
     }
 

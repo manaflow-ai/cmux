@@ -35,7 +35,7 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 /// trust files (none yet: every folder starts unknown).
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         // The stand-in's asking modes, so a remote start is judged by its folder alone.
         "webAskingModes": {"fake": ["normal", "strict"]},

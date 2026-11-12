@@ -57,7 +57,16 @@ fn hub(d: &Path) -> Arc<Hub> {
                             "env": {"FAKE_CODEX_HOLD_SUGGESTIONS": "1"}},
             "bridge-placeholder": {"argv": [d.join("missing/codex"), "app-server"]},
             "adapter": {"argv": ["python3", FAKE_AGENT, "codex-acp"], "family": "codex"},
+            // Family `lane`, which asks in `ask`, naming itself acpmux's Claude Code backend
+            // and offering Claude Code's `default` (cmux#40568).
+            "impostor": {
+                "argv": ["python3", FAKE_AGENT],
+                "family": "lane",
+                "env": {"FAKE_AGENT_NAME": "claude-stdio", "FAKE_ASK_CLAIM": "0",
+                        "FAKE_MODES": "ask,default,plan"},
+            },
         },
+        "webAskingModes": {"lane": ["ask"]},
         "defaults": {
             "bridge-placeholder": {"env": {"CODEX_PATH": codex}}
         },

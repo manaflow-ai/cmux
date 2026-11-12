@@ -176,3 +176,50 @@ test("the note names the policy and why, never acpmux's reason", async () => {
     "This chat's agent has no mode that asks before each change, so it can't keep the permission policy (Deny all)",
   );
 });
+
+// A chat acpmux stopped because its agent cannot keep its policy (`policy_refused`,
+// hub/policy_mode.rs `refusal_record`): the note says what to do from the record's codes, in the
+// pane's language, never from acpmux's English `why` or `message` (family-rev N3).
+test("a policy acpmux refused is noted with what to do", async () => {
+  const refused = (policy: string, codes: Record<string, unknown>): Step => [
+    "mux",
+    "policy_refused",
+    { reason: "policy_unenforceable", policy, harness: "h", why: "x", message: "x", ...codes },
+  ];
+  const daemon = fakeDaemon(
+    record([
+      refused("ask", { startedBeforeUpdate: true }),
+      refused("deny-all", { noFamily: true }),
+      refused("approve-reads", {}),
+    ]),
+    "h",
+    "",
+  );
+  const { client, notes } = await connect(daemon);
+  try {
+    expect(notes()).toEqual([
+      { policy: "ask", why: "startedBeforeUpdate" },
+      { policy: "deny-all", why: "noFamily" },
+      { policy: "approve-reads", why: "noAskingMode" },
+    ]);
+  } finally {
+    client.close();
+  }
+});
+
+test("a refused policy's note says what to do", async () => {
+  const { PolicyUnenforcedNote } = await import("../src/agent-session/acpmux/conversation/CompactionNote");
+  const drawn = (note: Parameters<typeof PolicyUnenforcedNote>[0]["note"]) =>
+    renderToStaticMarkup(<PolicyUnenforcedNote note={note} />)
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&#x27;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, " ")
+      .trim();
+  expect(drawn({ policy: "ask", why: "startedBeforeUpdate" })).toBe(
+    "This chat started before an update. Restart the agent to apply its permission policy (Ask)",
+  );
+  expect(drawn({ policy: "deny-all", why: "noFamily" })).toBe(
+    "acpmux doesn't know which agent this chat's harness runs, so it can't keep the permission policy (Deny all). Add \"family\" to the harness entry in the acpmux config",
+  );
+});

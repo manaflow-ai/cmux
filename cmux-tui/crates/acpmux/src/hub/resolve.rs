@@ -310,6 +310,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         spawn_argv: None,
         launch_digest: None,
         family: Some(d.family.to_owned()),
+        program_family: None,
+        started_kind: None,
         preset: d.preset,
         model_request: d.model_request,
         cwd: d.cwd,

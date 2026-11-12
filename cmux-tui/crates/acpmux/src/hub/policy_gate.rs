@@ -133,13 +133,16 @@ fn deny_reason(policy: PermissionPolicy, by_rule: bool) -> String {
     )
 }
 
-/// Whether `meta`'s agent has the PreToolUse gate: acpmux's own Claude Code backend (the config
-/// entry its harness names in `cfg` is kind `claude-stdio`), started by a build that registers
-/// it (`claude_stdio::has_tool_gate`). The entry kind comes first: any ACP agent can write
-/// `agentInfo._meta.acpmux.toolGate`, and one that says it has the gate holds no policy
-/// (cmux#40568).
+/// Whether `meta`'s agent has the PreToolUse gate: acpmux's own Claude Code backend, started by
+/// a build that registers it (`claude_stdio::has_tool_gate`). The kind comes first, and it is the
+/// kind the agent started under (`SessionMeta::started_kind`), not the entry's kind now: any ACP
+/// agent can write `agentInfo._meta.acpmux.toolGate` (cmux#40568), and an entry made
+/// `claude-stdio` after an ACP start does not restart its agent (the launch digest leaves the
+/// kind out). And only while the config entry still launches what the agent started from
+/// (`policy_mode::claim_distrust`), as for an `asksBeforeTools` claim (review of #40790).
 pub(super) fn has_gate(meta: &SessionMeta, cfg: &crate::config::Config) -> bool {
-    cfg.profile(&meta.harness).is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+    meta.started_kind == Some(crate::config::HarnessKind::ClaudeStdio)
+        && super::policy_mode::claim_distrust(meta, cfg).is_none()
         && crate::claude_stdio::has_tool_gate(meta.agent_info.as_ref())
 }
 

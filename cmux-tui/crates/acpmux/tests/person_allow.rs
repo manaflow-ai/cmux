@@ -154,7 +154,7 @@ impl Daemon {
             dir.join("config.json"),
             json!({
                 "harnesses": {
-                    "fake": {"argv": ["python3", FAKE]},
+                    "fake": {"family": "fake", "argv": ["python3", FAKE]},
                     "mirror": {"argv": ["python3", FAKE]},
                 },
                 "defaultHarness": "fake",
@@ -696,7 +696,7 @@ fn port_dir(tag: &str, port: u16) -> PathBuf {
     std::fs::write(
         dir.join("config.json"),
         json!({
-            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
             "defaultHarness": "fake",
             "websocket": {"listen": format!("127.0.0.1:{port}"), "token": "t".repeat(32)},
         })
@@ -916,7 +916,7 @@ fn start_home(tag: &str) -> PathBuf {
     let dir = std::fs::canonicalize(&dir).unwrap();
     std::fs::write(
         dir.join("config.json"),
-        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake",
+        json!({"harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}}, "defaultHarness": "fake",
                "permissionPolicy": "ask"})
         .to_string(),
     )

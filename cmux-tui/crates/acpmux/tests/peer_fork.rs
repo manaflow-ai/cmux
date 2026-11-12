@@ -25,7 +25,7 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 fn hub() -> Arc<Hub> {
     let _ = &HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "fake"}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         // A peer's start may use this folder (`remote.cwd_outside_roots` otherwise).

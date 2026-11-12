@@ -36,7 +36,7 @@ fn scratch(tag: &str) -> PathBuf {
 /// A hub whose only remote folder root is `root`.
 fn hub(root: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         "webRoots": [root],
         "webAskingModes": {"fake": ["normal", "strict"]},

@@ -556,13 +556,14 @@ async fn gated_hub(gate: &std::path::Path, extra: &[(&str, &str)]) -> (Arc<Hub>,
 /// [`gated_hub`]'s config, in memory.
 fn gated_config(gate: &std::path::Path, extra: &[(&str, &str)]) -> Config {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let profile = |env: BTreeMap<String, String>| HarnessProfile {
+    // Each entry names its family: a program of no known name gets none (W5-L family-exact).
+    let profile = |family: &str, env: BTreeMap<String, String>| HarnessProfile {
         kind: Default::default(),
         argv: vec!["python3".into(), fake.into()],
         env,
         description: None,
         fallback: None,
-        family: None,
+        family: Some(family.to_owned()),
         models: vec![],
         model: None,
         effort: None,
@@ -571,8 +572,8 @@ fn gated_config(gate: &std::path::Path, extra: &[(&str, &str)]) -> Config {
     let mut gated = BTreeMap::from([("FAKE_START_GATE".to_owned(), gate.display().to_string())]);
     gated.extend(extra.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     let harnesses = BTreeMap::from([
-        ("fake".to_owned(), profile(BTreeMap::new())),
-        ("gated".to_owned(), profile(gated)),
+        ("fake".to_owned(), profile("fake", BTreeMap::new())),
+        ("gated".to_owned(), profile("gated", gated)),
     ]);
     let mut cfg = Config { harnesses, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;

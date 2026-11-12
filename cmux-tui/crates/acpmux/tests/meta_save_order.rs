@@ -46,7 +46,7 @@ impl Daemon {
         let holds = home.join("holds");
         std::fs::create_dir_all(&holds).unwrap();
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]}},
+        let config = json!({"harnesses": {"fake": {"family": "fake", "argv": ["python3", fake]}},
                             "defaultHarness": "fake", "permissionPolicy": "ask",
                             "agentInbox": false, "autoResumeDelaysMs": [],
                             // A policy and modes that ask, so the socket may change the rules and

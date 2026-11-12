@@ -48,7 +48,7 @@ fn layout(tag: &str) -> T {
 
 fn hub(t: &T, default_policy: &str) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         "permissionPolicy": default_policy,
         "presets": {"loose": {"harness": "fake", "policy": "approve-all"}},

@@ -132,7 +132,7 @@ impl Daemon {
         std::fs::write(
             dir.join("config.json"),
             json!({
-                "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+                "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
                 "defaultHarness": "fake",
                 // A chat a peer link starts is a remote one: its folder is under a web root.
                 "webRoots": [dir.join("work")],

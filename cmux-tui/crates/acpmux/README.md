@@ -905,7 +905,7 @@ Muse Code through the [cmux-muse-acp](https://github.com/manaflow-ai/cmux-muse-a
   "harnesses": {
     "omp": {
       "argv": ["/Users/me/.local/bin/omp", "acp"],          // any ACP server on stdio
-      "family": "omp",                                      // optional: derived from argv when absent
+      "family": "omp",                                      // optional: the program's family when absent (see below)
       "env": {"OMP_HOME": "${home}/.omp"},                  // ${cwd}, ${home}, ${model}, ~/ expand
       "models": [                                           // declared catalog, shown ahead of the reported one
         "openai-codex/gpt-5.6-sol",
@@ -938,6 +938,21 @@ new one. That is how a harness with no model API (prime-agent, or any wrapper sc
 takes `-m NAME/MODEL`. Declared `models` feed the pickers and `daemon models`; the reported
 catalog is merged after them. `kind: "claude-stdio"` selects the Claude Code stream-json backend
 instead of ACP.
+
+**`family`.** Without one, an entry's family is the family of the program its argv runs, when
+that program's exact name is one acpmux knows (`codex`, `codex-acp`, `claude`,
+`claude-agent-acp`, `opencode`, `gemini`, `pi-acp`, `omp`, `prime-agent`, ...; through `env`,
+an interpreter's script or `npx -y PACKAGE`). When the agent starts, acpmux checks the file the
+program really is: its own name, or the npm package it is in (`claude` links to
+`@anthropic-ai/claude-code/cli.js` in an npm install), must not be another agent. A name that
+only contains an agent's name (`my-opencode-wrapper`), another argv word, the entry's own name
+and what the agent says about itself never give a family to the permission checks. An entry whose
+program acpmux does not know has no family's modes there: under a policy narrower than
+approve-all it starts only in a mode named `ask`, or when its agent asks before every tool call,
+and else the start is refused with a message that says to add `"family"`. When such an entry runs
+an agent acpmux knows (a wrapper script around Codex, say), add `"family": "codex"` to it.
+A `webAskingModes` row applies to the entries of its family, so an entry it should cover names
+its `family`.
 
 ### cmux Codex as the default
 

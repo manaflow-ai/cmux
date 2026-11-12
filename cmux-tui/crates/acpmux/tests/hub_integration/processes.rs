@@ -699,7 +699,7 @@ async fn router_hub() -> (Arc<Hub>, TestClient, std::path::PathBuf) {
         "harnesses": {
             "cmux": {"argv": ["python3", fake_claude], "kind": "claude-stdio",
                 "env": {"CLAUDE_CONFIG_DIR": claude_home}},
-            "claude-acp": {"argv": ["python3", fake_agent]},
+            "claude-acp": {"family": "claude", "argv": ["python3", fake_agent]},
         },
         "defaultHarness": "cmux",
         "permissionPolicy": "approve-all",

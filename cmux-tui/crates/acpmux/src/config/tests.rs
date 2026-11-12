@@ -437,3 +437,118 @@ fn a_permission_policy_from_a_newer_build_loads_as_ask() {
     // A value that is not a string is still an error: that is a damaged file, not a newer one.
     assert!(serde_json::from_value::<PermissionPolicy>(serde_json::json!(3)).is_err());
 }
+
+/// A harness's family comes from the program its launch runs, never from a setting word: a test
+/// agent's `FAKE_RESET_CANCEL_ON_PROMPT` ("omp" of PROMPT), `FAKE_CODEX_STEER=1` after `env`, or a
+/// model name `claude-opus`, or a later word `claude` (a setting value, a wrapper's argument)
+/// keeps the profile's own family (W5-L, lead decision on #40158).
+#[test]
+fn a_setting_word_never_names_the_family() {
+    let fake = "/opt/tests/fake_agent.py";
+    let cases: &[(&str, &[&str])] = &[
+        ("fake", &["python3", fake, "--fake", "FAKE_RESET_CANCEL_ON_PROMPT", "1"]),
+        ("fake", &["/usr/bin/env", "FAKE_CODEX_STEER=1", "python3", fake]),
+        ("fake", &["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", fake]),
+        ("agent", &["/opt/bin/agent", "--model", "claude-opus"]),
+        ("mytool", &["/opt/bin/mytool", "--prompt", "hello"]),
+        ("lane", &["/opt/bin/lane", "--gemini-key-file", "/k"]),
+        // A later free word that names an agent: a setting value, a wrapper script's argument.
+        ("fake", &["python3", fake, "--fake", "FAKE_PICKER_MODES", "claude"]),
+        ("wrapper", &["node", "/opt/wrapper.js", "claude"]),
+        ("wrapper", &["/opt/bin/wrapper", "codex", "--then", "opencode"]),
+    ];
+    for (name, argv) in cases {
+        let profile = prof(HarnessKind::Acp, argv);
+        assert_eq!(derive_family(name, &profile), *name, "{argv:?}");
+    }
+}
+
+/// The program a launch runs names its family: the program itself, the one `env` runs, the
+/// script an interpreter runs, or the package `npx -y` runs.
+#[test]
+fn the_program_a_launch_runs_names_its_family() {
+    let cases: &[(&[&str], &str)] = &[
+        (&["/opt/bin/codex-acp"], "codex"),
+        (&["/usr/bin/env", "X=1", "/opt/bin/opencode", "acp"], "opencode"),
+        (&["/usr/bin/env", "-u", "HOME", "gemini", "--experimental-acp"], "gemini"),
+        (&["npx", "-y", "@agentclientprotocol/codex-acp@1.10.0"], "codex"),
+        (&["node", "/opt/codex-acp/dist/codex-acp.js"], "codex"),
+        (&["/opt/bin/pi-acp"], "pi"),
+    ];
+    for (argv, family) in cases {
+        assert_eq!(derive_family("lane", &prof(HarnessKind::Acp, argv)), *family, "{argv:?}");
+    }
+}
+
+/// A program whose name only contains an agent's name is not that agent: the family is the
+/// profile's own (`my-opencode-wrapper`, `claude-proxy`, a stand-in `fake_codex_app_server.py`).
+#[test]
+fn a_part_of_a_programs_name_names_no_family() {
+    let cases: &[(&str, &[&str])] = &[
+        ("wrapper", &["/opt/bin/my-opencode-wrapper"]),
+        ("proxy", &["/opt/bin/claude-proxy", "acp"]),
+        ("lane", &["python3", "-u", "/opt/tests/fake_codex_app_server.py"]),
+        ("lane", &["/usr/bin/env", "X=1", "/opt/bin/gemini-beta"]),
+    ];
+    for (name, argv) in cases {
+        let profile = prof(HarnessKind::Acp, argv);
+        assert_eq!(derive_family(name, &profile), *name, "{argv:?}");
+    }
+}
+
+/// A policy check takes no family from the profile's name: an entry named `codex` or
+/// `opencode` that runs a program of no known name has no family's modes
+/// (`web_modes::profile_mode_family`), while its explicit `family` and the Claude Code kind do.
+#[test]
+fn a_policy_family_never_comes_from_the_profiles_name() {
+    for name in ["codex", "opencode", "claude-work"] {
+        let profile = prof(HarnessKind::Acp, &["/opt/bin/agent", "acp"]);
+        assert_eq!(crate::web_modes::profile_mode_family(name, &profile), "", "{name}");
+    }
+    let mut declared = prof(HarnessKind::Acp, &["/opt/bin/agent"]);
+    declared.family = Some("codex".into());
+    assert_eq!(crate::web_modes::profile_mode_family("lane", &declared), "codex");
+    let kind = prof(HarnessKind::ClaudeStdio, &["/opt/bin/agent"]);
+    assert_eq!(crate::web_modes::profile_mode_family("lane", &kind), "claude");
+    let program = prof(HarnessKind::Acp, &["/opt/bin/codex-acp"]);
+    assert_eq!(crate::web_modes::profile_mode_family("lane", &program), "codex");
+}
+
+/// The Web's refusal of Codex and OpenCode still reads every word of a launch (fail closed): a
+/// profile that runs Codex by a script path under a family of its own stays refused.
+#[test]
+fn a_refused_agent_under_another_family_stays_refused() {
+    let mut cfg = Config::default();
+    let mut mine = prof(HarnessKind::Acp, &["node", "/opt/codex-acp/dist/index.js"]);
+    mine.family = Some("mine".into());
+    cfg.harnesses.insert("mine".into(), mine);
+    // An npx cache path of the Zed adapter, and OpenCode's npm package, run by an interpreter.
+    let npx = "/Users/me/.npm/_npx/1a2b/node_modules/@zed-industries/codex-acp/dist/index.js";
+    let mut cached = prof(HarnessKind::Acp, &["node", npx]);
+    cached.family = Some("cached".into());
+    cfg.harnesses.insert("cached".into(), cached);
+    let mut oc = prof(
+        HarnessKind::Acp,
+        &["bun", "/usr/local/lib/node_modules/opencode-ai/bin/run.js", "acp"],
+    );
+    oc.family = Some("oc".into());
+    cfg.harnesses.insert("oc".into(), oc);
+    let refused = crate::web_modes::refused_families(&cfg);
+    for family in ["mine", "cached", "oc"] {
+        assert!(refused.contains(family), "{family}: {refused:?}");
+    }
+}
+
+/// A part of a program's name suggests a family for a sign-in diagnosis only, and only when the
+/// entry and the program name none exactly.
+#[test]
+fn a_part_of_a_programs_name_only_suggests_a_family_for_a_diagnosis() {
+    let wrapper = prof(HarnessKind::Acp, &["/opt/bin/router-codex-acp"]);
+    assert_eq!(guessed_family(&wrapper).as_deref(), Some("codex"));
+    assert_eq!(exact_family(&wrapper), None, "never a policy family");
+    let mut named = wrapper.clone();
+    named.family = Some("codex".into());
+    assert_eq!(guessed_family(&named), None, "the entry names it");
+    assert_eq!(guessed_family(&prof(HarnessKind::Acp, &["codex-acp"])), None, "an exact name");
+    assert_eq!(guessed_family(&prof(HarnessKind::Acp, &["/opt/bin/agent"])), None);
+}

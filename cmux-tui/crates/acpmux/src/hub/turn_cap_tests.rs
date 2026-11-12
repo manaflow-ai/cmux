@@ -20,7 +20,7 @@ async fn fixture() -> Fixture {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", fake]}},
+        "harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", fake], "family": "claude"}},
         "defaultHarness": "fake",
         // Agents' messages steer into the person's turn on the queue path before the inbox, which
         // these tests cover; with the inbox on, none goes into the person's turn (`inbox.rs`).

@@ -28,7 +28,7 @@ const PEERS_OWN: &str = "brief-only-the-peer-knows";
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {"fake": {"family": "fake", "argv": ["python3", FAKE]}},
         "defaultHarness": "fake",
         "webRoots": [std::env::temp_dir()],
         "webAskingModes": {"fake": ["normal", "strict"]},

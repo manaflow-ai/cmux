@@ -244,7 +244,13 @@ export type AcpmuxBackgroundRun = {
 /// The chat's permission policy (an acpmux policy id narrower than approve-all) that its harness
 /// cannot keep (a `policy_unenforced` record): OpenCode's own settings decide what it asks
 /// (`ownSettings`); another harness has no mode that asks (`noAskingMode`).
-export type AcpmuxPolicyUnenforced = { policy: string; why: "ownSettings" | "noAskingMode" };
+/// A policy the chat's agent cannot keep: acpmux logged it (`policy_unenforced`: OpenCode's own
+/// settings decide, or no mode asks) or stopped the agent for it (`policy_refused`: the chat
+/// started before an update, acpmux knows no family of its program, or no mode asks).
+export type AcpmuxPolicyUnenforced = {
+  policy: string;
+  why: "ownSettings" | "noAskingMode" | "startedBeforeUpdate" | "noFamily";
+};
 
 /// A message to this chat that acpmux holds while its pair is paused (`agent_pair_held`).
 export type AcpmuxHeldMessage = { promptId: string; text: string };

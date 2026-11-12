@@ -46,7 +46,7 @@ impl Daemon {
         // model pick is recorded in the chat's metadata (`Hub::set_model`). `fakeclaude` is a
         // Claude Code stand-in whose MCP server `github` a chat may turn off (`_acpmux/set_tools`).
         let init = json!({"mcp_servers": [{"name": "github", "status": "connected"}]});
-        let config = json!({"harnesses": {"fake": {"argv": ["python3", fake]},
+        let config = json!({"harnesses": {"fake": {"family": "fake", "argv": ["python3", fake]},
                                           "fakem": {"argv": ["python3", fake, "--model", "${model}"]},
                                           "fakep": {"argv": ["python3", fake],
                                                     "env": {"FAKE_PICKER": "1", "FAKE_MODELS": "m-a,m-b"}},

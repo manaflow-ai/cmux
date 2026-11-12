@@ -60,7 +60,7 @@ fn home(name: &str, extra: Value) -> PathBuf {
             "plain": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_ASK_CLAIM": "0"}},
             // The same agent, which says it asks before every tool call (the fake's default,
             // `agentCapabilities._meta.acpmux.asksBeforeTools`).
-            "asker": {"argv": ["python3", FAKE_AGENT]},
+            "asker": {"family": "asker", "argv": ["python3", FAKE_AGENT]},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -1585,8 +1585,8 @@ async fn a_web_switch_of_a_mac_chat_starts_asking_and_its_send_runs() {
     );
     let mut config: Value =
         serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
-    config["harnesses"]["loose"] =
-        json!({"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1"}});
+    config["harnesses"]["loose"] = json!({"argv": ["python3", FAKE_AGENT], "family": "loose",
+                                          "env": {"FAKE_FULL_ACCESS": "1"}});
     std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
