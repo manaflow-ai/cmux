@@ -1190,15 +1190,18 @@ const startsFold = (row: AcpmuxRow, replied: boolean) => splitsFold(row) && (isO
 /// The indexes of the rows in `rows` (from `start`, the turn's prompt, to `end`) that start a fold of
 /// their own once the turn is split in order: the same rows foldSegments splits at, read off the
 /// unshaped transcript for the fold keys (`openFolds`, `turnFoldFor`).
+/// A reply counts only where the turn draws it: a bare "." draws when it answers the person's own
+/// prompt (`answeringPerson`), and nowhere else (shapeTurn drops it from the body).
 function foldStarts(rows: readonly AcpmuxRow[], start: number, end: number): number[] {
   const starts: number[] = [];
+  const body = answeringPerson(rows[start]!, rows.slice(start + 1, end));
   let replied = false;
-  for (let index = start + 1; index < end; index += 1) {
-    const row = rows[index]!;
+  for (let at = 0; at < body.length; at += 1) {
+    const row = body[at]!;
     if (startsFold(row, replied)) {
-      starts.push(index);
+      starts.push(start + 1 + at);
       replied = false;
-    } else if (isReply(row) && row.inBackground === undefined) replied = true;
+    } else if (isReply(row) && row.inBackground === undefined && !isVisiblyEmptyMessage(row)) replied = true;
   }
   return starts;
 }

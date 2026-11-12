@@ -149,6 +149,22 @@ test("a message that draws nothing splits nothing: Find opens the fold the turn 
   ).toBe(`${WORKED}-u-0`);
 });
 
+test("a reply that draws nothing is no reply: Find opens the fold the turn draws", () => {
+  // An agent's message opens the turn, so its "." reply answers no person and draws nothing.
+  const opener: AcpmuxRow = { ...message("u-0", 0, "lane-box/nightly", "Watch the nightly"), continues: undefined };
+  const quiet = [opener, ...messaged.slice(1)].map((shown) =>
+    shown.id === "a-before" ? { ...shown, text: "." } : shown,
+  );
+  const drawn = view(quiet, "codex");
+  expect(drawn.filter((shown) => shown.kind === WORKED).map((shown) => shown.id)).toEqual([`${WORKED}-u-0`]);
+  expect(
+    turnFoldFor(
+      quiet,
+      quiet.findIndex((shown) => shown.id === "t-2"),
+    ),
+  ).toBe(`${WORKED}-u-0`);
+});
+
 test("a wrap-up after the steer draws its card once, under the answer before the steer", () => {
   const recap = "The fold fix is in review.";
   const wrap: AcpmuxRow = row("w-1", "activity", 290, {
