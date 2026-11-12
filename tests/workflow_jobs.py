@@ -47,9 +47,14 @@ _EXPRESSION = gh_expressions.EXPRESSION
 _MATRIX_CONTEXT = re.compile(r"(?<![\w.-])matrix(?![\w-])", re.IGNORECASE)
 _STRING_LITERAL = re.compile(r"'(?:[^']|'')*'")
 _QUOTED = re.compile(r"^'((?:[^']|'')*)'$")
+# The contents of a whole `${{ matrix.KEY }}`, the one form expand_matrix replaces.
+_WHOLE_MATRIX_KEY = re.compile(r"\s*matrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*", re.IGNORECASE)
 # `ctx['name']` / `ctx["name"]` with a literal name: the same reference as `ctx.name` (matrix, inputs, vars, secrets,
-# env, needs and the outputs of either).
-_LITERAL_INDEX = re.compile(r"\b([A-Za-z_][A-Za-z0-9_-]*)\s*\[\s*(?:'([A-Za-z_][A-Za-z0-9_-]*)'|\"([A-Za-z_][A-Za-z0-9_-]*)\")\s*\]")
+# env, needs and the outputs of either). A string literal is matched whole first, so an index spelled in one stays text.
+_INDEX_OR_LITERAL = re.compile(
+    r"(?P<literal>'(?:[^']|'')*')"
+    r"|\b(?P<name>[A-Za-z_][A-Za-z0-9_-]*)\s*\[\s*(?:'(?P<single>[A-Za-z_][A-Za-z0-9_-]*)'"
+    r"|\"(?P<double>[A-Za-z_][A-Za-z0-9_-]*)\")\s*\]")
 _INPUT_TERM = re.compile(r"\s*inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*", re.IGNORECASE)
 _WHOLE_INPUT = re.compile(r"\$\{\{\s*inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
 
@@ -367,12 +372,18 @@ def dotted(text: str) -> str:
     """`text` with every literal index inside `${{ }}` written in dot form: `matrix['runner']` is `matrix.runner`,
     `needs['a'].outputs['b']` is `needs.a.outputs.b`, `inputs["x"]` is `inputs.x`. Text with an expression that never
     ends comes back as written; the reader after it (_reads_matrix, _resolve) counts it unresolved."""
-    def one(expression: re.Match) -> str:
+    def index(found: re.Match) -> str:
+        # A string literal is matched whole first and kept: an index spelled inside one is its text, not a read.
+        if found.group("literal") is not None:
+            return found.group(0)
+        return f"{found.group('name')}.{found.group('single') or found.group('double')}"
+
+    def one(expression: gh_expressions.Match) -> str:
         inner = expression.group(0)
         previous = None
         while previous != inner:
             previous = inner
-            inner = _LITERAL_INDEX.sub(lambda m: f"{m.group(1)}.{m.group(2) or m.group(3)}", inner)
+            inner = _INDEX_OR_LITERAL.sub(index, inner)
         return inner
     try:
         return _EXPRESSION.sub(one, text)
@@ -380,12 +391,22 @@ def dotted(text: str) -> str:
         return text
 
 
+def _whole_matrix_key(inner: str) -> str | None:
+    """KEY when an expression's contents are exactly `matrix.KEY`."""
+    found = _WHOLE_MATRIX_KEY.fullmatch(inner)
+    return found.group(1) if found else None
+
+
 def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
-    """`text` with each `${{ matrix.KEY }}` replaced by every value the matrix gives it, or None
-    when one of them cannot be resolved."""
+    """`text` with each whole `${{ matrix.KEY }}` replaced by every value the matrix gives it, or None
+    when one of them cannot be resolved. Only whole expressions the tokenizer finds are replaced: the same text
+    inside another expression's string literal is part of that literal (cmux#41768 follow-up F1: replaced by text,
+    a value `' }}` ended the outer literal and expression early and hid the matrix read after it)."""
     text = dotted(text)
-    whole = re.compile(r"\$\{\{\s*matrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
-    keys = list(dict.fromkeys(whole.findall(text)))
+    try:
+        keys = list(dict.fromkeys(key for key in map(_whole_matrix_key, _EXPRESSION.findall(text)) if key))
+    except gh_expressions.Unterminated:
+        return None
     if not keys:
         return None if _reads_matrix(text) else [text]
     choices = []
@@ -396,10 +417,13 @@ def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
         choices.append([_scalar_text(v) for v in values])
     out = []
     for combination in itertools.product(*choices):
-        expanded = text
-        for key, value in zip(keys, combination):
-            expanded = re.sub(r"\$\{\{\s*matrix\s*\.\s*" + re.escape(key) + r"\s*\}\}", value, expanded, flags=re.IGNORECASE)
-        expanded = dotted(expanded)  # a matrix value may itself index: ${{ vars['X'] }}
+        chosen = dict(zip(keys, combination))
+
+        def one(expression: gh_expressions.Match, chosen: dict[str, str] = chosen) -> str:
+            key = _whole_matrix_key(expression.group(1))
+            return chosen[key] if key is not None else expression.group(0)
+
+        expanded = dotted(_EXPRESSION.sub(one, text))  # a matrix value may itself index: ${{ vars['X'] }}
         if _reads_matrix(expanded):
             return None
         out.append(expanded)
