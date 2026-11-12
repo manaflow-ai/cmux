@@ -32,7 +32,7 @@ extension SidebarRegionMetrics {
             // starts at the inset; the row glyph the content inset past it).
             glyphColumn: SidebarStyle.contentInset + SidebarStyle.iconColumnBox / 2)
         // Home and the pinned rows step at the workspace rows' pitch: the list's row gap between two rows
-        // (0 at Default, where the rows touch; Lawrence 2026-11-11).
+        // (`space1` at every density since #41212; Lawrence 2026-11-11).
         metrics.rowGap = SidebarDensityTokens.rowSpacing
         return metrics
     }
