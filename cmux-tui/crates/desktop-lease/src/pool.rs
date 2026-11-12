@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow, bail};
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -75,7 +75,25 @@ pub struct Pool {
     warming: (Mutex<usize>, Condvar),
     next_id: AtomicU64,
     budget_mb: AtomicU64,
+    /// Owns the pool's background work (suspends, destroys, warming, connections).
+    scope: cmux_scope::Scope,
     pub cfg: Config,
+}
+
+/// One runtime for every pool's background work, made once and never dropped. `None` when it
+/// could not be made: the work then runs on the caller's thread.
+fn runtime() -> Option<&'static tokio::runtime::Runtime> {
+    static RT: OnceLock<Option<tokio::runtime::Runtime>> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("desktop-lease")
+            .enable_all()
+            .build()
+            .map_err(|e| eprintln!("desktop-lease: no runtime ({e}); background work runs inline"))
+            .ok()
+    })
+    .as_ref()
 }
 
 const MB: f64 = 1024.0 * 1024.0;
@@ -89,6 +107,7 @@ impl Pool {
             warming: (Mutex::new(0), Condvar::new()),
             next_id: AtomicU64::new(1),
             budget_mb: AtomicU64::new(cfg.budget_mb),
+            scope: cmux_scope::Scope::new("desktop-lease pool"),
             cfg,
         })
     }
@@ -145,9 +164,32 @@ impl Pool {
         }
     }
 
+    /// Run blocking `work` as a task the pool's scope owns (its close cancels and joins it).
+    pub fn background(&self, name: &'static str, work: impl FnOnce() + Send + 'static) {
+        match runtime() {
+            Some(rt) => {
+                let _entered = rt.enter();
+                self.scope.spawn_named(name, async move {
+                    let _ = tokio::task::spawn_blocking(work).await;
+                });
+            }
+            None => work(),
+        }
+    }
+
+    /// Close the pool's scope: its background work is joined (or named, past `within`).
+    pub fn close(&self, within: Duration) {
+        if let Some(rt) = runtime() {
+            let report = rt.block_on(self.scope.close(within));
+            if !report.joined() {
+                eprintln!("desktop-lease: {report}");
+            }
+        }
+    }
+
     pub fn refill_in_background(self: &Arc<Self>) {
         let pool = Arc::clone(self);
-        std::thread::spawn(move || {
+        self.background("warm a slot", move || {
             if let Err(e) = pool.refill() {
                 eprintln!("desktop-lease: warming a slot failed: {e:#}");
             }
@@ -210,7 +252,7 @@ impl Pool {
         // The model thinks now: suspend once the grace has passed, unless another action came.
         let pool = Arc::clone(self);
         let id_owned = id.to_owned();
-        std::thread::spawn(move || {
+        self.background("suspend after an action", move || {
             std::thread::sleep(pool.cfg.suspend_after);
             if let Err(e) = pool.suspend_now(&id_owned, Some(generation)) {
                 eprintln!("desktop-lease: suspending {id_owned} failed: {e:#}");
@@ -252,7 +294,7 @@ impl Pool {
         lock(&self.slots)?.remove(id);
         // Destroy off the caller's path; a fresh warm slot replaces it.
         let pool = Arc::clone(self);
-        std::thread::spawn(move || {
+        self.background("destroy a released slot", move || {
             if let Ok(mut s) = slot.lock() {
                 s.desktop.destroy();
             }

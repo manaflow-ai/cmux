@@ -76,16 +76,17 @@ pub fn serve(pool: Arc<Pool>, socket: &Path) -> Result<()> {
             break;
         }
         let Ok(conn) = conn else { continue };
-        let (pool, stop) = (Arc::clone(&pool), Arc::clone(&stop));
+        let (owned, stop) = (Arc::clone(&pool), Arc::clone(&stop));
         let socket = socket.to_path_buf();
-        std::thread::spawn(move || {
-            if handle(&pool, conn, &stop).is_ok() && stop.load(Ordering::SeqCst) {
-                pool.destroy_all();
+        pool.background("a pool connection", move || {
+            if handle(&owned, conn, &stop).is_ok() && stop.load(Ordering::SeqCst) {
+                owned.destroy_all();
                 // Wake the accept loop so `serve` returns.
                 let _ = UnixStream::connect(&socket);
             }
         });
     }
+    pool.close(std::time::Duration::from_secs(5));
     let _ = std::fs::remove_file(socket);
     Ok(())
 }

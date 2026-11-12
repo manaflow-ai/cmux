@@ -3114,8 +3114,10 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-process",
+ "cmux-scope",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
