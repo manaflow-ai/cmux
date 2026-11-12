@@ -83,11 +83,16 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
     let client = crate::daemon::connect(false).await?;
     match cmd {
         ProcessCmd::List { session } => {
-            let params = session.as_deref().map_or_else(|| json!({}), |s| json!({"sessionId": s}));
-            let reply = client.request(method::MUX_PROCESS_LIST, params).await?;
-            let v = reply.get("processes").and_then(Value::as_array).cloned().unwrap_or_default();
-            // The daemon sends the newest that fit one reply, and how many older it left out.
-            let omitted = reply.get("omitted").and_then(Value::as_u64).unwrap_or(0);
+            // A chat's list is read whole, page by page. Every chat's at once cannot page: the
+            // daemon sends the newest that fit one reply, and how many older it left out.
+            let (v, omitted) = match session.as_deref() {
+                Some(s) => (list(&client, Some(s)).await?, 0),
+                None => {
+                    let reply = client.request(method::MUX_PROCESS_LIST, json!({})).await?;
+                    let omitted = reply.get("omitted").and_then(Value::as_u64).unwrap_or(0);
+                    (rows(&reply), omitted)
+                }
+            };
             if json_out {
                 let mut out = json!({"processes": v});
                 if omitted > 0 {
@@ -137,7 +142,7 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
                 return Err(anyhow!("name a process id, or --session and --tool-call"));
             }
             let source = DaemonSource { client, session: session.clone() };
-            let all = source.list_all().await?;
+            let all = source.list_all(process.as_deref()).await?;
             let found =
                 find_process(&all, process.as_deref(), session.as_deref(), tool_call.as_deref())
                     .cloned()
@@ -182,13 +187,35 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
     }
 }
 
+/// A process list reply's rows.
+fn rows(reply: &Value) -> Vec<Value> {
+    reply.get("processes").and_then(Value::as_array).cloned().unwrap_or_default()
+}
+
+/// Rows a page of a chat's process list asks for: the daemon's most (`process_page_params`).
+const LIST_PAGE: u64 = 1_000;
+
+/// The processes of `session`, every one, read page by page with `limit` and the `nextCursor`
+/// of the rest; with no session, the newest of every chat that fit one reply (that list does
+/// not page). One unpaged reply of a chat holds only its newest processes, so an older one was
+/// "no background process" to `process show`.
 async fn list(client: &Client, session: Option<&str>) -> Result<Vec<Value>> {
-    let params = match session {
-        Some(s) => json!({"sessionId": s}),
-        None => json!({}),
+    let Some(session) = session else {
+        return Ok(rows(&client.request(method::MUX_PROCESS_LIST, json!({})).await?));
     };
-    let v = client.request(method::MUX_PROCESS_LIST, params).await?;
-    Ok(v.get("processes").and_then(Value::as_array).cloned().unwrap_or_default())
+    let mut params = json!({"sessionId": session, "limit": LIST_PAGE});
+    let (mut all, mut read) = (Vec::new(), std::collections::HashSet::new());
+    loop {
+        let page = client.request(method::MUX_PROCESS_LIST, params.clone()).await?;
+        all.extend(rows(&page));
+        let Some(cursor) = page.get("nextCursor").and_then(Value::as_str) else {
+            return Ok(all);
+        };
+        if !read.insert(cursor.to_owned()) {
+            return Err(anyhow!("process list: the daemon gave cursor {cursor:?} twice"));
+        }
+        params.set("cursor", json!(cursor));
+    }
 }
 
 /// The daemon as a [`Source`]: `session` (the chat) makes the daemon read
@@ -199,13 +226,22 @@ struct DaemonSource {
 }
 
 impl DaemonSource {
-    /// The chat's processes, then every process this daemon has read: a
-    /// subagent's process is recorded under its parent chat.
-    async fn list_all(&self) -> Result<Vec<Value>> {
-        let mut all = match &self.session {
-            Some(s) => list(&self.client, Some(s)).await.unwrap_or_default(),
-            None => Vec::new(),
-        };
+    /// The chat's processes, those of the chat `process` (`<sessionId>/<taskId>`) names, then
+    /// every process this daemon has read: a subagent's process is recorded under its parent
+    /// chat. The chats' lists are read whole, page by page; the last holds only the newest.
+    async fn list_all(&self, process: Option<&str>) -> Result<Vec<Value>> {
+        let owner = process.and_then(|id| id.split_once('/')).map(|(sid, _)| sid);
+        let mut all = Vec::new();
+        for chat in [self.session.as_deref(), owner.filter(|o| Some(*o) != self.session.as_deref())]
+            .into_iter()
+            .flatten()
+        {
+            for p in list(&self.client, Some(chat)).await.unwrap_or_default() {
+                if !all.iter().any(|q: &Value| q.get("id") == p.get("id")) {
+                    all.push(p);
+                }
+            }
+        }
         for p in list(&self.client, None).await? {
             if !all.iter().any(|q| q.get("id") == p.get("id")) {
                 all.push(p);
@@ -248,7 +284,7 @@ impl Source for DaemonSource {
     }
 
     async fn get(&self, id: &str) -> Result<Option<Value>> {
-        Ok(self.list_all().await?.into_iter().find(|p| text(p, "id") == id))
+        Ok(self.list_all(Some(id)).await?.into_iter().find(|p| text(p, "id") == id))
     }
 
     async fn kill(&self, id: &str) -> Result<()> {

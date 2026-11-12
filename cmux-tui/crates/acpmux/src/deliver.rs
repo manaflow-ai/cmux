@@ -30,10 +30,11 @@ pub async fn resolve_session(client: &Client, key: &str) -> Result<(String, Stri
     Ok((id.to_owned(), name.to_owned()))
 }
 
-/// The sessions currently known to the running daemon. This call never starts
-/// acpmux; callers that cannot connect simply omit the acpmux rows.
+/// The sessions currently known to the running daemon, every page of them (`whole_list`): one
+/// request holds only the first page of a list past 1 MiB. This call never starts acpmux;
+/// callers that cannot connect simply omit the acpmux rows.
 pub async fn sessions(client: &Client) -> Result<Vec<Value>> {
-    let listed = client.request(method::MUX_SESSIONS, json!({})).await?;
+    let listed = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
     Ok(listed.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default())
 }
 

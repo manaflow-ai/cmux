@@ -81,7 +81,7 @@ async fn a_pending_only_list_holds_only_the_chats_that_wait_on_an_ask() {
     let ids: Vec<&str> = rows.iter().filter_map(|r| r["sessionId"].as_str()).collect();
     // Newest first, the list's order; the idle local chat and the 297 idle peer chats are left out.
     assert_eq!(ids, ["peer-chat-207", "peer-chat-107", "peer-chat-7"]);
-    assert!(reply["result"].get("nextCursor").is_none(), "never paged: {}", reply["result"]);
+    assert!(reply["result"].get("nextCursor").is_none(), "one page: {}", reply["result"]);
     assert!(rows.iter().all(|r| r.get("tools").is_none()), "rows go without tools: {rows:?}");
     assert_eq!(rows[0]["peer"], "box");
 }
@@ -111,4 +111,53 @@ async fn a_pending_only_list_refuses_other_filters_and_a_watch_refuses_it() {
     // `false` is no filter: the whole list.
     let reply = call(&hub, method::MUX_SESSIONS, json!({"pendingOnly": false})).await;
     assert_eq!(reply["result"]["sessions"].as_array().map(Vec::len), Some(ROWS + 1));
+}
+
+/// More chats with an ask than fit one page (each with a long name, 1,500 of them, about 2 MB)
+/// go in pages of at most `REPLY_PAGE_BYTES`, each with the `nextCursor` of the rest, and the
+/// pages hold every one of them once. Before, one reply held them all, up to the message limit.
+#[tokio::test]
+async fn a_pending_only_list_past_one_page_goes_in_pages() {
+    const ASKING: usize = 1_500;
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = crate::hub::Hub::new(config, store);
+    let (tx, _rx) = mpsc::channel(8);
+    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
+    let list: Vec<Value> = (0..ASKING)
+        .map(|i| {
+            json!({"sessionId": format!("asking-{i}"), "name": "n".repeat(1_200),
+                "harness": "claude", "cwd": "/work", "status": "waiting",
+                "updatedAt": i as u64 + 10, "pendingPermissions": 1})
+        })
+        .collect();
+    let mut settled = peer.settled();
+    for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+        hub.peer_notices.send(("box".to_owned(), peer.generation, notice)).await.unwrap();
+    }
+    tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))
+        .await
+        .expect("the hub applies the notices")
+        .unwrap();
+    let (mut ids, mut pages, mut params) =
+        (std::collections::BTreeSet::new(), 0, json!({"pendingOnly": true}));
+    loop {
+        let reply = call(&hub, method::MUX_SESSIONS, params.clone()).await;
+        assert!(reply.get("error").is_none(), "{}", reply["error"]);
+        let bytes = reply.to_string().len();
+        assert!(bytes <= crate::rpc::REPLY_PAGE_BYTES, "page {pages}: {bytes} bytes");
+        for row in reply["result"]["sessions"].as_array().unwrap() {
+            assert!(ids.insert(row["sessionId"].as_str().unwrap().to_owned()), "{row} twice");
+        }
+        pages += 1;
+        match reply["result"]["nextCursor"].as_str() {
+            Some(cursor) => params["cursor"] = json!(cursor),
+            None => break,
+        }
+        assert!(pages < 100, "the pages never end");
+    }
+    assert!(pages > 1, "a list past one page goes in pages");
+    assert_eq!(ids.len(), ASKING);
 }

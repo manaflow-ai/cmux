@@ -185,28 +185,40 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
 /// chats, so it costs no list build and waits on no list pace. It takes no other filter, and its
 /// reply is never paged: rows that would pass the message budget are left out, newest kept.
 fn pending(hub: &Hub, raw: bool, params: &Value) -> Result<Value, RpcError> {
-    const OTHERS: [&str; 8] =
-        ["limit", "cursor", "peer", "status", "localOnly", "excludeStatus", "orderBy", "withTools"];
+    const OTHERS: [&str; 7] =
+        ["limit", "peer", "status", "localOnly", "excludeStatus", "orderBy", "withTools"];
     if let Some(name) = OTHERS.into_iter().find(|k| params.get(*k).is_some_and(|v| !v.is_null())) {
         return Err(RpcError::invalid_params(format!("pendingOnly takes no {name}")));
     }
-    let rows: Vec<String> =
-        hub.pending_session_summaries().iter().map(|row| row.to_string()).collect();
-    // Never paged, so held to the message budget as before, not to a page: its rows are only the
-    // chats with an open ask, and one left out would hide that ask.
-    let text = within_limit(raw, crate::hub::reply_fit::REPLY_BYTES, |budget| {
-        let (mut kept, mut used) = (Vec::new(), 0_usize);
-        for row in &rows {
-            let total = used.saturating_add(row.len()).saturating_add(1);
-            if !kept.is_empty() && total > budget {
-                break;
-            }
-            used = total;
-            kept.push(row.as_str());
-        }
-        Ok(format!("{{\"sessions\":[{}]}}", kept.join(",")))
+    let cursor = match params.get("cursor").filter(|v| !v.is_null()) {
+        None => None,
+        Some(Value::String(cursor)) => Some(cursor.as_str()),
+        Some(_) => return Err(RpcError::invalid_params("cursor must be a string")),
+    };
+    let rows = hub.pending_session_summaries();
+    // Pages of at most `LIST_PAGE_BYTES`, as every list on the connection is, with the
+    // `nextCursor` of the rest: the chats with an open ask are few, but each holds its summary,
+    // and before this one reply held them all up to the message limit. The pages go in
+    // `byte_page`'s stable order, so an ask answered while a client pages moves no other row.
+    let text = within_limit(raw, LIST_PAGE_BYTES, |budget| {
+        let (page, next) = crate::hub::session_pages::byte_page(
+            &rows,
+            cursor,
+            budget,
+            |at| rows.get(at).map(Value::to_string).unwrap_or_default(),
+            String::len,
+        )?;
+        // The last page, the only one most reads see, has no `nextCursor`, as before.
+        let next =
+            next.map(|c| format!(",\"nextCursor\":{}", Value::String(c))).unwrap_or_default();
+        Ok(format!("{{\"sessions\":[{}]{next}}}", page.join(",")))
     })?;
-    serde_json::from_str(&text).map_err(|error| RpcError::internal(error.to_string()))
+    let mut reply: Value =
+        serde_json::from_str(&text).map_err(|error| RpcError::internal(error.to_string()))?;
+    if let Some(rows) = reply.get_mut("sessions").and_then(Value::as_array_mut) {
+        crate::hub::session_pages::sort_session_summaries(rows);
+    }
+    Ok(reply)
 }
 
 /// `_acpmux/watch`: turns the watch on before it reads the list, so no change is missed.
