@@ -22,6 +22,9 @@ const LOCAL_PEERPID: libc::c_int = 0x002;
 
 /// The copy that runs.
 pub(super) struct Staged {
+    /// The bundle in `state/app/current`, whose path stays the same across
+    /// builds (the person's screen-capture approval is kept by path).
+    pub(super) app: PathBuf,
     pub(super) executable: PathBuf,
     /// Content digest of the signed bundle (its executable and seal).
     pub(super) digest: String,
