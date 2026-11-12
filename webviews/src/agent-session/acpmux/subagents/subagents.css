@@ -2428,7 +2428,9 @@ button.cv-subagent > :last-child {
 }
 /* The height the person dragged to caps the list, never pads it (it is the list's `max-height`, as
    the default five lines are), with or without the latest-step second lines. Last in the file, so
-   it wins over the default caps above of the same weight. */
+   it wins over the default caps above of the same weight. It keeps their 2px allowance for the
+   list's scroll padding, so a one-line cap shows its whole line, and holds trayResize.ts's 70% of the
+   window in this window too: a height kept from a taller one never runs past it. */
 .acpmux-running-tray[data-sized] .acpmux-running-tray__list:is(*, :has(.acpmux-agent-line__latest)) {
-  max-height: var(--acpmux-tray-list-height);
+  max-height: min(calc(var(--acpmux-tray-list-height) + 2px), 70vh);
 }
