@@ -72,6 +72,112 @@ fn every_row_is_judged_as_it_says() {
     );
 }
 
+/// One binding of the name `Lock`: an import (`use`) or a definition (`type` or `struct`), of a
+/// std or tokio `Mutex` (a serializer) or of something that is none (an RwLock, a plain struct).
+#[derive(Clone, Copy, Debug)]
+enum Binding {
+    Use(Kind),
+    Def(Kind),
+}
+
+/// What a binding of `Lock` is.
+#[derive(Clone, Copy, Debug)]
+enum Kind {
+    StdMutex,
+    TokioMutex,
+    RwLock,
+    Plain,
+}
+
+impl Binding {
+    fn serializes(self) -> bool {
+        let (Self::Use(lock) | Self::Def(lock)) = self;
+        matches!(lock, Kind::StdMutex | Kind::TokioMutex)
+    }
+
+    fn item(self) -> &'static str {
+        match self {
+            Self::Use(Kind::StdMutex) => "use std::sync::Mutex as Lock;",
+            Self::Use(Kind::TokioMutex) => "use tokio::sync::Mutex as Lock;",
+            Self::Use(Kind::RwLock) => "use std::sync::RwLock as Lock;",
+            Self::Use(Kind::Plain) => "use crate::plain::Plain as Lock;",
+            Self::Def(Kind::StdMutex) => "type Lock = std::sync::Mutex<()>;",
+            Self::Def(Kind::TokioMutex) => "type Lock = tokio::sync::Mutex<()>;",
+            Self::Def(Kind::RwLock) => "type Lock = std::sync::RwLock<()>;",
+            Self::Def(Kind::Plain) => "struct Lock;",
+        }
+    }
+
+    /// The serializer's type as the module holding this binding writes it.
+    fn written(self) -> &'static str {
+        match self {
+            Self::Use(_) => "Lock<()>",
+            Self::Def(_) => "Lock",
+        }
+    }
+}
+
+/// A shape: how the first and the second binding bind the name.
+type Shape = (fn(Kind) -> Binding, fn(Kind) -> Binding);
+
+/// The class of review of cmux#41693 F1 and cmux#41707 F1: a name the file binds two ways, in two
+/// modules, is a serializer if and only if every binding of it is one. Every shape (use+use,
+/// def+def, use+def, def+use), split two ways (the root and its `mod tests`, two sibling
+/// modules), with every pair of bindings; the serializer sits beside the first binding.
+#[test]
+fn a_name_bound_two_ways_serializes_iff_every_binding_does() {
+    let locks = [Kind::StdMutex, Kind::TokioMutex, Kind::RwLock, Kind::Plain];
+    let shapes: [Shape; 4] = [
+        (Binding::Use, Binding::Use),
+        (Binding::Def, Binding::Def),
+        (Binding::Use, Binding::Def),
+        (Binding::Def, Binding::Use),
+    ];
+    let marker = "#[cfg(test)]\ntype ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;\n\
+        // test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it\n\
+        #[cfg(test)]\nstatic READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();\n";
+    let mut cells = 0;
+    let mut wrong = Vec::new();
+    for (first_of, second_of) in shapes {
+        for a in locks {
+            for b in locks {
+                let (first, second) = (first_of(a), second_of(b));
+                let serializer =
+                    format!("#[cfg(test)]\nstatic HOOK_TEST: {} = Lock::new(());", first.written());
+                let (one, two) = (first.item(), second.item());
+                let layouts = [
+                    format!("{one}\n{serializer}\n#[cfg(test)]\nmod tests {{\n{two}\n}}\n"),
+                    format!("mod a {{\n{one}\n{serializer}\n}}\nmod b {{\n{two}\n}}\n"),
+                ];
+                for layout in layouts {
+                    let source = format!("{layout}{marker}");
+                    let found: Vec<String> = judge_source(&format!("{SRC}hub/watches.rs"), &source)
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect();
+                    let refused =
+                        found.iter().any(|f| f.contains("no `static HOOK_TEST: Mutex<()>`"));
+                    let expect = first.serializes() && second.serializes();
+                    cells += 1;
+                    if refused == expect || (expect && !found.is_empty()) {
+                        wrong.push(format!(
+                            "{first:?} + {second:?}: expected {}, found {found:#?}\n{source}",
+                            if expect { "serialized" } else { "refused" }
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(cells, 128, "4 shapes x 16 pairs x 2 layouts");
+    assert!(
+        wrong.is_empty(),
+        "{} of {cells} cells judged wrong:\n{}",
+        wrong.len(),
+        wrong.join("\n")
+    );
+}
+
 /// The property, run by hand: ACPMUX_TEST_HOOKS_CHAINS names a directory of generated chains,
 /// `N.rs` each with `N.base` holding 1 when the python check refused it. Writes `N.new` (1 when
 /// this check refuses) and fails on a chain the python check refused that this one passes.

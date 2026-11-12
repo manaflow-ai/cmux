@@ -351,12 +351,12 @@ fn field_types(fields: &syn::Fields) -> impl Iterator<Item = Type> + '_ {
 /// structs, enums, unions and consts, its `use` names, and its modules.
 ///
 /// The file's modules share one table, so a name another module binds differently is not taken
-/// at one of its meanings: `uses` keeps every path a name is imported as, and `twice` the names
-/// defined more than once (review of cmux#41693, F1).
+/// at one of its meanings: `defs` keeps every definition of a name and `uses` every path it is
+/// imported as, and a name is read at all of them, definitions and imports alike (reviews of
+/// cmux#41693 F1 and cmux#41707 F1).
 #[derive(Default)]
 struct Names {
-    defs: HashMap<String, Def>,
-    twice: HashSet<String>,
+    defs: HashMap<String, Vec<Def>>,
     uses: HashMap<String, Vec<String>>,
     mods: HashSet<String>,
 }
@@ -376,6 +376,15 @@ impl Names {
             return fulls.iter().any(|full| self.local(full, &mut seen.clone()));
         }
         false
+    }
+
+    /// Whether import `full` of `name` is this file's own definition of it (`use super::Lock;`
+    /// beside a `type Lock`): a crate path ending in a name the file defines, whose every
+    /// definition is read already.
+    fn own(&self, name: &str, full: &str) -> bool {
+        self.defs.contains_key(name)
+            && full.rsplit("::").next() == Some(name)
+            && self.local(full, &mut Vec::new())
     }
 
     fn bind_use(&mut self, local: String, path: String) {
@@ -419,9 +428,7 @@ struct Collect<'n> {
 impl Collect<'_> {
     fn define(&mut self, name: &syn::Ident, generics: &Generics, body: Body) {
         let params = params_of(generics);
-        if self.names.defs.insert(name.to_string(), Def { params, body }).is_some() {
-            self.names.twice.insert(name.to_string());
-        }
+        self.names.defs.entry(name.to_string()).or_default().push(Def { params, body });
     }
 }
 
@@ -819,30 +826,32 @@ impl Resolver<'_> {
         if PRELUDE.contains(&name) {
             return self.foreign(name, args, env, stack, facts);
         }
-        if let Some(def) = self.names.defs.get(name) {
-            if stack.iter().any(|s| s == name) {
-                self.args(args, env, stack, facts);
-                return false;
-            }
-            let given = self.bind(name, def, args, env, stack);
-            stack.push(name.to_string());
-            let option = match &def.body {
-                Body::Alias(ty) => self.ty(ty, &given, stack, facts),
-                Body::Fields(types) => {
-                    for ty in types {
-                        self.ty(ty, &given, stack, facts);
-                    }
-                    false
-                }
-                Body::Value => false,
-            };
-            stack.pop();
-            return option;
+        let defs = self.names.defs.get(name);
+        let fulls = self.names.uses.get(name);
+        if defs.is_some() && stack.iter().any(|s| s == name) {
+            self.args(args, env, stack, facts);
+            return false;
         }
-        if let Some(fulls) = self.names.uses.get(name) {
-            // Every path the name is imported as, in any module: what any of them holds counts.
+        if defs.is_some() || fulls.is_some() {
+            // Every definition of the name and every path it is imported as, in any module: what
+            // any of them holds counts (review of cmux#41707 F1).
             let mut option = false;
-            for full in fulls {
+            for def in defs.into_iter().flatten() {
+                let given = self.bind(name, def, args, env, stack);
+                stack.push(name.to_string());
+                option |= match &def.body {
+                    Body::Alias(ty) => self.ty(ty, &given, stack, facts),
+                    Body::Fields(types) => {
+                        for ty in types {
+                            self.ty(ty, &given, stack, facts);
+                        }
+                        false
+                    }
+                    Body::Value => false,
+                };
+                stack.pop();
+            }
+            for full in fulls.into_iter().flatten().filter(|f| !self.names.own(name, f)) {
                 if self.names.local(full, &mut Vec::new()) {
                     facts.unresolved.insert(name.to_string());
                     self.args(args, env, stack, facts);
@@ -957,7 +966,8 @@ impl Resolver<'_> {
 
     /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases and its
     /// `use` names, renames included: `use std::sync::Mutex as Lock` makes `Lock<()>` one). A name
-    /// the file binds more than one way is one only when every way is (review of cmux#41693, F1).
+    /// the file binds more than one way, by definitions, imports or both, is one only when every
+    /// way is (reviews of cmux#41693 F1 and cmux#41707 F1).
     fn is_serializer(&self, ty: &Type, depth: usize) -> bool {
         let Type::Path(p) = ty else {
             return false;
@@ -966,19 +976,6 @@ impl Resolver<'_> {
             return false;
         }
         let idents: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
-        if let [name] = idents.as_slice()
-            && let Some(def) = self.names.defs.get(name)
-        {
-            if self.names.twice.contains(name) {
-                return false;
-            }
-            return match def {
-                Def { params, body: Body::Alias(inner) } if params.is_empty() => {
-                    self.is_serializer(inner, depth + 1)
-                }
-                _ => false,
-            };
-        }
         // A bare `Mutex` the file does not import is taken as std's (the prelude has none, so it
         // is an import from another file or a glob).
         let is_mutex = |path: &Vec<String>| {
@@ -990,14 +987,39 @@ impl Resolver<'_> {
         let shape = self
             .used_paths(&idents)
             .is_some_and(|paths| !paths.is_empty() && paths.iter().all(is_mutex));
-        let Some(PathArguments::AngleBracketed(args)) =
-            p.path.segments.last().map(|s| &s.arguments)
-        else {
-            return false;
+        let args = match p.path.segments.last().map(|s| &s.arguments) {
+            Some(PathArguments::AngleBracketed(a)) => Some(a),
+            _ => None,
         };
-        shape
-            && args.args.len() == 1
-            && matches!(args.args.first(), Some(GenericArgument::Type(Type::Tuple(t))) if t.elems.is_empty())
+        let unit = args.is_some_and(|a| {
+            a.args.len() == 1
+                && matches!(a.args.first(), Some(GenericArgument::Type(Type::Tuple(t))) if t.elems.is_empty())
+        });
+        if let [name] = idents.as_slice()
+            && let Some(defs) = self.names.defs.get(name)
+        {
+            // Every definition must be an alias of a serializer, and every import of the name a
+            // Mutex too: the static's own module may hold any one of them. The static is written
+            // for one of its bindings (`Lock` for an alias, `Lock<()>` for an import), so an
+            // import here takes the bare name as well as `<()>`.
+            let aliases = defs.iter().all(|def| match def {
+                Def { params, body: Body::Alias(inner) } if params.is_empty() => {
+                    self.is_serializer(inner, depth + 1)
+                }
+                _ => false,
+            });
+            let imports = self.names.uses.get(name).is_none_or(|fulls| {
+                fulls.iter().filter(|f| !self.names.own(name, f)).all(|full| {
+                    let path: Vec<String> = full.split("::").map(str::to_string).collect();
+                    (unit || args.is_none())
+                        && self
+                            .used_paths(&path)
+                            .is_some_and(|paths| !paths.is_empty() && paths.iter().all(is_mutex))
+                })
+            });
+            return aliases && imports;
+        }
+        shape && unit
     }
 }
 
