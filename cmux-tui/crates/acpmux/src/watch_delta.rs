@@ -18,6 +18,7 @@
 //! learned of only from a `session_changed` and the daemon no longer lists goes, as with any
 //! whole list.
 
+use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -41,29 +42,55 @@ fn id_of(row: &Value) -> Option<&str> {
 /// The delta reply to `known` of a whole list `list` (`{"sessions": [...]}`, as the link reads
 /// it): the rows new or changed, the known ids gone, and how many are unchanged. None if
 /// `list` is not such a list.
+///
+/// Read row by row (rework stage 3, the heap attribution of 2026-11-12): each row stays the text
+/// it is in `list`, and only its `sessionId` is parsed, so a delta holds one row's parse at a
+/// time, not a `Value` of the whole list (about 6 times its text: 270 MB for a 42 MB list), once
+/// per reconnecting peer. A row's digest is of its text; the own list is serde_json's compact
+/// output with its keys sorted, which is what [`digest`] hashes, and a row whose text differed
+/// would only be sent again. The reply is byte for byte the one the parsed list made.
 pub fn delta(list: &str, known: &Map<String, Value>) -> Option<String> {
-    let list: Value = serde_json::from_str(list).ok()?;
-    let rows = list.get("sessions")?.as_array()?;
-    let mut listed = HashSet::new();
+    #[derive(serde::Deserialize)]
+    struct List<'a> {
+        #[serde(borrow)]
+        sessions: Vec<&'a RawValue>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Row {
+        #[serde(rename = "sessionId")]
+        session_id: Option<Value>,
+    }
+    /// Its fields in the order `json!` sorted them in.
+    #[derive(serde::Serialize)]
+    struct Reply<'a> {
+        delta: bool,
+        removed: Vec<&'a str>,
+        sessions: Vec<&'a RawValue>,
+        unchanged: usize,
+    }
+    let list: List<'_> = serde_json::from_str(list).ok()?;
+    let mut ids = Vec::with_capacity(list.sessions.len());
     let mut sessions = Vec::new();
-    for row in rows {
-        let Some(id) = id_of(row) else {
-            sessions.push(row);
+    for row in &list.sessions {
+        let id = serde_json::from_str::<Row>(row.get())
+            .ok()
+            .and_then(|r| r.session_id)
+            .and_then(|id| id.as_str().map(str::to_owned));
+        let Some(id) = id else {
+            sessions.push(*row);
             continue;
         };
-        listed.insert(id);
-        let held = known.get(id).and_then(Value::as_str);
-        if held.is_none_or(|held| held != digest(row)) {
-            sessions.push(row);
+        let held = known.get(&id).and_then(Value::as_str);
+        if held.is_none_or(|held| held != digest_text(row.get())) {
+            sessions.push(*row);
         }
+        ids.push(id);
     }
+    let listed: HashSet<&str> = ids.iter().map(String::as_str).collect();
     let removed: Vec<&str> =
         known.keys().map(String::as_str).filter(|id| !listed.contains(id)).collect();
-    let unchanged = rows.len().saturating_sub(sessions.len());
-    Some(
-        json!({"sessions": sessions, "removed": removed, "unchanged": unchanged, "delta": true})
-            .to_string(),
-    )
+    let unchanged = list.sessions.len().saturating_sub(sessions.len());
+    serde_json::to_string(&Reply { delta: true, removed, sessions, unchanged }).ok()
 }
 
 /// The rows a link last read of its peer's list, each with its digest. It is empty until the
@@ -135,3 +162,7 @@ pub fn read_delta(reply: &Value) -> Option<(Vec<Value>, Vec<String>)> {
 #[cfg(test)]
 #[path = "watch_delta_tests.rs"]
 mod tests;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "watch_delta_bench.rs"]
+mod watch_delta_bench;
