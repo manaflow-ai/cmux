@@ -282,7 +282,20 @@ def _needs_output_literal(job: Mapping[str, Any], producer: str, key: str) -> st
     if found is None:
         return None
     literal = found.group(1) if found.group(1) is not None else found.group(2)
-    return None if "${{" in literal else literal
+    if "${{" in literal or not _only_writes(run):
+        return None
+    return literal
+
+
+def _only_writes(run: str) -> bool:
+    """Whether everything the step may run is an echo or a `set`: then its one literal write is its final output.
+    A script, a program in a variable or text the shared reader cannot read may write the output again (#40784 F1:
+    `./update-matrix.sh` after the echo wrote a self-hosted matrix), so the output stays unresolved."""
+    from shell_invocations import may_run_nested  # tests/ is on the path wherever this module is imported
+
+    commands = may_run_nested(run)
+    return bool(commands) and all(command and command[0] in ("echo", "set") for command in commands) \
+        and sum(command[0] == "echo" for command in commands) == 1
 
 
 def _matrix(job: Mapping[str, Any]) -> Mapping[str, Any] | None:

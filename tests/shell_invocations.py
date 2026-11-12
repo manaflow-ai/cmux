@@ -140,6 +140,14 @@ class Invocation(NamedTuple):
 
 _CASE_BOUNDARY = frozenset(" \t\n;&|()")
 _CASE_KEYWORD = re.compile(r"(case|in|esac)(?=[ \t\n;&|()]|$)")
+# Where bash reads a reserved word: after a command separator or another reserved word that starts a command.
+_COMMAND_START = re.compile(r"(?:^|[;&|()\n]|(?<![\w$-])(?:then|do|else|elif|if|while|until|[{!]))[ \t]*$")
+
+
+def _command_start(text: str, start: int, index: int) -> bool:
+    """Whether TEXT[index] is where a command starts in a `$( )` body that starts at START (#41133 F2: `case` as an
+    argument, `echo $(echo case)`, is a word, not a keyword)."""
+    return bool(_COMMAND_START.search(text[start:index]))
 
 
 def _match_close(text: str, index: int, opener: str) -> int | None:
@@ -158,7 +166,7 @@ def _match_close(text: str, index: int, opener: str) -> int | None:
             keyword = _CASE_KEYWORD.match(text, i)
             word = keyword.group(1) if keyword else None
             top = cases[-1] if cases and cases[-1][1] == depth else None
-            if word == "case" and not (top and top[0] == "pattern"):
+            if word == "case" and not (top and top[0] == "pattern") and _command_start(text, index + len(opener), i):
                 cases.append(["word", depth])
                 i = keyword.end(1)
                 continue
@@ -1174,6 +1182,39 @@ def _word_token(text: str) -> Token:
     return Token("word", text, True, dynamic=_unreadable(text))
 
 
+def _unmodeled_option(args: list[str], wrapper: _Wrapper) -> bool:
+    """Whether the wrapper's options, read up to its first operand, hold one its table does not model (env's -S,
+    --split-string). An option that says nothing runs (command -v) is modeled."""
+    i = 0
+    while i < len(args):
+        text = args[i]
+        if text == "--" or not text.startswith("-") or text == "-":
+            return False
+        if wrapper.numeric and re.fullmatch(r"-[0-9]+", text):
+            i += 1
+            continue
+        if text.startswith("--"):
+            name = text.split("=", 1)[0]
+            if name in wrapper.no_run:
+                return False
+            if name not in wrapper.values and name not in wrapper.flags:
+                return True
+            i += 2 if name in wrapper.values and "=" not in text else 1
+            continue
+        taken = False
+        for at, letter in enumerate(text[1:], start=1):
+            option = "-" + letter
+            if option in wrapper.no_run:
+                return False
+            if option in wrapper.values:
+                taken = at == len(text) - 1
+                break
+            if option not in wrapper.flags:
+                return True
+        i += 2 if taken else 1
+    return False
+
+
 def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[list[str]]) -> None:
     words = invocation.words
     found.append(words)
@@ -1201,6 +1242,10 @@ def _expand(invocation: Invocation, defined: set[str], depth: int, found: list[l
         return
     if not _unreadable(program) and program not in _RUNS_ARGUMENTS and program not in _WRAPPERS:
         found.append([])  # a script a shell runs in a mode this does not model
+        return
+    if program in _WRAPPERS and _unmodeled_option(args, _WRAPPERS[program]) and any(map(_unreadable, args)):
+        # `env -S "$cmd"`: a mode this does not model runs text it cannot read (#41133 F1). Fail closed.
+        found.append([])
         return
     for word in args:
         if re.search(r"\s", word):

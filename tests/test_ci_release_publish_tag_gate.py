@@ -131,7 +131,7 @@ def _options(values: str = "", flags: str = "") -> Options:
 # Each tool's options before its subcommand (its --help): those that take a value, then those that take none. The
 # subcommand is the first operand after them, so an option's value (`--dir upload`, `-p publish`) is never read as
 # one, and an option this does not know before it leaves the subcommand unknown, which counts as publishing.
-GH_ROOT = _options(flags="-h --help --version")
+GH_ROOT = _options("-R --repo", "-h --help --version")  # `gh --repo o/r release upload`: a value before the command
 GH_RELEASE = _options("-R --repo", "-h --help")
 PACKAGE_MANAGERS = {
     "npm": _options("-w --workspace --registry --prefix -C --userconfig --loglevel --tag --access --otp --cache",
