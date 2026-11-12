@@ -643,6 +643,41 @@ class UnderPython39(unittest.TestCase):
                   "    else:\n"
                   "        value = ast.match_case  # bare: ast.match_case\n")
 
+    def test_import_as_shadowing_is_lexical(self):
+        self.scan("import ast as parser\n"
+                  "def shadow(parser):\n    return parser.match_case\n"
+                  "value = parser.match_case  # bare: ast.match_case\n")
+
+    def test_from_import_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow():\n"
+                  "    from sys import version_info as ast\n"
+                  "    return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_except_as_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow():\n"
+                  "    try:\n        pass\n"
+                  "    except Exception as ast:\n"
+                  "        return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_match_binding_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow(value):\n"
+                  "    match value:\n"
+                  "        case ast:\n"
+                  "            return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_del_binding_shadowing_is_lexical(self):
+        self.scan("import ast\n"
+                  "def shadow():\n"
+                  "    del ast\n"
+                  "    return ast.match_case\n"
+                  "value = ast.match_case  # bare: ast.match_case\n")
+
     def test_an_exit_gate_protects_what_follows_it(self):
         """devbuild's `if sys.version_info < (3, 11): ... raise SystemExit(...)`, codex-review-box's sys.exit, a return."""
         self.scan("import sys, ast\n"
