@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43238192694",
+  "recorded_at": "2026-11-12T14:42:07Z",
+  "reason": "cmux-tui 99dea7b3734c changes the image's cmux-tui (pinned ff7a992110bd)",
+  "dry_run": false,
+  "cmux_tui": "99dea7b3734cd9f82ad5094ab7785b818dfd0111",
+  "fixes": [
+    {
+      "sha": "99dea7b3734cd9f82ad5094ab7785b818dfd0111",
+      "mergedAt": "2026-11-12T06:15:51-08:00",
+      "subject": "acpmux: a Codex fork resumes its own thread instead of a fresh one (#41869)"
+    },
+    {
+      "sha": "aa21f36f2414e34c6dbc5f8476489cc71902c733",
+      "mergedAt": "2026-11-12T08:14:13-06:00",
+      "subject": "cmux-tui tests: input queued while a terminal adopts keeps its order and its 64 KiB limit"
+    },
+    {
+      "sha": "484ecb1386e520c0cc00493a36003307858a4583",
+      "mergedAt": "2026-11-12T08:09:29-06:00",
+      "subject": "cmux-link tests: an old key holder's drop in a handoff leaves the new holder's lock and record"
+    },
+    {
+      "sha": "aa52b9ab6b4df26b96200cef7fabc3670e945f76",
+      "mergedAt": "2026-11-12T08:09:29-06:00",
+      "subject": "cmux-link: a dropped key holder unlocks the key lock, so a forked child's copy of its descriptor keeps nothing"
+    },
+    {
+      "sha": "6501391d6f9900b90286ec4abc11c0de2fb4cfb8",
+      "mergedAt": "2026-11-12T08:09:28-06:00",
+      "subject": "cmux-link tests: a dropped key holder frees the lock while a forked child still has its descriptor (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T14:42:07Z",
+    "snapshot_id": "sh-8f18987edd2d40aa83c16d208475f670",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43238192694): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c80943610e0f5667513ae548110b23f06222e1ae",
+    "image": "cloud-native-auto-99dea7b3-43238192694-1",
+    "revision": "ci-43238192694-1",
+    "at": "2026-11-12T14:42:07Z"
+  },
+  "rolled_back": false
+}
