@@ -201,6 +201,12 @@ fn the_recap_walks_back_only_its_scan_budget_of_records() {
         chunk(105, "The newest reply."),
         turn_end(106, "t2"),
     ]);
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "chat", "name": "chat", "harness": "fake",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    hub.store.save(&meta).unwrap();
     for record in &records {
         hub.store.append("chat", record).unwrap();
     }
