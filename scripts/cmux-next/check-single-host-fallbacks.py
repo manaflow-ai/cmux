@@ -20,9 +20,16 @@ traced to every value its callers pass (each caller's own matrix expanded, at an
   fromJSON matrix and every condition inside a matrix value);
 - every resolved label that is single-host (a controller label or one starting with a `single_host_prefixes`
   entry) must be declared under `labels`.
-A part that reads no variable (a needs output, an input with no caller) is not this policy's business. A trace the
-resolver refuses to finish (an input default or caller chain that loops back to itself, Resolved.unverifiable) is a
-finding: what it reads cannot be verified.
+A value the resolver cannot settle is never skipped (review F1 on #40894: `${{ fromJSON('["glaeda-runner-cmux22-new"]')
+}}` was left unresolved and an undeclared label passed). Constant `fromJSON('<literal>')` terms resolve to their
+labels (workflow_jobs.constant_from_json). Of what stays unresolved, every label named anywhere in it (a string
+literal, a fallback branch inside a fromJSON) is checked as if resolved, and the part must be one a runs-on may
+read: a literal, `vars.NAME` (declared above), a placement job's `needs.JOB.outputs.NAME`, a caller-less
+`inputs.NAME`, or `fromJSON(...)` of those with a property chain, behind `&&` conditions and `||` alternatives
+(settled()). Anything else (`format(...)`, a label spliced around an expression, a matrix nothing expands) may be
+any self-hosted label, and is a finding, unless workflow_jobs.UNRESOLVED_MATRICES audits that job's matrix. A trace
+the resolver refuses to finish (an input default or caller chain that loops back to itself, Resolved.unverifiable)
+is a finding: what it reads cannot be verified.
 The declaration must also promise a bounded fallback, by the build-fleet test's own schema rules.
 
 The hook runs only installed code, so the installer puts tests/workflow_jobs.py beside this checker (it is in
@@ -175,8 +182,12 @@ def bounded(name: str, entry: object) -> list[str]:
 
 
 def load_workflow_jobs():
-    """tests/workflow_jobs.py: the copy beside this file (the hook's installed checks), else this repository's."""
+    """tests/workflow_jobs.py: the copy beside this file (the hook's installed checks), else this repository's.
+    Loaded once per process, so every reader here (and the Unreadable it raises) is the same module."""
     import importlib.util
+
+    if "single_host_workflow_jobs" in sys.modules:
+        return sys.modules["single_host_workflow_jobs"]
 
     here = Path(__file__).resolve().parent
     for path in (here / "workflow_jobs.py", here.parents[1] / "tests" / "workflow_jobs.py"):
@@ -211,7 +222,96 @@ class Reads:
         self.lines: list[tuple[str, int, str]] = []  # (file, line, a resolved runs-on label)
         self.dynamic: list[tuple[str, str, int]] = []  # (where, file, line) of a variable read with no literal name
         self.unverifiable: list[tuple[str, str, int]] = []  # (where, file, line) of a trace the resolver refused
+        self.unsettled: list[tuple[str, str, int, str]] = []  # (where, file, line, term) of a part nothing settles
         self.unreadable: list[str] = []
+
+
+# The contexts a settled runs-on operand reads by name (settled()): each is either declared here (vars) or a value
+# a placement job or a dispatch picks at run time, whose own policy is the job's business.
+SETTLED_READS = {"vars": 2, "inputs": 2, "needs": 4}
+
+
+def _split_top(text: str, operator: str) -> list[str]:
+    """TEXT split at OPERATOR (`||`, `&&`) outside string literals and brackets, by tokens."""
+    wj = load_workflow_jobs()
+    spans = wj._token_spans(text)
+    parts, start, depth = [], 0, 0
+    for token in spans:
+        if token.kind == "op" and token.text in "([":
+            depth += 1
+        elif token.kind == "op" and token.text in ")]":
+            depth -= 1
+        elif token.kind == "op" and token.text == operator and depth == 0:
+            parts.append(text[start:token.start])
+            start = token.end
+    parts.append(text[start:])
+    return parts
+
+
+def settled(term: str) -> bool:
+    """Whether every value TERM (an unresolved part of a resolved runs-on) can take is one this policy reads by
+    name: a literal, `vars.NAME`, `needs.JOB.outputs.NAME`, `inputs.NAME`, or `fromJSON(<settled>)` with a property
+    chain after it (of a literal, only one constant_from_json resolves to labels); `a && b` takes b's value, `a || b`
+    either. Anything else may be any label. Fails closed: a term
+    the tokenizer cannot read is not settled."""
+    wj = load_workflow_jobs()
+    text = term.strip()
+    if "${{" in text:
+        spans = wj.expression_spans(text)
+        return spans == [(0, len(text))] and settled(text[3:-2])
+    try:
+        alternatives = _split_top(text, "||")
+        for alternative in alternatives:
+            if not _settled_operand(_split_top(alternative, "&&")[-1].strip()):
+                return False
+    except wj.Unreadable:
+        return False
+    return True
+
+
+def _settled_operand(operand: str) -> bool:
+    wj = load_workflow_jobs()
+    spans = wj._token_spans(operand)
+    stream = [(t.kind, t.text) for t in spans]
+    if not stream:
+        return False
+    if stream[0] == ("op", "(") and stream[-1] == ("op", ")"):
+        depth = 0
+        for index, token in enumerate(stream):
+            depth += token == ("op", "(")
+            depth -= token == ("op", ")")
+            if depth == 0 and index != len(stream) - 1:
+                break
+        else:
+            return settled(operand[spans[0].end:spans[-1].start])
+    if len(stream) == 1 and stream[0][0] == "string":
+        return True
+    head = stream[0][1].lower() if stream[0][0] == "name" else ""
+    if head == "fromjson" and len(stream) >= 3 and stream[1] == ("op", "("):
+        depth = 0
+        for index, token in enumerate(stream[1:], 1):
+            depth += token == ("op", "(")
+            depth -= token == ("op", ")")
+            if depth == 0:
+                inner = operand[spans[1].end:spans[index].start].strip()
+                if wj._property_chain(stream[index + 1:]) is None:
+                    return False
+                while wj._wrapped(inner):
+                    inner = inner[1:-1].strip()
+                literal = wj._token_spans(inner)
+                if len(literal) == 1 and literal[0].kind == "string":
+                    # A constant settles only as the labels it resolves to: constant_from_json leaves `null`, an
+                    # object, `[]` and a key the literal lacks unresolved (review F1 on #41933: `fromJSON('null')`).
+                    chain = operand[spans[index].end:]
+                    return wj.constant_from_json(f"fromJSON({inner}){chain}") is not None
+                return settled(inner)
+        return False
+    if head in SETTLED_READS:
+        names = wj._property_chain(stream[1:])
+        if names is None or len(names) != SETTLED_READS[head] - 1 or not all(isinstance(n, str) for n in names):
+            return False
+        return head != "needs" or str(names[1]).lower() == "outputs"
+    return False
 
 
 def references(workflow_dirs: Iterable[Path]) -> Reads:
@@ -260,10 +360,16 @@ def references(workflow_dirs: Iterable[Path]) -> Reads:
                     _, line = first_line([source], re.compile(rf"^\s*{re.escape(loop.name)}\s*:", re.IGNORECASE))
                     reads.unverifiable.append((f"{where}: inputs.{loop.name} of {loop.workflow} ({loop.reason})",
                                                f"{WORKFLOWS}/{source.name}", line))
-                for value in sorted(resolved.runs_on):
+                # The labels a runs-on resolves to, and every label named in a part it could not resolve (a literal
+                # inside it may be the value it takes): none is skipped for being unresolved.
+                for value in sorted(resolved.runs_on | resolved.runs_on_unresolved):
                     for label in LABEL.findall(value):
                         _, line = first_line([paths[name]], re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(label)}(?![A-Za-z0-9_.-])"))
                         reads.lines.append((rel, line, label))
+                if resolved.matrix_audit is None:
+                    for term in sorted(t for t in resolved.runs_on_unresolved if not settled(t)):
+                        _, line = first_line([paths[name]], re.compile(r"^\s*runs-on\s*:"))
+                        reads.unsettled.append((where, rel, line, term))
     return reads
 
 
@@ -284,6 +390,11 @@ def findings(workflow_dirs: Iterable[Path], policy: dict) -> list[dict]:
         found.append({"key": f"unverifiable:{where}", "file": rel, "line": line, "status": FOUND,
                       "message": f"{where}: a runs-on takes its value through this input, whose trace never ends, so "
                                  f"the variables it reads cannot be verified; break the loop"})
+    for where, rel, line, term in reads.unsettled:
+        found.append({"key": f"unsettled:{where}: {term}", "file": rel, "line": line, "status": FOUND,
+                      "message": f"{where}: a runs-on can take `{term[:160]}`, which the resolver cannot settle, so it "
+                                 f"may be any self-hosted label with no declared fallback; make each branch a literal, a "
+                                 f"declared vars.NAME or a placement job's output"})
     declared = {name.upper() for name in policy.get("variables", {})}
     for name in sorted(reads.variables):
         if name in declared:

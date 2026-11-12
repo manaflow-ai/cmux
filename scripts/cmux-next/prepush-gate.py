@@ -1433,6 +1433,25 @@ def blob_at(repo: Path, rev: str, path: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
+def tree_mode(repo: Path, rev: str, path: str) -> str | None:
+    """The Git tree mode for PATH at REV, or None when the path is absent."""
+    result = subprocess.run(["git", "-C", str(repo), "ls-tree", "-z", rev, "--", path], capture_output=True)
+    if result.returncode != 0:
+        return None
+    for entry in result.stdout.split(b"\0"):
+        if not entry:
+            continue
+        header, name = entry.split(b"\t", 1)
+        if name.decode(errors="surrogateescape") == path:
+            return header.split(b" ", 1)[0].decode("ascii")
+    return None
+
+
+def non_regular_inputs(repo: Path, rev: str, *paths: str) -> list[str]:
+    """Required check inputs present at REV that are directories, symlinks or other non-regular tree entries."""
+    return [path for path in paths if (mode := tree_mode(repo, rev, path)) is not None and not mode.startswith("100")]
+
+
 def deleted_inputs(repo: Path, base: str, head: str, *paths: str) -> list[str]:
     """Each of PATHS (a file a check reads, a declaration it judges against, or the check itself) that BASE has and
     HEAD does not. "HEAD has no such file, so the check does not apply" holds only for a branch older than the file:
@@ -1455,6 +1474,9 @@ def check_script(repo: Path, head: str, path: str, trusted_scripts: Path | None,
     never falls back to the pushed head's copy (the hook never runs code a push controls): an install that lacks a
     check HEAD has refuses the push. A push that deletes the check (BASE has it, HEAD not: deleted_inputs) still runs
     it: the installed copy on a hook run, BASE's on a manual one."""
+    malformed = non_regular_inputs(repo, head, path)
+    if malformed:
+        raise SystemExit(f"prepush-gate: {path} must be a regular file at the pushed head; refusing the check.")
     at_head = blob_at(repo, head, path)
     deleted = base is not None and bool(deleted_inputs(repo, base, head, path))
     if trusted_scripts is None:
@@ -1961,6 +1983,10 @@ def single_host_fallback_problems(repo: Path, base: str, head: str, trusted_scri
     names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", ".github/").decode().split("\0")
     if not any(n == FALLBACKS_DECLARATION or n.startswith(".github/workflows/") for n in names if n):
         return []
+    malformed = non_regular_inputs(repo, head, FALLBACKS_DECLARATION)
+    if malformed:
+        return [NoVerdict(f"prepush-gate: {FALLBACKS_CHECK}: {path} must be a regular file at the pushed head, so the "
+                          "check cannot judge the declaration") for path in malformed]
     gone = deleted_inputs(repo, base, head, FALLBACKS_DECLARATION)
     if gone:
         return deleted_input_refusals(FALLBACKS_CHECK, gone)

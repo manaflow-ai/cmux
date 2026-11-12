@@ -37,6 +37,8 @@ while IFS= read -r remote; do
                         scripts/git-hooks/refresh_checks.py
                         scripts/web_lint_prepush.py
                         scripts/lint_swift_namespaces.py
+                        # Legacy --namespace-fix installs copy this beside the hook even before the manifest existed.
+                        scripts/swift_source_mask.py
                         scripts/git-hooks/checks-copy-inputs
                     )
                     if ! git diff --quiet "$trusted_sha" -- "${trusted_inputs[@]}"; then
