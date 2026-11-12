@@ -30,6 +30,7 @@ import posixpath
 import signal
 import subprocess
 from pathlib import Path
+from typing import Callable
 
 GIT_SECONDS = 120
 # Which named objects this clone lacks, never fetching (leo-workspace tools/git_missing.py's ARGS): `?oid` lines are
@@ -60,10 +61,16 @@ def _env() -> dict[str, str]:
 class GitTree:
     """The tree of REF (default HEAD) in the repository at ROOT."""
 
-    def __init__(self, root: Path | str, ref: str = "HEAD"):
+    def __init__(self, root: Path | str, ref: str = "HEAD", *, entries: dict[str, tuple[str, str]] | None = None,
+                 read_blob: Callable[[str, str], bytes] | None = None):
+        """ENTRIES, when given, is entries() already listed (a caller that keeps one listing per commit). READ_BLOB,
+        when given, reads every blob (path, object id) -> bytes in place of cat-file: a promisor cache whose owner
+        fetches blobs on demand (base_red_excuse.git_text). It raises NeedsFullTree when it cannot fetch one. Either
+        way the path is resolved, followed and refused here, so every reader agrees on what a path names."""
         self.root = Path(root)
         self.ref = ref
-        self._entries: dict[str, tuple[str, str]] | None = None
+        self._entries = entries
+        self._read_blob = read_blob
         self._missing: set[str] | None = None
         self._batch: subprocess.Popen | None = None
 
@@ -224,6 +231,8 @@ class GitTree:
                       and (mode in REGULAR or (mode == SYMLINK and self.is_file(path))))
 
     def _blob(self, path: str, oid: str) -> bytes:
+        if self._read_blob is not None:
+            return self._read_blob(path, oid)
         if oid in self.missing():
             raise self._needs_full_tree(path, oid)  # never asked of cat-file (missing(), module docs)
         if self._batch is None:
