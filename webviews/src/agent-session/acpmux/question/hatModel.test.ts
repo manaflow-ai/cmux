@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP, turnViewFrom, waitingAsks } from "../conversation/turns";
 import { askKey } from "../conversation/waitingAskStore";
+import { hatSeenKey, unseenHatQuestions } from "./hatSeen";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import type { WatchedAsk } from "../needsYou/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -383,17 +384,11 @@ describe("a waiting tagged ask is in the hat or pinned above the composer, never
 
   test("a question the person dismissed never comes back in the hat", () => {
     const view = turnViewFrom(asked, new Set());
-    const [card] = view.nextSteps;
-    const dismissed = new Set([askKey(view.rows[card!.at]!)]);
-    const hat = hatQuestions({
-      sessionId: "chat",
-      nextStepOwner: "chat",
-      turns: view,
-      dismissed,
-      sessions: [],
-      asks: [],
-    });
-    expect(hat).toEqual([]);
+    const hat = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", turns: view, sessions: [], asks: [] });
+    // The pinned card's Dismiss and the hat's × record the same key (hatSeen.ts `hatSeenKey`).
+    const dismissed = new Set([askKey(view.rows[view.nextSteps[0]!.at]!)]);
+    expect(hat.map((question) => hatSeenKey(question))).toEqual([...dismissed]);
+    expect(unseenHatQuestions(hat, dismissed)).toEqual([]);
   });
 
   test("the person's reply after it: in neither", () => {

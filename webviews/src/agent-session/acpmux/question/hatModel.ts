@@ -259,9 +259,6 @@ export type HatQuestionInput = {
   /// itself: nothing is pinned there.
   rows?: readonly AcpmuxRow[];
   messages?: boolean;
-  /// The tagged asks the person dismissed in this chat (waitingAskStore.ts `dismissedAsks`, by
-  /// `askKey`): a dismissed ask never comes back in the hat.
-  dismissed?: ReadonlySet<string>;
   /// The chat a tagged ask's answer would go to (App.tsx `restartOwner`); none, no tagged ask.
   nextStepOwner?: string;
   sessions: readonly AcpmuxSessionEntry[];
@@ -297,7 +294,7 @@ export function hatQuestions(input: HatQuestionInput): HatQuestion[] {
           input.messages ? messagesNextStep(input.rows ?? []) : input.turns && lastWordAsk(input.turns),
           owner,
         );
-  if (next && !(next.answerKey && input.dismissed?.has(next.answerKey))) out.push(next);
+  if (next) out.push(next);
   if (input.sessionId) out.push(...childQuestions(input.sessionId, input.sessions, input.asks));
   return out;
 }
