@@ -235,11 +235,13 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           const page = await open(name, above, below);
           const box = await geometry(page);
           expect(box.lower.top).toBeGreaterThan(box.upper.bottom);
-          const distance = { upper: box.gapY - box.upper.bottom, lower: box.lower.top - box.gapY };
+          // Mouse events use integer CSS pixels in WebKit; measure the point we actually send.
+          const gapY = Math.round(box.gapY);
+          const distance = { upper: gapY - box.upper.bottom, lower: box.lower.top - gapY };
           const nearest = Math.min(distance.upper, distance.lower);
           // Consecutive tool rows can have zero row padding: their content owns the center.
           for (const x of [...(box.hasRowPadding ? [box.center] : []), box.left, box.right]) {
-            await drag(page, { x, y: box.gapY }, box.after);
+            await drag(page, { x, y: gapY }, box.after);
             expect((await selected(page)).length).toBeGreaterThan(0);
             const anchor = await page.evaluate(() => {
               const s = getSelection()!;
@@ -255,9 +257,9 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
             expect(distance[anchored] - nearest).toBeLessThanOrEqual(1 / 64);
             expect(anchor.offset).toBe(anchored === "upper" ? (anchor.length ?? -1) : 0);
             // Restart from an existing selection, then a plain gap click must clear it.
-            await drag(page, { x, y: box.gapY }, box.lower);
+            await drag(page, { x, y: gapY }, box.lower);
             expect((await selected(page)).length).toBeGreaterThan(0);
-            await page.mouse.click(x, box.gapY);
+            await page.mouse.click(x, gapY);
             expect(await selected(page)).toBe("");
           }
           await page.close();
@@ -275,7 +277,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           await paint(page);
           const box = await geometry(page);
           expect(box.lowerRowTop - box.upperRowBottom).toBeGreaterThanOrEqual(32);
-          const midpoint = (box.upperRowBottom + box.lowerRowTop) / 2;
+          const midpoint = Math.round((box.upperRowBottom + box.lowerRowTop) / 2);
           expect(midpoint).toBeGreaterThan(box.upperRowBottom);
           expect(midpoint).toBeLessThan(box.lowerRowTop);
           const distance = { upper: midpoint - box.upper.bottom, lower: box.lower.top - midpoint };

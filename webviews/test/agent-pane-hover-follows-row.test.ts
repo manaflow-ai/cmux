@@ -212,7 +212,9 @@ await requireBrowserLane("agent-pane-hover-follows-row.test.ts", async () => {
                   fading.push(`${animation.transitionProperty} still fading`);
               lit.push({ name: name(row), fading });
             }
-            const target = document.elementFromPoint(x, y)?.closest(rows);
+            // Static status text has no row-wide hover; only its link chip is interactive.
+            const control = document.elementFromPoint(x, y)?.closest("button, a, [role=button]");
+            const target = control?.closest(rows);
             resolve({ lit, under: target ? name(target) : undefined });
             return false;
           });
