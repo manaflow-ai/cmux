@@ -126,9 +126,11 @@ export default iconPickerPageEntry({
       session,
       prefs,
       finishState: "refused",
+      // Set Icon in the bottom bar, not a tile: a click on a tile makes the grid the step's own
+      // target, and the stage then reads a grid that moves down as the step's expansion (shift.ts).
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".icon-cell"));
-        await ctx.click({ selector: ".icon-cell" });
+        await ctx.waitFor(() => ctx.document.querySelector(".icon-bar-primary"));
+        await ctx.click({ selector: ".icon-bar-primary" });
         await ctx.waitFor(() => ctx.document.querySelector(".icon-picker-error"));
       },
     },
