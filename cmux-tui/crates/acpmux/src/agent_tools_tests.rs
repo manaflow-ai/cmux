@@ -543,6 +543,72 @@ fn the_hosted_mcp_server_is_off_by_default_and_its_config_holds_no_token() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// acpmux audit finding 10: a chat ran five `acpmux *-mcp` processes (secrets, offers,
+/// sub-sessions, forum, acpmux), about 4 MB and 5 threads each, 330 MB and 400 threads at 18
+/// live chats (Leo's Mac, 2026-11-11). Every one of acpmux's own servers in a chat's list now
+/// names one process to run in, `acpmux tools-mcp`, with each server's own env in its env; each
+/// keeps its name and own command, so the tool names the agent sees stay as they were.
+#[test]
+fn a_chat_runs_acpmux_s_own_tool_servers_in_one_process() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("acpmux-one-helper-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let cmux = root.join("cmux");
+    std::fs::write(&cmux, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&cmux, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let exe = std::path::PathBuf::from("/usr/local/lib/cmux/cmux-tui");
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(exe.clone(), vec!["acp".into()])),
+        cua_v2: Some(root.join("cua-v2")),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        ..memory_inputs(&root, None)
+    };
+    let folded = super::resolve(&inputs).for_session("s-one").folded();
+    let upstreams =
+        &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
+    let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
+    let upstreams = upstreams.as_array().unwrap();
+    let own = ["cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"];
+    let names: Vec<&str> = upstreams.iter().filter_map(|s| s["name"].as_str()).collect();
+    assert_eq!(
+        names,
+        ["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"]
+    );
+    // The process each server runs in: its shared launch, else its own command.
+    let launch = |s: &serde_json::Value| -> serde_json::Value {
+        match s.get("shared") {
+            Some(shared) => serde_json::json!([shared["command"], shared["args"]]),
+            None => serde_json::json!([s["command"], s["args"]]),
+        }
+    };
+    let launches: std::collections::BTreeSet<String> = upstreams
+        .iter()
+        .filter(|s| own.contains(&s["name"].as_str().unwrap()))
+        .map(|s| launch(s).to_string())
+        .collect();
+    assert_eq!(launches.len(), 1, "one helper process per chat, not one per server: {launches:?}");
+    let shared = &upstreams[1]["shared"];
+    assert_eq!(shared["command"], serde_json::json!(exe), "{shared}");
+    assert_eq!(shared["args"], serde_json::json!(["acp", "tools-mcp"]), "{shared}");
+    // Its env has every server's own env: each server's session and caller token, the same values.
+    for server in upstreams.iter().filter(|s| own.contains(&s["name"].as_str().unwrap())) {
+        for (key, value) in server["env"].as_object().unwrap() {
+            assert_eq!(&shared["env"][key], value, "{key} of {}", server["name"]);
+        }
+        // Each keeps its own command, for a `cmux` that starts it alone.
+        assert_eq!(server["args"][0], "acp", "{server}");
+        assert!(server["args"][1].as_str().unwrap().ends_with("-mcp"), "{server}");
+    }
+    assert_eq!(shared["env"]["ACPMUX_SECRET_SESSION"], "s-one", "{shared}");
+    assert_eq!(shared["env"]["ACPMUX_OFFER_SESSION"], "s-one", "{shared}");
+    assert_eq!(shared["env"]["ACPMUX_SESSION_ID"], "s-one", "{shared}");
+    // Computer use is not acpmux's own: it keeps its process.
+    assert!(upstreams[0].get("shared").is_none(), "{}", upstreams[0]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Leo, 2026-11-10: a session on a Cloud machine gets GitHub's MCP server through the team's
 /// GitHub connection, with no setup there; its config holds no token.
 #[test]

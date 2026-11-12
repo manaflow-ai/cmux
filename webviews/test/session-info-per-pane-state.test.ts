@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { fileURLToPath } from "node:url";
+import { settleReact } from "./support/domTeardown";
 
 type Module = typeof import("../src/agent-session/acpmux/session-info/sessionInfoState");
 // A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
@@ -35,8 +36,9 @@ beforeEach(() => {
   for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
   Object.assign(scope, replacements);
 });
-afterEach(() => {
+afterEach(async () => {
   setSystemTime();
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

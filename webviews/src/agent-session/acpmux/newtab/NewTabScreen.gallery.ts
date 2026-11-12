@@ -420,6 +420,35 @@ export default agentPaneEntry({
         );
       },
     },
+    "customize-slash-menu": {
+      note: "Typing /cust offers cmux's own /customize with what it does: ask, watch it change live, then apply or discard.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([]),
+      play: async (ctx) => {
+        await typePrompt(ctx, "/cust");
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll('[role="option"]')].some((row) => row.textContent?.includes("customize")),
+        );
+      },
+    },
+    "customize-refused-elsewhere": {
+      note: "/customize with another machine picked: refused inline, since its agent would change that machine's cmux; the prompt stays.",
+      ready: newTab({ template: "minimal", pageWidgets: [] }),
+      snapshot: noChat([], { peers: ["devbox"], peerKinds: { devbox: "ssh" } }),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        await openMachineList(ctx);
+        await ctx.click({ role: "option", name: /devbox/ });
+        await typePrompt(ctx, "/customize make the sidebar compact");
+        // Picking a machine may itself call chat.new (the pick switches the draft); only a start
+        // after Enter would be /customize's.
+        const starts = () => galleryNativeCalls(ctx.document).filter((call) => call.method === "chat.new").length;
+        const before = starts();
+        await ctx.press("Enter");
+        await ctx.waitFor(() => !!ctx.document.body.textContent?.includes("changes cmux on this computer"));
+        if (starts() > before) throw new Error("/customize started a chat on another machine");
+      },
+    },
     empty: {
       note: "No chats yet. A harness is installed, so the chip names its model and nothing on the page offers Add harness.",
       ready: newTab({ pageWidgets: ["chats"] }),
@@ -522,7 +551,7 @@ export default agentPaneEntry({
     },
     // The model button opens its columns menu, whole: the card does not clip it (Lawrence
     // 2026-10-13). Points near its top and bottom edges hit the menu, not the page. The models
-    // column ends on its Legacy models; Add harness… ends the rail.
+    // column ends on its Legacy models, with no caption; Add harness… ends the rail.
     "computer-first-setup": {
       note: "Fresh home with Labs off and only Studio Mac: the machine menu lists This Mac and Cloud (signed out, with Sign in for Cloud); Add Machine… and New Cloud Machine… are its right-click menu.",
       ready: { ...newTab(), machineName: "Studio Mac" },
@@ -545,7 +574,7 @@ export default agentPaneEntry({
       },
     },
     "model-picker-open": {
-      note: "The New Tab model button's columns, open down: the harness rail and the models, never cut by the card; Legacy models follow the top ones, and the rail ends on Add harness….",
+      note: "The New Tab model button's columns, open down: the harness rail and the models, never cut by the card; Legacy models follow the top ones with no caption, and the rail ends on Add harness….",
       ready: newTab(),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
@@ -560,8 +589,8 @@ export default agentPaneEntry({
           return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
         const models = ctx.find({ selector: '.acpmux-cols [role="listbox"]' });
-        if (![...models.querySelectorAll(".acpmux-cols-caption")].some((node) => node.textContent === "Legacy models"))
-          throw new Error("the models column must list its Legacy models under their caption");
+        if (models.querySelector(".acpmux-cols-caption"))
+          throw new Error("the models column must be one plain list: no tab or Legacy models caption");
         if (models.querySelector('[aria-label="Add harness…"]'))
           throw new Error("the models column must contain models only; Add harness belongs in the rail");
         const rail = ctx.find({ selector: '.acpmux-cols [role="tablist"]' });

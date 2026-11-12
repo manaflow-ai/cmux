@@ -193,9 +193,10 @@
   -webkit-mask-image:none;
   mask-image:none;
 }
-/* It opens over the project and machine pills above New Tab's box: a denser tint than a plain popup's
-   60% (still glass, under the menus' 0.9 ceiling), so under the blur they read as frost, not text. */
-.acpmux-composer-plus .acpmux-menu.ui-glass,.acpmux-menu.acpmux-composer-plus.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
+/* The + menu is every popup's glass (ui/glass/glass.css GLASS LEVELS). Its 86% tint of its own, over the
+   project and machine pills above New Tab's box, made it a third material beside the menus (Leo,
+   2026-11-11: "the styles mix and they don't look good"); the menu level's 32 px frost turns the pills
+   to frost. */
 /* A row is one line: the icon, the title, a gap, then the muted description, which alone truncates. */
 .acpmux-composer-plus .acpmux-menu-text,.acpmux-menu.acpmux-composer-plus .acpmux-menu-text{flex-direction:row;align-items:baseline;gap:var(--ds-space-2,8px)}
 .acpmux-composer-plus .acpmux-menu-label,.acpmux-menu.acpmux-composer-plus .acpmux-menu-label{flex:0 1 auto;min-width:0}
@@ -867,7 +868,7 @@ fieldset.acpmux-question{align-self:stretch;display:flex;flex-direction:column;m
 fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question[aria-busy=true]{opacity:.65}
 .acpmux-question-head{display:flex;align-items:flex-start;gap:var(--ds-space-2);float:left;width:100%;box-sizing:border-box;padding:var(--ds-space-3);border-bottom:var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);background:var(--acpmux-question-strip)}
-.acpmux-question-head+*{clear:both}
+.acpmux-question>:where(:not(.acpmux-question-head)){clear:both}
 .acpmux-question-prompt{flex:1;min-width:0;font-size:var(--text-body);line-height:var(--text-body--line-height);font-weight:var(--weight-regular);overflow-wrap:anywhere;letter-spacing:var(--text-body--letter-spacing)}
 .acpmux-question-chip{flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px;padding:0 var(--ds-space-2);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-soft,var(--agent-text));font-size:var(--text-caption);line-height:var(--text-caption--line-height);font-weight:var(--weight-regular);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-question-tabs{display:flex;flex-wrap:wrap;gap:var(--ds-space-1);padding:var(--ds-space-2) var(--ds-space-3) 0}

@@ -1,12 +1,15 @@
-/* The model button's menu as columns (QuickModelColumns.tsx): the harness rail, the models, then the
-   shown model's effort and Fast mode, under one search row whose corner holds the account avatar.
+/* The model button's menu as columns (QuickModelColumns.tsx): the harness rail and the models under one
+   search row whose corner holds the account avatar, then the shown model's effort and Fast mode in a
+   column that runs the whole height, up to the search row (standup 2026-11-12, as T3 Code does it).
    As tall as its content up to a cap; each column scrolls on its own. */
 .acpmux-cols.ui-popup {
   --acpmux-cols-line: var(--ui-line, color-mix(in srgb, var(--agent-text) 11%, transparent));
   --acpmux-cols-pad: var(--ui-popup-padding, 4px);
   --acpmux-cols-inline: var(--ui-row-padding-inline, 8px);
   --acpmux-cols-rail-width: 3.6923em;
-  --acpmux-cols-max-height: calc(259em / 13);
+  /* The default height's cap (Lucas 2026-11-12: smaller by default); a drag on the edge away from
+     the chip sets a height of the person's own (QuickModelColumns startResizeHeight). */
+  --acpmux-cols-max-height: 16em;
   /* Follow chrome type as well as interface scale. The model column gets most of the room. The
      menu grows to fit its longest model or provider name, up to 40em, then names wrap: a name is
      never clipped (Lawrence 2026-11-05: "cant see full model name"). It only grows while open
@@ -37,6 +40,8 @@
 
 /* The search row. Its corner block sits over the rail, and the rail's divider runs up through it. */
 .acpmux-cols-search {
+  grid-area: 1 / 1;
+  min-width: 0;
   display: flex;
   align-items: stretch;
   flex: 0 0 auto;
@@ -46,7 +51,8 @@
   align-self: center;
   flex: 0 0 auto;
   margin: 0 8px 0 calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
-  color: var(--agent-muted);
+  /* The same ink as the field's placeholder (standup 2026-11-12: "make the colors consistent"). */
+  color: var(--acpmux-composer-placeholder, var(--agent-muted));
 }
 .acpmux-cols-search > input {
   align-self: center;
@@ -175,12 +181,28 @@
    on the edge changes only it. Each column keeps its own vertical scroll; a cut name's tooltip names
    it in full. */
 .acpmux-cols.ui-popup { --acpmux-cols-tune-most: 12em; }
+/* Two sides: the search row, its strips and the rail and models on the left; the effort column on the
+   right, the whole height. The effort column is never narrower than its widest shown row (max-content),
+   so a level name such as Extra High always reads whole, on one line, at any menu width (standup
+   2026-11-12: never "Extra ..."); a provider name adds no width of its own (.acpmux-cols-provider). */
 .acpmux-cols-body {
   display: grid;
-  grid-template-columns:
-    var(--acpmux-cols-rail-width) minmax(0, 1fr)
-    var(--acpmux-cols-tune-fit, fit-content(var(--acpmux-cols-tune-most)));
+  grid-template-columns: minmax(0, 1fr) minmax(max-content, var(--acpmux-cols-tune-fit, max-content));
+  grid-template-rows: auto auto minmax(0, 1fr);
   flex: 1 1 auto;
+  min-height: 0;
+}
+.acpmux-cols-strips {
+  grid-area: 2 / 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-cols-lists {
+  grid-area: 3 / 1;
+  display: grid;
+  grid-template-columns: var(--acpmux-cols-rail-width) minmax(0, 1fr);
+  min-width: 0;
   min-height: 0;
 }
 .acpmux-cols-list {
@@ -194,6 +216,53 @@
   border-inline-end: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
 }
 .acpmux-cols-list:last-child { border: 0; }
+/* The effort column's Reasoning heading sits in the search row, centered on its height; its text starts
+   where the levels' text does (the list's padding and a row's). The column under it starts on the
+   search row's line: its top border runs level with the line under the search field. */
+.acpmux-cols-body > .acpmux-cols-tune-head {
+  grid-area: 1 / 2;
+  /* The search field's type and ink, not a caption's (Lucas 2026-11-12: "not bold, the same font and
+     colour as the search text"). */
+  color: var(--acpmux-composer-placeholder, var(--agent-muted));
+  font-size: var(--text-body);
+  font-weight: inherit;
+  letter-spacing: normal;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-block: 0;
+  padding-inline: calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
+  border-inline-start: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
+}
+.acpmux-cols-body > .acpmux-cols-tune {
+  grid-area: 2 / 2 / 4 / 3;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border-inline-start: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
+}
+/* Its levels and providers scroll on their own; Fast stays fixed under them, at the column's bottom,
+   a hairline above it (Lucas 2026-11-12). */
+.acpmux-cols-tune-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--acpmux-cols-pad);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+.acpmux-cols-tune-scroll[data-cmux-card-scroll] {
+  overflow-y: scroll;
+  --cmux-card-scroller: var(--cmux-scroller-size, 8px);
+  padding-inline-end: max(0px, calc(var(--acpmux-cols-pad) - var(--cmux-card-scroller, 7px)));
+}
+.acpmux-cols-tune-foot {
+  flex: none;
+  padding: var(--acpmux-cols-pad);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
+}
 /* The scroller's lane is always there (`scroll`, on no track; the thumb shows only while it
    scrolls), and the end padding gives it back. Under `auto`, WebKit adds the lane once the rows
    overflow but keeps them at the width they had without it, so each row's last 8 px lies under
@@ -295,6 +364,20 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* The effort column's level and Fast names never wrap and are never cut: the column fits them. */
+.acpmux-cols-body .acpmux-cols-tune .acpmux-cols-name {
+  flex: 1 0 auto;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+/* A provider name (its routes can run long) takes the room the levels give the column and ends in an
+   ellipsis past it; its tooltip names it whole. */
+.acpmux-cols-body .acpmux-cols-tune .acpmux-cols-name.acpmux-cols-provider {
+  contain: inline-size;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* A name other rows share, with its model id under it (twinRows). */
 .acpmux-cols-text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
 .acpmux-cols-id {
@@ -344,11 +427,6 @@
 .acpmux-cols-group:first-child { padding-top: var(--ds-space-1); }
 /* A heading's "Not installed" / "Signed out": a pick of its models sets the harness up first. */
 .acpmux-cols-group-note { margin-inline-start: auto; font-weight: 400; }
-/* A hairline between the effort levels and Fast: inset as the rows' text, 4px above and below. */
-.acpmux-cols-gap {
-  margin: 4px var(--acpmux-cols-inline);
-  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
-}
 
 /* A row's star: left of the check, shown on hover and kept while on. */
 .acpmux-cols-star {
@@ -461,15 +539,18 @@
 
 /* A column that scrolls fades the edge with more rows past it: 32px at the bottom, 24px at the top
    (QuickModelColumns.tsx markFades). */
-.acpmux-cols-list[data-fade-bottom] {
+.acpmux-cols-list[data-fade-bottom],
+.acpmux-cols-tune-scroll[data-fade-bottom] {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
   mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
 }
-.acpmux-cols-list[data-fade-top] {
+.acpmux-cols-list[data-fade-top],
+.acpmux-cols-tune-scroll[data-fade-top] {
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24px);
   mask-image: linear-gradient(to bottom, transparent, #000 24px);
 }
-.acpmux-cols-list[data-fade-top][data-fade-bottom] {
+.acpmux-cols-list[data-fade-top][data-fade-bottom],
+.acpmux-cols-tune-scroll[data-fade-top][data-fade-bottom] {
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 32px), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 32px), transparent);
 }
@@ -501,6 +582,33 @@
 }
 .acpmux-cols-resize:hover::after,
 .acpmux-cols-resize[data-dragging]::after { opacity: 1; }
+/* The grip on the edge away from the chip (QuickModelColumns startResizeHeight): a drag sets the
+   height, a double-click goes back to the default. Its hit area runs the width, half outside. */
+.acpmux-cols-resize-y {
+  position: absolute;
+  left: var(--ds-space-3);
+  right: var(--ds-space-3);
+  z-index: var(--layer-raised);
+  height: var(--ds-space-2);
+  cursor: ns-resize;
+  touch-action: none;
+}
+.acpmux-cols-resize-y[data-edge="bottom"] { bottom: -4px; }
+.acpmux-cols-resize-y[data-edge="top"] { top: -4px; }
+.acpmux-cols-resize-y::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28px;
+  height: calc(var(--ds-space-1) / 2);
+  translate: -50% -50%;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-text) 30%, transparent);
+  opacity: 0;
+}
+.acpmux-cols-resize-y:hover::after,
+.acpmux-cols-resize-y[data-dragging]::after { opacity: 1; }
 
 /* The level and Fast a search named (QuickModelColumns `named`): lit as a highlighted row, so the path
    Enter lands reads at a glance. */

@@ -16,12 +16,14 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
+import { CMUX_PASS_THROUGH } from "../cmuxCommands";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
 import type { CloudMachine } from "../cloudMachines";
 import { setNativeHost } from "../native";
 import { resetToastAvoidanceReports } from "../toastAvoidance";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -74,9 +76,10 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -984,6 +987,39 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(promptValue()).toBe("fix the flaky test");
 });
 
+// The app's own handler passes `/customize` through here, as it does for a New Tab whose chat (and
+// so its host) does not exist yet: the page itself knows where the chat would start.
+for (const mode of ["cloud", "sandboxed"] as const)
+  test(`/customize with ${mode} picked is refused: the chat would not start on this machine`, async () => {
+    const asks: unknown[][] = [];
+    const elsewhere: unknown[][] = [];
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          onAsk={(...args) => asks.push(args)}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+          environments
+          onCmuxCommand={() => CMUX_PASS_THROUGH}
+          runMode={{ mode, onMode: () => {} }}
+          onCloud={(...args) => (elsewhere.push(args), true)}
+          onSandbox={(...args) => (elsewhere.push(args), true)}
+        />,
+      );
+    });
+    await typePrompt("/customize make the sidebar compact");
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(elsewhere).toEqual([]);
+    expect(asks).toEqual([]);
+    // The refusal keeps what was typed.
+    expect(promptValue()).toBe("/customize make the sidebar compact");
+  });
+
 test("with Cloud picked and No folder, a send names no folder: not even the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   await act(async () => {
@@ -1770,4 +1806,74 @@ test("a start refused because the agent is not installed says so in plain words,
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(asks).toHaveLength(before + 2);
   expect(asks.at(-1)?.[1]).toBe("");
+});
+
+// Cmd-T, then typing at once: the app holds the keys and replays them into the page when the field
+// reports ready. A Chromium page shown a moment ago is often not focused yet, and its renderer drops
+// keys replayed then: after a cold launch Cmd-T then "hello" left the field empty, about one try in
+// five (cmux-lawrence-2, 2026-11-11). The readiness waits until the page has focus.
+test("Cmd-T then typing at once: the field reports ready only once its page has focus", async () => {
+  let pageFocused = false;
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => pageFocused });
+  const ready: { token: string; pageFocused: boolean; fieldFocused: boolean }[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        inputToken="cmd-t-1"
+        onInputReady={(token) => {
+          const editor = container.querySelector(".nt-field [contenteditable]");
+          ready.push({ token, pageFocused, fieldFocused: !!editor && editor.contains(document.activeElement) });
+        }}
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await promptField();
+  expect(ready, "the field reported ready while its page had no focus: the held keys would be lost").toEqual([]);
+
+  // The page gets focus (Chromium's grant lands): the readiness goes now, with the field focused.
+  pageFocused = true;
+  await act(async () => dom!.window.dispatchEvent(new dom!.window.FocusEvent("focus")));
+  expect(ready).toEqual([{ token: "cmd-t-1", pageFocused: true, fieldFocused: true }]);
+
+  // The held keys, replayed into the focused field, are typed into it.
+  await typePrompt("hello");
+  expect(promptValue()).toBe("hello");
+});
+
+test("a page that has focus already reports its field ready at once, and only once per token", async () => {
+  Object.defineProperty(dom!.window.document, "hasFocus", { configurable: true, value: () => true });
+  const ready: string[] = [];
+  const render = (token: string) =>
+    act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          inputToken={token}
+          onInputReady={(reported) => ready.push(reported)}
+          onAsk={() => {}}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+  await render("cmd-t-1");
+  await promptField();
+  expect(ready).toEqual(["cmd-t-1"]);
+  await render("cmd-t-1");
+  await act(async () => dom!.window.dispatchEvent(new dom!.window.FocusEvent("focus")));
+  expect(ready).toEqual(["cmd-t-1"]);
+  await render("cmd-t-2");
+  expect(ready).toEqual(["cmd-t-1", "cmd-t-2"]);
 });
