@@ -26,6 +26,12 @@ import Testing
 
     static func snapshot(_ bench: SidebarScrollBench) throws -> CGImage {
         let root = bench.sidebar
+        // `cacheDisplay` draws subviews in order and ignores the layers' zPosition, which puts the stuck header over its
+        // veil on screen: the capture orders them the same way.
+        if let stuck = bench.list.stuckHeader, let header = bench.list.rowViews[stuck.key] {
+            bench.list.addSubview(bench.list.stuckVeil, positioned: .above, relativeTo: nil)
+            bench.list.addSubview(header, positioned: .above, relativeTo: bench.list.stuckVeil)
+        }
         root.layoutSubtreeIfNeeded()
         for view in AANestedGroupsGalleryTests.all(root) { view.needsDisplay = true; view.displayIfNeeded() }
         CATransaction.flush()
