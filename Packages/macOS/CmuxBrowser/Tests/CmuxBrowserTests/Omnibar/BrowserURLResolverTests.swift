@@ -121,6 +121,21 @@ import Testing
         )
     }
 
+    /// A wrapped scheme-less URL is still unwrapped when its kept escapes are
+    /// not UTF-8 (a Shift-JIS path or query). The decoded path and query of
+    /// such a URL are empty, so wrap removal must judge the encoded components.
+    @Test func unwrapsSchemeLessURLWhoseKeptEscapesAreNotUTF8() throws {
+        #expect(
+            try #require(resolver.navigableURL(from: "example.com/\n%93%FA%96%7B日本")).absoluteString ==
+                "https://example.com/%93%FA%96%7B%E6%97%A5%E6%9C%AC"
+        )
+        #expect(
+            try #require(resolver.navigableURL(from: "example.com?\nq=%93%FA日本")).absoluteString ==
+                "https://example.com?q=%93%FA%E6%97%A5%E6%9C%AC"
+        )
+        #expect(resolver.textForPaste("example.com/\n%93%FA%96%7B日本") == "example.com/%93%FA%96%7B日本")
+    }
+
     @Test func doesNotCompactTextThatConstructsADifferentAuthority() {
         let explicitInput = "https://trusted.example\n@evil.example/path"
         let schemeLessInput = "trusted.example\n@evil.example/path"
