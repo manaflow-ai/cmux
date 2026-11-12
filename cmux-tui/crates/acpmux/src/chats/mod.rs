@@ -747,7 +747,8 @@ impl crate::hub::Hub {
 #[path = "update_cost_bench.rs"]
 mod update_cost_bench;
 
-// What one appended transcript line costs the chats page's text, god chat and small (manual).
-#[cfg(test)]
+// What one appended transcript line costs the chats page's text, god chat and small (manual;
+// it reads Linux's `/proc/self/io`).
+#[cfg(all(test, target_os = "linux"))]
 #[path = "follow_bench.rs"]
 mod follow_bench;

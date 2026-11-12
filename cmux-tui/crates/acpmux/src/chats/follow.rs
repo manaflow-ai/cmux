@@ -17,7 +17,6 @@
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read as _, Seek, SeekFrom};
-use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::Path;
 
 use cmux_chat_index::AdapterKind;
@@ -49,7 +48,7 @@ pub enum Read {
 #[derive(Debug)]
 pub struct Follow {
     family: &'static str,
-    /// The file's device and inode: another one is read whole.
+    /// The file's identity ([`file_id`]): another file is read whole.
     file: (u64, u64),
     /// The end of the last complete line read.
     offset: u64,
@@ -112,7 +111,22 @@ pub fn read(follow: &mut Option<Follow>, family: &'static str, path: &Path) -> O
 fn open(path: &Path) -> Option<(File, (u64, u64), u64)> {
     let file = File::open(path).ok()?;
     let meta = file.metadata().ok()?;
-    meta.is_file().then(|| (file, (meta.dev(), meta.ino()), meta.len()))
+    meta.is_file().then(|| (file, file_id(&meta), meta.len()))
+}
+
+/// A file's device and inode.
+#[cfg(unix)]
+fn file_id(meta: &std::fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt as _;
+    (meta.dev(), meta.ino())
+}
+
+/// A file's creation time: a transcript replaced by another file was created later. (Windows'
+/// file index needs an unstable API.)
+#[cfg(not(unix))]
+fn file_id(meta: &std::fs::Metadata) -> (u64, u64) {
+    let created = meta.created().ok().and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok());
+    created.map_or((0, 0), |at| (at.as_secs(), u64::from(at.subsec_nanos())))
 }
 
 impl Follow {
@@ -149,13 +163,15 @@ impl Follow {
 
     /// Whether the last read still describes this file: the same one, not shorter, and a line
     /// still ends where the last read stopped.
-    fn fits(&self, family: &str, id: (u64, u64), len: u64, file: &File) -> bool {
+    fn fits(&self, family: &str, id: (u64, u64), len: u64, mut file: &File) -> bool {
         let mut last = [0_u8; 1];
         self.family == family
             && self.file == id
             && self.offset <= len
             && (self.offset == 0
-                || file.read_exact_at(&mut last, self.offset - 1).is_ok() && last[0] == b'\n')
+                || file.seek(SeekFrom::Start(self.offset - 1)).is_ok()
+                    && file.read_exact(&mut last).is_ok()
+                    && last[0] == b'\n')
     }
 
     /// Folds what was appended since the last read. None: the transcript is read whole, as the
