@@ -41,6 +41,9 @@ public final class ConversationComposeViewController: UIViewController {
     private var existingKey: [String] = []
     private let composerContainer = ComposerHostView()
     private var composerHeight: NSLayoutConstraint?
+    /// The list under To: ends at the composer while it shows, at the keyboard while it hides.
+    private var listAboveComposer: NSLayoutConstraint?
+    private var listAboveKeyboard: NSLayoutConstraint?
     /// The docked keyboard's top edge: the composer sits on it.
     private var keyboardDock: MobileKeyboardDock?
     private let keyboardTracker = MobileKeyboardFrameTracker()
@@ -213,7 +216,7 @@ public final class ConversationComposeViewController: UIViewController {
             suggestionsTable.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: 8),
             suggestionsTable.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             suggestionsTable.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            suggestionsTable.bottomAnchor.constraint(equalTo: keyboard.guide.topAnchor),
+
             existingContainer.topAnchor.constraint(equalTo: recipientField.bottomAnchor, constant: ComposeMetrics.existingGap),
             existingContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             existingContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -230,6 +233,9 @@ public final class ConversationComposeViewController: UIViewController {
             composerHeight,
         ])
 
+        listAboveComposer = suggestionsTable.bottomAnchor.constraint(equalTo: composerContainer.topAnchor)
+        listAboveKeyboard = suggestionsTable.bottomAnchor.constraint(equalTo: keyboard.guide.topAnchor)
+        listAboveComposer?.isActive = true
         session.onChange = { [weak self] change in self?.sessionDidChange(change) }
         sessionDidChange(.recipients)
         // The listing's rows were made before this handler was set: show them now.
@@ -270,6 +276,7 @@ public final class ConversationComposeViewController: UIViewController {
         case .rows:
             suggestionsTable.reloadData()
             suggestionsTable.isHidden = session.rows.isEmpty
+            updateComposerVisibility()
             updateServiceLine()
         case .sending:
             composer.sendButton.isEnabled = !session.isSending
@@ -320,8 +327,18 @@ public final class ConversationComposeViewController: UIViewController {
             existingContainer.embedded = nil
         }
         existingContainer.isHidden = next == nil
-        composerContainer.isHidden = next != nil
+        updateComposerVisibility()
         existingContainer.setNeedsLayout()
+    }
+
+    /// Messages hides the message bar while matches for typed text show (the list runs to the
+    /// keyboard) and while a conversation under To: has its own; otherwise the list ends above it.
+    private func updateComposerVisibility() {
+        let hidden = existingController != nil || (!session.draft.query.isEmpty && !session.rows.isEmpty)
+        guard composerContainer.isHidden != hidden || listAboveKeyboard?.isActive != hidden else { return }
+        composerContainer.isHidden = hidden
+        listAboveComposer?.isActive = !hidden
+        listAboveKeyboard?.isActive = hidden
     }
 
     /// The sheet composer's text and images, as the first message.

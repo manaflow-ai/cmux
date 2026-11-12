@@ -302,6 +302,13 @@ final class EmbeddedConversation: UIViewController, ConversationComposeEmbeddabl
         }
     }
 
+    /// Removed from under To: (its token went): it gives the store back at once, so the next
+    /// pick of the same Chief can show it again.
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        if parent == nil { release() }
+    }
+
     /// Stops watching and hands the store's updates back.
     func release() {
         if let sentToken { session.store.removeObserver(sentToken) }
