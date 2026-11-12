@@ -116,7 +116,10 @@ async fn managed_unit_start_matches_shortened_sockets() {
             &unit_home,
             uid,
         ));
-        assert!(socket.as_os_str().len() < 104, "socket was not shortened");
+        assert!(
+            socket.as_os_str().len() <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES,
+            "socket was not shortened"
+        );
         let environment = format!(
             "ACPMUX_HOME={} {}",
             unit_home.display(),
