@@ -54,7 +54,7 @@ describe("create to streamed first text", () => {
 
   test("streams split JSON and UTF-8, ignores thoughts/tools/empty text, returns before end", () => {
     const ignored = [chunk("agent_thought_chunk"), chunk("tool_call"), chunk("agent_message_chunk", ""), { kind: "turn_end" }];
-    const lines = ignored.slice(0, 3).map((v) => JSON.stringify(v)).join("\n") + "\n";
+    const lines = [{ kind: "turn_started" }, ...ignored.slice(0, 3)].map((v) => JSON.stringify(v)).join("\n") + "\n";
     const text = JSON.stringify(chunk("agent_message_chunk", "héllo")) + "\n";
     const result = runTail(`assert sys.argv[1:] == ['acp', 'tail', 'fresh-session', '--since', '0', '--follow']
 os.write(1, ${JSON.stringify(lines)}.encode())
@@ -68,11 +68,13 @@ time.sleep(10) # a turn whose end must never be awaited`);
 
   test("accepts the live session/update shape", () => {
     const live = { method: "session/update", params: chunk().msg.params };
-    expect(runTail(`print(${JSON.stringify(JSON.stringify(live))}, flush=True)`).stdout.trim()).toBe("@@first-text");
+    expect(runTail(`print('{"kind":"turn_started"}', flush=True)\nprint(${JSON.stringify(JSON.stringify(live))}, flush=True)`).stdout.trim()).toBe("@@first-text");
   });
 
   test.each([
     ["EOF without text", "pass", 2000],
+    ["text before a turn starts", `print(${JSON.stringify(JSON.stringify(chunk()))}, flush=True)`, 2000],
+    ["turn ends without text", `print('{"kind":"turn_result"}', flush=True)`, 2000],
     ["thoughts alone", `print(${JSON.stringify(JSON.stringify(chunk("agent_thought_chunk")))}, flush=True)`, 2000],
     ["hung stream", "time.sleep(10)", 100],
     ["oversized line", "os.write(1, b'x' * 1100000)", 2000],

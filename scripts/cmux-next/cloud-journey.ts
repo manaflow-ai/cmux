@@ -155,7 +155,28 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type Step = { step: string; status: Status; ms: number; detail: string };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number };
+export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
+
+/** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
+export class FirstTextTiming {
+  private start: number | undefined;
+  private marks: Record<string, number> = {};
+  constructor(private readonly clock = () => performance.now()) {}
+  mark(phase: string): void {
+    if (phase === "create" && this.start === undefined) {
+      this.start = this.clock();
+      this.marks.create = 0;
+      return;
+    }
+    if (this.start === undefined || phase in this.marks) return;
+    this.marks[phase] = Math.round(this.clock() - this.start);
+  }
+  fields(): FirstTextFields {
+    if (this.start === undefined) return {};
+    return { create_marks_ms: { ...this.marks }, ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}) };
+  }
+}
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
 // No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
@@ -187,6 +208,7 @@ export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<st
 class Journey {
   readonly steps: Step[] = [];
   readonly secrets: string[] = [];
+  readonly firstText = new FirstTextTiming();
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
@@ -203,6 +225,8 @@ class Journey {
     this.record({ step: name, status: "skip", ms: 0, detail: why });
   }
   record(s: Step): void {
+    const fields = this.firstText.fields();
+    if (fields.create_marks_ms) s.fields = { ...fields, ...s.fields };
     s.detail = scrub(s.detail, this.secrets);
     this.steps.push(s);
     console.log(`${s.status.toUpperCase().padEnd(4)} ${s.step} ${s.ms} ms :: ${s.detail}`);
@@ -332,6 +356,76 @@ async function sign(key: CryptoKey, message: string): Promise<string> {
 
 type ExecResult = { code: number; stdout: string; stderr: string };
 type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
+
+/** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
+ * only a marker, never the model's text. --since 0 closes the subscribe/send race on this run's unique session.
+ * The process is bounded and reaped by its own parent; no daemon or unrelated process is signalled. */
+export function firstTextCommand(session: string, budgetMs: number): string {
+  return `python3 - "$c" ${shq(session)} ${Math.min(270_000, budgetMs) / 1000} <<'CMUX_FIRST_TEXT'
+import json, os, selectors, signal, subprocess, sys, time
+p = subprocess.Popen([sys.argv[1], 'acp', 'tail', sys.argv[2], '--since', '0', '--follow'],
+                     stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
+sel = selectors.DefaultSelector()
+sel.register(p.stdout, selectors.EVENT_READ)
+end = time.monotonic() + float(sys.argv[3])
+buf = b''
+started = False
+try:
+    while time.monotonic() < end:
+        if not sel.select(max(0, end - time.monotonic())):
+            break
+        data = os.read(p.stdout.fileno(), 65536)
+        if not data:
+            break
+        buf += data
+        if len(buf) > 1048576:
+            raise RuntimeError('first-text stream line exceeds 1 MiB')
+        while b'\\n' in buf:
+            line, buf = buf.split(b'\\n', 1)
+            try:
+                event = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            if not isinstance(event, dict):
+                continue
+            if event.get('kind') == 'turn_started':
+                started = True
+            if event.get('kind') in ('turn_result', 'turn_error'):
+                sys.exit('first turn ended without assistant text')
+            if not started:
+                continue
+            msg = event.get('msg', event)
+            params = msg.get('params', {}) if isinstance(msg, dict) else {}
+            update = params.get('update', {}) if isinstance(params, dict) else {}
+            if not isinstance(update, dict) or update.get('sessionUpdate') != 'agent_message_chunk':
+                continue
+            content = update.get('content', {})
+            if isinstance(content, dict) and content.get('type') == 'text' and isinstance(content.get('text'), str) and content['text']:
+                print('@@first-text', flush=True)
+                sys.exit(0)
+    sys.exit('first-text stream ended or timed out without assistant text')
+finally:
+    sel.close()
+    if p.poll() is None:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    p.wait()
+CMUX_FIRST_TEXT`;
+}
+
+/** Start before send and record as soon as the observer answers. Never reject an unawaited background promise. */
+export async function observeFirstText(exec: Exec, session: string, budgetMs: number, timing: FirstTextTiming, record: (step: Step) => void): Promise<void> {
+  try {
+    const r = await exec(`${GUEST}${firstTextCommand(session, budgetMs)}`, Math.min(270_000, budgetMs) + 5000);
+    if (r.code !== 0 || r.stdout.trim() !== "@@first-text") throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
+    timing.mark("first_text");
+    record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
+  } catch (error) {
+    record({ step: "first text", status: "fail", ms: 0, detail: String((error as Error)?.message ?? error), fields: timing.fields() });
+  }
+}
 
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
 export function directExec(api: Api, machine: string, journey: Journey): Exec {
@@ -865,13 +959,15 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
 
 /**
  * The run as one synthetic-probe result row (cmuxterm-hq tools/fleet-reconcilers/probes.py): ok only when a reply
- * was read back, with ms from the send to the first reply; otherwise fail with the first failed step.
+ * was read back, with the existing ms from send to completed reply; otherwise fail with the first failed step.
+ * Real-model runs separately carry create-to-streamed-first-text and cumulative phase marks.
  */
-export function probeRow(probe: string, steps: Step[], run?: string, at = new Date()): Record<string, unknown> {
+export function probeRow(probe: string, steps: Step[], run?: string, at = new Date(), context?: { backend: string; model: "real" | "stub" }): Record<string, unknown> {
   const send = steps.find((s) => s.step === "send chat");
   const reply = steps.find((s) => s.step === "reply");
   const failed = steps.find((s) => s.status === "fail");
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}) };
+  const fields = context?.model === "real" ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...context, ...fields };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
   return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran" };
 }
@@ -1841,6 +1937,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   let localGatewayDir: string | null = null;
   let deleted = false;
   let cleaned = false;
+  let firstTextObserver: Promise<void> | undefined;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
   // null, so the run's own machine is also found by its name (`cloud journey <tag>`).
   const cleanup = async () => {
@@ -1891,7 +1988,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
   const writeProbe = () => {
-    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined, new Date(), { backend: backend.name, model: modelStub || gatewayStub ? "stub" : "real" }))}\n`);
   };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
@@ -1990,14 +2087,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           return { value: m, detail: `${reuse} status ${m.status}${m.status === "paused" ? " (started)" : ""}, kept` };
         })
       : await J.step("create machine", async () => {
+          J.firstText.mark("create");
           createSentAt = Date.now();
           const v = await api.op("cloud.machine.create", { name: machineName, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `${tag}-create`);
           machine = v.machine.id as string;
           createAnsweredAt = Date.now();
+          J.firstText.mark("created");
           return { value: v.machine, detail: `${machine} status ${v.machine.status}` };
         });
     const bound = await J.step("running (status)", async () => {
       const m = await waitMachine(api, created.id, (x) => x.status === "running" && Boolean(x.host), 300_000);
+      J.firstText.mark("running");
       return { value: m, detail: `host ${m.host}, daemon ${m.image?.daemon_version ?? "?"}` };
     });
     await J.step("listed", async () => {
@@ -2230,6 +2330,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    J.firstText.mark("login");
     if (gatewayAny) {
       J.skip(loginStep, "--gateway: the chat machine gets no login; its model calls go to the team's gateway");
     } else if (!provider || only.has("chat") || only.has("login")) {
@@ -2264,6 +2365,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    J.firstText.mark("login_ready");
     if (gatewayStub && provider === "codex" && !only.has("chat")) {
       // The stub lists no models, and with the image's default model slug Codex sends it no tools (codex-cli 0.164
       // against the stub: tools=0 with the default, 9 with "stub-model"), so the turn gets the stub's side reply
@@ -2379,13 +2481,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
     } else {
+      J.firstText.mark("session_start");
       await J.step(`start agent (${agent})`, async () => {
         const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
+        J.firstText.mark("session_ready");
         return { value: null, detail: `session ${session}` };
       });
+      firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
+        J.firstText.mark("send");
         await send(prompt);
+        J.firstText.mark("sent");
         return { value: null, detail: prompt.slice(0, 80) };
       });
       await J.step("reply", async () => {
@@ -2430,6 +2537,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         return { value: last, detail: last.slice(0, 280) };
       });
+      await firstTextObserver;
       // `--agent claude/MODEL`: the session must run the model asked for. Read from what ran: the `model` of every
       // assistant message in the session's Claude transcript, never the reply's own words (a model gets them wrong
       // about itself) and never `acp session info`, whose record names the model asked for and lists every model
@@ -2619,7 +2727,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
         const chaosOut = argValue("--chaos-probe-out", argv);
-        if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+        if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined, new Date(), { backend: backend.name, model: modelStub || gatewayStub ? "stub" : "real" }))}\n`);
       }
     }
 
@@ -2675,6 +2783,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   } finally {
     process.off("SIGTERM", onSignal);
     process.off("SIGINT", onSignal);
+    await firstTextObserver;
     await cleanup();
   }
   const failed = J.steps.filter((s) => s.status === "fail");
