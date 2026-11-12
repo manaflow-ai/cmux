@@ -141,6 +141,11 @@ export type TailGlide = {
   dropUnseen(view: () => DOMRect): void;
   /// Whether a row is drawn away from its place now (a glide playing or held).
   moving(): boolean;
+  /// This pass's follow chase moved the rows in view `px` on screen at once (negative: up), what it
+  /// did not draw back. The next `place` keeps the live line, the last row, where it was drawn
+  /// against it: the line lies at the bottom stack's rest gap in every layout, so moving it with the
+  /// rows above put it into the gap's room (agent-pane-composer-rest-gap). Cleared by each `place`.
+  jumped(px: number): void;
 };
 
 /// How far `row` is drawn below its place by `translate` (negative: above), from its computed style.
@@ -259,6 +264,8 @@ export function createTailGlide(): TailGlide {
     animation.addEventListener("cancel", done, { once: true });
     return animation;
   };
+  /// What this pass's chase moved the rows in view by at once (`jumped`), until `place` takes it.
+  let jump = 0;
   const stop = () => {
     for (const animation of playing) animation.cancel();
     playing.clear();
@@ -266,9 +273,13 @@ export function createTailGlide(): TailGlide {
     guards.clear();
     clips.clear();
     last = undefined;
+    jump = 0;
   };
   return {
     stop,
+    jumped(px) {
+      jump += px;
+    },
     moving: () =>
       [...playing].some((animation) => animation.playState !== "finished" && animation.playState !== "idle"),
     hold() {
@@ -296,6 +307,8 @@ export function createTailGlide(): TailGlide {
         const row = glides.get(animation);
         if (row && !row.isConnected) cancelOn(row);
       }
+      const jumpedBy = jump;
+      jump = 0;
       if (!thread || !track || foldMs(thread) <= 0) {
         last = undefined;
         return;
@@ -328,6 +341,20 @@ export function createTailGlide(): TailGlide {
         if (held) moves = true;
         parts.push({ row, top, bottom: row.offsetTop + row.offsetHeight, moved, start: -moved - held });
       }
+      // The live line, the last row, lies at the rest gap under the bottom stack in every layout. What
+      // the chase moved at once in this pass (`jumped`: a reply's growth past a line) moves the rows
+      // from the anchor down with it, but not the line: it starts back by that and holds where it
+      // was drawn. Moved with them, it rose up to 3.4 px into the gap's room in that frame and then
+      // came back down (agent-pane-composer-rest-gap, Chromium: 59.4 px against 56).
+      const liveLine = parts.at(-1);
+      if (
+        liveLine?.row.dataset.rowId === LIVE_THINKING &&
+        before.has(LIVE_THINKING) &&
+        Math.abs(jumpedBy) >= MIN_MOVE_PX
+      ) {
+        liveLine.start -= jumpedBy;
+        moves = true;
+      }
       if (!moves) return;
       // A row still gliding starts from where it is drawn: the glide's own part of its translate, read
       // with and without it (a CSS entrance on the row plays on under it), in two style reads for all.
@@ -345,11 +372,21 @@ export function createTailGlide(): TailGlide {
       if (!(ms > 0)) return;
       if (carry && parts.some((part) => part.row.dataset.rowId === carry.id)) carry.used = true;
       const timed = { duration: ms, easing };
+      // Every glide and clip of the pass starts at this frame's time, the time the follow chase
+      // integrates its first step from (followChase `shift`). Left pending, Chromium starts an
+      // animation on a later frame (a composited one when the compositor reports it), so the chase's
+      // first step home ran a frame before the live line's glide did: the line drew up to 4 px above
+      // its rest, into the gap under the bottom stack (agent-pane-composer-rest-gap, Chromium only).
+      const startAt = thread.ownerDocument.timeline?.currentTime;
+      const pin = (animation: Animation) => {
+        if (typeof startAt === "number") animation.startTime = startAt;
+        return animation;
+      };
       /// This pass's glide on each row: the clips over a row guard the glide it plays now.
       const slides = new Map<HTMLElement, Animation>();
       for (const part of parts)
         if (Math.abs(part.start) >= MIN_MOVE_PX) {
-          const slide = part.row.animate([{ translate: `0 ${part.start}px` }, { translate: "0 0" }], timed);
+          const slide = pin(part.row.animate([{ translate: `0 ${part.start}px` }, { translate: "0 0" }], timed));
           glideOn(part.row, slide);
           slides.set(part.row, slide);
         }
@@ -377,7 +414,7 @@ export function createTailGlide(): TailGlide {
           const by = upper.start - lower.start - (lower.top - upper.bottom);
           if (by >= MIN_MOVE_PX) over.push({ glide: slides.get(lower.row), by });
         }
-        if (over.length) clipOn(upper.row, over, timed);
+        if (over.length) pin(clipOn(upper.row, over, timed));
       }
     },
   };

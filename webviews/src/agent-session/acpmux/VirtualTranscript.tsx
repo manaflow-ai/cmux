@@ -1687,11 +1687,16 @@ function TranscriptView({
     const now = before ? rowTop(before.id) : undefined;
     // Followed again after the reader's input held it: it goes on home from where it is drawn.
     resumeFollowMotion();
+    const drawn = chase.outstanding();
     chase.fit(below);
     // A turn's end folding moves the rows itself (turnEndFold.ts): their motion is no move to chase.
     const turnEnding = thread.current?.hasAttribute(TURN_END_ATTR) === true;
-    if (before && now !== undefined && !moveAtOnce && !turnEnding)
+    if (before && now !== undefined && !moveAtOnce && !turnEnding) {
       chase.shift(thread.current, now - before.top, below, held, arrived);
+      // What the chase did not draw back moved the rows in view on screen in this frame (a reply's
+      // growth past CHASE_HOLD_LINES lands at once): the live line holds against it (tailGlide.ts).
+      tailGlide.current?.jumped(now - before.top + chase.outstanding() - drawn);
+    }
     const first = visibleLayoutRange(placed, layoutScrollTop(node), node.clientHeight, 0).first;
     const id = shown[Math.min(first, shown.length - 1)]?.id;
     const top = id === undefined ? undefined : rowTop(id);
