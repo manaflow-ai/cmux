@@ -23,7 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RELEASE = "scripts/ci/nightly-steps/app-build-release.sh"
 LIVE = "scripts/ci/nightly-steps/app-build-live-code.sh"
 # The live code settings are the real ones (scripts/live-code/lib/xcodebuild-args.sh, which reads Package.swift).
-REAL = (RELEASE, LIVE, "scripts/live-code/lib/xcodebuild-args.sh", "Packages/macOS/CmuxNext/Package.swift")
+REAL = (RELEASE, LIVE, "scripts/live-code/lib/xcodebuild-args.sh", "Packages/macOS/CmuxNext/Package.swift",
+        "scripts/cmux-next/lib/swift-size-opt.sh")
 VARIANT = ROOT / "scripts/ci/nightly-steps/app-build-live-code.sh"
 
 STUBS = {
@@ -68,8 +69,18 @@ class NightlyLiveCodeVariant(unittest.TestCase):
         args = self.build()
         self.assertEqual([a for a in args if a.startswith("OTHER_SWIFT_FLAGS=")],
                          ["OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_NO_BROWSER_IMPORT"])
-        self.assertFalse([a for a in args if a.startswith(("SWIFT_OPTIMIZATION_LEVEL=", "OTHER_LDFLAGS=",
-                                                           "LD_EXPORT_SYMBOLS=", "CMUX_LIVE_CODE_"))])
+        self.assertFalse([a for a in args if a.startswith(("OTHER_LDFLAGS=", "LD_EXPORT_SYMBOLS=", "CMUX_LIVE_CODE_"))])
+        # A classic track keeps its optimization.
+        self.assertFalse([a for a in args if a.startswith(("SWIFT_OPTIMIZATION_LEVEL=", "CMUX_SWIFT_OPT_"))])
+        self.assertEqual(args[-1], "build")
+
+    def test_the_next_nightly_compiles_swift_for_size(self) -> None:
+        # Release Swift is compiled for size, the hot targets at -O (scripts/cmux-next/lib/swift-size-opt.sh).
+        args = self.build(BUILD_TRACK="nightly-next")
+        self.assertEqual([a for a in args if a.startswith("SWIFT_OPTIMIZATION_LEVEL=")],
+                         ["SWIFT_OPTIMIZATION_LEVEL=$(CMUX_SWIFT_OPT_$(TARGET_NAME):default=-Osize)"])
+        self.assertIn("CMUX_SWIFT_OPT_CmuxNextTerminal=-O", args)
+        self.assertNotIn("CMUX_SWIFT_OPT_CmuxNextSettings=-O", args)
         self.assertEqual(args[-1], "build")
 
     def test_the_variant_keeps_the_nightly_defines_in_one_swift_flags(self) -> None:
@@ -82,6 +93,8 @@ class NightlyLiveCodeVariant(unittest.TestCase):
                 self.assertIn("CMUX_LIVE_CODE_OPT_CmuxNextApp=-Onone", args)
                 self.assertIn("CMUX_LIVE_CODE_OPT_CmuxNextAgentPane=-Onone", args)
                 self.assertIn("LD_EXPORT_SYMBOLS=YES", args)
+                # The live code variant keeps its own optimization, not the size settings.
+                self.assertFalse([a for a in args if a.startswith("CMUX_SWIFT_OPT_")])
                 self.assertIn("OTHER_LDFLAGS=$(inherited) -Xlinker -no_fixup_chains -Xlinker -no_deduplicate", args)
                 self.assertEqual(args[-1], "build")
 

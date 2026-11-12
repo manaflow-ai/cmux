@@ -17,22 +17,28 @@ pub(crate) struct Scan {
     pub end: u64,
     /// Whether bytes that are not a whole record follow `end` (a torn write).
     pub torn: bool,
+    pub bytes_read: u64,
 }
 
 /// Reads the records of `file` from `from`, handing each whole one to `apply` with its offset.
 /// `apply` returns false for a record that cannot follow the one before (its seq is not the
 /// next one); the scan treats it as torn, like a bad crc.
-pub(crate) fn scan(
+pub(crate) fn scan<E>(
     file: &File,
     from: u64,
-    mut apply: impl FnMut(u64, &Header) -> io::Result<bool>,
-) -> io::Result<Scan> {
+    mut apply: impl FnMut(u64, &Header) -> Result<bool, E>,
+) -> Result<Scan, E>
+where
+    E: From<io::Error>,
+{
     let mut chunk = vec![0u8; CHUNK];
     let mut offset = from;
+    let mut bytes_read = 0u64;
     loop {
         let read = fsio::read_at(file, &mut chunk, offset)?;
+        bytes_read = bytes_read.saturating_add(read as u64);
         if read == 0 {
-            return Ok(Scan { end: offset, torn: false });
+            return Ok(Scan { end: offset, torn: false, bytes_read });
         }
         let at_file_end = read < chunk.len();
         let mut at = 0usize;
@@ -45,7 +51,7 @@ pub(crate) fn scan(
                 Check::Whole(header) => {
                     let record_at = offset.saturating_add(at as u64);
                     if !apply(record_at, &header)? {
-                        return Ok(Scan { end: record_at, torn: true });
+                        return Ok(Scan { end: record_at, torn: true, bytes_read });
                     }
                     at = at.saturating_add(header.record_len());
                 }
@@ -53,7 +59,11 @@ pub(crate) fn scan(
                 // again from the record's start; at the file's end it is a torn write.
                 Check::Short if !at_file_end && at > 0 => break,
                 Check::Short | Check::Bad => {
-                    return Ok(Scan { end: offset.saturating_add(at as u64), torn: true });
+                    return Ok(Scan {
+                        end: offset.saturating_add(at as u64),
+                        torn: true,
+                        bytes_read,
+                    });
                 }
             }
         }
