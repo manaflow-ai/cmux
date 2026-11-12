@@ -111,7 +111,7 @@ enum TerminalChatHandler {
         tabs.terminalHandOffs[key] = WindowRules.HandOff(deadline: Date().timeIntervalSince1970 + 60)
         // action-wait-allow: acpmux must end the chat's run before the harness resumes its session; nothing can show first
         return .waiting(.externalProcess) {
-            func fail(_ reason: String) -> ActionWorkFailure {
+            @MainActor func fail(_ reason: String) -> ActionWorkFailure {
                 tabs.terminalHandOffs[key] = nil
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
