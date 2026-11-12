@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43172324514",
+  "recorded_at": "2026-11-12T07:11:13Z",
+  "reason": "cmux-tui 53139ac8c0cc changes the image's cmux-tui (pinned 99a6d8f4bb61)",
+  "dry_run": false,
+  "cmux_tui": "53139ac8c0ccd95f5982af0a16d60ece73c5d495",
+  "fixes": [
+    {
+      "sha": "0f6711ded5db1d7653335e71b4825c3a8000cd22",
+      "mergedAt": "2026-11-11T22:45:04-08:00",
+      "subject": "cmux-tui: a chat folder's time is imported in 10 minute steps"
+    },
+    {
+      "sha": "5cc56046d9e21b4153c7b3c18dde86e2345ad43f",
+      "mergedAt": "2026-11-11T22:45:04-08:00",
+      "subject": "cmux-tui tests: a busy chat folder commits its time once per step"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T07:11:13Z",
+    "snapshot_id": "sh-e64a6d2778714cce9cf6abbed1441ae6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43172324514): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8bbd3da732285f9c608ca2b3de9920534a959865",
+    "image": "cloud-native-auto-53139ac8-43172324514-1",
+    "revision": "ci-43172324514-1",
+    "at": "2026-11-12T07:11:13Z"
+  },
+  "rolled_back": false
+}
