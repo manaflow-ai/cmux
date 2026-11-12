@@ -212,12 +212,14 @@ final class DiffCommentsBridge: NSObject, WKScriptMessageHandlerWithReply {
             DiffCommentSubmissionPool.shared.removePending(commentId: id)
             return ["deleted": store.delete(id: id, repoRoot: repoRoot)]
         case "file.open":
-            guard let path = params["path"] as? String,
-                  let fileURL = diffViewerOpenableFileURL(repoRoot: repoRoot, path: path) else {
-                throw BridgeError.invalidRequest("File cannot be opened")
-            }
             let (workspace, panelId) = try resolvePanel(for: webView)
-            return ["opened": workspace.openOrFocusFilePreviewSplit(from: panelId, filePath: fileURL.path) != nil]
+            guard let path = params["path"] as? String,
+                  let fileURL = diffViewerOpenableFileURL(repoRoot: repoRoot, path: path),
+                  workspace.openOrFocusFilePreviewSplit(from: panelId, filePath: fileURL.path) != nil else {
+                NSSound.beep()
+                return ["opened": false]
+            }
+            return ["opened": true]
         default:
             throw BridgeError.invalidRequest("Unsupported method '\(method)'")
         }
