@@ -25,7 +25,7 @@ import { attachSources } from "./attachmentSources";
 import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { isVideoName, useVideoInfo } from "./videoAttachments";
-import { videoShapeOf } from "./videoShape";
+import { toldVideoShape, videoShapeOf } from "./videoShape";
 
 export const ATTACHMENT_LABELS = {
   attachments: "composer.attachments",
@@ -173,6 +173,10 @@ export type PendingAttachment = {
   /// wide and unseen, so it first shows at its thumbnail's size, never a stand-in width. For
   /// HEADER_WAIT_MS at most; one whose header does not answer by then shows at the stand-in.
   sizing?: boolean;
+  /// The file's byte count, known the moment it is pasted: its loading chip is the file chip it
+  /// becomes, size label and all, so the chip landing changes nothing (Leo, 2026-11-11: "this 3
+  /// stage attachment thing is still there").
+  bytes?: number;
 };
 
 /// The style that gives a tile its image's thumbnail shape (`size`, the image's pixels; imageWork.ts
@@ -181,6 +185,81 @@ export type PendingAttachment = {
 /// thumbnail ends in.
 export function imageShape(size: { width: number; height: number } | undefined): { aspectRatio: string } | undefined {
   return size?.width && size.height ? { aspectRatio: String(thumbRatio(size.width, size.height)) } : undefined;
+}
+
+/// What the host told the page of a gesture's images before the page got it
+/// (AgentPaneGestureShapes.swift): each one's displayed pixel size, by its file name (none for a
+/// pasted bitmap with no file).
+type HostShapes = {
+  kind?: string;
+  at?: number;
+  shapes?: { name?: string | null; width?: number; height?: number }[];
+};
+
+/// How long after the host told them a gesture's shapes are still its: the page gets the gesture in
+/// the same moment, so this is slack, not a wait.
+const HOST_SHAPES_LIFETIME_MS = 2000;
+
+/// The sizes the host told for `files`, images' and videos' (Leo, 2026-11-11: "if you're literally just pointing to a file
+/// path, why would it ever take time to load anything anyways?"), used up so a later gesture never
+/// takes them: each image's by name, or the one unnamed (a pasted bitmap) for a gesture's only
+/// image. Undefined for each file the host told nothing of (an older host, a Chromium page's drop
+/// the page saw first): its tile reads its header (sizeFromHeader).
+export function hostShapes(
+  files: readonly (File | MadeFile)[],
+  kind: DroppedKind | undefined,
+): ({ width: number; height: number } | undefined)[] {
+  const told = (globalThis as { __cmuxAttachShapes?: HostShapes }).__cmuxAttachShapes;
+  const none = files.map(() => undefined);
+  if (!told || !Array.isArray(told.shapes)) return none;
+  delete (globalThis as { __cmuxAttachShapes?: HostShapes }).__cmuxAttachShapes;
+  // Only this gesture's: a drop never takes what a paste told.
+  if (!kind || told.kind !== kind) return none;
+  if (typeof told.at !== "number" || Math.abs(Date.now() - told.at) > HOST_SHAPES_LIFETIME_MS) return none;
+  const sized = (shape: (typeof told.shapes)[number] | undefined) =>
+    shape && Number(shape.width) > 0 && Number(shape.height) > 0
+      ? { width: Number(shape.width), height: Number(shape.height) }
+      : undefined;
+  const images = files.filter((file) => !isMadeFile(file) && isImageFile(file));
+  const unnamed = told.shapes.filter((shape) => !shape.name);
+  return files.map((file) => {
+    if (isMadeFile(file)) return undefined;
+    if (isVideoName(file.name)) return sized(told.shapes!.find((shape) => shape.name === file.name));
+    if (!isImageFile(file)) return undefined;
+    const named = told.shapes!.find((shape) => shape.name === file.name);
+    if (named) return sized(named);
+    // A bitmap with no file comes only in a paste.
+    return kind === "paste" && images.length === 1 && unnamed.length === 1 ? sized(unnamed[0]) : undefined;
+  });
+}
+
+/// The event the host fires once it has told a gesture's shapes (AgentPaneGestureShapes.swift).
+export const HOST_SHAPES_EVENT = "cmux-attach-shapes";
+
+/// Calls `told` with the host's shapes for `files` (hostShapes) if the host tells them within
+/// `waitMs` of now: it reads the files' headers off its main thread, so they may land a moment after
+/// the gesture reaches the page. Returns a function that stops listening.
+export function onHostShapes(
+  files: readonly (File | MadeFile)[],
+  kind: DroppedKind | undefined,
+  waitMs: number,
+  told: (shapes: ({ width: number; height: number } | undefined)[]) => void,
+): () => void {
+  if (typeof window === "undefined" || !kind) return () => {};
+  const stop = () => {
+    clearTimeout(deadline);
+    window.removeEventListener(HOST_SHAPES_EVENT, heard);
+  };
+  const heard = () => {
+    stop();
+    // When the host's late answer came (composer-attach-one-stage reads it).
+    performance.mark("acpmux:host-shapes-heard");
+    told(hostShapes(files, kind));
+  };
+  window.addEventListener(HOST_SHAPES_EVENT, heard);
+  // timeout: a host that tells nothing (an older one) leaves the files to their own header reads.
+  const deadline = setTimeout(stop, waitMs);
+  return stop;
 }
 
 /// How long a pasted image's tile is held unseen for its header (sizeFromHeader): a few bytes of a file
@@ -195,6 +274,8 @@ function sizeFromHeader(file: File, done: (size: { width: number; height: number
   const answer = (size: { width: number; height: number } | undefined) => {
     if (answered && !size) return;
     answered = true;
+    // How long a pasted image's tile is held unseen (composer-attach-one-stage reads it).
+    performance.mark("acpmux:header-answered");
     clearTimeout(deadline);
     done(size);
   };
@@ -442,14 +523,34 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const current = chat?.options ?? live.current.options;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files.map((file) => ({
+    // The host told each image's size before the page got the gesture: its chip draws at its shape now.
+    const told = hostShapes(files, kind);
+    const shown: PendingAttachment[] = files.map((file, index) => ({
       id: again ?? crypto.randomUUID(),
       name: file.name,
       image: isImageFile(file),
       ...(isVideoName(file.name) ? { video: true } : {}),
-      ...(!isMadeFile(file) && (isImageFile(file) || isVideoName(file.name)) ? { sizing: true } : {}),
+      ...(told[index] && isVideoName(file.name)
+        ? { videoShape: toldVideoShape(file as File, told[index]) }
+        : told[index]
+          ? { size: told[index] }
+          : !isMadeFile(file) && (isImageFile(file) || isVideoName(file.name))
+            ? { sizing: true }
+            : {}),
+      ...(isMadeFile(file) ? {} : { bytes: file.size }),
       scope: batch.scope,
     }));
+    // The host tells the shapes it read off its main thread, if they came after the gesture: the first
+    // answer, its or a file's own header read, shows each unseen tile.
+    if (shown.some((chip) => chip.sizing))
+      onHostShapes(files, kind, HEADER_WAIT_MS, (late) =>
+        late.forEach((size, index) => {
+          const file = files[index]!;
+          if (!size || isMadeFile(file)) return;
+          if (isVideoName(file.name)) shaped(shown[index]!.id, toldVideoShape(file, size));
+          else sized(shown[index]!.id, size);
+        }),
+      );
     // Each image's own picture, on its tile while the tile still loads.
     files.forEach((file, index) => {
       const id = shown[index]!.id;

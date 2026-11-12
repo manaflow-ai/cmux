@@ -94,7 +94,12 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
       const images = [
         ...document.querySelectorAll<HTMLImageElement>(".acpmux-attachments .acpmux-attachment-image img"),
       ];
-      return images.length === 3 && images.every((img) => img.complete && img.naturalWidth > 0);
+      // A chip still reading (aria-busy) already shows its picture in its final shape; it is staged once it is not.
+      return (
+        !document.querySelector('.acpmux-composer [aria-busy="true"]') &&
+        images.length === 3 &&
+        images.every((img) => img.complete && img.naturalWidth > 0)
+      );
     });
     expect(await order(page)).toEqual(["300", "400", "500"]);
   }

@@ -173,7 +173,12 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.keyboard.type(" these screenshots attach while I type", { delay: 20 });
     await page.waitForFunction(() => {
       const images = [...document.querySelectorAll<HTMLImageElement>(".acpmux-attachment-image img")];
-      return images.length === 3 && images.every((img) => img.complete && img.naturalWidth > 0);
+      // A chip still reading (aria-busy) already shows its picture in its final shape; it is staged once it is not.
+      return (
+        !document.querySelector('.acpmux-composer [aria-busy="true"]') &&
+        images.length === 3 &&
+        images.every((img) => img.complete && img.naturalWidth > 0)
+      );
     });
     const attached = Date.now() - started;
     const stall = await longestStall(page);
@@ -210,7 +215,10 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await loading.waitFor();
     // Its indicator comes only once the read passes 400 ms (composer/pasteLoading.tsx, whose own
     // timer composer-paste-instant.test.tsx checks); a read here can end sooner, so × goes at once.
-    await loading.locator(".acpmux-md-inline-remove").click();
+    // Its × is the chip's own (the loading chip is the chip the read makes, composer/attachmentIntake.tsx
+    // PendingTile), shown on hover as on the ready chip.
+    await loading.hover();
+    await loading.locator(".acpmux-attachment-remove, .acpmux-md-inline-remove").first().click();
     expect(await loading.count()).toBe(0);
     // Its read ending later brings nothing back: nothing on the page says when a cancelled read
     // ends, so the test gives it the time a read of this screenshot takes here.

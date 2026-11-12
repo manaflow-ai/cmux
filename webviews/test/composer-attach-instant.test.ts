@@ -45,8 +45,13 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
     await vite?.close();
   });
 
-  async function newChat(): Promise<Page> {
+  /// `look`: the composer-paste-loading arm (pastePlaceholder.experiment.ts), the default when none.
+  async function newChat(look?: string): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+    if (look)
+      await page.addInitScript((arm) => {
+        Object.assign(window, { cmuxExperiments: { "composer-paste-loading": arm } });
+      }, look);
     await page.addInitScript(() => {
       Object.assign(window, {
         webkit: {
@@ -142,8 +147,10 @@ await requireBrowserLane("composer-attach-instant.test.ts", async () => {
   // Leo, 2026-11-11, over the same paste: "this 3 stage attachment thing is still there". It was
   // empty glass, then the picture dim under that glass, then the chip coming up to full: a pasted
   // image now shows once, as its picture at full strength, and the chip it becomes changes nothing.
-  test("a pasted image shows in one step: its picture at full strength from its first frame", async () => {
-    const page = await newChat();
+  // The glass look's guard: the default `chip` look draws the final chip in the paste's next frame and
+  // its picture fills in place (composer-attach-one-stage measures that one).
+  test("a glass-look pasted image shows in one step: its picture at full strength from its first frame", async () => {
+    const page = await newChat("glass-ring");
     await page.locator(".acpmux-composer-prompt [contenteditable='true']").click();
     const frames = await page.evaluate(async () => {
       const canvas = document.createElement("canvas");

@@ -107,6 +107,14 @@ export async function videoHeaderSize(file: Blob): Promise<Size | undefined> {
 /// Each pasted file's one header read: the loading tile and the chip it becomes ask the same read.
 const reads = new WeakMap<Blob, Promise<number | undefined>>();
 
+/// `file`'s shape from its size the Mac host read from its header before the page got the gesture
+/// (attachmentIntakeModel.ts hostShapes): the one answer its loading tile and its chip both take.
+export function toldVideoShape(file: Blob, size: Size): number {
+  const ratio = videoRatio(size);
+  reads.set(file, Promise.resolve(ratio));
+  return ratio;
+}
+
 /// The shape `file`'s tile takes from its first frame: its header's ratio (videoRatio) when the
 /// header answers within VIDEO_HEADER_WAIT_MS, undefined after that (the tile is then square). Asked
 /// again for the same file, the same answer: a late header never reshapes a tile already shown.

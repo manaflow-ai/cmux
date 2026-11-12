@@ -98,9 +98,42 @@ function run(job: Job): Promise<PreparedImage | Thumb | undefined> {
   });
 }
 
-/// An image's metadata-free preview and its thumbnail, made off the main thread.
+/// An image's metadata-free preview and its thumbnail, made off the main thread. A file made again
+/// (the same screenshot pasted, dropped or picked twice) takes the one made before at once.
 export function prepareImageOffThread(file: Blob): Promise<PreparedImage | undefined> {
-  return run({ kind: "prepare", file }) as Promise<PreparedImage | undefined>;
+  if (!(file instanceof File)) return run({ kind: "prepare", file }) as Promise<PreparedImage | undefined>;
+  return identity(file).then((key) => {
+    const kept = prepared.get(key);
+    if (kept) {
+      prepared.delete(key);
+      prepared.set(key, kept);
+      return kept;
+    }
+    const made = (run({ kind: "prepare", file }) as Promise<PreparedImage | undefined>).then((image) => {
+      if (!image) prepared.delete(key);
+      return image;
+    });
+    prepared.set(key, made);
+    if (prepared.size > KEPT_PREPARED) prepared.delete(prepared.keys().next().value!);
+    return made;
+  });
+}
+
+/// Prepared images by their file's identity (``identity``): the newest few, each holding its
+/// preview's bytes.
+const prepared = new Map<string, Promise<PreparedImage | undefined>>();
+const KEPT_PREPARED = 8;
+/// How many bytes of a file's start and end its identity samples.
+const SAMPLE_BYTES = 64;
+
+/// A file's identity without reading it: its name, size and modified time (`File.lastModified`, the
+/// file's mtime; Leo, 2026-11-11: "if you're literally just pointing to a file path, why would it ever
+/// take time to load anything anyways?"), and its first and last few bytes, so two files that share
+/// all three (two screenshots of one size, saved in the same millisecond) are never taken for each other.
+async function identity(file: File): Promise<string> {
+  const head = new Uint8Array(await file.slice(0, SAMPLE_BYTES).arrayBuffer());
+  const tail = new Uint8Array(await file.slice(Math.max(0, file.size - SAMPLE_BYTES)).arrayBuffer());
+  return [file.name, file.size, file.lastModified, head.join(","), tail.join(",")].join("\u0000");
 }
 
 /// The thumbnail of a staged image's bytes, made off the main thread.

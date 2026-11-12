@@ -99,3 +99,29 @@ test("a worker whose script fails fails its job and never decodes it on the page
   void prepareImageOffThread(new Blob(["b"]));
   expect(made).toHaveLength(2);
 });
+
+test("the same file made again takes the preview made before; another file of its name and size does not", async () => {
+  const { prepareImageOffThread } = await pool();
+  const shot = (byte: number) =>
+    new File([new Uint8Array(128).fill(byte)], "Screenshot.png", {
+      type: "image/png",
+      lastModified: 1_794_380_000_000,
+    });
+  /// The file's identity is a few small reads: its job goes once they answer.
+  const posted = async (count: number) => {
+    for (let turn = 0; turn < 100 && (made[0]?.posted.length ?? 0) < count; turn += 1)
+      await new Promise((resolve) => setImmediate(resolve));
+    expect(made[0]?.posted.length ?? 0).toBe(count);
+  };
+  const first = prepareImageOffThread(shot(1));
+  await posted(1);
+  const worker = made[0]!;
+  worker.answer({ id: worker.posted[0]!.id, value: { mimeType: "image/png", data: "AAAA" } });
+  expect(await first).toEqual({ mimeType: "image/png", data: "AAAA" });
+  expect(await prepareImageOffThread(shot(1))).toEqual({ mimeType: "image/png", data: "AAAA" });
+  expect(worker.posted).toHaveLength(1);
+  const other = prepareImageOffThread(shot(2));
+  await posted(2);
+  worker.answer({ id: worker.posted[1]!.id, value: { mimeType: "image/png", data: "BBBB" } });
+  expect(await other).toEqual({ mimeType: "image/png", data: "BBBB" });
+});

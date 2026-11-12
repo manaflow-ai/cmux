@@ -134,7 +134,13 @@ await requireBrowserLane("agent-pane-send-tuck.test.ts", async () => {
     });
     await page.waitForFunction(() => {
       const image = document.querySelector<HTMLImageElement>(".acpmux-composer .acpmux-attachment img");
-      return !!image && image.complete && image.naturalWidth > 0;
+      // A chip still reading (aria-busy) already shows its picture in its final shape; it is staged once it is not.
+      return (
+        !document.querySelector('.acpmux-composer [aria-busy="true"]') &&
+        !!image &&
+        image.complete &&
+        image.naturalWidth > 0
+      );
     });
     await page.keyboard.type(` ${SENT}`);
   };

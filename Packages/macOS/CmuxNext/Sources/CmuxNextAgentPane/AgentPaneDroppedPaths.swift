@@ -29,6 +29,10 @@ public final class AgentPaneDroppedPaths {
         var url: URL
         var needsSnapshot: Bool
         var snapshot: AgentPaneRecordingSnapshot?
+        /// A pasted bitmap's file, being written off the main actor
+        /// (``AgentPaneModel/stashPastedBitmap(_:png:)``): true once it is there. Nil for a file the
+        /// person already had.
+        var written: Task<Bool, Never>?
     }
 
     private struct Record {
@@ -79,10 +83,20 @@ public final class AgentPaneDroppedPaths {
         let paths = urls.map { url in (url as NSURL).isFileReferenceURL() ? (url as NSURL).filePathURL ?? url : url }
         guard !paths.isEmpty else { return }
         // A preview's file of any size is pinned: its copy is a clone, never read into memory.
-        let items = paths.map { url -> Item in
+        hold(paths.map { url -> Item in
             let needsSnapshot = AgentPaneRecordingSnapshot.needsSnapshot(url)
             return Item(url: url, needsSnapshot: needsSnapshot, snapshot: needsSnapshot ? AgentPaneRecordingSnapshot.pin(url) : nil)
-        }
+        }, kind: kind)
+    }
+
+    /// Records a pasted bitmap's file at `url`, which `written` is writing, as the paste's one file:
+    /// the page's ask for the paste's `image.png` answers it once it is written.
+    func stashBitmap(_ url: URL, written: Task<Bool, Never>, kind: Kind) {
+        held.removeValue(forKey: kind)?.expiry.cancel()
+        hold([Item(url: url, needsSnapshot: false, snapshot: nil, written: written)], kind: kind)
+    }
+
+    private func hold(_ items: [Item], kind: Kind) {
         let id = UUID(), expiry = DemandTimer(owner: "agent-pane.droppedPaths.expiry")
         held[kind] = Record(items: items, at: now(), id: id, expiry: expiry)
         expiry.schedule(after: .seconds(Self.lifetime)) { @MainActor [weak self] in

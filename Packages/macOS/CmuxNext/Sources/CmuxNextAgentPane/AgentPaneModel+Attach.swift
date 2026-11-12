@@ -1,5 +1,9 @@
+import AppKit
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 extension AgentPaneModel {
     /// The summary panel's Attach files or folders (`chat.attach.choose`): the open panel only
@@ -39,6 +43,12 @@ extension AgentPaneModel {
     /// native record is the authority here, so keeping it does not spend a composer gesture credit.
     private func retainedDropURLs(_ items: [AgentPaneDroppedPaths.Item], generation: UUID) async -> [URL]? {
         guard generation == droppedPaths.generation else { return nil }
+        // A pasted bitmap's file: there once its write ends (a few ms off the main actor).
+        let pasted = items.filter { $0.written != nil }
+        for item in pasted {
+            guard await item.written?.value == true, generation == droppedPaths.generation else { return nil }
+        }
+        if !pasted.isEmpty { droppedPaths.retain(pasted.map(\.url.path)) }
         let recordings = items.enumerated().filter { $0.element.needsSnapshot }
         var urls = items.map(\.url)
         guard !recordings.isEmpty else { return urls }
@@ -55,6 +65,46 @@ extension AgentPaneModel {
         }
         droppedPaths.retain(recordings.map { urls[$0.offset].path })
         return urls
+    }
+
+    /// A paste of a bitmap with no file (a screenshot copied to the clipboard) into a chat on this
+    /// Mac: its bytes are written once, off the main actor, to this chat's Chat Uploads folder
+    /// (``ChatUploadFolders``, so the chat's deletion and expiry cover it) and recorded as the paste's
+    /// file. `chat.attach.dropped` then answers its path as it does a Finder file's, and the page
+    /// streams no copy of it (Leo, 2026-11-11: "if you're literally just pointing to a file path, why
+    /// would it ever take time to load anything anyways?"). The chip never waits for the write: only
+    /// the page's ask for its path does. `png`: the bytes are a PNG; otherwise (TIFF) they are
+    /// re-encoded as one there.
+    func stashPastedBitmap(_ bytes: Data, png: Bool) {
+        guard onLocalPaths?() == true, let folders = chatUploadFolders else { return }
+        let folder = folders.freshUpload(session: sessionId)
+        let url = folder.appending(path: "image.png")
+        let written = Task.detached(priority: .userInitiated) { () -> Bool in
+            // A screenshot is private: owner-only folders and file, as every Chat Uploads writer
+            // (AgentPaneCloudAttachments.write), the file created with its bytes so it is never
+            // readable by others even for a moment.
+            guard let data = png ? bytes : Self.pngData(fromBitmap: bytes) else { return false }
+            let manager = FileManager.checked
+            do {
+                try manager.createDirectory(
+                    at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
+                )
+            } catch {
+                return false
+            }
+            return manager.createFile(atPath: url.path, contents: data, attributes: [.posixPermissions: 0o600])
+        }
+        droppedPaths.stashBitmap(url, written: written, kind: .paste)
+    }
+
+    /// A pasteboard bitmap (TIFF) re-encoded as PNG in memory, or nil if ImageIO cannot read it.
+    nonisolated static func pngData(fromBitmap bytes: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(bytes as CFData, nil) else { return nil }
+        let out = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(out as CFMutableData, UTType.png.identifier as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImageFromSource(destination, source, 0, nil)
+        return CGImageDestinationFinalize(destination) ? out as Data : nil
     }
 
     /// The paths, files and folders, of link items made by ``attachItems(_:)``.

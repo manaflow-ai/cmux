@@ -17,12 +17,12 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, PendingTile, RetryButton, UploadProgress } from "./attachmentIntake";
 import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { videoShapeStyle } from "./videoShape";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
-import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
+import { isChipLook, PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
 import { PastedTextChip } from "./PastedTextChip";
 import { UIPickChip } from "./UIPickChip";
@@ -407,10 +407,12 @@ const InlineChip = memo(function InlineChip({
   const look = usePasteLoadingLook();
   /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
   /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
-  // Sticky state set in render (not a ref read in render): it flips once, the first time it holds.
+  /// A `chip` look drew the chip itself while it loaded, picture and all: nothing comes up then.
+  // Each is a latch kept in state and set while rendering (React's "adjust state when a prop
+  // changes"), so the chip that replaces its loading tile reads it in the same render.
   const [loaded, setLoaded] = useState(false);
   // Only a tile that showed (not one held unseen for its size or picture) has a dim to come up from.
-  if (!loaded && pending && !pending.failed && !pending.sizing) setLoaded(true);
+  if (!loaded && pending && !pending.failed && !pending.sizing && !isChipLook(look)) setLoaded(true);
   /// Whether its loading tile already showed its own picture: the chip then just stays, with no
   /// second coming up (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
   const [pictured, setPictured] = useState(false);
@@ -429,6 +431,34 @@ const InlineChip = memo(function InlineChip({
       <RemoveGlyph />
     </button>
   );
+  // The chip at once (a `chip` look, shipped): the strip's chip it becomes, in its box, from the
+  // paste's first frame; the ready chip takes its place at the same size (attachmentIntake.tsx
+  // PendingTile). Its box takes its place in the paste's frame (an image's unseen at 16:10 until its
+  // header answers), so words typed right after a paste go after it (Leo: "it gets smashed in between
+  // text that you were typing if u were typing as it loaded").
+  if (!attachment && !pending!.failed && isChipLook(look))
+    return (
+      <span className="acpmux-md-inline-chip" data-state="loading" data-chip="strip" aria-busy="true" aria-label={name}>
+        <PendingTile
+          chip={pending!}
+          look={look}
+          name={name}
+          remove={
+            <button
+              type="button"
+              className="acpmux-attachment-remove"
+              aria-label={t("composer.cancelAttachment", { name })}
+              onClick={() => onCancel(id)}
+            >
+              <RemoveGlyph />
+            </button>
+          }
+          upload={
+            pending!.progress === undefined ? undefined : <UploadProgress value={pending!.progress} name={name} />
+          }
+        />
+      </span>
+    );
   if (!attachment)
     return (
       <span
