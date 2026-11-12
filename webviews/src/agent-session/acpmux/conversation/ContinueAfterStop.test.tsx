@@ -202,3 +202,26 @@ test("a folded stopped turn keeps Resume metadata without a footer band", () => 
   expect(layoutConversation([row], 720).heights[0]).toBe(0);
   expect(renderToStaticMarkup(<TurnFooter row={row} />)).toContain("cv-turn-actions--empty");
 });
+
+test("a stopped footer keeps resend off its action row", () => {
+  const row = footers(stoppedTurn)[0]!;
+  const html = renderToStaticMarkup(
+    <TurnActionsContext.Provider
+      value={{
+        canSendPromptAgain: true,
+        retry: async () => undefined,
+        retryWith: {
+          models: [
+            { id: "a", name: "A" },
+            { id: "b", name: "B" },
+          ],
+          retry: async () => undefined,
+        },
+      }}
+    >
+      <TurnFooter row={row} />
+    </TurnActionsContext.Provider>,
+  );
+  expect(html).not.toContain("cv-turn-retry");
+  expect(html).not.toContain("cv-turn-continue");
+});

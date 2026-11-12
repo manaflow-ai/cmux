@@ -177,7 +177,9 @@
   border-radius: 50%;
   background: var(--acpmux-pill-open, color-mix(in srgb, var(--agent-text) 16%, transparent));
 }
-:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+/* Resume uses the filled primary send surface in either composer look. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled),
+.acpmux-composer .acpmux-send.acpmux-resume {
   background: var(--agent-accent);
   color: var(--agent-accent-text, Canvas);
 }
@@ -189,7 +191,8 @@
   :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send:not(:disabled):hover {
     background: var(--acpmux-pill-press, color-mix(in srgb, var(--agent-text) 22%, transparent));
   }
-  :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):hover {
+  :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):hover,
+  .acpmux-composer .acpmux-send.acpmux-resume:not(:disabled):hover {
     background: color-mix(in srgb, var(--agent-accent) 86%, var(--agent-text));
   }
 }

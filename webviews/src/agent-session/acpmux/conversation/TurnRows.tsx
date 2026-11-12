@@ -25,18 +25,9 @@ import { ThoughtRow } from "./ThoughtRow";
 import { groupId, runStretches, stretchStart, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
-import { RetryTargetContext, TurnActionsContext } from "./turnActions";
+import { TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
-import {
-  isEmptyFooter,
-  isStopped,
-  NO_RETRY_TARGET,
-  offersRetry,
-  retryPlacement,
-  workedCallsText,
-  workedLabel,
-  workedMessagesText,
-} from "./turns";
+import { isEmptyFooter, isStopped, offersRetry, workedCallsText, workedLabel, workedMessagesText } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
@@ -62,7 +53,6 @@ import { CodeRouterAction } from "./CodeRouterOffer";
 import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
-import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
 import { FinishCheck } from "../finish/FinishCheck";
 import { useFinishedTurn } from "../finish/finishMoments";
@@ -346,7 +336,6 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const messages = useContext(PresentationContext) === "messages";
-  const readOnly = useTranscriptReadOnly();
   const {
     fork,
     forkSeq,
@@ -468,29 +457,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const menuRetry =
     canSendPromptAgain === true &&
     !failed &&
-    (row.status === undefined || row.status === "completed") &&
+    (row.status === undefined || row.status === "completed" || isStopped(row)) &&
     offersRetry(row) &&
     !isEmptyFooter(row);
-  const retryTarget = useContext(RetryTargetContext);
-  const footerTarget = retryTarget
-    ? retryTarget.footerId === row.id
-      ? retryTarget
-      : NO_RETRY_TARGET
-    : offersRetry(row) && !isEmptyFooter(row)
-      ? { promptId: row.retryRowId, footerId: row.id }
-      : NO_RETRY_TARGET;
-  const stoppedRetry =
-    isStopped(row) &&
-    retryPlacement(footerTarget, { canRetry: Boolean(retry), readOnly, messages }) === "footer" &&
-    retry &&
-    prompt !== undefined &&
-    row.retryRowId
-      ? () => retry(row.retryRowId!, prompt)
-      : undefined;
-  const footerRetry = failedRetry ?? stoppedRetry;
+  const footerRetry = failedRetry;
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
-  const retryModels =
-    ((failed && prompt) || stoppedRetry) && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
+  const retryModels = failed && prompt && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
   // ran; it shares the footer Retry's one-at-a-time state and refusal note. A sign-in failure's comes
   // only after its Sign in again, so only the card offers it (signInRetry), never the native command.

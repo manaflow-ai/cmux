@@ -2619,7 +2619,7 @@ function ComposerFrame({
         key="resume"
         ref={sendButton}
         type="button"
-        className="acpmux-send acpmux-send-ready"
+        className="acpmux-send acpmux-send-ready acpmux-resume"
         aria-label={t("composer.queueResume")}
         title={t("composer.queueResume")}
         aria-busy={resuming || undefined}

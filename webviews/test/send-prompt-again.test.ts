@@ -76,8 +76,8 @@ test("a reply that ended on tools keeps an action-only menu on its existing nonb
   expect(report.sendPromptAgain?.rowId).toBe(workFooter.id);
 });
 
-test("failed, stopped, live, stale and unavailable targets cannot offer successful resend", () => {
-  for (const status of ["failed", "error", "cancelled", "running"])
+test("failed, live, stale and unavailable targets cannot offer resend", () => {
+  for (const status of ["failed", "error", "running"])
     expect(sendPromptAgainMenu(state({ rows: [prompt, { ...footer, status }] }), t)).toBeUndefined();
   for (const change of [
     { canSend: false },
@@ -296,4 +296,12 @@ test("an explicit model alias remains selected when the agent reports its known 
     ["restore", prompt.id, prompt.text],
     ["send", run.draft, "chat-a"],
   ]);
+});
+
+test("stopped and interrupted turns retain resend through the menu", () => {
+  for (const status of ["cancelled", "interrupted"]) {
+    const stopped = state({ rows: [prompt, answer, { ...footer, status }] });
+    expect(sendPromptAgainMenu(stopped, t)?.rowId).toBe(footer.id);
+    expect(withSendPromptAgain({ text: answer.text! }, answer.id, stopped, t)?.sendPromptAgain?.rowId).toBe(footer.id);
+  }
 });

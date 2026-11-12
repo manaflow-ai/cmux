@@ -72,3 +72,23 @@ for (const family of ["codex", "claude", "gemini", "muse", undefined])
         expectSeparate(turnViewFrom([...concluding, summary], reopened, { ...options, working: false }).rows, text);
       }
     });
+
+for (const family of ["codex", "claude"])
+  test(`${family}: adjacent calls coalesce on each side of a commentary paragraph`, () => {
+    const third = read("third");
+    const fourth = read("fourth");
+    const commentary = row("commentary", "assistant", {
+      text: "Checking the second pair.",
+      assistantPhase: "commentary",
+    });
+    const source = [prompt, first, third, commentary, second, fourth, final, summary];
+    const expanded = toggleTurnFold(source, new Set(), foldId);
+    const opened = turnViewFrom(source, expanded, { working: false, agentFamily: family });
+    const content = opened.rows.filter((entry) => entry.kind === "activity" || entry.kind === "assistant");
+    expect(content.map((entry) => entry.id)).toEqual(["first", "commentary", "second", "final"]);
+    expect(content[0]?.items?.map((item) => item.tool?.id)).toEqual(["first", "third"]);
+    expect(content[2]?.items?.map((item) => item.tool?.id)).toEqual(["second", "fourth"]);
+    expect(content[0]?.joined).toEqual(["first", "third"]);
+    expect(content[2]?.joined).toEqual(["second", "fourth"]);
+    expect(content[1]?.text).toBe(commentary.text);
+  });

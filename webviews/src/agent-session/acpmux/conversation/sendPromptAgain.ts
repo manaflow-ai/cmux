@@ -1,6 +1,6 @@
 import type { AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
-import { offersRetry, retryTargetIn } from "./turns";
+import { isStopped, offersRetry, retryTargetIn } from "./turns";
 import { retryModelSections, type RetryModel } from "./retryModelSections";
 
 export type SendPromptAgainMenu = {
@@ -34,7 +34,7 @@ export function sendPromptAgainTarget(state: SendPromptAgainState) {
   const footer = rows.find((row) => row.id === target.footerId);
   if (
     !footer ||
-    (footer.status !== undefined && footer.status !== "completed") ||
+    (footer.status !== undefined && footer.status !== "completed" && !isStopped(footer)) ||
     !offersRetry(footer) ||
     footer.retryRowId !== target.promptId
   )
