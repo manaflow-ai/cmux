@@ -100,7 +100,7 @@ list_inputs() { # list_inputs REV...: set crates and paths to the FFI inputs of 
   local listed err input section=crates
   err="$(mktemp)"
   if ! listed="$(python3 -I "$pin_reader" inputs "$root" "$@" 2>"$err")"; then
-    echo "error: the app FFI inputs cannot be listed: $(sed 's/^error: //' "$err" | tail -1)" >&2
+    echo "error: the app FFI inputs cannot be listed: $(sed 's/^error: //' "$err" | tail -1); fix the source the walk cannot read, or add a reviewed scripts/ci/app_ffi_pin.py entry" >&2
     rm -f "$err"
     exit 1
   fi

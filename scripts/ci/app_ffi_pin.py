@@ -1064,11 +1064,19 @@ def merge(walks: list[tuple[list[str], list[str], list[str]]]) -> tuple[list[str
 #
 # A walk that refuses raises Unresolved, and each reader takes its own fail-closed side, never one shared default (lead
 # decision 2, 2026-11-11). The check itself refuses (and --list-inputs with it, so the push paths test fails). The
-# router counts REFUSED_INPUTS as inputs and nothing as excluded, all of cmux-tui and everything above the crates the
-# build reads, so its routes run more, never less; build_class.py and the dev-loop apply tools read through it and take
-# that side too. base_red_excuse.py takes the other side: no path is an input, since there "an input" is what lets the
+# router counts REFUSED_INPUTS as inputs and nothing as excluded, all of cmux-tui, everything above the crates the build
+# reads and every file outside them a scanned source names, so its routes run more, never less; build_class.py and the
+# dev-loop apply tools read through it and take that side too. base_red_excuse.py takes the other side: no path is an
+# input, since there "an input" is what lets the
 # step-A rule excuse a pin red, so a refused walk never excuses one.
-REFUSED_INPUTS = ("cmux-tui",) + ABOVE
+#
+# The files outside cmux-tui that a scanned source names (the walk lists them only when it does not refuse): today
+# design-tokens.json, which cmux-motion's build script compiles in (review of #40095 at 694d83e8, F2). A refused walk
+# cannot name them, so they are named here, and tests/test_cmux_next_app_ffi_pin_scope.py
+# (test_the_refused_walk_side_covers_every_input_the_walk_lists) fails when the walk of the tree lists an input that
+# REFUSED_INPUTS misses.
+NAMED_OUTSIDE_THE_CRATES = ("plans/cmux-next/spec-proposals/visuals/design-tokens.json",)
+REFUSED_INPUTS = ("cmux-tui",) + ABOVE + NAMED_OUTSIDE_THE_CRATES
 
 
 def listed(root: Path, *revs: str) -> tuple[list[str], list[str]]:

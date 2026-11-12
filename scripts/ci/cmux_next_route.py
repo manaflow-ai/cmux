@@ -581,7 +581,8 @@ _READ: dict = {}  # (reader, root) -> its paths, read once a run
 def _app_ffi_listed(root: Path) -> tuple[list[str], list[str]]:
     """(the inputs, the excluded paths) of the app FFI walk of ROOT's HEAD: app_ffi_pin.listed, the one definition, which
     check-app-ffi-pin.sh lists (--list-inputs, --list-excluded) and base_red_excuse.py reads too. A walk that refuses
-    counts all of cmux-tui and the inputs above the crates (app_ffi_pin.REFUSED_INPUTS) and excludes nothing: the
+    counts all of cmux-tui, the inputs above the crates and the files a source names outside them
+    (app_ffi_pin.REFUSED_INPUTS) and excludes nothing: the
     routes then run more, never less, and the pin check refuses with the reason. That is the router's own side of a
     refused walk (lead decision 2, 2026-11-11), which build_class.py, ci_apply.py and hot-apply.py take through it;
     base_red_excuse.py takes the other (ffi_input: no path is an input)."""
