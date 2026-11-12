@@ -137,6 +137,13 @@ class GuardScripts(unittest.TestCase):
         self.assertEqual(guards.EXPRESSION.findall("${{ github.sha || '}}' }}"), ["github.sha || '}}'"])
 
 
+    def test_fork_routing_names_a_line_whose_expression_does_not_end(self) -> None:
+        routing = importlib.import_module("test_ci_fork_runner_routing")
+        line = "    runs-on: ${{ format('{0}}}', matrix.pr_runner) }}"
+        self.assertIsNotNone(routing.fork_pull_request_gate_error(line))
+        self.assertIsNotNone(routing.fork_pull_request_gate_error("    runs-on: ${{ matrix.pr_runner ||"))
+
+
 class NoRegexScans(unittest.TestCase):
     def test_no_regex_scans_an_expression(self) -> None:
         named = [f"{path}:{line}: {source}" for path, line, source in _scanning_regexes()
