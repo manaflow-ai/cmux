@@ -298,6 +298,62 @@ class ExitStatusAndDoubleSource(unittest.TestCase):
                 self.assertNoFolder(done)
 
 
+# A line that calls git_fixture_trap_exit (not a comment naming it).
+TRAP_EXIT_CALL = re.compile(r"^[^#]*\bgit_fixture_trap_exit\b")
+# The callers cmux#41447 moved to git_fixture_trap_exit; each must be among those run below.
+CMUX_41447_CALLERS = (
+    "scripts/ci/tests/feat-parity-check.test.sh",
+    "scripts/ci/tests/ios-sim-fetch-commit.test.sh",
+    "scripts/ci/tests/run-webviews-tests-retry.test.sh",
+    "scripts/cmux-next/tests/check-react-pages.test.sh",
+)
+# Logs every path mktemp makes (the caller's own temp dirs and the helper's folder), wherever it puts them.
+MKTEMP_LOG = 'mktemp() { local p; p=$(command mktemp "$@") || return; printf "%s\\n" "$p" >>"$PROBE_LOG"; printf "%s\\n" "$p"; }\n'
+
+
+def trap_exit_callers() -> list[str]:
+    """Tracked shell files that hand their exit cleanup to git_fixture_trap_exit."""
+    listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--", "*.sh"], capture_output=True, text=True,
+                            check=True, timeout=120, stdin=subprocess.DEVNULL).stdout.split("\0")
+    lib = LIB.relative_to(ROOT).as_posix()
+    return [rel for rel in listed if rel and rel != lib and (ROOT / rel).is_file()
+            and any(TRAP_EXIT_CALL.match(line) for line in (ROOT / rel).read_text(errors="replace").splitlines())]
+
+
+class EveryTrapExitCallerUnderErrexit(unittest.TestCase):
+    """Every real caller of git_fixture_trap_exit, failed under `set -e` right after its call, leaves nothing.
+
+    Codex F1 (P1) on cmux#41447: at 505f0f5c the helper's EXIT trap restored the status with `(exit "$status")`,
+    which under `set -e` ended the trap before the caller's cleanup ran, so a failing feat-parity-check.test.sh (and
+    each caller #41447 converted) left its temp workspace. Each caller here runs as itself (its own lines up to and
+    including its first git_fixture_trap_exit, from its own folder), then fails with `false`.
+    """
+
+    def test_each_caller_keeps_status_1_and_removes_every_temp_dir(self):
+        callers = trap_exit_callers()
+        self.assertFalse(set(CMUX_41447_CALLERS) - set(callers), "a cmux#41447 caller no longer calls the helper")
+        for rel in callers:
+            with self.subTest(caller=rel):
+                tmp = Path(tempfile.mkdtemp(prefix="git-fixture-caller-"))
+                self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)], check=False)
+                env = Env.clean(tmp)
+                log = tmp / "mktemp.log"
+                env["PROBE_LOG"] = str(log)
+                lines = (ROOT / rel).read_text(errors="replace").splitlines()
+                cut = next(index for index, line in enumerate(lines) if TRAP_EXIT_CALL.match(line))
+                head = "\n".join(lines[:cut + 1]).replace("${BASH_SOURCE[0]}", "$0")
+                done = subprocess.run(["bash", "-c", MKTEMP_LOG + head + "\nset -e\nfalse\necho unreachable\n",
+                                       str(ROOT / rel)], env=env, capture_output=True, text=True, timeout=300,
+                                      stdin=subprocess.DEVNULL, cwd=ROOT)
+                self.assertEqual(done.returncode, 1, done.stderr[-2000:])
+                self.assertNotIn("unreachable", done.stdout)
+                made = log.read_text().split() if log.exists() else []
+                self.assertTrue(made, f"{rel} made no temp dir before its git_fixture_trap_exit")
+                left = [path for path in made if os.path.lexists(path)]
+                self.assertEqual(left, [], f"{rel} failed under set -e and left: {left}\n{done.stderr[-2000:]}")
+                self.assertEqual(sorted(os.listdir(env["TMPDIR"])), [], "the fixture folder was left")
+
+
 class SavedTrapAndSubshellSource(unittest.TestCase):
     """The review of hq#9676, ported (guard-causes-the-harm): the helper's own EXIT guard skipped the cleanup it exists
     for.
