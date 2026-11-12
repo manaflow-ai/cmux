@@ -135,6 +135,14 @@ success-output = "final"
 filter = 'binary_id(cmux-tui-core) & test(/^mux::tests::create_commit_cost::/)'
 success-output = "final"
 
+# The git lane tests (cmux-tui-core tests/git_lane.rs) print their "git-lane:" lines on stderr:
+# what was answered while git was held, the git children at one time, and the wait of a
+# git.status on another connection. A fleet step shows them only when a passing test's output
+# is kept.
+[[profile.ci.overrides]]
+filter = 'binary_id(cmux-tui-core::git_lane)'
+success-output = "final"
+
 # Fuzz catalog row h (cmux-remote tests/netdrop_fuzz_e2e.rs) and its red tests print their
 # NETDROP lines on stdout; a fleet step shows them only when a passing test's
 # output is kept.

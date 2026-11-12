@@ -47,6 +47,8 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     cmux-tui/bindings/*) return 0 ;; # SDK wire layers
     cmux-tui/crates/cmux-app-host/generated/*) return 0 ;; # the typed cmux global, scopes and ops
     web/data/cmux-shortcuts.generated.json) return 0 ;;
+    web/data/next-docs/*.generated.json) return 0 ;; # docs reference pages (export-next-docs.ts)
+    Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) return 0 ;; # sync-app-runtime.sh
     plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) return 0 ;; # action exports
     plans/cmux-next/daemon-capabilities.json) return 0 ;; # daemon capability export
     scripts/lint-namespace-types-ratchet.txt) return 0 ;;

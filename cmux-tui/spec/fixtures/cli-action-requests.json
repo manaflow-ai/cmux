@@ -3151,6 +3151,28 @@
     },
     {
       "params": {
+        "action": "tab move-to-window",
+        "args": {
+          "window": "window:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab move-to-window --window window:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab duplicate-to-new-split",
+        "args": {
+          "direction": "right"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab duplicate-to-new-split --direction right"
+    },
+    {
+      "params": {
         "action": "pane split-left",
         "args": {
           "cwd": "/tmp/contract",

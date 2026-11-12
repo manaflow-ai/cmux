@@ -80,21 +80,6 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: Integrate a harness was dismissed for good (`newTab.remember` `harnessHint: "dismissed"`); nil offers it
     /// when no harness is installed.
     public var harnessHintDismissed: Bool?
-    /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
-    /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
-    public var widgets: Bool?
-    /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting" (the
-    /// headline asking what to work on), "projects", "actions", "chats", "styleDots"); Minimal draws
-    /// the composer and only these besides. nil is Settings' defaults (none). The other layouts ignore it.
-    /// The page validates it.
-    public var pageWidgets: [String]?
-    /// The weather widget's last reading (`tabs.newTabWidgets.weather`, ``AgentPaneNewTabWeather``);
-    /// nil while it is off or before the first reading. The page dims one older than its refresh.
-    public var weather: AgentPaneNewTabWeather?
-    /// true: `tabs.newTabWidgets.greeting` is false in cmux.json, not the default
-    /// (``NewTabWidgetSettings/greetingTurnedOff``): Minimal keeps no room over the composer for the
-    /// headline, so the composer stays where it sat with the greeting off; nil keeps the room.
-    public var headlineOff: Bool?
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (another machine's page, ``warmedOnThisMac(_:)``); nil shares it.
     public var privateChatLists: Bool?
@@ -111,7 +96,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil, widgets: Bool? = nil, pageWidgets: [String]? = nil) {
+                template: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -122,13 +107,10 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.projects = projects
         self.layout = layout
         self.template = template
-        self.pageWidgets = pageWidgets
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home
         self.inputToken = nil
-        // nil follows the Debug Settings toggle, read as each page context is made.
-        self.widgets = (widgets ?? AgentPaneTunables.newTabWidgets.value) ? true : nil
     }
 }
 
