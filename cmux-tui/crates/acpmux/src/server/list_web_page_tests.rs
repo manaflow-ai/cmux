@@ -234,3 +234,79 @@ async fn list_web_page_bench() {
         paged_time.as_secs_f64() * 1000.0,
     );
 }
+
+/// TEMPORARY measurement (not for merge): where the detector's ~20 minutes go. Fails on
+/// purpose so the focused run shows its table.
+#[tokio::test(flavor = "multi_thread")]
+async fn measure_list_pages_tmp() {
+    let mut out = String::new();
+    let started = Instant::now();
+    let hub = hub().await;
+    out += &format!("hub_of {:?}\n", started.elapsed());
+    let t = Instant::now();
+    let snap = hub.list_guard.snapshot(&hub).await;
+    out += &format!(
+        "first snapshot {:?} bytes={} window={:?}\n",
+        t.elapsed(),
+        snap.whole.len(),
+        hub.list_guard.window()
+    );
+    let t = Instant::now();
+    let again = hub.list_guard.snapshot(&hub).await;
+    out += &format!("second snapshot {:?} same={}\n", t.elapsed(), Arc::ptr_eq(&snap, &again));
+    let (mut params, mut pages, t) = (json!({}), 0, Instant::now());
+    loop {
+        let text = snap.bounded(&hub, &params, false, super::list_reply::LIST_PAGE_BYTES).unwrap();
+        pages += 1;
+        let page: Value = serde_json::from_str(&text).unwrap();
+        match page["nextCursor"].as_str() {
+            Some(cursor) => params = json!({"cursor": cursor}),
+            None => break,
+        }
+    }
+    out += &format!("bounded, every page, direct: pages={pages} {:?}\n", t.elapsed());
+    for origin in [Origin::Local, Origin::LocalApp, Origin::Web, Origin::Peer] {
+        let mut client = Client::on(&hub, origin).await;
+        for (m, params) in
+            [(method::MUX_WATCH, json!({"enabled": true})), (method::MUX_SESSIONS, json!({}))]
+        {
+            let t = Instant::now();
+            let (mut page, size, took) = client.call(m, params.clone()).await;
+            let mut calls = vec![(size, took)];
+            while let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) {
+                let (next, size, took) =
+                    client.call(method::MUX_SESSIONS, json!({"cursor": cursor})).await;
+                calls.push((size, took));
+                page = next;
+            }
+            let calls: Vec<String> =
+                calls.iter().map(|(s, e)| format!("{}KB/{}ms", s / 1024, e.as_millis())).collect();
+            out += &format!(
+                "{origin:?} {m} {params}: {:?} window={:?} pages={} [{}]\n",
+                t.elapsed(),
+                hub.list_guard.window(),
+                calls.len(),
+                calls.join(" ")
+            );
+        }
+        let t = Instant::now();
+        let (mut page, size, took) = client.call(method::SESSION_LIST, json!({})).await;
+        let mut calls = vec![(size, took)];
+        while let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) {
+            let (next, size, took) =
+                client.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
+            calls.push((size, took));
+            page = next;
+        }
+        let calls: Vec<String> =
+            calls.iter().map(|(s, e)| format!("{}KB/{}ms", s / 1024, e.as_millis())).collect();
+        out += &format!(
+            "{origin:?} session/list: {:?} pages={} [{}]\n",
+            t.elapsed(),
+            calls.len(),
+            calls.join(" ")
+        );
+    }
+    out += &format!("total {:?}\n", started.elapsed());
+    panic!("MEASURE\n{out}");
+}
