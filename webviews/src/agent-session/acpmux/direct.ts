@@ -499,6 +499,22 @@ const WINDOW_PARALLEL_PAGES = 16;
 const INDEXED_PAGE_RADIUS = 240;
 const INDEXED_PAGE_LIMIT = 400;
 const INDEXED_PAGE_CACHE_LIMIT = 5;
+
+/// Prompt rows that stand in for the turns between a directly fetched target page and the held
+/// tail. Keeping these rows in sequence order prevents the minimap from shrinking while pages warm.
+export function indexedPromptPlaceholders(
+  indexRows: readonly AcpmuxRow[],
+  heldSeqs: ReadonlySet<number>,
+  pageStart: number,
+  tailStart: number,
+): AcpmuxRow[] {
+  return indexRows.flatMap((row) => {
+    const seq = Number(row.id.slice("user-".length));
+    return Number.isFinite(seq) && seq > pageStart && seq < tailStart && !heldSeqs.has(seq)
+      ? [{ ...row, seq, kind: "user" }]
+      : [];
+  });
+}
 /// The most pages of one subagent's own records a subagent pane reads (`readSubagentLog`).
 const SUBAGENT_LOG_PAGES = 8;
 /// How many times an attach is asked when its reply is of another session or machine than the row
@@ -3098,6 +3114,10 @@ export class AcpmuxDirectClient {
   /// reconnect or chat switch can never reuse rows from another journal. Values are promises to
   /// coalesce a click and a nearby scrub into one daemon read.
   private indexedPages = new Map<string, Promise<EventRecord[]>>();
+  /// Prompt rows named by the index but not present in a sparse target page. They keep the full
+  /// rail geometry stable while the adjacent transcript pages warm; a real event row supersedes
+  /// the placeholder on the next snapshot.
+  private indexedPlaceholders = new Map<string, AcpmuxRow>();
   /// The prompt that opened the turn the held history starts in, when that prompt is older than
   /// every held event: a Chief subagent's first prompt carries the Chief's whole view (100+ KB),
   /// so once its turn's output passes the open page's cap the page starts mid-turn and the prompt
@@ -4267,6 +4287,7 @@ export class AcpmuxDirectClient {
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
+    this.indexedPlaceholders.clear();
     this.planBuilds.clear();
     this.memoryEarly.clear();
     this.presetApprovals.clear();
@@ -10282,7 +10303,18 @@ export class AcpmuxDirectClient {
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
     this.placeSince();
-    const publishedRows = this.rows.sorted();
+    const actualRows = this.rows.sorted();
+    const actualIds = new Set(actualRows.map((row) => row.id));
+    const indexedRows = [...this.indexedPlaceholders.values()].filter((row) => !actualIds.has(row.id));
+    // Indexed placeholders carry only prompt text, but sorting them by their sequence keeps every
+    // prompt at its final rail slot while a sparse target page is being filled in.
+    const publishedRows =
+      indexedRows.length === 0
+        ? actualRows
+        : [...actualRows, ...indexedRows].sort(
+            (left, right) =>
+              (left.seq ?? Number.POSITIVE_INFINITY) - (right.seq ?? Number.POSITIVE_INFINITY) || left.at - right.at,
+          );
     this.noteReplace(publishedRows);
     const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
     const progress = projectLiveProgress(this.publishedProgress, progressPlan, working && !this.progressSuperseded);
@@ -14177,11 +14209,16 @@ export class AcpmuxDirectClient {
   private mergeIndexedPage(page: EventRecord[]): boolean {
     if (!page.length) return false;
     const before = this.events.length ? this.events[0]!.seq : Number.POSITIVE_INFINITY;
+    const pageStart = Math.min(...page.map((event) => event.seq));
+    const tailStart = this.firstSeq ?? Number.POSITIVE_INFINITY;
     this.events = mergeEventRecords(this.events, page);
     this.sawPrompts(page);
     // Preserve the live queue/permissions and the reconnect reader anchor while replaying the
     // newly held records, as `checkFinishedTurn` does for a narrow repair read.
     this.rebuildKeepingLiveState(Math.min(before, ...page.map((event) => event.seq)) - 1);
+    const held = new Set(this.events.map((event) => event.seq));
+    for (const row of indexedPromptPlaceholders(this.promptIndex?.rows ?? [], held, pageStart, tailStart))
+      this.indexedPlaceholders.set(row.id, row);
     this.emit("history");
     return true;
   }
