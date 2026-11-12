@@ -183,6 +183,21 @@ export function seenThrough(
   return below !== undefined ? Math.min(newest, below - 1) : newest;
 }
 
+/// How far over the first unseen row the "New" line may sit and still be where a press lands.
+const LINE_SCAN = 32;
+
+/// Where a press lands: the "New" line at `since` when nothing that counts lies between it and the
+/// first unseen row at `index` (the reader's own prompt, a notice, a turn's bookkeeping rows may),
+/// so the line shows with that row under it; else the row itself. Reads at most `LINE_SCAN` rows.
+export function lineOver(rows: readonly AcpmuxRow[], index: number, since: number, me = "owner"): number {
+  if (since < 0 || since >= index || index - since > LINE_SCAN) return index;
+  for (let at = since + 1; at < index; at += 1) {
+    const row = rows[at];
+    if (row && countsUnseen(row, me)) return index;
+  }
+  return since;
+}
+
 /// The control's state. An ask waiting below (or in a chat this one started) comes first: the reader
 /// is needed there, and the disc is the Needs you pill then. Then up, only while an unseen row lies
 /// above the view; then Jump to latest while away from the latest message.

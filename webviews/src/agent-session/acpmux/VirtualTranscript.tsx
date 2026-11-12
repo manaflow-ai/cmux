@@ -173,6 +173,7 @@ import { UnreadBanner, sinceDone } from "./conversation/SinceDivider";
 import {
   emptyUnseenScan,
   firstUnseen,
+  lineOver,
   jumpControl,
   seenThrough,
   unseenTurns,
@@ -1052,12 +1053,6 @@ export function JumpToLatest({
       </button>
     </>
   );
-}
-
-/// The "New" line's index when it sits just over row `index` (at most a few rows that never count
-/// between them: the reader's own prompt), else `index`.
-function sinceOver(rows: readonly AcpmuxRow[], index: number, since: number): number {
-  return since >= 0 && since < index && index - since <= 3 ? since : index;
 }
 
 /// The index of row `id` in `rows`, starting from where it was last found (`hint`): the transcript
@@ -5448,7 +5443,7 @@ function TranscriptView({
   lastControl.current = drawnControl;
   // Where a press goes: the "New" line when it sits just over the first unseen row (only rows that
   // never count between them, the reader's own prompt), else that row.
-  const upRow = unseenIndex >= 0 ? sinceOver(rows, unseenIndex, sinceIndex) : -1;
+  const upRow = unseenIndex >= 0 ? lineOver(rows, unseenIndex, sinceIndex, promptAuthor) : -1;
   const upTargetRef = useRef<{ rowId: string; top: number } | undefined>(undefined);
   upTargetRef.current = upRow >= 0 ? { rowId: rows[upRow]!.id, top: layout.geometry.topAt(upRow) } : undefined;
   const [upBadge] = useState(() => experimentArm(jumpUpBadge));

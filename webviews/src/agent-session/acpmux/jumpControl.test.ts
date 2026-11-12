@@ -11,6 +11,7 @@ import {
   firstIndexAfter,
   firstUnseen,
   jumpControl,
+  lineOver,
   seenThrough,
   unseenTurns,
   visibleRows,
@@ -153,4 +154,22 @@ test("the count badge counts the unseen turns, the running one too", () => {
   expect(unseenTurns(rows, 0)).toBe(3);
   expect(unseenTurns(rows, 2)).toBe(2);
   expect(unseenTurns(rows, -1)).toBe(0);
+});
+
+test("a press lands on the New line while only rows that never count lie between it and the first unseen row", () => {
+  const rows = [
+    row("a", 1),
+    row("line", undefined, "sinceDivider"),
+    row("mine", 2, "user"),
+    row("note", 3, "status"),
+    row("footer", 3, "turnFooter"),
+    row("b", 4),
+  ];
+  expect(lineOver(rows, 5, 1)).toBe(1);
+  // An agent's row between them: the line is not over the first unseen row.
+  const apart = [row("line", undefined, "sinceDivider"), row("x", 1), row("b", 2)];
+  expect(lineOver(apart, 2, 0)).toBe(2);
+  // No line, or a line below the row: the row.
+  expect(lineOver(rows, 5, -1)).toBe(5);
+  expect(lineOver(rows, 0, 1)).toBe(0);
 });
