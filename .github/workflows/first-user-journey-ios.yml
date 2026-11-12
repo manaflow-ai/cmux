@@ -68,7 +68,7 @@ jobs:
     name: Walk the first-user journey (iPhone simulator)
     # No secret in this job: the mock account (DEBUG) stands in for sign-in.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
-    timeout-minutes: 150
+    timeout-minutes: 75
     steps:
       - name: Result paths
         run: |
@@ -115,6 +115,9 @@ jobs:
             build-for-testing 2>&1 | tee "$RAW/build.log" | { grep -E 'error:|BUILD' || true; }
           test "${PIPESTATUS[0]}" -eq 0
       - name: Walk the journey on a freshly erased iPhone
+        # The test caps itself at 30 min (FirstUserJourneyUITests.journeyBudget);
+        # `timeout` below stops a hang, and the steps after still report.
+        timeout-minutes: 45
         run: |
           # Never -e: a failing suite must still leave its log and screenshots
           # for the report.
@@ -142,9 +145,10 @@ jobs:
           echo "SIM=$udid" >> "$GITHUB_ENV"
           xcrun simctl io "$udid" recordVideo --codec h264 --force "$OUT/journey.mp4" > "$RAW/video.log" 2>&1 &
           video=$!
-          xcodebuild test-without-building -xctestrun "$xctestrun" \
+          timeout -s INT 2400 xcodebuild test-without-building -xctestrun "$xctestrun" \
             -destination "id=$udid,arch=arm64" -resultBundlePath "$RAW/journey.xcresult" \
             -only-testing:CmuxMobileAppUITests/FirstUserJourneyUITests \
+            -test-timeouts-enabled YES -maximum-test-execution-time-allowance 420 \
             > "$RAW/journey.log" 2>&1
           code=$?
           # Our own recorder, by its PID: SIGINT finishes the file.

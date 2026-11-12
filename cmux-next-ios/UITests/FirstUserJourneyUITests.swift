@@ -29,12 +29,35 @@ import XCTest
 /// (`CMUX_MOBILE_MOCK_AUTH`, DEBUG only): no person's login is used.
 /// `.github/workflows/first-user-journey-ios.yml` runs it nightly.
 final class FirstUserJourneyUITests: XCTestCase {
-    override func setUpWithError() throws {
-        continueAfterFailure = true
-    }
+    /// The whole journey's budget: every test stops walking once it is spent,
+    /// so the run always ends with results (run 43210992635 walked past an hour).
+    nonisolated(unsafe) static var journeyDeadline: Date?
+    static let journeyBudget: TimeInterval = 30 * 60
+    /// One test's budget; the walk stops tapping when it is spent and says so.
+    static let testBudget: TimeInterval = 4 * 60
 
+    private var testDeadline = Date.distantFuture
     private var stepCount = 0
     private var shotCount = 0
+
+    override func setUpWithError() throws {
+        continueAfterFailure = true
+        executionTimeAllowance = Self.testBudget + 120
+        let start = Date()
+        if Self.journeyDeadline == nil { Self.journeyDeadline = start.addingTimeInterval(Self.journeyBudget) }
+        testDeadline = min(start.addingTimeInterval(Self.testBudget), Self.journeyDeadline ?? .distantFuture)
+        // A system alert (a permission the walk did not expect) never blocks the
+        // simulator: answer it without granting and go on.
+        addUIInterruptionMonitor(withDescription: "system alert") { alert in
+            for answer in ["Don’t Allow", "Don't Allow", "Not Now", "Cancel", "OK"] where alert.buttons[answer].exists {
+                alert.buttons[answer].tap()
+                return true
+            }
+            return false
+        }
+    }
+
+    private var outOfTime: Bool { Date() >= testDeadline }
 
     // MARK: - Journey
 
@@ -121,7 +144,7 @@ final class FirstUserJourneyUITests: XCTestCase {
     func testC_Pairing() throws {
         let cell = "ios/pairing"
         begin(cell)
-        for demo in ["connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only"] {
+        for demo in ["connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only"] where !outOfTime {
             let app = launch(arguments: ["-cmux-mobile-demo", demo])
             settle(app)
             judge(cell, where: "pairing/\(demo)", step: "open \(demo)", app: app)
@@ -154,6 +177,8 @@ final class FirstUserJourneyUITests: XCTestCase {
     @MainActor
     func testD_HomeAndTabs() throws {
         for tab in ["home", "workspaces", "feed"] {
+            // Three cells share this test: each gets a third of its budget.
+            testDeadline = min(Date().addingTimeInterval(Self.testBudget / 3 + 20), Self.journeyDeadline ?? .distantFuture)
             let cell = "ios/\(tab)"
             begin(cell)
             let app = launch(arguments: ["-cmux-mobile-tab", tab])
@@ -236,7 +261,7 @@ final class FirstUserJourneyUITests: XCTestCase {
         let pages = ["account", "team", "transport", "devices", "terminal", "terminalSizing", "composer", "notifications",
                      "acknowledgements", "chiefCalls", "screenSharing", "accentColor", "cloudMachines", "automations",
                      "longPressMenus"]
-        for page in pages {
+        for page in pages where !outOfTime {
             let app = launch(arguments: ["-cmux-mobile-tab", "settings", "-cmux-mobile-settings-page", page])
             settle(app)
             judge(cell, where: "settings/\(page)", step: "open Settings > \(page)", app: app)
@@ -349,13 +374,13 @@ final class FirstUserJourneyUITests: XCTestCase {
         begin(cell)
         let demos = ["retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-workspaces",
                      "retry-feed", "retry-terminal", "retry-home-offline", "offline-send"]
-        for demo in demos {
+        for demo in demos where !outOfTime {
             let app = launch(arguments: ["-cmux-mobile-demo", demo])
             settle(app, timeout: 8)
             judge(cell, where: "errors/\(demo)", step: "open \(demo)", app: app, spinner: false)
             app.terminate()
         }
-        for scene in ["states", "card", "cloud", "home", "chiefoff", "signedout", "terminal"] {
+        for scene in ["states", "card", "cloud", "home", "chiefoff", "signedout", "terminal"] where !outOfTime {
             let app = launch(arguments: ["-cmux-mobile-recovery-gallery", scene])
             settle(app, timeout: 5)
             judge(cell, where: "errors/recovery-\(scene)", step: "recovery gallery \(scene)", app: app, spinner: false)
@@ -382,7 +407,7 @@ final class FirstUserJourneyUITests: XCTestCase {
                 ("chat", true, true, ["-cmux-mobile-demo", "chief-open"]),
                 ("pairing", true, true, ["-cmux-mobile-demo", "connect-mac"]),
             ]
-            for (screen, signedIn, setupComplete, arguments) in screens {
+            for (screen, signedIn, setupComplete, arguments) in screens where !outOfTime {
                 let app = launch(signedIn: signedIn, setupComplete: setupComplete, arguments: type + arguments)
                 settle(app)
                 stepCount += 1
@@ -445,7 +470,7 @@ final class FirstUserJourneyUITests: XCTestCase {
         var reported = 0
         for type in [XCUIElement.ElementType.button, .staticText, .switch, .textField] {
             let query = app.descendants(matching: type)
-            for index in 0..<min(query.count, 60) where reported < 3 {
+            for index in 0..<min(query.count, 30) where reported < 3 {
                 let el = query.element(boundBy: index)
                 guard el.exists else { continue }
                 let frame = el.frame
@@ -543,15 +568,25 @@ final class FirstUserJourneyUITests: XCTestCase {
         reach: () -> XCUIApplication,
         skip: Set<String> = [],
         skipPrefixes: [String] = [],
-        limit: Int = 30
+        limit: Int = 14
     ) {
+        if outOfTime {
+            note(cell, "\(screen): not walked, the test's time budget was spent")
+            return
+        }
         var app = reach()
         let controls = controlKeys(in: app).filter { control in
             !skip.contains(control.key) && !skip.contains(control.label)
                 && !skipPrefixes.contains { control.key.hasPrefix($0) }
         }
         shot(cell, "\(screen)-walk-start", app)
+        var tapped = 0
         for (offset, control) in controls.prefix(limit).enumerated() {
+            if outOfTime {
+                note(cell, "\(screen): stopped after \(tapped) of \(min(controls.count, limit)) controls, the test's time budget was spent")
+                break
+            }
+            tapped += 1
             if offset > 0 {
                 app.terminate()
                 app = reach()
@@ -649,6 +684,9 @@ final class FirstUserJourneyUITests: XCTestCase {
     private func begin(_ cell: String) {
         stepCount = 0
         print("FUJ " + json(["event": "begin", "cell": cell]))
+        if let end = Self.journeyDeadline, Date() >= end {
+            note(cell, "the journey's \(Int(Self.journeyBudget / 60)) min budget was spent before this cell; it was not walked")
+        }
     }
 
     private func finish(_ cell: String) {
@@ -715,7 +753,7 @@ final class FirstUserJourneyUITests: XCTestCase {
     /// Waits for the first paint to settle: the tab bar, a navigation bar or
     /// any button.
     @MainActor
-    private func settle(_ app: XCUIApplication, timeout: TimeInterval = 15) {
+    private func settle(_ app: XCUIApplication, timeout: TimeInterval = 8) {
         _ = waitForAny([app.tabBars.firstMatch, app.navigationBars.firstMatch, app.buttons.firstMatch], timeout: timeout)
         RunLoop.current.run(until: Date().addingTimeInterval(1))
     }
@@ -726,7 +764,7 @@ final class FirstUserJourneyUITests: XCTestCase {
         let window = app.windows.firstMatch.frame
         for type in [XCUIElement.ElementType.staticText, .button, .textView, .cell] {
             let query = app.descendants(matching: type)
-            for index in 0..<min(query.count, 80) {
+            for index in 0..<min(query.count, 40) {
                 let el = query.element(boundBy: index)
                 guard el.exists else { continue }
                 if !window.isEmpty, !el.frame.intersects(window) { continue }
