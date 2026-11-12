@@ -1109,3 +1109,29 @@ fn a_pop_up_s_items_need_no_sibling_titles() {
         siblings: &[],
     }));
 }
+
+#[test]
+fn a_helper_s_menu_is_taken_only_when_the_deny_list_allows_its_owner() {
+    // This test process is not a regular app: a helper, as far as menus go.
+    let me = std::process::id() as i32;
+    let app = workspace::app_for_pid(me);
+    let mine = app.as_ref().map(|a| a.id()).unwrap_or_default();
+    // The target's own menu is always the call's.
+    assert!(menus::may_be_targets_menu(me, me, None));
+    let allow = PolicyGuard(crate::policy::PolicyConfig {
+        denied_apps: vec!["com.example.other".into()],
+        ..Default::default()
+    });
+    let deny = PolicyGuard(crate::policy::PolicyConfig {
+        denied_apps: vec![mine.clone()],
+        ..Default::default()
+    });
+    if app.is_some_and(|a| !a.is_regular()) {
+        assert!(menus::may_be_targets_menu(me, 1, Some(&allow)));
+        assert!(!menus::may_be_targets_menu(me, 1, Some(&deny)), "{mine}");
+    } else {
+        // Not listed as a running app: a helper only while nothing is denied.
+        assert!(menus::may_be_targets_menu(me, 1, None));
+        assert!(!menus::may_be_targets_menu(me, 1, Some(&allow)));
+    }
+}

@@ -170,6 +170,10 @@ pub struct MenuReport {
     /// Items hidden because they lead to a denied app.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub hidden: usize,
+    /// Visible items past the first LISTED_ITEMS_MAX, not listed (pick one
+    /// by title with set_value).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub more: usize,
     /// What to do next.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub next: String,
@@ -189,6 +193,10 @@ impl MenuReport {
         Self { state: "picked".into(), picked: title.into(), open_ms, ..Self::default() }
     }
 }
+
+/// The most items a result lists of an open menu (a font pop-up has
+/// thousands): the rest are counted in `more`.
+pub const LISTED_ITEMS_MAX: usize = 200;
 
 /// How the agent continues after a call left a menu open.
 pub const OPEN_NEXT: &str = "the menu is open: press an item (perform_action press or click on its element in get_ui_tree), or press_key Escape to close it";
@@ -243,6 +251,9 @@ pub const MENU_UNREAD_OPEN: &str = "the app showed a menu that could not be read
 
 /// Why Escape fails: the open menu did not close.
 pub const MENU_DID_NOT_CLOSE: &str = "the menu did not close (it ignored AXCancel and Escape); it stays open, and keys, typing and drags into this app are refused until it closes";
+
+/// Why keys are refused while another app's menu stays open.
+pub const OTHER_MENU_KEYS_REFUSAL: &str = "a menu left open in another app did not close, and it holds the keyboard: keys and typing would reach it; press_key Escape in that app's window, or click elsewhere first";
 
 /// How a wanted title picks among a menu's items, the visible ones first.
 #[derive(Clone, Debug, PartialEq, Eq)]

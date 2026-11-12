@@ -228,11 +228,26 @@ impl MacDesktop {
     /// Refuses a point whose element (or an ancestor) is a menu item that
     /// leads to a denied app.
     fn refuse_denied_at(&self, t: &Target, at: Point) -> DResult<()> {
-        let mut el = Ax::application(t.window.pid).and_then(|app| app.element_at(at.x, at.y));
+        // A point on the recorded menu's window is hit-tested in that
+        // window's owner (a System Settings pane draws its menus in a
+        // helper process); there, a point that reaches no readable menu
+        // item is refused while something is denied.
+        let on_menu = self.recorded_menu().and_then(|(_, windows)| {
+            super::cgwindows::on_screen()
+                .into_iter()
+                .find(|w| windows.contains(&w.id) && roles::contains(&w.frame, at))
+        });
+        let pid = on_menu.as_ref().map_or(t.window.pid, |w| w.pid);
+        let mut el = Ax::application(pid).and_then(|app| app.element_at(at.x, at.y));
+        let mut found_item = false;
         for _ in 0..4 {
             let Some(current) = el else { break };
+            found_item |= current.string("AXRole").as_deref() == Some("AXMenuItem");
             self.refuse_denied_item(&current)?;
             el = current.element("AXParent");
+        }
+        if on_menu.is_some() && !found_item && self.denies_any() {
+            return Err(DesktopError::Unsupported(menus::denied_item_refusal(None)));
         }
         Ok(())
     }
@@ -478,6 +493,11 @@ pub(super) fn type_text(
     if d.menu_open_in(t.window.pid) {
         return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
     }
+    // Foreground keys go where the keyboard is: a menu left open in another
+    // app may hold it.
+    if delivery == Delivery::Foreground {
+        d.refuse_other_menus(&t)?;
+    }
     let route = d.key_route(&t, delivery)?;
     input::type_text(route, text)?;
     Ok(ActionOutcome::delivered(route.name()))
@@ -499,6 +519,11 @@ pub(super) fn press_keys(
     let mut flags = keymap::flags(&combo.modifiers);
     if shift {
         flags |= keymap::FLAG_SHIFT;
+    }
+    // Foreground keys go where the keyboard is: a menu left open in another
+    // app may hold it (always on the fallback path).
+    if delivery == Delivery::Foreground {
+        d.refuse_other_menus(&t)?;
     }
     // While a menu this desktop left open shows, every key posted to its
     // app reaches the menu, whichever window it is aimed at: Return or Space
@@ -754,8 +779,9 @@ fn choose_menu_item(
 /// How long a closed pop-up gets to show a pressed item.
 const CLOSED_PICK_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
-/// The closed-menu pick: `None` when the pop-up shows no items while
-/// closed, or the press left its value as it was (then it is opened).
+/// The closed-menu pick: `None` when the pop-up shows no items while closed
+/// (then it is opened); else the pick, with a note when the pop-up reads
+/// back its old value.
 fn pick_closed(
     d: &MacDesktop,
     el: &Ax,
@@ -769,8 +795,12 @@ fn pick_closed(
     }
     let titles: Vec<String> = items.iter().map(|i| i.info.title.clone()).collect();
     let hidden: Vec<bool> = items.iter().map(|i| i.denied).collect();
+    let mut items = items;
     let item = match menus::pick(&titles, &hidden, value) {
-        menus::Pick::Item(i) => &items[i],
+        menus::Pick::Item(i) => {
+            items[i].detail();
+            &items[i]
+        }
         menus::Pick::Hidden => {
             return Err(DesktopError::Unsupported(menus::denied_item_refusal(Some(value))));
         }
@@ -791,6 +821,10 @@ fn pick_closed(
             "the item {:?} is disabled",
             item.info.title
         )));
+    }
+    // The full check (LaunchServices names too) on the one item pressed.
+    if d.refuse_denied_item(&item.el).is_err() {
+        return Err(DesktopError::Unsupported(menus::denied_item_refusal(Some(value))));
     }
     let title = item.info.title.clone();
     let before = el.value_text();

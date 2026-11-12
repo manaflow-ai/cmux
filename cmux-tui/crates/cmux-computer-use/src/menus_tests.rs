@@ -112,3 +112,11 @@ fn a_pick_matches_visible_items_first_and_never_a_hidden_one() {
     assert!(msg.contains("\"New Terminal\"") && !msg.contains("at Folder"), "{msg}");
     assert!(!denied_item_refusal(None).contains("Terminal"));
 }
+
+#[test]
+fn a_long_menu_lists_its_first_items_and_counts_the_rest() {
+    let mut r = MenuReport::open(vec![MenuItemInfo { title: "A".into(), ..Default::default() }], 0);
+    r.more = 1800;
+    let v = serde_json::to_value(&r).unwrap();
+    assert_eq!(v["more"], 1800);
+}

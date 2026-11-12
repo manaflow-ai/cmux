@@ -98,6 +98,36 @@ impl Ax {
         }
     }
 
+    /// Several attributes in one round trip, each as [`Ax::attr`] reads it
+    /// (Ok(None) for a missing value, Err for one that could not be read).
+    pub fn attrs(&self, names: &[&str]) -> Result<Vec<Result<Option<Cf>, AXError>>, AXError> {
+        let keys: Vec<Cf> = names.iter().filter_map(|n| Cf::string(n)).collect();
+        let ptrs: Vec<CFTypeRef> = keys.iter().map(Cf::ptr).collect();
+        let list = Cf::array(&ptrs).ok_or(AX_CANNOT_COMPLETE)?;
+        let mut out: CFTypeRef = std::ptr::null();
+        // SAFETY: self and the list are live; out receives a +1 CFArray.
+        let err =
+            unsafe { AXUIElementCopyMultipleAttributeValues(self.ptr(), list.ptr(), 0, &mut out) };
+        if err != AX_OK {
+            return Err(err);
+        }
+        let values = Cf::created(out).map(|a| a.items()).unwrap_or_default();
+        let mut read: Vec<Result<Option<Cf>, AXError>> = values
+            .into_iter()
+            .map(|v| {
+                if failed_read(&v) {
+                    Err(AX_CANNOT_COMPLETE)
+                } else if is_error_value(&v) {
+                    Ok(None)
+                } else {
+                    Ok(Some(v))
+                }
+            })
+            .collect();
+        read.resize_with(names.len(), || Err(AX_CANNOT_COMPLETE));
+        Ok(read)
+    }
+
     pub fn string(&self, name: &str) -> Option<String> {
         self.attr(name).ok().flatten().and_then(|v| v.as_string())
     }
