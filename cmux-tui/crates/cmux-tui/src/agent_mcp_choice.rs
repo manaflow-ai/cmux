@@ -52,7 +52,9 @@ mod tests {
     /// not parse): neither agent gets the server.
     #[test]
     fn unanswered_passes_no_server_to_either_agent() {
-        for text in ["", "{}", r#"{"agents": {"cmuxMcp": "ask"}}"#, r#"{"agents.cmuxMcp": "maybe"}"#, "{"] {
+        for text in
+            ["", "{}", r#"{"agents": {"cmuxMcp": "ask"}}"#, r#"{"agents.cmuxMcp": "maybe"}"#, "{"]
+        {
             let unset = choice(text);
             assert_eq!(claude_mcp_config(unset, Path::new(EXE), Path::new(SOCKET)), None, "{text}");
             assert!(codex_settings(unset, Path::new(EXE), Path::new(SOCKET)).is_empty(), "{text}");

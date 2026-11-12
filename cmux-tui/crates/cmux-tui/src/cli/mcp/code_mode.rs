@@ -1379,7 +1379,8 @@ mod send_steer_tests {
     /// other sessions with it, not the CLI in a shell; one without it is not.
     #[test]
     fn the_exec_description_names_the_send_tool_only_where_it_is() {
-        let with = descriptors(&[json!({"name": SEND}), json!({"name": "acpmux_inbox_reply"})], false);
+        let with =
+            descriptors(&[json!({"name": SEND}), json!({"name": "acpmux_inbox_reply"})], false);
         let text = with[0]["description"].as_str().unwrap();
         assert!(text.contains("cmux.acpmux_send({to, text})"), "{text}");
         assert!(text.contains("not `acpmux send` in a shell"), "{text}");

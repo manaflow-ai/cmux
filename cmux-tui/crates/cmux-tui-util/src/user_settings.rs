@@ -417,7 +417,10 @@ mod tests {
         );
         assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": true}}"#), Choice::Ask);
         assert_eq!(Choice::from_config_text("{not json"), Choice::Ask, "unknown is no answer yet");
-        assert!(!Choice::Ask.injects() && Choice::On.injects() && !Choice::Off.injects(), "nothing until the person says yes");
+        assert!(
+            !Choice::Ask.injects() && Choice::On.injects() && !Choice::Off.injects(),
+            "nothing until the person says yes"
+        );
         assert_eq!(
             Choice::from_config_file(std::path::Path::new("/nonexistent/cmux-next.json")),
             Choice::Ask
