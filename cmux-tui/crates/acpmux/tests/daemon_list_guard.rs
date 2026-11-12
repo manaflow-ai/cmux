@@ -151,7 +151,8 @@ fn list_all(rpc: &mut Rpc) -> Vec<Value> {
     with_rest(rpc, first)
 }
 
-/// The whole list on a new connection, as the old servers asked: its rows.
+/// The whole list on a new connection, every page of it: its rows. (The old servers asked on a
+/// new connection each time; a list of this size was one reply then.)
 fn list_once(socket: &Path) -> Vec<Value> {
     list_all(&mut Rpc::connect(socket))
 }
@@ -281,27 +282,27 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
         lists += 1;
     }
     renames.join().unwrap();
-    // Pages cut from the shared list by count are the whole list, each row once. A whole list
-    // past one reply page comes in its own page order (`session_pages::byte_page`), so the two
-    // are compared by their ids, sorted.
-    let ids = |rows: &[Value]| {
-        let mut ids: Vec<String> =
-            rows.iter().map(|s| s["sessionId"].as_str().unwrap().to_owned()).collect();
-        ids.sort();
-        ids
-    };
-    let whole = ids(&list_once(&daemon.1));
+    // Pages cut from the shared list by count are the whole list, in order: newest first, ties
+    // by id. A whole list past one reply page comes in its own page order
+    // (`session_pages::byte_page`), and its reader puts it in that order (`client.rs`
+    // `whole_list`), as here.
+    let mut whole = list_once(&daemon.1);
     assert_eq!(whole.len(), CHATS);
+    whole.sort_by_key(|s| {
+        let updated = s["updatedAt"].as_u64().unwrap();
+        (std::cmp::Reverse(updated), s["sessionId"].as_str().unwrap().to_owned())
+    });
+    let whole: Vec<Value> = whole.iter().map(|s| s["sessionId"].clone()).collect();
     let (mut paged, mut cursor) = (Vec::new(), Value::Null);
     loop {
         let page = rpc.call("_acpmux/sessions", json!({"limit": 64, "cursor": cursor}));
-        paged.extend(page["sessions"].as_array().unwrap().iter().cloned());
+        paged.extend(page["sessions"].as_array().unwrap().iter().map(|s| s["sessionId"].clone()));
         cursor = page["nextCursor"].clone();
         if cursor.is_null() {
             break;
         }
     }
-    assert_eq!(ids(&paged), whole);
+    assert_eq!(paged, whole);
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
     let over: Vec<&str> = report.iter().filter(|r| r.1 > MAX_SHARE).map(|r| r.0).collect();
