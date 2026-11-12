@@ -175,11 +175,9 @@ pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
 /// has its own, the default Chief's). A home whose socket does not fit
 /// starts no brain.
 const LONGEST_SOCKET: &str = "optchat/tools.sock";
-/// The longest Unix socket path, in bytes (macOS sun_path less the NUL).
-const MAX_SOCKET_PATH: usize = 103;
 
 fn sockets_fit(mux_home: &Path) -> bool {
-    mux_home.join(LONGEST_SOCKET).as_os_str().len() <= MAX_SOCKET_PATH
+    mux_home.join(LONGEST_SOCKET).as_os_str().len() <= cmux_unix_socket::PORTABLE_MAX_PATH_BYTES
 }
 
 /// The brain's whole environment (the brain starts from an empty one): the

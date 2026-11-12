@@ -49,7 +49,7 @@ pub fn socket_path_for(
 ) -> PathBuf {
     let alias = |key: &str| PathBuf::from(format!("/tmp/acpmux-{uid}/{:016x}.sock", fnv1a64(key)));
     if let Some(socket) = configured {
-        if socket.starts_with('/') && socket.len() > MAX_SOCKET_PATH_BYTES {
+        if socket.starts_with('/') && socket.len() > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES {
             return alias(socket);
         }
         return socket.into();
@@ -63,10 +63,6 @@ pub fn socket_path_for(
     }
     alias(&home.to_string_lossy())
 }
-
-/// The longest Unix socket path every host binds (cmux-agent-pane-policy
-/// `MAX_SOCKET_PATH_BYTES`): macOS's `sun_path` less its NUL.
-const MAX_SOCKET_PATH_BYTES: usize = 103;
 
 fn fnv1a64(text: &str) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;

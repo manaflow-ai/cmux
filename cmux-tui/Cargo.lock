@@ -901,6 +901,7 @@ dependencies = [
  "bytes",
  "cmux-json",
  "cmux-pty",
+ "cmux-unix-socket",
  "futures-util",
  "getrandom 0.3.4",
  "http",
@@ -1029,6 +1030,7 @@ dependencies = [
 name = "cmux-agent-pane-policy"
 version = "0.1.0"
 dependencies = [
+ "cmux-unix-socket",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1285,6 +1287,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-unix-socket",
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
@@ -1517,6 +1520,7 @@ dependencies = [
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
+ "cmux-unix-socket",
  "flate2",
  "libc",
  "proptest",
@@ -1930,6 +1934,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-json",
+ "cmux-unix-socket",
  "hmac",
  "proptest",
  "ring",

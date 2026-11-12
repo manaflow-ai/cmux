@@ -34,7 +34,7 @@ fn bind_stale_client_socket(path: &Path) -> std::os::fd::OwnedFd {
     let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
     address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).unwrap();
     let bytes = path.as_os_str().as_bytes();
-    assert!(bytes.len() < address.sun_path.len(), "socket path too long");
+    assert!(cmux_unix_socket::fits(path), "socket path too long");
     for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
         *slot = libc::c_char::from_ne_bytes([*byte]);
     }
