@@ -219,6 +219,61 @@ struct PastedImageTests {
         #expect(read.isRed(.topLeft) && !read.isRed(.bottomRight))
     }
 
+    /// What ImageIO's own encoders write for a decoded photo passes the segment check, so the
+    /// decode path is never refused for the encoder's own segments. The message lists them.
+    @Test(arguments: [(UTType.tiff, UTType.jpeg), (.jpeg, .jpeg), (.tiff, .png), (.png, .png)])
+    func theEncodersOwnSegmentsPassTheCheck(_ source: UTType, _ output: UTType) throws {
+        let photo = try Self.photo(source, width: 64, height: 48, alpha: false, orientation: 6)
+        let image = try #require(CGImageSourceCreateWithData(photo as CFData, nil).flatMap {
+            CGImageSourceCreateThumbnailAtIndex($0, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 64,
+            ] as CFDictionary)
+        })
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data as CFMutableData, output.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, (output == .jpeg ? [kCGImageDestinationLossyCompressionQuality: 0.9] : [:]) as CFDictionary)
+        #expect(CGImageDestinationFinalize(destination))
+        #expect(PastedImage.holdsOnlyPixelSegments(data as Data, type: output.identifier),
+                "\(source.identifier) to \(output.identifier): \(Self.segments(data as Data, type: output))")
+    }
+
+    /// The segments (JPEG: marker and the payload's first bytes) or chunks (PNG) of `data`, in order.
+    static func segments(_ data: Data, type: UTType) -> [String] {
+        let bytes = [UInt8](data)
+        var found: [String] = []
+        if type == .png {
+            var index = 8
+            while index + 8 <= bytes.count, found.count < 64 {
+                let length = bytes[index..<index + 4].reduce(0) { $0 << 8 | Int($1) }
+                let name = String(decoding: bytes[index + 4..<index + 8], as: UTF8.self)
+                found.append("\(name)(\(length))")
+                if name == "IEND" { break }
+                index += 12 + length
+            }
+            return found
+        }
+        var index = 2
+        while index + 3 < bytes.count, found.count < 64 {
+            let marker = bytes[index + 1]
+            if bytes[index] != 0xFF { found.append("not-a-marker@\(index)"); break }
+            if marker == 0xD9 { found.append("EOI"); break }
+            if marker == 0x01 || (0xD0...0xD7).contains(marker) || marker == 0xFF { index += marker == 0xFF ? 1 : 2; continue }
+            let length = Int(bytes[index + 2]) << 8 | Int(bytes[index + 3])
+            let head = bytes[min(index + 4, bytes.count)..<min(index + 4 + 12, bytes.count)]
+            found.append(String(format: "%02X", marker) + "(\(length)):" + head.map { (32...126).contains($0) ? String(UnicodeScalar($0)) : "." }.joined())
+            index += 2 + length
+            if marker == 0xDA {
+                while index + 1 < bytes.count,
+                      !(bytes[index] == 0xFF && bytes[index + 1] != 0 && !(0xD0...0xD7).contains(bytes[index + 1]) && bytes[index + 1] != 0xFF) {
+                    index += 1
+                }
+            }
+        }
+        if index + 3 >= bytes.count { found.append("end@\(index)/\(bytes.count)") }
+        return found
+    }
+
     /// `jpeg` with a comment segment (COM) holding `text`, right after its start marker.
     static func withJPEGComment(_ jpeg: Data, _ text: String) -> Data {
         let payload = Array(text.utf8)
