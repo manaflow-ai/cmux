@@ -218,6 +218,22 @@ import CmuxNextCompat
     /// Told at each connect whether the pane runs on another cmux install's acpmux (its allows
     /// are refused here: the pane says so).
     public var onOtherInstall: (@MainActor (Bool) -> Void)?
+    /// Told after each local connection's person proof whether the daemon took it: false while
+    /// prompts typed here would reach the agent as an unverified sender's (the pane shows "not
+    /// verified, reconnecting identity"), true once a connection proved the person again.
+    public var onPersonProof: (@MainActor (Bool) -> Void)?
+    /// Gets this launch's person key to the daemon again (the host's full lookup: it hands off a
+    /// daemon an update replaced, then enrolls). True when the lookup finished, so a new
+    /// connection may prove; the transport then reconnects. Nil: the pane only says it is unproven.
+    public var recoverPersonProof: (@MainActor () async -> Bool)?
+    /// The waits between identity recoveries of one unproven connection (``personProofSettled``).
+    public var personRecoveryDelays: [Duration] = [.seconds(1), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
+    /// Reconnects made for the person proof since one last proved; bounded so a daemon that can
+    /// never take the key does not reconnect the pane forever.
+    var personRecoveries = 0
+    static let personRecoveryReconnects = 3
+    /// The recovery running for the current unproven connection.
+    var personRecovery: Task<Void, Never>?
     /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
     public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
         throw AcpmuxStatusClient.Failure.closed
