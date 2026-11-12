@@ -234,3 +234,16 @@ test("an earlier-turn fork labels only the ancestor cuts actually inherited, eve
   // A paginated window containing only the older cut keeps its own identity too.
   expect(withForkDividers(rows.slice(0, 1), dividers)[0]!.forkDivider?.label).toBe("Forked from Claude Opus 5.5");
 });
+
+test("a prewarmed fork tail retains inherited boundaries and matches the daemon's attach", async () => {
+  const { forkHistoryTail, sameForkHistory } = await import("../forkTail");
+  const events = [
+    { seq: 1, at: 1, dir: "mux", kind: "user_message", msg: { text: "hello" } },
+    { seq: 2, at: 2, dir: "mux", kind: "forked", msg: { parentId: "a" } },
+    { seq: 3, at: 3, dir: "mux", kind: "turn_end", msg: {} },
+  ] as import("../direct").EventRecord[];
+  const tail = forkHistoryTail({ events, historyExhausted: true, turnOpener: undefined },
+    { sessionId: "c", forkSeq: 3, lastSeq: 4, createdAt: 4 });
+  expect(tail?.events).toEqual(events);
+  expect(sameForkHistory(events, tail!.events, 3)).toBe(true);
+});

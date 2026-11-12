@@ -32,6 +32,7 @@ export const FORK_HISTORY_KINDS: ReadonlySet<string> = new Set([
   "turn_started",
   "turn_result",
   "turn_end",
+  "forked",
 ]);
 
 /// What the forking page holds of the chat it forked.
