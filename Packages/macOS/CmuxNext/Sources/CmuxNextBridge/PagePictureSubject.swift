@@ -12,6 +12,7 @@ public protocol PagePictureSubject: AnyObject {
     var shownGeneration: Int { get }
     /// Whether the page is on screen now (in a window, not parked behind another tab).
     var isOnScreen: Bool { get }
-    /// A picture of the page as it last drew, at the view's size; nil when it has none (a native page).
-    func picture() async -> CGImage?
+    /// A picture of the page as it last drew, at most `maxPixelWidth` pixels wide, its clear areas
+    /// kept clear; nil when it has none (a native page).
+    func picture(maxPixelWidth: CGFloat) async -> CGImage?
 }
