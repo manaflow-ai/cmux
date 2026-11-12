@@ -4,7 +4,7 @@
 // Review of cmux#41540: that hand-over must carry where the records run and which session they are
 // of, so the reconnect resumes after them and a session acpmux recreated under the same id while
 // the page was away drops them instead of merging them into the new session's transcript. And a
-// reply acpmux split in two segments (a steer between them) keeps two rows under one messageId.
+// reply acpmux split in two segments (a cut between them) keeps two rows under one messageId.
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient, type CarriedChat } from "../src/agent-session/acpmux/direct";
 
@@ -193,9 +193,9 @@ test("a reply acpmux split into two segments under one messageId draws two rows"
   const daemon = fakeDaemon(
     [
       user(1, "go"),
-      chunk(2, "before the steer", "m1", "t1.1"),
-      // The steer's own record is not on this page: only the segment says the run of text ended.
-      chunk(4, "after the steer", "m1", "t1.2"),
+      chunk(2, "before the cut", "m1", "t1.1"),
+      // The record the cut was at is not on this page: only the segment says the run of text ended.
+      chunk(4, "after the cut", "m1", "t1.2"),
     ],
     1000,
   );
@@ -296,7 +296,7 @@ test("an older page that brings the start of a reply the page cut keeps one row,
 });
 
 // An older page folded above the held turn (`foldOlder`) leaves the live reply's segment as it was:
-// a chunk of the reply's next segment (a steer between, under the same messageId) still starts its
+// a chunk of the reply's next segment (a cut between, under the same messageId) still starts its
 // own row, not the text of the older page's last reply.
 test("a folded older page keeps the live reply's segment", async () => {
   const daemon = fakeDaemon(
@@ -307,7 +307,7 @@ test("a folded older page keeps the live reply's segment", async () => {
   const pane = await page(daemon);
   await pane.older();
   expect(pane.text()).toEqual(["old prompt", "old reply", "go", "before"]);
-  daemon.push(chunk(5, " the steer", "m1", "t1.x.1"));
+  daemon.push(chunk(5, " the cut", "m1", "t1.x.1"));
   daemon.push(chunk(6, "after", "m1", "t1.x.2"));
   await tick();
   expect(
@@ -317,7 +317,7 @@ test("a folded older page keeps the live reply's segment", async () => {
       .map((row) => [row.id, row.text]),
   ).toEqual([
     ["assistant-t0.x.1", "old reply"],
-    ["assistant-t1.x.1", "before the steer"],
+    ["assistant-t1.x.1", "before the cut"],
     ["assistant-t1.x.2", "after"],
   ]);
 });

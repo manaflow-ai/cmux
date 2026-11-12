@@ -2301,10 +2301,6 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
-        // A prompt (a steer) between two runs of reply text makes them two segments (`stream.rs`).
-        if dir == "mux" && kind == "user_message" {
-            self.end_reply_segment(session);
-        }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
