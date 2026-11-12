@@ -20,6 +20,7 @@ import unittest
 
 import yaml
 from nightly_workflow_text import nightly_text
+import workflow_jobs
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -300,14 +301,16 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("needs.decide.outputs.no_publish != 'true'", condition, name)
         self.assertIn("needs.find-nightly-next-recovery.outputs.found == 'true'", jobs["recover-nightly-next-notarization"]["if"])
         # The Sparkle and notary secrets come from release-next on nightly-next.
-        self.assertEqual(jobs["recover-nightly-next-notarization"]["environment"], "${{ needs.decide.outputs.environment }}")
+        self.assertEqual(workflow_jobs.resolve(jobs["recover-nightly-next-notarization"]).environment,
+                         {"name": "${{ needs.decide.outputs.environment }}"})
         # The finder only reads the routing App key for its owned pick (ci-routing-agent), no release secret.
-        self.assertEqual(jobs["find-nightly-next-recovery"]["environment"], {"name": "ci-routing-agent", "deployment": False})
-        self.assertEqual(set(re.findall(r"secrets\.(\w+)", json.dumps(jobs["find-nightly-next-recovery"]))),
-                         {"GLAEDA_ROUTE_APP_KEY"})
+        self.assertEqual(workflow_jobs.resolve(jobs["find-nightly-next-recovery"]).environment,
+                         {"name": "ci-routing-agent", "deployment": False})
+        self.assertEqual(workflow_jobs.secret_names(jobs["find-nightly-next-recovery"]), {"GLAEDA_ROUTE_APP_KEY"})
         recover_text = json.dumps(jobs["recover-nightly-next-notarization"])
-        for secret in ("CF_R2_", "secrets.SPARKLE_PRIVATE_KEY", "secrets.NIGHTLY_SPARKLE_PRIVATE_KEY"):
-            self.assertNotIn(secret, recover_text)
+        self.assertNotIn("CF_R2_", recover_text)
+        self.assertFalse(workflow_jobs.reads_secret(jobs["recover-nightly-next-notarization"],
+                                                    "SPARKLE_PRIVATE_KEY", "NIGHTLY_SPARKLE_PRIVATE_KEY"))
         self.assertIn("nightly-next-guard.py appcast", recover_text)
         self.assertIn("CMUX_NOTARY_CONTINUE_STATE", recover_text)
 
@@ -322,7 +325,7 @@ class WorkflowTests(unittest.TestCase):
         helper_index = job["steps"].index(step(job, "Claim the whole Mac for signing"))
         self.assertGreater(helper_index, job["steps"].index(step(job, "Checkout publication tooling at the workflow commit")))
         credential_indices = [index for index, item in enumerate(job["steps"])
-                              if "secrets." in json.dumps(item)]
+                              if workflow_jobs.secret_names(item)]
         self.assertTrue(credential_indices, "publication must have a credentialed step to guard")
         self.assertLess(gate_index, min(credential_indices))
         self.assertLess(helper_index, min(credential_indices))
@@ -338,7 +341,7 @@ class WorkflowTests(unittest.TestCase):
         ):
             occurrences = [line for line in text.splitlines() if stale in line and "OWN_" not in line]
             self.assertEqual(occurrences, [], stale)
-        self.assertNotIn("NIGHTLY_BUILD", job["env"])
+        self.assertNotIn("NIGHTLY_BUILD", workflow_jobs.resolve(job).env)
         self.assertIn("NOTES_HEAD: ${{ steps.source.outputs.build_sha }}", text)
         # A recovered build can predate this workflow's script arguments (run
         # 38855116561), so the tooling comes from the workflow's own commit.
@@ -1223,7 +1226,7 @@ class RepublishWorkflowTests(unittest.TestCase):
     def test_the_fetch_job_holds_no_secret_and_runs_only_for_a_republish(self):
         job = workflow()["jobs"]["republish-nightly-next"]
         self.assertNotIn("environment", job)
-        self.assertNotIn("secrets.", json.dumps(job))
+        self.assertEqual(workflow_jobs.secret_names(job), set())
         self.assertEqual(job["permissions"], {"actions": "read", "contents": "read"})
         for clause in ("needs.decide.outputs.republish_run != ''", "needs.decide.outputs.track == 'nightly-next'",
                        "needs.decide.outputs.should_publish == 'true'", "needs.decide.outputs.no_publish != 'true'"):

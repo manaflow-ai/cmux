@@ -29,6 +29,9 @@ import subprocess
 import tempfile
 import time
 from collections import defaultdict
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 
 def rpc(path, method, params=None, timeout=60):
@@ -143,21 +146,21 @@ def main():
             if 0 <= d <= 1500 and name not in row["marks"]:
                 row["marks"][name] = d
                 agg[name].append(d)
-        print(json.dumps({k: (round(v, 1) if isinstance(v, float) and k != "wall0" else v)
+        safe_print(json.dumps({k: (round(v, 1) if isinstance(v, float) and k != "wall0" else v)
                           for k, v in row.items() if k != "marks"}), flush=True)
     if args.out:
         with open(args.out, "a") as f:
             for row in rows:
                 f.write(json.dumps(row) + "\n")
     ok = [r for r in rows if r["ok"]]
-    print(f"== {args.label} n={len(ok)} reply listed the created tab in {sum(r['reply_listed_created'] for r in ok)}/{len(ok)} runs")
+    safe_print(f"== {args.label} n={len(ok)} reply listed the created tab in {sum(r['reply_listed_created'] for r in ok)}/{len(ok)} runs")
     for key in ["action_run_wait_ms", "snapshot_has_pane_ms"]:
         v = sorted(r[key] for r in ok if r[key] is not None)
         if v:
-            print(f"{key:40s} p50 {v[len(v) // 2]:7.1f}  p95 {v[min(len(v) - 1, int(0.95 * len(v)))]:7.1f}")
+            safe_print(f"{key:40s} p50 {v[len(v) // 2]:7.1f}  p95 {v[min(len(v) - 1, int(0.95 * len(v)))]:7.1f}")
     for name, v in sorted(agg.items(), key=lambda kv: sorted(kv[1])[len(kv[1]) // 2]):
         v.sort()
-        print(f"{name[:40]:40s} p50 {v[len(v) // 2]:7.1f}  min {v[0]:7.1f}  max {v[-1]:7.1f}  n={len(v)}")
+        safe_print(f"{name[:40]:40s} p50 {v[len(v) // 2]:7.1f}  min {v[0]:7.1f}  max {v[-1]:7.1f}  n={len(v)}")
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@
 // it sent. Now the lost prompt stays one row on the next connection: on its way until acpmux's record
 // lands on that same row, or failed on that row with Retry if it never does.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -17,7 +18,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (had[key]) scope[key] = before[key];
     else delete scope[key];

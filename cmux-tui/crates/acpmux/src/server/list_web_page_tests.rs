@@ -21,9 +21,13 @@ use super::Origin;
 /// limit. Fixed here rather than read from `list_reply.rs`, so raising that bound fails this.
 const MOST_LIST_REPLY_BYTES: usize = 4 << 20;
 
-/// This daemon's own chats: about 6 MB of summaries in all, past one Web page.
-const OWN: usize = 3_000;
-const TITLE_BYTES: usize = 10_000;
+/// This daemon's own chats: a few pages of every list (about 2.6 MB of census rows, about
+/// 3 MB of ACP rows), past one page of each, and no more. Each page past the first can wait
+/// for a list build and its pace: 3,000 chats with 10 KB titles (66 ACP pages) took this file's
+/// detector 1,605 s in a debug build on hosted Linux (run 43145234111).
+const OWN: usize = 1_200;
+/// Past the census row's title cut (`hub/views.rs` `TITLE_CHARS`), so the cut is on the path.
+const TITLE_BYTES: usize = 300;
 /// A chat mirrored from the peer `box`.
 const MIRRORED: &str = "box-chat";
 
@@ -218,7 +222,7 @@ async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages_body() {
 }
 
 /// The detector: every list method, on every connection, answers a list past one page (this
-/// daemon's ~6 MB; one Mac's was 34 MB on 2026-11-11) in replies of at most
+/// daemon's few pages; one Mac's was 34 MB on 2026-11-11) in replies of at most
 /// [`MOST_LIST_REPLY_BYTES`], none of them skipped or repeated. The app's own connections (the
 /// Unix socket's feeds, the agent pane's) included: they were the ones sent 31 MB replies.
 #[tokio::test(flavor = "multi_thread")]
@@ -267,8 +271,12 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
         // ACP's `session/list`, its cursor followed by `session/list` itself.
         let (builds, began) = (hub.list_guard.builds_for_tests(), Instant::now());
         let (mut page, size, _) = client.call(method::SESSION_LIST, json!({})).await;
-        let mut sizes = vec![size];
-        while let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) {
+        let (mut sizes, mut ids) = (vec![size], Vec::new());
+        loop {
+            for row in page["sessions"].as_array().expect("a session/list page lists sessions") {
+                ids.push(row["sessionId"].as_str().expect("a row has its id").to_owned());
+            }
+            let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) else { break };
             assert!(sizes.len() < 1_000, "{origin:?} session/list never ends");
             let (next, size, _) =
                 client.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
@@ -285,6 +293,14 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
             "{origin:?} session/list: {builds} builds for {} pages",
             sizes.len()
         );
+        assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page goes in pages");
+        // Every own chat once, and no id this daemon does not list.
+        let unique: HashSet<&String> = ids.iter().collect();
+        assert_eq!(unique.len(), ids.len(), "{origin:?} session/list repeated a row");
+        let known: HashSet<String> = every_id().into_iter().collect();
+        assert!(ids.iter().all(|id| known.contains(id)), "{origin:?} session/list: an unknown id");
+        let skipped = own_ids().into_iter().find(|id| !unique.contains(id));
+        assert_eq!(skipped, None, "{origin:?} session/list skipped a row");
         let most = sizes.iter().max().copied().unwrap_or_default();
         assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} session/list: {most} bytes");
     }
