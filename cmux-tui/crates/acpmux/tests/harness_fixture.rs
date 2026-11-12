@@ -149,7 +149,7 @@ async fn the_daemon_serves_a_first_run_matrix_cell() {
     let harnesses = call(&mut lines, &mut wr, 1, "_acpmux/harnesses", json!({})).await;
     let ids: Vec<&String> =
         harnesses["result"]["harnesses"].as_object().expect("harnesses").keys().collect();
-    assert_eq!(ids, ["antigravity-acp", "claude", "codex", "opencode"], "{harnesses}");
+    assert_eq!(ids, ["antigravity", "claude", "codex", "opencode"], "{harnesses}");
     let health =
         call(&mut lines, &mut wr, 2, "_acpmux/harness/health", json!({"refresh": true})).await;
     let auths: Vec<(&str, &str)> = health["result"]["harnesses"]
@@ -163,7 +163,7 @@ async fn the_daemon_serves_a_first_run_matrix_cell() {
         [
             ("claude", "expired"),
             ("codex", "expired"),
-            ("antigravity-acp", "signedIn"),
+            ("antigravity", "signedIn"),
             ("opencode", "signedIn"),
         ],
         "{health}"

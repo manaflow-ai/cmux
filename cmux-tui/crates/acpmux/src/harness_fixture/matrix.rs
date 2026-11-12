@@ -98,7 +98,7 @@ pub const AGENTS: &[Agent] = &[
     },
     Agent {
         name: "antigravity",
-        id: "antigravity-acp",
+        id: "antigravity",
         kind: HarnessKind::Acp,
         argv: &["agy_acp_server.par"],
         channel: Channel::Standalone,
@@ -165,7 +165,7 @@ fn state(word: &str) -> Result<Option<Auth>, String> {
 /// The agents a cell names with their states, in `AGENTS` order; absent
 /// agents are left out.
 pub fn parse(cell: &str) -> Result<Vec<(&'static Agent, Auth)>, String> {
-    let spec = CELLS.iter().find(|(name, _)| *name == cell).map_or(cell, |(_, spec)| spec);
+    let spec = CELLS.iter().find(|(name, _)| *name == cell).map_or(cell, |(_, spec)| *spec);
     let mut chosen: BTreeMap<usize, Option<Auth>> = BTreeMap::new();
     for pair in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
         let (name, word) = pair.split_once('=').ok_or_else(|| {
@@ -258,7 +258,7 @@ mod tests {
         let fixture = fixture("leo-2026-11-12").unwrap();
         assert_eq!(
             fixture.harnesses.keys().collect::<Vec<_>>(),
-            ["antigravity-acp", "claude", "codex", "opencode"]
+            ["antigravity", "claude", "codex", "opencode"]
         );
     }
 
