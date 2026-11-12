@@ -63,6 +63,8 @@ impl Hub {
     /// background; a request for one chat reads that chat's log first (`session_log`). The
     /// chats used last go first, closed ones after every open one.
     pub fn load_logs(self: &Arc<Self>) {
+        #[cfg(debug_assertions)]
+        test_hold("ACPMUX_TEST_HOLD_LOG_PASS");
         let started = std::time::Instant::now();
         // The calls that wait for the load (`wait_logs`) answer even when it fails.
         let _ready = LogsReady(&self.logs_ready);
@@ -425,5 +427,22 @@ thread_local! {
 pub(super) fn catch_up_note(slot: &'static std::thread::LocalKey<CatchUpNote>, what: &'static str) {
     if let Some(note) = slot.with(|note| note.borrow_mut().take()) {
         let _ = note.send(what);
+    }
+}
+
+/// Debug builds only: the env var `var` names a file. While it exists, the caller waits (at most
+/// 120 s), after it wrote `<file>.reached` to say it got there. A test so holds one step of the
+/// start (`ACPMUX_TEST_HOLD_LOG_PASS`: the background pass over the other chats' logs;
+/// `ACPMUX_TEST_HOLD_STARTUP`: the live chats' logs and adoption, `daemon.rs`) for as long as it
+/// needs, under any load, and proves what runs without it. Release builds have no seam.
+#[cfg(debug_assertions)]
+pub(crate) fn test_hold(var: &str) {
+    let Some(file) = std::env::var_os(var).map(std::path::PathBuf::from) else { return };
+    let mut reached = file.clone().into_os_string();
+    reached.push(".reached");
+    let _ = std::fs::write(&reached, b"");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    while file.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
