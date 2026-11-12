@@ -79,6 +79,19 @@ class PullRequestScope(unittest.TestCase):
         return subprocess.run(["bash", str(self.root / "scripts/cmux-next/check-app-ffi-pin.sh"), *args],
                               env=self.env, capture_output=True, text=True)
 
+    def test_a_refused_walk_lists_nothing_and_fails(self):
+        # The release workflow's push paths (app-ffi-release-paths.test.sh) and the pin on the base read --list-inputs:
+        # a walk that refuses fails them, never hands them a shorter list (lead decision 2, 2026-11-11).
+        self.write(SOURCE, 'const X: &str = "no end\n')
+        self.commit("a source the walk cannot read")
+        for flag in ("--list-inputs", "--list-excluded"):
+            with self.subTest(flag=flag):
+                result = self.check(flag)
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("error: the app FFI inputs cannot be listed: a Rust string that does not end",
+                              result.stderr)
+
     def test_a_valid_canonical_pin_passes(self):
         result = self.check()
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -10,6 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import ci_apply  # noqa: E402
@@ -37,6 +38,20 @@ class PlanTests(unittest.TestCase):
 
     def test_rust_the_app_links_needs_the_full_build(self):
         p = lane([("M", "cmux-tui/crates/cmux-app-ffi/src/lib.rs")])
+        self.assertEqual(p["lane"], "full")
+        self.assertIn("Rust the app links (FFI)", p["fallback"])
+
+    def test_a_refused_app_ffi_walk_takes_the_full_build_for_daemon_rust(self):
+        # Lead decision 2 (2026-11-11): ci_apply reads the walk through the router, whose side of a refused walk is
+        # "an input": every cmux-tui path is then Rust the app links, so the change rebuilds the app.
+        daemon = "cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"
+        route = ci_apply._router()
+        import app_ffi_pin  # scripts/ci, which _router put on sys.path
+        with mock.patch.object(app_ffi_pin, "listed",
+                               side_effect=app_ffi_pin.Unresolved("a Rust string that does not end")), \
+                mock.patch.dict(route._READ, clear=True):
+            self.assertEqual(ci_apply.app_linked_rust([daemon]), [daemon])
+            p = lane([("M", daemon)])
         self.assertEqual(p["lane"], "full")
         self.assertIn("Rust the app links (FFI)", p["fallback"])
 

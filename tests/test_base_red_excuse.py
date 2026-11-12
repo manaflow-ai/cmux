@@ -7253,14 +7253,15 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
             self.judge()
 
     def test_a_pr_of_more_than_one_page_of_files_is_read_to_its_last_file(self):
-        # cmux#37362 at 54470673 changes 108 files; GitHub lists at most 100 per page.
-        crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(105))
+        # cmux#37362 at 54470673 changes 108 files; GitHub lists at most 100 per page. The fillers are in an FFI crate:
+        # a cmux-tui path the walk does not list refuses first (lead decision 3, 2026-11-11).
+        crates = tuple(f"cmux-tui/crates/cmux-layout-reducer/src/action_{i}.rs" for i in range(105))
         self.pr_files(*crates, *self.RUST)
         self.assertTrue(self.judge()[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"))
         self.assertEqual([args[-2:] for args in self.graphql], [["-F", "after=null"], ["-f", "after=100"]])
 
     def test_a_swift_file_past_the_first_page_is_still_refused(self):
-        crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(150))
+        crates = tuple(f"cmux-tui/crates/cmux-layout-reducer/src/action_{i}.rs" for i in range(150))
         self.pr_files(*crates, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Actions.swift", page=50)
         with self.assertRaisesRegex(excuse.Refused, r"#37292 changes Swift \(Packages/.*Actions.swift\)"):
             self.judge()
@@ -7307,9 +7308,18 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                     "scripts/ci/cmux_next_route.py", "scripts/cmux-next/build-app-ffi.sh",
                     "scripts/cmux-next/check_app_crate_licenses.py", "tests/test_app_crate_licenses.py")
 
-    def test_a_new_crate_with_its_workflow_router_and_licence_changes_is_excused(self):
+    def test_a_new_crate_with_its_workflow_router_and_licence_changes_is_refused_for_its_manifests(self):
+        # Lead decision 3 (2026-11-11): this classifier walks its own checkout, never the PR's head, so a PR that
+        # changes a Cargo.toml or Cargo.lock (here the new crate's dependency edge and the workspace members) could make
+        # inputs the base's walk does not list. Neither rule excuses it, and the workflow, router and licence files
+        # are still not what refuses it.
+        self.compiled()
         self.pr_files(*self.STEP_A_37869)
-        self.assertIn(f"only '{self.PIN}' is red", self.judge()[0])
+        with self.assertRaisesRegex(excuse.Refused, r"cannot vouch for \(cmux-tui/Cargo\.lock; cmux-tui/Cargo\.toml; "
+                                    r"cmux-tui/crates/cmux-app-ffi/Cargo\.toml; cmux-tui/crates/cmux-cookie-sync/"
+                                    r"Cargo\.toml\)") as raised:
+            self.judge()
+        self.assertNotIn("excused", str(raised.exception))
 
     def test_a_change_with_no_ffi_input_is_refused(self):
         self.pr_files("docs/ci/app-ffi-release.md")
@@ -7325,12 +7335,76 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
 
     def test_the_other_bindings_are_not_ffi_inputs(self):
         # No crate cmux-app-ffi reaches lives there; bindings/rust-sidebar shares the bindings/rust prefix but not its
-        # folder.
+        # folder. Each is a cmux-tui path the walk does not list, so the pin red is refused before either rule (lead
+        # decision 3, 2026-11-11).
         for path in ("cmux-tui/bindings/cpp/CMakeLists.txt", "cmux-tui/bindings/python/cmux/__init__.py",
                      "cmux-tui/bindings/rust-sidebar/src/lib.rs"):
+            self.assertFalse(excuse.ffi_input(path), path)
             self.pr_files(path)
-            with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input", msg=path):
+            with self.assertRaisesRegex(excuse.Refused, rf"cannot vouch for \({re.escape(path)}\)", msg=path):
                 self.judge()
+
+    # Lead decision 2 (2026-11-11): each reader of the walk takes its own fail-closed side. Here "an input" is what
+    # lets the step-A rule excuse the pin red, so a walk that refuses counts no path as one and can never excuse it.
+    def refused_walk(self, why="a Rust string that does not end"):
+        """The app FFI walk of this checkout refuses (app_ffi_pin.Unresolved), read afresh for this case."""
+        for patch in (unittest.mock.patch.object(excuse.app_ffi_pin, "listed",
+                                                 side_effect=excuse.app_ffi_pin.Unresolved(why)),
+                      unittest.mock.patch.dict(excuse._FFI_LISTED, clear=True)):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def test_a_refused_walk_never_excuses_a_step_a_change(self):
+        self.refused_walk()
+        # The crates (cmux-tui), and the inputs above them that #41555's fallback counted (build-app-ffi.sh, a
+        # toolchain file): each was an input when the walk refused, and the step-A rule excused the pin red.
+        for paths in (self.RUST, ("scripts/cmux-next/build-app-ffi.sh",), ("rust-toolchain.toml",)):
+            with self.subTest(paths=paths):
+                self.assertFalse(any(excuse.ffi_input(path) for path in paths))
+                self.pr_files(*paths)
+                with self.assertRaisesRegex(excuse.Refused, "the app FFI walk of this checkout refused: a Rust string "
+                                            "that does not end") as raised:
+                    self.judge()
+                self.assertNotIn("excused", str(raised.exception))
+
+    def test_a_refused_walk_leaves_the_published_base_pin_rule_which_reads_no_walk(self):
+        # Swift against the base's published pin, compiled at the head: that rule never asked the walk.
+        self.refused_walk()
+        self.pr_files(self.STEP_B[1])
+        self.compiled()
+        self.assertIn("a published release built from 1f63d516ecfc", self.judge()[0])
+
+    # Lead decision 3 (2026-11-11): the walk is of this checkout, never of the PR's head, so the pin red of a PR that
+    # changes any Cargo.toml or Cargo.lock, or a cmux-tui path the walk neither lists nor excludes, is refused before
+    # either rule: the head's inputs may not be the ones the base's walk lists.
+    def test_a_cargo_manifest_or_lock_is_refused_before_either_rule(self):
+        self.compiled()  # the published base pin rule would excuse the Swift case, were it asked
+        for path in ("cmux-tui/crates/cmux-layout-reducer/Cargo.toml", "cmux-tui/Cargo.toml",
+                     "cmux-tui/crates/cmux-app-ffi/Cargo.lock", "cmux-tui/Cargo.lock", "Native/OptChat/chief/Cargo.toml",
+                     "cmux-next-ios/rust/Cargo.lock"):
+            for others in (self.RUST, (self.STEP_B[1],)):
+                with self.subTest(path=path, others=others):
+                    self.pr_files(*others, path)
+                    with self.assertRaisesRegex(excuse.Refused, rf"cannot vouch for \({re.escape(path)}\)") as raised:
+                        self.judge()
+                    self.assertNotIn("excused", str(raised.exception))
+
+    def test_a_new_crate_or_folder_the_walk_does_not_list_is_refused(self):
+        for path in ("cmux-tui/crates/cmux-brand-new/src/lib.rs", "cmux-tui/vendor/zstd/src/lib.rs"):
+            with self.subTest(path=path):
+                self.pr_files(*self.RUST, path)
+                with self.assertRaisesRegex(excuse.Refused, rf"cannot vouch for \({re.escape(path)}\)") as raised:
+                    self.judge()
+                self.assertNotIn("excused", str(raised.exception))
+
+    def test_paths_outside_cmux_tui_and_excluded_test_files_are_not_that_rule(self):
+        # Docs, web and Swift are outside the Rust tree, and a crate's tests/ is a path the walk lists as excluded.
+        self.pr_files(*self.RUST, "docs/ci/app-ffi-release.md", "web/app/page.tsx",
+                      "cmux-tui/crates/cmux-layout-reducer/tests/new_case.rs")
+        self.assertIn(f"only '{self.PIN}' is red", self.judge()[0])
+        self.pr_files("docs/ci/app-ffi-release.md")
+        with self.assertRaisesRegex(excuse.Refused, "changes no app FFI input"):
+            self.judge()
 
     # The published base pin (2026-11-07): a step-B PR's pin is a release built from a commit on the base, and its
     # app compile passed at its head against that pin.

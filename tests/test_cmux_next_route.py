@@ -516,6 +516,24 @@ class PullRequestTiers(unittest.TestCase):
         self.assertIn("cmux-tui/crates/cmux-app-ffi/", crates)
         self.assertLessEqual(crates, set(route_module.app_ffi_inputs(ROOT)))
 
+    def test_a_refused_app_ffi_walk_runs_the_swift_compiles_for_every_cmux_tui_path(self):
+        """Lead decision 2 (2026-11-11): each reader of the app FFI walk takes its own fail-closed side. The router's is
+        more work, never less: a walk that refuses (app_ffi_pin.Unresolved) counts all of cmux-tui and the inputs above
+        the crates (app_ffi_pin.REFUSED_INPUTS) as app FFI inputs and excludes nothing."""
+        import app_ffi_pin
+        daemon = "cmux-tui/crates/acpmux/src/peer.rs"
+        self.assertEqual(tiers([daemon])["native"], "false")
+        with mock.patch.object(app_ffi_pin, "listed",
+                               side_effect=app_ffi_pin.Unresolved("a Rust string that does not end")), \
+                mock.patch.dict(cmux_next_route._READ, clear=True):
+            result = tiers([daemon])
+            self.assertEqual((result["native"], result["scheme"]), ("true", "true"))
+            for path in (daemon, "cmux-tui/crates/cmux-app-ffi/tests/new.rs", "scripts/cmux-next/build-app-ffi.sh",
+                         "rust-toolchain.toml"):
+                self.assertTrue(cmux_next_route.app_ffi_input(ROOT, path), path)
+            self.assertEqual(cmux_next_route.app_ffi_excluded(ROOT), [])
+            self.assertFalse(cmux_next_route.app_ffi_input(ROOT, "docs/ci/app-ffi-release.md"))
+
     def test_rust_an_app_scheme_build_phase_reads_runs_the_scheme_compile(self):
         """The diff sidecar and mobile host phases build crates of their own; those still compile the scheme."""
         for path in ("cmux-tui/crates/cmux-git/src/lib.rs", "cmux-tui/crates/cmux-wg/src/lib.rs", "cmux-tui/Cargo.lock"):
