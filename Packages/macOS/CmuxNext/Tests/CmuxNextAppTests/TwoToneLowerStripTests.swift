@@ -11,6 +11,10 @@ import Testing
 @MainActor @Suite(.serialized) struct TwoToneLowerStripTests {
     @Test func aTonedStripInsideTheCardRunsItsSelectedTabIntoTheContent() throws {
         // The flush corner pinned on (Debug Settings), so the test always asserts.
+        // Compact density keeps the pill before any override is read (`CornerFlush.current`): pin Default's.
+        let density = DesignSettings.shared.densityTokens
+        DesignSettings.shared.densityTokens = DensityPreset.cozy.tokens
+        defer { DesignSettings.shared.densityTokens = density }
         let store = TunableStore.shared
         store.register([CornerFlush.tunable.descriptor])
         if !store.isActive { store.activate(file: nil) }
