@@ -72,6 +72,10 @@ pub(super) fn expire(
         return false;
     }
     receivers.state.stats.deadline_expired();
+    receivers.state.stats.commit_late(format!(
+        "a commit passed its {} ms deadline: {detail}",
+        receivers.state.durable_wait().as_millis()
+    ));
     let (waiting, kept): (Vec<_>, Vec<_>) =
         std::mem::take(batch).into_iter().partition(|queued| queued.completion.is_some());
     super::complete_batch_error(

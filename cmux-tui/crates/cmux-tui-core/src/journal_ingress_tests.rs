@@ -1078,8 +1078,12 @@ fn terminal_output_survives_a_short_nonretryable_writer_failure() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+/// A record nobody waits on that the store rejects every time is dropped alone (JOURNAL STALL
+/// DESIGN (iii)/(iv)): the barrier behind it commits, the daemon keeps running, later records are
+/// admitted, and the terminal's next record comes after a `journal_commit_failed` gap marker that
+/// stands for the dropped one. Before, the writer stopped for good ("failed permanently").
 #[test]
-fn permanent_terminal_writer_failure_releases_the_final_barrier() {
+fn a_permanently_rejected_terminal_record_is_dropped_alone_and_owes_a_marker() {
     let root = std::env::temp_dir().join(format!(
         "cmux-terminal-journal-writer-terminal-failure-{}-{}",
         std::process::id(),
@@ -1108,34 +1112,43 @@ fn permanent_terminal_writer_failure_releases_the_final_barrier() {
                  END;",
         )
         .unwrap();
-    mux.journal_terminal_output(
-        Arc::new(public_id("term", 14, TerminalPublicId::parse)),
-        Arc::from("permanent-writer-failure-generation"),
-        b"cannot commit".to_vec(),
-    );
+    let terminal = Arc::new(public_id("term", 14, TerminalPublicId::parse));
+    let generation: Arc<str> = Arc::from("permanent-writer-failure-generation");
+    mux.journal_terminal_output(terminal.clone(), generation.clone(), b"cannot commit".to_vec());
 
     let started = Instant::now();
-    let error = mux.flush_terminal_journal().unwrap_err();
+    let flushed = mux.flush_terminal_journal();
 
+    assert!(flushed.is_ok(), "the barrier behind the dropped record failed: {:?}", flushed.err());
     assert!(started.elapsed() < Duration::from_secs(3));
-    assert!(error.to_string().contains("injected permanent terminal journal failure"));
     assert!(
         !mux.daemon_shutdown_requested(),
         "a permanent output gap must not stop live terminal hosts"
     );
     assert!(
-        mux.try_journal_terminal_output(
-            Arc::new(public_id("term", 14, TerminalPublicId::parse)),
-            Arc::from("permanent-writer-failure-generation"),
-            42,
-            b"must not be accepted".to_vec(),
-        )
-        .is_err(),
-        "later output must observe the terminal writer failure"
+        mux.try_journal_terminal_output(terminal.clone(), generation.clone(), 42, b"x".to_vec())
+            .is_ok(),
+        "later output is admitted after a dropped record"
     );
-    assert!(
-        mux.flush_terminal_journal().unwrap_err().to_string().contains("failed permanently"),
-        "later barriers must observe the writer terminal state"
+    injector.execute_batch("DROP TRIGGER reject_permanent_test_terminal_output;").unwrap();
+    mux.journal_terminal_resize(terminal.clone(), generation, 90, 30, 8, 16);
+    mux.flush_terminal_journal().unwrap();
+    let records = mux.session_journal_after(0, 1024).unwrap().records;
+    let kinds = records
+        .iter()
+        .filter(|record| record.subjects.iter().any(|subject| subject.id == terminal.as_str()))
+        .filter(|record| record.kind != "terminal.output")
+        .map(|record| {
+            (record.kind.clone(), record.payload["reason"].as_str().unwrap_or("").to_string())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [
+            ("terminal.output.gap".to_string(), "journal_commit_failed".to_string()),
+            ("terminal.resized".to_string(), String::new()),
+        ],
+        "the dropped record's marker comes before the terminal's next record"
     );
     drop(injector);
     drop(mux);

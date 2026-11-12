@@ -1254,13 +1254,10 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         }
                         let transient = contention::is_transient(&error, retry_deadline);
                         if Instant::now() >= retry_deadline {
+                            // Any error once the deadline passed: the waiters get their timeout,
+                            // the records nobody waits on stay for the next try. The writer never
+                            // stops for good here (only a closed admission stops it, in expire).
                             let detail = format!("journal commit: {summary}");
-                            if !transient {
-                                stop_writer_after_retry_deadline(
-                                    &receivers, &batch, pending, &detail,
-                                );
-                                return;
-                            }
                             let (deadline, rest) = (&mut retry_deadline, &mut pending);
                             let (batch, detail) = (&mut batch, detail.as_str());
                             if !contention::expire(&receivers, batch, rest, deadline, detail) {
@@ -1294,24 +1291,28 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             wait_for_journal_retry(mux, nonretryable_delay.min(remaining));
                             nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
-                        } else if batch.first().is_some_and(|event| event.completion.is_none()) {
-                            let _admit = receivers.state.enqueue_admission.lock().recover_poison();
-                            let failure = receivers.state.fail(format!(
-                                "session journal writer failed permanently: {summary}"
+                        } else if let Some(dropped) =
+                            batch.first().filter(|event| event.completion.is_none())
+                        {
+                            // The store rejected one record nobody waits on every time: drop that
+                            // record alone and go on. No stored failure: admission stays open (a
+                            // failure stored here, with nothing else queued, would never clear).
+                            // Its terminal owes a gap marker and gets a checkpoint, which states
+                            // the terminal again from memory with a later commit.
+                            let owed = receivers.state.owe_gap_for_dropped(&dropped.event);
+                            receivers.state.stats.commit_late(format!(
+                                "dropped a record nobody waits on: {summary}"
                             ));
-                            // A terminal journal failure must not strand the
-                            // live terminal hosts. Mark journaling failed,
-                            // fail pending receipts, and keep the daemon
-                            // available so callers can reconnect or export
-                            // their session before the next restart.
-                            #[cfg(test)]
-                            receivers.state.notify_failure_for_test(&failure);
-                            complete_batch_error(&batch, failure.clone());
-                            for pending_batch in pending {
-                                complete_batch_error(&pending_batch, failure.clone());
+                            eprintln!(
+                                "cmux-tui: session journal dropped a record nobody waits on \
+                                 after {} tries: {summary}",
+                                JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS + 1
+                            );
+                            if let Some(terminal) = owed {
+                                mux.note_terminal_host_reconnect((*terminal).clone());
                             }
-                            complete_queued_error(&receivers, &failure);
-                            return;
+                            drop((writer, mux));
+                            complete_batch_error(&batch, summary);
                         } else {
                             drop((writer, mux));
                             complete_batch_error(&batch, summary);
