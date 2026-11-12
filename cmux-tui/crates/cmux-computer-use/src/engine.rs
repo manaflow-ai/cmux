@@ -186,11 +186,13 @@ pub trait PersonActivity: Send + Sync {
     fn input_count(&self) -> Option<u64> {
         None
     }
-    /// Whether input_count counts the person's keys too (macOS: only with
-    /// Input Monitoring). A count that sees only the pointer cannot tell
-    /// that the person kept typing.
-    fn input_counts_keys(&self) -> bool {
-        false
+    /// While input_count counts the person's keys too: an epoch that rises
+    /// whenever their keys may have gone uncounted (Secure Event Input, a
+    /// blind detector, dictation). `None` while the count does not cover keys
+    /// (macOS: no Input Monitoring). Two equal readings mean every key of the
+    /// person was counted between them.
+    fn keys_epoch(&self) -> Option<u64> {
+        None
     }
 }
 

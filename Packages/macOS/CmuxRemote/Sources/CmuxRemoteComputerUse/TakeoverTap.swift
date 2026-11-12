@@ -96,6 +96,9 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
         let userData = event.getIntegerValueField(.eventSourceUserData)
         let sourcePID = event.getIntegerValueField(.eventSourceUnixProcessID)
         let provenance = classifyInput(type: type.rawValue, userData: userData, sourcePID: sourcePID, ownPID: ownPID)
+        if provenance != .agent, TapEventType.textInputKeys.contains(type.rawValue) {
+            gate.noteTextInputKey()
+        }
         if userData == TakeoverMarker.value {
             state.withLock { $0.markedSeen += 1 }
         }
@@ -122,6 +125,9 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
         CGEvent.tapEnable(tap: tap, enable: true)
         var healthy = provenanceRoundTrips()
+        // The current Secure Event Input state before the tap counts as
+        // healthy, so a new tap never carries an old reading.
+        gate.noteSecureInput(IsSecureEventInputEnabled())
         gate.setHealthy(healthy, seesKeys: keys)
         var lastProof = TakeoverGate.uptimeNanos()
         while !state.withLock({ $0.stop }) {

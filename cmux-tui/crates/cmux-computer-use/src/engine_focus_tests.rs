@@ -8,8 +8,9 @@ use crate::desktop::fake::{Event, FakeDesktop};
 
 /// The person's input as a counter (a detector that watches, when `.1`).
 /// With `.2` set, the person acts once right after the first reading.
-/// `.3` set: it counts the pointer only (no Input Monitoring).
-struct Counter(AtomicU64, bool, AtomicBool, AtomicBool);
+/// `.3` set: it counts the pointer only (no Input Monitoring). `.4`: the
+/// key-blind epoch (Secure Event Input, a blind tap, dictation raise it).
+struct Counter(AtomicU64, bool, AtomicBool, AtomicBool, AtomicU64);
 impl PersonActivity for Counter {
     fn wait_idle(&self, _limit: Duration) -> bool {
         true
@@ -22,8 +23,8 @@ impl PersonActivity for Counter {
         self.1.then_some(n)
     }
     /// A watching counter here sees keys too, unless the test says pointer only.
-    fn input_counts_keys(&self) -> bool {
-        self.1 && !self.3.load(Ordering::SeqCst)
+    fn keys_epoch(&self) -> Option<u64> {
+        (self.1 && !self.3.load(Ordering::SeqCst)).then(|| self.4.load(Ordering::SeqCst))
     }
 }
 
@@ -73,6 +74,7 @@ fn rig_with(desktop: FakeDesktop, watched: bool) -> Rig {
         watched,
         AtomicBool::new(false),
         AtomicBool::new(false),
+        AtomicU64::new(0),
     ));
     let mut parts = EngineParts::new(desktop.clone());
     let a = Arc::new(AtomicU64::new(0));
@@ -521,5 +523,30 @@ fn a_first_reading_never_counts_a_window_the_person_may_have_reached() {
     *r.desktop.focus.lock().unwrap() = Some(safari_other_window());
     let back = FocusSnapshot { window_id: Some("1".into()), ..safari_front() };
     let out = background_click(&r, "s1", "c2", back);
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+}
+
+#[test]
+fn keys_the_count_may_have_missed_end_the_agents_front_app() {
+    // Secure Event Input (the person typing a password), a blind tap or
+    // dictation raise the key-blind epoch: the agent-front record no longer
+    // holds, and the window is put back.
+    let r = rig();
+    agent_raises_safari(&r);
+    r.person.4.fetch_add(1, Ordering::SeqCst);
+    let out = background_click(&r, "s1", "c2", safari_other_window());
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+}
+
+#[test]
+fn secure_event_input_during_a_call_still_restores_stolen_focus() {
+    // The key-blind epoch is not the person's input: an app that takes focus
+    // while Secure Event Input is on (the person typing a sudo password) is
+    // still put back, so the rest of the password does not go to it.
+    let r = rig();
+    *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
+    r.person.4.fetch_add(5, Ordering::SeqCst);
+    let out = click(&r, "c1");
+    r.person.4.fetch_add(5, Ordering::SeqCst);
     assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
 }

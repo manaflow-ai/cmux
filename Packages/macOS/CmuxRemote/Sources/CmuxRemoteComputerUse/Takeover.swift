@@ -43,6 +43,8 @@ enum TapEventType {
     static let rightMouseDragged: UInt32 = 7
     static let keyDown: UInt32 = 10
     static let flagsChanged: UInt32 = 12
+    /// NX_SYSDEFINED: media and special keys (the dictation microphone key).
+    static let systemDefined: UInt32 = 14
     static let scrollWheel: UInt32 = 22
     static let otherMouseDown: UInt32 = 25
     static let otherMouseDragged: UInt32 = 27
@@ -53,15 +55,20 @@ enum TapEventType {
     ]
     static let pointer: Set<UInt32> = [mouseMoved]
 
+    /// Keys that can start dictation or an input method (fn twice, the
+    /// microphone key): not deliberate input, but the text that follows
+    /// arrives without key events.
+    static let textInputKeys: Set<UInt32> = [flagsChanged, systemDefined]
+
     /// Every type above, as a CGEventMask.
     static var mask: UInt64 {
-        (deliberate.union(pointer)).reduce(0) { $0 | (1 << UInt64($1)) }
+        (deliberate.union(pointer).union(textInputKeys)).reduce(0) { $0 | (1 << UInt64($1)) }
     }
 
     /// Without Input Monitoring: everything but keys, so creating the tap
     /// never asks for that grant. Clicks, drags and scrolls still take over.
     static var pointerOnlyMask: UInt64 {
-        mask & ~(1 << UInt64(keyDown))
+        mask & ~(1 << UInt64(keyDown)) & ~(1 << UInt64(flagsChanged))
     }
 }
 
@@ -140,6 +147,11 @@ final class TakeoverGate: Sendable {
         /// Secure Event Input is on (a password field, Secure Keyboard Entry):
         /// the tap gets no key events, whatever it listens to.
         var secureInput = false
+        /// Rises whenever the person's keys may have gone uncounted: a reading
+        /// with Secure Event Input on, the tap going blind, a dictation or
+        /// input-method key. Separate from personEvents, which counts only
+        /// real events (the focus guard's person rule).
+        var keyBlindEpoch: UInt64 = 0
         var lastPerson: UInt64?
         var pointer: PointerSample?
         var stats = TakeoverStats()
@@ -181,7 +193,7 @@ final class TakeoverGate: Sendable {
             // A period the tap could not see counts as the person's input:
             // whatever they did meanwhile was not counted, so a reading taken
             // before it never equals one taken after.
-            if state.healthy, !healthy { state.stats.personEvents &+= 1 }
+            if state.healthy, !healthy { state.keyBlindEpoch &+= 1 }
             state.healthy = healthy
             if let seesKeys { state.seesKeys = seesKeys }
         }
@@ -194,15 +206,28 @@ final class TakeoverGate: Sendable {
         state.withLock { $0.healthy && $0.seesKeys && !$0.secureInput }
     }
 
+    /// The key-blind epoch while personEventCount() covers keys, else nil.
+    /// Two equal readings mean the person's keys were counted all along.
+    func keyBlindEpoch() -> UInt64? {
+        state.withLock { ($0.healthy && $0.seesKeys && !$0.secureInput) ? $0.keyBlindEpoch : nil }
+    }
+
     /// The tap's reading of Secure Event Input, on each wake. While it is on
-    /// the person's keys go unseen, so every reading with it on counts as the
-    /// person's input (a count taken before it never equals one after), and
-    /// the count does not cover keys.
+    /// the person's keys go unseen: each reading with it on raises the
+    /// key-blind epoch, and the count does not cover keys. The person's
+    /// event count is not touched (the focus guard's person rule stays).
     func noteSecureInput(_ on: Bool) {
         state.withLock { state in
-            if on { state.stats.personEvents &+= 1 }
+            if on { state.keyBlindEpoch &+= 1 }
             state.secureInput = on
         }
+    }
+
+    /// A key that starts dictation or an input method (fn, the microphone
+    /// key) whose text then arrives without key events: the person may be
+    /// entering text the count does not see.
+    func noteTextInputKey() {
+        state.withLock { $0.keyBlindEpoch &+= 1 }
     }
 
     /// Record one classified event seen at `at` (uptime nanoseconds).

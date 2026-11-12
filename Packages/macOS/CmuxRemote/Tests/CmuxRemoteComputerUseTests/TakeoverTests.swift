@@ -133,12 +133,18 @@ private final class FakeClock: Sendable {
         let gate = clock.gate()
         gate.setHealthy(true, seesKeys: false)
         #expect(gate.personEventsCoverKeys() == false, "pointer only: the person's keys are not counted")
-        let before = gate.personEventCount()
+        let count = gate.personEventCount()
+        gate.setHealthy(true, seesKeys: true)
+        let epoch = gate.keyBlindEpoch()
         gate.setHealthy(false)
         #expect(gate.personEventsCoverKeys() == false, "unwatched")
         gate.setHealthy(true, seesKeys: true)
         #expect(gate.personEventsCoverKeys())
-        #expect(gate.personEventCount() != before, "what the person did while the tap was blind was not counted")
+        #expect(gate.keyBlindEpoch() != epoch, "what the person typed while the tap was blind was not counted")
+        #expect(gate.personEventCount() == count, "the person rule counts real events only")
+        let before = gate.keyBlindEpoch()
+        gate.noteTextInputKey()
+        #expect(gate.keyBlindEpoch() != before, "a dictation or input-method key")
     }
 
     /// Secure Event Input (a password field): while on, the person's keys are unseen, so the
@@ -149,15 +155,16 @@ private final class FakeClock: Sendable {
         gate.setHealthy(true, seesKeys: true)
         gate.noteSecureInput(false)
         #expect(gate.personEventsCoverKeys())
-        let before = gate.personEventCount()
+        let count = gate.personEventCount()
+        let epoch = gate.keyBlindEpoch()
+        #expect(epoch != nil)
         gate.noteSecureInput(true)
         #expect(gate.personEventsCoverKeys() == false)
-        #expect(gate.personEventCount() != before)
-        let during = gate.personEventCount()
-        gate.noteSecureInput(true)
-        #expect(gate.personEventCount() != during, "every reading with it on counts")
+        #expect(gate.keyBlindEpoch() == nil, "keys are not covered while it is on")
+        #expect(gate.personEventCount() == count, "the person rule counts real events only")
         gate.noteSecureInput(false)
         #expect(gate.personEventsCoverKeys())
+        #expect(gate.keyBlindEpoch() != epoch, "a reading from before it never equals one after")
     }
 
     @Test func ourOwnInputNeverTakesOver() {

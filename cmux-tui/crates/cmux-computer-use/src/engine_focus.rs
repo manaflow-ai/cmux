@@ -85,6 +85,8 @@ pub(super) struct AgentFront {
     pid: u32,
     window: Option<String>,
     inputs: u64,
+    /// The key-blind epoch when it was recorded (PersonActivity::keys_epoch).
+    keys: u64,
 }
 
 impl FocusReport {
@@ -246,28 +248,34 @@ impl Engine {
         &self,
         tool: &tools::Tool,
         args: &Value,
-    ) -> Option<(FocusSnapshot, Option<u64>)> {
+    ) -> Option<(FocusSnapshot, Option<(u64, u64)>)> {
         if !tool.acts() || !asks_foreground(tool.name, args) {
             return None;
         }
-        Some((self.desktop.focus_snapshot()?, self.takeover.input_count()))
+        Some((self.desktop.focus_snapshot()?, self.person_reading()))
+    }
+
+    /// The person's input count and key-blind epoch, when both are known
+    /// (the count covers the person's keys).
+    fn person_reading(&self) -> Option<(u64, u64)> {
+        Some((self.takeover.input_count()?, self.takeover.keys_epoch()?))
     }
 
     /// After that call: when it acted and brought its target app to the
     /// front (it was not there before), remember that for the session, with
-    /// the window it left in front and the person's input count. Only when
-    /// the count covers the person's keys as well as the pointer, and the
-    /// person gave no input during the call (an approval wait may be long);
-    /// never when the person already had the target in front.
+    /// the window it left in front, the person's input count and the
+    /// key-blind epoch. Only when the count covers the person's keys, and
+    /// nothing of the person's happened during the call (an approval wait may
+    /// be long); never when the person already had the target in front.
     pub(super) fn foreground_end(
         &self,
         session: &str,
         before: &FocusSnapshot,
-        inputs_before: Option<u64>,
+        reading_before: Option<(u64, u64)>,
         args: &Value,
         out: &ToolOutput,
     ) {
-        if out.is_error || !self.takeover.input_counts_keys() {
+        if out.is_error {
             return;
         }
         let Some(target) = args_str(args, "window_id")
@@ -276,15 +284,15 @@ impl Engine {
         else {
             return;
         };
-        let (Some(now), Some(inputs)) =
-            (self.desktop.focus_snapshot(), self.takeover.input_count())
+        let (Some(now), Some(reading)) = (self.desktop.focus_snapshot(), self.person_reading())
         else {
             return;
         };
-        if inputs_before == Some(inputs) && before.pid != target && now.pid == target {
+        if reading_before == Some(reading) && before.pid != target && now.pid == target {
+            let (inputs, keys) = reading;
             lock(&self.agent_front).insert(
                 session.to_string(),
-                AgentFront { pid: target, window: now.window_id, inputs },
+                AgentFront { pid: target, window: now.window_id, inputs, keys },
             );
         }
     }
@@ -296,10 +304,12 @@ impl Engine {
         let config = self.config();
         let mut fronts = lock(&self.agent_front);
         let Some(front) = fronts.get_mut(&g.session) else { return false };
-        let allowed = config.allow_foreground
-            && config.mode != policy::Mode::Off
-            && self.takeover.input_counts_keys();
-        let quiet = g.inputs == Some(front.inputs) && after == Some(front.inputs);
+        let allowed = config.allow_foreground && config.mode != policy::Mode::Off;
+        // No input of the person's since the record, and every key of theirs
+        // counted (the key-blind epoch has not moved).
+        let quiet = g.inputs == Some(front.inputs)
+            && after == Some(front.inputs)
+            && self.takeover.keys_epoch() == Some(front.keys);
         // The window the agent left in front; or, on a later reading of this
         // same call, the one this guard already let come forward (never on a
         // first reading: the person may have reached that window with a
