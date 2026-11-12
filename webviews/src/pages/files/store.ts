@@ -4,11 +4,13 @@
 import type { PageClient } from "../shared/pageClient";
 import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 
-/** The file tree's owner words these refusals for the person (FileTreeStrings). */
+/** The file tree's owner words these refusals for the person (FileTreeStrings), and the host
+ *  words a clipboard write it refuses (RefusalStrings). */
 const SENTENCES = {
   "cmux.files.no_folder": OWNER_SENTENCE,
   "cmux.files.open_failed": OWNER_SENTENCE,
   "cmux.files.unavailable": OWNER_SENTENCE,
+  "cmux.app.user_only": OWNER_SENTENCE,
 } as const;
 import { CLIPBOARD_WRITE, FilesOps, type FileEntry, type Listing, type RootInfo } from "./types";
 
