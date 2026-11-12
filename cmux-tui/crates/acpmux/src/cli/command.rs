@@ -207,7 +207,9 @@ pub enum Command {
         #[arg(long, short = 'n', default_value_t = 1)]
         count: usize,
     },
-    /// List pending permission requests across sessions, and how to answer them.
+    /// List pending permission requests across sessions, and how to answer them, and the other
+    /// sessions' messages a chat's Claude Code holds (`heldMessages` in --json). acpmux keeps the
+    /// held messages in memory only: after a daemon restart they no longer show.
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
     #[command(
@@ -275,6 +277,12 @@ pub enum Command {
         /// named without it; elsewhere `ACPMUX_FROM` names it.
         #[arg(long, value_name = "NAME")]
         from: Option<String>,
+        /// Prove a named sender (--from, ACPMUX_FROM, a notice's sender) is one this machine's
+        /// owner set up: read this host's sender token from PATH (`~/.acpmux/sender-token`) and
+        /// send it to the daemon, which then shows the sender as verified. ACPMUX_SENDER_TOKEN
+        /// gives the token itself. Never on the command line; a wrong one sends unverified.
+        #[arg(long, value_name = "PATH")]
+        sender_token_file: Option<PathBuf>,
         /// Replace your prompt still queued under KEY: a correction is never read after the
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
@@ -477,10 +485,19 @@ pub enum Command {
     /// remote MCP servers): an MCP stdio server agent_tools.rs registers (not for people).
     #[command(hide = true)]
     HostedMcp,
+    /// GitHub's own MCP server through the team's cmux GitHub connection, on a cmux Cloud
+    /// machine: an MCP stdio server agent_tools.rs registers (not for people).
+    #[command(hide = true)]
+    GithubMcp,
     /// The agent's tools to message other sessions and read them (send, ls, last, info): an
     /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     AcpmuxMcp,
+    /// acpmux's own agent tool servers (secrets, offers, sub-sessions, forum, acpmux) in one
+    /// MCP stdio process for one agent session: `cmux mcp serve` runs it once per chat
+    /// (tools_mcp.rs; not for people).
+    #[command(hide = true)]
+    ToolsMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -578,6 +595,13 @@ pub enum Command {
         /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
         #[arg(long)]
         force_admit: bool,
+        /// Continue on another harness (a family or profile): the fork's agent gets the chat's
+        /// conversation with its first prompt.
+        #[arg(long)]
+        harness: Option<String>,
+        /// The model the fork starts on (with --harness).
+        #[arg(long, short, requires = "harness")]
+        model: Option<String>,
     },
     #[command(hide = true)]
     Set { session: String, assignment: String },
@@ -997,6 +1021,13 @@ pub enum SessionCmd {
         /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
         #[arg(long)]
         force_admit: bool,
+        /// Continue on another harness (a family or profile): the fork's agent gets the chat's
+        /// conversation with its first prompt.
+        #[arg(long)]
+        harness: Option<String>,
+        /// The model the fork starts on (with --harness).
+        #[arg(long, short, requires = "harness")]
+        model: Option<String>,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
     Set {
@@ -1456,8 +1487,8 @@ pub fn flatten(c: Command) -> Command {
             | SessionCmd::Receipt { .. }
             | SessionCmd::Stop { .. }
             | SessionCmd::Resume { .. }) => Command::Session(control),
-            SessionCmd::Fork { session, name, cwd, force_admit } => {
-                Command::Fork { session, name, cwd, force_admit }
+            SessionCmd::Fork { session, name, cwd, force_admit, harness, model } => {
+                Command::Fork { session, name, cwd, force_admit, harness, model }
             }
             SessionCmd::Set { session, assignment, team_address } => Command::Set {
                 session,

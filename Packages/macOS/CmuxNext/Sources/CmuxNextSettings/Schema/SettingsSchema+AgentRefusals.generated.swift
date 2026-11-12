@@ -90,7 +90,8 @@ extension SettingsSchema {
         "agentPane.links.outsideRoots": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.images.remote": .network,
-        "app.quitBehavior": .destructive,
+        // The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.
+        "app.quitBehavior": .destructive, "app.confirmQuit": .destructive,
         // Voice Room records mic and screen text and posts it to the configured room.
         "labs.voiceRoom": .privacy,
         // The room address chooses the network endpoint that receives that capture.
@@ -119,6 +120,8 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
+        // Whether this computer counts how the person uses cmux: the person's choice only.
+        "diagnostics.usagePatterns": .privacy,
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,
         // How long Claude Code chats keep their prompt cache: it moves the person's model bill.

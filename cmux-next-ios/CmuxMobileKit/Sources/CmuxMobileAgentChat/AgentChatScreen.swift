@@ -991,9 +991,13 @@ struct UserBubble: View {
                     }
                 }
         }
-        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
+
+    /// 80% of the column, at most 560 pt: on an unfolded foldable's wide screen 80% would
+    /// run a prompt's lines across most of it. The native row measures with the same rule.
+    nonisolated static func maxWidth(in column: CGFloat) -> CGFloat { min(column * 0.8, 560) }
 }
 
 extension UserBubble {

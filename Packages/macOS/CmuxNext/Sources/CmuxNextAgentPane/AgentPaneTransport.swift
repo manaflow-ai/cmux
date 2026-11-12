@@ -32,7 +32,7 @@ import CmuxNextCompat
     /// once the page has run it (it paces the next push).
     public var deliver: (@MainActor (AgentPaneTransportEvent, _ done: @escaping @MainActor @Sendable () -> Void) -> Void)?
     /// Runs right before anything reaches the page: a push here, a script call or a picture
-    /// (``AgentPaneView/callPageScript(_:arguments:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
+    /// (``AgentPaneView/callPageScript(_:arguments:timeout:)``, ``AgentPaneView/pageSnapshot()``). A hidden page
     /// that froze (the app's hibernation) thaws first, so the work runs now instead of waiting on a
     /// page that runs no script (a push's completion paces the next one).
     public var beforePageWork: (@MainActor () -> Void)?
@@ -402,10 +402,10 @@ import CmuxNextCompat
         // A plan build answers the chat's plan approval or starts the plan in new worktrees: only
         // right after the person's own click, as an answer (its chat is bound above).
         if intent.method == "_acpmux/plan/build", !gestures.hasFreshAnswerGesture { return nil }
-        // A prompt held for the folder trust answer right after a new chat's start: the start took
-        // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
-        if intent.method == "session/prompt", !gestures.isAvailable,
-           let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
+        // A prompt held for the trust answer after a new chat's start takes the start's credit; a Cloud start sent from a
+        // folder pick's acceptance (#40957's too-big card) takes the pick's (``grantPicked(_:)`` spent the click). Tickets outlive both.
+        if !gestures.isAvailable, let fresh = intent.method == "session/prompt" ? startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime)
+            : intent.method == "cloud.startChat" ? pickCredit.take(connection: current, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) : nil {
             return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
         return gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)

@@ -112,6 +112,10 @@ PLACEMENT=app-compile judges only the PR app compile's gateway, before the PR
 quiet period ends (app_compile_gateway()); macos-placement then places the Mac
 jobs after the quiet period from its own reading.
 
+PLACEMENT=promote places a trusted workflow's promoted Mac job (app-ffi-release.yml's build) as a
+feat-cmux-next push's Release compile is placed: an idle PROMOTE_LABEL runner (`promote_runner`), else
+the cascade's Blacksmith slots, never a side mini (promote_main()).
+
 PROMOTE_LABEL, set on attempt 1 of a feat-cmux-next push, is the promotion
 mini's label. When the dedicated nightly labels are supplied, its idle state
 is preferred for Release compile and Blacksmith is the immediate overflow.
@@ -219,8 +223,10 @@ def route_wait(route: str, runners: Sequence[Mapping[str, Any]] | None, seen: An
     math.inf when every online runner carrying it sits on one host: a single-host reservation, which the
     rulebook never lets a job wait on with no fallback ("No job waits on one reserved machine: every
     reservation (a label one host serves) has a fallback within minutes"). Otherwise the pool snapshot's
-    oldest queued wait on it (next_macos_cascade.Seen.owned), 0 with no queue there. None while an idle
-    runner carries it, or with the runners unread: nothing then is known to be stuck. The cascade sends the
+    oldest queued wait on it (next_macos_cascade.Seen.owned), 0 with no queue there, read from glaeda's gates
+    reading for the route even when the janitor snapshot is stale. None while an idle runner carries it, with the
+    runners unread, or with neither a fresh snapshot nor a gates reading for the route: nothing then is known to
+    be stuck. The cascade sends the
     jobs to Blacksmith 6 vCPU when this queue is the longer one (next_macos_cascade.dead_end()).
     """
     if runners is None or not route:
@@ -233,9 +239,33 @@ def route_wait(route: str, runners: Sequence[Mapping[str, Any]] | None, seen: An
              for runner in carriers}
     if len(hosts) <= 1:
         return math.inf
-    if seen is None or getattr(seen, "stale", False):
+    if seen is None:
+        return None
+    # glaeda's per-label listener reading (the snapshot's `gates`, from CI_FLEET_GATES) has its own clock, so a
+    # janitor snapshot too old for the counts does not void it: seen() already ages its oldest queued wait by its
+    # own as_of. On 2026-11-10 the janitor snapshot was late while the gates showed 55 jobs queued on
+    # glaeda-side-std-xcode-26.6, the oldest for 21 hours, and this read None, so no dead end was seen.
+    snapshot = getattr(seen, "snapshot", None)
+    gates = snapshot.get("gates") if isinstance(snapshot, Mapping) else None
+    labels = gates.get("labels") if isinstance(gates, Mapping) else None
+    if getattr(seen, "stale", False) and not _gates_current(labels, route, getattr(seen, "observed_at", None)):
         return None
     return float(getattr(seen, "owned", {}).get(route, 0.0))
+
+
+def _gates_current(labels: Any, route: str, now: dt.datetime | None) -> bool:
+    """Whether the gates carry a reading for `route` at most RESERVED_SNAPSHOT_MINUTES old: a gates copy as late as
+    the janitor would keep aging its oldest wait after the queue drained."""
+    entry = labels.get(route) if isinstance(labels, Mapping) else None
+    if not isinstance(entry, Mapping) or now is None:
+        return False
+    try:
+        as_of = dt.datetime.fromisoformat(str(entry.get("as_of") or "").replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if as_of.tzinfo is None:
+        return False
+    return 0 <= (now - as_of).total_seconds() <= cascade.RESERVED_SNAPSHOT_MINUTES * 60
 
 
 def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None, want: int = 0) -> str:
@@ -750,7 +780,7 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     """The rescue's full re-run (next_macos_cascade.bot_rerun()): only the cascade is placed afresh.
 
     The side runner is emitted only for freshly allocated owned jobs (the idle minis `owned` names);
-    fast_runner and gateway_runner stay empty, as every re-run had them: those jobs keep the routes their
+    fast_runner and gateway_runner stay empty here (fast-tier-rerun-placement may still give the fast tier an idle gateway on the bot's attempt 3): those jobs keep the routes their
     runs-on gives a re-run. With no gateway the build-fleet compiles skip, so their Mac fallbacks cascade.
     The GUI jobs follow the routing order, as on attempt 1: gui_runner and session_runner (and the free
     labels) name only a GUI or session runner idle now, else gui_overflow names the Blacksmith leg.
@@ -847,7 +877,9 @@ def rerun_fleet(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | N
     the tier keeps its re-run route.
     """
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
-    if attempt == "1" or cascade.bot_rerun(env):
+    # The rescue's attempt 2 always runs macos-placement; its attempt 3 only as a re-placement, and a re-run of
+    # failed jobs on attempt 3 (a refusal) carries attempt 2's, so it still reads the gateway here.
+    if attempt == "1" or attempt == "2" and cascade.bot_rerun(env):
         return "", f"attempt {attempt} is placed by macos-placement"
     status = (env.get("FAST_TIER_STATUS") or "").strip()
     if not status:
@@ -980,6 +1012,49 @@ def handback_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     return 0
 
 
+def promote_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> str:
+    """PROMOTE_LABEL while an online runner carrying it is idle now, else "" (unset, busy or unread)."""
+    label = (env.get("PROMOTE_LABEL") or "").strip()
+    if not label or runners is None:
+        return ""
+    return label if pool.live_owned_free(runners, [label])[label] > 0 else ""
+
+
+def promote_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """PLACEMENT=promote: a trusted workflow's promoted Mac job (PROMOTE_JOBS) takes the route a feat-cmux-next
+    push's Release compile takes, never an owned side runner.
+
+    app-ffi-release.yml's build gates the app FFI re-pin, which keeps feat-cmux-next red until it lands. It sat
+    on vars.CI_NEXT_PROMOTE_POOL, or with that unset on Blacksmith 6 vCPU's queue behind PR CI: 11 to 66 minutes
+    a build on 2026-11-10. Here it takes `promote_runner` (PROMOTE_LABEL) while a runner carrying it is idle now
+    (promote_route()); otherwise the cascade places it as a feed's compile (FRESH_JOBS) on a free Blacksmith
+    slot, 12 vCPU then 6, else 6 vCPU's queue while it moves (next_macos_cascade.place(), with promote_busy).
+    No side mini takes it (owned is empty): its artifact is published, so it never shares a runner with PR
+    code. SIDE_LABEL only says the run is on the owned pools (next_macos_cascade.skipped()). Unread runners
+    vouch for no idle promote runner, so the job cascades.
+    """
+    route = promote_route(env, runners)
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    placed = cascade.place(env, (), live, waiting, seen, promote_busy=not route, saturated=True)
+    label = (env.get("PROMOTE_LABEL") or "").strip()
+    why = (f"the promoted jobs take idle `{route}`" if route
+           else f"no idle `{label}` runner, so the promoted jobs take the cascade" if label and runners is not None
+           else f"`{label}` runners unread, so the promoted jobs take the cascade" if label
+           else "no promote label, so the promoted jobs take the cascade")
+    print(f"promote placement: {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"promote_runner={route}\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### Promote placement\n\n{why}\n")
+    print(f"macOS cascade: {placed.why}")
+    cascade.write(placed, env)
+    return 0
+
+
 def _main(env: Mapping[str, str] = os.environ) -> int:
     runners = read_runners(env)
     if (env.get("PLACEMENT") or "").strip() == "rerun-fleet":
@@ -988,6 +1063,8 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
         return handback_main(env, runners)
     if (env.get("PLACEMENT") or "").strip() == "app-compile":
         return app_compile_gateway_main(env, runners)
+    if (env.get("PLACEMENT") or "").strip() == "promote":
+        return promote_main(env, runners)
     if cascade.bot_rerun(env):
         return rerun_main(env, runners)
     # The pool snapshot and Blacksmith's queues, read once: the light fast route and the GUI routes are
@@ -1113,7 +1190,7 @@ def _timeout_fallback(env: Mapping[str, str]) -> int:
                 f"gui_runner=\nsession_runner=\nfree_gui_runner=\nfree_session_runner=\n"
                 f"gui_overflow={cascade.SMALL}\nsession_lane_runner=\n"
                 f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\n"
-                f"gateway_runner=\ngateway_attempt=\nwatch=false\n"
+                f"gateway_runner=\ngateway_attempt=\npromote_runner=\nwatch=false\n"
                 f"blacksmith_12_jobs=\nblacksmith_6_jobs=\nfresh_stalled=\nfleet_jobs=\n"
                 f"retry_runner={cascade.SMALL}\nfree_retry_runner={cascade.SMALL}\n"
                 f"retry_jobs={retry_jobs}\n"

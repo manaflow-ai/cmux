@@ -66,7 +66,7 @@ extension WindowManager {
     /// there (closed, moved to another profile or window), the window shows the most recent other profile it holds
     /// workspaces in. `only` repairs that one window: a close hides rows of its own window and no other window lists
     /// them (`WindowRegistryStore.repairs`), so what a close reads does not grow with the other windows' lists.
-    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:], gesture: Bool = false, only: String? = nil, batch: Bool = false) {
+    func repairSelections(previous: [String: [String]], preferred: [String: [String]] = [:], gesture: Bool = false, only: String? = nil, pressed: Bool = false) {
         let machines = services.machines
         let home = machines.local.store
         for window in registry.repairs(only: only) {
@@ -88,7 +88,7 @@ extension WindowManager {
             var wanted = preferred[window.id] ?? []
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
-            registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, batch: batch, claimed: { claims.pending[$0] != nil }, orders:
+            registry.repairSelection(of: window.id, shown: state.workspaceID, previous: prior, members: visible, preferred: wanted, gesture: gesture, pressed: pressed, claimed: { claims.pending[$0] != nil }, orders:
                 (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? []) { select($0, in: state, keepsCreation: true) }
         }
     }
@@ -354,7 +354,7 @@ extension WindowManager {
         let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
         if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
         guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
-        if select { bringToFront(moved) }
+        if select { bringToFront(moved) }; if !whole { WindowOwnSpace.give(moved.state.id, in: self) } // its own space, reached from the switcher
     }
 
     /// The user closed window `id`: it stays registered, closed, with its

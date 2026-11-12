@@ -141,7 +141,7 @@ impl Runs {
             let bytes = serde_json::to_vec_pretty(&*map)?;
             let path = crate::config::home().join(WORKSPACES_FILE);
             if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
+                crate::home_fs::create_dirs(dir)?;
             }
             crate::config::write_atomic(&path, &bytes)?;
         }

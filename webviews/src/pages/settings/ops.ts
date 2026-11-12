@@ -1120,6 +1120,14 @@ export type ChannelSwitch = {
  */
 export type ChannelMachines = { title: string; lines: string[]; updates?: (string | null)[]; updateLabel?: string };
 
+/**
+ * A Switch or Go Back the host is running (`cmux.settings.channels.switch.changed`): `build` is the
+ * build it restarts into (Go Back's: the kept build), `label` the host's text for the stage it is
+ * at ("Downloading… 42%", "Checking the download…", "Restarting…"), `fraction` 0..1 while it
+ * downloads, else null.
+ */
+export type ChannelsProgress = { build: string; label: string; fraction: number | null };
+
 /** Settings > Updates' Channels card (`cmux.settings.channels.state`). */
 export type ChannelsState = {
   title: string;
@@ -1140,6 +1148,8 @@ export type ChannelsState = {
   daemon?: { title: string; value: string } | null;
   /** Other machines the app updates that cannot update in place or whose update failed, one line each. */
   machines?: ChannelMachines | null;
+  /** The switch running when the card reads; null or absent: none (older hosts send none). */
+  progress?: ChannelsProgress | null;
 };
 
 /** Every op the page calls: params and result. */
@@ -1314,6 +1324,8 @@ export type SettingsStreams = {
   "cmux.settings.host.changed": HostLists;
   /** Settings > Updates' row of other machines changed (its new value; null: none to list). */
   "cmux.settings.channels.machines.changed": ChannelsState["machines"];
+  /** A Switch or Go Back moved to its next stage (null: none runs, it ended or was refused). */
+  "cmux.settings.channels.switch.changed": ChannelsProgress | null;
   /** The page bridge's link to the daemon (one stream for every page). */
   "cmux.page.connection": { connected: boolean };
   /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */
