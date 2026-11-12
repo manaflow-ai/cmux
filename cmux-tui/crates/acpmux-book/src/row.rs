@@ -288,30 +288,30 @@ impl RowHead {
     /// Reads the front of a row text written by [`Row::encode`]; `None` for any other text.
     pub fn parse(text: &[u8]) -> Option<RowHead> {
         let mut front = Front { text, at: 0 };
-        front.expect(b"{\"id\":")?;
+        front.step(b"{\"id\":")?;
         let id = front.number()?;
-        front.expect(b",\"rev\":")?;
+        front.step(b",\"rev\":")?;
         let rev = u32::try_from(front.number()?).ok()?;
-        front.expect(b",\"kind\":\"")?;
+        front.step(b",\"kind\":\"")?;
         let kind = RowKind::parse(front.word()?)?;
-        front.expect(b"\"")?;
-        let turn = match front.expect(b",\"turn\":") {
+        front.step(b"\"")?;
+        let turn = match front.step(b",\"turn\":") {
             Some(()) => Some(front.number()?),
             None => None,
         };
-        let group = match front.expect(b",\"group\":") {
+        let group = match front.step(b",\"group\":") {
             Some(()) => Some(front.number()?),
             None => None,
         };
-        front.expect(b",\"at\":")?;
+        front.step(b",\"at\":")?;
         let at = front.number()?;
-        let open = if front.expect(b",\"open\":true").is_some() {
+        let open = if front.step(b",\"open\":true").is_some() {
             true
         } else {
-            front.expect(b",\"open\":false")?;
+            front.step(b",\"open\":false")?;
             false
         };
-        front.expect(b",\"body\":")?;
+        front.step(b",\"body\":")?;
         Some(RowHead { id, rev, kind, turn, group, at, open, body_at: front.at })
     }
 }
@@ -327,7 +327,7 @@ impl<'a> Front<'a> {
     }
 
     /// Steps over `literal` when the text continues with it.
-    fn expect(&mut self, literal: &[u8]) -> Option<()> {
+    fn step(&mut self, literal: &[u8]) -> Option<()> {
         if !self.rest().starts_with(literal) {
             return None;
         }
