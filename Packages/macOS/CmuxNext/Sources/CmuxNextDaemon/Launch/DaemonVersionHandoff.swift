@@ -125,9 +125,11 @@ extension DaemonLauncher {
     /// launcher's endpoint provider, which waits for the old daemon to exit
     /// and runs `server ensure` from the bundled binary, and the new daemon
     /// adopts the hosts. `bundled` overrides the bundled binary's own build
-    /// (the app passes the one it read at launch; tests pass another build).
+    /// (the app passes the one it read at launch; tests pass another build). `onHandoffEnd` hears
+    /// whether a `.handOffAfterPremigrate` handoff was accepted, once it was asked.
     public func handOffIfStale(identity: DaemonIdentity, using connection: DaemonConnection,
-                               bundled override: DaemonBuildStamp? = nil) async -> DaemonVersionDecision {
+                               bundled override: DaemonBuildStamp? = nil,
+                               onHandoffEnd: (@Sendable (Bool) async -> Void)? = nil) async -> DaemonVersionDecision {
         let bundled: DaemonBuildStamp?
         if let override {
             bundled = override
@@ -149,7 +151,8 @@ extension DaemonLauncher {
                 // while this daemon serves the app.
                 await premigrateRegistry(logger: logger)
                 self.handoff.exit(pid: identity.pid)
-                _ = await requestHandoff(identity: identity, using: connection)
+                let handedOff = await requestHandoff(identity: identity, using: connection)
+                await onHandoffEnd?(handedOff)
             }
             return .handOffAfterPremigrate(running: running, bundled: target)
         }

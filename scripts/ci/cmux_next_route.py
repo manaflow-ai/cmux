@@ -882,14 +882,27 @@ def linux_runs_on(value) -> bool:
     return bool(match) and "${{" not in match.group(1) and linux_values(match.group(1))
 
 
+def _workflow_jobs():
+    """tests/workflow_jobs.py, the one reader of a job's runs-on. Imported on use, not at the top: it needs PyYAML,
+    and jobs with a sparse scripts/ci checkout import this module without tests/."""
+    tests = str(ROOT / "tests")
+    if tests not in sys.path:
+        sys.path.append(tests)
+    import workflow_jobs  # noqa: PLC0415
+
+    return workflow_jobs
+
+
 def linux_job(job, root: Path | None, seen: frozenset[str] = frozenset()) -> bool:
-    """Whether a job runs only on Linux: its runs-on (linux_runs_on), or for a call of a local reusable
-    workflow (`uses: ./.github/workflows/X.yml`, read at `root`), every job of that workflow."""
+    """Whether a job runs only on Linux: every matrix cell of its runs-on (workflow_jobs.runs_on_label_cells,
+    each one label that linux_runs_on reads), or for a call of a local reusable workflow
+    (`uses: ./.github/workflows/X.yml`, read at `root`), every job of that workflow."""
     if not isinstance(job, dict):
         return False
     uses = job.get("uses")
     if uses is None:
-        return linux_runs_on(job.get("runs-on"))
+        cells = _workflow_jobs().runs_on_label_cells(job)
+        return bool(cells) and all(len(cell) == 1 and linux_runs_on(cell[0]) for cell in cells)
     if root is None or not isinstance(uses, str) or not uses.startswith("./.github/workflows/") or uses in seen:
         return False
     try:
@@ -976,6 +989,7 @@ def workflow_change(base_text: str, head_text: str, root: Path | None = None) ->
     failure included, so an unreadable change runs every tier)."""
     try:
         import yaml  # noqa: PLC0415
+        _workflow_jobs()  # linux_job reads runs-on through it: no reader runs every tier, like a parse failure
         base = yaml.load(base_text, Loader=yaml.BaseLoader)
         head = yaml.load(head_text, Loader=yaml.BaseLoader)
     except Exception as error:  # noqa: BLE001 - any failure to compare runs every tier

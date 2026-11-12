@@ -1,3 +1,4 @@
+use super::queue_gauge::Queued;
 use super::{Message, enqueue_after_controls, enqueue_outbound};
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
@@ -21,6 +22,7 @@ async fn a_slow_reader_gets_a_gap_signal_without_losing_a_response() {
         &gap_pending,
         &lock,
         &pending_controls,
+        &Default::default(),
     );
     enqueue_outbound(
         &out,
@@ -30,6 +32,7 @@ async fn a_slow_reader_gets_a_gap_signal_without_losing_a_response() {
         &gap_pending,
         &lock,
         &pending_controls,
+        &Default::default(),
     );
 
     assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
@@ -60,6 +63,7 @@ async fn a_full_queue_delivers_its_gap_after_the_reader_catches_up() {
         &gap_pending,
         &lock,
         &pending_controls,
+        &Default::default(),
     );
     assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
     let gap = Message::parse(&queued.recv().await.unwrap()).unwrap();
@@ -78,15 +82,31 @@ async fn a_request_in_order_never_passes_an_answer_waiting_for_room() {
     let pending_controls = Arc::new(AtomicUsize::new(0));
     let lock = Arc::new(Mutex::new(()));
     let answer = Message::ok(json!(7), json!({"sessions": []})).to_line();
-    enqueue_outbound(&out, answer, true, &dropped, &gap_pending, &lock, &pending_controls);
+    enqueue_outbound(
+        &out,
+        answer,
+        true,
+        &dropped,
+        &gap_pending,
+        &lock,
+        &pending_controls,
+        &Default::default(),
+    );
     let request =
         || Message::request(json!("acpmux-0"), "_acpmux/github_action", json!({})).to_line();
 
     // The reader takes a line; the answer still waits for room in its task. The request is
     // refused, and queues nothing.
     assert_eq!(queued.recv().await.as_deref(), Some("queued-before-reader-catches-up\n"));
-    let sent =
-        enqueue_after_controls(&out, request(), &dropped, &gap_pending, &lock, &pending_controls);
+    let sent = enqueue_after_controls(
+        &out,
+        request(),
+        &dropped,
+        &gap_pending,
+        &lock,
+        &pending_controls,
+        &Default::default(),
+    );
     assert!(!sent, "nothing goes ahead of an answer that waits for room");
     let first = Message::parse(&queued.recv().await.unwrap()).unwrap();
     assert!(matches!(first, Message::Response { id, .. } if id == json!(7)));
@@ -100,7 +120,8 @@ async fn a_request_in_order_never_passes_an_answer_waiting_for_room() {
         &dropped,
         &gap_pending,
         &lock,
-        &pending_controls
+        &pending_controls,
+        &Default::default()
     ));
     let next = Message::parse(&queued.recv().await.unwrap()).unwrap();
     assert!(matches!(next, Message::Request { .. }));
@@ -115,7 +136,50 @@ fn a_request_in_order_to_a_reader_that_is_gone_is_not_sent() {
     let (dropped, gap_pending) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicBool::new(false)));
     let (pending, lock) = (Arc::new(AtomicUsize::new(0)), Arc::new(Mutex::new(())));
     let request = Message::request(json!("acpmux-0"), "_acpmux/github_action", json!({}));
-    let sent =
-        enqueue_after_controls(&out, request.to_line(), &dropped, &gap_pending, &lock, &pending);
+    let sent = enqueue_after_controls(
+        &out,
+        request.to_line(),
+        &dropped,
+        &gap_pending,
+        &lock,
+        &pending,
+        &Default::default(),
+    );
     assert!(!sent);
+}
+
+/// The bytes a connection's queue holds are its newest lines' sizes, read without the writer
+/// (`queue_gauge.rs`); a reply that waits for room in a full queue is counted while it waits.
+#[tokio::test]
+async fn the_queue_gauge_counts_the_bytes_a_slow_reader_has_not_read() {
+    let (out, mut reader) = mpsc::channel(2);
+    let (dropped, gap_pending) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicBool::new(false)));
+    let (pending, lock) = (Arc::new(AtomicUsize::new(0)), Arc::new(Mutex::new(())));
+    let queued = Queued::default();
+    let reply = |n: usize| Message::ok(json!(n), json!({"text": "x".repeat(n * 100)})).to_line();
+    let (one, two, three) = (reply(1), reply(2), reply(3));
+    for line in [&one, &two, &three] {
+        enqueue_outbound(
+            &out,
+            line.clone(),
+            true,
+            &dropped,
+            &gap_pending,
+            &lock,
+            &pending,
+            &queued,
+        );
+    }
+    // Two lines fill the queue; the third waits in its task.
+    assert_eq!(queued.bytes_for_tests(&out), one.len() + two.len());
+    assert_eq!(queued.waiting_for_tests(), (1, three.len()));
+    assert_eq!(reader.recv().await.as_deref(), Some(one.as_str()));
+    while pending.load(std::sync::atomic::Ordering::Acquire) != 0 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(queued.bytes_for_tests(&out), two.len() + three.len());
+    assert_eq!(queued.waiting_for_tests(), (0, 0));
+    reader.recv().await.unwrap();
+    reader.recv().await.unwrap();
+    assert_eq!(queued.bytes_for_tests(&out), 0);
 }
