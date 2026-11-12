@@ -178,7 +178,7 @@ try:
             with open(os.path.join(opts.out, f"{engine}-pdf.png"), "wb") as f:
                 f.write(base64.b64decode(shot["png_base64"]))
         else:
-            print(f"note: {engine}: no screenshot ({shot.get('error') if isinstance(shot, dict) else shot})", flush=True)
+            safe_print(f"note: {engine}: no screenshot ({shot.get('error') if isinstance(shot, dict) else shot})", flush=True)
         time.sleep(3)  # a download would have landed by now
         landed = [f for f in os.listdir(DOWNLOADS) if RUN in f]
         check(not landed, f"{engine}: the PDF is not downloaded ({landed})")
