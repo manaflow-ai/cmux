@@ -1,5 +1,5 @@
 use crate::log::{
-    Anchor, Edge, Error, Log, MAX_CHECKPOINT, MAX_PAGE_BYTES, Options, RECORD_OVERHEAD,
+    Anchor, Edge, Error, Log, MAX_CHECKPOINT, MAX_PAGE_BYTES, Options, Patch, RECORD_OVERHEAD,
     ROW_ENTRY_LEN, RawRange, SEQ_STRIDE, Side, StateWriter, section, sections,
 };
 use crate::row::{MAX_ROW_TEXT, Placement, Row, RowKind};
@@ -115,7 +115,7 @@ fn a_patch_is_a_new_record_and_the_row_reads_as_its_newest_rev() {
     let (mut log, recovered) = open(home.path());
     assert_eq!((recovered.checkpoint, recovered.replayed), (false, 6));
     assert_eq!(log.row(3).unwrap().rev, 2);
-    log.write_checkpoint(&[]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
     log.patch(3, 5, RawRange::NONE, b"{\"answered\":false}").unwrap();
     drop(log);
     let (mut log, recovered) = open(home.path());
@@ -148,10 +148,30 @@ fn a_raw_file_must_be_mapped_before_a_record_can_name_it() {
     let (mut log, _) = open(home.path());
     assert!(matches!(
         log.append_settled(1, 1, RawRange { file: 1, off: 0, len: 1 }, b"row"),
-        Err(Error::Corrupt(_))
+        Err(Error::InvalidInput(_))
     ));
     let file = log.append_raw_file(b"events/one").unwrap();
     log.append_settled(1, 1, RawRange { file, off: 0, len: 1 }, b"row").unwrap();
+}
+
+#[test]
+fn caller_input_errors_are_not_rebuild_corruption() {
+    let home = tempfile::tempdir().unwrap();
+    let (mut log, _) = open(home.path());
+    assert!(matches!(log.append_raw_file(b"bad\nline"), Err(Error::InvalidInput(_))));
+    settle(&mut log, 1, 2);
+    assert!(matches!(
+        log.patch_many(&[
+            Patch { row_id: 1, rev: 2, raw: RawRange::NONE, text: b"one" },
+            Patch { row_id: 1, rev: 3, raw: RawRange::NONE, text: b"two" },
+        ]),
+        Err(Error::InvalidInput(_))
+    ));
+    assert!(matches!(
+        log.append_settled(3, 1, RawRange { file: 1, off: 0, len: 1 }, b"row"),
+        Err(Error::InvalidInput(_))
+    ));
+    assert!(matches!(log.write_checkpoint(&[], &[2]), Err(Error::InvalidInput(_))));
 }
 
 #[test]
@@ -220,7 +240,7 @@ fn segments_roll_and_every_read_crosses_them() {
     assert_eq!(ids(&log.since(511, 1 << 20).unwrap().rows), (512..=600).collect::<Vec<_>>());
 
     // With a checkpoint, only what came after it is read.
-    log.write_checkpoint(b"state").unwrap();
+    log.write_checkpoint(b"state", &[]).unwrap();
     settle(&mut log, 601, 640);
     drop(log);
     let (mut log, recovered) = Log::open(home.path(), small_segments()).unwrap();
@@ -389,19 +409,19 @@ fn the_checkpoint_keeps_the_actors_state_under_64_kb() {
     let mut state = StateWriter::new();
     state.push(section::OPEN_ROWS, &text(11)).push(section::RAW_CURSOR, b"file\0inode\0offset");
     state.push(section::TRANSLATOR, &7u32.to_le_bytes());
-    log.write_checkpoint(state.as_bytes()).unwrap();
+    log.write_checkpoint(state.as_bytes(), &[]).unwrap();
     assert_eq!(log.stats().checkpoints, 1);
     assert!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len() < 64 * 1024);
 
     let too_large = vec![0u8; MAX_CHECKPOINT];
     assert!(matches!(
-        log.write_checkpoint(&too_large),
+        log.write_checkpoint(&too_large, &[]),
         Err(Error::CheckpointTooLarge { bytes }) if bytes > MAX_CHECKPOINT
     ));
     let largest = vec![7u8; MAX_CHECKPOINT - 68];
-    log.write_checkpoint(&largest).unwrap();
+    log.write_checkpoint(&largest, &[]).unwrap();
     assert_eq!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len(), 65535);
-    log.write_checkpoint(state.as_bytes()).unwrap();
+    log.write_checkpoint(state.as_bytes(), &[]).unwrap();
     drop(log);
 
     let (log, recovered) = open(home.path());
@@ -471,7 +491,7 @@ fn an_index_entry_that_does_not_match_its_record_is_reported_not_served() {
     let home = tempfile::tempdir().unwrap();
     let (mut log, _) = open(home.path());
     settle(&mut log, 1, 20);
-    log.write_checkpoint(&[]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
     drop(log);
     // Point row 5 at row 6's record, and leave an entry for a row whose record was never
     // written (what a power loss between the two writes can leave).
@@ -527,7 +547,7 @@ fn a_clean_reopen_writes_nothing_and_a_short_index_is_rebuilt() {
     {
         let (mut log, _) = open(home.path());
         settle(&mut log, 1, 700);
-        log.write_checkpoint(&[]).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
         settle(&mut log, 701, 720);
     }
     let (log, recovered) = open(home.path());
@@ -543,7 +563,7 @@ fn a_clean_reopen_writes_nothing_and_a_short_index_is_rebuilt() {
         assert_eq!((recovered.checkpoint, recovered.replayed), (false, 720), "{name}");
         assert_rows(&mut log, 720);
         assert_eq!(ids(&log.since(700, 1 << 20).unwrap().rows), (701..=720).collect::<Vec<_>>());
-        log.write_checkpoint(&[]).unwrap();
+        log.write_checkpoint(&[], &[]).unwrap();
     }
 }
 
@@ -554,7 +574,7 @@ fn patches_from_one_line_sync_once_before_their_indexes() {
     let (mut log, _) = open(home.path());
     settle(&mut log, 1, 3);
     let file = log.append_raw_file(b"events/patch").unwrap();
-    log.write_checkpoint(&[]).unwrap();
+    log.write_checkpoint(&[], &[]).unwrap();
     let syncs = log.stats().syncs;
     let raw = RawRange { file, off: 0, len: 8 };
     log.patch_many(&[
