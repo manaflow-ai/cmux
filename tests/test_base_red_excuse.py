@@ -10391,6 +10391,164 @@ class PrOnlyStepsAreExcusedByAnotherBaseJob(unittest.TestCase):
         self.assertIsNone(excuse.generated_stale_host("##[error]The action catalog checks fail on daemon-test"))
 
 
+def clippy_dead_variant(at, line, column=5, variant="RootEntries", path="crates/acpmux/src/chats/watch.rs"):
+    """Clippy's `dead_code` error as the cmux-tui jobs print it, with each line's own timestamp (AT, seconds)."""
+    stamp = f"2026-11-12T11:{43 + at // 60:02d}:{at % 60:02d}.1339335Z "
+    return [stamp + text for text in (
+        f"error: variant `{variant}` is never constructed",
+        f"  --> {path}:{line}:{column}",
+        "   |",
+        f"{line - 3} | enum Message {{",
+        "   |      ------- variant in this enum",
+        "...",
+        f"{line} |     {variant}(usize),",
+        "   |     ^^^^^^^^^^^",
+        "   |",
+        "   = note: `-D dead-code` implied by `-D warnings`",
+        "   = help: to override `-D warnings` add `#[expect(dead_code)]` or `#[allow(dead_code)]`",
+        "")]
+
+
+def clippy_log(job, step, *blocks, summary=("lib",), scope="acpmux", base_red=(), base="c9fd1c9ebd40"):
+    """A clippy step's log: its errors (BLOCKS, from clippy_dead_variant), cargo's summaries, then what
+    .github/scripts/cmux-tui-clippy-changed.py prints after them (its scope and each red file outside the diff)."""
+    lines = [f"2026-11-12T11:38:{n:02d}.0000000Z     Checking crate-{n} v0.1.0 "
+             f"(/home/runner/_work/cmux/cmux/cmux-tui/crates/crate-{n})" for n in range(3)]
+    for block in blocks:
+        lines += block
+    lines += [f"2026-11-12T11:44:0{n}.7339343Z error: could not compile `acpmux` ({kind}) due to {len(blocks)} "
+              f"previous error{'s' if len(blocks) > 1 else ''}" for n, kind in enumerate(summary)]
+    lines.append(f"2026-11-12T11:44:10.0000000Z ##[error]clippy -D warnings failed for {scope}; run `cargo clippy "
+                 f"--locked --keep-going -p {scope} --all-targets -- -D warnings` in cmux-tui and fix each lint (an "
+                 "allow needs a comment saying why)")
+    lines += [f"2026-11-12T11:44:11.0000000Z ##[error]cmux-tui/{path} is red and this change does not touch it: most "
+              f"likely the base {base} already fails here (last changed on the base by {base[:8]} some commit). Then "
+              "fix it on the base branch in its own pull request and update this one once that lands" for path in base_red]
+    lines.append("2026-11-12T11:44:12.0000000Z ##[error]Process completed with exit code 101.")
+    return "\n".join(f"{job}\t{step}\t{line}" for line in lines)
+
+
+class CompileErrorGitHub(FakeGitHub):
+    """cmux#40935 at d2e676e6: head 'acpmux simulation (seeds)' (job 1, run 10) fails its clippy step on the base's
+    RootEntries dead_code error; the base's newest verdict of that job (job 2, run 20) passed and skipped the step, and
+    'clippy (changed cmux-tui packages)' (job 3, run 20) fails on the same error, at another line, time and order,
+    beside an error of its own."""
+
+    SIM, CLIPPY = "acpmux simulation (seeds)", "clippy (changed cmux-tui packages)"
+    SIM_STEP, CLIPPY_STEP = ("cargo clippy -p acpmux --features sim --test sim",
+                             "cargo clippy --all-targets on changed cmux-tui packages")
+    GATE = "Does the change touch an input of acpmux's tests"
+    WATCH = "cmux-tui/crates/acpmux/src/chats/watch.rs"
+    PR_FILES = ["cmux-tui/crates/acpmux/src/hub/peers.rs", "cmux-tui/crates/acpmux/src/hub/remote_rows.rs"]
+
+    def __init__(self, head=None, base_step="skipped", files=PR_FILES):
+        super().__init__()
+
+        def job(job_id, run, sha, name, steps, conclusion="failure"):
+            return {"id": job_id, "run_id": run, "head_sha": sha, "name": name, "status": "completed",
+                    "conclusion": conclusion,
+                    "steps": [{"name": "Set up runner", "status": "completed", "conclusion": "success"}]
+                    + [{"name": step, "status": "completed", "conclusion": state} for step, state in steps]}
+        self.jobs = {1: job(1, 10, HEAD, self.SIM, [(self.GATE, "success"), (self.SIM_STEP, "failure")]),
+                     2: job(2, 20, BASE_SHA, self.SIM, [(self.GATE, "success"), (self.SIM_STEP, base_step)],
+                            conclusion="success"),
+                     3: job(3, 20, BASE_SHA, self.CLIPPY, [(self.CLIPPY_STEP, "failure")])}
+        self.logs = {1: clippy_log(self.SIM, self.SIM_STEP, *(head or [clippy_dead_variant(45, 61)])),
+                     3: clippy_log(self.CLIPPY, self.CLIPPY_STEP,
+                                   clippy_dead_variant(0, 18, variant="Stale", path="crates/acpmux/src/hub/rows.rs"),
+                                   clippy_dead_variant(32, 63), summary=("lib", "lib test"),
+                                   scope="acpmux, cmux-tui", base_red=("crates/acpmux/src/chats/watch.rs",))}
+        self.base_runs = [{"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                           "conclusion": "failure", "head_sha": BASE_SHA, "created_at": "2026-11-12T12:34:00Z"}]
+        self.files = list(files)
+        self.graphql: list = []
+
+    def run(self, args):
+        return pr_graphql(unittest.TestCase(), self.graphql, self.files, number=40935)(args)
+
+
+class CompileErrorsAreComparedBySignature(unittest.TestCase):
+    """2026-11-12, cmux#40935 at d2e676e6 and #41633: both clippy reds were the base's RootEntries error in a file
+    neither PR touches, and merge_hold refused them: the job's own base verdict skipped the step, and the base's clippy
+    log never matched line for line. An error is compared by its signature (code, file, message), never its line."""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_the_same_error_at_another_line_and_time_is_excused(self):
+        said = self.judge(CompileErrorGitHub(head=[clippy_dead_variant(45, 61, column=9)]))
+        self.assertIn(f"excused '{CompileErrorGitHub.SIM}': every compiler error it prints is one feat-cmux-next run "
+                      f"20's red '{CompileErrorGitHub.CLIPPY}' prints", said)
+        self.assertIn("crates/acpmux/src/chats/watch.rs: variant `RootEntries` is never constructed", said)
+
+    def test_the_signature_keeps_code_file_and_message_and_drops_line_time_and_order(self):
+        job = CompileErrorGitHub().jobs[1]
+        one = excuse.compile_errors(excuse.test_reds.lines_of(clippy_log("j", "s", clippy_dead_variant(1, 61),
+                                                                         clippy_dead_variant(9, 18, variant="B"))), job)
+        two = excuse.compile_errors(excuse.test_reds.lines_of(clippy_log("j", "s", clippy_dead_variant(50, 18, 2, "B"),
+                                                                         clippy_dead_variant(7, 70))), job)
+        self.assertEqual(one.located, two.located)
+        self.assertEqual(one.other, ())
+        self.assertIn(("", "crates/acpmux/src/chats/watch.rs", "variant `RootEntries` is never constructed"),
+                      one.located)
+        moved = excuse.compile_errors(excuse.test_reds.lines_of(clippy_log(
+            "j", "s", clippy_dead_variant(1, 61, path="crates/acpmux/src/chats/watch2.rs"))), job)
+        self.assertNotEqual(one.located & moved.located, moved.located)  # another file is another error
+        coded = excuse.compile_errors(["error[E0425]: cannot find value `x` in this scope",
+                                       "  --> crates/a/src/lib.rs:3:9"], job)
+        self.assertEqual(coded.located, {("E0425", "crates/a/src/lib.rs", "cannot find value `x` in this scope")})
+
+    def test_an_error_only_the_pr_prints_is_its_own(self):
+        mine = [clippy_dead_variant(45, 61), clippy_dead_variant(50, 12, variant="Fresh",
+                                                                 path="crates/acpmux/src/chats/index.rs")]
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(CompileErrorGitHub(head=mine))
+
+    def test_an_error_in_a_file_the_pr_changes_is_its_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(CompileErrorGitHub(files=CompileErrorGitHub.PR_FILES + [CompileErrorGitHub.WATCH]))
+
+    def test_a_step_the_base_job_ran_and_passed_is_the_prs_own(self):
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(CompileErrorGitHub(base_step="success"))
+
+    def test_an_error_line_that_is_no_located_diagnostic_is_never_matched(self):
+        github = CompileErrorGitHub()
+        github.logs[1] += f"\n{CompileErrorGitHub.SIM}\t{CompileErrorGitHub.SIM_STEP}\t2026-11-12T11:44:13.0Z " \
+                          "##[error]the sim seeds diverged"
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 20"):
+            self.judge(github)
+
+    def test_a_base_job_that_passed_since_never_counts(self):
+        github = CompileErrorGitHub()
+        github.jobs[4] = dict(copy.deepcopy(github.jobs[3]), id=4, run_id=21, conclusion="success",
+                              steps=[{"name": CompileErrorGitHub.CLIPPY_STEP, "status": "completed",
+                                      "conclusion": "success"}])
+        github.jobs[5] = dict(copy.deepcopy(github.jobs[2]), id=5, run_id=21)
+        github.base_runs.insert(0, {"id": 21, "event": "push", "head_branch": "feat-cmux-next",
+                                    "status": "completed", "conclusion": "success", "head_sha": BASE_SHA,
+                                    "created_at": "2026-11-12T12:50:00Z"})
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_the_same_job_red_on_base_with_other_wrapper_lines_is_excused(self):
+        # The PR's own 'clippy (changed cmux-tui packages)': the wrapper names another scope and base commit, so the
+        # job's log is never the base's line for line; its one error is.
+        github = CompileErrorGitHub()
+        github.jobs = {1: dict(copy.deepcopy(github.jobs[3]), id=1, run_id=10, head_sha=HEAD), 3: github.jobs[3]}
+        github.logs = {1: clippy_log(CompileErrorGitHub.CLIPPY, CompileErrorGitHub.CLIPPY_STEP,
+                                     clippy_dead_variant(40, 61), summary=("lib", "lib test"),
+                                     scope="acpmux, cmux-tui", base_red=("crates/acpmux/src/chats/watch.rs",),
+                                     base="0123456789ab"),
+                       3: github.logs[3]}
+        said = self.judge(github)
+        self.assertIn(f"excused '{CompileErrorGitHub.CLIPPY}'", said)
+        github.files = CompileErrorGitHub.PR_FILES + [CompileErrorGitHub.WATCH]
+        github.graphql.clear()
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+
 class UnplacedLogsAreComparedWhole(unittest.TestCase):
     """2026-11-11: every red in 'cmux-next checks' (cmux#40954) and the CmuxMobileKit tests (cmux#40598 at ea17b848,
     #40664 at bec7c32b) was refused because a composite action's log does not map onto its steps. Compared whole,
