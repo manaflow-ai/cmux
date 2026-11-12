@@ -17,6 +17,8 @@
 //!
 //! `cargo test -p acpmux --release --test start_under_load_bench -- --ignored --nocapture`
 //! (`START_BENCH_LOAD`, `START_BENCH_SAMPLES` override the load and the sample count;
+//! `START_BENCH_LOAD_NICE` runs the loops at that nice: 0 is load from outside acpmux, 5 (Linux)
+//! the agent tier's, as the tools of other agents run;
 //! `START_BENCH_ASSERT=1` fails when a loaded p95 is past 1.2x the idle one).
 #![cfg(unix)]
 
@@ -146,11 +148,12 @@ fn start(scratch: &Path, home: &Path) -> (Daemon, PathBuf) {
 struct Load(Vec<Child>);
 
 impl Load {
-    fn start(n: usize) -> Self {
+    fn start(n: usize, nice: usize) -> Self {
         let loops = (0..n)
             .map(|_| {
-                std::process::Command::new("/bin/sh")
-                    .args(["-c", "while :; do :; done"])
+                // `nice -n` adds to this process's nice.
+                std::process::Command::new("nice")
+                    .args(["-n", &nice.to_string(), "/bin/sh", "-c", "while :; do :; done"])
                     .stdin(Stdio::null())
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
@@ -231,7 +234,8 @@ fn send_to_first_token_at_load_100_is_within_1_2x_of_idle() {
     // One start first, so the daemon's own first-use work is not in a sample.
     measure(&socket, &work, 1);
     let (idle_cold, idle_warm) = measure(&socket, &work, samples);
-    let busy = Load::start(load);
+    let load_nice = knob("START_BENCH_LOAD_NICE", 0);
+    let busy = Load::start(load, load_nice);
     let (load_cold, load_warm) = measure(&socket, &work, samples);
     drop(busy);
     drop(daemon);
@@ -239,7 +243,7 @@ fn send_to_first_token_at_load_100_is_within_1_2x_of_idle() {
 
     let cpus = std::thread::available_parallelism().map_or(0, |n| n.get());
     println!(
-        "start_under_load_bench: {cpus} CPUs, {load} busy loops, {samples} samples, \
+        "start_under_load_bench: {cpus} CPUs, {load} busy loops at nice +{load_nice}, {samples} samples, \
          harness boot {BOOT_CPU_MS} ms CPU"
     );
     #[cfg(target_os = "linux")]
