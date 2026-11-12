@@ -344,8 +344,11 @@ impl Mux {
     /// copy (requests write faster than the copy, or a reader holds an old
     /// snapshot). The pass then adds nothing to that WAL in this tick.
     fn wal_room_for_retention(&self, deadline: Instant) -> WalRoom {
-        self.registry_connection
-            .checkpoint_and_wait(deadline.saturating_duration_since(Instant::now()))
+        // MUTATION, never merge: the pass WITHOUT its wait for the syncer's
+        // look. It asks for a flush, as a request's reply does, and writes on.
+        let _ = deadline;
+        self.registry_connection.request_flush();
+        WalRoom::Room
     }
 
     /// True when this tick deletes nothing in place, because the rebuild
