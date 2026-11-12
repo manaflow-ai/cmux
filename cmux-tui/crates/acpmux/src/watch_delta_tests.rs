@@ -74,3 +74,70 @@ fn a_whole_list_reply_is_no_delta() {
     assert!(read_delta(&json!({"sessions": [], "delta": false})).is_none());
     assert!(delta("not json", &Map::new()).is_none());
 }
+
+/// `rows` through `cache` as the daemon lists them: each row's id and its compact bytes.
+fn cached(cache: &mut RowCache, rows: &[Value], read: Option<&dyn Fn(Value) -> String>) -> Listed {
+    let built: Vec<(Option<String>, String)> =
+        rows.iter().map(|row| (id_of(row).map(str::to_owned), row.to_string())).collect();
+    cache.listed(built.iter().map(|(id, text)| (id.as_deref(), text.as_str())), read)
+}
+
+/// A list made from the row cache is the list's text, and its delta to any `known` is the one
+/// made from that text: the same rows, removed ids and count.
+#[test]
+fn a_cached_list_cuts_the_delta_its_text_makes() {
+    let mut cache = RowCache::default();
+    let rows = [row("a", "idle"), json!({"name": "no id"}), row("b", "working"), row("c", "idle")];
+    let listed = cached(&mut cache, &rows, None);
+    assert_eq!(*listed.text, list(&rows));
+    let mut known = Known::default();
+    for held in [&[][..], &[row("a", "idle"), row("b", "idle"), row("gone", "idle")][..]] {
+        known.listed(held);
+        let param = known.to_param();
+        let param = param.as_object().unwrap();
+        let ours: Value = serde_json::from_str(&listed.delta(param)).unwrap();
+        let theirs: Value = serde_json::from_str(&delta(&listed.text, param).unwrap()).unwrap();
+        assert_eq!(ours, theirs);
+    }
+}
+
+/// A row whose bytes did not change since the last list is not read (masked) or hashed again; a
+/// changed or new row is, and a row no longer listed leaves the cache. A masked row's digest is
+/// the one the link makes of the row it reads.
+#[test]
+fn an_unchanged_row_is_read_and_hashed_once() {
+    let reads = std::cell::Cell::new(0);
+    let mask = |mut row: Value| {
+        reads.set(reads.get() + 1);
+        row["name"] = json!("masked");
+        row.to_string()
+    };
+    let mut cache = RowCache::default();
+    let first = [row("a", "idle"), row("b", "idle"), row("c", "idle")];
+    let listed = cached(&mut cache, &first, Some(&mask));
+    assert_eq!(reads.get(), 3);
+    let read: Value = serde_json::from_str(&listed.text).unwrap();
+    let rows = read["sessions"].as_array().unwrap();
+    assert!(rows.iter().all(|r| r["name"] == "masked"), "{read}");
+    let mut known = Known::default();
+    known.listed(rows);
+    let param = known.to_param();
+    assert_eq!(
+        listed.delta(param.as_object().unwrap()),
+        delta(&listed.text, param.as_object().unwrap()).unwrap()
+    );
+    let unchanged: Value = serde_json::from_str(&listed.delta(param.as_object().unwrap())).unwrap();
+    assert_eq!(unchanged["unchanged"], 3, "{unchanged}");
+    // b changed, c went, d came: only b and d are read.
+    let listed =
+        cached(&mut cache, &[row("a", "idle"), row("b", "working"), row("d", "idle")], Some(&mask));
+    assert_eq!(reads.get(), 5);
+    assert_eq!(cache.rows.len(), 3);
+    assert!(!cache.rows.contains_key("c"));
+    let reply: Value = serde_json::from_str(&listed.delta(param.as_object().unwrap())).unwrap();
+    assert_eq!(ids(reply["sessions"].as_array().unwrap()), ["b", "d"]);
+    assert_eq!(reply["removed"], json!(["c"]));
+    // The same list again: nothing read.
+    cached(&mut cache, &[row("a", "idle"), row("b", "working"), row("d", "idle")], Some(&mask));
+    assert_eq!(reads.get(), 5);
+}

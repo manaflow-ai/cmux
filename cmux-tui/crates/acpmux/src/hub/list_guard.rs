@@ -169,6 +169,9 @@ pub(crate) struct Snapshot {
     keys: Vec<Value>,
     /// Other results made from it, once each (masked for a peer, ACP's `session/list`).
     made: StdMutex<HashMap<&'static str, Arc<String>>>,
+    /// This daemon's own rows as a peer's link reads them, by form, made once each
+    /// ([`Snapshot::own_listed`]).
+    own: StdMutex<HashMap<&'static str, Arc<crate::watch_delta::Listed>>>,
     /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
     /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
     full: StdMutex<Option<Arc<FullRows>>>,
@@ -221,6 +224,7 @@ impl Snapshot {
             spans,
             keys,
             made,
+            own: Default::default(),
             full: Default::default(),
         }
     }
@@ -260,8 +264,35 @@ impl Snapshot {
     /// Lazily serialize the same snapshot with tools for the ACP list and peer bootstrap.
     /// This daemon's own sessions only, no peer's row, serialized as a list reply: what a
     /// peer's link reads in its watch (`server/list_reply.rs` `watch`).
+    #[cfg(test)]
     pub(crate) fn own_whole(hub: &Hub, with_tools: bool) -> String {
         Self::build_rows(hub, with_tools, false).0
+    }
+
+    /// This daemon's own rows, as `own_whole` lists them, in form `name`: each row read through
+    /// `read` (None: as built), with its digest (`watch_delta.rs`), made once per snapshot. A row
+    /// whose bytes are those the last list of this form had keeps its read text and digest
+    /// ([`ListGuard::own_rows`]), so an unchanged row is not parsed, masked or hashed again. It
+    /// blocks: run it off the runtime.
+    pub(crate) fn own_listed(
+        &self,
+        hub: &Hub,
+        name: &'static str,
+        with_tools: bool,
+        read: Option<&dyn Fn(Value) -> String>,
+    ) -> Arc<crate::watch_delta::Listed> {
+        let mut own = self.own.lock().unwrap_or_else(|e| e.into_inner());
+        own.entry(name)
+            .or_insert_with(|| {
+                let (text, spans, keys) = Self::build_rows(hub, with_tools, false);
+                let rows = spans.iter().zip(&keys).map(|(span, key)| {
+                    let id = key.get("sessionId").and_then(Value::as_str);
+                    (id, text.get(span.clone()).unwrap_or("null"))
+                });
+                let mut cache = hub.list_guard.own_rows.lock().unwrap_or_else(|e| e.into_inner());
+                Arc::new(cache.entry(name).or_default().listed(rows, read))
+            })
+            .clone()
     }
 
     pub(crate) fn full_whole(&self, hub: &Hub) -> Arc<String> {
@@ -693,6 +724,9 @@ pub(crate) struct ListGuard {
     replies: StdMutex<Pacer>,
     /// Builds begun: a request shares any build begun after it arrived.
     begun: AtomicU64,
+    /// Each own-row form's rows as last made for a peer's watch (`Snapshot::own_listed`): its
+    /// read text and digest, reused while a row's bytes stay the same.
+    own_rows: StdMutex<HashMap<&'static str, crate::watch_delta::RowCache>>,
 }
 
 #[derive(Default)]

@@ -7,7 +7,8 @@
 //! list sent after a notice anyway (stale again, or one that waited for room in a full
 //! queue) is followed by `_acpmux/lagged {watch: true}`, to read again. A peer reads
 //! summaries masked (`peer_text.rs`), made once per build too. `remote_guard::after`
-//! changes nothing in a list reply.
+//! changes nothing in a list reply. A peer's watch list is made off the runtime, a few at a time
+//! ([`OWN_LISTS`]), from rows masked and hashed once while they stay the same (`watch_delta.rs`).
 
 use super::{Conn, Hub, Message, RpcError, Value, json, peer_text};
 use crate::hub::list_guard::{RequestStage, Snapshot};
@@ -81,6 +82,17 @@ async fn reply(
     live_only: bool,
     make: impl Fn(&Snapshot) -> Result<Arc<String>, RpcError>,
 ) -> Result<Value, RpcError> {
+    reply_with(hub, conn, share, live_only, |list| std::future::ready(make(&list))).await
+}
+
+/// [`reply`] with a `make` that may wait: one that runs off the runtime.
+async fn reply_with<Made: Future<Output = Result<Arc<String>, RpcError>>>(
+    hub: &Hub,
+    conn: &Conn,
+    share: f64,
+    live_only: bool,
+    make: impl Fn(Arc<Snapshot>) -> Made,
+) -> Result<Value, RpcError> {
     let guard = &hub.list_guard;
     let notices = || conn.notices.load(Ordering::SeqCst);
     // Read before each list is: a notice counted after it may tell a change the list lacks.
@@ -101,7 +113,7 @@ async fn reply(
                 if live_only { guard.snapshot_live(hub).await } else { guard.snapshot(hub).await }
             }
         };
-        let text = make(&list)?;
+        let text = make(list).await?;
         let Ok((id, method, claim)) = REPLY.try_with(|r| {
             let r = r.borrow();
             (r.id.clone(), r.method, r.claim.clone())
@@ -214,47 +226,74 @@ fn pending(hub: &Hub, raw: bool, params: &Value) -> Result<Value, RpcError> {
 /// daemon's own sessions: the link drops every row mirrored from a peer (`peer.rs`
 /// `watch_sessions`), and with them one lane VM's list was 17 MB with tools on 2026-10-30, past
 /// the message limit, so no peer's handshake there finished. Built from the own sessions
-/// alone, never from the whole list, once per snapshot.
-pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+/// alone, never from the whole list, once per snapshot, off the runtime ([`peer_watch`]).
+pub(super) async fn watch(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     crate::hub::session_pages::refuse_watch_filters(params)?;
     let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.watch_all.store(on, Ordering::SeqCst);
     if conn.origin == super::Origin::Peer && whole(params) {
-        let raw = conn.raw_text;
         // What the link holds of this list already: it reads only what changed
         // (`watch_delta.rs`).
         let known = match params.get("known") {
             None | Some(Value::Null) => None,
-            Some(Value::Object(known)) => Some(known),
+            Some(Value::Object(known)) => Some(Arc::new(known.clone())),
             Some(_) => return Err(RpcError::invalid_params("known must be an object")),
         };
-        let most = LIST_PAGE_BYTES;
-        return reply(hub, conn, hub.list_guard.share_bytes(most), false, |list| {
-            let name = match (tools, raw) {
-                (true, true) => "own tools",
-                (true, false) => "own tools masked",
-                (false, true) => "own",
-                (false, false) => "own masked",
-            };
-            let own = list.made(name, |_| {
-                let own = Snapshot::own_whole(hub, tools);
-                if raw { own } else { masked(serde_json::from_str(&own).unwrap_or_default()) }
-            });
-            match known.and_then(|known| crate::watch_delta::delta(&own, known)) {
-                Some(delta) if delta.len() <= most => return Ok(Arc::new(delta)),
-                _ if own.len() <= most => return Ok(own),
-                _ => {}
+        let (raw, params) = (conn.raw_text, Arc::new(params.clone()));
+        let share = hub.list_guard.share_bytes(LIST_PAGE_BYTES);
+        return reply_with(hub, conn, share, false, |list| {
+            let (hub, params, known) = (hub.clone(), params.clone(), known.clone());
+            async move {
+                // Held until the list is made, even if the request is dropped meanwhile.
+                let turn =
+                    OWN_LISTS.acquire().await.map_err(|e| RpcError::internal(e.to_string()))?;
+                tokio::task::spawn_blocking(move || {
+                    let _turn = turn;
+                    peer_watch(&hub, &list, &params, known.as_deref(), tools, raw)
+                })
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
             }
-            // Too large for one of this link's pages: the list's pages, whose cursor the link
-            // follows (`peer.rs` `watch_pages`); it drops the rows mirrored from its peers on
-            // each page as on a whole list (`watch_sessions`).
-            within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget))
         })
         .await;
     }
     sessions(hub, conn, params).await
+}
+
+/// Peers' watch lists made at once, each on a blocking thread: about 30 peers reconnect together,
+/// and the rest wait their turn rather than take every blocking thread.
+static OWN_LISTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+/// A peer's watch reply from `list`: the delta to `known` when it has one and it fits a page, else
+/// the own list whole when it fits, else its pages. Blocks.
+fn peer_watch(
+    hub: &Hub,
+    list: &Snapshot,
+    params: &Value,
+    known: Option<&serde_json::Map<String, Value>>,
+    tools: bool,
+    raw: bool,
+) -> Result<Arc<String>, RpcError> {
+    let most = LIST_PAGE_BYTES;
+    let name = match (tools, raw) {
+        (true, true) => "own tools",
+        (true, false) => "own tools masked",
+        (false, true) => "own",
+        (false, false) => "own masked",
+    };
+    let read: Option<&dyn Fn(Value) -> String> = if raw { None } else { Some(&masked) };
+    let own = list.own_listed(hub, name, tools, read);
+    match known.map(|known| own.delta(known)) {
+        Some(delta) if delta.len() <= most => return Ok(Arc::new(delta)),
+        _ if own.text.len() <= most => return Ok(own.text.clone()),
+        _ => {}
+    }
+    // Too large for one of this link's pages: the list's pages, whose cursor the link
+    // follows (`peer.rs` `watch_pages`); it drops the rows mirrored from its peers on
+    // each page as on a whole list (`watch_sessions`).
+    within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget))
 }
 
 /// ACP's `session/list`: every session, its summary under `_meta.acpmux`. A list too large

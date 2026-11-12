@@ -17,10 +17,18 @@
 //! kept (`Known`), and the hub replaces the peer's rows with that whole list, so a row it
 //! learned of only from a `session_changed` and the daemon no longer lists goes, as with any
 //! whole list.
+//!
+//! The daemon makes each row's form as the link reads it (masked for a peer, `peer_text.rs`) and
+//! its digest once, while the row's bytes stay the same ([`RowCache`]), and keeps them with the
+//! list ([`Listed`]): a delta is cut from them with no parse and no hash. Before, every peer's
+//! reconnect parsed the whole list, masked it and hashed every row again, on a runtime worker;
+//! about 30 peers each did on every reconnect.
 
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
+use std::sync::Arc;
 
 /// The `initialize` feature of a daemon that answers `known` with a delta.
 pub const FEATURE: &str = "watchDelta";
@@ -38,9 +46,130 @@ fn id_of(row: &Value) -> Option<&str> {
     row.get("sessionId").and_then(Value::as_str)
 }
 
+/// A whole list as the link reads it (`{"sessions": [...]}`), with where each row is and its
+/// digest: what [`Listed::delta`] cuts a delta from.
+pub struct Listed {
+    pub text: Arc<String>,
+    rows: Vec<ListedRow>,
+}
+
+struct ListedRow {
+    id: Option<Arc<str>>,
+    span: Range<usize>,
+    digest: Arc<str>,
+}
+
+impl Listed {
+    /// The delta reply to `known` of this list: the rows new or changed, the known ids gone, and
+    /// how many are unchanged, as [`delta`] makes it of the list's text.
+    pub fn delta(&self, known: &Map<String, Value>) -> String {
+        let mut listed = HashSet::new();
+        let mut sessions = Vec::new();
+        for row in &self.rows {
+            let text = self.text.get(row.span.clone()).unwrap_or("null");
+            let Some(id) = row.id.as_deref() else {
+                sessions.push(text);
+                continue;
+            };
+            listed.insert(id);
+            let held = known.get(id).and_then(Value::as_str);
+            if held.is_none_or(|held| held != &*row.digest) {
+                sessions.push(text);
+            }
+        }
+        let removed: Vec<&str> =
+            known.keys().map(String::as_str).filter(|id| !listed.contains(id)).collect();
+        let unchanged = self.rows.len().saturating_sub(sessions.len());
+        let removed = serde_json::to_string(&removed).unwrap_or_else(|_| "[]".to_owned());
+        let rows: usize = sessions.iter().map(|row| row.len().saturating_add(1)).sum();
+        let mut text = String::with_capacity(rows + removed.len() + 64);
+        text.push_str("{\"delta\":true,\"removed\":");
+        text.push_str(&removed);
+        text.push_str(",\"sessions\":[");
+        text.push_str(&sessions.join(","));
+        text.push_str("],\"unchanged\":");
+        text.push_str(&unchanged.to_string());
+        text.push('}');
+        text
+    }
+}
+
+/// Every row of one list form as it was last made, by session id: its bytes as built, its text as
+/// the link reads it, and that text's digest. A row whose bytes are the same as last time costs a
+/// compare; only a new or changed row is parsed, masked and hashed. It holds the rows of the last
+/// list made, no others: about two copies of that list's bytes.
+#[derive(Default)]
+pub struct RowCache {
+    rows: HashMap<Arc<str>, CachedRow>,
+}
+
+struct CachedRow {
+    built: Box<str>,
+    read: Arc<str>,
+    digest: Arc<str>,
+}
+
+impl RowCache {
+    /// The list of `rows` (each its session id and its bytes as built, in list order), each read
+    /// through `read` (a row's text as the link reads it; None: its bytes as built), the read form
+    /// and digest of a row whose bytes are unchanged reused. Afterwards the cache holds exactly
+    /// these rows.
+    pub fn listed<'a>(
+        &mut self,
+        rows: impl IntoIterator<Item = (Option<&'a str>, &'a str)>,
+        read: Option<&dyn Fn(Value) -> String>,
+    ) -> Listed {
+        let mut kept = HashMap::with_capacity(self.rows.len());
+        let mut text = String::from("{\"sessions\":[");
+        let mut listed = Vec::new();
+        for (id, built) in rows {
+            let cached = id
+                .and_then(|id| self.rows.remove_entry(id))
+                .filter(|(_, row)| *row.built == *built);
+            let (id, row) = match cached {
+                Some((id, row)) => (Some(id), row),
+                None => {
+                    // The digest the link makes of the row it parsed: of its compact JSON.
+                    let value: Value = serde_json::from_str(built).unwrap_or_default();
+                    let (read, digest): (Arc<str>, String) = match read {
+                        Some(read) => {
+                            let text = read(value);
+                            let digest = digest_text(&text);
+                            (text.into(), digest)
+                        }
+                        None => (built.into(), digest(&value)),
+                    };
+                    (
+                        id.map(Arc::from),
+                        CachedRow { built: built.into(), read, digest: digest.into() },
+                    )
+                }
+            };
+            if !listed.is_empty() {
+                text.push(',');
+            }
+            let start = text.len();
+            text.push_str(&row.read);
+            listed.push(ListedRow {
+                id: id.clone(),
+                span: start..text.len(),
+                digest: row.digest.clone(),
+            });
+            if let Some(id) = id {
+                kept.insert(id, row);
+            }
+        }
+        text.push_str("]}");
+        self.rows = kept;
+        Listed { text: Arc::new(text), rows: listed }
+    }
+}
+
 /// The delta reply to `known` of a whole list `list` (`{"sessions": [...]}`, as the link reads
 /// it): the rows new or changed, the known ids gone, and how many are unchanged. None if
-/// `list` is not such a list.
+/// `list` is not such a list. The daemon cuts it from a [`Listed`]; this is the same reply made
+/// from the text, for a test's daemon.
+#[cfg(test)]
 pub fn delta(list: &str, known: &Map<String, Value>) -> Option<String> {
     let list: Value = serde_json::from_str(list).ok()?;
     let rows = list.get("sessions")?.as_array()?;
