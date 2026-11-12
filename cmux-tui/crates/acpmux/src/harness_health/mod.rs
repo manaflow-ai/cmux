@@ -22,6 +22,7 @@ pub(crate) use update_plan::UPDATE_PLAN_FEATURE;
 mod update_prepare;
 pub(crate) use update_prepare::UPDATE_PREPARE_FEATURE;
 pub mod latest;
+pub mod minimum;
 pub mod probe;
 
 use channel::{Channel, UpdatePlan};
@@ -63,6 +64,13 @@ pub struct HarnessHealth {
     /// When `latest` was read (ms since the epoch).
     pub latest_checked_at: Option<u64>,
     pub outdated: bool,
+    /// The oldest version acpmux supports for it (`minimum.rs`), when it names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<String>,
+    /// `version` is older than `minimum`: its CLI is missing models the pickers offer,
+    /// and the pane asks the person to update it (cmux#42212).
+    #[serde(default)]
+    pub unsupported: bool,
     pub auth: Auth,
     /// Why `auth` is what it is (the probe error, or the check that ran).
     pub auth_detail: Option<String>,
@@ -79,6 +87,14 @@ pub struct HarnessHealth {
     /// The last update auto-update ran for it, since the daemon started.
     #[serde(default)]
     pub last_auto_update: Option<auto::AutoUpdateResult>,
+}
+
+impl HarnessHealth {
+    /// Whether an update is due: its channel has a newer release, or it is older than
+    /// acpmux's minimum (whatever the channel answered, or when no lookup ran).
+    pub fn needs_update(&self) -> bool {
+        self.outdated || self.unsupported
+    }
 }
 
 /// A harness to check, as the hub's configuration describes it.
@@ -743,6 +759,8 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         }
         _ => builtin.unwrap_or((Auth::Unknown, None)),
     };
+    let minimum = minimum::minimum(&s.family, &s.program);
+    let unsupported = matches!((&version, minimum), (Some(v), Some(m)) if minimum::below(v, m));
     HarnessHealth {
         id: s.id,
         // In the account home the check read (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`), so Log In
@@ -760,6 +778,8 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
         latest: None,
         latest_checked_at: None,
         outdated: false,
+        minimum: minimum.map(str::to_owned),
+        unsupported,
         auth,
         auth_detail,
         update,
@@ -871,6 +891,8 @@ mod tests {
             latest: None,
             latest_checked_at: None,
             outdated: false,
+            minimum: None,
+            unsupported: false,
             auth: Auth::SignedOut,
             auth_detail: None,
             login: Some("codex login".into()),
@@ -907,6 +929,8 @@ mod tests {
             latest: None,
             latest_checked_at: None,
             outdated: false,
+            minimum: None,
+            unsupported: false,
             auth: Auth::Unknown,
             auth_detail: None,
             login: Some("muse login".into()),

@@ -16,6 +16,11 @@ export type HarnessHealth = {
   version?: string | null;
   latest?: string | null;
   outdated?: boolean;
+  /// The oldest version acpmux supports for this CLI (cmux#42212), when it names one.
+  minimum?: string | null;
+  /// `version` is older than `minimum`: the CLI is missing models the picker offers. Unlike an
+  /// outdated one, it is said above the composer (with Update), and Skip This Version never hides it.
+  unsupported?: boolean;
   /// Only from evidence (a profile's check, or a probe's sign-in error); `expired`: a credential the
   /// check or probe said expired.
   auth?: "signedIn" | "signedOut" | "expired" | "unknown";

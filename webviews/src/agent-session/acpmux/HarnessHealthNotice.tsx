@@ -26,7 +26,9 @@ const message = (error: unknown) => (error instanceof Error ? error.message.trim
 /// Agent CLI health above the composer, one quiet line in the composer's notice slot: a
 /// signed-out agent says so with Log In (an error: it outranks every other line), which runs its
 /// login in a terminal tab of the chat's folder (`open`, the host's `tab.open`). An outdated one
-/// draws nothing here: it hands `onOffer` its Update, which the model chip offers. Once the person
+/// draws nothing here: it hands `onOffer` its Update, which the model chip offers. One older than
+/// acpmux supports (`unsupported`, cmux#42212) is missing models, so it is said here with Update,
+/// which updates it and restarts the chat on it in one click. Once the person
 /// starts it, the host runs it in place (`harness.update`) while the line says so (the lowest
 /// tier, so it never covers an error), then Restart Chat (`harness.restart`) to use the new
 /// version. An update that needs sudo is left to Settings > Agents, which shows its command.
@@ -72,11 +74,17 @@ export function HarnessHealthNotice({
     skipped()[health.id] !== health.latest
       ? health.update.command
       : undefined;
-  const kind = signedOut ? "signedOut" : update ? "outdated" : undefined;
+  const unsupported = !!health?.unsupported && !!health.version && !!health.minimum;
+  const kind = signedOut ? "signedOut" : unsupported ? "unsupported" : update ? "outdated" : undefined;
   // Not Now holds for what it was said to (a newer version or a sign-out asks again).
   // An update started here holds its card (Restart Chat) even when health, read again, is current.
-  const started = progress && health?.id === harness && progress.key.startsWith(`${harness}:outdated:`);
-  const key = started ? progress.key : health && kind && `${health.id}:${kind}:${health.latest ?? ""}`;
+  const started =
+    progress &&
+    health?.id === harness &&
+    (progress.key.startsWith(`${harness}:outdated:`) || progress.key.startsWith(`${harness}:unsupported:`));
+  const key = started
+    ? progress.key
+    : health && kind && `${health.id}:${kind}:${(kind === "unsupported" ? health.version : health.latest) ?? ""}`;
   const state = started ? progress : undefined;
   const waiting = state?.phase === "waiting";
   // A restart held for the turn happened when it ended: the card is done.
@@ -112,7 +120,11 @@ export function HarnessHealthNotice({
   }, [offerKey, offerId, offerVersion, offerLatest, name]);
   useEffect(() => () => offerOut.current?.(undefined), []);
   const line = ours && !offering && !!(kind || state) && !!key && key !== dismissed;
-  const turn = useNoticeTurn("harness-health", kind === "signedOut" ? "error" : "update", line);
+  const turn = useNoticeTurn(
+    "harness-health",
+    kind === "signedOut" ? "error" : kind === "unsupported" && !state ? "hint" : "update",
+    line,
+  );
   const signInVisible = ours && kind === "signedOut" && !offering && !!key && key !== dismissed && turn.shown;
   useLayoutEffect(() => {
     onSignInVisible?.(signInVisible);
@@ -125,22 +137,6 @@ export function HarnessHealthNotice({
   const latest = health.latest ?? "";
   // The updater's own words are Details; none is no Details, never a stand-in sentence there.
   const failed = (error: string) => setProgress({ key, phase: "failed", error });
-  const startUpdate = () => {
-    setProgress({ key, phase: "updating" });
-    native("harness.update", { id }).then(
-      (value) => {
-        const reply = record(value);
-        if (reply.ok === true)
-          setProgress({
-            key,
-            phase: "updated",
-            version: typeof reply.version === "string" && reply.version ? reply.version : latest,
-          });
-        else failed(typeof reply.error === "string" ? reply.error.trim() : "");
-      },
-      (error: unknown) => failed(message(error)),
-    );
-  };
   const restart = (version: string) => {
     setProgress({ key, phase: "updated", version, restarting: true });
     native("harness.restart", {}).then(
@@ -161,6 +157,22 @@ export function HarnessHealthNotice({
         onUpdated?.();
       },
       (error: unknown) => setProgress({ key, phase: "updated", version, error: message(error), restartFailed: true }),
+    );
+  };
+  // An unsupported CLI's Update is one click: the chat restarts on the new version once it is in.
+  const restartWhenUpdated = key.includes(":unsupported:");
+  const startUpdate = () => {
+    setProgress({ key, phase: "updating" });
+    native("harness.update", { id }).then(
+      (value) => {
+        const reply = record(value);
+        if (reply.ok === true) {
+          const version = typeof reply.version === "string" && reply.version ? reply.version : latest;
+          if (restartWhenUpdated) restart(version);
+          else setProgress({ key, phase: "updated", version });
+        } else failed(typeof reply.error === "string" ? reply.error.trim() : "");
+      },
+      (error: unknown) => failed(message(error)),
     );
   };
   actions.current = {
@@ -188,6 +200,22 @@ export function HarnessHealthNotice({
         {t("harness.logIn")}
       </button>
     );
+  } else if (kind === "unsupported" && !state) {
+    text = t("harness.unsupported", { agent: name, version: health.version ?? "", minimum: health.minimum ?? "" });
+    // Update when cmux may run the updater; one that needs sudo runs in a terminal, where its
+    // password prompt shows. Without an update command there is nothing to click.
+    const plan = health.update;
+    buttons = plan ? (
+      plan.elevated ? (
+        <button type="button" data-notice-action="terminal" onClick={() => run(plan.command)}>
+          {t("harness.updateInTerminal")}
+        </button>
+      ) : (
+        <button type="button" data-notice-action="update" onClick={startUpdate}>
+          {t("harness.update")}
+        </button>
+      )
+    ) : null;
   } else if (state?.phase === "updated") {
     text = state.restartFailed
       ? t("harness.restartFailedShort")

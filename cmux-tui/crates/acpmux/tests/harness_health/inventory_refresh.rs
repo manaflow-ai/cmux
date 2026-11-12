@@ -33,7 +33,7 @@ impl Fixture {
         );
         let row = json!({
             "id":"claude", "program":cli, "path":real, "channel":"native",
-            "package":"@anthropic-ai/claude-code", "version":"2.0.5", "latest":"2.0.6",
+            "package":"@anthropic-ai/claude-code", "version":"2.1.305", "latest":"2.1.306",
             "latestCheckedAt":1, "outdated":true, "auth":"unknown", "checkedAt":1,
             "authDetail":"private@example.test secret-token", "autoUpdate":true,
             "update":{"argv":[cli,"update"],"command":"private update command","elevated":false}
@@ -44,7 +44,7 @@ impl Fixture {
         let preference = root.join("auto-update.json");
         std::fs::write(&preference, "[\"claude\"]").unwrap();
         let answers = if registry {
-            vec![("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version":"2.0.9"}))]
+            vec![("/npm/@anthropic-ai%2Fclaude-code/latest", json!({"version":"2.1.309"}))]
         } else {
             vec![]
         };
@@ -95,9 +95,9 @@ async fn cmux_next_harness_inventory_refresh_changes_only_registry_observations(
     assert_eq!(refreshed["view"], "inventory", "{refreshed}");
     assert_eq!(refreshed["cached"], true, "installation/auth evidence remains cached");
     let observed = row(&refreshed, "claude");
-    assert_eq!(observed["version"], "2.0.5", "installed version must not be probed again");
+    assert_eq!(observed["version"], "2.1.305", "installed version must not be probed again");
     assert_eq!(observed["checkedAt"], 1, "installed/auth observation time stays unchanged");
-    assert_eq!(observed["latest"], "2.0.9");
+    assert_eq!(observed["latest"], "2.1.309");
     assert!(observed["latestCheckedAt"].as_u64().is_some_and(|at| at > 1));
     assert_eq!(observed["outdated"], true);
     assert_eq!(observed["auth"], "unknown");
@@ -190,7 +190,7 @@ async fn cmux_next_harness_inventory_refresh_failed_registry_keeps_prior_evidenc
     let mut client = Client::open(&f.hub, Origin::Local);
     let refreshed = client.call(REFRESH, json!({})).await.expect("partial cached evidence");
     let observed = row(&refreshed, "claude");
-    assert_eq!(observed["latest"], "2.0.6");
+    assert_eq!(observed["latest"], "2.1.306");
     assert_eq!(observed["latestCheckedAt"], 1, "a failed read cannot stamp old evidence fresh");
     assert_eq!(observed["checkedAt"], 1);
     assert_eq!(f.asked.lock().unwrap().len(), 1);
@@ -203,7 +203,7 @@ async fn cmux_next_harness_inventory_refresh_ordinary_cache_reads_still_do_no_wo
     let mut client = Client::open(&f.hub, Origin::Local);
     let cached =
         client.call(method::MUX_HARNESS_HEALTH, json!({"view":"inventory"})).await.unwrap();
-    assert_eq!(row(&cached, "claude")["latest"], "2.0.6");
+    assert_eq!(row(&cached, "claude")["latest"], "2.1.306");
     assert_eq!(row(&cached, "claude")["checkedAt"], 1);
     assert!(f.asked.lock().unwrap().is_empty());
     f.assert_no_program();
@@ -231,7 +231,7 @@ async fn cmux_next_harness_inventory_refresh_refuses_overlap_and_preserves_a_liv
         if held.recv().is_err() {
             return;
         }
-        let body = r#"{"version":"2.0.9"}"#;
+        let body = r#"{"version":"2.1.309"}"#;
         write!(
             socket,
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -252,7 +252,7 @@ async fn cmux_next_harness_inventory_refresh_refuses_overlap_and_preserves_a_liv
     assert_eq!(error["data"]["reason"], "harness_inventory.busy", "{error}");
     release.send(()).unwrap();
     let refreshed = pending.await.unwrap().unwrap();
-    assert_eq!(row(&refreshed, "claude")["latest"], "2.0.9");
+    assert_eq!(row(&refreshed, "claude")["latest"], "2.1.309");
     assert!(!f.hub.health.rows()[0].auto_update, "the old row clone overwrote the live choice");
     f.assert_no_program();
     server.join().unwrap();
@@ -277,7 +277,7 @@ async fn cmux_next_harness_inventory_refresh_invalid_versions_do_not_replace_kno
         f.use_registry(port);
         let mut client = Client::open(&f.hub, Origin::Local);
         let refreshed = client.call(REFRESH, json!({})).await.unwrap();
-        assert_eq!(row(&refreshed, "claude")["latest"], "2.0.6");
+        assert_eq!(row(&refreshed, "claude")["latest"], "2.1.306");
         assert_eq!(row(&refreshed, "claude")["latestCheckedAt"], 1);
         assert_eq!(asked.lock().unwrap().len(), 1);
         f.assert_no_program();

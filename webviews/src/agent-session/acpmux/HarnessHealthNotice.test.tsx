@@ -297,3 +297,75 @@ test("a failed update says so in one plain line, the updater's words under Detai
   expect(detail(container)).toBe("Not supported here.");
   expect(button(container, "dismiss")).not.toBeNull();
 });
+
+/// An agent CLI older than acpmux supports (cmux#42212): its own model list lacks newer models.
+const unsupported: HarnessHealth = {
+  id: "codex",
+  auth: "signedIn",
+  version: "0.147.0",
+  latest: null,
+  minimum: "0.148.0",
+  unsupported: true,
+  outdated: false,
+  update: { command: "npm install -g @openai/codex@latest", elevated: false },
+};
+
+test("an agent CLI below acpmux's minimum says why models are missing, and one Update updates it and restarts the chat", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  let updated = 0;
+  await render(container, unsupported, [], "codex", native, { onUpdated: () => (updated += 1) });
+  expect(notice(container)?.dataset.harnessNotice).toBe("unsupported");
+  expect(line(container)).toBe(
+    "Codex 0.147.0 is too old for cmux, so newer models are missing. Update to 0.148.0 or later.",
+  );
+  // Said above the composer, not offered on the model chip.
+  expect(offer).toBeUndefined();
+  await act(async () => button(container, "update")!.click());
+  expect(calls.map(({ method, params }) => ({ method, params }))).toEqual([
+    { method: "harness.update", params: { id: "codex" } },
+  ]);
+  expect(text(container)).toContain("Updating Codex…");
+  // The update is in: the chat restarts on it with no second click.
+  await answer(calls[0], { ok: true, version: "0.167.2" });
+  expect(calls.map(({ method }) => method)).toEqual(["harness.update", "harness.restart"]);
+  expect(button(container, "restart")?.disabled).toBe(true);
+  await answer(calls[1], { restarted: 1, after_turn: 0 });
+  expect(notice(container)).toBeNull();
+  expect(updated).toBe(1);
+});
+
+test("Skip This Version never hides an unsupported CLI; one that needs sudo updates in a terminal tab", async () => {
+  const container = installDom();
+  localStorage.setItem("cmux.acpmux.skippedUpdates", JSON.stringify({ codex: "0.147.0" }));
+  const opened = await render(container, { ...unsupported, latest: "0.147.0" });
+  expect(notice(container)?.dataset.harnessNotice).toBe("unsupported");
+  await render(
+    container,
+    { ...unsupported, update: { command: "sudo npm install -g @openai/codex@latest", elevated: true } },
+    opened,
+  );
+  expect(button(container, "update")).toBeNull();
+  await press(container, "terminal");
+  expect(opened).toEqual([
+    { kind: "terminal", text: "sudo npm install -g @openai/codex@latest", cwd: "/work", run: true },
+  ]);
+  // A supported version, or one acpmux names no minimum for, says nothing.
+  await render(container, { ...unsupported, unsupported: false });
+  expect(notice(container)).toBeNull();
+  await render(container, { ...unsupported, minimum: null });
+  expect(notice(container)).toBeNull();
+});
+
+test("a failed update of an unsupported CLI keeps the line with the updater's words and Try Again", async () => {
+  const container = installDom();
+  const { calls, native } = host();
+  await render(container, unsupported, [], "codex", native);
+  await act(async () => button(container, "update")!.click());
+  await answer(calls[0], { ok: false, error: "npm ERR! network" });
+  expect(line(container)).toBe("Couldn't update Codex.");
+  expect(detail(container)).toBe("npm ERR! network");
+  expect(calls.map(({ method }) => method)).toEqual(["harness.update"]);
+  await press(container, "retry");
+  expect(calls.map(({ method }) => method)).toEqual(["harness.update", "harness.update"]);
+});

@@ -143,6 +143,18 @@ const outdated: HarnessHealth = {
   update: { command: "npm install -g @openai/codex@latest", elevated: false },
 };
 
+/// Below acpmux's minimum (cmux#42212): this Codex's own model list has no GPT-6, so the picker lacks it.
+const unsupported: HarnessHealth = {
+  id: "codex",
+  auth: "signedIn",
+  version: "0.147.0",
+  latest: "0.167.2",
+  minimum: "0.148.0",
+  unsupported: true,
+  outdated: true,
+  update: { command: "npm install -g @openai/codex@latest", elevated: false },
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.harness-health-notice",
   title: "Agent CLI health notice",
@@ -187,6 +199,15 @@ export default componentEntry<Props>({
     outdated: {
       note: "An outdated Codex CLI draws no line here; the model chip offers Update and Skip This Version (stand-in below).",
       props: { health: outdated },
+    },
+    unsupported: {
+      note: "A Codex CLI older than cmux supports says newer models are missing, with one Update that updates and restarts the chat.",
+      props: { health: unsupported },
+    },
+    "unsupported-updating": {
+      note: "Update on an unsupported CLI runs the host's updater in place; the chat restarts on it when it is in.",
+      props: { health: unsupported, updater: "pending" },
+      play: runUpdating,
     },
     updating: {
       note: "Update runs the host's updater in place; the line says so quietly while it works.",
