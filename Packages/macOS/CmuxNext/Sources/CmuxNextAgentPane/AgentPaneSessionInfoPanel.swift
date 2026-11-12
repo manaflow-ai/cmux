@@ -25,6 +25,17 @@ final class AgentPaneSessionInfoPanel: NSView {
     var magnification: CGFloat = 1 {
         didSet { if magnification != oldValue { needsLayout = true } }
     }
+    /// Where the panel's frame starts in the whole pinched panel, points from its left and bottom
+    /// edges: nonzero while the page's edge cuts the panel off, so the part on screen shows the content
+    /// that lies there.
+    var contentOffset: CGPoint = .zero {
+        didSet { if contentOffset != oldValue { needsLayout = true } }
+    }
+    /// The whole pinched panel's size, points, while the page's edge cuts it off; nil when the
+    /// panel's frame is all of it.
+    var wholeSize: CGSize? {
+        didSet { if wholeSize != oldValue { needsLayout = true } }
+    }
     /// The glass under the content while the panel lies over the chat's column; nil over the
     /// pane's empty gutter, where the content stands on the pane itself.
     private(set) var backing: OverlaySurfaceView?
@@ -121,8 +132,11 @@ final class AgentPaneSessionInfoPanel: NSView {
         backing?.frame = bounds
         stage.frame = bounds
         let scale = max(0.1, magnification)
-        stage.bounds = CGRect(x: 0, y: 0, width: bounds.width / scale, height: bounds.height / scale)
-        content.frame = stage.bounds
+        stage.bounds = CGRect(x: contentOffset.x / scale, y: contentOffset.y / scale,
+                              width: bounds.width / scale, height: bounds.height / scale)
+        // The whole panel's content, of which the stage shows the part on screen.
+        let whole = wholeSize ?? bounds.size
+        content.frame = CGRect(x: 0, y: 0, width: whole.width / scale, height: whole.height / scale)
         edge.frame = CGRect(x: 0, y: 0, width: AgentPaneSessionInfoEdge.width, height: bounds.height)
         applyHoles()
     }

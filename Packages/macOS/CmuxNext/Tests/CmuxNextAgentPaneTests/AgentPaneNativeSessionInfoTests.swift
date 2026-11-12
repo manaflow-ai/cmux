@@ -1028,6 +1028,42 @@ struct AgentPaneNativeSessionInfoTests {
             == CGRect(x: (600 - 600) * 2 * 1.5, y: (36 - 20) * 2 * 1.5, width: 600, height: 600))
     }
 
+    /// Zoomed in, a panel past the page's edge shows only its part on the page, starting where that
+    /// part lies in the whole panel; a panel wholly off the page shows nothing (no null frame).
+    @Test func pinchedPanelPastThePagesEdgeShowsOnlyItsPartOnThePage() throws {
+        let page = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let full = CGRect(x: 1000, y: 700, width: 640, height: 800)
+        let flipped = try #require(AgentPaneView.sessionInfoShownPart(full, page: page, flipped: true))
+        #expect(flipped.frame == CGRect(x: 1000, y: 700, width: 200, height: 200))
+        // Flipped pane: the bottom 600 points are cut off, so the shown part starts 600 up the panel.
+        #expect(flipped.offset == CGPoint(x: 0, y: 600))
+        let unflipped = try #require(AgentPaneView.sessionInfoShownPart(full, page: page, flipped: false))
+        #expect(unflipped.offset == CGPoint(x: 0, y: 0))
+        let left = try #require(AgentPaneView.sessionInfoShownPart(CGRect(x: -100, y: 0, width: 300, height: 300),
+                                                                   page: page, flipped: true))
+        #expect(left.frame == CGRect(x: 0, y: 0, width: 200, height: 300))
+        #expect(left.offset == CGPoint(x: 100, y: 0))
+        #expect(AgentPaneView.sessionInfoShownPart(CGRect(x: 1300, y: 0, width: 300, height: 300),
+                                                   page: page, flipped: true) == nil)
+    }
+
+    /// The stage shows the content that lies in the panel's shown part.
+    @Test func clippedPanelShowsTheContentThatLiesThere() throws {
+        func all(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(all) }
+        let store = AgentPaneSessionInfoStore()
+        let panel = AgentPaneSessionInfoPanel(store: store)
+        store.update(try Self.model(Self.info()))
+        panel.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
+        panel.magnification = 2
+        panel.contentOffset = CGPoint(x: 100, y: 0)
+        panel.wholeSize = CGSize(width: 300, height: 300)
+        panel.layoutSubtreeIfNeeded()
+        let content = try #require(all(panel).compactMap { $0 as? AgentPaneSessionInfoContent }.first)
+        #expect(content.frame.size == CGSize(width: 150, height: 150))
+        // The panel's left edge shows the content 50 points (100 on screen) in.
+        #expect(panel.convert(CGPoint(x: 50, y: 0), from: content) == CGPoint(x: 0, y: 0))
+    }
+
     /// A row's anchor on the zoomed screen goes back to the page's layout, where its menus are placed.
     @Test func pinchedRowAnchorsGoBackToThePagesLayout() {
         let pinch = AgentPaneSessionInfoPinch(scale: 2, left: 600, top: 20)

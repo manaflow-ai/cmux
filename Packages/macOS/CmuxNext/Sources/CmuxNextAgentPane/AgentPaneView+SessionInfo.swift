@@ -115,9 +115,23 @@ extension AgentPaneView {
         let laid = Self.sessionInfoFrame(page: pageFrame, info: info,
                                          width: panel.store.width, zoom: zoom, flipped: isFlipped,
                                          content: { [weak panel] width in panel?.fittingHeight(forWidth: width) ?? .greatestFiniteMagnitude })
-        let frame = Self.sessionInfoPinchedFrame(laid, page: pageFrame, zoom: zoom, pinch: pinch, flipped: isFlipped)
+        let full = Self.sessionInfoPinchedFrame(laid, page: pageFrame, zoom: zoom, pinch: pinch, flipped: isFlipped)
         panel.magnification = pinch.scale
-        if panel.frame != frame { panel.frame = frame }
+        // Zoomed in, the panel can lie partly or wholly past the page's edges, off its screen: it shows
+        // the part on the page, and none at all when none is.
+        if pinch == .none {
+            panel.isHidden = false
+            panel.contentOffset = .zero
+            panel.wholeSize = nil
+            if panel.frame != full { panel.frame = full }
+        } else if let shown = Self.sessionInfoShownPart(full, page: pageFrame, flipped: isFlipped) {
+            panel.isHidden = false
+            panel.contentOffset = shown.offset
+            panel.wholeSize = shown.frame == full ? nil : full.size
+            if panel.frame != shown.frame { panel.frame = shown.frame }
+        } else {
+            panel.isHidden = true
+        }
         applySessionInfoOverlays()
     }
 
@@ -135,8 +149,18 @@ extension AgentPaneView {
         let height = frame.height * pinch.scale
         let x = page.minX + shown.x * scale
         let y = flipped ? page.minY + shown.y * scale : page.maxY - shown.y * scale - height
-        // Zoomed in, the part past the page's edges is off the page's screen too: the panel ends there.
-        return CGRect(x: x, y: y, width: width, height: height).intersection(page).integral
+        return CGRect(x: x, y: y, width: width, height: height).integral
+    }
+
+    /// The part of the pinched panel `full` on the page (pane coordinates), and where that part
+    /// starts in the whole panel (points from its left and bottom edges, the panel's own unflipped
+    /// coordinates); nil when no part is on the page.
+    static func sessionInfoShownPart(_ full: CGRect, page: CGRect, flipped: Bool) -> (frame: CGRect, offset: CGPoint)? {
+        let shown = full.intersection(page).integral.intersection(full)
+        guard !shown.isNull, shown.width >= 1, shown.height >= 1 else { return nil }
+        let offset = CGPoint(x: shown.minX - full.minX,
+                             y: flipped ? full.maxY - shown.maxY : shown.minY - full.minY)
+        return (shown, offset)
     }
 
     /// A rect on the pinch-zoomed screen (top-left CSS pixels) in the page's layout, where the page
