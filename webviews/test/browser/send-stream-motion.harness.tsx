@@ -25,12 +25,15 @@ import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import { loadHighlightedCode } from "../../src/agent-session/acpmux/conversation/codeBlockModel";
 import { nextFrame } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
-import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
-import { history } from "../../src/agent-session/acpmux/conversation/streamingTextFixture";
+import { LIVE_THINKING, turnView } from "../../src/agent-session/acpmux/conversation/turns";
+import { history, REPLY } from "../../src/agent-session/acpmux/conversation/streamingTextFixture";
 import {
+  ARRIVAL_QUIET_MS,
   CARD_DRAFT,
+  CARD_EMPTY,
   playScriptedTurn,
   SCRIPTED_ANSWER_ID as ANSWER_ID,
+  SCRIPTED_PROMPT_ID,
   TOGGLE_CALL_ID,
   type ScriptedTurn,
 } from "../../src/agent-session/acpmux/conversation/scriptedTurn";
@@ -131,6 +134,8 @@ export type Sample = {
   rows?: RowSample[];
   /// With `?rows=1`: the composer card's top in the viewport, px.
   composer?: number;
+  /// With `?rows=1`: the scroller's lower edge in the viewport, px.
+  viewBottom?: number;
   /// With `?rows=1`, once the tool-toggle turn's call is drawn: its line's top in the viewport (px),
   /// whether it is open, and its details' box: top and height as drawn this frame (0 when none).
   line?: { top: number; open: boolean; bodyTop: number; body: number };
@@ -164,7 +169,18 @@ export type RowSample = {
   layoutTop?: number;
   /// How far a translate on the row draws it from its layout this frame (a fold's or a glide's), px.
   offset?: number;
+  /// How much of the row's foot a clip-path cuts off this frame (its bottom inset), px; 0 with none.
+  clip?: number;
 };
+
+/// The bottom inset of a computed `clip-path: inset(...)`, px (0 for none or another shape). The
+/// computed value drops a side that repeats another: one to four lengths, as a margin has.
+function bottomInset(clipPath: string): number {
+  const inside = /^inset\(([^)]*)\)/.exec(clipPath)?.[1];
+  if (!inside) return 0;
+  const sides = inside.trim().split(/\s+/);
+  return Math.max(0, Number.parseFloat(sides[2] ?? sides[0] ?? "") || 0);
+}
 
 const sampleRows = query.get("rows") === "1";
 /// `?rows=end` (send-stream-motion.test.ts): the rows only from the turn's end on, on the frame's one
@@ -213,6 +229,7 @@ function rowSamples(scroller: HTMLElement, thread: HTMLElement): RowSample[] {
       text: (row.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 48),
       layoutTop: row.offsetTop - (row.offsetParent === thread ? 0 : thread.offsetTop),
       offset,
+      clip: bottomInset(style.clipPath),
     });
   }
   return out;
@@ -303,6 +320,7 @@ const sampleFrame = () => {
     ...((sampleRows || (rowsAtEnd && endPhase(phase))) && {
       rows: rowSamples(scroller, thread),
       composer: dock,
+      viewBottom: scroller.getBoundingClientRect().bottom,
       line: lineSample(),
     }),
   });
@@ -444,4 +462,157 @@ async function run({
   return samples;
 }
 
-(window as unknown as { __sendStream: { run: typeof run } }).__sendStream = { run };
+/// What `heldFold` did besides its frames, for the test's report.
+export type HeldFold = {
+  samples: Sample[];
+  /// How far up the reader wheeled, px, and when (the page's clock, ms).
+  px: number;
+  wheeledAt: number;
+  /// When the reader clicked the run's line, and the line then: its words, its box, whether it was
+  /// closed, and whether it is open at the end.
+  clickedAt: number;
+  line?: { text: string; top: number; bottom: number; closed: boolean; opened: boolean };
+  /// The scroller's box and the composer card's top at the click, px.
+  view: { top: number; bottom: number; composer: number };
+  /// The turn's rows at the click, in thread order: id, top, height and first words.
+  rows: string[];
+};
+
+/// How far under the view's end the reader's wheel leaves the live line's foot, px: a small scroll up.
+const HELD_FOOT_UNDER_PX = 24;
+
+/// A reader opens a finished run while the running turn's live line is held (held-live-line-fold-
+/// browser.test.ts). The turn: a reply, a finished run of three calls, a longer reply, then one more
+/// call that starts and finishes. That call's row lands above the live line, so the follow chase draws
+/// the thread back and the live line holds still against it (pinnedLiveLine.ts). 16 ms into that
+/// chase the reader wheels up, just far enough that the live line's foot goes under the view's end:
+/// the line is held where it is drawn. Then they click the first run's line, which is in view over the
+/// composer. The turn runs on to the last frame. No experiment arm is set here: the page draws the
+/// look the app ships.
+async function heldFold({ settleMs = 500 }: { settleMs?: number } = {}): Promise<HeldFold> {
+  await loadHighlightedCode();
+  // fixed-wait: the history's rows measure over the first frames
+  await wait(400);
+  samples.length = 0;
+  started = 0;
+  wheeledAt = undefined;
+  backAt = undefined;
+  if (sampleRows && !lateSampler) (lateSampler = new ResizeObserver(sampleFrame)).observe(sentinel);
+  sampling = true;
+  const base = history(historyTurns);
+  const paragraphs = REPLY.split("\n\n");
+  const prompt = {
+    id: SCRIPTED_PROMPT_ID,
+    version: 1,
+    at: 100_000,
+    kind: "user",
+    text: "Why does the relay fall over?",
+  } as AcpmuxRow;
+  const reply = (id: string, at: number, text: string) =>
+    ({ id, version: 1, at, kind: "assistant", text, streaming: false }) as AcpmuxRow;
+  const calls = (id: string, at: number, version: number, status: string, titles: [string, string][]) =>
+    ({
+      id,
+      version,
+      at,
+      kind: "activity",
+      toolCount: titles.length,
+      items: titles.map(([title, kind], index) => ({
+        kind: "tool",
+        text: title,
+        tool: { id: `${id}-call-${index}`, title, kind, status },
+      })),
+      streaming: status !== "completed",
+    }) as AcpmuxRow;
+  const settled = [
+    reply(ANSWER_ID, 100_001, paragraphs[0]!),
+    calls("held-run-a", 100_002, 1, "completed", [
+      ["Read relay.ts", "read"],
+      ["Grep reconnect", "search"],
+      ["Read socket.ts", "read"],
+    ]),
+    // Two paragraphs: a reply to the reader, never a short note that joins the runs around it
+    // (turns.ts `mergeShortNotes`), and tall enough that the first run's line stays over the composer.
+    reply(`${ANSWER_ID}-2`, 100_003, `${paragraphs[1]!}\n\n${paragraphs[0]!}`),
+  ];
+  const last = (version: number, status: string) =>
+    calls("held-run-b", 100_004, version, status, [["Read retry.ts", "read"]]);
+  const draw = (rows: AcpmuxRow[]) => nextFrame(() => show({ rows: [...base, prompt, ...rows], working: true }));
+  const step = (name: string) => {
+    phase = name;
+    eventAt = performance.now();
+  };
+  // fixed-wait: the frames before the turn are sampled as its rest
+  await wait(100);
+  step("prompt");
+  show({ rows: [...base, prompt], working: true, card: CARD_EMPTY });
+  // fixed-wait: the scripted turn is a socket's events on its own clock; the frames sampled are the measurement
+  await wait(300);
+  step("work");
+  draw(settled);
+  // fixed-wait: every motion of the rows that came ends before the next event
+  await wait(ARRIVAL_QUIET_MS);
+  step("begin");
+  draw([...settled, last(1, "in_progress")]);
+  // fixed-wait: the view rests before the call lands, as an arrival turn's does
+  await wait(ARRIVAL_QUIET_MS);
+  step("land");
+  draw([...settled, last(2, "completed")]);
+  // fixed-wait: the reader's wheel lands 16 ms into the chase, as chat-scroll-back-still's does
+  await wait(16);
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  const live = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${LIVE_THINKING}"]`);
+  const end = scroller.getBoundingClientRect().bottom;
+  const px = Math.max(60, Math.ceil(end - (live?.getBoundingClientRect().bottom ?? end)) + HELD_FOOT_UNDER_PX);
+  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -px, deltaMode: 0, bubbles: true, cancelable: true }));
+  scroller.scrollTop -= px;
+  wheeledAt = performance.now();
+  step("wheel");
+  // fixed-wait: the reader reads for a moment before they click
+  await wait(300);
+  step("click");
+  const view = scroller.getBoundingClientRect();
+  // The topmost closed run line that the reader sees whole.
+  const closed = [...document.querySelectorAll<HTMLElement>(".acpmux-row button[data-tool-run]")]
+    .filter((each) => each.getAttribute("aria-expanded") === "false" && each.getBoundingClientRect().top >= view.top)
+    .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+  const line = closed[0];
+  const box = line?.getBoundingClientRect();
+  const out: HeldFold = {
+    samples,
+    px,
+    wheeledAt,
+    clickedAt: performance.now(),
+    ...(line &&
+      box && {
+        line: { text: (line.textContent ?? "").trim(), top: box.top, bottom: box.bottom, closed: true, opened: false },
+      }),
+    view: {
+      top: view.top,
+      bottom: view.bottom,
+      composer: document.querySelector<HTMLElement>(".acpmux-composer-box")?.getBoundingClientRect().top ?? 0,
+    },
+    rows: [...scroller.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]")]
+      .map((row) => ({ row, at: row.getBoundingClientRect() }))
+      .sort((a, b) => a.at.top - b.at.top)
+      .slice(-8)
+      .map(
+        ({ row, at }) =>
+          `${row.dataset.rowId} top ${at.top.toFixed(1)} height ${at.height.toFixed(1)} "${(row.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 32)}"`,
+      ),
+  };
+  if (line) clickLine(line);
+  // fixed-wait: the fold plays and the rows rest; the frames sampled are the measurement
+  await wait(settleMs);
+  step("after");
+  // fixed-wait: the rest after the fold is sampled
+  await wait(150);
+  sampling = false;
+  if (out.line && line) out.line.opened = line.isConnected && line.getAttribute("aria-expanded") === "true";
+  return out;
+}
+
+(window as unknown as { __sendStream: { run: typeof run; heldFold: typeof heldFold } }).__sendStream = {
+  run,
+  heldFold,
+};
