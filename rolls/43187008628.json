@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43187008628",
+  "recorded_at": "2026-11-12T09:02:08Z",
+  "reason": "cmux-tui 9dc6d10f0e15 changes the image's cmux-tui (pinned 82c74d1cbb4a)",
+  "dry_run": false,
+  "cmux_tui": "9dc6d10f0e15393120e1e9a56882cde1121a9d87",
+  "fixes": [
+    {
+      "sha": "9dc6d10f0e15393120e1e9a56882cde1121a9d87",
+      "mergedAt": "2026-11-12T02:42:16-06:00",
+      "subject": "acpmux: a withdraw waits for its retraction notice's own accept, never a fixed 5 s"
+    },
+    {
+      "sha": "695d784994c5e04fbf16bf3d6a90a36135f29530",
+      "mergedAt": "2026-11-12T02:42:16-06:00",
+      "subject": "acpmux: test that a withdraw never reports failure for a notice still on its way"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T09:02:08Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
