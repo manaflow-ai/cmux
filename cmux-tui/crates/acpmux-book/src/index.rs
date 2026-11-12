@@ -48,8 +48,7 @@ pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
 const MAX_FIELD_BYTES: usize = 256;
 
 fn empty_object() -> Box<RawValue> {
-    // SAFETY: the literal is a complete JSON object and cannot change at runtime.
-    unsafe { RawValue::from_string_unchecked("{}".to_owned()) }
+    RawValue::from_string("{}".to_owned()).unwrap_or_else(|_| RawValue::NULL.to_owned())
 }
 
 impl Clone for Summary {
@@ -127,10 +126,10 @@ impl Summary {
             if self.encoded_len() > MAX_SUMMARY_BYTES {
                 shrink!(self.state);
             }
-            if self.encoded_len() > MAX_SUMMARY_BYTES {
-                if let Some(value) = self.workspace.as_mut() {
-                    shrink!(*value);
-                }
+            if self.encoded_len() > MAX_SUMMARY_BYTES
+                && let Some(value) = self.workspace.as_mut()
+            {
+                shrink!(*value);
             }
             if self.encoded_len() > MAX_SUMMARY_BYTES {
                 shrink!(self.origin);
@@ -154,7 +153,7 @@ fn truncate_utf8(value: &str, max: usize) -> String {
     while end > 0 && !value.is_char_boundary(end) {
         end -= 1;
     }
-    value[..end].to_owned()
+    value.get(..end).unwrap_or_default().to_owned()
 }
 
 /// An index-log record. The sequence is monotonic for this index and is the
@@ -351,7 +350,7 @@ impl IndexLog {
         if offset < bytes.len() {
             let file = OpenOptions::new().write(true).open(&path)?;
             file.set_len(offset as u64)?;
-        } else if offset > 0 && !bytes[..offset].ends_with(b"\n") {
+        } else if offset > 0 && bytes.get(..offset).is_some_and(|head| !head.ends_with(b"\n")) {
             let mut file = OpenOptions::new().append(true).open(&path)?;
             file.write_all(b"\n")?;
             offset += 1;
@@ -545,10 +544,10 @@ impl SortedSnapshot {
         writer.flush()?;
         writer.get_ref().sync_all()?;
         fs::rename(&temp, path)?;
-        if let Some(parent) = path.parent() {
-            if let Ok(dir) = File::open(parent) {
-                dir.sync_all()?;
-            }
+        if let Some(parent) = path.parent()
+            && let Ok(dir) = File::open(parent)
+        {
+            dir.sync_all()?;
         }
         Ok(())
     }

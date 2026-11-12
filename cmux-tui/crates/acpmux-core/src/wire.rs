@@ -426,7 +426,11 @@ impl FrameDecoder {
             if self.bytes.len().saturating_sub(self.head) < expected {
                 break;
             }
-            let body = self.bytes[self.head..self.head + expected].to_vec();
+            let body = self
+                .bytes
+                .get(self.head..self.head + expected)
+                .ok_or(FrameError::Truncated)?
+                .to_vec();
             self.head += expected;
             self.expected = None;
             let (kind, payload) = body.split_first().ok_or(FrameError::Truncated)?;
