@@ -25,8 +25,9 @@ public nonisolated struct TypeAheadWait: Equatable, Sendable {
     /// - Parameters:
     ///   - settled: The focus that settled.
     ///   - settledPage: The type-ahead surface of the page `settled` names, if any.
-    /// - Returns: False when focus moved off the page: the queue is dropped.
+    /// - Returns: False when focus moved off the page: the queue is dropped. The same page in the same pane under
+    ///   another tab id (a new tab's provisional id became its store id while the keys waited) keeps them.
     public func survives(_ settled: FocusState.Resolved, page settledPage: String?) -> Bool {
-        settled == focus
+        settled == focus || (settled.pane == focus.pane && settledPage == page)
     }
 }
