@@ -251,7 +251,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// frames, never most of the way in one.
   // In Chromium and in WebKit, the app's own engine (where the thread slide this replaced jumped).
   for (const engineName of ["chromium", "webkit"] as const)
-    test(`at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
+    test(`inline run at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
       let engine = browser!;
       if (engineName === "webkit") {
         try {
@@ -263,7 +263,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         }
         await warmGalleryFrame(vite!, ENTRY, { browser: engine, params: { variant: VARIANT } });
       }
-      const page = await open(VARIANT, GROUP, engine);
+      // This oracle measures the transcript's full inline expansion; boxed runs own their scroll.
+      const page = await open(VARIANT, GROUP, engine, { "run-scroll": "inline" });
       await page.locator(".acpmux-scroll").evaluate((node, selector) => {
         node.querySelector<HTMLElement>(selector)!.dataset.glideProbe = "true";
         node.scrollTop = node.scrollHeight;
