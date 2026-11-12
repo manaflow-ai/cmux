@@ -41,11 +41,13 @@ Two gaps in ModuleFinder are filled here, both in _Finder below:
     script catches the ImportError. An import inside a `try:` body whose handlers catch what a missing
     module raises (ModuleNotFoundError: ImportError, ModuleNotFoundError, a bare `except:`,
     `except Exception`/`BaseException`) is removed from the source before compiling, in both runs,
-    since the script runs without it. One rule (_catches) decides every guard here.
+    since the script runs without it. One rule (_catches) decides every guard here. A def or lambda
+    body inside such a `try:` is not guarded by it: the body runs when called, maybe outside the try.
   - An import by a literal name (__import__('x') under any of its spellings, importlib.import_module
     or importlib.__import__ with one string argument naming an absolute module) is the import
     statement `import x`: compiled in as one, so a stdlib name is static and a repo module joins the
-    closure, guarded or not by the same rule.
+    closure, guarded or not by the same rule. Only while the name called is still the import function:
+    rebound, shadowed or patched anywhere in the module (_unproven_imports), the call stays dynamic.
 
 Dynamic imports fail closed. A sys.path change, importlib.import_module, importlib.__import__,
 importlib.util.spec_from_file_location, runpy or __import__ (of a computed name: a literal one is an
@@ -232,11 +234,75 @@ def _catches(handlers: list[ast.ExceptHandler], errors: tuple[str, ...]) -> bool
 IMPORT_BY_NAME = {"__import__", "builtins.__import__", "__builtins__.__import__", "importlib.import_module", "importlib.__import__"}
 
 
-def _literal_import(node: ast.AST, aliases: dict[str, str]) -> str | None:
-    """The module a call imports by a literal name, as `import NAME` would, or None."""
+# Attribute names under which a module's import function can be replaced (setattr, mock.patch.object...).
+_IMPORT_ATTRS = {name.rsplit(".", 1)[-1] for name in IMPORT_BY_NAME}
+# Names that call the one builtin: replacing any of them replaces what each of them calls.
+_BUILTIN_IMPORT = {"__import__", "builtins.__import__", "__builtins__.__import__"}
+
+
+def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset[str], frozenset[str]]:
+    """What in this module may no longer be the import function an IMPORT_BY_NAME name says: (local names bound
+    other than by the import statements _aliases read, IMPORT_BY_NAME names replaced). A call through either is no
+    proven import by literal name (_literal_import), so it stays a dynamic call.
+
+    A local name is unproven when anything else binds it anywhere in the module (an assignment, def, class,
+    parameter, loop/with/except/match target, del), or when imports bind it to two different things. An import name
+    is replaced by an assignment or del of it (`importlib.import_module = f`, `builtins.__import__ = hook`, the last
+    replacing every spelling of the builtin), or by any call that names it as a string (`setattr(importlib,
+    "import_module", f)`, `mock.patch("importlib.import_module")`, `monkeypatch.setattr(b, "__import__", f)`)."""
+    roots: set[str] = set()
+    imported: dict[str, set[str]] = {}
+    replaced: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                local = alias.asname or alias.name.split(".", 1)[0]
+                imported.setdefault(local, set()).add(alias.name if alias.asname else local)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                local = alias.asname or alias.name
+                imported.setdefault(local, set()).add(f"{'.' * node.level}{node.module or ''}.{alias.name}")
+        elif isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+            roots.add(node.id)
+        elif isinstance(node, ast.arg):
+            roots.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            roots.add(node.name)
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+            roots.add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            roots.add(node.rest)
+        elif isinstance(node, ast.Attribute) and not isinstance(node.ctx, ast.Load):
+            name = _dotted(node, aliases)
+            if name in IMPORT_BY_NAME:
+                replaced.add(name)
+        elif isinstance(node, ast.Call):
+            for arg in [*node.args, *(k.value for k in node.keywords)]:
+                if isinstance(arg, ast.Constant) and type(arg.value) is str:
+                    if arg.value in IMPORT_BY_NAME:
+                        replaced.add(arg.value)
+                    elif arg.value in _IMPORT_ATTRS and len(node.args) >= 2:
+                        replaced.update(IMPORT_BY_NAME)  # an attribute of some object: whose, this cannot tell
+    roots.update(name for name, targets in imported.items() if len(targets) > 1)
+    if replaced & _BUILTIN_IMPORT:
+        replaced |= _BUILTIN_IMPORT
+    return frozenset(roots), frozenset(replaced)
+
+
+def _literal_import(
+    node: ast.AST, aliases: dict[str, str], unproven: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
+) -> str | None:
+    """The module a call imports by a literal name, as `import NAME` would, or None. `unproven` is
+    _unproven_imports of the module: a call through a rebound name or a replaced import function is no import."""
     if not isinstance(node, ast.Call) or node.keywords or len(node.args) != 1:
         return None
-    if _dotted(node.func, aliases) not in IMPORT_BY_NAME:
+    name = _dotted(node.func, aliases)
+    if name not in IMPORT_BY_NAME or name in unproven[1]:
+        return None
+    root = node.func
+    while isinstance(root, ast.Attribute):
+        root = root.value
+    if isinstance(root, ast.Name) and root.id in unproven[0]:
         return None
     arg = node.args[0]
     if not (isinstance(arg, ast.Constant) and type(arg.value) is str):
@@ -249,15 +315,54 @@ def _literal_import(node: ast.AST, aliases: dict[str, str]) -> str | None:
 
 class _DropOptionalImports(ast.NodeTransformer):
     """Replace each import inside a `try:` body that catches a missing module (_catches) with `pass`,
-    and collect the names imports by literal name make outside such a body (_literal_import)."""
+    and collect the names imports by literal name make outside such a body (_literal_import). A def or
+    lambda body runs when called, maybe outside the try, so the guard stops at it (as in _guarded_nodes):
+    only what runs at def time (decorators, defaults, annotations) stays guarded."""
 
-    def __init__(self, aliases: dict[str, str] | None = None) -> None:
+    def __init__(self, aliases: dict[str, str] | None = None, unproven=(frozenset(), frozenset())) -> None:
         self.guarded = 0
         self.aliases = aliases or {}
+        self.unproven = unproven
         self.literal: list[str] = []
 
+    def _unguarded_body(self, node: ast.AST, body_fields: tuple[str, ...]) -> ast.AST:
+        for field, value in ast.iter_fields(node):
+            if field in body_fields:
+                continue
+            setattr(node, field, self._visit_field(value))
+        guarded, self.guarded = self.guarded, 0
+        try:
+            for field in body_fields:
+                setattr(node, field, self._visit_field(getattr(node, field)))
+        finally:
+            self.guarded = guarded
+        return node
+
+    def _visit_field(self, value):
+        if isinstance(value, list):
+            out = []
+            for item in value:
+                if isinstance(item, ast.AST):
+                    item = self.visit(item)
+                    if item is None:
+                        continue
+                    if isinstance(item, list):
+                        out.extend(item)
+                        continue
+                out.append(item)
+            return out
+        return self.visit(value) if isinstance(value, ast.AST) else value
+
+    def visit_FunctionDef(self, node: ast.AST) -> ast.AST:
+        return self._unguarded_body(node, ("body",))
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+
+    def visit_Lambda(self, node: ast.Lambda) -> ast.AST:
+        return self._unguarded_body(node, ("body",))
+
     def visit_Call(self, node: ast.Call) -> ast.AST:
-        name = _literal_import(node, self.aliases)
+        name = _literal_import(node, self.aliases, self.unproven)
         if name is not None and not self.guarded:
             self.literal.append(name)
         self.generic_visit(node)
@@ -287,7 +392,8 @@ def _code(source: bytes):
     """(the module's code with optional imports removed, None) or (None, why it does not parse)."""
     try:
         tree = ast.parse(source)
-        drop = _DropOptionalImports(_aliases(tree))
+        aliases = _aliases(tree)
+        drop = _DropOptionalImports(aliases, _unproven_imports(tree, aliases))
         tree = drop.visit(tree)
         if drop.literal:
             # Each import by a literal name, as the import statement it is (ModuleFinder scans the
@@ -816,6 +922,7 @@ def _dynamic_calls(root: Path, rel: str, cwd: str | None):
     except (OSError, SyntaxError, ValueError):
         return (), (), ()
     aliases = _aliases(tree)
+    unproven = _unproven_imports(tree, aliases)
     scopes = _scope_bindings(tree)
     guarded = _guarded_nodes(tree, LOAD_RAISES)
     # A load is optional only if nothing in this file reads a loaded file outside such a guard.
@@ -852,7 +959,7 @@ def _dynamic_calls(root: Path, rel: str, cwd: str | None):
                     unresolved.append((SYS_PATH_ASSIGNMENT, node.lineno, _call_text(node)))
             continue
         name = _dotted(node.func, aliases)
-        if name not in DYNAMIC_CALLS or _literal_import(node, aliases) is not None:
+        if name not in DYNAMIC_CALLS or _literal_import(node, aliases, unproven) is not None:
             continue  # an import by literal name is an import statement (_code compiles it in)
         args = node.args
         if not node.keywords and not any(isinstance(a, ast.Starred) for a in args):
