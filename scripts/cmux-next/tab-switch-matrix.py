@@ -25,6 +25,7 @@ import argparse, glob, json, os, re, signal, socket, statistics, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import classify, usage  # noqa: E402
 from bench_launch import launch_app, bundle_id  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--matrix", action="store_true", help="(accepted for the tab-switch-stages.py entry)")
@@ -276,7 +277,7 @@ def time_switches(label, step, count, profile=None):
         try:
             profiled = profile_summary(profile, label)
         except Exception as error:  # a failed export must not lose the timings
-            print(f"profile export failed: {error!r}", flush=True)
+            safe_print(f"profile export failed: {error!r}", flush=True)
     cpu = sum(100.0 * (usage(p)[0] - start[p][0]) / (wall * 1e9) for p in kinds if start.get(p) and usage(p))
     own = rpc("debug.tab_switch", {"action": "stop"}) or {}
     rpc("debug.frames", {"action": "stop"})
@@ -298,17 +299,17 @@ def time_switches(label, step, count, profile=None):
         line["late_max"] = max(late) if late else 0
         table[kind] = line
         cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p95']}" for st in ("input", "apply", "commit", "e2e") if st in line)
-        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
+        safe_print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
     stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms")}
     for record in (hangs.get("records") or [])[-3:]:
         frames = [f for f in record.get("frames", []) if "CmuxNext" in f or "Ghostty" in f][:8]
-        print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)
+        safe_print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)
     frames = content_frames(PAGE_TABS, sends) if PAGE_TABS else []
     got = [f for f in frames if f is not None]
     content = None
     if frames:
         content = {"switches": len(frames), "framed": len(got), "p50": pct(got, 0.5), "p90": pct(got, 0.9), "p95": pct(got, 0.95), "max": max(got) if got else None}
-        print(f"  {label:<14} page content frame: {content}", flush=True)
+        safe_print(f"  {label:<14} page content frame: {content}", flush=True)
     return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1), "content_frame_ms": content,
             "timed": len(switches), "asked": count, "profile": profiled}
 

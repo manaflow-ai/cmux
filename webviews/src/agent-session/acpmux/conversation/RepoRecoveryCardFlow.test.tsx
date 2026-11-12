@@ -9,6 +9,7 @@ import { JSDOM } from "jsdom";
 import { translate } from "../i18n";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import type { RepoRecovery } from "./repoRecoveryCardModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -39,6 +40,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   opened.length = 0;

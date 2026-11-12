@@ -131,16 +131,109 @@ NESTABLE = (
     "bash --rcfile /dev/null -c 'c1; c2'",
     "bash --init-file /dev/null -c c1",
     "bash --norc -c c1",
+    # A Codex review of cmux#41745 (F1): bash ends a $'...' string's value at its first NUL, however it is written
+    # (\0, \x00, \u0000, \U00000000, \400, \c@, \c followed by a space), and keeps the word's text after the string;
+    # a \U value past 0x7FFFFFFF adds nothing. An argument, a -c string, a trap's action and a command's name are each
+    # cut there, so the tree reads what bash runs, not the bytes after the NUL.
+    "eval $'\\0; c1'",
+    "eval $'c1\\0c2'",
+    "eval $'c1\\x00; c2'",
+    "eval $'c1\\u0000; c2'",
+    "eval $'c1\\U00000000; c2'",
+    "eval $'c1\\400; c2'",
+    "eval $'c1\\c@; c2'",
+    "eval $'c1\\c ; c2'",
+    "eval $'c\\UFFFFFFFF1'",
+    "eval $'c\\U800000001'",
+    "eval $'c1\\0;' c2",
+    "eval $'\\0' c1",
+    "eval $'c1\\0x'\";c2\"",
+    "bash -c $'c1\\0; c2'",
+    "trap $'c1\\0; c2' EXIT",
+    "$'c1\\0x'",
+    "$'c1'",
+    "env $'c1\\0x' a",
+    # No NUL: each decodes to a command name, which the tree read from the undecoded text before (a name in an eval
+    # string came from parse()'s text, so $'\x63' there stayed x63); then rows that must keep parsing as they did.
+    "eval $'\\x631'",
+    "eval $'c\\061'",
+    "eval $'c\\u0031'",
+    "eval $'c\\U00000031'",
+    "eval $'c1\\x200'",
+    "eval $'c1\\cAx; c2'",
+    "eval $'c\\U7FFFFFFF; c1'",
+    # A Codex review of cmux#41781 (F1): a backslash that ends the text an eval, a -c string or a trap action runs
+    # (nothing after it: the text's end, or a NUL in a $'...' string) has no character to escape, and bash keeps it:
+    # `c1\` is a command named c1\, never c1. Then the rows that must keep running c1: the backslash in an argument,
+    # after the last command, escaped (\\), or before a newline in the text (a line continuation).
+    "eval $'c1\\\\\\0'",
+    "bash -c $'c1\\\\\\0'",
+    "trap $'c1\\\\\\0' EXIT",
+    "eval 'c1\\'",
+    "bash -c 'c1\\'",
+    "trap 'c1\\' EXIT",
+    "eval 'c2; c1\\'",
+    "eval c1\\\\",
+    "eval 'c1 a\\'",
+    "eval 'c1 \\'",
+    "eval c1 '\\'",
+    "eval 'c1; c2\\'",
+    "eval 'c1 a\\\\\\'",
+    "eval $'c1\\\\\\n'",
+    "bash -c 'c1 a\\'",
+    "trap 'c1 \\' EXIT",
+    # A security review of upstream #4620 (F1): after --, the next word is an operand whatever it starts with, so
+    # trap -- '-x; c1' EXIT runs c1; and the same rule for each reader of options then a script: eval, a shell's -c
+    # (where a lone - ends the options as -- does, and a lone + is an empty group), trap, and every wrapper read
+    # through (command, builtin, env, nice, nohup, timeout, stdbuf, time). Then the words bash refuses as options
+    # before any --, which run nothing: eval '-x; c1', trap -x c1 EXIT, trap -p -- c1 EXIT.
+    "trap -- '-x; c1' EXIT",
+    "trap -- '--; c1' EXIT",
+    "trap -x c1 EXIT; c2",
+    "trap -p -- c1 EXIT; c2",
+    "eval -- '-x; c1'",
+    "eval -- '--; c1'",
+    "eval '-x; c1'; c2",
+    "eval - '; c1'",
+    "bash -c -- '-x; c1'",
+    "sh -c -- '-x; c1'",
+    "bash -c - '-x; c1'",
+    "sh -c - 'c1'",
+    "bash -ce - c1",
+    "bash -c + 'c1'",
+    "sh -c + 'c1'",
+    "bash -c '-x; c1'; c2",
+    "command -- eval -- '-x; c1'",
+    "command trap -- '-x; c1' EXIT",
+    "builtin -- trap -- '-x; c1' EXIT",
+    "builtin eval -- '-x; c1'",
+    "env -- bash -c -- '-x; c1'",
+    "nice -- sh -c - 'c1'",
+    "nohup -- c1",
+    "timeout -- 5 c1",
+    "stdbuf -oL -- c1",
+    "time -- c1",
+    "time -p -- c1",
 )
 WHOLE = (
     "exec c1",
     "c0; exec c1",
     "setsid -w c1",
+    "setsid -w -- c1",
+    "exec -- bash -c -- '-x; c1'",
     "cat <<EOF\n$(c1)\nEOF",
     "cat <<EOF | c2\n$(c1)\nEOF",
     "c1 <<'EOF'\n$(c2)\nEOF",
     "c1 \\\n  a; c2",
     "c1\nc2",
+    # \c takes both backslashes of a \\ after it, so the 0 that follows is text, never a \0 (cmux#41745 F1).
+    "eval $'c1\\c\\\\0; c2'",
+    "eval $'c1\\c'; c2",
+    # A backtick substitution's body is text bash parses as a script of its own (cmux#41781 F1's sweep): a backslash
+    # that ends it, once \\ is unescaped, has nothing to escape either.
+    "y=`c1\\\\`",
+    "y=`c2; c1\\\\`",
+    "y=`c1 a\\\\`",
 )
 
 

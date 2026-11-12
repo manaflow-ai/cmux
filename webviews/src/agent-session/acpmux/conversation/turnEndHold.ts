@@ -8,10 +8,13 @@
 // gone, the view anchored on a row further down, and the chat jumped. Rows the reader has in view
 // therefore keep their open state while the reader is scrolled up: each fold an update would close
 // over one of them stays open, as if the reader had opened it, and closes only when they close it.
+// The one exception is the turn's own "Worked for": it always closes at the turn's end (Lucas,
+// 2026-11-11), as the Codex app's does.
 import { isLineRow, MESSAGE_RUN, type AcpmuxRow } from "../model";
 import { messageRunRowId } from "./messageRuns";
 import { isRunning } from "./toolGroups";
-import { hiddenRowFolds } from "./turns";
+import { hiddenRowFolds, WORKED } from "./turns";
+import { opensTurn } from "../turnStart";
 import type { Folds } from "./viewFolds";
 
 /// The folds to open so every row in `inView` that `rows` holds stays drawn in `drawn`, the view
@@ -45,7 +48,12 @@ export function foldsToHold(
     // the first click (cmux#33300).
     const ownRun = messageRunRowId(row.id);
     const runKey = openRunKeyOf(before, row.id);
-    for (const key of hiddenRowFolds(rows, drawn, index)) {
+    const keys = hiddenRowFolds(rows, drawn, index);
+    // A turn's "Worked for" always closes when the turn ends, in view or not (Lucas, 2026-11-11:
+    // "the Worked for should ALWAYS collapse when the turn has ended", as Codex). A row it hides holds
+    // nothing then: a message run held open under it would show open the next time Worked opens.
+    if (keys.some((key) => key.startsWith(`${WORKED}-`))) continue;
+    for (const key of keys) {
       const hold = key === ownRun && runKey !== undefined ? runKey : key;
       if (!folds.has(hold)) held.add(hold);
     }
@@ -140,6 +148,24 @@ export function withoutHeldCalls(rows: readonly AcpmuxRow[], held: ReadonlySet<s
     if (next) out.push(next);
   }
   return out ?? rows;
+}
+
+/// The "Worked for" keys the chat's last turn can have: one per prompt of the turn (its opener and
+/// each steer that continues it, turns.ts `${WORKED}-<row id>`). The pane drops them from its open
+/// folds when that turn ends, so the turn's Worked for is always closed at its end, whatever opened it
+/// (Lucas, 2026-11-11: "the Worked for should ALWAYS collapse when the turn has ended"). Walks back
+/// from the end to the turn's opener only: never the whole chat.
+export function lastTurnWorkedKeys(rows: readonly AcpmuxRow[]): string[] {
+  const keys: string[] = [];
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind !== "user") continue;
+    keys.push(`${WORKED}-${row.id}`);
+    // A steer not sent (pending, failed) also opens a turn by itself, but not this one: walk past it
+    // to the prompt that opened the turn, as turns.ts `turnFoldFor` does.
+    if (opensTurn(row) && !row.pending && !row.failed) break;
+  }
+  return keys;
 }
 
 // A running turn draws its replies and one live line, and no finished run of the stretch still

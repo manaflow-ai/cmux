@@ -114,6 +114,7 @@ extension AgentPaneView {
         model.onQuestionKeySessionChange = { [weak self] in
             self?.refreshQuestionKeyBinding()
             self?.refreshOtherInstallNotice()
+            self?.shownPushes.onSessionChange?() // the new chat's owed work (AgentPaneOwedWork)
         }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }

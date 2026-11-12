@@ -76,7 +76,7 @@ import Testing
         let band = TitlebarToolbarBand(frame: .zero)
         band.describeToggle(title: "Toggle Left Sidebar", shortcut: nil)
         band.describeHistory(back: "Go Back", forward: "Go Forward")
-        let host = window(band, size: NSSize(width: TitlebarToolbarBand.width, height: 32))
+        let host = window(band, size: NSSize(width: band.slots.width, height: 32))
         defer { host.close() }
         expectClean(band, "titlebar band")
         let ids = audit.identifiers(under: band)
