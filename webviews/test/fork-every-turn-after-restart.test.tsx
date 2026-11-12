@@ -15,7 +15,12 @@ import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
-import { forksAnyTurn, latestForkSeq, messageMenuTarget } from "../src/agent-session/acpmux/conversation/messageMenu";
+import {
+  forksAnyTurn,
+  latestForkSeq,
+  messageMenuTarget,
+  resetKnownForksAnyTurnForTests,
+} from "../src/agent-session/acpmux/conversation/messageMenu";
 import { promptTurns, trackEditableTurns } from "../src/agent-session/acpmux/conversation/editPrompt";
 import { TurnActionsContext, type TurnActions } from "../src/agent-session/acpmux/conversation/turnActions";
 import { UserBubble } from "../src/agent-session/acpmux/conversation/UserBubble";
@@ -55,6 +60,7 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  resetKnownForksAnyTurnForTests();
   for (const client of live) client.close();
   live = [];
   if (root) await act(async () => root!.unmount());
@@ -226,4 +232,18 @@ test("an agent that forks only from its end keeps Fork on earlier messages, sayi
 test("an older acpmux that does not say is read by the chat's family", async () => {
   expect(forksAnyTurn(await reload({ harness: "claude", family: "claude" }))).toBe(true);
   expect(forksAnyTurn(await reload({ harness: "claude-sr2", family: "claude-sr2" }))).toBe(false);
+});
+
+test("a row acpmux built during a config write (no forksAnyTurn) keeps the chat's last answer", () => {
+  const snapshot = (forks: boolean | undefined) =>
+    ({
+      sessionId: "contended-chat",
+      summary: { sessionId: "contended-chat", family: "claude-sr2" },
+      sessions: [{ sessionId: "contended-chat", ...(forks !== undefined && { forksAnyTurn: forks }) }],
+    }) as unknown as AcpmuxSnapshot;
+  expect(forksAnyTurn(snapshot(true))).toBe(true);
+  // The next summary left it out: unknown, not false, so Fork and Edit stay on every message.
+  expect(forksAnyTurn(snapshot(undefined))).toBe(true);
+  // A known answer replaces it.
+  expect(forksAnyTurn(snapshot(false))).toBe(false);
 });

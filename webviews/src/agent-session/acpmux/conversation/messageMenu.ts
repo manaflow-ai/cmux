@@ -103,10 +103,22 @@ export function forkToTarget(snapshot: AcpmuxSnapshot): { live: true } | { throu
 /// acpmux says so per chat (`forksAnyTurn` on its session row: the harness cuts a conversation at a
 /// turn, by kind), so a Claude Code profile under its own family name (`claude-sr2`) forks every turn
 /// too; only an older acpmux that does not say is read by family.
+/// A row without the field is unknown (acpmux built it while its configuration was being written,
+/// or it is older): the chat's last known answer stands, else the family's, never a false.
 export function forksAnyTurn(snapshot: Pick<AcpmuxSnapshot, "summary" | "sessions" | "sessionId">): boolean {
   const id = snapshot.summary?.sessionId ?? snapshot.sessionId;
   const listed = id ? findSession(snapshot.sessions ?? [], id)?.forksAnyTurn : undefined;
-  return listed ?? familyForksAnyTurn(snapshot.summary?.family);
+  if (id && listed !== undefined) knownForksAnyTurn.set(id, listed);
+  return listed ?? (id ? knownForksAnyTurn.get(id) : undefined) ?? familyForksAnyTurn(snapshot.summary?.family);
+}
+
+/// Each chat's last `forksAnyTurn` acpmux gave, for a later row that leaves it out. A boolean per
+/// chat opened in this page.
+const knownForksAnyTurn = new Map<string, boolean>();
+
+/// Tests: forget every remembered answer.
+export function resetKnownForksAnyTurnForTests(): void {
+  knownForksAnyTurn.clear();
 }
 
 /// An older acpmux's answer: only the `claude` and `codex` families fork through any turn.
