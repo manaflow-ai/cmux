@@ -61,6 +61,7 @@ enum SidebarDensityTokens {
     /// line, not Minimal Mode's shorter row) and the title font, so a text size or type scale change follows. At
     /// Default (``matchesCodex``) it is Codex's `--padding-row-x`, 8 pt, on both sides (#39984).
     static var contentInset: CGFloat {
+        if let inset = SidebarIconTokens.current.inset { return inset }
         if matchesCodex { return Metrics.space4 }
         let row = Metrics.sidebarRowHeight + (isComfortable ? Metrics.space2 : 0) + textSize.rowStep
         return ((row - SidebarStyle.titleFont.capHeight) / 2 * 2).rounded() / 2

@@ -3,6 +3,7 @@ import Foundation
 import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 
 /// Binds the density actions (DensityActionCatalog) to one ``DensityController``: each built-in's
 /// palette row ("Density: Compact", checked and marked current while in use), Set Density and New
@@ -27,6 +28,10 @@ enum DensityHandlers {
             let size = invocation["fontSize"]?.stringValue.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }
             try controller.create(name: invocation["name"]?.stringValue ?? "", basedOn: invocation["basedOn"]?.stringValue, fontSize: size)
         })
+        let lab = DensityLabWindowController(hooks: DensityLabHooks(
+            targetWindow: { context.services.windows.active?.window },
+            saveCustom: { densities, id in controller.saveCustom(densities, use: id) }))
+        registry.bindEffect("debug.densityLab", effect: { _ in lab.show(); return .done })
         let others = registry.argumentSuggestions
         registry.argumentSuggestions = { source in
             source == ActionSuggestions.densities ? controller.choices() : others?(source) ?? []

@@ -470,9 +470,11 @@ class SidebarItemRowView: NSView {
         }
         guard let image = pin.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: Self.pinGlyph) else {
             let square = CGRect(x: 0, y: 0, width: side, height: side)
-            return NSRect(x: snap(SidebarStyle.bandGlyphX(leading: leading, ink: square)), y: snap((height - side) / 2), width: side, height: side)
+            return NSRect(x: snap(SidebarStyle.bandGlyphX(leading: leading, ink: square)),
+                          y: snap((height - side) / 2 + SidebarStyle.iconYOffset(flipped: isFlipped)), width: side, height: side)
         }
-        return NSRect(x: snap(SidebarStyle.bandGlyphX(leading: leading, ink: ink)), y: snap(height / 2 - ink.midY), width: side, height: side)
+        return NSRect(x: snap(SidebarStyle.bandGlyphX(leading: leading, ink: ink)),
+                      y: snap(height / 2 - ink.midY + SidebarStyle.iconYOffset(flipped: isFlipped)), width: side, height: side)
     }
 
     /// The pin's drawn ink in the row's coordinates; nil without a pin (tests).
@@ -605,7 +607,7 @@ class SidebarItemRowView: NSView {
         let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
         let ink = icon.image.flatMap { SidebarGlyphInk.shared.box(of: $0, glyph: glyphKey) } ?? CGRect(x: 0, y: 0, width: side, height: side)
         let x = SidebarStyle.bandGlyphX(leading: column.minX, ink: ink)
-        return NSRect(x: snap(x), y: snap(column.midY - ink.midY),
+        return NSRect(x: snap(x), y: snap(column.midY - ink.midY + SidebarStyle.iconYOffset(flipped: isFlipped)),
                       width: side, height: side)
     }
 

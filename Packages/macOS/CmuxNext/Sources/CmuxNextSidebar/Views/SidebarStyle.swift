@@ -74,7 +74,12 @@ enum SidebarStyle {
     /// the left edge text-only titles start on; the `centered` look centers it instead. Home's glyph and the pin take
     /// the same rule (`bandGlyphX`). Callers snap the result to their pixel grid.
     static func iconColumnGlyphX(leading: CGFloat, ink: CGRect) -> CGFloat {
-        leadingColumnLook == .centered ? iconColumnCenterX(leading: leading) - ink.midX : leading - ink.minX
+        (leadingColumnLook == .centered ? iconColumnCenterX(leading: leading) - ink.midX : leading - ink.minX) + SidebarIconTokens.current.x
+    }
+    /// How far a leading glyph moves down (`SidebarIconTokens.y`), as a y delta in a view that is `flipped` or not.
+    static func iconYOffset(flipped: Bool) -> CGFloat {
+        let y = SidebarIconTokens.current.y
+        return flipped ? y : -y
     }
     /// The x of a band row's leading glyph (Home's house, another built-in's glyph, a pinned row's pin) drawn with
     /// `ink`, in the icon column whose box starts at `leading`: the workspace rows' rule (`iconColumnGlyphX`), so its
@@ -104,7 +109,10 @@ enum SidebarStyle {
     /// for these workspace icons". Compact keeps its old 16 pt glyph exactly.
     static var workspaceGlyphSide: CGFloat { iconColumnBox }
     /// How much a workspace icon's drawing grows with `workspaceGlyphSide`: 1 at compact.
-    static var workspaceGlyphScale: CGFloat { workspaceGlyphSide / iconBox }
+    static var workspaceGlyphScale: CGFloat {
+        if let size = SidebarIconTokens.current.size { return size / max(kindGlyphSize, 1) }
+        return workspaceGlyphSide / iconBox
+    }
     /// A workspace icon's symbol point size: the title's, grown with its glyph square.
     static var workspaceSymbolPointSize: CGFloat { (titleFont.pointSize * workspaceGlyphScale).rounded() }
     /// A workspace icon's favicon side: the row glyph's, grown with its glyph square.
@@ -114,7 +122,10 @@ enum SidebarStyle {
     /// 2026-11-09, 6:55 PM: "the cmux app icon looks smaller ... GitHub logo and the globe are different sizes"). It
     /// fills the icon column exactly, so the gap from any glyph's ink to its title is the one column gap.
     static var rowGlyphOpticalSide: CGFloat { workspaceFaviconSide }
-    static var rowGlyphOptics: SidebarOpticalGlyph { SidebarOpticalGlyph(target: rowGlyphOpticalSide) }
+    static var rowGlyphOptics: SidebarOpticalGlyph {
+        let icons = SidebarIconTokens.current
+        return SidebarOpticalGlyph(target: rowGlyphOpticalSide, xOffset: icons.x, yOffset: icons.y)
+    }
     /// Reserve the icon column only when a visible icon precedes the title.
     static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
         columns(rowWidth: 0, leadingOffset: leading - titleLeading).text(hasLeadingMark: iconSide > 0)

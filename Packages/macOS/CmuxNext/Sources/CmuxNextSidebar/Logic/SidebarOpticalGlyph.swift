@@ -12,6 +12,10 @@ import CoreGraphics
 nonisolated struct SidebarOpticalGlyph: Equatable, Sendable {
     /// The side of the square every glyph's ink fills along its larger dimension.
     var target: CGFloat
+    /// Moves the ink right (`SidebarIconTokens.x`).
+    var xOffset: CGFloat = 0
+    /// Moves the ink down (`SidebarIconTokens.y`), in either view orientation.
+    var yOffset: CGFloat = 0
 
     /// The image frame that draws an image of `imageSize` points, whose ink is `ink` in its own coordinates, at the
     /// optical size, its ink starting at `leading` and centered on `centerY`. `ink` has a top-left origin
@@ -24,8 +28,8 @@ nonisolated struct SidebarOpticalGlyph: Equatable, Sendable {
         let snap = { (value: CGFloat) in (value * max(1, scale)).rounded() / max(1, scale) }
         // The scale that puts the image's width on the pixel grid, nearest the one that sizes the ink to `target`.
         let k = max(1 / max(1, scale), snap(imageSize.width * target / longest)) / imageSize.width
-        let x = leading - ink.minX * k
-        let y = flipped ? centerY - ink.midY * k : centerY - (imageSize.height - ink.midY) * k
+        let x = leading - ink.minX * k + xOffset
+        let y = (flipped ? centerY - ink.midY * k : centerY - (imageSize.height - ink.midY) * k) + (flipped ? yOffset : -yOffset)
         return CGRect(x: snap(x), y: snap(y), width: imageSize.width * k, height: snap(imageSize.height * k))
     }
 }

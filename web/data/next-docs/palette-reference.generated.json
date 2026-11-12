@@ -7558,6 +7558,12 @@
           "command": null
         },
         {
+          "id": "debug.densityLab",
+          "title": "Density Lab",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "layout.centerFocusedColumn.always",
           "title": "Always Center Focused Column",
           "shortcut": null,

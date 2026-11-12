@@ -73,6 +73,28 @@ final class DensityController {
         return made
     }
 
+    /// Saves `densities` as the custom density list (the Density Lab) and, with `use`, draws the app in that density
+    /// (a custom id selects it; a built-in id clears the custom selection).
+    func saveCustom(_ densities: [DensityTokens], use id: String?) {
+        let listPath = CustomDensitiesSetting.configPath, customPath = CustomDensitySelectionSetting.configPath
+        do {
+            try AppearanceHandlers.requireUnmanaged(listPath, context)
+            try AppearanceHandlers.requireUnmanaged(customPath, context)
+        } catch {
+            notify(error.localizedDescription)
+            return
+        }
+        design.customDensities = densities
+        let list: ([String], JSONValue?) = (listPath, .array(densities.map(CustomDensitiesSetting.json)))
+        if let id, densities.contains(where: { $0.id == id }) {
+            context.writeSettings("density lab", [list, (customPath, .string(id))], reloadOnFailure: true)
+        } else if let id, DensityPreset(rawValue: id) != nil {
+            context.writeSettings("density lab", [list, (customPath, nil), (DensitySetting.configPath, .string(id))], reloadOnFailure: true)
+        } else {
+            context.writeSettings("density lab", [list], reloadOnFailure: true)
+        }
+    }
+
     /// Every density as an argument value: built-ins (localized names), then custom ones.
     func choices() -> [ActionEnumCase] {
         design.availableDensities.map { ActionEnumCase(value: $0.id, title: DensityNames().name($0)) }

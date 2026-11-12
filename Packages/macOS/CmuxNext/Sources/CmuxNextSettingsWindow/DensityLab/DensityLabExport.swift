@@ -1,4 +1,3 @@
-#if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextDesign
 import Foundation
 
@@ -25,4 +24,3 @@ struct DensityLabExport {
         value == value.rounded() ? String(Int(value)) : String(format: "%g", value)
     }
 }
-#endif

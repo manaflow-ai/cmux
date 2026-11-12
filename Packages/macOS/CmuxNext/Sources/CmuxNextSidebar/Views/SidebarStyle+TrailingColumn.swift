@@ -11,11 +11,13 @@ extension SidebarStyle {
     /// 2026-11-09: even on all four sides), and an iconless title starts there (Lawrence 2026-10-23: as far left as the
     /// row allows). The trailing line is `trailingCenterInset` inside the fill, mirroring that inset.
     static func columns(rowWidth: CGFloat, depth: Int = 0, leadingOffset: CGFloat = 0) -> SidebarColumns {
-        SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
-                       depth: depth, leadingOffset: leadingOffset,
-                       leadingInset: LayoutGrid.sidebarLead - contentInset,
-                       trailingCenterInset: trailingCenterInset, minIconBox: iconBox,
-                       minTrailingCenterInset: minTrailingCenterInset)
+        let icons = SidebarIconTokens.current
+        return SidebarColumns(rowWidth: rowWidth, comfortable: SidebarDensityTokens.isComfortable,
+                              depth: depth, leadingOffset: leadingOffset,
+                              leadingInset: LayoutGrid.sidebarLead - contentInset,
+                              trailingCenterInset: trailingCenterInset, minIconBox: iconBox,
+                              minTrailingCenterInset: minTrailingCenterInset,
+                              iconColumn: icons.column, iconGap: icons.gap ?? LayoutGrid.gap)
     }
 
     static var trailingSlotSide: CGFloat { controlSize }

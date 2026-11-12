@@ -63,7 +63,7 @@ public nonisolated struct CustomDensitiesSetting: Sendable {
         if let raw = members["tokens"] {
             guard case .object(let entries) = raw else { return nil }
             for (key, entry) in entries {
-                guard let double = entry.doubleValue, double.isFinite, double >= 0 else { return nil }
+                guard let double = entry.doubleValue, double.isFinite, double >= 0 || DensityTokens.signedTokens.contains(key) else { return nil }
                 tokens[key] = double
             }
         }

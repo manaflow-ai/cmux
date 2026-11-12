@@ -20748,6 +20748,29 @@
     "vi": "Cuộn lên",
     "zh-Hans": "向上滚动",
     "zh-Hant": "向上捲動"
+   },
+   "action.debug.densityLab": {
+    "ar": "مختبر الكثافة",
+    "bs": "Laboratorij gustoće",
+    "da": "Tæthedslaboratorium",
+    "de": "Dichte-Labor",
+    "en": "Density Lab",
+    "es": "Laboratorio de densidad",
+    "fr": "Labo de densité",
+    "it": "Laboratorio di densità",
+    "ja": "密度ラボ",
+    "km": "មន្ទីរពិសោធន៍ដង់ស៊ីតេ",
+    "ko": "밀도 실험실",
+    "nb": "Tetthetslab",
+    "pl": "Laboratorium gęstości",
+    "pt-BR": "Laboratório de densidade",
+    "ru": "Лаборатория плотности",
+    "th": "ห้องทดลองความหนาแน่น",
+    "tr": "Yoğunluk laboratuvarı",
+    "uk": "Лабораторія щільності",
+    "vi": "Phòng thử mật độ",
+    "zh-Hans": "密度实验室",
+    "zh-Hant": "密度實驗室"
    }
   },
   "AgentChatMenu": {

@@ -153,7 +153,7 @@ final class SidebarIconView: NSView {
         let side = min(bounds.width, bounds.height, SidebarStyle.workspaceGlyphSide)
         let square = CGRect(x: 0, y: 0, width: side, height: side)
         let content = CGRect(x: leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: 0, ink: square) : (bounds.width - side) / 2,
-                             y: (bounds.height - side) / 2, width: side, height: side)
+                             y: (bounds.height - side) / 2 + SidebarStyle.iconYOffset(flipped: isFlipped), width: side, height: side)
         imageView.frame = leadsWithInk ? leadingImageFrame(side: side) ?? content : content
         if shownFavicon != nil { layoutFavicon(content: content) }
         emoji.frame = content
@@ -169,7 +169,7 @@ final class SidebarIconView: NSView {
             let dot = SidebarStyle.dotSize
             let x = leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: 0, ink: CGRect(x: 0, y: 0, width: dot, height: dot))
                 : (bounds.width - dot) / 2
-            swatch.frame = CGRect(x: x, y: (bounds.height - dot) / 2, width: dot, height: dot)
+            swatch.frame = CGRect(x: x, y: (bounds.height - dot) / 2 + SidebarStyle.iconYOffset(flipped: isFlipped), width: dot, height: dot)
             swatch.cornerRadius = dot / 2
         }
         CATransaction.commit()

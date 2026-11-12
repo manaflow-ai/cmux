@@ -56,8 +56,11 @@ public nonisolated struct DensityTokens: Sendable, Hashable, Codable, Identifiab
         self.level = level.clamped(to: Self.levelRange)
         self.spacing = spacing.clamped(to: Self.spacingRange)
         self.fontSize = fontSize.map { $0.clamped(to: Self.fontSizeRange) }
-        self.tokens = tokens.filter { $0.value.isFinite && $0.value >= 0 }
+        self.tokens = tokens.filter { $0.value.isFinite && ($0.value >= 0 || Self.signedTokens.contains($0.key)) }
     }
+
+    /// The tokens that may be negative: offsets, not sizes (``SidebarIconTokens``).
+    public static let signedTokens: Set<String> = [SidebarIconTokens.Name.x.rawValue, SidebarIconTokens.Name.y.rawValue]
 
     /// The family code that branches on two densities reads (`Density`): compact below level 0.5.
     public var family: Density { level < 0.5 ? .compact : .comfortable }

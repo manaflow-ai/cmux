@@ -17,10 +17,14 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     /// clearance from the sidebar resize band (#27954). The grid's line already clears it at the default text
     /// size; a larger control slot moves the column in rather than over the resize edge.
     var minTrailingCenterInset: CGFloat = 0
+    /// The density's exact icon column width (`SidebarIconTokens.column`), over the derived one.
+    var iconColumn: CGFloat?
+    /// The gap from the icon column to the title (`SidebarIconTokens.gap`).
+    var iconGap: CGFloat = LayoutGrid.gap
 
-    var iconBox: CGFloat { max(comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox, minIconBox) }
+    var iconBox: CGFloat { iconColumn ?? max(comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox, minIconBox) }
     var lead: CGFloat { LayoutGrid.sidebarLead - leadingInset + CGFloat(max(0, depth)) * LayoutGrid.sidebarDepthIndent + leadingOffset }
-    var text: CGFloat { lead + iconBox + LayoutGrid.gap }
+    var text: CGFloat { lead + iconBox + iconGap }
     /// Only a visible leading icon or pin reserves the icon column. Text-only rows start
     /// at lead, including a group name aligned with its iconless members.
     func text(hasLeadingMark: Bool) -> CGFloat {
