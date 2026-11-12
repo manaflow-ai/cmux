@@ -233,9 +233,10 @@ impl LocalStore {
         self.dir(id).join(COLD_FILE)
     }
 
-    /// The chat's log is in its archive: an archive and no segment.
+    /// The chat's log is in its archive: an archive and no segment. The archive is looked for
+    /// in the held home (`home_fs`), where the settle and the rehydrate act (#41697 review F1).
     pub(super) fn is_cold(&self, id: &str) -> bool {
-        std::fs::symlink_metadata(self.cold_path(id)).is_ok()
+        crate::home_fs::exists_nofollow(self.cold_path(id))
             && self.segment_files(id).is_ok_and(|segments| segments.is_empty())
     }
 
@@ -450,8 +451,10 @@ impl LocalStore {
     /// Refused once the store is sealed: the next daemon may already own the home.
     pub(super) fn rehydrate(&self, id: &str) -> Result<bool> {
         let archive = self.cold_path(id);
-        // The cost to every read of a chat with no segment: one `lstat`.
-        if std::fs::symlink_metadata(&archive).is_err() {
+        // The cost to every read of a chat with no segment: one `*at` walk in the held home.
+        // Read there, not by path (#41697 review F1): a replacement home without the archive
+        // would answer "not archived" while the held home still holds it.
+        if !crate::home_fs::exists_nofollow(&archive) {
             return Ok(false);
         }
         #[cfg(test)]

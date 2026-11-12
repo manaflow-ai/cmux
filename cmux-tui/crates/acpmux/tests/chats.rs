@@ -450,3 +450,42 @@ for line in sys.stdin:
     drop(harness_in);
     let _ = harness.wait();
 }
+
+/// A Codex home is watched by its session folders and its own store files, not whole
+/// (`chats/watch.rs`): a `sessions` folder made after the start, a new rollout in it, a
+/// rollout that grows, and one removed still reach watchers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_codex_home_watched_by_its_folders_sees_rollouts_and_a_folder_made_later() {
+    let h = home("codexfolders");
+    let codex = h.0.join(".codex");
+    std::fs::create_dir_all(&codex).unwrap();
+    std::fs::write(codex.join("config.toml"), "").unwrap();
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    assert!(keys(&snapshot).is_empty(), "{snapshot}");
+
+    // Codex's own files, written as a running Codex writes them: no chat.
+    std::fs::write(codex.join("logs_2.sqlite-wal"), "log").unwrap();
+    let day = codex.join("sessions/2026/11/12");
+    std::fs::create_dir_all(&day).unwrap();
+    let rollout = day.join(format!("rollout-2026-11-12T00-00-00-{A}.jsonl"));
+    let meta = json!({"timestamp": "2026-11-12T00:00:00Z", "type": "session_meta",
+        "payload": {"id": A, "cwd": "/work/app", "timestamp": "2026-11-12T00:00:00Z"}});
+    let asked = |text: &str| {
+        json!({"timestamp": "2026-11-12T00:00:01Z", "type": "event_msg",
+               "payload": {"type": "user_message", "message": text}})
+    };
+    std::fs::write(&rollout, format!("{meta}\n{}\n", asked("a codex chat"))).unwrap();
+    let key = format!("codex:{A}");
+    let added = c.change(&key, |p| p["kind"] == "upsert").await;
+    assert_eq!(added["chat"]["title"], "a codex chat");
+    let count = added["chat"]["messageCount"].as_u64().unwrap();
+
+    append(&rollout, &asked("a second prompt"));
+    c.change(&key, |p| p["chat"]["messageCount"].as_u64().is_some_and(|n| n > count)).await;
+
+    std::fs::remove_file(&rollout).unwrap();
+    c.change(&key, |p| p["kind"] == "removed").await;
+}

@@ -39,16 +39,64 @@ fn open(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
 /// again, one period (30 s) after that change, so the journal keeps the records of the saves
 /// that follow until the test's own flush or kill.
 fn open_after_replay_checkpoint(home: &Path, journal: &SimStorage) -> Box<dyn Store> {
+    open_held_at_idle(home, journal, |idle| {
+        idle.recv_timeout(WAIT)
+            .unwrap_or_else(|e| panic!("the checkpointer never went idle after the open: {e}"));
+    })
+}
+
+/// Opens the store at `home` with its checkpointer held once at idle (holding the timer lock),
+/// runs `wait_idle` on the hold's arrival, then lets the checkpointer go.
+fn open_held_at_idle(
+    home: &Path,
+    journal: &SimStorage,
+    wait_idle: impl FnOnce(&std::sync::mpsc::Receiver<()>),
+) -> Box<dyn Store> {
     let (arrived, idle) = std::sync::mpsc::channel();
     let (release, released) = std::sync::mpsc::channel();
     super::journal_store::checkpointer_seams(home, |seams| {
         seams.idle_hold = Some((arrived, released));
     });
     let store = open(home, journal);
-    idle.recv_timeout(WAIT)
-        .unwrap_or_else(|e| panic!("the checkpointer never went idle after the open: {e}"));
-    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    // After the store: a panic in the wait releases before the unwind drops the store.
+    let release = super::journal_store::Release::new(release);
+    wait_idle(&idle);
+    release.now();
     store
+}
+
+/// Runs `body` on its own thread and returns how it ended (`Err` for a panic), or `None` when it
+/// was still running after `bound`: a hang, reported instead of hanging the test.
+fn ends_within(bound: Duration, body: impl FnOnce() + Send + 'static) -> Option<Result<(), ()>> {
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
+        let _ = done.send(outcome.map_err(|_| ()));
+    });
+    ended.recv_timeout(bound).ok()
+}
+
+/// #41627 F1: a wait for the idle checkpointer that expires just as the checkpointer reaches its
+/// idle hold fails the test; it does not hang it. The checkpointer holds the timer lock in the
+/// hold, and the store's drop takes that lock: a release still owed when the unwind drops the
+/// store left both waiting on each other forever. Here the wait "expires" (panics) right after
+/// the hold arrived, the worst moment.
+#[test]
+fn a_wait_that_expires_at_the_idle_hold_fails_instead_of_hanging() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(103);
+    let path = home.path().to_path_buf();
+    let outcome = ends_within(WAIT * 3, move || {
+        let _store = open_held_at_idle(&path, &journal, |idle| {
+            let _ = idle.recv_timeout(WAIT);
+            panic!("the wait for the idle checkpointer expired");
+        });
+    });
+    assert_eq!(
+        outcome,
+        Some(Err(())),
+        "a wait that expired at the idle hold did not end in a panic (None: it hung)"
+    );
 }
 
 fn meta(id: &str, name: &str, last_seq: u64) -> SessionMeta {
