@@ -190,6 +190,35 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         add(attachment)
     }
 
+    /// A tap scrolls to the bottom (an animated glide, recorded by the run's
+    /// video), lands on the newest line, and hides the pill. Scrolled up
+    /// through a build log, so the glide covers more than a screen.
+    @MainActor
+    func testJumpToBottomGlidesToTheEnd() throws {
+        let app = launch()
+        let field = app.textViews["terminal.composer.field"]
+        field.tap()
+        field.typeText("cargo build")
+        app.buttons["terminal.composer.send"].tap()
+        try waitForStill(app, scale: try scale(app))
+        let atBottom = app.screenshot()
+        let jump = app.buttons["terminal.jumpToBottom"]
+        for _ in 0..<3 {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)),
+                       withVelocity: XCUIGestureVelocity(800), thenHoldForDuration: 0.3)
+        }
+        XCTAssertTrue(jump.waitForExistence(timeout: 3), "scrolled up: the pill shows")
+        attach(app, "glide-start")
+        jump.tap()
+        XCTAssertTrue(jump.waitForNonExistence(timeout: 5), "the pill hides")
+        try waitForStill(app, scale: try scale(app))
+        let landed = app.screenshot()
+        attach(landed, "glide-landed")
+        XCTAssertEqual(try rowShift(from: atBottom, to: landed, scale: try scale(app)), 0, "landed back at the bottom")
+        XCTAssertLessThan(try meanDifference(atBottom, landed), 3, "the same rows as before scrolling up")
+    }
+
     @MainActor
     func testSettingOffRemovesJumpToBottom() throws {
         // Control: with the setting on, the same scroll shows it.
