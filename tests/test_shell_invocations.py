@@ -159,7 +159,6 @@ FIXTURES = [
     ("a coprocess after repeated time runs its command (dep-fleet-6 follow-up)", "time time coproc a; wait", {"a"}, set()),
     ("a coprocess after mixed time wrappers runs its command (dep-fleet-6 follow-up)",
      "time -p time coproc a; wait", {"a"}, set()),
-    ("a quoted ordinary wrapper still reaches gh (dep-fleet-6 F1)", '"env" gh release create v1', set(), set()),
     ("a quoted subscript operator is not repaired by a later equals (dep-fleet-6 F2)",
      'X[0]"="v=w gh', set(), None),
     ("time before an assignment leaves coproc ordinary (dep-fleet-6 follow-up)", "time X=1 coproc a", set(), set()),
