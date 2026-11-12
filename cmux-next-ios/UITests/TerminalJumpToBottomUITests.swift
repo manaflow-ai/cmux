@@ -100,6 +100,7 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         field.tap()
         field.typeText("cargo build")
         app.buttons["terminal.composer.send"].tap()
+        dismissKeyboard(app)
         try waitForStill(app, scale: try scale(app))
         drag(points: 50)
         XCTAssertFalse(jump.waitForExistence(timeout: 1), "50 pt up: under the 120 pt threshold, no pill yet")
@@ -118,6 +119,15 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         XCTAssertGreaterThan(steady, 80, "the third drag moved the rows (\(steady) pt)")
         XCTAssertEqual(appearing, steady, accuracy: 8,
                        "rows moved \(appearing) pt while the pill appeared vs \(steady) pt with it shown: the pill made the page jump")
+    }
+
+    /// The composer's keyboard down, so a drag does not dismiss it and
+    /// change the layout between two stills.
+    @MainActor
+    private func dismissKeyboard(_ app: XCUIApplication) {
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 2) else { return }
+        app.descendants(matching: .any)["terminal.key.keyboard"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "the keyboard went down")
     }
 
     @MainActor
@@ -200,6 +210,7 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         field.tap()
         field.typeText("cargo build")
         app.buttons["terminal.composer.send"].tap()
+        dismissKeyboard(app)
         try waitForStill(app, scale: try scale(app))
         let atBottom = app.screenshot()
         let jump = app.buttons["terminal.jumpToBottom"]
