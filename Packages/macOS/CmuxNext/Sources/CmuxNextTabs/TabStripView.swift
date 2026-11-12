@@ -497,6 +497,7 @@ public final class TabStripView: NSView {
         }
         for band in groups.bands.values { band.themeScope = scope }
         applyPinnedDividerColor()
+        hoverCard.themeChanged()
     }
 
     func applyTokens(animated: Bool) {
