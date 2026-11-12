@@ -862,9 +862,18 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
+        // Never waits on a chat's child lock: a start or a detach holds it while its agent starts
+        // or ends (`detach_child` through the agent's kill), and every pane's handshake asks this
+        // (`AgentPaneHost` lookup), so one chat ending slowly drew "Waiting for the agent service"
+        // in every pane (cmuxterm-hq#8489). A held lock is an agent starting or ending: live, as
+        // the idle reaper counts it (`idle.rs`), its build read on the next status.
         let (mut live, mut other_build) = (0, 0);
         for s in &sessions {
-            if let Some(child) = s.child.lock().await.as_ref() {
+            let Ok(slot) = s.child.try_lock() else {
+                live += 1;
+                continue;
+            };
+            if let Some(child) = slot.as_ref() {
                 live += 1;
                 if host_build_differs(child.host_build().as_deref(), build()) {
                     other_build += 1;
