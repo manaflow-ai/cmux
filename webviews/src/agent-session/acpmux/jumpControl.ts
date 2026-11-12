@@ -18,7 +18,7 @@
 // layout and where the view is. God chats hold tens of thousands of rows.
 
 import type { LayoutGeometry } from "./conversationGeometry";
-import { MESSAGE_RUN, type AcpmuxRow } from "./model";
+import type { AcpmuxRow } from "./model";
 import { ownPrompt } from "./jumpUp";
 
 export type JumpControl = { kind: "up" } | { kind: "latest" } | { kind: "hidden" };
@@ -26,6 +26,8 @@ export type JumpControl = { kind: "up" } | { kind: "latest" } | { kind: "hidden"
 /// The kinds an agent writes into the transcript: its words, thinking, calls, plan, images and the
 /// messages other agents sent it. Everything else (notices, status, turn footers, compaction,
 /// the "New" line, typing, queued prompts) is the chat's bookkeeping, never something to catch up on.
+/// `"messageRun"` is model.ts `MESSAGE_RUN`, written out: model.ts reaches this module through its
+/// imports, so reading its binding while this module loads throws.
 const AGENT_KINDS: ReadonlySet<string> = new Set([
   "assistant",
   "thought",
@@ -35,7 +37,7 @@ const AGENT_KINDS: ReadonlySet<string> = new Set([
   "image",
   "resource",
   "message",
-  MESSAGE_RUN,
+  "messageRun",
 ]);
 
 /// Whether `row` counts as unseen once it lies after the cursor: an agent's row, or a prompt by

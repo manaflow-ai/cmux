@@ -4,7 +4,7 @@
 // control's state (Leo, 2026-11-12: "when you restart the update, all of a sudden it's just, like,
 // you know, it's there and it's noisy").
 import { expect, test } from "bun:test";
-import type { AcpmuxRow } from "./model";
+import { MESSAGE_RUN, type AcpmuxRow } from "./model";
 import {
   countsUnseen,
   emptyUnseenScan,
@@ -46,6 +46,10 @@ function geometry(count: number, height = 100) {
     },
   };
 }
+
+test("a run of messages counts: jumpControl.ts writes out model.ts MESSAGE_RUN", () => {
+  expect(countsUnseen(row("run", 1, MESSAGE_RUN))).toBe(true);
+});
 
 test("an agent's rows and another person's prompts count; your own prompts, notices and status never do", () => {
   expect(countsUnseen(row("a", 1, "assistant"))).toBe(true);
