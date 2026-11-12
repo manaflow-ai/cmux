@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43124940261",
+  "recorded_at": "2026-11-12T00:19:06Z",
+  "reason": "cmux-tui a57b62059280 changes the image's cmux-tui (pinned 467e78071df1)",
+  "dry_run": false,
+  "cmux_tui": "a57b62059280180afcf4a6c3c092596c76b9c2e5",
+  "fixes": [
+    {
+      "sha": "a57b62059280180afcf4a6c3c092596c76b9c2e5",
+      "mergedAt": "2026-11-11T15:50:13-08:00",
+      "subject": "Model switch: another harness's model continues in the same pane, no prompt (#41030)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T00:19:06Z",
+    "snapshot_id": "sh-fdb12b31083446ad94f1a7daaba8f064",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43124940261): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "fd45519a6571a4366e1e0e5da7650a05f7942ed5",
+    "image": "cloud-native-auto-a57b6205-43124940261-1",
+    "revision": "ci-43124940261-1",
+    "at": "2026-11-12T00:19:06Z"
+  },
+  "rolled_back": false
+}
