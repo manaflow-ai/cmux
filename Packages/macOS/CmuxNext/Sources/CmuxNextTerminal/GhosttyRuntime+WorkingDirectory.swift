@@ -21,7 +21,7 @@ public nonisolated struct GhosttyWorkingDirectoryInheritance: Equatable, Sendabl
     public var tab: Bool
     public var split: Bool
 
-    public init(window: Bool = true, tab: Bool = true, split: Bool = true) {
+    public init(window: Bool = true, tab: Bool = true, split: Bool = true, configuredStart: String? = nil) {
         self.window = window
         self.tab = tab
         self.split = split
