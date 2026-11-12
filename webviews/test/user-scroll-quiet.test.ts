@@ -104,3 +104,54 @@ for (const ending of ["pointermove without buttons", "window blur"] as const) {
     }
   });
 }
+
+// A press on text while scrolled up holds automatic motion like any input, but scrolls nothing: Jump
+// up's idle mark (jumpUp.ts) must not read a row settling inside that hold as the reader scrolling.
+// The press counts once it drags past its slop, and a press on the scrollbar (the scroller) at once.
+test("a press on text is held but not scrolled by hand until it drags; the scrollbar and a wheel scroll", () => {
+  const listeners = new Map<string, (event: Event) => void>();
+  const target = {
+    addEventListener: (name: string, listener: (event: Event) => void) => listeners.set(name, listener),
+    removeEventListener: () => {},
+    contains: () => true,
+  };
+  const page = { ...target, defaultView: target, body: {} };
+  const node = { ...target, ownerDocument: page } as unknown as HTMLElement;
+  const detach = attachUserScrollIntent(node);
+  const intent = userScrollIntent(node);
+  const text = { closest: () => null };
+  const at = (type: string, x: number, y: number, extra: object = {}) =>
+    ({ type, target: text, clientX: x, clientY: y, buttons: 1, ...extra }) as unknown as Event;
+  try {
+    listeners.get("pointerdown")!(at("pointerdown", 100, 100));
+    expect(intent.isHeld()).toBe(true);
+    expect(intent.scrolledByHand()).toBe(false);
+    listeners.get("pointermove")!(at("pointermove", 102, 101));
+    expect(intent.scrolledByHand()).toBe(false);
+    listeners.get("pointerup")!(at("pointerup", 102, 101, { buttons: 0 }));
+    expect(intent.isHeld()).toBe(true);
+    expect(intent.scrolledByHand()).toBe(false);
+
+    // A selection dragged past the slop pulls the view: the reader's.
+    listeners.get("pointerdown")!(at("pointerdown", 100, 100));
+    listeners.get("pointermove")!(at("pointermove", 100, 140));
+    expect(intent.scrolledByHand()).toBe(true);
+    listeners.get("pointerup")!(at("pointerup", 100, 140, { buttons: 0 }));
+    expect(intent.scrolledByHand()).toBe(true);
+
+    // The scrollbar is the scroller itself: its press scrolls.
+    listeners.get("pointerdown")!(at("pointerdown", 100, 100));
+    expect(intent.scrolledByHand()).toBe(false);
+    listeners.get("pointerdown")!({ type: "pointerdown", target: node, clientX: 750, clientY: 10 } as unknown as Event);
+    expect(intent.scrolledByHand()).toBe(true);
+    listeners.get("pointerup")!(at("pointerup", 750, 10, { buttons: 0 }));
+
+    listeners.get("pointerdown")!(at("pointerdown", 100, 100));
+    listeners.get("pointerup")!(at("pointerup", 100, 100, { buttons: 0 }));
+    expect(intent.scrolledByHand()).toBe(false);
+    listeners.get("wheel")!({ type: "wheel", target: text, deltaY: 40 } as unknown as Event);
+    expect(intent.scrolledByHand()).toBe(true);
+  } finally {
+    detach();
+  }
+});

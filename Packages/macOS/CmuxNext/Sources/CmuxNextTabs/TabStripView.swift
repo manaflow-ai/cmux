@@ -524,6 +524,7 @@ public final class TabStripView: NSView {
         for band in groups.bands.values { band.themeScope = scope }
         applyPinnedDividerColor()
         updateInCardTone()
+        hoverCard.themeChanged()
     }
 
     /// Debug `tabs.chevronOnHover` (on by default, Lucas 2026-11-12): the ⌄ shows only while the + or the ⌄ is under
