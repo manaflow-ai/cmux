@@ -6,6 +6,8 @@
 
 #[path = "durable_agents/ancestor_answer.rs"]
 mod ancestor_answer;
+#[path = "durable_agents/answer_link_down.rs"]
+mod answer_link_down;
 #[path = "durable_agents/bg_caller_restart.rs"]
 mod bg_caller_restart;
 #[cfg(target_os = "linux")]

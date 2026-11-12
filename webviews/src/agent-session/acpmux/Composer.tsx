@@ -33,6 +33,7 @@ import {
   type LinkItem,
 } from "./attachments";
 import type { SendGesture } from "./heldPrompt";
+import { useTurnHandover } from "./composer/turnHandover";
 import { awaitsOriginals } from "./promptBudget";
 import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -40,7 +41,7 @@ import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
-import { showsLocationRow } from "./locationRow";
+import { chatHasFirstSend, showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
@@ -78,6 +79,7 @@ import {
   type CmuxCommand,
   type CmuxCommandResult,
 } from "./cmuxCommands";
+import { customizeMessage } from "./customizeCommand";
 import {
   applyCommand,
   fastModeState,
@@ -145,7 +147,12 @@ import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion }
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
-import { composerPlusRegistry, type ComposerPlusExtension } from "./composerPlusRegistry";
+import {
+  CAPTURE_MODES,
+  composerPlusRegistry,
+  type CaptureMode,
+  type ComposerPlusExtension,
+} from "./composerPlusRegistry";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from "./recentCommands";
 import { openPicker } from "./pickerOpeners";
@@ -401,7 +408,11 @@ type Props = {
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
   /// or a window, attached as an image at any size; undefined when the person cancelled the pick.
-  capture?(mode: "screen" | "window"): Promise<File | undefined>;
+  /// Record Screen… (`video`, with ``canRecord``) attaches its recording itself, by its path, and
+  /// answers a File only for a still taken from the recording toolbar.
+  capture?(mode: CaptureMode): Promise<File | undefined>;
+  /// The + menu offers Record Screen…: a chat on this Mac, which reads the recording where it is kept.
+  canRecord?: boolean;
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
@@ -542,6 +553,7 @@ function ComposerFrame({
   importSandboxed,
   searchFiles,
   capture,
+  canRecord,
   plusExtensions,
   onPlusCommand,
   upload,
@@ -762,7 +774,6 @@ function ComposerFrame({
     pending,
     loading,
     unsettled,
-    videoReading,
     cancel,
     retry,
     revive,
@@ -830,12 +841,11 @@ function ComposerFrame({
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   // It binds the Enter's or click's gesture at once: the screenshot's upload would spend it meanwhile.
   const bindHeldSend = () => onBindSendGesture?.();
-  const holdForAttachments = useSendWhenAttached<SendGesture>(
-    loading + videoReading,
-    sessionId,
-    unsettled + videoReading,
-    bindHeldSend,
-  );
+  // A video's read (its poster, frames and speech, composer/videoAttachments.ts) holds no send: the
+  // chip is its path from the paste on, and what the host has read by the send goes with it (Leo,
+  // 2026-11-10: "it's 99% of the time fine for it to just to be a path and stuff, so idk why it's so
+  // slow").
+  const holdForAttachments = useSendWhenAttached<SendGesture>(loading, sessionId, unsettled, bindHeldSend);
   /// A prompt too large for one acpmux message waits for its images' originals still uploading,
   /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
   const holdForOriginals = useSendWhenOriginals<SendGesture>(
@@ -1730,7 +1740,8 @@ function ComposerFrame({
     });
     // Its copy is the prompt as sent: a send taken later clears a composer that may hold the next draft.
     const tuck = tucks ? tuckContent(composerBox.current, marked.text) : undefined;
-    const taken = onSend(marked.text, sent, steer, kept);
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts).
+    const taken = onSend(customizeMessage(marked.text) ?? marked.text, sent, steer, kept);
     if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
@@ -2165,9 +2176,12 @@ function ComposerFrame({
     !snapshot.isWorking &&
     snapshot.switching?.phase === "starting" &&
     snapshot.rows.some((row) => row.queued !== undefined);
-  const stop = !shell && (snapshot.isWorking || holding) && !text.trim();
+  // A turn that ended with a queued prompt acpmux runs next keeps Stop until that turn starts, so
+  // the slot never flickers between two turns (composer/turnHandover.ts).
+  const handingOver = useTurnHandover(snapshot.isWorking, snapshot.queue, snapshot.summary?.queuePaused === true);
+  const stop = !shell && (snapshot.isWorking || holding || handingOver) && !text.trim();
   // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
-  const running = !shell && (snapshot.isWorking || holding);
+  const running = !shell && (snapshot.isWorking || holding || handingOver);
   const hasDraft = Boolean(text.trim() || attachments.length || pending.length);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
@@ -2882,6 +2896,7 @@ function ComposerFrame({
                   translate: t,
                   extensions: plusExtensions,
                   canCapture: Boolean(capture && allowImages),
+                  canRecord: Boolean(capture && canRecord),
                   canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
                   ...(planChoice && plan
                     ? { planMode: { id: plan.id, name: planChoice.name, description: t("picker.planHint") } }
@@ -2893,8 +2908,8 @@ function ComposerFrame({
                 })}
                 onCommand={(action, modeId) => {
                   if (action === "composer.attachFiles") chooser.current?.click();
-                  else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
-                    void capture?.(action === "composer.attachWindow" ? "window" : "screen")
+                  else if (CAPTURE_MODES[action]) {
+                    void capture?.(CAPTURE_MODES[action])
                       .then(async (shot) => {
                         // One over the image cap goes as a pasted one does: a preview, and its
                         // original saved to the chat for the agent to read; a send waits for that
@@ -2926,13 +2941,16 @@ function ComposerFrame({
             <MachineLinkStatus link={machineLink} onReconnect={onReconnectMachine} />
           </PromptFocus>
         }
-        // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
-        // reports usage (inert, ContextRing), so the first report moves nothing in the row
-        // (hq#1957: the composer holds still while a turn runs); the context-usage setting
-        // hides it (showContextUsage), from its own right-click too, which also picks what it shows:
-        // the context or the plan usage limits (composerRing; UsageRingMenu).
+        // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
+        // A new chat has no ring: it shows from the first send (chatHasFirstSend, locationRow.ts),
+        // when the location strip goes. After that it keeps its place before the chat reports
+        // usage (inert, ContextRing), so the first report moves nothing in the row (hq#1957: the
+        // composer holds still while a turn runs); the context-usage setting hides it
+        // (showContextUsage), from its own right-click too, which also picks what it shows: the
+        // context or the plan usage limits (composerRing; UsageRingMenu).
         ring={
-          showContextUsage && (
+          showContextUsage &&
+          chatHasFirstSend(snapshot) && (
             <UsageRingMenu>
               <ContextRing
                 // The chat the reading is of: switching chats shows the new one's at once, uneased.

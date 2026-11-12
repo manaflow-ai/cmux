@@ -410,6 +410,10 @@ path = "tests/test_mobile_stability_soak_attach_contract.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_needs_verdict.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_next_batch.py"
 lane = "linux-guard"
 
@@ -540,6 +544,10 @@ path = "tests/test_r2_upload_requests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_react_doctor_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_rebuild_mirror.py"
 lane = "linux-guard"
 
@@ -632,6 +640,11 @@ lane = "manual"
 reason = "Run by the lane that changes rust-live.py (no new CI tests): python3 tests/test_rust_live_app_handoff.py; needs only python3 and sleep."
 
 [[test]]
+path = "tests/test_script_module_loads.py"
+lane = "manual"
+reason = "No new CI tests: run python3 tests/test_script_module_loads.py after a test loads a scripts/ module by path or imports a new one by name (static scan plus two subprocess import orders; needs pytest for the route pair)."
+
+[[test]]
 path = "tests/test_scroll_measurement_metrics.py"
 lane = "manual"
 reason = "Run through cmux-ci after changing native scroll receipt validation; isolated Python checks launch no app. No new CI gate."
@@ -687,6 +700,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_socket_control_schema.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_spawn_owner_ratchet.py"
 lane = "linux-guard"
 
 [[test]]
@@ -848,6 +865,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_zig_free_step_lockfiles.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_zig_package_mirror.py"
 lane = "linux-guard"
 
 [[test]]

@@ -84,6 +84,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var scrollButtonVisibility = JumpToBottomVisibility()
     private var keyBarHost: UIHostingController<TerminalKeyBar>!
     private var composerHost: UIHostingController<TerminalComposer>!
+    /// The Jump to bottom row, the stack's top row (CMUX-10).
+    private var jumpRowHost: UIHostingController<TerminalJumpToBottomRow>!
     private var tuiHeight: NSLayoutConstraint!
 
     /// Rows of the local grid: the screen plus the largest keyboard, so the
@@ -355,16 +357,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
         let keyBar = UIHostingController(rootView: TerminalKeyBar(model: model))
         let composer = UIHostingController(rootView: TerminalComposer(model: model))
+        let jumpRow = UIHostingController(rootView: TerminalJumpToBottomRow(model: model))
         keyBar.safeAreaRegions = []
         composer.safeAreaRegions = []
+        jumpRow.safeAreaRegions = []
         // The terminal is dark in both appearances; so are its key bar and
         // composer (in light mode inside a workspace they drew light glass
         // over the black grid).
         keyBar.overrideUserInterfaceStyle = .dark
         composer.overrideUserInterfaceStyle = .dark
+        jumpRow.overrideUserInterfaceStyle = .dark
         composer.sizingOptions = [.intrinsicContentSize]
+        jumpRow.sizingOptions = [.intrinsicContentSize]
         bottomStack.addSubview(keyBarClip)
-        for host in [keyBar as UIViewController, composer] {
+        for host in [keyBar as UIViewController, composer, jumpRow] {
             host.view.backgroundColor = .clear
             host.view.translatesAutoresizingMaskIntoConstraints = false
             addChild(host)
@@ -373,6 +379,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         keyBarHost = keyBar
         composerHost = composer
+        jumpRowHost = jumpRow
         // Not clipped: the keys' glass lifts past the row on touch. Hide
         // Toolbar folds the row by hiding it, and unfolding fades it in
         // (`dockChanged`), so it never draws over the composer while it grows.
@@ -439,8 +446,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         //
         // guide.top is the keyboard's top, or the view's bottom when hidden.
         // Stack bottom = min(guide.top, safe area bottom) - 8. Inside the
-        // stack, top to bottom (classic cmux iOS): the 28 pt key row, 8 pt,
-        // the composer; Hide Toolbar folds both, closing the composer folds it.
+        // stack, top to bottom (classic cmux iOS): the Jump to bottom row (0 pt
+        // unless scrolled up; its pill and 8 pt), the 28 pt key row, 8 pt, the
+        // composer; Hide Toolbar folds both, closing the composer folds it. The
+        // page's rows end at the stack's top, so above the Jump to bottom pill.
         func prioritized(_ constraint: NSLayoutConstraint, _ priority: UILayoutPriority) -> NSLayoutConstraint {
             constraint.priority = priority
             return constraint
@@ -512,7 +521,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             stackRestingLimit,
             // Rest on the chrome's line when nothing pins the stack higher.
             prioritized(bottomStack.bottomAnchor.constraint(equalTo: view.bottomAnchor), .defaultLow),
-            keyBarClip.topAnchor.constraint(equalTo: bottomStack.topAnchor),
+            jumpRow.view.topAnchor.constraint(equalTo: bottomStack.topAnchor),
+            jumpRow.view.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
+            jumpRow.view.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
+            // Empty, the row has no intrinsic height; this keeps it at 0 pt.
+            prioritized(jumpRow.view.heightAnchor.constraint(equalToConstant: 0), .fittingSizeLevel),
+            keyBarClip.topAnchor.constraint(equalTo: jumpRow.view.bottomAnchor),
             keyBarClip.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
             keyBarClip.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
             prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: TerminalDockMetrics.keyRowHeight), .defaultHigh),
@@ -802,6 +816,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         applyScroll()
     }
 
+    /// The Jump to bottom row's SwiftUI height changed: the stack and the
+    /// page's insets follow in this pass, like the composer card's.
+    func jumpRowHeightChanged(_ height: CGFloat) {
+        guard let host = jumpRowHost else { return }
+        host.view.invalidateIntrinsicContentSize()
+        host.view.setNeedsLayout()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        updateBottomBacking()
+        applyScroll()
+    }
+
+    private var jumpRowHeight: CGFloat { jumpRowHost?.view.bounds.height ?? 0 }
+
+    /// The solid background under the stack shows while any row of it does:
+    /// the key row, the composer, or the Jump to bottom pill (with Hide
+    /// Toolbar on, the pill alone; without it the scrolled rows drew under the
+    /// pill's glass, CMUX-10 review).
+    private func updateBottomBacking() {
+        bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer && jumpRowHeight == 0
+    }
+
     private var composerGrowth: CGFloat {
         dock.showsComposer ? max(0, composerHost.view.bounds.height - restingComposerHeight) : 0
     }
@@ -927,7 +963,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // Unfolding: the row fades in once its slot is open, never over the composer.
         if revealsKeyRow { keyBarClip.alpha = 0 }
         composerHost.view.isHidden = !dock.showsComposer
-        bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer
+        updateBottomBacking()
         view.setNeedsLayout()
         // motion: allow UIKit dock reflow, one bounded 0.25 s pass like classic's band; Reduce Motion applies it at once.
         let animate = view.window != nil && !UIAccessibility.isReduceMotionEnabled
@@ -2250,16 +2286,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let visible = requested && !following
         guard model.isScrolledUp != visible else { return }
         model.isScrolledUp = visible
-        // The composer shows its Jump to bottom row (`TerminalComposer`).
+        // The stack's top row shows Jump to bottom (`TerminalJumpToBottomRow`).
         // A hide is laid out now, in this transaction, so the frame that
         // shows the moved rows never still draws the row (round 11 N4: 4 of
         // 250 jumps drew it on the first moved frame; SwiftUI's own pass
         // came one frame later).
-        guard !visible, let host = composerHost?.view else { return }
+        guard !visible, let host = jumpRowHost?.view else { return }
         UIView.performWithoutAnimation {
+            host.invalidateIntrinsicContentSize()
             host.setNeedsLayout()
             host.layoutIfNeeded()
+            view.layoutIfNeeded()
         }
+        updateBottomBacking()
     }
 
     /// Jump to bottom: one tap lands at the live bottom and follows, whatever
@@ -2762,14 +2801,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         // A hide a newer show interrupted: the keyboard is on its way up, and
         // settling the stack now would lay it out against the hide.
-        guard !isStale(note) else { return }
+        guard !isStale(note), !endsOnScreen(note, onScreen: true) else { return }
         dock.keyboardDidHide()
         keyboardDidChange()
     }
 
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
-        guard !isStale(note) else { return }
+        guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
         keyboardDidChange()
     }
 
@@ -2780,12 +2819,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return keyboardTracker.isStale(didChangeTo: end)
     }
 
+    /// A did-show whose end frame is off screen (or a did-hide whose end frame
+    /// is on screen) belongs to a transition being reversed. A hide that lands
+    /// just after a show's animation, but before UIKit posted its did-show,
+    /// gets that did-show with the hide's frame, ahead of the hide's will
+    /// (measured: did-show 24 ms past the show's duration, so `isStale` lets it
+    /// through). Laying out on it put the composer at the bottom in one frame
+    /// while the keyboard was still up; the will that follows moves it inside
+    /// the keyboard's animation instead.
+    private func endsOnScreen(_ note: Notification, onScreen: Bool) -> Bool {
+        guard let notified = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return false }
+        let frame = keyboardDock.keyboardFrame(notified: notified)
+        let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
+        let visible = screen.intersection(frame).height > 0.5
+        return visible == onScreen
+    }
+
     @objc private func keyboardDidChange() {
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The keyboard settled: a TUI gets the rows above the composer now,
         // one resize (R1-1).
-        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth, restingStackTop: restingStackTop, isTUI: model.isTUI)
+        tuiSizing.keyboardSettled(stackTop: bottomStack.frame.minY + composerGrowth + jumpRowHeight, restingStackTop: restingStackTop, isTUI: model.isTUI)
         view.setNeedsLayout()
         view.layoutIfNeeded()
         // The page changed without output (the keyboard came or went): the

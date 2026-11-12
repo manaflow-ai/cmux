@@ -276,15 +276,25 @@ export function WidgetEditBar({
           <Icon name="action.add" size={12} />
           <span>{nt("edit.add")}</span>
         </MenuButton>
-        <MenuPopup label={nt("edit.add")} className="nt-edit-add-menu" align="end">
+        <MenuPopup label={nt("edit.add")} className="acpmux-quick-menu nt-edit-add-menu" align="end">
           {ADDABLE_WIDGETS.map((widget) => (
-            <MenuItem key={widget} data-value={widget} onSelect={() => onEdit({ edit: "show", widget })}>
+            <MenuItem
+              key={widget}
+              className="acpmux-quick-item"
+              data-value={widget}
+              onSelect={() => onEdit({ edit: "show", widget })}
+            >
               {widgetName(widget)}
             </MenuItem>
           ))}
           {onAddApp &&
             apps.map((app) => (
-              <MenuItem key={app.id} data-value={app.id} onSelect={() => onAddApp(app.id)}>
+              <MenuItem
+                key={app.id}
+                className="acpmux-quick-item"
+                data-value={app.id}
+                onSelect={() => onAddApp(app.id)}
+              >
                 {app.title}
               </MenuItem>
             ))}

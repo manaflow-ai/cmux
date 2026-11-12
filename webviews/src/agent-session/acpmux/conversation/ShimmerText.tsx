@@ -9,14 +9,15 @@
 // timed rows provide matching label/time slots with generated text, so readers see each word once.
 
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { alignLoopsIn } from "../../../ui/spinnerClock";
+import { setLoopPhase } from "../../../ui/spinnerClock";
 
 /// The shimmer's loops take the shared phase on the frame they mount (ui/spinnerClock.ts
-/// `alignLoopsIn`), so a line scrolled back into view never restarts its band.
-function useAlignedLoops<T extends Element>() {
+/// `setLoopPhase`, a delay written without reading style), so a line scrolled back into view never
+/// restarts its band.
+function useAlignedLoops<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   useLayoutEffect(() => {
-    if (ref.current) alignLoopsIn(ref.current);
+    if (ref.current) setLoopPhase(ref.current);
   }, []);
   return ref;
 }
