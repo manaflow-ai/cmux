@@ -2,7 +2,7 @@
 // A run of background-task notifications folds into one line (backgroundRuns.ts), and a reply of
 // only punctuation draws no row (visibleMessage.ts). Leo, 2026-11-02, on a column of "Background
 // task finished" rows with a lone "·" reply under each: "why do you still do these".
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { BackgroundTurnLine } from "./BackgroundTurnLine";
@@ -11,6 +11,15 @@ import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { messageRunRowId } from "./messageRuns";
 import { hiddenRowFolds, messageRevealTarget, turnView } from "./turns";
 import { isBareAgentText, isVisiblyEmptyMessage } from "./visibleMessage";
+
+// These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
+// turn's calls inline, with no line (backgroundTurnInline.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+});
+afterAll(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({

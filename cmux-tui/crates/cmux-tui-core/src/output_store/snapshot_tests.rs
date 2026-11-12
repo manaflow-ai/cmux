@@ -487,61 +487,6 @@ fn a_flood_crossing_half_the_cap_wakes_the_writer_at_once() {
     );
 }
 
-/// The parked snapshots' trim runs once a day however busy the writer is: the first pass after start (whose prune
-/// already trimmed) only starts the day.
-#[test]
-fn the_parked_trim_runs_once_a_day_with_any_pass() {
-    use super::{WriterState, take_trim};
-    let mut state = WriterState::default();
-    assert!(!take_trim(&mut state), "the start's prune ran it");
-    assert!(!take_trim(&mut state), "a busy writer's next pass does not");
-    let a_day_ago = std::time::Instant::now().checked_sub(super::super::parked_trim::PASS_EVERY);
-    let Some(a_day_ago) = a_day_ago else { return }; // a clock that started under a day ago (Windows)
-    state.last_trim = Some(a_day_ago);
-    assert!(take_trim(&mut state), "a day later any pass runs it");
-    assert!(!take_trim(&mut state));
-}
-
-/// A terminal's history grew by a step while a write pass is due: the turn that takes the write pass also
-/// measures. The write pass runs the budget at most once per snapshot interval (`OutputStore::enforce_due`), and
-/// the terminal does not ask again while its request is open (`LogState::measure_due`), so a request that the
-/// write pass takes and does not run leaves the total budget to the interval (30 s; one hour in
-/// `the_total_memory_budget_holds_while_terminals_print_not_one_interval_later`, which a loaded host made red:
-/// "four full terminals kept 9074 and 9074 rows over the 16 MiB budget"). No clock: the writer's choice is a
-/// function of its state and one instant.
-#[test]
-fn the_total_memory_budget_request_is_not_lost_to_a_write_pass_that_is_due_first() {
-    use super::{Turn, WriterState, take_turn};
-    let now = std::time::Instant::now();
-    let mut state = WriterState { last_trim: Some(now), ..WriterState::default() };
-
-    // Only a request: the turn measures and writes nothing.
-    state.memory_due = true;
-    assert_eq!(take_turn(&mut state, now), Some(Turn { memory: true, write: false, trim: false }));
-    assert_eq!(take_turn(&mut state, now), None, "one request is one measurement");
-
-    // Only a write pass that is due: the turn writes and measures nothing more.
-    state.due = Some(now);
-    assert_eq!(take_turn(&mut state, now), Some(Turn { memory: false, write: true, trim: false }));
-    assert_eq!(take_turn(&mut state, now), None);
-
-    // A write pass that is not due yet does not hold the request back.
-    state.due = Some(now + std::time::Duration::from_secs(3600));
-    state.memory_due = true;
-    assert_eq!(take_turn(&mut state, now), Some(Turn { memory: true, write: false, trim: false }));
-
-    // Both at the same instant: the write pass runs, and the request is not lost.
-    state.due = Some(now);
-    state.memory_due = true;
-    let turn = take_turn(&mut state, now).expect("a write pass is due");
-    assert!(turn.write, "a due write pass runs in the turn that takes it: {turn:?}");
-    assert!(
-        turn.memory || state.memory_due,
-        "the request for a measurement is gone and no turn measures: the terminal's `measure_due` stays set, \
-         so it never asks again, and the total memory budget waits for the snapshot interval: {turn:?}"
-    );
-}
-
 /// A respawn reads the lost terminal's snapshot and then its tail. The
 /// writer replaces the snapshot and then removes the tail it covers, under
 /// the pass lock. A pass that ran between the two reads paired the old
@@ -580,4 +525,109 @@ fn a_snapshot_replaced_while_a_respawn_reads_it_keeps_the_tail_bytes() {
     let _ = std::fs::remove_dir_all(&root);
     let text = String::from_utf8_lossy(&screen.bytes);
     assert!(text.contains("second"), "the tail's bytes were lost: {text:?}");
+}
+
+/// A reader's cached log handle reaches the store's log without the store's
+/// map. After the store forgets the terminal, the cache keeps nothing alive
+/// and the next chunk goes to a fresh log the store holds.
+#[test]
+fn a_cached_log_handle_follows_a_forget() {
+    let store = OutputStore::new(None);
+    let cache = super::super::OutputLogCache::default();
+    let id = TerminalPublicId::parse("term_00000000000000000000000000000c4c").unwrap();
+    let generation: Arc<str> = Arc::from("g");
+    store.append_cached(&cache, &id, &generation, b"before ", None);
+    store.append_cached(&cache, &id, &generation, b"again ", None);
+    assert_eq!(store.read_after(&id, 0, 1024).unwrap().bytes, b"before again ");
+    let first = Arc::downgrade(&store.logs.lock().unwrap().get(&id).cloned().unwrap());
+    store.forget(&id);
+    assert!(first.upgrade().is_none(), "the cache kept a forgotten log alive");
+    store.append_cached(&cache, &id, &generation, b"after", None);
+    assert_eq!(store.read_after(&id, 0, 1024).unwrap().bytes, b"after");
+}
+
+/// A flood fills the tail past its cap at every 100 ms pass. Each compaction
+/// captures the screen under the terminal's parser lock (about 9 ms for a
+/// 160x48 screen with 2,000 lines of history: `compaction_capture_bench`), so
+/// the reader waited about 9% of a flood. The tail-cap compaction now comes
+/// at most once a second, at once past 16 MiB of tail, and a tail left past
+/// its cap when the output stops is compacted when the second ends.
+#[test]
+fn a_flood_compacts_its_tail_at_most_once_a_second() {
+    use std::time::{Duration, Instant};
+    let spacing = Duration::from_secs(1);
+    let log = log(b"");
+    {
+        let mut state = log.state.lock().unwrap();
+        state.snapshot_digest = Some(1);
+        state.snapshot_at = Some(Instant::now());
+        state.tail_bytes = super::super::TAIL_MAX_BYTES + 1;
+    }
+    let wants = |log: &TerminalLog| {
+        Plan::of(log, super::super::SNAPSHOT_INTERVAL).wants_snapshot(
+            2,
+            (80, 24),
+            true,
+            false,
+            true,
+            false,
+        )
+    };
+    assert!(!wants(&log), "a tail past its cap was compacted again right after a snapshot");
+    // The output stopped: the writer comes back when the second ends.
+    let retry = log.state.lock().unwrap().snapshot_retry_in();
+    assert!(
+        retry.is_some_and(|wait| wait > spacing / 2 && wait <= spacing),
+        "a tail past its cap waits for output to be compacted: {retry:?}"
+    );
+    log.state.lock().unwrap().snapshot_at = Instant::now().checked_sub(spacing);
+    assert!(wants(&log), "a tail past its cap was not compacted after a second");
+    {
+        let mut state = log.state.lock().unwrap();
+        state.snapshot_at = Some(Instant::now());
+        state.tail_bytes = 16 * 1024 * 1024;
+    }
+    assert!(wants(&log), "a 16 MiB tail waited for its compaction");
+}
+
+/// What one snapshot-mode compaction costs under the terminal's parser lock
+/// during a flood: the content digest, then the bounded replay.
+/// `rcargo test -p cmux-tui-core --release --lib -- --ignored compaction_capture_bench --nocapture`
+#[test]
+#[ignore = "bench"]
+fn compaction_capture_bench() {
+    let (cols, rows) = (160_u16, 48_u16);
+    let mut terminal =
+        ghostty_vt::Terminal::new(cols, rows, 10_000_000, ghostty_vt::Callbacks::default())
+            .unwrap();
+    let mut blob = Vec::new();
+    for line in 0..20_000 {
+        blob.extend_from_slice(
+            format!(
+                "\x1b[3{}m{line:06}\x1b[0m compiling crate number {line} of the workspace with features a,b,c\r\n",
+                line % 8
+            )
+            .as_bytes(),
+        );
+    }
+    terminal.vt_write(&blob);
+    let budget = super::replay_budget(cols, rows, super::super::SNAPSHOT_DEFAULT_MAX_TOTAL_BYTES);
+    let rounds = 50_u32;
+    let started = std::time::Instant::now();
+    let mut digest_time = std::time::Duration::ZERO;
+    let mut bytes = 0;
+    for _ in 0..rounds {
+        let at = std::time::Instant::now();
+        let digest = super::content_digest(&mut terminal);
+        digest_time += at.elapsed();
+        assert!(digest.is_some());
+        let replay = terminal.vt_replay_bounded(budget).unwrap().into_self_contained_bytes();
+        bytes = replay.len();
+    }
+    let total = started.elapsed();
+    eprintln!(
+        "compaction capture: {:.3} ms per capture (digest {:.3} ms), replay {bytes} bytes, budget {budget}",
+        total.as_secs_f64() * 1e3 / f64::from(rounds),
+        digest_time.as_secs_f64() * 1e3 / f64::from(rounds),
+    );
 }

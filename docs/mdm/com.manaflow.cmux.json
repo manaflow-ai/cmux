@@ -645,6 +645,12 @@
       "title" : "Download Announcements",
       "type" : "boolean"
     },
+    "app.confirmQuit" : {
+      "default" : true,
+      "description" : "Cmd-Q asks first when quitting would end working agents or open terminals. A quit that keeps the sessions running never asks.",
+      "title" : "Ask Before Quitting Ends Agents or Terminals",
+      "type" : "boolean"
+    },
     "app.globalHotKey" : {
       "default" : false,
       "description" : "Show/Hide All Windows (⌃⌥⌘.) works while another app is in front.",
@@ -2082,6 +2088,12 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "browser.showLoadingBar" : {
+      "default" : false,
+      "description" : "A thin progress line under the address bar while a page loads. The Stop button shows either way.",
+      "title" : "Show Loading Bar",
+      "type" : "boolean"
+    },
     "browser.siteEngines" : {
       "default" : {
         "amazon.com/gp/video" : "webkit",
@@ -2149,6 +2161,12 @@
       "default" : false,
       "description" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored.",
       "title" : "Fill Codes from Verification Emails",
+      "type" : "boolean"
+    },
+    "browser.vimKeys" : {
+      "default" : true,
+      "description" : "Outside a text field, f clicks a link by its label, Shift-F opens one in a new split, j and k scroll, gg and Shift-G go to the top and bottom.",
+      "title" : "Vim Keys in Pages",
       "type" : "boolean"
     },
     "browser.wakeTabsOnHover" : {
@@ -2334,6 +2352,12 @@
       "default" : false,
       "description" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
       "title" : "Send Hang Reports",
+      "type" : "boolean"
+    },
+    "diagnostics.usagePatterns" : {
+      "default" : false,
+      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.",
+      "title" : "Record Usage Patterns",
       "type" : "boolean"
     },
     "diff.colors" : {
@@ -3611,7 +3635,7 @@
       "type" : "boolean"
     },
     "notifications.attention.moveToTop" : {
-      "default" : false,
+      "default" : true,
       "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
@@ -5115,7 +5139,7 @@
       "default" : [
 
       ],
-      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.",
+      "description" : "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask.",
       "items" : {
         "type" : "string"
       },
@@ -5698,7 +5722,7 @@
       "type" : "string"
     },
     "workspaceColors.indicatorStyle" : {
-      "default" : "dot",
+      "default" : "leftRail",
       "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
       "enum" : [
         "dot",

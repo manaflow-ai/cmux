@@ -35,6 +35,8 @@ import type { SourceOption } from "../toolbar-model";
 import type {
   AccountsState,
   AgentsState,
+  ChannelSwitch,
+  ChannelsState,
   CloudEnvironmentsState,
   DevicesState,
   HarnessesState,
@@ -74,6 +76,12 @@ export type SettingsPageVariant = VariantBase & {
   harnesses?: HarnessesState;
   /** Settings > Devices; default the mock's (this Mac, two other devices, two relays). */
   devices?: DevicesState;
+  /** Settings > Updates' Channels card (null: no updater); default the mock's tracks. */
+  channels?: ChannelsState | null;
+  /** The Channels card's way back to the picked channel; default none. */
+  channelSwitch?: ChannelSwitch | null;
+  /** The host's refusal of every Switch; default none (Switch runs). */
+  switchRefusal?: string;
   /** Settings > Agents > Agent integrations; default the mock's four (focus `agents.integrations` opens it). */
   integrations?: IntegrationsState;
   /** Public-safe thumbnail data URLs for native-origin backdrop images. */
@@ -451,7 +459,9 @@ type EntryBase<V> = {
   /**
    * What the entry shows, for the coverage test: `<path under webviews/src>#<ExportName>` (or the
    * path alone for every export of a file) for web components, `page:<PageDescriptor id>` for
-   * pages, `swift:<TypeName>` for native views.
+   * pages, `swift:<TypeName>` for native views. A cover may also name another source file under
+   * webviews/src (`path#name` for a name it holds) that the entry exercises; it must exist, and it
+   * counts toward no component's coverage.
    */
   covers: string[];
   /** Default stage height in px (else 520). */

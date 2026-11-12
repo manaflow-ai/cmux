@@ -32,7 +32,10 @@ afterEach(() => {
   root = undefined;
   dom?.window.close();
   dom = undefined;
-  for (const [key, value] of saved) scope[key] = value;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   saved.clear();
 });
 
@@ -41,7 +44,7 @@ async function render(family: string, added: NewChatAccount[], existing: string[
     url: "http://localhost/",
     pretendToBeVisual: true,
   });
-  for (const key of KEYS) saved.set(key, scope[key]);
+  for (const key of KEYS) if (!saved.has(key)) saved.set(key, scope[key]);
   const w = dom.window as unknown as Record<string, unknown>;
   Object.assign(scope, {
     window: dom.window,

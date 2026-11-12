@@ -276,6 +276,57 @@ public enum HomeListNote: Equatable, Sendable {
     }
 }
 
+/// The bar at the top of Home while the Home Mac is not connected or its list could not be
+/// read (CMUX-489). The list under it stays usable, but it is what this phone last read, not
+/// the Mac's live list. The bar says so where the person looks first: at the top, not in
+/// small gray text under the last row.
+public struct HomeConnectionBar: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        /// The Mac's link is down.
+        case offline
+        /// The link is up, but the Mac's list did not load.
+        case failed
+        /// A Try Again from the bar is running.
+        case retrying
+    }
+
+    public let kind: Kind
+    public let title: String
+    /// What the list under the bar is and what happens next.
+    public let detail: String
+
+    /// The bar for Home's state, or nil while the list is live. `offline`: the Home Mac's link
+    /// is neither connected nor connecting. `problem`: why the last read failed. `retrying`: a
+    /// Try Again runs. `hasRows`: rows show under the bar (the last ones read).
+    /// `reconnecting`: the running Try Again dials the Mac first (it was offline), else it only reads again.
+    public static func make(offline: Bool, problem: String?, retrying: Bool, reconnecting: Bool = true, hasRows: Bool,
+                            macName: String?) -> HomeConnectionBar? {
+        let mac = macName ?? String(localized: "your Mac")
+        let kind: Kind
+        if retrying {
+            kind = .retrying
+        } else if offline {
+            kind = .offline
+        } else if problem != nil {
+            kind = .failed
+        } else {
+            return nil
+        }
+        let title: String = switch kind {
+        case .offline: String(localized: "Not connected to \(mac)")
+        case .failed: String(localized: "Couldn't load Home from \(mac)")
+        case .retrying: reconnecting ? String(localized: "Reconnecting to \(mac)…") : String(localized: "Loading Home from \(mac)…")
+        }
+        var detail: String = if hasRows {
+            String(localized: "Showing the last list from this iPhone. It updates when the Mac answers.")
+        } else {
+            String(localized: "Its conversations show when the Mac answers.")
+        }
+        if kind == .failed, let problem, !problem.isEmpty { detail = "\(problem) \(detail)" }
+        return HomeConnectionBar(kind: kind, title: title, detail: detail)
+    }
+}
+
 /// The chosen Mac's Home list over its link: a `chief` channel of its own
 /// (cmux-mobile-host scopes it to the owner's conversations with agents and to
 /// the local owner's rows), read with `home-inbox` and read again (coalesced)
@@ -788,7 +839,8 @@ public final class MacHomeFeed {
         if wantsAll || windows != true || wantedIDs.count > MacHomeRows.idsLimit {
             wantsAll = false
             wantedIDs = []
-            let reply = try await MacHomeReply.read(client, ["owners": ["local"]])
+            // Below the first window's priority: it never slows the first screen down.
+            let reply = try await MacHomeReply.read(client, ["owners": ["local"]], priority: MacHomeReply.wholeListPriority)
             guard mine == generation else { return }
             applyRows(reply, asked: [])
             return
@@ -853,7 +905,7 @@ public final class MacHomeFeed {
     private func listed(_ client: DaemonClient) async throws {
         // The owner's whole list of conversations, parsed off the main actor.
         let line = try await client.request("conversation-list", params: [:])
-        let (seqs, chief) = try await Task.detached(priority: .userInitiated) { () throws -> ([String: Int], String?) in
+        let (seqs, chief) = try await Task.detached(priority: MacHomeReply.wholeListPriority) { () throws -> ([String: Int], String?) in
             let list = try Self.data(line, "conversation-list")
             let summaries = list["conversations"] as? [[String: Any]] ?? []
             var seqs: [String: Int] = [:]

@@ -146,7 +146,8 @@ fn origin_fields(sender: &mut Map<String, Value>, provenance: Option<&Value>) {
     {
         sender.insert("sessionId".into(), json!(from));
     }
-    for key in [pp::EDITED_BY, pp::FORWARDED_BY, pp::CLAIMED] {
+    for key in [pp::EDITED_BY, pp::FORWARDED_BY, pp::CLAIMED, crate::sender_program::PROVENANCE_KEY]
+    {
         if let Some(value) = p.get(key) {
             sender.insert(key.into(), value.clone());
         }
@@ -216,6 +217,14 @@ mod tests {
         assert_eq!(
             params["_meta"]["acpmux"]["sender"],
             json!({"verified": false, "transport": "unix"})
+        );
+        // The program the daemon saw send it goes along (`sender_program.rs`).
+        let mut seen = unknown.clone();
+        seen["program"] = json!({"name": "next-autoland"});
+        let params = prompt_params("s", json!([]), None, None, Some(&seen));
+        assert_eq!(
+            params["_meta"]["acpmux"]["sender"]["program"],
+            json!({"name": "next-autoland"})
         );
     }
 

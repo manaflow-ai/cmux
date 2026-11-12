@@ -1371,9 +1371,10 @@ pub fn agent_shell_env() -> Option<(OsString, Option<OsString>)> {
 }
 
 /// Parse `env -0` output: (variables worth importing, the login PATH).
-/// Output before the marker line is rc-file chatter; without a marker,
-/// anything an rc file printed before `env` ran is discarded up to the
-/// last newline. Shell-private and per-process variables are dropped.
+/// Output before the marker line is rc-file chatter (`run_shell` takes only
+/// output that holds the marker; without one, anything printed before `env`
+/// ran is discarded up to the last newline). Shell-private and per-process
+/// variables are dropped.
 pub(crate) fn parse_env0(text: &str, marker: &str) -> (Vec<(String, String)>, Option<String>) {
     let marker = format!("\n{marker}\n");
     let text = match text.rfind(&marker) {

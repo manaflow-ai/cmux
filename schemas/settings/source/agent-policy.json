@@ -391,7 +391,9 @@
         "browser.defaultEngine",
         "browser.siteEngines",
         "browser.newTabPage",
-        "browser.showBookmarksBar"
+        "browser.showBookmarksBar",
+        "browser.vimKeys",
+        "browser.showLoadingBar"
       ]
     },
     {
@@ -1247,8 +1249,10 @@
     },
     {
       "agent": "destructive",
+      "why": "The quit behavior ends sessions; confirmQuit off lets one Cmd-Q end them without asking.",
       "keys": [
-        "app.quitBehavior"
+        "app.quitBehavior",
+        "app.confirmQuit"
       ]
     },
     {
@@ -1352,6 +1356,13 @@
       "why": "Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.",
       "keys": [
         "diagnostics.hangReports"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
+      "keys": [
+        "diagnostics.usagePatterns"
       ]
     },
     {

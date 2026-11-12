@@ -54,6 +54,7 @@ import {
   type LinkItem,
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
+import { customizeMessage, newChatRunsElsewhere } from "../customizeCommand";
 import type { UploadResult } from "../cloudUploads";
 import { AttachmentStrip } from "../composer/attachmentIntake";
 import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
@@ -84,6 +85,7 @@ import {
   profileRows,
   recentChatCards,
   screenRows,
+  searchWords,
   inStrip,
   shellEntry,
   shortHost,
@@ -149,6 +151,7 @@ import {
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
 import { agentName } from "../agents";
+import { type NewTabStartFailure, StartFailure } from "./StartFailure";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import { GRID_BUILTINS, gridOrder, useNewTabExtensionWidgets } from "./ExtensionWidgets";
@@ -159,6 +162,7 @@ import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
+import { reportInputReadyWhenFocused } from "./inputReady";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -559,7 +563,6 @@ export function NewTabScreen(props: Props) {
     pending: reading,
     originalFailures,
     unsettled,
-    videoReading,
     cancel,
     retry,
     revive,
@@ -589,13 +592,19 @@ export function NewTabScreen(props: Props) {
     if (carried?.attachments.length) setAttachments(carried.attachments);
   }, [carried, setAttachments]);
   // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
-  // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
-  // for a few seconds at most (composer/videoAttachments.ts).
-  const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
+  // chat starts, so a file still streaming has no next prompt to go with. A video's read holds no
+  // send (Composer.tsx): the chip goes as its path.
+  const holdForAttachments = useSendWhenAttached(unsettled);
+  /// Where the chat would start, as picked now (set below, once every pick is read).
+  const elsewhere = useRef(false);
   const command = useNewTabCommand(
     text,
     setText,
-    { ...props, importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed" },
+    {
+      ...props,
+      importSandboxed: props.importSandboxed || props.runMode?.mode === "sandboxed",
+      startsElsewhere: () => elsewhere.current,
+    },
     {
       attachments,
       setAttachments,
@@ -640,7 +649,10 @@ export function NewTabScreen(props: Props) {
   const submitNow = useRef(() => {});
   /// Set while the send a finished dictation session waited for goes (submit, below).
   const dictationEnded = useRef(false);
-  const continueAfterSetup = useRef<(harness: string) => void>(() => {});
+  /// Starts the chat on `harness` with the draft as it is now (`model`: the chip's pick). Setup's
+  /// continuation, and a failed start's Retry: whatever began the start (Return, New chat, an Ask
+  /// row), Retry asks the agent again, never re-routing the draft to a page or a no-op.
+  const continueAfterSetup = useRef<(harness: string, model?: string) => void>(() => {});
   const openSetup = () => {
     if (props.onSetup) props.onSetup((agent) => continueAfterSetup.current(agent));
     else openHarnessesPage();
@@ -665,20 +677,20 @@ export function NewTabScreen(props: Props) {
   // A saved environment the picker picked names where the chat starts (askInEnvironment).
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
   const environment = saved.picked;
+  // `/customize` changes this machine's cmux: refused when the chat would start anywhere else.
+  // Read when a command runs (after commit), so the ref is written in an effect, never in render.
+  const runsElsewhere = newChatRunsElsewhere({
+    mode: props.runMode?.mode,
+    machine: machine !== undefined,
+    environmentKind: environment?.kind,
+  });
+  useLayoutEffect(() => {
+    elsewhere.current = runsElsewhere;
+  }, [runsElsewhere]);
   // WEB-SWAP: a reload also loses a pick the page keeps only in its state: shell mode, a folder or
   // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
   const editingEnvironment = saved.on && saved.editing !== undefined;
   useWebSwapHold(shell || picked || none || environment || editingEnvironment || machine ? "newtab.choice" : null);
-  // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
-  const chatFolder = environment
-    ? environment.kind === "local"
-      ? environment.folder
-      : undefined
-    : none
-      ? undefined
-      : project && project !== props.cwd
-        ? project
-        : (props.startCwd ?? project ?? props.cwd);
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
@@ -689,6 +701,12 @@ export function NewTabScreen(props: Props) {
     : project && project !== props.cwd
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // Where the chips' picks start the chat (a harness or model pick, the slash command list): a real
+  // pick, else the folder the chip names. Never the tab's inherited folder by itself: with No folder
+  // on the chip, a fresh workspace's `~` made a Codex pick start in the home folder, which the pane
+  // refuses ("This folder is outside the folders this pane may use", cmux#40938). No folder sends
+  // none, and the host starts the chat in its own start folder.
+  const chatFolder = environment ? (environment.kind === "local" ? environment.folder : undefined) : askFolder;
   // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
   // absent folder lets the host search only its approved local checkout roots.
   const fixFolder = [project, askFolder].find((folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder));
@@ -741,7 +759,7 @@ export function NewTabScreen(props: Props) {
   /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
   /// and the prompt stays.
   const [sandboxRefusal, setSandboxRefusal] = useState<string>();
-  const [startError, setStartError] = useState<string>();
+  const [startError, setStartError] = useState<NewTabStartFailure>();
   /// The request in flight (its number), or 0: Return waits for it. Only that request's own end
   /// opens the page again, never an older one's late reply.
   const asking = useRef(0);
@@ -763,7 +781,17 @@ export function NewTabScreen(props: Props) {
       forgetProjectPreview(args[2]);
       // A cancelled start (Not now, a newer folder request, another chat taking the page) is no
       // failure: the draft stays and nothing says it failed. A real refusal still says why.
-      if (!isStartCancelled(error)) setStartError(errorMessage(error) || t("switch.unknownError"));
+      if (isStartCancelled(error)) return;
+      const code = (error as { code?: unknown } | undefined)?.code;
+      setStartError({
+        harness: args[0],
+        error: errorMessage(error) || t("switch.unknownError"),
+        ...(typeof code === "string" ? { code } : {}),
+        // A chat on another machine installs nothing here: its agent is set up on that machine.
+        local: !args[6]?.peer,
+        // Retry asks the same agent again with the draft as it is now (`continueAfterSetup`).
+        retry: () => continueAfterSetup.current(args[0], args[3]),
+      });
     };
     const done = () => {
       if (asking.current !== request) return;
@@ -797,8 +825,12 @@ export function NewTabScreen(props: Props) {
     const isCommand =
       slash !== undefined &&
       (composerCommand(words, agent) !== undefined || snapshot.commands?.some((item) => item.name === slash));
+    // `/customize …` goes as the ask it stands for (customizeCommand.ts).
     const sent = isCommand
-      ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
+      ? {
+          text: customizeMessage(words) ?? words,
+          attachments: attachments.map(({ inline: _, ...attachment }) => attachment),
+        }
       : inText;
     const sentAttachments = sent.attachments;
     // Only a verdict that already says the harness is signed out holds the prompt back. A check
@@ -1012,18 +1044,21 @@ export function NewTabScreen(props: Props) {
       profilePick
         ? profileRows(typed, profilePick.url, profiles ?? [])
         : touched && !shell && !commandTyping
-          ? screenRows(typed, {
-              omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
-              home,
-              create: creates,
-              ...(ask ? { ask } : {}),
-              createNames: {
-                terminal: nt("create.terminal"),
-                browser: nt("create.browser"),
-                chat: nt("create.chat"),
-              },
-              ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
-            })
+          ? searchWords(
+              screenRows(typed, {
+                omnibar: profiles ? omnibar : { ...omnibar, profiles: undefined },
+                home,
+                create: creates,
+                ...(ask ? { ask } : {}),
+                createNames: {
+                  terminal: nt("create.terminal"),
+                  browser: nt("create.browser"),
+                  chat: nt("create.chat"),
+                },
+                ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+              }),
+              (words) => withoutInlineTokens(words),
+            )
           : [],
     [
       profilePick,
@@ -1135,10 +1170,18 @@ export function NewTabScreen(props: Props) {
       // A recent chat's native open can fail without navigating. Keep its refusal on New Tab.
       try {
         void Promise.resolve(props.onOpenChat(key)).catch((error: unknown) => {
-          setStartError(errorMessage(error) || t("switch.unknownError"));
+          setStartError({
+            error: errorMessage(error) || t("switch.unknownError"),
+            local: true,
+            retry: () => (setStartError(undefined), openCard(id)),
+          });
         });
       } catch (error) {
-        setStartError(errorMessage(error) || t("switch.unknownError"));
+        setStartError({
+          error: errorMessage(error) || t("switch.unknownError"),
+          local: true,
+          retry: () => (setStartError(undefined), openCard(id)),
+        });
       }
       return;
     }
@@ -1152,7 +1195,14 @@ export function NewTabScreen(props: Props) {
   // A card's Compress Chat or Decompress Chat; acpmux's refusal stays on the page, as an open's does.
   const coldArchiveCard = (id: string, archived: boolean) => {
     void props.onColdArchive?.(id, archived).catch((error: unknown) => {
-      setStartError(errorMessage(error) || t("switch.unknownError"));
+      setStartError({
+        error: errorMessage(error) || t("switch.unknownError"),
+        local: true,
+        retry: () => {
+          setStartError(undefined);
+          coldArchiveCard(id, archived);
+        },
+      });
     });
   };
   const list = useRef<HTMLDivElement>(null);
@@ -1234,11 +1284,16 @@ export function NewTabScreen(props: Props) {
       else field.current?.setCaret(0);
     };
     if (fieldReady && focusOnShow) focus();
-    if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
-      inputReadyReported.current = inputToken;
-      onInputReady.current?.(inputToken);
-    }
     const view = fieldElement()?.ownerDocument.defaultView;
+    // The app replays the keys typed after Cmd-T into the page at this readiness: it waits until
+    // the page has focus, or a page not focused yet loses them (reportInputReadyWhenFocused).
+    let cancelReady = () => {};
+    if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
+      cancelReady = reportInputReadyWhenFocused(view, () => {
+        inputReadyReported.current = inputToken;
+        onInputReady.current?.(inputToken);
+      });
+    }
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     // The page got the keyboard back (a tab or pane switch back: WebKit focuses the window as its
     // web view becomes first responder) with nothing in it focused, as after a press on the page's
@@ -1259,6 +1314,7 @@ export function NewTabScreen(props: Props) {
     };
     if (focusOnShow) doc?.addEventListener("keydown", tab);
     return () => {
+      cancelReady();
       view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
       view?.removeEventListener("focus", reclaim);
       doc?.removeEventListener("keydown", tab);
@@ -1459,16 +1515,17 @@ export function NewTabScreen(props: Props) {
     // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
     if (asked === false) created.current = false;
   };
-  continueAfterSetup.current = (agent) => {
+  continueAfterSetup.current = (agent, model) => {
     // Setup may finish while an attachment is still loading. Resume the same draft only once
     // its files are ready, reading the latest state rather than the setup-opening snapshot.
-    if (holdForAttachments(() => continueAfterSetup.current(agent)) || created.current) return;
+    if (holdForAttachments(() => continueAfterSetup.current(agent, model)) || created.current) return;
     created.current = true;
     const prompt = shell ? "" : typed.trim();
     const asked = askChat(
       agent,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
+      model,
     );
     if (asked === false) created.current = false;
   };
@@ -1652,10 +1709,11 @@ export function NewTabScreen(props: Props) {
       pick(stepSelection(current, 1, rows.length));
       return;
     }
-    // In the text (no row selected), a prompt of several lines keeps ↑ and ↓ for the caret, as in
-    // the chat's composer; the rows take them from the caret's first (↑) or last (↓) line. In the
-    // list they always step the rows.
-    const step = current < 0 && movesCaretInPrompt(event, state) ? undefined : listStep(event);
+    // Until the arrows pick a row (the top row typing lights is not a pick), a prompt of several
+    // lines, wrapped ones too, keeps ↑ and ↓ for the caret, as in the chat's composer: the rows
+    // take them from the caret's first (↑) or last (↓) line. Once a row is picked, the arrows step
+    // the rows.
+    const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
       pick(stepSelection(current, step, rows.length));
@@ -2185,9 +2243,15 @@ export function NewTabScreen(props: Props) {
         {props.startNotice}
 
         {startError && (
-          <p role="alert" className="acpmux-switch-notice">
-            {startError}
-          </p>
+          <StartFailure
+            failure={startError}
+            name={snapshot.catalog.find((entry) => entry.id === startError.harness)?.name ?? startError.harness ?? ""}
+            onInstall={() => {
+              setStartError(undefined);
+              openSetup();
+            }}
+            onDismiss={() => setStartError(undefined)}
+          />
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {newProjectError && (
@@ -2781,14 +2845,18 @@ function listStep(event: KeyboardEvent): 1 | -1 | undefined {
 }
 
 /// Whether ↑ or ↓ (no modifier) has a line of the prompt to move the caret to: one above the caret
-/// for ↑, one below it for ↓ (Composer.tsx's rule for a recalled prompt).
+/// for ↑, one below it for ↓ (Composer.tsx's rule for a recalled prompt). A line the field wraps
+/// counts as its visual lines, so a long one-paragraph prompt keeps ↑ and ↓ for its caret too.
 function movesCaretInPrompt(
   event: KeyboardEvent,
   field: { value: string; selectionStart: number; selectionEnd: number },
+  editor: Pick<MarkdownFieldHandle, "caretOnEdgeLine">,
 ): boolean {
   if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
-  if (event.key === "ArrowUp") return field.value.slice(0, field.selectionStart).includes("\n");
-  if (event.key === "ArrowDown") return field.value.slice(field.selectionEnd).includes("\n");
+  if (event.key === "ArrowUp")
+    return field.value.slice(0, field.selectionStart).includes("\n") || !editor.caretOnEdgeLine("up");
+  if (event.key === "ArrowDown")
+    return field.value.slice(field.selectionEnd).includes("\n") || !editor.caretOnEdgeLine("down");
   return false;
 }
 

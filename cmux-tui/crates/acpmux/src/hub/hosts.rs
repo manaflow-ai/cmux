@@ -14,11 +14,10 @@ use crate::store::RecordHead;
 use cmux_json::JsonSet as _;
 use futures_util::StreamExt;
 
-/// How long adoption waits for the next replayed entry of one host to be
-/// logged before it recovers from the log as it is.
-const REPLAY_STALL: std::time::Duration = std::time::Duration::from_secs(10);
-/// The most one host's replay may hold adoption (and daemon startup).
-const REPLAY_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
+/// How long adoption waits for the next replayed entry of one host to be logged before it recovers
+/// from the log as it is (`REPLAY_STALL`), and the most one host's replay may hold adoption and
+/// daemon startup (`REPLAY_CEILING`). A reattach's resend of unlogged answers waits the same.
+use crate::agent::{REPLAY_CEILING, REPLAY_STALL};
 
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
@@ -61,6 +60,10 @@ pub(super) struct OpenWork {
     /// so a steer's answer can be the one that ends the turn
     /// (`steer_end.rs`). Never the turn's own prompt (`prompt_request`).
     steers: Vec<(Value, Option<Value>)>,
+    /// Of those, the hub's prompt id of each (`_meta.promptId`), by request id
+    /// (`Value::to_string`): one its agent answers `STEER_NO_TURN` goes back to the queue
+    /// (`unread_steer.rs`).
+    steer_prompts: HashMap<String, String>,
     /// Agent requests to this host with no logged answer: (id, method,
     /// params, hostSeq).
     requests: Vec<(Value, String, Option<Value>, Option<u64>)>,
@@ -148,7 +151,7 @@ impl Hub {
             if let Some(nonce) = &b.start_nonce
                 && agent_host::liveness(&dir, &b.session_id, nonce) == Liveness::Dead
             {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = crate::home_fs::remove_file(&b.path);
                 continue;
             }
             unreadable.insert(b.session_id.clone());
@@ -464,7 +467,7 @@ impl Hub {
             if let Some(record) = record {
                 agent_host::remove_artifacts(&dir, &record);
             } else if let Some(b) = bad.iter().find(|b| b.session_id == session.id) {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = crate::home_fs::remove_file(&b.path);
             }
             self.append(session, "mux", "host_ended", json!({}));
         } else {
@@ -601,11 +604,7 @@ impl Hub {
         self.restore_launch(session, &child, &incarnation, kind).await;
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
-        }
+        self.spawn_inbound_loop(session).await;
         // Asked once the inbound loop drains the replay, which the answer comes behind.
         self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the
@@ -1122,6 +1121,11 @@ impl Hub {
                     let steer =
                         e.msg.pointer("/params/_meta/steer").and_then(Value::as_bool) == Some(true);
                     if steer && (work.prompt_request.is_some() || work.turn_carried) {
+                        let prompt =
+                            e.msg.pointer("/params/_meta/promptId").and_then(Value::as_str);
+                        if let (Some(id), Some(prompt)) = (&id, prompt) {
+                            work.steer_prompts.insert(id.to_string(), prompt.to_owned());
+                        }
                         work.steers.extend(id.map(|id| (id, None)));
                     } else {
                         work.prompt_request = id;
@@ -1322,13 +1326,22 @@ impl Hub {
                         Some(_) => None,
                         None => Some(child.await_response(request_id).await),
                     };
-                    // The steers still unanswered: one of them may end the turn.
+                    // The steers still unanswered: one of them may end the turn. One its agent
+                    // answers `STEER_NO_TURN` (the turn ended before it read it) goes back to the
+                    // queue, as the daemon that wrote it would have run it (`unread_steer.rs`).
                     let mut steer_answers = Vec::new();
-                    if rx.is_some() {
-                        for (id, logged) in &work.steers {
-                            if logged.is_none() {
-                                steer_answers.push(child.await_response(id.clone()).await);
-                            }
+                    for (id, logged) in &work.steers {
+                        let prompt = work.steer_prompts.get(&id.to_string()).cloned();
+                        // Answered in the host's log already: the turn ended while no daemon
+                        // ran, or a shutdown cancelled the last daemon's watch of the answer.
+                        if let Some(logged) = logged {
+                            self.steer_answered_unread(session, prompt.as_deref(), logged);
+                            continue;
+                        }
+                        let answer = child.await_response(id.clone()).await;
+                        let answer = self.unread_steer_runs_next(session, prompt, answer);
+                        if rx.is_some() {
+                            steer_answers.push(answer);
                         }
                     }
                     let hub = self.clone();
@@ -1374,6 +1387,8 @@ impl Hub {
                                 "turnId": turn_id, "turnSeq": turn_seq}),
                             );
                         }
+                        // A notice's turn answers the messages it carried (`inbox.rs`).
+                        hub.recovered_notice_done(&s, &prompt_id, &result);
                         outcome.send_replace(Some(result));
                         super::prompt_ledger::prune(
                             &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),
