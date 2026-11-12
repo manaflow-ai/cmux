@@ -572,17 +572,23 @@ fn git_lane_equal_queued_reads_share_one_git_run() {
 }
 
 /// One run takes a bounded count of equal reads: [`SHARED_READS`] join the
-/// first, and the next equal read is a run of its own.
+/// first, and the next equal read is a run of its own. So the most that one
+/// run takes get one run, and one read more gets a second run.
 #[test]
 fn git_lane_equal_reads_above_the_bound_of_one_run_get_a_second_run() {
+    const ONE_RUN: usize = SHARED_READS + 1;
     const EQUAL: usize = SHARED_READS + 2;
     let (busy, busy_gate) = repository("busy");
+    let (full, full_gate) = repository("full");
     let (repo, gate) = repository("many");
     let mut app = Connection::open(&daemon());
 
     // The lane is full: later reads wait.
     busy_gate.hold("hold-all");
     let fill = fill_the_read_places(&mut app, &busy, &busy_gate);
+    for number in 0..ONE_RUN {
+        app.send(&format!("r{number}"), "git.status", json!({"path": full}));
+    }
     for number in 0..EQUAL {
         app.send(&format!("s{number}"), "git.status", json!({"path": repo}));
     }
@@ -590,19 +596,25 @@ fn git_lane_equal_reads_above_the_bound_of_one_run_get_a_second_run() {
     app.reply(&json!(9));
 
     busy_gate.release("hold-all");
-    let (replies, closed) = app.replies(fill.len() + EQUAL, LONG);
-    let answered = replies
-        .iter()
-        .filter(|reply| reply["id"].as_str().is_some_and(|id| id.starts_with('s')))
-        .filter(|reply| reply["ok"] == true)
-        .count();
-    let runs = gate.runs_of("status");
+    let (replies, closed) = app.replies(fill.len() + ONE_RUN + EQUAL, LONG);
+    let answered_of = |first: char| {
+        replies
+            .iter()
+            .filter(|reply| reply["id"].as_str().is_some_and(|id| id.starts_with(first)))
+            .filter(|reply| reply["ok"] == true)
+            .count()
+    };
+    let (answered_one, answered) = (answered_of('r'), answered_of('s'));
+    let (runs_one, runs) = (full_gate.runs_of("status"), gate.runs_of("status"));
     eprintln!(
-        "git-lane: {EQUAL} equal git.status that waited: {answered} answered, {runs} git status \
-         runs, closed by the daemon: {closed}"
+        "git-lane: {ONE_RUN} equal git.status that waited: {answered_one} answered, {runs_one} \
+         git status runs; {EQUAL} equal git.status that waited: {answered} answered, {runs} git \
+         status runs, closed by the daemon: {closed}"
     );
+    assert_eq!(answered_one, ONE_RUN, "equal git.status of one run that got their answer");
+    assert_eq!(runs_one, 1, "git status runs for the {ONE_RUN} equal reads that one run takes");
     assert_eq!(answered, EQUAL, "equal git.status that got their answer");
-    assert_eq!(runs, 2, "git status runs: one for the first {} reads, one more", SHARED_READS + 1);
+    assert_eq!(runs, 2, "git status runs: one for the first {ONE_RUN} reads, one more");
 }
 
 /// A mutation keeps its place in its connection's order: it starts after the
@@ -953,7 +965,8 @@ fn git_lane_equal_reads_with_a_large_reply_each_get_it_and_the_connection_stays_
 /// it: the copies wait for room in its reply queue, and that wait holds no
 /// place of the lane. So while they wait, another connection's long reads
 /// take each of the long places, a `git.status` of another connection
-/// answers, and a `git.status` of the same connection starts and answers:
+/// answers, and a `git.status` of the same connection runs to its end: the
+/// test reads again only after the last git child of that status ended, so
 /// its reply is in the connection's queue before the copies that still wait.
 ///
 /// The connection reads up to the first of its 60 equal replies (the sign
@@ -1026,6 +1039,12 @@ fn git_lane_copies_that_wait_for_a_connection_that_does_not_read_hold_no_place()
     slow.send("own-status", "git.status", json!({"path": own}));
     wait_for("the git.status of the slow connection in git", || own_gate.runs_of("status") > 0);
     let own_status = own_asked.elapsed();
+    // The last git child of a `git.status` asks for the common directory.
+    // After it the reply goes to the queue, while copies still wait there.
+    wait_for("the end of the git.status of the slow connection", || {
+        own_gate.runs_of("--git-common-dir") > 0 && own_gate.active() == 0
+    });
+    let own_ended = own_asked.elapsed();
 
     // Now the connection reads. It is open, so the copies waited until
     // here: the checks above were while they waited.
@@ -1038,9 +1057,9 @@ fn git_lane_copies_that_wait_for_a_connection_that_does_not_read_hold_no_place()
     eprintln!(
         "git-lane: {} copies of a shared reply wait for a connection that does not read: {} long \
          reads of another connection ran in {:?}; a git.status of another connection answered \
-         in {other_status:?}; a git.status of the same connection started in {own_status:?} and \
-         its answer came {copies_after_own} copies before the last; then the connection read \
-         {copies} copies, closed by the daemon: {closed}",
+         in {other_status:?}; a git.status of the same connection started in {own_status:?}, its \
+         git ended in {own_ended:?} and its answer came {copies_after_own} copies before the \
+         last; then the connection read {copies} copies, closed by the daemon: {closed}",
         EQUAL - 1,
         long_reads.0,
         long_reads.1
