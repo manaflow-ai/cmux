@@ -13,7 +13,8 @@ fn p95(mut samples: Vec<Duration>) -> Duration {
 /// The lane's bar, in one harness: a follow after one change costs the same at 525 chats and at
 /// 11,000 (god), and the app's first list frame after its socket is up stays under 500 ms while
 /// 30 peer links reconnect at once. "whole" is what every link did before (`_acpmux/watch` with no
-/// cursor: the shared list behind its pace); "follow" is what a link does now.
+/// cursor: its own list); "follow" is what a link does now. "first page" is the app's watch with
+/// `limit: 200`, "whole read" `_acpmux/sessions` with none.
 /// `cargo test -p acpmux --release --lib list_follow_bench -- --ignored --nocapture`
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: prints the before and after numbers"]

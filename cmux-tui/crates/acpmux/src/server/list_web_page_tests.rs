@@ -22,9 +22,9 @@ use super::Origin;
 const MOST_LIST_REPLY_BYTES: usize = 4 << 20;
 
 /// This daemon's own chats: a few pages of every list (about 2.6 MB of census rows, about
-/// 3 MB of ACP rows), past one page of each, and no more. Each page past the first can wait
-/// for a list build and its pace: 3,000 chats with 10 KB titles (66 ACP pages) took this file's
-/// detector 1,605 s in a debug build on hosted Linux (run 43145234111).
+/// 3 MB of ACP rows), past one page of each, and no more. When each page past the first could
+/// wait for a list build and its pace, 3,000 chats with 10 KB titles (66 ACP pages) took this
+/// file's detector 1,605 s in a debug build on hosted Linux (run 43145234111).
 const OWN: usize = 1_200;
 /// Past the census row's title cut (`hub/views.rs` `TITLE_CHARS`), so the cut is on the path.
 const TITLE_BYTES: usize = 300;
@@ -49,10 +49,17 @@ pub(crate) async fn list_test_within<T>(
         Ok(done) => done,
         Err(_) => panic!(
             "{test}: not done in {:?} (deadline {LIST_TEST_DEADLINE:?}): a paged list read that never \
-             ends, or a build per page; the list guard's `list_cost` debug log names each build",
+             ends, or every row built per page",
             started.elapsed()
         ),
     }
+}
+
+/// Session rows built so far (`Hub::summaries_built`): this daemon's chats here are live, so each
+/// row a list sends is built, none read from the closed rows' cache.
+fn rows_built(hub: &crate::hub::Hub) -> usize {
+    let built = hub.summaries_built.load(std::sync::atomic::Ordering::SeqCst);
+    usize::try_from(built).unwrap_or(usize::MAX)
 }
 
 async fn hub() -> Arc<crate::hub::Hub> {
@@ -246,21 +253,22 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
             (method::MUX_SESSIONS, json!({})),
         ];
         for (m, params) in reads {
-            let (builds, began) = (hub.list_guard.builds_for_tests(), Instant::now());
+            let (built, began) = (rows_built(&hub), Instant::now());
             let (ids, sizes) = client.whole(m, params.clone()).await;
-            let builds = hub.list_guard.builds_for_tests() - builds;
+            let built = rows_built(&hub) - built;
             println!(
-                "LIST-BUILDS {origin:?} {m} {params}: pages={} builds={builds} ms={}",
+                "LIST-BUILDS {origin:?} {m} {params}: pages={} rows built={built} ms={}",
                 sizes.len(),
                 began.elapsed().as_millis()
             );
-            // One paged read is cut from about one build, however long its with-tools rows took
-            // to make: built again for every page, the 30 pages with tools here waited out the
-            // builder's pace each time and this test ran past CI's 40 minutes (run 43164890485).
-            // Loose, since a busy host may see a window end mid-read; not one build per page.
+            // A paged read builds the rows of each page as it goes, never the list per page:
+            // built again for every page, the 30 pages with tools here ran past CI's 40 minutes
+            // (run 43164890485). Each row about once, its page's first try and a masked page cut
+            // again smaller (`within_limit`) a few times more.
             assert!(
-                builds as usize <= sizes.len() / 3 + 3,
-                "{origin:?} {m} {params}: {builds} builds for {} pages",
+                built <= 4 * ids.len() + sizes.len(),
+                "{origin:?} {m} {params}: {built} rows built for {} rows in {} pages",
+                ids.len(),
                 sizes.len()
             );
             assert!(sizes.len() > 1, "{origin:?} {m} {params}: a list past one page goes in pages");
@@ -269,7 +277,7 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
             assert_eq!(sorted(ids), every_id(), "{origin:?} {m} {params}");
         }
         // ACP's `session/list`, its cursor followed by `session/list` itself.
-        let (builds, began) = (hub.list_guard.builds_for_tests(), Instant::now());
+        let (built, began) = (rows_built(&hub), Instant::now());
         let (mut page, size, _) = client.call(method::SESSION_LIST, json!({})).await;
         let (mut sizes, mut ids) = (vec![size], Vec::new());
         loop {
@@ -282,15 +290,16 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
                 client.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
             (page, sizes) = (next, [sizes, vec![size]].concat());
         }
-        let builds = hub.list_guard.builds_for_tests() - builds;
+        let built = rows_built(&hub) - built;
         println!(
-            "LIST-BUILDS {origin:?} session/list: pages={} builds={builds} ms={}",
+            "LIST-BUILDS {origin:?} session/list: pages={} rows built={built} ms={}",
             sizes.len(),
             began.elapsed().as_millis()
         );
         assert!(
-            builds as usize <= sizes.len() / 3 + 3,
-            "{origin:?} session/list: {builds} builds for {} pages",
+            built <= 4 * ids.len() + sizes.len(),
+            "{origin:?} session/list: {built} rows built for {} rows in {} pages",
+            ids.len(),
             sizes.len()
         );
         assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page goes in pages");

@@ -199,11 +199,6 @@ pub struct Conn {
     mailbox_bindings: StdMutex<HashMap<String, SessionReceipt>>,
     watch_all: AtomicBool,
     watch_tools: AtomicBool,
-    /// Its pace of full session lists (`hub/list_guard.rs`).
-    list_pace: StdMutex<crate::hub::list_guard::Pacer>,
-    /// `session_changed` notices queued for it, counted before each is queued
-    /// (`list_reply.rs`: a list sent after one must show its change).
-    notices: Arc<AtomicU64>,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -592,9 +587,6 @@ impl Conn {
         self.raise_gate();
         // A request to the client waits on its answer, so it is never dropped as lossy.
         let control = matches!(msg, Message::Response { .. } | Message::Request { .. });
-        if msg.method() == Some(method::MUX_SESSION_CHANGED) {
-            self.notices.fetch_add(1, Ordering::SeqCst);
-        }
         let redacted = if self.origin == Origin::Peer {
             let mut copy = msg.clone();
             let changed = match &mut copy {
@@ -653,13 +645,11 @@ impl Conn {
         );
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
-    /// already for a peer, read when [`Conn::notices`] was `seen`. Under the outbound lock:
-    /// if a notice was queued since, it is not sent (false) unless `anyway`. A reply that
-    /// goes out after such a notice (`anyway`, or one that waited for room in a full queue)
-    /// is followed by `_acpmux/lagged {watch: true}`, so the client reads the list again.
-    /// One larger than a frame goes as its error, as in [`Self::send`].
-    /// None if it was not sent; else whether it went whole into an open queue (not as its
-    /// too-large error, nor into a queue whose reader is gone).
+    /// already for a peer. A `session_changed` notice may go before it: the client keeps each
+    /// row with the higher `listSeq` (`hub/row_log.rs`), so no reply is read again or followed by
+    /// a lag for it. One larger than a frame goes as its error, as in [`Self::send`].
+    /// Whether it went whole into an open queue (not as its too-large error, nor into a queue
+    /// whose reader is gone).
     /// `method` is the request's, if known, for the size watch (`wire_size.rs`), which counts
     /// the reply once it goes, never a list left for a newer one.
     /// `claim` takes the request's in-flight entry as the reply is queued, under the outbound
@@ -672,9 +662,7 @@ impl Conn {
         method: Option<&str>,
         claim: Option<&in_flight::Claim>,
         result: Arc<String>,
-        seen: u64,
-        anyway: bool,
-    ) -> Option<bool> {
+    ) -> bool {
         // A result past the cap alone is refused before its line is made: no copy of it.
         let (line, bytes, whole) = if result.len() > crate::rpc::MAX_MESSAGE_BYTES {
             let error = Message::err(id.clone(), RpcError::too_large(result.len())).to_line();
@@ -688,18 +676,10 @@ impl Conn {
                 (Message::err(id.clone(), RpcError::too_large(bytes)).to_line(), bytes, false)
             }
         };
-        let lag = || {
-            let lag = json!({"watch": true, "dropped": 0, "reason": "list_changed"});
-            Message::notification("_acpmux/lagged", lag).to_line()
-        };
         self.raise_gate();
         let _guard = self.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
-        let stale = self.notices.load(Ordering::SeqCst) != seen;
-        if stale && !anyway {
-            return None;
-        }
         if claim.is_some_and(|claim| !self.in_flight.claim(claim)) {
-            return Some(false);
+            return false;
         }
         let what = method.map_or(crate::wire_size::What::Reply, crate::wire_size::What::ReplyTo);
         crate::wire_size::observe(what, bytes);
@@ -711,23 +691,20 @@ impl Conn {
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
         match self.out.try_send(line) {
-            Ok(()) if stale => self.enqueue_control_locked(lag()),
             Ok(()) => {}
-            Err(mpsc::error::TrySendError::Closed(_)) => return Some(false),
-            // No room: it waits for some, and a notice may go first; then the lag follows it.
+            Err(mpsc::error::TrySendError::Closed(_)) => return false,
+            // No room: it waits for some, and notices may go first.
             Err(mpsc::error::TrySendError::Full(line)) => {
-                let (out, notices) = (self.out.clone(), self.notices.clone());
+                let out = self.out.clone();
                 let pending = self.outbound_pending_controls.clone();
                 pending.fetch_add(1, Ordering::AcqRel);
                 self.scope.spawn_named("conn-reply-waits-for-room", async move {
-                    if out.send(line).await.is_ok() && notices.load(Ordering::SeqCst) != seen {
-                        let _ = out.send(lag()).await;
-                    }
+                    let _ = out.send(line).await;
                     pending.fetch_sub(1, Ordering::AcqRel);
                 });
             }
         }
-        Some(whole)
+        whole
     }
 
     /// [`Self::send`] for a request to the client that must go out after every response and
@@ -758,18 +735,6 @@ impl Conn {
         Ok(())
     }
 
-    fn enqueue_control_locked(&self, line: String) {
-        enqueue_outbound_locked(
-            &self.out,
-            line,
-            true,
-            &self.outbound_dropped,
-            &self.outbound_gap_pending,
-            &self.outbound_lock,
-            &self.outbound_pending_controls,
-            &self.queued,
-        );
-    }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
@@ -1693,8 +1658,6 @@ async fn serve_connection_from(
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
-        list_pace: Default::default(),
-        notices: Arc::new(AtomicU64::new(0)),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2359,8 +2322,7 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 use outbound::{
-    OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
-    report_outbound_loss_locked,
+    OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, report_outbound_loss_locked,
 };
 mod machine_tunnel;
 pub(crate) mod outbox;

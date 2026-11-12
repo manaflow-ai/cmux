@@ -7,13 +7,20 @@
 //! keeps each row's last position and the rows that went (to a bound), never a row's bytes: a
 //! follow builds the rows it names when it is read, so it is as current as a whole list.
 //!
+//! A row change no record carries (a streamed chunk's preview, an attach) is stamped and told, as
+//! `session_changed` of kind `row`, before a list position is read next; a record that reaches
+//! other rows (a parent's tags fold its children) stamps and tells each of them too. So a cursor a
+//! client took from any notice is past no change it was not sent (#42091). A change no record
+//! carries that may reach any row (new usage thresholds) is a barrier: no cursor before it is
+//! followed.
+//!
 //! A client keeps the highest `listSeq` it applied. A watch with `afterSeq` (and the daemon run's
 //! `listEpoch`) is answered with the rows changed and removed since, not the list: its cost is the
 //! changes, whatever the list's size. A cursor from another run, or older than the oldest removal
 //! the log still holds, is answered `reset` and the client reads the list's first page again.
 
 use super::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The `initialize` capability of a daemon that stamps `listSeq` and answers `afterSeq`.
 pub const CAPABILITY: &str = "session-list-follow-v1";
@@ -35,7 +42,7 @@ pub(crate) struct RowLog {
     at: HashMap<RowKey, u64>,
     live: BTreeMap<u64, RowKey>,
     gone: BTreeMap<u64, RowKey>,
-    /// The newest removal dropped: a cursor below it may have missed one.
+    /// The newest removal dropped, or the last barrier: a cursor below it may have missed a change.
     floor: u64,
 }
 
@@ -68,10 +75,14 @@ impl RowLog {
         seq
     }
 
-    /// A change that may reach rows it does not name (a parent's tags fold its children): no
-    /// cursor before it can be followed, so each reads the list again (`reset`).
-    pub(crate) fn floor_all(&mut self) {
-        self.floor = self.floor.max(self.head);
+    /// A change that may reach any row and names none (`Events::changed`): it takes a position of
+    /// its own, and no cursor before it can be followed, so each reads the list again (`reset`).
+    /// The reset's own `listSeq` is this position or later, which the log follows. A floor at the
+    /// head without a position of its own let a client whose cursor was the head follow past it
+    /// (#42091 F1).
+    pub(crate) fn barrier(&mut self) {
+        self.head += 1;
+        self.floor = self.head;
     }
 
     pub(crate) fn head(&self) -> u64 {
@@ -128,6 +139,26 @@ pub(super) fn row_change(ev: &HubEvent) -> Option<(RowKey, bool)> {
     crate::server::session_change_kind(&rec.kind).map(|_| (own(), false))
 }
 
+/// The event that tells the watchers this daemon's row `session` changed with no record of its own
+/// (`Events::tell_row`): `server::deliver` sends it as `session_changed` of kind `row`.
+pub(super) fn row_event(session: &str) -> HubEvent {
+    HubEvent {
+        session_id: session.to_owned(),
+        record: Arc::new(EventRecord {
+            seq: 0,
+            at: now_ms(),
+            dir: super::cold_archive::COLD_CHANGED.into(),
+            kind: "row".into(),
+            msg: json!({}),
+            host_seq: None,
+        }),
+        remote: None,
+        update_line: Default::default(),
+        row: Default::default(),
+        list_seq: 0,
+    }
+}
+
 /// A random id for this daemon run's list positions.
 pub(super) fn new_epoch() -> String {
     uuid::Uuid::now_v7().simple().to_string()
@@ -141,8 +172,65 @@ pub(crate) struct Follow {
 }
 
 impl Hub {
+    /// Notes the rows a record of `session` reaches besides its own
+    /// (`list_guard::reaches_other_rows`): its parent's (a new child's count) and those of every
+    /// session below it (a child folds under its parent, `Hub::spawned_by`; the lineage root walk
+    /// goes through it). Each is stamped and told before the next list position is read
+    /// ([`Self::tell_reached`]), after the record's own position. Before, such a record set a
+    /// floor at its own position, and a client that applied its notice followed past the rows it
+    /// changed and never named (#42091 F1, F2). Cheap here (an append holds its chat's lock): the
+    /// walk is the list read's.
+    pub(super) fn note_rows_reading(&self, session: &Session) {
+        let parent = session.read_meta(|m| super::views::activity_parent_id(m).map(str::to_owned));
+        self.events.reaches(&session.id, parent.filter(|parent| *parent != session.id));
+    }
+
+    /// Stamps and tells the rows the noted records reached ([`Self::note_rows_reading`]), then
+    /// the rows changed with no notice: one walk of the sessions for all of them.
+    fn tell_reached(&self) {
+        let noted = self.events.take_reaching();
+        if !noted.is_empty() {
+            let mut children: HashMap<String, Vec<String>> = HashMap::new();
+            for s in self.session_handles() {
+                let parent =
+                    s.read_meta(|m| super::views::activity_parent_id(m).map(str::to_owned));
+                if let Some(parent) = parent.filter(|parent| *parent != s.id) {
+                    children.entry(parent).or_default().push(s.id.clone());
+                }
+            }
+            let mut seen = HashSet::new();
+            for (id, parent) in noted {
+                let mut below = vec![id.clone()];
+                seen.insert(id);
+                if let Some(parent) = parent
+                    && seen.insert(parent.clone())
+                {
+                    self.events.tell_row(&parent);
+                }
+                while let Some(next) = below.pop() {
+                    for child in children.get(&next).into_iter().flatten() {
+                        if seen.insert(child.clone()) {
+                            self.events.tell_row(child);
+                            below.push(child.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A session came (made, forked, moved here): every closed row is built again, and its row and
+    /// the rows that read it are told before the next list read: a child that came before its
+    /// parent folds under it now.
+    pub(super) fn session_came(&self, session: &Session) {
+        self.events.all_rows_stale();
+        self.events.row_changed(session);
+        self.note_rows_reading(session);
+    }
+
     /// The newest list position and this run's epoch.
     pub(crate) fn list_cursor(&self) -> (u64, &str) {
+        self.tell_reached();
         (self.events.list_head(), self.events.list_epoch())
     }
 
@@ -156,6 +244,7 @@ impl Hub {
         tools: bool,
         budget: usize,
     ) -> Option<Follow> {
+        self.tell_reached();
         let since = self.events.list_since(after)?;
         let mut sessions: Vec<String> = Vec::new();
         let mut removed: Vec<Value> = Vec::new();

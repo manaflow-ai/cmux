@@ -9,7 +9,7 @@
 //! not in a later page, and reaches a watching client as `_acpmux/session_changed`.
 //! Without `limit` the reply is the whole list, as before, unless it is too large for one
 //! message: then it goes in pages by size, each with the `nextCursor` of the rest
-//! (`Snapshot::bounded`, [`byte_page`]). `orderBy: "sessionId"`
+//! (`list_guard::bounded`, [`byte_page`]). `orderBy: "sessionId"`
 //! opts into stable ID ordering, so updates cannot move an unread session past
 //! the cursor (used by the quit census, which does not subscribe to changes).
 //!
@@ -60,6 +60,24 @@ pub(crate) trait PageRow {
     fn updated_ms(&self) -> u64;
     fn peer(&self) -> Option<&str>;
     fn status(&self) -> Option<&str>;
+}
+
+impl<R: PageRow + ?Sized> PageRow for &R {
+    fn session_id(&self) -> &str {
+        (**self).session_id()
+    }
+
+    fn updated_ms(&self) -> u64 {
+        (**self).updated_ms()
+    }
+
+    fn peer(&self) -> Option<&str> {
+        (**self).peer()
+    }
+
+    fn status(&self) -> Option<&str> {
+        (**self).status()
+    }
 }
 
 impl PageRow for Value {
@@ -158,8 +176,8 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
 /// updates or leaves while a client pages moves no other, so none is skipped or repeated. A
 /// row listed twice (one id, one peer) comes once. A page never ends between rows of one hash,
 /// which two different rows share only if 128-bit hashes collide.
-pub(crate) fn byte_page<R>(
-    keys: &[Value],
+pub(crate) fn byte_page<K: PageRow, R>(
+    keys: &[K],
     cursor: Option<&str>,
     budget: usize,
     row: impl Fn(usize) -> R,
@@ -384,7 +402,7 @@ fn peer<R: PageRow + ?Sized>(session: &R) -> Option<&str> {
 
 /// Where a row stands in [`byte_page`]'s order: two FNV-1a hashes of its `sessionId` and
 /// `peer` ([`row_key`]'s bytes), the same in every daemon run.
-fn page_key(session: &Value) -> u128 {
+fn page_key<R: PageRow + ?Sized>(session: &R) -> u128 {
     let high = fnv(0xcbf2_9ce4_8422_2325, row_key_bytes(session));
     let low = fnv(0x6c62_272e_07bb_0142, row_key_bytes(session));
     (u128::from(high) << 64) | u128::from(low)

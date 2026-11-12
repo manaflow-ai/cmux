@@ -1660,8 +1660,8 @@ impl Hub {
     /// The sessions with a pending permission or question, local and remote, newest first and
     /// without tools, summarizing no other chat: `_acpmux/sessions {pendingOnly}`
     /// (`server/list_reply.rs`). A local one is a live chat with an ask; a peer's is a row whose
-    /// `pendingPermissions` is above zero. It reads no list snapshot, so no list pace holds it:
-    /// a host mirroring 8,500 chats paced its list pages 4-9 s each, and the app's dialog list
+    /// `pendingPermissions` is above zero. It builds no other row: when list pages were paced, a
+    /// host mirroring 8,500 chats paced its pages 4-9 s each, and the app's dialog list
     /// (`cmux agents dialog list`) read every page before it found one ask.
     pub(crate) fn pending_session_summaries(&self) -> Vec<Value> {
         let mut rows: Vec<Value> = self
