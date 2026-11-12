@@ -486,7 +486,6 @@ mod tests {
         assert_eq!(tier(Role::Daemon), Tier::Serving);
         assert_eq!(tier(Role::AgentHost), Tier::AgentStart);
         assert_eq!(tier(Role::BackgroundTaskRunner), Tier::Agent);
-        assert_eq!(tier(Role::BackgroundTaskRunner), Tier::Agent);
         assert_eq!(tier(Role::Housekeeping), Tier::Background);
         assert_eq!(tier(Role::VisibleOpen), Tier::OnScreen);
     }
