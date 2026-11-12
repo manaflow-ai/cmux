@@ -41,10 +41,33 @@ extension TabStripView: TabStripCorner {
         // While it leads, every layout reports too: the strip may have reached the card's corner since. A
         // strip that moved in the window reports its new place (the chrome checks the tab row is whole).
         let frame = on ? cornerFrameInWindow : nil
-        guard leads != leadsWithSelection || leads || (on && !reportedCornerFlush) || frame != reportedCornerFrame else { return }
+        let folder = on ? layer.flatMap { selectedFolderPath(in: $0)?.boundingBoxOfPath } : nil
+        guard leads != leadsWithSelection || leads || (on && !reportedCornerFlush) || frame != reportedCornerFrame
+            || folder != reportedFolderFrame else { return }
         leadsWithSelection = leads
         reportedCornerFrame = frame
+        reportedFolderFrame = folder
         // Not yet in a window root's tree: report again on the next layout.
         reportedCornerFlush = CornerFlushChrome.stripDidChange(self) && on
+    }
+
+    /// The selected tab's folder in `target`'s coordinates, clipped to the tabs' visible run
+    /// (`TabStripCorner`): a tab scrolled out of view leaves no hole in the chrome's shade.
+    public func selectedFolderPath(in target: CALayer) -> CGPath? {
+        guard isPaneTabRow, let id = model.selectedID, let cell = cells[id], let path = cell.folderPath(),
+              let clip = tabsClip.layer else { return nil }
+        let visible = Self.map(path, from: cell.layer, to: clip).intersection(CGPath(rect: clip.bounds, transform: nil))
+        guard !visible.isEmpty else { return nil }
+        return Self.map(visible, from: clip, to: target)
+    }
+
+    /// `path`, in `source`'s coordinates, in `target`'s (one layer tree): the affine map the layers'
+    /// geometry gives, a flip between flipped and unflipped views included.
+    static func map(_ path: CGPath, from source: CALayer, to target: CALayer) -> CGPath {
+        let o = target.convert(CGPoint.zero, from: source)
+        let x = target.convert(CGPoint(x: 1, y: 0), from: source)
+        let y = target.convert(CGPoint(x: 0, y: 1), from: source)
+        var transform = CGAffineTransform(a: x.x - o.x, b: x.y - o.y, c: y.x - o.x, d: y.y - o.y, tx: o.x, ty: o.y)
+        return path.copy(using: &transform) ?? path
     }
 }

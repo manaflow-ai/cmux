@@ -16,6 +16,8 @@ public final class MainPaneChromeShadeView: NSView {
     private var alpha: CGFloat = 0
     /// The card's top corner at minX is square (the flush corner's first tab rises from it).
     private var squareTopLeading = false
+    /// The selected folder tabs of the top row (``update(card:radius:alpha:squareTopLeading:folders:)``).
+    private var folders: [CGPath] = []
     private var cardsObservation: AnyObject?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
     public weak var paneCards: (any PaneCardSource)? {
@@ -51,13 +53,17 @@ public final class MainPaneChromeShadeView: NSView {
     /// Shades everything but `card` (this view's coordinates); no shade when
     /// `alpha` is 0.
     /// `squareTopLeading`: the card's top corner at minX is square (`CornerFlushChrome`).
-    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, squareTopLeading: Bool = false) {
+    /// `folders`: the selected folder tabs of the top row, in this view's coordinates (`CornerFlushChrome`).
+    /// The shade leaves them out as it leaves out the card, so each folder tab shows the window's backdrop
+    /// exactly as the content it opens does (``Palette/folderTabFill``).
+    public func update(card: CGRect, radius: CGFloat, alpha: CGFloat, squareTopLeading: Bool = false, folders: [CGPath] = []) {
         guard card != self.card || radius != self.radius || alpha != self.alpha || squareTopLeading != self.squareTopLeading
-            || shade.frame != bounds || Metrics.floatingPanes else { return }
+            || folders != self.folders || shade.frame != bounds || Metrics.floatingPanes else { return }
         self.card = card
         self.radius = radius
         self.alpha = alpha
         self.squareTopLeading = squareTopLeading
+        self.folders = folders
         rebuild()
     }
 
@@ -83,10 +89,14 @@ public final class MainPaneChromeShadeView: NSView {
             let corner = min(radius, card.width / 2, card.height / 2)
             let visible = cut.intersection(CGPath(roundedRect: card, cornerWidth: corner, cornerHeight: corner, transform: nil))
             shade.path = CGPath(rect: bounds, transform: nil).subtracting(visible)
-        } else if squareTopLeading {
+        } else if squareTopLeading || !folders.isEmpty {
             let corner = min(radius, card.width / 2, card.height / 2)
-            let hole = CGPath(roundedRect: card, cornerWidth: corner, cornerHeight: corner, transform: nil)
-                .union(CGPath(rect: CGRect(x: card.minX, y: card.maxY - corner, width: corner, height: corner), transform: nil))
+            var hole = CGPath(roundedRect: card, cornerWidth: corner, cornerHeight: corner, transform: nil)
+            if squareTopLeading {
+                hole = hole.union(CGPath(rect: CGRect(x: card.minX, y: card.maxY - corner, width: corner, height: corner), transform: nil))
+            }
+            // One union per selected folder: a strip per top-row pane, so a handful at most.
+            for folder in folders { hole = hole.union(folder) }
             shade.path = CGPath(rect: bounds, transform: nil).subtracting(hole)
         } else {
             let path = CGMutablePath()

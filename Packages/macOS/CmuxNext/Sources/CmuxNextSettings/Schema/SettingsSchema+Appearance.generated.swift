@@ -213,6 +213,14 @@ extension ChromeStyleSetting {
     public nonisolated static let fallback: ChromeStyle = .flat
 }
 
+extension TitleAreaContrastSetting {
+    /// `appearance.titleAreaContrast`: Scales the chrome's shade around the content card (Metrics.mainPaneChromeShade); 1 is the shade as it was. Leo 2026-11-11: the title area's contrast may be too intense for some people, so it needs to be adjustable.
+    public nonisolated static let configPath = ["appearance", "titleAreaContrast"]
+    public nonisolated static let fallback: Double = 1
+    public nonisolated static let range: ClosedRange<Double> = 0...1.5
+    public nonisolated static let placeholder: Double = 1
+}
+
 extension PaneAnimationsSetting {
     /// `ui.paneAnimations`.
     public nonisolated static let configPath = ["ui", "paneAnimations"]

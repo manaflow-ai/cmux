@@ -106,6 +106,9 @@ public protocol TabStripCorner: AnyObject {
     /// its selected tab run into the card. A strip inside the card (a lower split pane's) keeps the pill,
     /// which a tab in the card's own color would hide on the card.
     func setRunsIntoCard(_ runs: Bool)
+    /// The selected tab's folder (its body down to the card and its fillets) in `target`'s coordinates, while
+    /// it runs into the card; nil otherwise. The chrome's shade leaves it out (``Palette/folderTabFill``).
+    func selectedFolderPath(in target: CALayer) -> CGPath?
 }
 
 extension Metrics {
@@ -229,7 +232,23 @@ public final class CornerFlushChrome: NSView {
         wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
-        shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
+        shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square,
+                      folders: drawn.alpha >= Metrics.folderTabMinimumShade ? folderHoles(card: card, in: root) : [])
+    }
+
+    /// The selected folder tabs of the strips on the card's top row, in the shade's coordinates: the
+    /// shade leaves them out, so a folder tab shows the same glass as the content (``Palette/folderTabFill``).
+    /// The caller asks only while the shade reads (``Metrics/folderTabMinimumShade``); under it the folder
+    /// keeps the selection fill over the shade. O(strips).
+    private func folderHoles(card: CGRect, in root: NSView) -> [CGPath] {
+        guard let target = shade?.layer else { return [] }
+        var holes: [CGPath] = []
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
+            guard !strip.isHiddenOrHasHiddenAncestor, abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - card.maxY) < 2,
+                  let path = strip.selectedFolderPath(in: target) else { continue }
+            holes.append(path)
+        }
+        return holes
     }
 
     /// Whether the window's tab row is whole: some shown pane's strip sits on the card's top, and every

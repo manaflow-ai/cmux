@@ -200,6 +200,17 @@ extension AppearanceSettingsSchema {
                 default: .string(ChromeStyleSetting.fallback.rawValue),
                 keywords: ["window", "style", "chrome", "card", "flat", "border", "borders", "lines", "divider", "outline", "seam", "sidebar", "two-tone", "minimal", "bare", "floating", "gaps", "blocks"]
             ),
+            SettingDescriptor(
+                TitleAreaContrastSetting.configPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.titleAreaContrast", "Title Area Contrast"),
+                help: SettingsText.keyed("settings.appearance.titleAreaContrast.help", "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger."),
+                summary: SettingsText.keyed("settings.appearance.titleAreaContrast.summary", "How much the title and tab bar stand apart"),
+                kind: .number(SettingNumber(TitleAreaContrastSetting.range, step: 0.05, unit: .fraction, placeholder: TitleAreaContrastSetting.placeholder)),
+                default: .number(TitleAreaContrastSetting.fallback),
+                keywords: ["contrast", "title", "titlebar", "tab bar", "tabs", "chrome", "shade", "intensity", "darker", "softer", "frame"]
+            ),
         ]
     }
 }

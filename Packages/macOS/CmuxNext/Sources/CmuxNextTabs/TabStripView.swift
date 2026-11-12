@@ -90,6 +90,9 @@ public final class TabStripView: NSView {
     /// The frame in the window the flush chrome last read, so a move (a canvas pan, a widened window)
     /// reports again with the strip's fresh place.
     var reportedCornerFrame: CGRect?
+    /// The selected folder tab's bounds (in the strip) the flush chrome last read, so a selection or a
+    /// reflow that moves the folder reports again and the shade's hole under it follows.
+    var reportedFolderFrame: CGRect?
     /// The strip is on the card's top row (the flush chrome's ``setRunsIntoCard(_:)``), so its selected
     /// tab may run into the card; true until the chrome first says otherwise.
     var runsIntoCard = true

@@ -127,11 +127,28 @@ extension Metrics {
         guard let window, window.styleMask.contains(.titled), !window.styleMask.contains(.fullScreen) else { return inset }
         return max(inset, PaneTabRowRim.height)
     }
-    /// Black's alpha over the chrome around the main pane: the shade of the
+    /// Black's alpha over the chrome around the main pane (the sidebar, the titlebar and the tab row
+    /// around the content card): ``mainPaneChromeShadeBase(isDark:)`` scaled by
+    /// `appearance.titleAreaContrast` (``DesignSettings/titleAreaContrast``, 1 by default, so the
+    /// default look is the base shade exactly). Leo, 2026-11-11, on the title area: "the contrast, I
+    /// guess it's fine, but I feel like it may be too intense for some people, so it needs to be
+    /// adjustable." At most 1.
+    public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
+        let base = mainPaneChromeShadeBase(isDark: isDark)
+        let contrast = DesignSettings.shared.titleAreaContrast
+        return contrast == 1 ? base : min(1, max(0, base * contrast))
+    }
+
+    /// The least chrome shade under which a selected folder tab in the content's surface still reads
+    /// (``Palette/folderTabFill``): the default light shade (0.045) at a title area contrast of a half
+    /// still clears it; under it the tab keeps the selection fill.
+    public static let folderTabMinimumShade: CGFloat = 0.02
+
+    /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the
     /// separate look only under `appearance.sidebarSurface` separate (the
     /// default shares the pane's surface, `SidebarSurface`); 0 when the pane
     /// is edge to edge.
-    public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
+    public static func mainPaneChromeShadeBase(isDark: Bool) -> CGFloat {
         guard mainPaneCurved else { return 0 }
         // The flush corner shades its frame so the card reads on the one surface.
         if CornerFlush.current.isOn { return CornerFlush.current.shade(isDark: isDark) }
