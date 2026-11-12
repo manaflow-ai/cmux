@@ -393,3 +393,80 @@ fn deferred_surface_initialization_skips_the_unfiltered_subscription() {
     assert!(!session.subscription_started.load(Ordering::Acquire));
     assert!(!closed.load(Ordering::Acquire));
 }
+
+/// Whether any process still holds a descriptor of the other end of
+/// `socket`: macOS answers the other end's pid until its last descriptor
+/// closes. A shutdown alone does not change the answer.
+#[cfg(target_os = "macos")]
+fn other_end_open(socket: &UnixStream) -> bool {
+    use std::os::fd::AsRawFd;
+    let mut pid: libc::pid_t = 0;
+    let mut len = size_of::<libc::pid_t>() as libc::socklen_t;
+    // SAFETY: `socket` is open for this call; `pid` and `len` describe a live
+    // buffer of the size that getsockopt may write.
+    let status = unsafe {
+        libc::getsockopt(
+            socket.as_raw_fd(),
+            libc::SOL_LOCAL,
+            libc::LOCAL_PEERPID,
+            (&raw mut pid).cast(),
+            &raw mut len,
+        )
+    };
+    status == 0
+}
+
+/// The writer of a JSON-lines connection over `ours`, its reader already
+/// ended (as the reader thread drops it when it sees the end).
+#[cfg(target_os = "macos")]
+fn json_lines_writer(ours: UnixStream) -> InteractiveWriter {
+    let RemoteTransport { reader, writer, abort } =
+        RemoteTransport::json_lines(Box::new(ours)).unwrap();
+    drop(reader);
+    InteractiveWriter::spawn(writer, abort).unwrap()
+}
+
+/// Waits up to 5 s for the client to close its last descriptor of the
+/// connection; the writer thread closes its own after the close returns.
+#[cfg(target_os = "macos")]
+fn daemon_sees_the_last_close(daemon: &UnixStream) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while other_end_open(daemon) {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    true
+}
+
+/// A closed connection closes every client descriptor of its socket while
+/// the session that owns the writer lives on: on macOS the daemon's reader
+/// can miss the wake of a shutdown while the client keeps a descriptor, and
+/// then keeps a ghost client (and holds back its orphan exit) until the
+/// session is dropped.
+#[cfg(target_os = "macos")]
+#[test]
+fn closing_a_json_lines_connection_closes_its_socket_while_the_session_lives_on() {
+    let (ours, daemon) = UnixStream::pair().unwrap();
+    let writer = json_lines_writer(ours);
+    writer.close();
+    assert!(
+        daemon_sees_the_last_close(&daemon),
+        "the closed connection's socket is still open in the client"
+    );
+    drop(writer);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn aborting_a_json_lines_connection_closes_its_socket_while_the_session_lives_on() {
+    let (ours, daemon) = UnixStream::pair().unwrap();
+    let writer = json_lines_writer(ours);
+    writer.abort(&io::Error::new(io::ErrorKind::TimedOut, "test abort"));
+    assert!(
+        daemon_sees_the_last_close(&daemon),
+        "the aborted connection's socket is still open in the client"
+    );
+    drop(writer);
+}

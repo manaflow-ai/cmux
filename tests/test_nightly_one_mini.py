@@ -87,7 +87,7 @@ class NightlyOneMini(unittest.TestCase):
     def test_the_mode_is_off_without_the_variable(self) -> None:
         # Unset, every job keeps its route: build-nightly-app never asks for the mini's builder label.
         rng = random.Random(7)
-        source = str(JOBS["build-nightly-app"]["runs-on"])
+        source = workflow_jobs.single_runs_on(JOBS["build-nightly-app"])
         for _ in range(200):
             value, _ = resolve(source, rng, {"vars.CI_NIGHTLY_MINI": "", "vars.CI_NIGHTLY_MINI_BUILDER": ""})
             self.assertNotEqual(value, BUILDER)

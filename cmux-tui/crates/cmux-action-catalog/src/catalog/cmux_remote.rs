@@ -75,6 +75,17 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "remote.stopScreenSession",
+        group: GROUP,
+        title: t("ActionCatalog", "action.remote.stopScreenSession", "cmux Remote: End Screen Sharing Session"),
+        keywords: &["cmux remote", "screen sharing", "mac screen", "stop", "end", "disconnect", "viewer", "session"],
+        category: "remote",
+        symbol: "stop.circle",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "remote stop-screen-session",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "macScreen.shareThisMac",
         group: GROUP,
         title: t("ActionCatalog", "action.macScreen.shareThisMac", "Share This Mac"),

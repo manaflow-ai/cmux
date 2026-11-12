@@ -29,6 +29,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
@@ -214,6 +215,19 @@ NESTABLE = (
     "stdbuf -oL -- c1",
     "time -- c1",
     "time -p -- c1",
+    # A review of upstream #4620 (F2): a shell named by an env -S string ran its -c script unread, so env -S 'bash' -c
+    # c1 reported no command. Each word of the string maps back to the -S argument it comes from, and the script is
+    # read wherever its word is: after the string, inside it, or split across both. A string env refuses (an open
+    # quote) runs nothing.
+    "env -S 'bash' -c c1",
+    "env -S 'bash -c' 'c1; c2'",
+    "env -S 'bash -c c1'",
+    "env -S'bash -c c1'",
+    "env --split-string='bash -c c1'",
+    "env -S 'sh -c \"c1 && c2\"'",
+    "env -S 'X=1 bash -e' -c c1",
+    "env -S 'bash -c' -- c1",
+    "env -S \"'bash\" -c c1; c2",
 )
 WHOLE = (
     "exec c1",
@@ -278,6 +292,24 @@ def corpus() -> list[str]:
 STUB = """#!/bin/sh
 printf '%%s\\n' %s >> %s
 """
+
+
+def oracle_missing() -> str | None:
+    """Why this host cannot run the oracle, or None: a REAL program it lacks (stock macOS has no setsid, timeout or
+    stdbuf). bash_runs() links every REAL program for every line, so a host without one has no oracle at all: each
+    test that runs it skips, never fails and never passes (a review of the upstream copy, F1: the self-test ran
+    bash_runs() with no setsid and failed on its "not on this host" answer)."""
+    for tool in REAL:
+        if not shutil.which(tool):
+            return f"{tool} is not on this host; the oracle needs it"
+    return None
+
+
+def require_oracle() -> None:
+    """Skip the test (unittest.SkipTest) when oracle_missing() says why this host cannot run the oracle."""
+    why = oracle_missing()
+    if why:
+        raise unittest.SkipTest(why)
 
 
 def bash_runs(text: str) -> list[str] | str:
@@ -361,6 +393,7 @@ def differences(texts: list[str]) -> list[tuple[str, object, object]]:
 
 class BashRunsWhatTheTreeReads(unittest.TestCase):
     def test_every_corpus_line(self):
+        require_oracle()
         bad = differences(corpus())
         report = "\n".join(f"{line!r}\n    bash ran: {ran}\n    shell_tree: {tree}" for line, ran, tree in bad)
         self.assertEqual(bad, [], f"{len(bad)} of {len(corpus())} lines differ:\n{report}")
@@ -380,12 +413,36 @@ class BashRunsWhatTheTreeReads(unittest.TestCase):
     def test_the_oracle_logs_what_bash_runs(self):
         """A stub bash runs is logged and one it skips is not, also when only bash knows the command (a variable's
         text run by eval)."""
+        require_oracle()
         self.assertEqual(bash_runs("c1 && c2"), ["c1", "c2"])
         self.assertEqual(bash_runs("false && c1"), [])
         self.assertEqual(bash_runs("command -v c1 >/dev/null"), [])
         self.assertEqual(bash_runs("echo c1"), [])
         self.assertEqual(bash_runs("x='c1'; eval \"$x\""), ["c1"])
         self.assertEqual(bash_runs("("), "bash -n refuses it: a corpus bug")
+
+
+class NoOracleIsNoVerdict(unittest.TestCase):
+    """The detector for the upstream review's F1 class (#4620): an oracle that cannot run is no answer. With a program the
+    oracle needs hidden from it, each test that runs bash skips with why; none fails on the oracle's own "not on this
+    host" and none passes."""
+
+    def test_a_host_without_an_oracle_program_skips(self):
+        which = shutil.which
+        for hidden in REAL:
+            def hide(name, *args, **kwargs):
+                return None if name == hidden else which(name, *args, **kwargs)
+
+            with mock.patch.object(shutil, "which", hide):
+                self.assertIn(hidden, oracle_missing() or "")
+                for test in ("test_the_oracle_logs_what_bash_runs", "test_every_corpus_line"):
+                    result = unittest.TestResult()
+                    BashRunsWhatTheTreeReads(test).run(result)
+                    with self.subTest(hidden=hidden, test=test):
+                        self.assertEqual((result.testsRun, len(result.skipped), result.failures, result.errors),
+                                         (1, 1, [], []))
+                        self.assertIn(hidden, result.skipped[0][1])
+
 
 
 if __name__ == "__main__":

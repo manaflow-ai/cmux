@@ -25,6 +25,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
 from test_ci_fork_runner_routing import parse_expression
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_FILE = Path(os.environ.get('NIGHTLY_WORKFLOW_FILE', ROOT / '.github/workflows/nightly.yml'))
@@ -695,8 +697,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 'github.event_name': 'push',
                 'github.run_id': run_id,
             }
-            return re.sub(r'\$\{\{(.*?)\}\}',
-                          lambda match: str(evaluate(parse_expression(match[1]), context)),
+            return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(parse_expression(match[1]), context)),
                           DOC['concurrency']['group'])
         self.assertEqual(group('main'), 'nightly-build-nightly-shared-full')
         # Every nightly-next push shares one group: a waiting push run is replaced by a newer one, so only the
@@ -719,8 +720,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                 'vars.CI_SIDE_LANE_RUNNER': 'glaeda-side-std-xcode-26.6',
             }
             context.update(changes)
-            return re.sub(r'\$\{\{(.*?)\}\}',
-                          lambda match: str(evaluate(parse_expression(match[1]), context)),
+            return gh_expressions.EXPRESSION.sub(lambda match: str(evaluate(parse_expression(match[1]), context)),
                           job['concurrency']['group'])
         self.assertEqual(group(), 'nightly-build-app-1')
         self.assertNotEqual(group(**{'github.run_id': '2'}), group())
@@ -809,7 +809,7 @@ class NightlyTrustedRouting(unittest.TestCase):
             for name in TAIL_CONTROL_JOBS:
                 with self.subTest(job=name):
                     self.assertEqual(check(runs_on_text(DOC['jobs'][name], name)), 0)
-            route = DOC['jobs'][TAIL_CONTROL_JOBS[0]]['runs-on']
+            route = workflow_jobs.single_runs_on(DOC['jobs'][TAIL_CONTROL_JOBS[0]])
             for old, new in (("github.repository == 'manaflow-ai/cmux'", "github.repository == 'manaflow-ai/other'"),
                              ("track == 'nightly-next'", "track == 'nightly'"),
                              ("github.run_attempt == 1", "github.run_attempt >= 1"),
