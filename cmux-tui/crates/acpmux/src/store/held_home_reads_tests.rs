@@ -206,9 +206,43 @@ impl Scope {
     }
 }
 
+/// The public items of `std::fs`: the only names a `use std::fs::*;` brings in (#41970 review
+/// F2). Any other name under such a glob is looked up in the scopes around it.
+const STD_FS_ITEMS: &[&str] = &[
+    "canonicalize",
+    "copy",
+    "create_dir",
+    "create_dir_all",
+    "exists",
+    "hard_link",
+    "metadata",
+    "read",
+    "read_dir",
+    "read_link",
+    "read_to_string",
+    "remove_dir",
+    "remove_dir_all",
+    "remove_file",
+    "rename",
+    "set_permissions",
+    "soft_link",
+    "symlink_metadata",
+    "write",
+    "DirBuilder",
+    "DirEntry",
+    "File",
+    "FileTimes",
+    "FileType",
+    "Metadata",
+    "OpenOptions",
+    "Permissions",
+    "ReadDir",
+    "TryLockError",
+];
+
 /// What a name means in `scopes` (innermost last): `Some(path)` an import's full path, `None`
 /// a name defined here or not imported. A glob (`use std::fs::*;`) counts only for a name
-/// nothing in its scope defines or imports by name.
+/// std::fs exports that nothing in its scope defines or imports by name.
 fn lookup(scopes: &[Scope], name: &str) -> Option<Vec<String>> {
     for scope in scopes.iter().rev() {
         if scope.defined.contains(name) {
@@ -217,7 +251,7 @@ fn lookup(scopes: &[Scope], name: &str) -> Option<Vec<String>> {
         if let Some(full) = scope.imports.get(name) {
             return Some(full.clone());
         }
-        if scope.globs.iter().any(|glob| is_std_fs(glob)) {
+        if STD_FS_ITEMS.contains(&name) && scope.globs.iter().any(|glob| is_std_fs(glob)) {
             return Some(vec!["std".into(), "fs".into(), name.to_string()]);
         }
         if scope.opaque {
@@ -227,10 +261,41 @@ fn lookup(scopes: &[Scope], name: &str) -> Option<Vec<String>> {
     None
 }
 
+/// The scopes a path's leading `self::` / `super::` names start from, and how many leading
+/// names they are: `self` is the innermost module (not a block), each `super` one module out
+/// (#41970 review F1). `None`: no leading `self`/`super`, or more `super`s than modules here.
+fn module_scopes<'s>(scopes: &'s [Scope], segments: &[String]) -> Option<(&'s [Scope], usize)> {
+    let lead = segments.iter().take_while(|s| *s == "self" || *s == "super").count();
+    if lead == 0 || segments.iter().skip(1).take(lead - 1).any(|s| s == "self") {
+        return None;
+    }
+    let outward = segments.iter().take(lead).filter(|s| *s == "super").count();
+    let modules: Vec<usize> = (0..scopes.len()).rev().filter(|&i| scopes[i].opaque).collect();
+    let module = *modules.get(outward)?;
+    Some((&scopes[..=module], lead))
+}
+
 /// `segments` with its first name replaced by what it imports, again while that is an import
 /// of another local name (`use std::fs; use fs::metadata;`), a few steps at most.
 fn resolve(scopes: &[Scope], segments: &[String]) -> Vec<String> {
+    resolve_within(scopes, segments, 4)
+}
+
+/// [`resolve`], following a `self::`/`super::` import (`use self::x as y;`) at most `steps`
+/// times.
+fn resolve_within(scopes: &[Scope], segments: &[String], steps: usize) -> Vec<String> {
     let mut path = segments.to_vec();
+    // `self::x` / `super::x`: `x` as that module's imports name it; a name it defines (or one
+    // it does not name) is not std's and is left as written.
+    if let Some((module, lead)) = module_scopes(scopes, &path) {
+        let Some(name) = path.get(lead) else { return path };
+        let Some(full) = lookup(module, name) else { return path };
+        path.splice(..=lead, full);
+        return match steps.checked_sub(1) {
+            Some(left) => resolve_within(module, &path, left),
+            None => path,
+        };
+    }
     for _ in 0..4 {
         let Some(first) = path.first() else { break };
         if matches!(first.as_str(), "std" | "core" | "crate" | "self" | "super") {
@@ -421,7 +486,9 @@ impl<'ast> Visit<'ast> for Scan<'_> {
             let by_path = !through_home_fs && std_read_by_path(&resolved);
             if last == "exists_nofollow" || by_path {
                 let written = segments.join("::");
-                let what = if segments.len() == 1 {
+                let what = if segments.len() == 1
+                    || matches!(segments.first().map(String::as_str), Some("self" | "super"))
+                {
                     format!("{written}(..) ({})", resolved.join("::"))
                 } else {
                     format!("{written}(..)")
