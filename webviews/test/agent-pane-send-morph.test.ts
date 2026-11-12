@@ -222,6 +222,8 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
       expect(frame.preview!.ink, `${label}: the screenshot is whole at ${frame.at} ms`).toBeGreaterThan(0.99);
     }
     const placed = seen.slice(Math.max(mounted, from));
+    const tops = JSON.stringify(placed.map((frame) => [frame.at, Math.round(frame.bubble?.top ?? -1)]));
+    label = `${label} (tops ${tops})`;
     // A thinking row that grows under it may nudge it a few px; a rise is the row's height.
     for (const frame of placed)
       near(frame.bubble, placed[0]!.bubble, `${label}: the bubble stays in its place at ${frame.at} ms`, 12);
