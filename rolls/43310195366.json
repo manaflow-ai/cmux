@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43310195366",
+  "recorded_at": "2026-11-12T21:39:57Z",
+  "reason": "cmux-tui 288be5d3594e changes the image's cmux-tui (pinned 47bf1d71ffb4)",
+  "dry_run": false,
+  "cmux_tui": "288be5d3594eea1d0bb539d21a8076ba1e160a5f",
+  "fixes": [
+    {
+      "sha": "288be5d3594eea1d0bb539d21a8076ba1e160a5f",
+      "mergedAt": "2026-11-12T12:59:41-08:00",
+      "subject": "acpmux: bound list expiry retries and validate ACP pages (#42045)"
+    },
+    {
+      "sha": "15c39af9570893d2c4f63d2a63b854bfa3e480ee",
+      "mergedAt": "2026-11-12T12:55:37-08:00",
+      "subject": "acpmux: resume a stopped helper from its transcript and brief, from its row, the tray, Session Info and its tab (#42052)"
+    },
+    {
+      "sha": "c35c324b52e325efd9101a578995f532f995f047",
+      "mergedAt": "2026-11-12T12:49:35-08:00",
+      "subject": "repo: delete root notes no one reads, and the app's orphan copy of the tasks catalog (#42074)"
+    },
+    {
+      "sha": "9077fb8059ab9224bd881fa78e35f306cc52c318",
+      "mergedAt": "2026-11-12T12:46:15-08:00",
+      "subject": "acpmux god bench: every axis of a long chat against a small one in one run (#42141)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T21:39:57Z",
+    "snapshot_id": "sh-5eec92c95efe4ed3ae9f4b6020ca3fa3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43310195366): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "06a84d2a35a5de8894b5a1f064f708ac73fea06b",
+    "image": "cloud-native-auto-288be5d3-43310195366-1",
+    "revision": "ci-43310195366-1",
+    "at": "2026-11-12T21:39:57Z"
+  },
+  "rolled_back": false
+}
