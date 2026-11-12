@@ -170,7 +170,7 @@ final class SidebarResizeHandle: NSView, KeyNeutralPressTarget {
     /// (`Palette.separator`, `Metrics.lineWidth`): a borders change repaints
     /// here, and the relayout picks up the width.
     private func applyLineTheme() {
-        performWithTheme { line.backgroundColor = Palette.chromeDivider.cgColor }
+        performWithTheme { line.backgroundColor = (Palette.surfaceOverride(.splitDivider) ?? Palette.chromeDivider).cgColor }
         glow.applyTheme(self)
         needsLayout = true
     }

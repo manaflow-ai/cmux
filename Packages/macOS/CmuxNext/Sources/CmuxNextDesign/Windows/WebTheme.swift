@@ -152,13 +152,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The window sidebar's edge line at rest, so a page's hairlines can match it (Settings,
             // Lucas 2026-11-11): the chrome's divider, which the native edge draws.
             "--cmux-sidebar-line": Self.chromeDivider(tokens, backgrounds: backgrounds),
-            // 1 when the chrome is toned apart from the content (Subtle Tone, a shaded chrome style),
-            // else 0 (One Color): a page draws its chrome as the native one does.
-            "--cmux-chrome-tone": Metrics.mainPaneChromeShade(isDark: tokens.isDark) > 0 ? "1" : "0",
+            // 1 where the native chrome draws folder tabs (the flush corner, its tone shade reading: Subtle
+            // Tone), else 0 (One Color, or a picked chrome style that keeps its pills): a page's selected item
+            // is a folder tab exactly when the native one is.
+            "--cmux-chrome-tone": Self.drawsFolderTabs(tokens) ? "1" : "0",
             // The fill a selected item takes to join the content (the native folder tab,
-            // `Palette.folderTabFill`): the page's surface where the tone reads, else none.
-            "--cmux-folder-fill": Metrics.mainPaneChromeShade(isDark: tokens.isDark) >= Metrics.folderTabMinimumShade
-                ? Self.css(page) : "transparent",
+            // `Palette.folderTabFill`): the page's surface under the tone, else none.
+            "--cmux-folder-fill": Self.drawsFolderTabs(tokens) ? Self.css(page) : "transparent",
             // The window sidebar's own fill over the window's color, so a page's sidebar can match it
             // (Settings, Lucas 2026-11-12: Lawrence did not like a lighter one): the user's sidebar
             // color (`appearance.surfaces.sidebar`), else the separate chrome shade
@@ -421,6 +421,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     }
 
     /// `--cmux-sidebar-surface`: the window sidebar's own fill over the window's color, as CSS.
+    /// The native chrome draws folder tabs for `tokens`: the flush corner is on and its shade reads
+    /// (`Palette.folderTabFill`'s test, in this scope's light or dark).
+    @MainActor
+    static func drawsFolderTabs(_ tokens: ThemeTokens) -> Bool {
+        CornerFlush.current.isOn && Metrics.mainPaneChromeShade(isDark: tokens.isDark) >= Metrics.folderTabMinimumShade
+    }
+
     @MainActor
     static func sidebarSurface(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds, windowTint: Double) -> String {
         if let fill = backgrounds.fill(for: .sidebar, tokens: tokens, windowTint: windowTint) { return css(fill) }

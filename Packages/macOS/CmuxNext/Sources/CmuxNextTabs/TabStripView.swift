@@ -108,6 +108,8 @@ public final class TabStripView: NSView {
     var tonedInCard = false
     /// The toned strip's shade and tab-row divider, made on first use (`TabStripView+CornerFlush`).
     var inCardTone: (shade: CAShapeLayer, divider: CAShapeLayer)?
+    /// What ``inCardTone`` was last drawn from: a chrome redraw that changes none of it redraws nothing.
+    var inCardToneDrawn: InCardToneKey?
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the

@@ -47,7 +47,7 @@ public final class MainPaneChromeShadeView: NSView {
         dividerLayer.fillRule = .evenOdd
         layer?.addSublayer(dividerLayer)
         dividerStrengthWatch = Task { [weak self] in
-            for await _ in ObservationStream({ ChromeTunables.dividerStrength.value }) { self?.rebuildDivider() }
+            for await _ in ObservationStream({ ChromeTunables.dividerStrength.value }) { self?.rebuild() }
         }
     }
 

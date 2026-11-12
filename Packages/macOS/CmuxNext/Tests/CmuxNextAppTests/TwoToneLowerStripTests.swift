@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextDesignTokens
 @testable import CmuxNextTabs
 import Testing
 
@@ -9,7 +10,14 @@ import Testing
 /// strip inside the card tones its own row, less its selected tab, so that tab is a folder into its pane too.
 @MainActor @Suite(.serialized) struct TwoToneLowerStripTests {
     @Test func aTonedStripInsideTheCardRunsItsSelectedTabIntoTheContent() throws {
-        guard CornerFlush.current.isOn, DesignSettings.shared.tabBarPosition != .bottom else { return }
+        // The flush corner pinned on (Debug Settings), so the test always asserts.
+        let store = TunableStore.shared
+        store.register([CornerFlush.tunable.descriptor])
+        if !store.isActive { store.activate(file: nil) }
+        let flush = store.set(CornerFlush.tunable.key, .choice(CornerFlush.goo.rawValue))
+        defer { _ = store.set(CornerFlush.tunable.key, flush) }
+        try #require(CornerFlush.current.isOn && DesignSettings.shared.tabBarPosition != .bottom,
+                     "the pinned flush corner is off (compact density, or tabs at the bottom)")
         let tabs = (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 60), styleMask: [.borderless],
                               backing: .buffered, defer: false)

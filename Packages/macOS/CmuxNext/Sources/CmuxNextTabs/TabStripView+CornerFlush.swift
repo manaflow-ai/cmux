@@ -47,6 +47,7 @@ extension TabStripView: TabStripCorner {
         guard tonedInCard, let host = layer else {
             inCardTone?.shade.path = nil
             inCardTone?.divider.path = nil
+            inCardToneDrawn = nil
             return
         }
         let tone: (shade: CAShapeLayer, divider: CAShapeLayer)
@@ -60,12 +61,20 @@ extension TabStripView: TabStripCorner {
             }
             inCardTone = tone
         }
+        let folder = selectedFolderPath(in: tone.shade)
+        let tokens = themeScope.tokens
+        let alpha = Metrics.mainPaneChromeShade(isDark: tokens.isDark), strength = Metrics.tabRowDividerStrength
+        let ink = themeScope.perform { Palette.chromeDivider }
+        // Every strip redraws on each chrome redraw (`markTopRow`), one per strip's report: an unchanged strip
+        // stops here, so a resize under Subtle Tone stays O(strips), not O(strips²) path operations.
+        let key = InCardToneKey(bounds: bounds, folder: folder?.boundingBoxOfPath, alpha: alpha, strength: strength, ink: ink)
+        guard key != inCardToneDrawn else { return }
+        inCardToneDrawn = key
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         tone.shade.frame = bounds
         tone.divider.frame = bounds
-        let folder = selectedFolderPath(in: tone.shade)
         var shade = CGPath(rect: bounds, transform: nil)
         // The divider's weight and place as the top row's: a hairline just inside the strip's bottom (flipped: maxY).
         let weight = Metrics.lineWidth(Metrics.dividerThickness)
@@ -74,15 +83,10 @@ extension TabStripView: TabStripCorner {
             shade = shade.subtracting(folder)
             line = line.subtracting(folder)
         }
-        let tokens = themeScope.tokens
         tone.shade.path = shade
-        tone.shade.fillColor = NSColor.black.withAlphaComponent(Metrics.mainPaneChromeShade(isDark: tokens.isDark)).cgColor
-        let strength = Metrics.tabRowDividerStrength
+        tone.shade.fillColor = NSColor.black.withAlphaComponent(alpha).cgColor
         tone.divider.path = strength > 0 ? line : nil
-        tone.divider.fillColor = themeScope.perform {
-            let ink = Palette.chromeDivider
-            return ink.withAlphaComponent(ink.alphaComponent * strength).cgColor
-        }
+        tone.divider.fillColor = ink.withAlphaComponent(ink.alphaComponent * strength).cgColor
     }
 
     /// Reports to the window root whether the selected tab is the strip's first, on its leading edge,
@@ -131,4 +135,13 @@ extension TabStripView: TabStripCorner {
         var transform = CGAffineTransform(a: x.x - o.x, b: x.y - o.y, c: y.x - o.x, d: y.y - o.y, tx: o.x, ty: o.y)
         return path.copy(using: &transform) ?? path
     }
+}
+
+/// What a strip's in-card tone was drawn from (``TabStripView/updateInCardTone()``).
+struct InCardToneKey: Equatable {
+    var bounds: CGRect
+    var folder: CGRect?
+    var alpha: CGFloat
+    var strength: CGFloat
+    var ink: NSColor
 }
