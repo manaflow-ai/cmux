@@ -44,15 +44,20 @@ pub(in crate::cli) fn drop_unsupported(
     socket: &Path,
     request: &mut Value,
 ) -> bool {
-    let advertises = |reader: &mut BufReader<Box<dyn transport::Stream>>, capability| {
+    fit(request, |capability| {
         super::super::launch_credential::advertises(reader, socket, capability)
-    };
+    })
+}
+
+/// ``drop_unsupported`` with `advertises` answering whether the daemon has
+/// a capability (asked only when the request needs the answer).
+fn fit(request: &mut Value, mut advertises: impl FnMut(&str) -> bool) -> bool {
     let operation = request.get("operation");
     let bulk_keep = operation
         .is_some_and(|operation| operation == ResourceOperation::LayoutBulk.wire_name())
         && request.pointer("/params/keep_terminals").and_then(Value::as_bool) == Some(true);
     if bulk_keep {
-        if advertises(reader, CLOSE_GRACE_CAPABILITY) {
+        if advertises(CLOSE_GRACE_CAPABILITY) {
             return false;
         }
         let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else {
@@ -73,10 +78,10 @@ pub(in crate::cli) fn drop_unsupported(
         Some("detach") => Some("keep"),
         _ => None,
     };
-    if older.is_some() && advertises(reader, CLOSE_GRACE_CAPABILITY) {
+    if older.is_some() && advertises(CLOSE_GRACE_CAPABILITY) {
         return false;
     }
-    let keeps_field = advertises(reader, CLOSE_ENDS_TERMINALS_CAPABILITY);
+    let keeps_field = advertises(CLOSE_ENDS_TERMINALS_CAPABILITY);
     if keeps_field && older.is_none() {
         return false;
     }
@@ -144,4 +149,83 @@ pub(super) fn human_note(plan: &RequestPlan, result: &Value) -> Option<String> {
         );
     }
     (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    /// A request of `operation` with `params`, fitted for a daemon that
+    /// advertises `capabilities`; the params it then sends.
+    fn fitted(operation: ResourceOperation, params: Value, capabilities: &[&str]) -> Value {
+        let mut request = json!({"operation": operation.wire_name(), "params": params});
+        fit(&mut request, |capability| capabilities.contains(&capability));
+        request["params"].clone()
+    }
+
+    const GRACE: &[&str] = &[CLOSE_ENDS_TERMINALS_CAPABILITY, CLOSE_GRACE_CAPABILITY];
+    const ENDS: &[&str] = &[CLOSE_ENDS_TERMINALS_CAPABILITY];
+    const OLD: &[&str] = &[];
+
+    /// A single close keeps `terminals` for a daemon with `close-grace-v1`;
+    /// one with only `close-ends-terminals-v1` gets `end` for `grace` and
+    /// `keep` for `detach` (its `keep` only detaches); an older one gets no
+    /// field (it only detaches).
+    #[test]
+    fn w7c_a_single_close_fits_terminals_to_the_daemon() {
+        let tab = ResourceOperation::TabClose;
+        for value in ["grace", "end", "keep", "detach"] {
+            assert_eq!(
+                fitted(tab, json!({"terminals": value}), GRACE),
+                json!({"terminals": value}),
+                "{value} to a grace daemon"
+            );
+        }
+        for (value, sent) in
+            [("grace", "end"), ("end", "end"), ("keep", "keep"), ("detach", "keep")]
+        {
+            assert_eq!(
+                fitted(tab, json!({"terminals": value}), ENDS),
+                json!({"terminals": sent}),
+                "{value} to a close-ends daemon"
+            );
+        }
+        for value in ["grace", "end", "keep", "detach"] {
+            assert_eq!(fitted(tab, json!({"terminals": value}), OLD), json!({}), "{value} to old");
+        }
+    }
+
+    /// A bulk close keeps `terminals` for a daemon with `close-grace-v1`.
+    /// An older one gets the legacy `end_terminals`: `true` where a single
+    /// close ends them (`end`, and `grace` on a close-ends daemon), `false`
+    /// for `keep` and `detach`; a daemon without `close-ends-terminals-v1`
+    /// gets `true` only for `end`.
+    #[test]
+    fn w7c_a_bulk_close_fits_terminals_to_the_daemon() {
+        let bulk = ResourceOperation::LayoutBulk;
+        for value in ["grace", "end", "keep", "detach"] {
+            assert_eq!(
+                fitted(bulk, json!({"terminals": value}), GRACE),
+                json!({"terminals": value}),
+                "{value} to a grace daemon"
+            );
+        }
+        for (value, end) in [("grace", true), ("end", true), ("keep", false), ("detach", false)] {
+            assert_eq!(
+                fitted(bulk, json!({"terminals": value}), ENDS),
+                json!({"end_terminals": end}),
+                "{value} to a close-ends daemon"
+            );
+        }
+        for (value, sent) in [
+            ("grace", json!({})),
+            ("end", json!({"end_terminals": true})),
+            ("keep", json!({})),
+            ("detach", json!({})),
+        ] {
+            assert_eq!(fitted(bulk, json!({"terminals": value}), OLD), sent, "{value} to old");
+        }
+    }
 }

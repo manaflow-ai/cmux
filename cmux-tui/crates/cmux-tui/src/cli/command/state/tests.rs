@@ -652,6 +652,24 @@ fn workspace_notes_task_lane_unread_mark_and_closed_ids() {
     );
 }
 
+/// A bulk close sends the single close's `terminals` (W7-C review: one
+/// enum): `grace` with no flag, `end` with `--now`, `keep` with
+/// `--keep-terminals`, and never `keep_terminals` or `end_terminals`.
+#[test]
+fn w7c_a_bulk_close_sends_the_terminals_of_a_single_close() {
+    for (flags, terminals) in
+        [(&[][..], "grace"), (&["--now"][..], "end"), (&["--keep-terminals"][..], "keep")]
+    {
+        let mut args = vec!["tab", TAB, "close", "--others"];
+        args.extend_from_slice(flags);
+        let (operation, params) = sent(&args);
+        assert_eq!(operation, "layout.bulk", "{args:?}");
+        assert_eq!(params["terminals"], terminals, "{args:?}: {params}");
+        assert!(params.get("keep_terminals").is_none(), "{args:?}: {params}");
+        assert!(params.get("end_terminals").is_none(), "{args:?}: {params}");
+    }
+}
+
 /// tab-attention-v1: `cmux attention request|clear --tab` is `tab.update
 /// {attention}`, the one path the app and MCP use too.
 #[test]

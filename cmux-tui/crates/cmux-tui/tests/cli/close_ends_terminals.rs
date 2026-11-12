@@ -452,8 +452,9 @@ fn session_events(server: &HeadlessServer) -> (impl Sized + use<>, mpsc::Receive
     }
 }
 
-/// Waits for a `session.events` change that ends agent `agent` (a delete, or
-/// an upsert with state `done`); panics after `SETTLE` with what came.
+/// Waits for the `session.events` `delete` of agent `agent` (#41123: a
+/// terminal that ends has no agent, so its subscriber deletes it too); panics
+/// after `SETTLE` with what came.
 fn assert_agent_end_event(rx: &mpsc::Receiver<String>, agent: &str, step: &str) {
     let deadline = Instant::now() + SETTLE;
     let mut seen = Vec::new();
@@ -468,9 +469,7 @@ fn assert_agent_end_event(rx: &mpsc::Receiver<String>, agent: &str, step: &str) 
             if change["resource"] != "agent" {
                 continue;
             }
-            if change["id"] == agent
-                && (change["kind"] == "delete" || change["value"]["state"] == "done")
-            {
+            if change["id"] == agent && change["kind"] == "delete" {
                 return;
             }
             seen.push(change.clone());
@@ -479,8 +478,9 @@ fn assert_agent_end_event(rx: &mpsc::Receiver<String>, agent: &str, step: &str) 
     panic!("{step}: no session.events change ended agent {agent}; agent changes seen: {seen:?}");
 }
 
-/// An open `session.events` subscriber sees an agent end when its terminal
-/// ends, at that moment, by `terminal close` or by the close of its tab.
+/// An open `session.events` subscriber sees an agent's `delete` when its
+/// terminal ends, at that moment, by `terminal close` or by the close of its
+/// tab, as `agent.list` and the snapshot then have no agent.
 #[test]
 fn w7c_a_subscriber_sees_the_agent_end_with_its_terminal() {
     let server = HeadlessServer::start("w7c-agent-events");
@@ -641,13 +641,14 @@ fn w7c_keep_terminals_keeps_them_past_the_reapers_grace() {
 /// Runs `cmux --json workspace <workspace> close` from inside `caller`, in a
 /// new process session (so the daemon cannot match the caller's terminal by
 /// its session) with `credential` as its launch credential (None: no
-/// credential). The close's JSON result.
+/// credential), with `flags` after `close`. The close's JSON result.
 fn close_from_inside(
     server: &HeadlessServer,
     root: &std::path::Path,
     caller: &str,
     workspace: &str,
     credential: Option<&std::path::Path>,
+    flags: &str,
 ) -> Value {
     let out = root.join("close.json");
     let code = root.join("close.code");
@@ -658,7 +659,7 @@ fn close_from_inside(
     let script = format!(
         "env {credential} perl -MPOSIX -e 'if (my $p = fork) {{ waitpid($p, 0); exit($? >> 8) }} \
          POSIX::setsid() or die; exec @ARGV' -- sh -c \"'{bin}' --json --socket '{socket}' \
-         workspace {workspace} close > '{out}' 2>&1; echo \\$? > '{code}'\"\r",
+         workspace {workspace} close {flags} > '{out}' 2>&1; echo \\$? > '{code}'\"\r",
         bin = bin(),
         socket = server.socket.display(),
         out = out.display(),
@@ -693,7 +694,7 @@ fn w7c_a_close_from_a_new_process_session_spares_the_callers_terminal() {
         (field(&made, "workspace_id"), field(&made, "pane_id"), field(&made, "terminal_id"));
     let other = field(&run(&server, &["pane", &pane, "split", "--right"]), "terminal_id");
 
-    let closed = close_from_inside(&server, &root, &caller, &workspace, None);
+    let closed = close_from_inside(&server, &root, &caller, &workspace, None, "");
     assert_ended(&server, &other, "workspace close from a new process session");
     assert_eq!(listed(&closed, "ended_terminal_ids"), [other.as_str()], "{closed}");
     assert_eq!(listed(&closed, "running_terminal_ids"), [caller.as_str()], "{closed}");
@@ -744,7 +745,7 @@ fn w7c_a_close_never_ends_the_terminal_its_peer_runs_in() {
         (field(&made, "workspace_id"), field(&made, "pane_id"), field(&made, "terminal_id"));
     let other = field(&run(&server, &["pane", &pane, "split", "--right"]), "terminal_id");
 
-    let closed = close_from_inside(&server, &root, &caller, &workspace, Some(&credential));
+    let closed = close_from_inside(&server, &root, &caller, &workspace, Some(&credential), "");
     assert_ended(&server, &other, "workspace close with another terminal's credential");
     assert_eq!(listed(&closed, "ended_terminal_ids"), [other.as_str()], "{closed}");
     assert_eq!(listed(&closed, "running_terminal_ids"), [caller.as_str()], "{closed}");
@@ -753,4 +754,150 @@ fn w7c_a_close_never_ends_the_terminal_its_peer_runs_in() {
 
     drop(server);
     let _ = fs::remove_dir_all(root);
+}
+
+/// `--keep-terminals` keeps every terminal the close leaves, the caller's
+/// own too (lead, W7-C review): a close run from inside the closed workspace
+/// with `--keep-terminals` leaves the caller's terminal running past the
+/// reaper's grace, as it leaves the others.
+#[test]
+fn w7c_keep_terminals_keeps_the_callers_own_terminal_too() {
+    let root = unique_temp_dir("w7c-keep-own");
+    fs::create_dir_all(&root).unwrap();
+    let server = HeadlessServer::start_with_reap_grace("w7c-keep-own", 2);
+    let made = run(&server, &["workspace", "create", "--name", "w7c-keep-own"]);
+    let (workspace, pane, caller) =
+        (field(&made, "workspace_id"), field(&made, "pane_id"), field(&made, "terminal_id"));
+    let other = field(&run(&server, &["pane", &pane, "split", "--right"]), "terminal_id");
+
+    let closed = close_from_inside(&server, &root, &caller, &workspace, None, "--keep-terminals");
+    let mut running = listed(&closed, "running_terminal_ids");
+    running.sort();
+    let mut expected = vec![caller.clone(), other.clone()];
+    expected.sort();
+    assert_eq!(running, expected, "{closed}");
+    assert!(listed(&closed, "ending_terminal_ids").is_empty(), "{closed}");
+
+    // A plain close in another workspace: when the reaper has ended its
+    // terminal, the grace is over.
+    let plain_pane =
+        field(&run(&server, &["workspace", "create", "--name", "w7c-keep-own-2"]), "pane_id");
+    let split = run(&server, &["pane", &plain_pane, "split", "--right"]);
+    let (plain_tab, plain) = (field(&split, "tab_id"), field(&split, "terminal_id"));
+    run(&server, &["tab", &plain_tab, "close"]);
+    assert_ended(&server, &plain, "the 2 s grace of a plain close");
+    assert_runs_tabless(&server, &caller, "the reaper after --keep-terminals from inside");
+    assert_runs_tabless(&server, &other, "the reaper after --keep-terminals from inside");
+
+    drop(server);
+    let _ = fs::remove_dir_all(root);
+}
+
+/// `closed reopen` takes back the `keep` mark a `--keep-terminals` close set
+/// (lead, W7-C review): a later plain close of the reopened tab gets the
+/// grace again, and the reaper ends the terminal when it runs out.
+#[test]
+fn w7c_closed_reopen_takes_back_the_keep_of_a_keep_close() {
+    let server = HeadlessServer::start_with_reap_grace("w7c-keep-reopen", 2);
+    let made = run(&server, &["workspace", "create", "--name", "w7c-keep-reopen"]);
+    let pane = field(&made, "pane_id");
+    let split = run(&server, &["pane", &pane, "split", "--right"]);
+    let (tab, kept) = (field(&split, "tab_id"), field(&split, "terminal_id"));
+    let closed = run(&server, &["tab", &tab, "close", "--keep-terminals"]);
+    assert_eq!(listed(&closed, "running_terminal_ids"), [kept.as_str()], "{closed}");
+
+    run(&server, &["closed", "reopen"]);
+    let reopened = record(&server, &kept).unwrap_or_default();
+    let tab = reopened["tab_ids"]
+        .as_array()
+        .and_then(|tabs| tabs.first())
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("closed reopen gave {kept} no tab: {reopened}"))
+        .to_owned();
+
+    let closed = run(&server, &["tab", &tab, "close"]);
+    assert_eq!(listed(&closed, "ending_terminal_ids"), [kept.as_str()], "{closed}");
+    assert_ended(&server, &kept, "the grace of a plain close after a reopen");
+}
+
+/// One `layout.bulk` request with `params`; the reply.
+fn bulk_request(server: &HeadlessServer, key: &str, params: Value) -> Value {
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": key,
+        "operation": "layout.bulk",
+        "idempotency_key": key,
+        "params": params,
+    });
+    let stream = transport::connect(&server.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{request}").unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    serde_json::from_str(&line).unwrap()
+}
+
+/// `layout.bulk` takes the single close's `terminals` (lead, W7-C review:
+/// one enum): `keep` keeps them past the grace, and the legacy
+/// `end_terminals` is refused when it disagrees with `terminals`.
+#[test]
+fn w7c_layout_bulk_takes_the_terminals_of_a_single_close() {
+    let server = HeadlessServer::start_with_reap_grace("w7c-bulk-enum", 2);
+    let made = run(&server, &["workspace", "create", "--name", "w7c-bulk-enum"]);
+    let (workspace, pane) = (field(&made, "workspace_id"), field(&made, "pane_id"));
+    let tab = |server: &HeadlessServer| {
+        let made = run(server, &["tab", "create", "terminal", "--pane", &pane]);
+        (field(&made, "tab_id"), field(&made, "terminal_id"))
+    };
+    let params = |anchor: &str, extra: Value| {
+        let mut params = serde_json::json!({
+            "machine": "current",
+            "session": "current",
+            "workspace": workspace,
+            "verb": "close",
+            "level": "tab",
+            "selector": "others",
+            "anchor": anchor,
+        });
+        for (key, value) in extra.as_object().into_iter().flatten() {
+            params[key] = value.clone();
+        }
+        params
+    };
+
+    let (anchor, _) = tab(&server);
+    let (_, kept) = tab(&server);
+    let refused = bulk_request(
+        &server,
+        "w7c-bulk-disagree",
+        params(&anchor, serde_json::json!({"terminals": "keep", "end_terminals": true})),
+    );
+    assert_eq!(refused["ok"], false, "end_terminals that disagrees with terminals: {refused}");
+    assert_runs_placed(&server, &kept, "a refused layout.bulk");
+
+    let closed = bulk_request(
+        &server,
+        "w7c-bulk-keep",
+        params(&anchor, serde_json::json!({"terminals": "keep"})),
+    );
+    assert_eq!(closed["ok"], true, "{closed}");
+    assert!(listed(&closed["result"], "running_terminal_ids").contains(&kept), "{closed}");
+
+    let plain_pane =
+        field(&run(&server, &["workspace", "create", "--name", "w7c-bulk-enum-2"]), "pane_id");
+    let split = run(&server, &["pane", &plain_pane, "split", "--right"]);
+    let (plain_tab, plain) = (field(&split, "tab_id"), field(&split, "terminal_id"));
+    run(&server, &["tab", &plain_tab, "close"]);
+    assert_ended(&server, &plain, "the 2 s grace of a plain close");
+    assert_runs_tabless(&server, &kept, "the reaper after layout.bulk terminals: keep");
+}
+
+/// `terminal` still runs, with a tab.
+fn assert_runs_placed(server: &HeadlessServer, terminal: &str, step: &str) {
+    let found = record(server, terminal);
+    assert!(runs(&found), "{step} ended terminal {terminal}: {}", found.unwrap_or_default());
+    let found = found.unwrap();
+    assert_ne!(found["tab_ids"], serde_json::json!([]), "{step}: {found}");
 }

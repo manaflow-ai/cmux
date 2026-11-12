@@ -583,6 +583,55 @@ mod tests {
         .unwrap()
     }
 
+    /// W7-C review: `terminals: keep` stores the `keep` mark in the close's
+    /// own commit. When the mark cannot be stored, the close fails and
+    /// changes nothing; it never answers "running" for a terminal the reaper
+    /// then ends.
+    #[test]
+    fn w7c_a_keep_close_that_cannot_mark_its_terminal_fails_whole() {
+        let mux = mux();
+        let close = |key: &str, tab: &str| {
+            dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::TabClose,
+                    selectors(None, None, None, Some(tab)),
+                    json!({"terminals": "keep"}),
+                    Some(key),
+                ),
+            )
+        };
+        let marked = terminal_workspace(&mux, "keep-mark-works");
+        let tab = marked["value"]["tab_id"].as_str().unwrap().to_owned();
+        let closed = close("keep-mark-works-close", &tab).unwrap();
+        assert_eq!(
+            closed.pointer("/value/running_terminal_ids").and_then(Value::as_array).map(Vec::len),
+            Some(1),
+            "a keep close did not keep its terminal: {closed}"
+        );
+
+        let refused = terminal_workspace(&mux, "keep-mark-fails");
+        let tab = refused["value"]["tab_id"].as_str().unwrap().to_owned();
+        mux.workspace_registry.lock().unwrap().refuse_terminal_keep_for_test();
+        let revision = mux.with_state(|state| state.resource_revision);
+        let failed = close("keep-mark-fails-close", &tab);
+        assert!(failed.is_err(), "a keep close whose mark failed answered {failed:?}");
+        assert_eq!(
+            mux.with_state(|state| state.resource_revision),
+            revision,
+            "the close whose mark failed committed"
+        );
+        assert!(
+            mux.with_state(|state| state
+                .resource_indexes
+                .tab_ids
+                .values()
+                .any(|id| id.to_string() == tab)),
+            "the tab of the failed close is gone"
+        );
+        mux.shutdown();
+    }
+
     #[test]
     fn thousand_resource_path_filter_builds_ancestry_once_and_stays_exact() {
         const RESOURCE_COUNT: usize = 1_000;
