@@ -443,7 +443,7 @@ function Columns({
       frame.style.height = "";
       frame.style.maxHeight = "";
     },
-    [ownHeight, natural?.height],
+    [ownHeight, natural],
   );
   useLayoutEffect(() => heightOf(popupRef.current), [heightOf, popupNode]);
 
