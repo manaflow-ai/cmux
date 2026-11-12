@@ -46,7 +46,7 @@ Inside tmux, these hooks report to the cmux workspace attached to the tmux sessi
 | CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
-| Qwen Code | `qwen` | `~/.qwen/settings.json` or `$QWEN_DIR/settings.json` | `qwen --resume <id>` | PreToolUse |
+| Qwen Code | `qwen` | `~/.qwen/settings.json` or `$QWEN_HOME/settings.json` | `qwen --resume <id>` | PreToolUse |
 | Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | `kimi --resume <id>` | PreToolUse, PostToolUse |
 | Muse Code | `muse` | `~/.config/muse/settings.json` or `$XDG_CONFIG_HOME/muse/settings.json` | `muse resume <id>` | none |
 | Antigravity | `agy` | `~/.gemini/config/hooks.json` (`cmux` hook group) | `agy --conversation <id>` | none |
@@ -225,7 +225,7 @@ notification bridge, rebinding, and hibernation integration for that process.
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
-| Qwen Code | `QWEN_DIR` | `CMUX_QWEN_HOOKS_DISABLED=1` |
+| Qwen Code | `QWEN_HOME` | `CMUX_QWEN_HOOKS_DISABLED=1` |
 | Antigravity | none | `CMUX_ANTIGRAVITY_HOOKS_DISABLED=1` |
 
 Muse Code runs hooks through the user's login shell with a cleared environment, so the cmux `muse` wrapper installs each hook as a `#!/bin/sh` script under `~/.cmux/hooks/muse/` that carries the installing cmux CLI and socket and finds the terminal from the Muse process, like Grok. Muse sessions appear in Vault from Muse's own `session-index.db`.

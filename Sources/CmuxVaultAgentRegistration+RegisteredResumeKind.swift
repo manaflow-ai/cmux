@@ -11,6 +11,7 @@ extension CmuxVaultAgentRegistration {
         if self == Self.builtInGrok { return .grok }
         if self == Self.builtInKimi { return .kimi }
         if self == Self.builtInMuse { return .muse }
+        if self == Self.builtInQwen { return .qwen }
         return nil
     }
 }

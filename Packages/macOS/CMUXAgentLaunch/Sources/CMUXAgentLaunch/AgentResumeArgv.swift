@@ -551,7 +551,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "qoder":
             return withOption("qoder", executable: "qodercli", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "qwen":
-            return withOption("qwen", executable: "qwen", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
+            return qwenResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "kimi":
             return withOption("kimi", executable: "kimi", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "muse":
@@ -592,6 +592,29 @@ public struct AgentResumeArgv: Sendable, Equatable {
             return nil
         }
         return ["claude", "--resume", sessionId] + preserved
+    }
+
+    /// Builds the Qwen resume argv. A Node-hosted capture (`node …/cli.js …`) must keep
+    /// the runtime and the Qwen entrypoint together, otherwise resume would replay
+    /// `node --resume <id>` and never launch the CLI.
+    private func qwenResumeArgv(
+        sessionId: String,
+        executablePath: String?,
+        arguments: [String]
+    ) -> [String]? {
+        let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "qwen")
+        var prefix = [parts.executable]
+        var tail = parts.tail
+        let hostBases: Set<String> = ["node", "bun", "deno", "tsx", "ts-node"]
+        let executableBase = URL(fileURLWithPath: parts.executable).lastPathComponent.lowercased()
+        if hostBases.contains(executableBase),
+           let script = tail.first,
+           AgentLaunchCaptureTrust.isQwenScriptEntrypoint(script) {
+            prefix = [parts.executable, script]
+            tail = Array(tail.dropFirst())
+        }
+        guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: tail) else { return nil }
+        return prefix + ["--resume", sessionId] + preserved
     }
 
     private func withOption(

@@ -109,6 +109,22 @@ struct AgentLaunchSanitizerTests {
         #expect(AgentLaunchSanitizer.preservedArguments(kind: "qwen", args: ["mcp"]) == nil)
     }
 
+    @Test("Qwen interactive initial prompt stays restorable and its prompt value is dropped")
+    func qwenPromptInteractiveIsRestorable() {
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "qwen",
+                args: ["--prompt-interactive", "do the thing", "--yolo"]
+            ) == ["--yolo"]
+        )
+        #expect(
+            AgentLaunchSanitizer.preservedArguments(
+                kind: "qwen",
+                args: ["-i", "do the thing", "--model", "qwen3-coder-plus"]
+            ) == ["--model", "qwen3-coder-plus"]
+        )
+    }
+
     @Test("Qwen resume renders the captured executable with --resume and preserved flags")
     func qwenResumeCommandPreservesFlags() {
         #expect(

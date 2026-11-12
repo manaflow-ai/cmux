@@ -20,6 +20,8 @@ public enum RegisteredAgentResumeKind: String, Sendable {
     case kimi
     /// Meta Muse Code.
     case muse
+    /// Qwen Code.
+    case qwen
 
     /// The canonical Vault `resumeCommand` template for this built-in agent.
     public var commandTemplate: String {
@@ -36,6 +38,8 @@ public enum RegisteredAgentResumeKind: String, Sendable {
             "{{executable}} --resume {{sessionId}}"
         case .muse:
             "{{executable}} resume {{sessionId}}"
+        case .qwen:
+            "{{executable}} --resume {{sessionId}}"
         }
     }
 }

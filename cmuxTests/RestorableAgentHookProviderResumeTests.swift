@@ -66,7 +66,7 @@ extension SocketListenerAcceptPolicyTests {
                 ],
                 workingDirectory: "/tmp/qwen repo",
                 environment: [
-                    "QWEN_DIR": "/tmp/qwen home",
+                    "QWEN_HOME": "/tmp/qwen home",
                     "OPENAI_API_KEY": "secret"
                 ],
                 capturedAt: 123,
@@ -76,7 +76,7 @@ extension SocketListenerAcceptPolicyTests {
 
         let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertTrue(resumeCommand.contains("cd -- '/tmp/qwen repo'"), resumeCommand)
-        XCTAssertTrue(resumeCommand.contains("QWEN_DIR=/tmp/qwen home"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("QWEN_HOME=/tmp/qwen home"), resumeCommand)
         XCTAssertTrue(resumeCommand.contains("/Users/example/.npm/bin/qwen"), resumeCommand)
         XCTAssertTrue(resumeCommand.contains("'--resume' 'qwen-session-abc'"), resumeCommand)
         XCTAssertTrue(resumeCommand.contains("'--model' 'qwen3-coder-plus'"), resumeCommand)

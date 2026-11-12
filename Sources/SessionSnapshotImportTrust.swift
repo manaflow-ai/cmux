@@ -71,6 +71,7 @@ enum SessionSnapshotImportTrust {
             .builtInGrok,
             .builtInKimi,
             .builtInMuse,
+            .builtInQwen,
             .builtInHermes,
         ]
         return Dictionary(builtIns.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

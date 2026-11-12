@@ -1986,7 +1986,7 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            let expectedKind: RestorableAgentKind = [.pi, .kimi].contains(scenario.kind) ? .custom(scenario.kind.rawValue) : scenario.kind
+            let expectedKind: RestorableAgentKind = [.pi, .kimi, .qwen].contains(scenario.kind) ? .custom(scenario.kind.rawValue) : scenario.kind
             XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, expectedKind)
 
             workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
@@ -2143,7 +2143,7 @@ final class SessionPersistenceTests: XCTestCase {
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
             case .qwen:
-                resolvedEnvironment = ["QWEN_DIR": "/tmp/qwen"]
+                resolvedEnvironment = ["QWEN_HOME": "/tmp/qwen"]
             case .kimi:
                 resolvedEnvironment = ["KIMI_SHARE_DIR": "/tmp/kimi"]
             }

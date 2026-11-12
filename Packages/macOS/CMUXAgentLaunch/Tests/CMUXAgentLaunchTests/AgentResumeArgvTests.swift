@@ -33,6 +33,47 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Qwen Node-hosted capture replays runtime + entrypoint, not bare node")
+    func qwenNodeHostedResumeKeepsEntrypoint() {
+        let script = "/opt/qwen/node_modules/@qwen-code/qwen-code/dist/cli.js"
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "qwen",
+                sessionId: "SID",
+                executablePath: "node",
+                arguments: ["node", script, "--model", "qwen3-coder-plus"]
+            ) == ["node", script, "--resume", "SID", "--model", "qwen3-coder-plus"]
+        )
+    }
+
+    @Test("Qwen registered built-in kind resumes via --resume")
+    func qwenRegisteredBuiltInKind() {
+        #expect(
+            AgentResumeArgv().registeredBuiltInKind(
+                kind: .qwen, sessionId: "SID", executablePath: nil, arguments: ["qwen"]
+            ) == ["qwen", "--resume", "SID"]
+        )
+        #expect(RegisteredAgentResumeKind.qwen.commandTemplate == "{{executable}} --resume {{sessionId}}")
+    }
+
+    @Test("Qwen Node-hosted launch is recognized by capture trust")
+    func qwenNodeHostedCaptureTrust() {
+        #expect(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: ["node", "/opt/qwen/node_modules/@qwen-code/qwen-code/dist/cli.js"],
+                kind: "qwen"
+            )
+        )
+        #expect(
+            !AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: ["node", "/opt/other/pkg/dist/cli.js"],
+                kind: "qwen"
+            )
+        )
+    }
+
     @Test("Built-in special-shaped kinds")
     func builtInSpecialShapes() {
         #expect(

@@ -158,6 +158,9 @@ public enum AgentLaunchCaptureTrust {
             }) {
                 descriptors.insert("campfire")
             }
+            if arguments.dropFirst().contains(where: { Self.isQwenScriptEntrypoint($0) }) {
+                descriptors.insert("qwen")
+            }
             return descriptors
         }
 
@@ -190,5 +193,16 @@ public enum AgentLaunchCaptureTrust {
             return nil
         }
         return URL(fileURLWithPath: value).lastPathComponent.lowercased()
+    }
+
+    /// True when a script-host argv element is the Qwen Code CLI entrypoint
+    /// (`node …/@qwen-code/qwen-code/dist/cli.js`). Shared by capture trust and the
+    /// resume builder so a Node-hosted launch is recognized and replayed with its
+    /// runtime and entrypoint kept together.
+    static func isQwenScriptEntrypoint(_ value: String) -> Bool {
+        let lowered = value.replacingOccurrences(of: "\\", with: "/").lowercased()
+        return lowered.contains("@qwen-code/qwen-code")
+            || lowered.contains("/qwen-code/")
+            || processBasename(value) == "qwen"
     }
 }

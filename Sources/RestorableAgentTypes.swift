@@ -42,9 +42,8 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
         .codebuddy,
         .factory,
         .qoder,
-        .qwen,
-        // Kimi, Muse and Ollama are registry-owned like Pi/Grok/Antigravity: leaving them
-        // out keeps their ids available to pre-existing custom Vault registrations
+        // Kimi, Muse, Ollama and Qwen are registry-owned like Pi/Grok/Antigravity: leaving
+        // them out keeps their ids available to pre-existing custom Vault registrations
         // while direct native values still encode.
     ]
 

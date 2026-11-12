@@ -392,6 +392,8 @@ extension AgentLaunchSanitizer {
             "--openai-base-url",
             "--openai-logging-dir",
             "--output-style",
+            "--prompt-interactive",
+            "-i",
             "--proxy",
             "--resume",
             "-r",
@@ -462,6 +464,8 @@ extension AgentLaunchSanitizer {
             "-c",
             "--fork-session",
             "--openai-api-key",
+            "--prompt-interactive",
+            "-i",
             "--resume",
             "-r",
             "--session-id",
@@ -469,6 +473,7 @@ extension AgentLaunchSanitizer {
         ],
         droppedOptionPrefixes: [
             "--openai-api-key=",
+            "--prompt-interactive=",
             "--resume=",
             "--session-id=",
             "--worktree="
@@ -486,9 +491,7 @@ extension AgentLaunchSanitizer {
             "--output-format",
             "-o",
             "--prompt",
-            "-p",
-            "--prompt-interactive",
-            "-i"
+            "-p"
         ]
     )
 

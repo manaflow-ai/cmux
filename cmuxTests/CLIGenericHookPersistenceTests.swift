@@ -465,7 +465,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "initial prompt should not persist"
                 ],
                 extraEnvironment: [
-                    "QWEN_DIR": "/tmp/qwen config",
+                    "QWEN_HOME": "/tmp/qwen config",
                     "OPENAI_API_KEY": "secret"
                 ],
                 expectedArguments: [
@@ -475,7 +475,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "--approval-mode",
                     "yolo"
                 ],
-                expectedEnvironment: ["QWEN_DIR": "/tmp/qwen config"]
+                expectedEnvironment: ["QWEN_HOME": "/tmp/qwen config"]
             ),
         ]
 
