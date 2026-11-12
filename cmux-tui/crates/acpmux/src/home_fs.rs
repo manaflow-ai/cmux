@@ -136,16 +136,19 @@ fn held(path: &Path) -> io::Result<()> {
 
 /// Off Unix: `read` of `path`, made between two checks of the home ([`held`]): the answer is the
 /// held home's, or an error when the home was replaced before or during the read. A replacement
-/// that lacks a file the held home has then never reads as "not there" (#41721 review F1).
+/// that lacks a file the held home has then never reads as "not there" (#41721 review F1). The
+/// second check runs whatever the read answered: a read that failed in a replacement (a
+/// `NotFound`, which `LocalStore::load` reads as "no session") is the lost home's error too
+/// (#41915 review F1).
 #[cfg(any(not(unix), test))]
 pub(crate) fn held_read<T, E: From<io::Error>>(
     path: &Path,
     read: impl FnOnce() -> Result<T, E>,
 ) -> Result<T, E> {
     held(path)?;
-    let answer = read()?;
+    let answer = read();
     held(path)?;
-    Ok(answer)
+    answer
 }
 
 /// [`create_dir_all`] with 0700, and an existing folder of this user narrowed to 0700 (one an
