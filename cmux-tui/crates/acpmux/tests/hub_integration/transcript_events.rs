@@ -843,9 +843,11 @@ async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
 async fn an_attach_page_whose_records_together_pass_one_message_still_opens() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "large-open").await;
-    // The fake agent echoes the prompt as one answer chunk of the same size; acpmux's
-    // `user_message` holds the prompt's text twice (`text`, and its `inlineParts` text part).
-    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(11 << 20), None)).await.unwrap();
+    // The fake agent echoes the prompt as one answer chunk of the same size, and acpmux's
+    // `user_message` holds a plain text prompt once, so a prompt of three fifths of the limit
+    // makes two records that each fit one message and together do not.
+    let body = acpmux::rpc::MAX_MESSAGE_BYTES * 3 / 5;
+    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(body), None)).await.unwrap();
     let session = hub.resolve("large-open").unwrap();
     let records = hub.events(&session.id, 0, 10_000).unwrap();
     let size = |msg: &Value| serde_json::to_string(msg).unwrap().len();

@@ -1624,18 +1624,41 @@ export default agentPaneEntry({
       play: pasteTwoScreenshots,
     },
     // Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than
-    // what we have right now". The room after each chip in the text (markdownField.css
-    // .acpmux-md-inline), the caret after the last of two: 2px, a thin spacer; 4px, half; 8px, the
-    // default, the same as from one chip to the next.
+    // what we have right now"; 2026-11-08: "there is now too much of a gap to the right of attachments.
+    // even it out a little bit more between left and right sides. just have the carets be barely to the
+    // side of"; 2026-11-11: "There's still extra space on the right". The room around each chip in the
+    // text (markdownField.css .acpmux-md-inline), the caret after the last of two. `trailing-8` is what
+    // shipped before: all 8px after the chip, none before it. The even ones split a room between the
+    // two sides: 2px a side, 3px a side, and 4px a side (the default, the sent bubble's 4px).
     ...Object.fromEntries(
-      ([2, 4, 8] as const).map((room) => [
-        `attachment-inline-caret-room-${room}`,
+      (
+        [
+          [
+            "trailing-8",
+            { start: "0px", end: "8px" },
+            "Before: all 8px of room after each chip and none before it, so the caret after a chip stood 8px off and the text before it touched it.",
+          ],
+          ["even-2", { room: "4px" }, "2px each side of each chip: the caret all but touches it."],
+          ["even-3", { room: "6px" }, "3px each side of each chip."],
+          [
+            "even-4",
+            { room: "8px" },
+            "4px each side of each chip (the default): the caret and the text stand as far from it on the left as on the right, and two chips are 8px apart, as in a sent bubble.",
+          ],
+        ] as const
+      ).map(([name, room, note]) => [
+        `attachment-inline-caret-${name}`,
         {
-          note: `Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than what we have right now". ${room}px of room after each chip in the text${room === 8 ? " (the default)" : ""}: the caret after the second screenshot stands ${room}px from it, as the second stands from the first. The prompt's text gains no space.`,
+          note: `Leo, 2026-11-08: "even it out a little bit more between left and right sides. just have the carets be barely to the side of". ${note} The prompt's text gains no space.`,
           snapshot: chat(finished),
           ready: { draft: "Which layout reads better?" },
           play: async (ctx: PlayContext) => {
-            ctx.document.documentElement.style.setProperty("--acpmux-inline-room", `${room}px`);
+            const style = ctx.document.documentElement.style;
+            if ("room" in room) style.setProperty("--acpmux-inline-room", room.room);
+            else {
+              style.setProperty("--acpmux-inline-room-start", room.start);
+              style.setProperty("--acpmux-inline-room-end", room.end);
+            }
             await pasteTwoScreenshots(ctx);
             const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
             field.acpmuxMarkdownField!.focus();

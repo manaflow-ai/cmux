@@ -75,17 +75,17 @@ pub async fn install() -> Result<serde_json::Value> {
         bail!("Codex archive SHA-256 mismatch: expected {expected}, got {got}")
     }
     let base = base();
-    std::fs::create_dir_all(&base)?;
+    crate::home_fs::create_dirs(&base)?;
     let staging = base.join(format!(".staging-{}", std::process::id()));
     if staging.exists() {
-        std::fs::remove_dir_all(&staging)?;
+        crate::home_fs::remove_dir_all(&staging)?;
     }
-    std::fs::create_dir_all(&staging)?;
+    crate::home_fs::create_dirs(&staging)?;
     let archive = staging.join("codex.tar.gz");
-    std::fs::write(&archive, &bytes)?;
+    crate::home_fs::write(&archive, &bytes)?;
     let file = std::fs::File::open(&archive)?;
     tar::Archive::new(flate2::read::GzDecoder::new(file)).unpack(&staging)?;
-    std::fs::remove_file(&archive)?;
+    crate::home_fs::remove_file(&archive)?;
     let extracted = std::fs::read_dir(&staging)?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .find(|path| {
@@ -96,22 +96,25 @@ pub async fn install() -> Result<serde_json::Value> {
                     .is_some_and(|n| n == "codex" || n.starts_with("codex-"))
         })
         .ok_or_else(|| anyhow::anyhow!("Codex archive did not contain a target codex binary"))?;
-    std::fs::rename(&extracted, staging.join("codex"))?;
+    crate::home_fs::rename(&extracted, staging.join("codex"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(staging.join("codex"), std::fs::Permissions::from_mode(0o755))?;
+        crate::home_fs::set_permissions(
+            staging.join("codex"),
+            std::fs::Permissions::from_mode(0o755),
+        )?;
     }
     // The marker is written last, inside the staged directory: the swap below makes the binary
     // and its marker current together, and the runtime already in place stays until then.
     let ready = serde_json::json!({"version": VERSION, "sha256": expected, "path": managed_path(), "url": url});
-    std::fs::write(staging.join("ready.json"), serde_json::to_string_pretty(&ready)?)?;
+    crate::home_fs::write(staging.join("ready.json"), serde_json::to_string_pretty(&ready)?)?;
     // Each install gets its own directory; none is ever replaced in place.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_nanos());
     let install = base.join(format!("{VERSION}-{}-{nanos}", std::process::id()));
-    std::fs::rename(&staging, &install)?;
+    crate::home_fs::rename(&staging, &install)?;
     activate(&base, &install)?;
     Ok(ready)
 }
@@ -135,10 +138,10 @@ fn activate(base: &Path, install: &Path) -> Result<()> {
     }
     let link = base.join(CURRENT);
     let pending = base.join(format!(".current-{}", std::process::id()));
-    let _ = std::fs::remove_file(&pending);
-    std::os::unix::fs::symlink(name, &pending)?;
-    if let Err(err) = std::fs::rename(&pending, &link) {
-        let _ = std::fs::remove_file(&pending);
+    let _ = crate::home_fs::remove_file(&pending);
+    crate::home_fs::symlink(name, &pending)?;
+    if let Err(err) = crate::home_fs::rename(&pending, &link) {
+        let _ = crate::home_fs::remove_file(&pending);
         return Err(err.into());
     }
     prune(base);
@@ -170,7 +173,7 @@ fn prune(base: &Path) {
             .and_then(|modified| now.duration_since(modified).ok())
             .is_none_or(|age| age < PRUNE_GRACE);
         if ours && !named && !recent {
-            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = crate::home_fs::remove_dir_all(entry.path());
         }
     }
 }
