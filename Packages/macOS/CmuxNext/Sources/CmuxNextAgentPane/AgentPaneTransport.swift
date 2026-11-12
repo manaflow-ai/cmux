@@ -514,7 +514,14 @@ import CmuxNextCompat
             // page waits for them.
             promptRelay?.ended()
             // Kept in the log (notice, not info): the page's "connection interrupted" needs its reason.
-            Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(batch.closed?.error?.rawValue ?? "-", privacy: .public)")
+            // A close this host decided (an overflow, a duplicate key) is an error, so the error
+            // journal (`cmux errors`) counts it: as a notice, 1,635 overflow closes on 2026-11-11 reached
+            // no report and Leo found the reconnect loop himself (AcpmuxPaneShedding).
+            if let error = batch.closed?.error {
+                Self.logger.error("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=\(error.rawValue, privacy: .public)")
+            } else {
+                Self.logger.notice("agent pane transport closed connection=\(self.current, privacy: .public) code=\(batch.closed?.code ?? 0, privacy: .public) error=-")
+            }
         }
         let more = batch.more && self.socket != nil
         guard let deliver else { return AgentPaneFlush(delivered: false, more: more) }

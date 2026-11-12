@@ -96,7 +96,9 @@ struct AgentPaneTransportSheddingTests {
     @Test func aWholeLargestFrameReplyWithAStreamAroundItKeepsTheConnection() throws {
         let socket = try Self.socket(AgentPaneTransport.Limits())
         let filler = String(repeating: "a", count: (31 << 20) - 64)
-        let reply = #"{"jsonrpc":"2.0","id":1,"result":{"pad":"\#(filler)"}}"#
+        // A frame the page gets whole (one with an id; a reply with no relay entry here would be
+        // dropped once checked, and free its bytes before the stream fills the queue).
+        let reply = #"{"jsonrpc":"2.0","id":1,"method":"x/list","params":{"pad":"\#(filler)"}}"#
         socket.receiveLocalReply(Self.chunk(1))
         socket.receiveLocalReply(reply)
         // About 3 MB streamed while the page reads the reply: past the 32 MB the queue holds.
