@@ -146,6 +146,24 @@ pub struct LastReturn {
     pub turns: u64,
 }
 
+/// The chat's current away recap (`hub/away_recap.rs`): the record that shows it, the facts it
+/// names, the turn count it covers and whether the person dismissed it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayRecap {
+    /// Seq of its `recap` record.
+    pub seq: u64,
+    /// Hash of `facts`, sent on the record so a client can tell one recap's facts from another's.
+    pub digest: String,
+    /// What it names (`away_recap::facts`): a recap whose facts are all here says nothing new.
+    pub facts: Vec<String>,
+    /// The turn count it covers; the next recap waits `TURNS_BETWEEN` more.
+    pub turns: u64,
+    /// The person pressed its ×: a recap with no new fact stays unwritten.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dismissed: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -359,6 +377,11 @@ pub struct SessionMeta {
     /// its list read race. Cleared when the last client showing it stops.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_return: Option<LastReturn>,
+    /// The chat's one "While you were away" recap (`hub/away_recap.rs`): a newer recap replaces it,
+    /// one that says nothing new is never written, and its dismissal stays across restarts.
+    /// None until the first recap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub away_recap: Option<AwayRecap>,
     /// The Claude conversation acpmux started with a fresh id has not
     /// finished a turn, so Claude may never have stored it (a launcher that
     /// died before the prompt reached Claude stores nothing). A respawn (a
