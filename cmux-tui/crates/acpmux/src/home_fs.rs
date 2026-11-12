@@ -456,7 +456,7 @@ pub(crate) fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u
         let rest = io::copy(&mut source, target)?;
         #[cfg(not(unix))]
         target.set_permissions(permissions)?;
-        Ok(first as u64 + rest)
+        Ok((first as u64).saturating_add(rest))
     })
 }
 
