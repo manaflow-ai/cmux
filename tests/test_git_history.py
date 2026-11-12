@@ -15,6 +15,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import types
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -62,7 +63,12 @@ class ShallowClone(unittest.TestCase):
         self.assertEqual(_git(self.clone, "rev-parse", "--is-shallow-repository"), "true")
         self.assertFalse(git_history.has_commit(self.clone, self.b, depth=2))
 
-    def count_fetches(self) -> list[list[str]]:
+    def count_fetches(self, stderr: str | None = None) -> list[list[str]]:
+        """The `git fetch`es made; with `stderr`, each fails with it (exit 128) instead of running git.
+
+        Appends under a lock: the parallel test fetches from several threads. One helper only; a second
+        `def count_fetches` in this class replaced this one and dropped the lock (scripts/cmux-next/check-test-redefinitions.py).
+        """
         fetches: list[list[str]] = []
         real = git_history._git
         lock = threading.Lock()
@@ -71,6 +77,8 @@ class ShallowClone(unittest.TestCase):
             if args and args[0] == "fetch":
                 with lock:
                     fetches.append(list(args))
+                if stderr is not None:
+                    return subprocess.CompletedProcess(["git", *args], 128, stdout="", stderr=stderr)
             return real(root, *args, **kwargs)
 
         git_history._git = counting
@@ -158,58 +166,79 @@ class ShallowClone(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
-    def fetch_fails_with(self, stderr: str) -> list[list[str]]:
-        """Every `git fetch` fails with `stderr` (exit 128); the fetches made."""
-        fetches: list[list[str]] = []
-        real = git_history._git
+    def no_lock_retry_sleep(self) -> list[float]:
+        """git_history's sleeps; the first fails the test, so a fast failure shows as a pause taken, not a time."""
+        pauses: list[float] = []
 
-        def failing(root, *args, **kwargs):
-            if args and args[0] == "fetch":
-                fetches.append(list(args))
-                return subprocess.CompletedProcess(["git", *args], 128, stdout="", stderr=stderr)
-            return real(root, *args, **kwargs)
+        def sleep(seconds: float) -> None:
+            pauses.append(seconds)
+            raise AssertionError(f"slept {seconds}s: the error was waited out as a git lock")
 
-        git_history._git = failing
-        self.addCleanup(setattr, git_history, "_git", real)
-        return fetches
+        clock = types.SimpleNamespace(monotonic=time.monotonic, sleep=sleep)
+        patch = unittest.mock.patch.object(git_history, "time", clock)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return pauses
 
     def test_a_permission_denied_lock_file_fails_fast_with_its_own_error(self) -> None:
         # cmux#41716 review F1: "Unable to create" and ".lock" are in git's line here too, but nothing holds the lock.
         git_dir = Path(_git(self.clone, "rev-parse", "--path-format=absolute", "--git-dir"))
-        fetches: list[list[str]] = []
         if os.geteuid() == 0:
             # root writes a read-only directory: git's words for it, as a non-root CI runner printed them.
-            fetches = self.fetch_fails_with(f"fatal: Unable to create '{git_dir}/shallow.lock': Permission denied")
+            fetches = self.count_fetches(f"fatal: Unable to create '{git_dir}/shallow.lock': Permission denied")
         else:
             (git_dir / git_history.LOCK_FILE).touch()  # the history fetch's own flock file, made before the dir locks
             mode = git_dir.stat().st_mode
             git_dir.chmod(mode & ~0o222)  # git cannot create shallow.lock: Permission denied
             self.addCleanup(git_dir.chmod, mode)
+            fetches = self.count_fetches()
         self.short_lock_budget()
-        started = time.monotonic()
+        pauses = self.no_lock_retry_sleep()
         reason = git_history.missing_history(self.clone, [self.b], depth=2)
-        elapsed = time.monotonic() - started
         self.assertIsNotNone(reason)
         self.assertTrue(reason.startswith("needs history: "), reason)
         self.assertIn("Permission denied", reason)
         self.assertNotIn("git lock held", reason)
-        if fetches:
-            self.assertEqual(len(fetches), 1, f"one fetch, no lock retries: {fetches}")
-        self.assertLess(elapsed, 2, "a permission failure is not waited out as a lock")
+        self.assertEqual(len(fetches), 1, f"one fetch, no lock retries: {fetches}")
+        self.assertEqual(pauses, [], "a permission failure is not waited out as a lock")
 
     def test_a_remote_url_with_lock_in_it_fails_fast_with_its_own_error(self) -> None:
         # cmux#41716 review F1: real git, an origin whose path ends in ".lock" and does not exist.
         gone = Path(_git(self.clone, "rev-parse", "--path-format=absolute", "--git-dir")).parent.parent / "gone" / "repo.lock"
         _git(self.clone, "remote", "set-url", "origin", f"file://{gone}")
         self.short_lock_budget()
-        started = time.monotonic()
+        fetches = self.count_fetches()
+        pauses = self.no_lock_retry_sleep()
         reason = git_history.missing_history(self.clone, [self.b], depth=2)
-        elapsed = time.monotonic() - started
         self.assertIsNotNone(reason)
         self.assertTrue(reason.startswith("needs history: "), reason)
         self.assertIn("repo.lock", reason)
         self.assertNotIn("git lock held", reason)
-        self.assertLess(elapsed, 2, "a bad remote URL is not waited out as a lock")
+        self.assertEqual(len(fetches), 1, f"one fetch, no lock retries: {fetches}")
+        self.assertEqual(pauses, [], "a bad remote URL is not waited out as a lock")
+
+    def test_git_lock_line_is_retried_on_the_clock_until_the_budget(self) -> None:
+        # The other side of the two rows above, on the same fake: git's own lock line is waited out, pause by pause.
+        git_dir = Path(_git(self.clone, "rev-parse", "--path-format=absolute", "--git-dir"))
+        fetches = self.count_fetches(f"fatal: Unable to create '{git_dir}/shallow.lock': File exists.\n\n"
+                                     "Another git process seems to be running in this repository")
+        self.short_lock_budget(3)
+        now = [0.0]
+        pauses: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            pauses.append(seconds)
+            now[0] += seconds
+
+        clock = types.SimpleNamespace(monotonic=lambda: now[0], sleep=sleep)
+        patch = unittest.mock.patch.object(git_history, "time", clock)
+        patch.start()
+        self.addCleanup(patch.stop)
+        reason = git_history.missing_history(self.clone, [self.b], depth=2)
+        self.assertIsNotNone(reason)
+        self.assertTrue(reason.startswith("git lock held: "), reason)
+        self.assertEqual(pauses, [0.5, 1.0], "backs off 0.5 s then 1 s; the next 2 s pause would pass the 3 s budget")
+        self.assertEqual(len(fetches), 3, f"a fetch before each pause and one after the last: {fetches}")
 
 
 class GitLockLine(unittest.TestCase):

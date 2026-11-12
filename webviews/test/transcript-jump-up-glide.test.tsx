@@ -5,6 +5,7 @@
 // 2026-11-12: "at least one full screen of idleness"), kept per chat across reloads, and Jump up
 // never shows with Jump to latest nor right after a press of it.
 import { afterAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -61,7 +62,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -169,6 +171,8 @@ test("Jump up glides to the place and back, never cutting a viewport or more in 
     const backFrames = [scroller.scrollTop, ...(await frames(scroller))];
     expect(backFrames.at(-1)).toBe(scrollerEnd(scroller));
     expect(new Set(backFrames).size).toBeGreaterThan(4);
+    // The way back is the press's return, not the reader's act: the mark stays, and Jump up with it.
+    expect(up.hasAttribute("data-shown")).toBe(true);
   } finally {
     await act(async () => root.unmount());
   }

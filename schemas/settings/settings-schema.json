@@ -233,6 +233,7 @@
               "appearance.customDensity",
               "appearance.customDensities",
               "appearance.metrics.chromeFontSize",
+              "appearance.metrics.sidebarRowHeight",
               "appearance.borders",
               "appearance.focusIndicator",
               "focus.inactiveTabStyle",
@@ -32424,6 +32425,150 @@
       "title" : {
         "key" : "settings.appearance.titlebarHeight",
         "text" : "Titlebar Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        20,
+        48,
+        34
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.sidebarRowHeight",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "height",
+        "thinner",
+        "sidebarRowHeight"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "sidebarRowHeight"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 48,
+        "min" : 20,
+        "placeholder" : 24,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -8,
+        76,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.metrics.sidebarRowHeight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.sidebarRowHeight",
+        "text" : "Workspace Row Height"
       },
       "validation" : "portable"
     },
