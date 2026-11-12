@@ -631,6 +631,8 @@ function strayedFrom(watch: AttachWatch, replyOf?: unknown): boolean {
 const OLDER_PAGES_PER_ASK = 128;
 /// Pages one older read takes at least, published together so each prepend does not redraw the
 /// bottom stack; once one of them starts a turn older than the first prompt drawn, the read stops here.
+/// A read asked to fill the view takes one: with rows that do not reach the view's top, each page read
+/// before the first lands is a daemon round trip the band above them stays blank for.
 const OLDER_MIN_PAGES_PER_ASK = 4;
 /// A chat adopted or watched from Claude Code has older turns in its transcript, past the newest
 /// page its log was seeded with: acpmux logs a `native_history` record (its `before` cursor, a byte
@@ -14128,8 +14130,9 @@ export class AcpmuxDirectClient {
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
   /// `through`: read on until the record at that seq is held (a rail jump, `loadThrough`), not only
-  /// until an older turn starts.
-  loadOlder(through?: number): Promise<void> {
+  /// until an older turn starts. `fill`: the held rows do not fill the view; the read lands with the
+  /// first page that starts an older turn.
+  loadOlder(through?: number, fill = false): Promise<void> {
     if (!this.canPageOlder()) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
     // An ask inside the back-off after a failed page waits it out, then reads. One that returned
@@ -14144,10 +14147,10 @@ export class AcpmuxDirectClient {
             .wait(wait)
             .then((ready) =>
               ready && this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration
-                ? this.fetchOlder(pagingEpoch, through)
+                ? this.fetchOlder(pagingEpoch, through, fill)
                 : undefined,
             )
-        : this.fetchOlder(pagingEpoch, through);
+        : this.fetchOlder(pagingEpoch, through, fill);
     const loading = read
       .catch((error: unknown) => {
         if (this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration)
@@ -14181,7 +14184,7 @@ export class AcpmuxDirectClient {
     return next !== undefined && next > 0 ? next : undefined;
   }
 
-  private async fetchOlder(pagingEpoch = this.olderPagingEpoch, through?: number): Promise<void> {
+  private async fetchOlder(pagingEpoch = this.olderPagingEpoch, through?: number, fill = false): Promise<void> {
     if (!this.canPageOlder(pagingEpoch)) return;
     if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeBefore() !== undefined)
       return this.fetchNativeOlder();
@@ -14201,6 +14204,7 @@ export class AcpmuxDirectClient {
     // 2026-11-03: a reply starting mid-sentence under its prompt, and nothing above).
     const cutOpener = this.turnOpener && this.turnOpener.seq < this.firstSeq ? this.turnOpener.seq : undefined;
     let completed = false;
+    const minPages = fill ? 1 : OLDER_MIN_PAGES_PER_ASK;
     // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
     // page of its own, a page that ends in the opener already drawn adds no turn, and every page of
     // a long turn the open landed in is that turn's. Read on until a turn older than the first row
@@ -14210,7 +14214,7 @@ export class AcpmuxDirectClient {
       let before = this.firstSeq, pages = 0;
       more &&
       pages < OLDER_PAGES_PER_ASK &&
-      ((through !== undefined && before > through) || (!completed && (pages < OLDER_MIN_PAGES_PER_ASK || !found)));
+      ((through !== undefined && before > through) || (!completed && (pages < minPages || !found)));
       pages++
     ) {
       if (!this.canPageOlder(pagingEpoch)) return;

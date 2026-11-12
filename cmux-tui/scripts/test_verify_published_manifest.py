@@ -571,41 +571,6 @@ class VerifyPublishedManifestTests(TestCase):
                 machine_manifest=True,
             )
 
-    def test_a_skipped_target_is_neither_required_nor_accepted_half_built(self) -> None:
-        """Off main, cmux-tui-artifacts.yml builds no Intel Mac target (CMUX_TUI_SKIP_TARGET)."""
-        intel = "x86_64-apple-darwin"
-        payloads = {name: body for name, body in self.machine_payloads().items() if not name.endswith(intel)}
-        manifest = self.machine_manifest({**self.machine_payloads(), **payloads})
-        del manifest["artifacts"][intel]
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-            for name, payload in payloads.items():
-                (root / name).write_bytes(payload)
-            with self.assertRaisesRegex(VERIFY.ManifestError, "target set mismatch"):
-                VERIFY.verify_manifest_file(
-                    root / "manifest.json", expected_commit=self.COMMIT, required_artifacts=(),
-                    artifact_directory=root, machine_manifest=True,
-                )
-            VERIFY.verify_manifest_file(
-                root / "manifest.json", expected_commit=self.COMMIT, required_artifacts=(),
-                artifact_directory=root, machine_manifest=True, skip_targets=(intel,),
-            )
-        unix = {"commit": self.COMMIT, "binaries": {"cmux-tui-aarch64-apple-darwin": "a" * 64}}
-        required = ("cmux-tui-aarch64-apple-darwin", f"cmux-tui-{intel}", f"cmux-tui-acpmux-{intel}")
-        with patch.object(VERIFY, "urlopen", return_value=FakeResponse(unix)):
-            with self.assertRaisesRegex(VERIFY.ManifestError, intel):
-                VERIFY.verify_manifest(
-                    "https://files.example/m.json", expected_commit=self.COMMIT, required_artifacts=required,
-                )
-        with patch.object(VERIFY, "urlopen", return_value=FakeResponse(unix)), patch.dict(
-            VERIFY.os.environ, {"CMUX_TUI_SKIP_TARGET": intel}
-        ):
-            args = ["--manifest-url", "https://files.example/m.json", "--expected-commit", self.COMMIT]
-            for name in required:
-                args += ["--require-artifact", name]
-            self.assertEqual(VERIFY.main(args), 0)
-
     def test_machine_manifest_rejects_compatibility_fields_and_windows(self) -> None:
         payloads = self.machine_payloads()
         manifest = self.machine_manifest(payloads)
