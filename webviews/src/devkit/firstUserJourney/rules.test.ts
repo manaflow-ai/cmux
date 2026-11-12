@@ -110,6 +110,11 @@ test("dead-button: a disabled control needs a reason a person can see", () => {
     `<div class="row"><b>web</b> Ready <span class="row-control"><button disabled>Build</button></span></div>`,
   );
   expect(disabledWithoutReason(row.querySelector("button")!)).toEqual([]);
+  // A control named by aria-labelledby is reported by that name.
+  const named = body(
+    `<span id="t">Rotate Favorites</span><button role="switch" aria-labelledby="t" disabled></button>`,
+  );
+  expect(disabledWithoutReason(named.querySelector("button")!)[0]?.detail).toContain("Rotate Favorites");
   // Undo with no history and Reset at the default say "nothing to do" by their own name.
   for (const label of ["Undo", "Redo", "Reset appearance"]) {
     const [control] = body(`<button disabled>${label}</button>`).children;

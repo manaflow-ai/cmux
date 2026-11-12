@@ -371,6 +371,12 @@ function isJsdom(node: Element): boolean {
 export function labelOf(node: Element): string {
   return (
     node.getAttribute("aria-label") ||
+    // A switch named by its row's title (Settings' editors): the name a screen reader says.
+    (node.getAttribute("aria-labelledby") ?? "")
+      .split(/\s+/)
+      .map((id) => (id ? node.ownerDocument.getElementById(id)?.textContent?.replace(/\s+/g, " ").trim() : ""))
+      .filter(Boolean)
+      .join(" ") ||
     node.getAttribute("title") ||
     (node.textContent ?? "").replace(/\s+/g, " ").trim() ||
     describe(node)
