@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileRealtime
@@ -313,11 +314,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         guard let host = hosts.removeValue(forKey: id) else { return }
         let key = hostFrameKeys.removeValue(forKey: id)
         if let key { frameLifecycle.cooled(tabID: id, frameKey: key) }
-        if let frame = host.model.snapshot {
-            if let key {
-                lastFrames[key] = frame
-                if let data = (host.model.frameForSaving() ?? frame).jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: key) }
-            }
+        // The page as it is now (not only a grid-card snapshot, which a tab never
+        // shown in the grid lacks): its next host shows it at once while it attaches.
+        if let key, let frame = host.model.frameForSaving() ?? host.model.snapshot {
+            lastFrames[key] = frame
+            if let data = frame.jpegData(compressionQuality: 0.7) { frameStore?.save(data, for: key) }
         }
         slots[id] = nil
         cardViews[id] = nil
@@ -337,7 +338,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// state itself: making one during a view update notifies nothing.
     private func indicator(_ id: String) -> ReattachIndicator<ContinuousClock> {
         if let indicator = indicators[id] { return indicator }
-        let indicator = ReattachIndicator()
+        // The pill says "Reattaching…" only once an outage lasted as long as the
+        // composer's quiet line waits (10 s): a blip changes nothing on screen.
+        let indicator = ReattachIndicator(clock: ContinuousClock(), delay: QuietStatusGate.threshold)
         indicators[id] = indicator
         return indicator
     }
@@ -364,7 +367,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     /// A read (no host is created): the tab's pill says "Reattaching…" while
-    /// its reattach has lasted 400 ms or more.
+    /// its reattach has lasted `QuietStatusGate.threshold` or more.
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
         if indicator.isOffline { return "Mac offline" }
