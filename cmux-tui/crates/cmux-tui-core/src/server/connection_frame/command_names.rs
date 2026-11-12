@@ -59,6 +59,8 @@ impl Command {
             Self::GetSizeState { .. } => "get-size-state",
             Self::GetHostSizePolicy { .. } => "get-host-size-policy",
             Self::SetHostSizePolicy { .. } => "set-host-size-policy",
+            Self::GetAppearance { .. } => "get-appearance",
+            Self::SetAppearanceBackground { .. } => "set-appearance-background",
             Self::NoteSizeActivity { .. } => "note-size-activity",
             Self::ReloadConfig => "reload-config",
             Self::SetWindowTitle { .. } => "set-window-title",

@@ -256,6 +256,12 @@ fn dispatch_command(
         Command::SetHostSizePolicy { policy } => {
             cmd_sizing::set_host_size_policy(mux, client, policy.mode, policy.order)
         }
+        Command::GetAppearance { include_path } => {
+            cmd_appearance::get_appearance(mux, client, include_path.unwrap_or(false))
+        }
+        Command::SetAppearanceBackground { background } => {
+            cmd_appearance::set_appearance_background(mux, client, background)
+        }
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),

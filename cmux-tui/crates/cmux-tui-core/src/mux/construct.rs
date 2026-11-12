@@ -469,6 +469,7 @@ impl Mux {
             launch_snapshot_path: Mutex::new(None),
             settings: settings::SettingsSlot::default(),
             keybindings: keybindings::KeybindingsSlot::default(),
+            appearance: appearance::AppearanceSlot::default(),
             terminal_work: terminal_work::TerminalWorkPool::default(),
             #[cfg(any(unix, windows))]
             prelaunched_terminals: Mutex::new(HashMap::new()),

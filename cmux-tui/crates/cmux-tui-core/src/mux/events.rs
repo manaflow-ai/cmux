@@ -149,6 +149,11 @@ pub enum MuxEvent {
     SettingsChanged(cmux_config::Change),
     /// keybindings.json changed (`keybindings-v1`; mux/keybindings.rs).
     KeybindingsChanged(cmux_config::KeybindingsChange),
+    /// This Mac's appearance changed (`appearance-v1`; mux/appearance.rs),
+    /// at most once per 50 ms.
+    AppearanceChanged {
+        revision: u64,
+    },
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),

@@ -583,6 +583,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "keys": change.keys,
             "origin": change.origin.as_str(),
         }),
+        MuxEvent::AppearanceChanged { revision } => json!({
+            "event": "appearance-changed",
+            "revision": revision,
+        }),
         MuxEvent::KeybindingsChanged(change) => json!({
             "event": "keybindings-changed",
             "revision": change.revision,

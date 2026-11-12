@@ -303,6 +303,7 @@ pub(crate) use signaled_mutex::registry_locks_taken_on_this_thread;
 #[cfg(test)]
 pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
 pub(crate) use signaled_mutex::{SignaledMutex, interactive_scope};
+pub(crate) mod appearance;
 mod command_history;
 pub(crate) mod keybindings;
 mod new_terminal_cwd;
@@ -916,6 +917,8 @@ pub struct Mux {
     settings: settings::SettingsSlot,
     /// The keybindings.json owner, beside the settings file (mux/keybindings.rs).
     keybindings: keybindings::KeybindingsSlot,
+    /// This Mac's look for its phones (`appearance-v1`; mux/appearance.rs).
+    appearance: appearance::AppearanceSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.
