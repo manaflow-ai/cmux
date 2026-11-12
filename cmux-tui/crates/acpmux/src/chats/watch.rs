@@ -58,6 +58,8 @@ impl Drop for RootWatcher {
 enum Message {
     Event(notify::Result<notify::Event>),
     /// A root watched by its folders: its entries or one of its own store files changed.
+    /// Only the macOS folder watch sends it.
+    #[cfg(target_os = "macos")]
     RootEntries(usize),
     Stop,
 }
@@ -293,13 +295,19 @@ fn run(
     while let Ok(first) = rx.recv() {
         let started = Instant::now();
         let mut burst = Burst::default();
+        // Roots whose folder watch reported a change; only macOS has folder watches.
+        #[cfg(target_os = "macos")]
         let mut entries = Vec::new();
+        #[cfg(not(target_os = "macos"))]
+        let entries: Vec<usize> = Vec::new();
         let mut closed = false;
         let mut next = Some(first);
         loop {
             match next.take() {
                 Some(Message::Event(event)) => burst.add(event),
+                #[cfg(target_os = "macos")]
                 Some(Message::RootEntries(at)) if !entries.contains(&at) => entries.push(at),
+                #[cfg(target_os = "macos")]
                 Some(Message::RootEntries(_)) => {}
                 Some(Message::Stop) => {
                     closed = true;
