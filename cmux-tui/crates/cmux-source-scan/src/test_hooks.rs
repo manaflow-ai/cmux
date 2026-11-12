@@ -339,6 +339,50 @@ impl PathMods {
         out
     }
 
+    fn items(
+        &mut self,
+        items: &[Item],
+        module: &[String],
+        inline: &mut Vec<String>,
+        dir: &str,
+        nested_dir: &str,
+    ) {
+        for item in items {
+            let Item::Mod(m) = item else {
+                continue;
+            };
+            match &m.content {
+                Some((_, inner)) => {
+                    inline.push(m.ident.to_string());
+                    self.items(inner, module, inline, dir, nested_dir);
+                    inline.pop();
+                }
+                None => {
+                    let Some(path) = path_attr(&m.attrs) else {
+                        continue;
+                    };
+                    let base = if inline.is_empty() {
+                        dir.to_string()
+                    } else {
+                        format!("{nested_dir}/{}", inline.join("/"))
+                    };
+                    let declared: Vec<String> = module
+                        .iter()
+                        .chain(inline.iter())
+                        .cloned()
+                        .chain(std::iter::once(m.ident.to_string()))
+                        .collect();
+                    let target = normalize(&format!("{base}/{path}"));
+                    if let Some(at) = crate_module(&target) {
+                        self.moved.push(at);
+                    }
+                    self.moved.push(declared.clone());
+                    self.targets.insert(target, declared);
+                }
+            }
+        }
+    }
+
     /// The module of the file at `rel` (from the crate's folder), None when the tree does not
     /// say which module it is.
     fn module(&self, rel: &str) -> Option<Vec<String>> {
