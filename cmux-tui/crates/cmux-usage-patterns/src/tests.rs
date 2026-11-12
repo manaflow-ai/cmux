@@ -261,3 +261,47 @@ fn the_gate_follows_the_settings_file_created_later_and_replaced_by_rename() {
     std::fs::rename(&staged, &settings).unwrap();
     gate_becomes(&recorder, true, "a second replace by rename");
 }
+
+/// `install` goes on without a watch when [`watch_gate`] gives `None` (the
+/// watch could not start). Such a recorder still stops counting when the
+/// setting goes off: its writer thread rereads the setting. Here no watch is
+/// started and the test never calls `refresh_gate`, so only the writer can
+/// see the change.
+#[test]
+fn a_recorder_without_a_watch_stops_counting_when_the_setting_goes_off() {
+    let dir = scratch("no-watch");
+    let settings = config(&dir, true);
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", settings));
+    assert!(recorder.enabled());
+    let stop = Arc::new(AtomicBool::new(false));
+    let writer = {
+        let recorder = Arc::clone(&recorder);
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            recorder.run_writer(Duration::from_millis(100), &|| stop.load(Ordering::Relaxed));
+        })
+    };
+    recorder.count("command", "split");
+    // One byte longer than the file it replaces, so the file's stamp differs
+    // also when both writes fall in one tick of the file system's clock.
+    config(&dir, false);
+    let turned_off = Instant::now();
+    while recorder.enabled() {
+        assert!(
+            turned_off.elapsed() < Duration::from_secs(5),
+            "a recorder without a watch still counts 5 s after the setting went off"
+        );
+        recorder.count("command", "split");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let counted = recorder.snapshot().counts["command"]["split"];
+    recorder.count("command", "split");
+    assert_eq!(
+        recorder.snapshot().counts["command"]["split"],
+        counted,
+        "a command was counted after the setting went off"
+    );
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}
