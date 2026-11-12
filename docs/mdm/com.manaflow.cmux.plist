@@ -9725,7 +9725,7 @@
 			<key>pfm_default</key>
 			<string>ask</string>
 			<key>pfm_description</key>
-			<string>Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Ask keeps adding them to agents you start in a cmux terminal until you choose. Off adds nothing and leaves your agents' settings alone.</string>
+			<string>Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Until you choose, cmux adds nothing to your agents. Off adds nothing and leaves your agents' settings alone.</string>
 			<key>pfm_name</key>
 			<string>agents.cmuxMcp</string>
 			<key>pfm_range_list</key>

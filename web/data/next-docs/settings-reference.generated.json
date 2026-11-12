@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 619,
+  "count": 627,
   "sections": [
     {
       "id": "general",
@@ -279,6 +279,19 @@
           "kind": "toggle",
           "default": true,
           "group": "Chats"
+        },
+        {
+          "key": "agents.cmuxMcp",
+          "title": "Add cmux Tools to Your Coding Agents",
+          "help": "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Until you choose, cmux adds nothing to your agents. Off adds nothing and leaves your agents' settings alone.",
+          "kind": "choice",
+          "default": "ask",
+          "group": "cmux Tools in Your Coding Agents",
+          "values": [
+            "ask",
+            "on",
+            "off"
+          ]
         },
         {
           "key": "agents.defaultPermissionMode",
@@ -635,9 +648,104 @@
           "group": "Chats"
         },
         {
-          "key": "computerUse.driver",
-          "title": "Computer Use Driver",
-          "help": "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
+          "key": "computerUse.allowForeground",
+          "title": "Allow Foreground Input",
+          "help": "Advanced. Agents may bring an app to the front and move your pointer when it takes no background input.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Computer Use"
+        },
+        {
+          "key": "computerUse.allowOwnMachines",
+          "title": "Allow My Other Machines",
+          "help": "Agents on your other machines, signed in to the same account, may use this Mac's apps.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Computer Use"
+        },
+        {
+          "key": "computerUse.cursorTag",
+          "title": "Agent Cursor Tag",
+          "help": "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never.",
+          "kind": "choice",
+          "default": "hover",
+          "group": "Computer Use",
+          "values": [
+            "hover",
+            "always",
+            "never"
+          ]
+        },
+        {
+          "key": "computerUse.deniedApps",
+          "title": "Denied Apps",
+          "help": "Apps no agent may use, in any mode: an app ID, an ID prefix ending in *, or name: and the app's name.",
+          "kind": "string_list",
+          "default": [
+            "com.apple.keychainaccess",
+            "com.apple.Passwords",
+            "com.1password.*",
+            "com.agilebits.onepassword*",
+            "com.bitwarden.*",
+            "com.dashlane.*",
+            "com.lastpass.*",
+            "com.nordpass.*",
+            "me.proton.pass",
+            "org.keepassxc.keepassxc",
+            "com.markmcguill.strongbox",
+            "in.sinew.enpass*",
+            "com.keepersecurity.*",
+            "1password.exe",
+            "bitwarden.exe",
+            "keepass.exe",
+            "keepassxc.exe",
+            "org.keepassxc.KeePassXC",
+            "1password",
+            "bitwarden",
+            "com.apple.systempreferences",
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "com.mitchellh.ghostty",
+            "net.kovidgoyal.kitty",
+            "com.github.wez.wezterm",
+            "org.alacritty",
+            "dev.warp.*",
+            "windowsterminal.exe",
+            "cmd.exe",
+            "powershell.exe",
+            "pwsh.exe",
+            "org.gnome.Terminal",
+            "org.gnome.Ptyxis",
+            "org.kde.konsole",
+            "com.cmuxterm.app",
+            "com.cmuxterm.app.*"
+          ],
+          "group": "Computer Use"
+        },
+        {
+          "key": "computerUse.livePreview",
+          "title": "Live Preview in Chat",
+          "help": "While an agent uses an app, its chat shows a small live view of that app. Click the view to open Agent Activity.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Computer Use"
+        },
+        {
+          "key": "computerUse.menus",
+          "title": "Menus in Background Apps",
+          "help": "Agents may open pop-up and context menus of apps in the background to choose an item. Menu bar menus never open in the background.",
+          "kind": "choice",
+          "default": "open",
+          "group": "Computer Use",
+          "values": [
+            "open",
+            "refuse"
+          ]
+        },
+        {
+          "key": "computerUse.mode",
+          "title": "Computer Use",
+          "help": "What agents may do with the apps on this Mac. Denied apps are never used, in any mode.",
           "kind": "choice",
           "default": "fullAccess",
           "group": "Computer Use",
@@ -656,6 +764,19 @@
           "kind": "toggle",
           "default": true,
           "group": "Computer Use"
+        },
+        {
+          "key": "computerUse.settle",
+          "title": "After Each Action",
+          "help": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
+          "kind": "choice",
+          "default": "adaptive",
+          "group": "Computer Use",
+          "values": [
+            "adaptive",
+            "anthropic",
+            "openai"
+          ]
         },
         {
           "key": "computerUse.showCursor",
