@@ -201,8 +201,7 @@ extension PaletteModel {
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
                 let found = Self.leading(queryItems?(request.query), state.resolve(result.sections))
-                let shown = Self.orNoMatch(found, noMatchItems, trails: trails, query: request.query, state: state)
-                self.deliver(Self.withNotices(shown, state.notices), to: state, generation: generation)
+                self.deliver(Self.orNoMatch(found, noMatchItems, trails: trails, query: request.query, state: state), to: state, generation: generation)
                 self.closeIfPending()
             }
         }
@@ -285,15 +284,19 @@ extension PaletteModel {
         return [PaletteResultSection(section: items[0].section, rows: rows)] + sections
     }
 
-    /// `sections` with each of the page's `notices` (`PaletteItem.showsForEveryQuery`; the ranker never finds
-    /// one for a typed query), each as a block of its own: right under the rows of its section with no header,
-    /// or last with its section's header when the query found no row of that section. No row of `sections` is
-    /// read or copied: a page with no notice (nearly every page) costs one check, a notice costs one lookup
-    /// among the sections and one insert of a one-row block.
-    static func withNotices(_ sections: [PaletteResultSection], _ notices: [PaletteItem]) -> [PaletteResultSection] {
-        guard !notices.isEmpty else { return sections }
+    /// What a filtering page shows for a typed query: `sections` and each of the page's `notices`
+    /// (`PaletteItem.showsForEveryQuery`; the ranker never finds one for a typed query), each as a block of its
+    /// own: right under the rows of its section with no header, or last with its section's header when the
+    /// query found no row of that section. The notices are on screen only: they are not among the ranked rows,
+    /// so the hold for an awaited answer, the selection and Return see the query's results alone.
+    ///
+    /// No row of `sections` is read or copied: a page with no notice (nearly every page) costs one check, a
+    /// notice costs one lookup among the sections and one insert of a one-row block.
+    static func withNotices(_ sections: [PaletteResultSection], of state: PageState) -> [PaletteResultSection] {
+        guard !state.notices.isEmpty, case .list(let page) = state.kind, page.filtersByQuery,
+              !state.query.allSatisfy(\.isWhitespace) else { return sections }
         var sections = sections
-        for notice in notices {
+        for notice in state.notices {
             let rows = [PaletteRow(item: notice, highlights: [], score: 0)]
             guard let index = sections.firstIndex(where: { $0.section.id == notice.section.id }) else {
                 sections.append(PaletteResultSection(section: notice.section, rows: rows))
@@ -339,7 +342,7 @@ extension PaletteModel {
         let joined = Self.joined(sections, state: state)
         state.deliveredAnswerFingerprint = Self.answerFingerprint(state)
         let held = joined.held
-        let sections = joined.shown
+        let sections = Self.withNotices(joined.shown, of: state)
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
