@@ -20,9 +20,13 @@ final class FakeCarrierSession: CloudCarrierSession, @unchecked Sendable {
         }
     }
 
+    /// The next streams fail with this (a mux stream the daemon refused).
+    var streamError: LinkError?
+
     func openStream() async throws -> any CloudCarrierByteStream {
         try lock.withLock {
             guard live else { throw LinkError(code: "closed", message: "no session") }
+            if let streamError { throw streamError }
             streams += 1
         }
         return EchoLineStream()
@@ -124,8 +128,6 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
         await client.close()
     }
 
-    /// A session that ended is dialed again on the next channel, with a fresh token; a refused
-    /// token is refreshed once.
     /// A session that ended drops its link at once (the controller dials a new one and the
     /// coordinator binds the list and terminals again): it never reconnects under the same link,
     /// where they would stay on the dead session's channels.
@@ -146,6 +148,25 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
             #expect(error.code == "closed")
         }
         #expect(session.connects == 1, "no dial inside the link")
+    }
+
+    /// A mux stream the live session could not open (`transport`, from the carrier's
+    /// `open_stream`) fails that channel with the carrier's code and leaves the link up; only a
+    /// session that ended (`closed`) drops it.
+    @Test func aMuxOpenFailureFailsTheChannelNotTheLink() async throws {
+        let session = FakeCarrierSession()
+        try await session.connect(deadlineMs: 1)
+        session.streamError = LinkError(code: "transport", message: "stream: the daemon refused the mux stream")
+        let link = link(session)
+        do {
+            _ = try await link.openChannel(service: "daemon", args: [:])
+            Issue.record("a refused mux stream opened")
+        } catch let error as LinkError {
+            #expect(error.code == "transport")
+        }
+        #expect(try await link.ping() == 0, "the session is still up")
+        session.streamError = nil
+        _ = try await link.openChannel(service: "daemon", args: [:])
     }
 
     /// The dialer: `vm_…` ids only; the first dial's refusals come back as the carrier said.
@@ -180,5 +201,11 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
         #expect(CloudCarrierDialer.isRetryable(LinkError(code: "transport", message: "")))
         #expect(!CloudCarrierDialer.isRetryable(LinkError(code: "carrier.handshake", message: "")))
         #expect(CloudCarrierDialer.isPermanent(LinkError(code: CloudCarrierDialer.noDaemonKey, message: "")))
+        // A malformed answer is asked again; constructor arguments are not.
+        #expect(CloudCarrierDialer.isRetryable(LinkError(code: CloudCarrierDialer.answerCode, message: "")))
+        #expect(!CloudCarrierDialer.permanentCodes.contains("carrier.answer"))
+        #expect(CloudCarrierDialer.isPermanent(LinkError(code: "invalid_argument", message: "")))
+        #expect(CloudCarrierDialer.isRetryable(LinkError(code: CloudCarrierDialer.keychainLocked, message: "")))
+        #expect(CloudCarrierDialer.isPermanent(LinkError(code: CloudCarrierDialer.keychainUnavailable, message: "")))
     }
 }

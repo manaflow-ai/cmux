@@ -535,7 +535,8 @@ extension LiveCoordinator {
         // Drop the links the Macs approved with the old keys before they go, so
         // nothing on them loads (and so makes) new keys mid-removal; then dial again.
         let hadLinks = sessions.values.contains { $0.link.target != nil }
-        for session in sessions.values { session.link.send(.target(nil)) }
+        // A Cloud machine never approved these keys (its carrier is the admission): its link stays.
+        for session in sessions.values where !session.isCloud { session.link.send(.target(nil)) }
         pairing.keys.reset()
         pairing.push?.reset(user: userID)
         removedFromMacsCount += 1

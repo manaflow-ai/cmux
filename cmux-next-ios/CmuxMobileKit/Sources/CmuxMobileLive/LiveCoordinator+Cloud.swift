@@ -114,17 +114,48 @@ extension LiveCoordinator {
     /// machine never takes a Mac's link, and the one the person opened last is linked first.
     static let cloudLinkCap = 3
 
-    /// Closes `session`'s link. A Cloud machine's terminals on screen release their sizes first
-    /// (answered, bounded), so the machine never keeps this phone's grid after the carrier goes.
+    /// Closes `session`'s link. A Cloud machine's terminals release their sizes first (all at
+    /// once, answered, about 2 s at most), so the machine never keeps this phone's grid after the
+    /// carrier goes. One close at a time per session: a second ask while one is releasing does
+    /// nothing. The close goes out only if the session is still meant closed then: a link opened
+    /// again meanwhile (`touch`, Retry, Connect: `cancelPendingClose`) stays up, and its terminals
+    /// claim their sizes again.
     func closeLink(_ session: MacSession) {
-        guard session.isCloud else { return session.link.send(.target(nil)) }
-        let terminals = session.terminals.compactMap(\.session)
-        let link = session.link
-        guard !terminals.isEmpty, link.phase.isConnected else { return link.send(.target(nil)) }
-        // task-owner: bounded by each release's own 2 s deadline, then the close
+        guard session.isCloud, session.link.phase.isConnected, session.link.target != nil else {
+            session.pendingClose = nil
+            return session.link.send(.target(nil))
+        }
+        guard session.pendingClose == nil else { return }
+        session.closeSerial &+= 1
+        let token = session.closeSerial
+        session.pendingClose = token
+        let release = releaseBeforeClose
+        // task-owner: bounded by the releases' 2 s deadline (run together), then the close
+        // Strong: a session closeSession already forgot must still close its link.
         Task { @MainActor in
-            for terminal in terminals { await terminal.releaseBeforeLinkCloses() }
-            link.send(.target(nil))
+            await release(session)
+            guard session.pendingClose == token else {
+                // Opened again while it released: it stays, and what is on screen claims again.
+                for terminal in session.terminals.compactMap(\.session) { terminal.reclaimSizeAfterKeptLink() }
+                return
+            }
+            session.pendingClose = nil
+            session.link.send(.target(nil))
+        }
+    }
+
+    /// A close waiting on its releases is called off: the link is wanted again.
+    func cancelPendingClose(_ session: MacSession) {
+        session.pendingClose = nil
+    }
+
+    /// Every terminal of `session` releases its size, together, before its link closes.
+    static func releaseTerminals(_ session: MacSession) async {
+        let terminals = session.terminals.compactMap(\.session)
+        await withTaskGroup(of: Void.self) { group in
+            for terminal in terminals {
+                group.addTask { @MainActor in await terminal.releaseBeforeLinkCloses() }
+            }
         }
     }
 
@@ -172,6 +203,7 @@ extension CloudRefusal {
         case "feature.disabled": "Your administrator turned off cmux Cloud."
         case LinkError.unauthorized: "Sign in again to open \(machine)."
         case CloudCarrierDialer.noDaemonKey: "\(machine) is still starting up."
+        case CloudCarrierDialer.keychainUnavailable: "This iPhone's Keychain can't keep the key for Cloud machines."
         default: "Couldn't connect to \(machine)."
         }
     }

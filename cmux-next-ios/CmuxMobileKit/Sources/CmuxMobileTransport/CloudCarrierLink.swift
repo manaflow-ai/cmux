@@ -176,8 +176,15 @@ public struct CloudCarrierDialer: MacLinkDialer {
     /// or Cloud is turned off. The coordinator stops dialing and shows why.
     public static let permanentCodes: Set<String> = [
         "carrier.handshake", "cloud.machine.paused", "cloud.machine.not_found", "auth.forbidden", "feature.disabled",
-        "invalid_argument", noDaemonKey,
+        "invalid_argument", noDaemonKey, keychainUnavailable,
     ]
+
+    /// A malformed platform answer (`cmux_mobile_carrier`): retryable, never in ``permanentCodes``.
+    public static let answerCode = "carrier.answer"
+    /// The Keychain is locked (before the first unlock): retryable.
+    public static let keychainLocked = "keychain.locked"
+    /// The Keychain can't be used at all (a missing entitlement, another error): no redial helps.
+    public static let keychainUnavailable = "keychain.unavailable"
 
     /// The platform names no daemon key for the machine yet (`cmux_mobile_carrier::NO_DAEMON_KEY`):
     /// the carrier asked again inside its dial; the app waits for its machine list to change.

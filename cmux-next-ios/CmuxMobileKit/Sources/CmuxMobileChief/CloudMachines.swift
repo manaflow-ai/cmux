@@ -284,6 +284,39 @@ public final class CloudMachinesModel {
         }
     }
 
+    /// The machines alone (`cloud.machine.list`, paged), for the Workspaces list's poll: no plan
+    /// and no snapshots. A failure keeps the machines and sets `.failed` only when none were read.
+    public func loadMachines() async {
+        if skipsLoad { return }
+        guard let account = account() else {
+            phase = .failed(String(localized: "Sign in to cmux to see your Cloud machines."))
+            return
+        }
+        let before = phase
+        if machines.isEmpty, phase != .loaded { phase = .loading }
+        do {
+            machines = try await Self.readMachines(account)
+            phase = .loaded
+        } catch is CancellationError {
+            phase = before
+        } catch {
+            phase = .failed(Self.message(error))
+        }
+    }
+
+    static func readMachines(_ account: AccountCloud) async throws -> [CloudMachine] {
+        var rows: [CloudMachine] = []
+        var cursor: String?
+        repeat {
+            var params: [String: any Sendable] = ["limit": 100]
+            if let cursor { params["cursor"] = cursor }
+            let page = try await account.read("cloud.machine.list", params: params)
+            rows += CloudMachine.list(page)
+            cursor = ((try? JSONSerialization.jsonObject(with: page)) as? [String: Any])?["next_cursor"] as? String
+        } while cursor != nil && rows.count < 1000
+        return rows
+    }
+
     // MARK: Actions
 
     /// What one action came to, for a caller that acts on its own outcome (New Cloud Workspace)

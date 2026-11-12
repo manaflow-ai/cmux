@@ -383,6 +383,13 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    /// The link survived a close that released this terminal's size (it was opened again
+    /// meanwhile): a terminal still on screen claims its size again.
+    public func reclaimSizeAfterKeptLink() {
+        guard claimsSize, attached, !sizeClaimed, let size = lastSize else { return }
+        enqueue(.size(columns: size.columns, rows: size.rows))
+    }
+
     public func stop() {
         eventTask?.cancel()
         eventTask = nil

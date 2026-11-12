@@ -86,6 +86,8 @@ public final class LiveCoordinator {
     @ObservationIgnored public var onCloudRefusal: ((String, String) -> Void)?
     /// The Cloud machine the person opened last: linked first within the Cloud cap.
     @ObservationIgnored var touchedCloud: String?
+    /// Releases a Cloud session's terminal sizes before its link closes (tests gate it).
+    @ObservationIgnored var releaseBeforeClose: @MainActor (MacSession) async -> Void = { await LiveCoordinator.releaseTerminals($0) }
     /// Which Cloud machines keep a carrier, beside (never instead of) the Macs' links.
     @ObservationIgnored var cloudLinkPolicy = MacLinkPolicy(maxLinks: LiveCoordinator.cloudLinkCap)
     @ObservationIgnored let feedStore: FeedStore
@@ -689,6 +691,7 @@ public final class LiveCoordinator {
                                               nextExpiry: [macDecision.nextExpiry, cloudDecision.nextExpiry].compactMap(\.self).min())
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
+            cancelPendingClose(session)
             session.name = mac.name
             session.link.send(.target(LinkMachine.Target(macID: mac.id, name: mac.name, isOnline: mac.isOnline)))
         }

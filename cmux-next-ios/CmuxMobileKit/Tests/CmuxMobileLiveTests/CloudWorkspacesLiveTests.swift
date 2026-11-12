@@ -3,6 +3,7 @@ import CmuxMobileFeed
 import CmuxMobileModel
 import CmuxMobileTransport
 import Foundation
+import Security
 import Testing
 @testable import CmuxMobileLive
 
@@ -32,7 +33,60 @@ final class RecordingLink: MacLink, @unchecked Sendable {
     func close() async { await inner.close() }
 }
 
-/// Cloud machine dials: each answers like a Mac's daemon, records what it opens, or refuses.
+/// A carrier session for the real ``CloudCarrierLink``: each stream is a `daemon` channel of a
+/// mock link that answers like a machine's daemon; `drop` ends it as the Rust carrier does
+/// (`waitClosed` resolves, new streams are `closed`).
+final class FakeDaemonCarrier: CloudCarrierSession, @unchecked Sendable {
+    private let daemon: any MacLink
+    private let lock = NSLock()
+    private var live = true
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(daemon: any MacLink) { self.daemon = daemon }
+
+    func connect(deadlineMs: UInt32) async throws {}
+
+    func openStream() async throws -> any CloudCarrierByteStream {
+        guard lock.withLock({ live }) else { throw LinkError(code: "closed", message: "the session ended") }
+        return ChannelStream(channel: try await daemon.openChannel(service: "daemon", args: [:]))
+    }
+
+    func isConnected() async -> Bool { lock.withLock { live } }
+
+    func waitClosed() async {
+        await withCheckedContinuation { continuation in
+            let now = lock.withLock { () -> Bool in
+                guard live else { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if now { continuation.resume() }
+        }
+    }
+
+    func close() async { drop() }
+
+    func drop() {
+        let waiting = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            live = false
+            defer { waiters = [] }
+            return waiters
+        }
+        for waiter in waiting { waiter.resume() }
+    }
+}
+
+/// A link channel as a carrier byte stream.
+final class ChannelStream: CloudCarrierByteStream, @unchecked Sendable {
+    let channel: any LinkChannel
+    init(channel: any LinkChannel) { self.channel = channel }
+    func send(_ data: Data) async throws { try await channel.send(data) }
+    func recv() async -> Data? { try? await channel.receive() }
+    func close() async { await channel.close(code: "eof", reason: "") }
+}
+
+/// Cloud machine dials: each makes the real ``CloudCarrierLink`` over a ``FakeDaemonCarrier``
+/// (answering like a machine's daemon), records what is opened on it, or refuses.
 final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
     private let inner = PerMacDialer()
     private let lock = NSLock()
@@ -54,10 +108,18 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
             refused[id, default: 0] += 1
             return error
         }) { throw error }
-        let link = RecordingLink(try await inner.dial(endpoint, transport: transport, accessToken: accessToken))
-        lock.withLock { links[id, default: []].append(link) }
+        let carrier = FakeDaemonCarrier(daemon: try await inner.dial(endpoint, transport: transport, accessToken: accessToken))
+        let link = RecordingLink(CloudCarrierLink(machineID: id, session: carrier))
+        lock.withLock {
+            links[id, default: []].append(link)
+            carriers[id, default: []].append(carrier)
+        }
         return link
     }
+
+    private var carriers: [String: [FakeDaemonCarrier]] = [:]
+    /// The live carrier of `machineID`'s last dial.
+    func lastCarrier(_ machineID: String) -> FakeDaemonCarrier? { lock.withLock { carriers[machineID]?.last } }
 }
 
 // The coordinator is iOS-only: these run in the iOS simulator test pass.
@@ -204,6 +266,121 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         live.applyCloudMachines([machine(.paused)])
         #expect(!live.isCloudRefused(vm))
         #expect(store.cloudMachines.first?.cloud?.status == .paused)
+    }
+
+    /// The carrier drops (the relay or the daemon ended the session): the link reports it at
+    /// once, the controller dials a fresh carrier, and the list and terminals bind to it again.
+    @Test func aDroppedCarrierIsDialedAgainAndEverythingRebinds() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macDataPhase(vm) == .live }
+        let first = try #require(live.sessions[vm]?.servedLink)
+        cloud.lastCarrier(vm)?.drop()
+        await settle { cloud.dials(vm) == 2 && store.macDataPhase(vm) == .live && live.sessions[vm]?.servedLink !== first }
+        let second = try #require(live.sessions[vm]?.servedLink)
+        #expect(second !== first)
+        // The list and a terminal read the new carrier.
+        #expect(live.sessions[vm]?.workspaces.daemon != nil)
+        #expect(await live.terminalScreenText(tabID: "s1", macID: vm) == vm)
+    }
+
+    /// Closing a Cloud link releases its terminals' sizes first (while the link is still up),
+    /// one close at a time; a re-target while it releases keeps the link (no late close, no redial).
+    @Test func closeLinkReleasesFirstAndARetargetWins() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        var releases = 0
+        var linkUpWhileReleasing: [Bool] = []
+        var gate: CheckedContinuation<Void, Never>?
+        live.releaseBeforeClose = { session in
+            releases += 1
+            linkUpWhileReleasing.append(session.link.target != nil && session.link.phase.isConnected)
+            await withCheckedContinuation { gate = $0 }
+        }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macConnection[vm] == .connected }
+        let session = try #require(live.sessions[vm])
+
+        // The race: a close starts releasing, the person opens the machine again meanwhile.
+        live.closeLink(session)
+        live.closeLink(session)
+        await settle { gate != nil }
+        #expect(releases == 1, "one close at a time")
+        live.touch(vm)
+        gate?.resume()
+        gate = nil
+        for _ in 0..<50 { await Task.yield() }
+        #expect(session.link.target != nil, "a re-targeted link stays up")
+        #expect(session.pendingClose == nil)
+        #expect(cloud.dials(vm) == 1, "never closed and dialed again")
+
+        // Not re-targeted: it closes, after the release, with the link up while it released.
+        live.closeLink(session)
+        await settle { gate != nil }
+        gate?.resume()
+        await settle { session.link.target == nil }
+        #expect(linkUpWhileReleasing == [true, true])
+    }
+
+    /// Remove This iPhone from My Macs leaves Cloud machines' links alone (they approved no keys).
+    @Test func removeThisPhoneKeepsCloudLinks() async {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macConnection[vm] == .connected }
+        await live.removeThisPhoneFromMacs()
+        #expect(live.sessions[vm]?.link.target != nil)
+        #expect(cloud.dials(vm) == 1)
+    }
+
+    /// Two first dials at once make one key, and the Keychain's errors read as they are:
+    /// locked retries, anything else (a missing entitlement) stops with a note.
+    @Test func theNoiseKeyIsMadeOnceAndKeychainErrorsAreTold() async throws {
+        let secrets = MemorySecretStore()
+        let made = KeyMakeCounter()
+        let user = "user-\(UUID().uuidString)"
+        let keys = await withTaskGroup(of: Data?.self) { group in
+            for _ in 0..<8 {
+                group.addTask {
+                    try? CloudCarrierKey.load(userID: user, store: secrets, newKey: {
+                        made.add()
+                        return Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+                    })
+                }
+            }
+            return await group.reduce(into: [Data?]()) { $0.append($1) }
+        }
+        #expect(made.value == 1)
+        #expect(Set(keys.compactMap(\.self)).count == 1)
+
+        let locked = FailingSecretStore(status: errSecInteractionNotAllowed)
+        #expect(throws: LinkError(code: CloudCarrierDialer.keychainLocked, message: "the Keychain is locked until this iPhone is unlocked")) {
+            _ = try CloudCarrierKey.load(userID: user, store: locked, newKey: { Data(count: 32) })
+        }
+        #expect(CloudCarrierDialer.isRetryable(CloudCarrierKey.failure(KeychainSecretStore.Failure(status: errSecInteractionNotAllowed))))
+        let missing = FailingSecretStore(status: -34018)
+        do {
+            _ = try CloudCarrierKey.load(userID: user, store: missing, newKey: { Data(count: 32) })
+            Issue.record("a missing entitlement made a key")
+        } catch let error as LinkError {
+            #expect(error.code == CloudCarrierDialer.keychainUnavailable)
+            #expect(CloudCarrierDialer.isPermanent(error))
+        }
+        #expect(CloudRefusal.note(CloudCarrierDialer.keychainUnavailable, machine: "Build box")
+            == "This iPhone's Keychain can't keep the key for Cloud machines.")
     }
 
     /// The carrier's Noise key: made once per account and kept; the app's sign-out
@@ -397,6 +574,69 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(ops.all.contains("cloud.machine.start"))
     }
 
+    /// The poll reads every 4 s while something changes, every 15 s once a change has run past
+    /// two minutes (a machine stuck provisioning), and every minute otherwise.
+    @Test func thePollBacksOffAStuckChange() {
+        #expect(LiveCloudWorkspaces.pollInterval(busy: false, busyFor: nil) == .seconds(60))
+        #expect(LiveCloudWorkspaces.pollInterval(busy: true, busyFor: .seconds(10)) == .seconds(4))
+        #expect(LiveCloudWorkspaces.pollInterval(busy: true, busyFor: .seconds(119)) == .seconds(4))
+        #expect(LiveCloudWorkspaces.pollInterval(busy: true, busyFor: .seconds(120)) == .seconds(15))
+    }
+
+    /// The Workspaces list reads the machines only (no plan, no snapshots).
+    @Test func theListPollReadsMachinesOnly() async {
+        let ops = OpsLog()
+        ServiceStub.install(host: host) { request in
+            if let op = Self.op(request) { ops.add(op) }
+            return .init(body: Self.list([("vm_run", "running")]))
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: ops)
+        defer { live.stop() }
+        await cloud.refresh()
+        #expect(ops.all == ["cloud.machine.list"])
+    }
+
+    /// Start shows the machine waking at once, before the op answers; a second change while one
+    /// runs is told, not dropped silently.
+    @Test func startWakesAtOnceAndABusyStartIsTold() async {
+        ServiceStub.install(host: host) { request in
+            switch Self.op(request) {
+            case "cloud.machine.list": return .init(body: Self.list([("vm_a", "paused"), ("vm_b", "paused")]))
+            case "cloud.machine.start": return .init(body: #"{"value":{"machine":{"id":"vm_a","status":"starting","size":{},"idle_policy":{}}}}"#, held: true)
+            default: return .init()
+            }
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: OpsLog())
+        defer { live.stop() }
+        var said: [String] = []
+        cloud.onRefusal = { said.append($0) }
+        await cloud.refresh()
+        cloud.start(machineID: "vm_a")
+        #expect(store.cloudMachines.first { $0.id == "vm_a" }?.cloud?.status == .starting, "waking before the op answers")
+        await settle { cloud.model.busyID == "vm_a" }
+        cloud.start(machineID: "vm_b")
+        await settle { !said.isEmpty }
+        #expect(said == ["Another Cloud machine change is still running. Try again in a moment."])
+        ServiceStub.release(host: host)
+    }
+
+    /// Retry on a machine its carrier refused dials again, whatever the listing says now.
+    @Test func retryOnARefusedMachineDialsWhateverItsListing() async {
+        ServiceStub.install(host: host) { request in
+            Self.op(request) == "cloud.machine.list" ? .init(body: Self.list([("vm_s", "starting")])) : .init()
+        }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let (live, cloud) = make(store: store, ops: OpsLog())
+        defer { live.stop() }
+        await cloud.refresh()
+        live.cloudRefused("vm_s", LinkError(code: "carrier.handshake", message: "x"))
+        #expect(live.isCloudRefused("vm_s"))
+        cloud.start(machineID: "vm_s")
+        #expect(!live.isCloudRefused("vm_s"))
+    }
+
     /// A list read that fails (offline, a token being refreshed) leaves the machines, their
     /// links and rows as they were.
     @Test func aFailedReadKeepsTheLastList() async {
@@ -492,7 +732,8 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         cloud.onRefusal = { refusals.append($0) }
         await settle { store.macConnection["m1"] == .connected }
         live.showing(macIDs: nil)
-        await cloud.refresh()
+        cloud.start()
+        await settle { model.phase == .loaded }
         var opened: [Workspace] = []
         cloud.newCloudWorkspace { opened.append($0) }
         await settle { !opened.isEmpty || !refusals.isEmpty }
@@ -536,3 +777,19 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
     }
 }
 #endif
+
+/// A Keychain that answers every call with `status`.
+final class FailingSecretStore: DeviceSecretStore, @unchecked Sendable {
+    let status: OSStatus
+    init(status: OSStatus) { self.status = status }
+    func read(service: String, account: String) throws -> Data? { throw KeychainSecretStore.Failure(status: status) }
+    func write(_ data: Data, service: String, account: String) throws { throw KeychainSecretStore.Failure(status: status) }
+    func delete(service: String, account: String) {}
+}
+
+final class KeyMakeCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func add() { lock.withLock { count += 1 } }
+    var value: Int { lock.withLock { count } }
+}

@@ -96,16 +96,35 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         return pollInterval
     }
 
+    /// The poll is the one reader of the list while anything changes (New Cloud Workspace waits
+    /// on what it publishes): every `busyPoll`, then every `stuckPoll` once a change has run past
+    /// `stuckAfter` (a machine that sticks in provisioning is not read every 4 s forever).
     private var pollInterval: Duration {
-        let busy = !creations.isEmpty || model.machines.contains { $0.status.isTransition }
-        return busy ? Self.busyPoll : Self.idlePoll
+        let busy = !creations.isEmpty || !starting.isEmpty || model.machines.contains { $0.status.isTransition }
+        if busy, busySince == nil { busySince = .now }
+        if !busy { busySince = nil }
+        return Self.pollInterval(busy: busy, busyFor: busySince.map { .now - $0 }, busyPoll: busyPoll)
     }
+
+    static let stuckAfter: Duration = .seconds(120)
+    static let stuckPoll: Duration = .seconds(15)
+
+    nonisolated static func pollInterval(busy: Bool, busyFor: Duration?, busyPoll: Duration = LiveCloudWorkspaces.busyPoll) -> Duration {
+        guard busy else { return idlePoll }
+        return (busyFor ?? .zero) >= stuckAfter ? stuckPoll : busyPoll
+    }
+
+    /// When the current run of changes began (nil: nothing changing).
+    @ObservationIgnored private var busySince: ContinuousClock.Instant?
+    /// Machines this phone asked to start, shown waking until the op answers.
+    @ObservationIgnored private var starting: Set<String> = []
 
     /// Reads `cloud.machine.list` and shows it. A failed read (offline, a token being
     /// refreshed, the service briefly away) changes nothing on screen: the last list stays, so
     /// no link or row goes for a transient failure. Only `stop` (sign-out) clears it.
     public func refresh() async {
-        await model.load()
+        // The list only: the plan and snapshots are the Cloud Machines page's, read when it opens.
+        await model.loadMachines()
         publish()
     }
 
@@ -117,7 +136,8 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         guard let coordinator else { return }
         var machines: [MacDevice] = []
         if case .failed = model.phase {} else { lastListed = model.machines }
-        for machine in lastListed ?? [] {
+        for var machine in lastListed ?? [] {
+            if starting.contains(machine.id), machine.status == .paused || machine.status == .failed { machine.status = .starting }
             let pending = creations.contains { $0.machineID == machine.id }
             machines.append(Self.device(machine, pending: pending))
         }
@@ -149,14 +169,20 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
     /// machine starts again).
     public func start(machineID: String) {
         guard let coordinator else { return }
-        if coordinator.isCloudRefused(machineID), model.machine(machineID)?.status == .running {
+        // This phone's own refusal (whatever the listing says now): dial again.
+        if coordinator.isCloudRefused(machineID) {
             coordinator.retryCloud(machineID)
             return
         }
-        guard let machine = model.machine(machineID), machine.status == .paused || machine.status == .failed else { return }
+        guard let machine = model.machine(machineID), machine.status == .paused || machine.status == .failed,
+              !starting.contains(machineID) else { return }
+        // Waking at once on the list, before the op answers.
+        starting.insert(machineID)
+        publish()
         Task { [weak self] in
             guard let self else { return }
             let outcome = await self.model.start(machine)
+            self.starting.remove(machineID)
             self.publish()
             self.report(outcome)
             self.refreshSoon()
@@ -196,25 +222,25 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         }
         update(creation.id) { $0.machineID = made.id }
         publish()
-        // Running: the list is read until it says so (the service has no push for it).
-        let deadline = ContinuousClock.now + Self.startBudget
-        while model.machine(made.id)?.status != .running {
-            if Task.isCancelled { return }
-            if let status = model.machine(made.id)?.status, status == .failed || status == .deleting || status == .paused {
-                return fail(creation, model.machine(made.id)?.note ?? String(localized: "\(creation.name) didn't start."))
-            }
-            guard ContinuousClock.now < deadline else {
-                return fail(creation, String(localized: "\(creation.name) is taking long to start. It shows in the list once it runs."))
-            }
-            do { try await clock.sleep(for: busyPoll) } catch { return }
-            await model.load()
-            publish()
+        // The poll reads the list from now on (busy); this waits on what it publishes.
+        refreshSoon()
+        // Running: the poll reads the list (the one reader); this waits on what it reads.
+        let id = made.id
+        let settled = await ObservationWait({ [weak self] in
+            guard let status = self?.model.machine(id)?.status else { return false }
+            return status != .provisioning && status != .starting
+        }, clock: clock, budget: Self.startBudget).value
+        if Task.isCancelled { return }
+        guard settled else {
+            return fail(creation, String(localized: "\(creation.name) is taking long to start. It shows in the list once it runs."))
+        }
+        guard model.machine(id)?.status == .running else {
+            return fail(creation, model.machine(id)?.note ?? String(localized: "\(creation.name) didn't start."))
         }
         publish()
         // Its carrier and daemon: the coordinator dials it as shown. The wait reads the store's
         // observed data phase (the daemon's list arrived), so Observation wakes it.
         coordinator?.touch(made.id)
-        let id = made.id
         let ready = await ObservationWait({ [weak self] in
             guard let store = self?.coordinator?.store else { return false }
             let phase = store.macDataPhase(id)
@@ -246,7 +272,9 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         case .refused(let message), .awaitingApproval(let message):
             clearShared(message)
             onRefusal?(message)
-        case .done, .skipped:
+        case .skipped:
+            onRefusal?(String(localized: "Another Cloud machine change is still running. Try again in a moment."))
+        case .done:
             break
         }
     }
