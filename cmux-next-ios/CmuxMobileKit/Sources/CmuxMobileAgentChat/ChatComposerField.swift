@@ -5,8 +5,7 @@ import UIKit
 
 /// The agent chat composer's text: a multi-line field that grows upward with
 /// the draft up to `maxLines`, then scrolls (`ComposerFieldHeight`, shared
-/// with the terminal composer). Natural-language input: autocorrection,
-/// spell checking and sentence capitals (`ComposerTextTraits.prose`). Return on the on-screen keyboard
+/// with the terminal composer). Return on the on-screen keyboard
 /// starts a new line and the send button sends; on a hardware keyboard
 /// Return sends and Shift-Return (or Option-Return) starts a new line
 /// (`ComposerReturnStyle.chat`, as in the ChatGPT and Claude iPhone apps).
@@ -35,6 +34,11 @@ struct ChatComposerField: UIViewRepresentable {
         view.textColor = .label
         view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
+        // Prompts are code-like: no autocorrect, no capitals (full verify D5).
+        view.autocorrectionType = .no
+        view.autocapitalizationType = .none
+        view.smartQuotesType = .no
+        view.smartDashesType = .no
         view.returnKeyType = .default
         view.accessibilityIdentifier = Self.accessibilityIdentifier
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -119,7 +123,6 @@ final class ChatComposerTextView: ComposerReturnTextView {
 
     init() {
         super.init(policy: ComposerReturnPolicy(style: .chat, maxLines: ChatComposerField.maxLines))
-        ComposerTextTraits.prose.apply(to: self)
     }
 
     @available(*, unavailable)

@@ -14,6 +14,29 @@
   rows keep a `space1` gap. Body text and icons scale with the app density. The base's shared
   `chromeRowHeight` continues to follow sidebar density and text size.
 
+- 2026-11-11: rows round as Chrome's tabs. Lawrence, verbatim: "i want us to work on the different densities
+  consistency. like same roundness as chrome. omnibar height should be same as tabbar tab heigh which should be same
+  as workspace rows height." The heights were already one (`Metrics.chromeRowHeight`); now a tab pill, the omnibar
+  and every row fill take Chromium's free-standing tab corner, `kVerticalTabCornerRadius` 8 on a `kVerticalTabHeight`
+  30 tab, at each height (`Metrics.chromeRowCornerRadius(height:)`: 5 on 20, 6 on 24, 8 on 30, 9 on 34, 11 on 42).
+  `SidebarDensityTokens.rowCornerRadius` is the tab's radius at every density: Default's row corner goes from Codex's
+  10 to Chrome's 8 (`Metrics.tabRowCornerRadius` is gone; pages read `SidebarRowTokens.listRowCornerRadius`, 8 px). The curved main pane rounds from its tabs (tab
+  radius plus the pill's inset, at most the window's) so the first pill stays concentric with it; a set
+  `layout.paneCornerRadius` or Floating Panes keep the old chain. Regression: `DensityItemConsistencyTests`,
+  `SidebarCodexMatchTests`.
+- 2026-11-11 (a-titlebar-motion): the hidden sidebar no longer floats back after a hide, the top row has one gap, the
+  float slides in like a drawer. Lawrence, verbatim (msg 29542): "when hiding sidebar, and my mouse is near left side of
+  screen, it kinda hides and reappears. we need to eliminate that error class completely. spacing between traffic
+  lights/sidebar and back/forth needs to be perfectly even at all density sizes too also when sidebar hidden and mouse
+  is moved ot left side to expand it , we need better spring animation and shorter duration". The edge float opens only
+  on an entry: each time floating becomes possible (a hide, Home left, the setting on) the edge disarms until the
+  pointer is seen off it with the zone placed and the hide's slide landed (`FloatingSidebarReveal.edgeArmed`). A hidden
+  sidebar holds no title bar hover, so the collapsed band leaves with the sidebar instead of opening over it. The
+  lights, the toggle, Back and Forward sit one gap apart, glyph ink to glyph ink (the lights' inset), at every density
+  (`TopRowSpacing.slots`). The float slides on the drawer curve (cubic-bezier(0.32, 0.72, 0, 1)) over the appear and
+  disappear tokens after a 100 ms intent delay (was 150 ms); Reduce Motion stays instant. Regression:
+  `FloatingSidebarTests.hidingUnderAPointerOnTheEdgeDoesNotFloatItBack`, `noFloatWhileTheHideSlideRuns`,
+  `SidebarHideTitlebarMotionTests`, `TopRowSpacingDensityTests`.
 - 2026-11-09: at Default density the sidebar matches the Codex desktop sidebar
   (https://github.com/manaflow-ai/cmux/issues/39956; measured in https://github.com/manaflow-ai/cmux/issues/28793 and the
   Codex stylesheet). The user, verbatim: "the sidebar colour is too bright (bright grey selection pill on Recents row).
@@ -1283,6 +1306,7 @@ the gap, no row left out of place after drop or cancel).
 
 | Range | Change |
 | --- | --- |
+| [2f1aec67753](https://github.com/manaflow-ai/cmux/commit/2f1aec67753) (#38484) | A row's done check settles in once when its work finishes (Leo 2026-10-26 on coding GUIs: "they're just gray and very sad... it's not cute. It's not happy."; leo-workspace research/2026-10-26-delight.md touch 13). When the same workspace's badge goes from a working or loading spinner to `.success` (`WorkspaceRowBadges.settles(from:to:)`), each done glyph plays `StatusIndicatorView.settle()`: 0.6 to 1 scale and accent to its own tint over the `settle` fade, through `Motion.indicators` (none under Reduce Motion or with animations off). Never on a first configure or a pooled row handed to another workspace (`shownBadges`, cleared in `prepareForReuse`), never on a window that is not visible. Rest look unchanged: the same glyph, size and place. Tests: `SidebarStatusSimpleTests.onlyFinishedWorkSettles`. |
 | sb-dot-size: the "(red)" test commit (fleet step faefa7d6dec8f2cff061e779, failed as expected: blue 7.8 pt, orange 6.0 pt), then this fix (green steps bd0e09cd152c371e51923b19 and, after the rebase over #33120, 787717d01efff8e509853e01, 10 suites each; SidebarLookContractTests.theHoverCloseIsTheRowsTrailingX fails at comfortable as on base, step b593b1384c52af0fa26aaada) | Status dots: one diameter (Lawrence 19696, "dots are different size now which is very bad"). Root cause: [389d38ad399](https://github.com/manaflow-ai/cmux/commit/389d38ad399f) (#30242, after [d71ebe832a0](https://github.com/manaflow-ai/cmux/commit/d71ebe832a0b), #29633) fit only the blue unread dot (`.success`) to the 8 pt `unreadDotSize` in `RowBadgeView.unreadFrame`; the orange needs-you dot kept the art's 6 pt in its 10 pt box, and a band item's or a group header's dot drew at its indicator box's share. Now `SidebarStyle.statusDotSize` (renamed from `unreadDotSize`, still 8 pt at compact) is the one token: `StatusIndicatorView.dotDiameter` paints any dot glyph at it, centered, and the row badge, band items, workspace rows, group headers and Priority rows set it; the unread badge and a header's dot badge read it. Tests: `SidebarStatusDotSizeTests` (drawn ink of every dot kind, every density and text size, light and dark); gallery `sidebar-dot-size-gallery` (copied to ~/fun/cmux-galleries/dot-size/). |
 | sb-reveal: the "(red)" test commit (SidebarRevealInSidebarTests), then the fix | Lawrence msg 20167: "we need a cmd shift p command like focus in sidebar/scroll to in sidebar which is im in a workspaces and i want to see it in sidebar so i know where it is". Reveal Workspace in Sidebar (`sidebar.revealWorkspace`) and Reveal and Focus Workspace in Sidebar (`sidebar.revealAndFocusWorkspace`), palette aliases "focus in sidebar", "scroll to in sidebar", "locate"; the first also in the workspace row's menu (More). One path, `SidebarView.revealWorkspace` (bound by `SidebarRevealActions`): the sidebar shows if hidden, the collapsed sections, groups and nested groups and the Archive (or a Done, Archived or Show N more fold) that hold the row open, the row scrolls into view (centred when it was off screen) and flashes Flash Pane's gray ring (`SidebarRevealFlash`: two blinks, at once with no fade under Reduce Motion or with animations off). Keyboard focus stays; the Focus variant then runs `focusSidebar`. No default key (Cmd-Shift-J is Ghostty's write_screen_file and Chrome's Downloads). Look change: only the brief flash. Red step `65c11f5261e676b09971d746` (4 of 5 tests fail, as expected), green `659280c762524188eae587cf` (SidebarRevealInSidebarTests and the menu/surface suites pass; ActionContractTests fails on the base's own `home.setPrimaryChief`, not this change), gallery `51c8bc22929f4e4dd52bead1`. |
 | sb-pinned-density: the "(red)" test commit (PinnedSummaryDensityTests, fleet step b756692bcd72c93601f38a3e, failed as expected: Comfortable pinned icon 14 vs the list row's 18, card 8 pt padding, 12 pt text and 34 pt tab rows at every size), then this fix (green step 88cc8b9d7593ab9e00168a50) | Lawrence 2026-11-03: "make sure size of the pinned summary thing reflect size of ui compactness i chose". The pinned row's icon and the workspace hover card (padding, icon column, text, widths, tab rows, disclosure, history heights) now read `SidebarRowTokens` / `SidebarRowTokens.hoverCard`; no literal sizes left in the card. |
@@ -2053,6 +2077,22 @@ An empty group now keeps only its header at rest. The header's existing + appear
   (`SidebarNoticeCard.restoring`): the update status's look (text at the card's padding, the bar's sweep), no
   leading spinner, no button and no x. The App shows it until the sessions connect. No row, group or rail changes.
   Tests: `DaemonRestoreProgressTests`.
+
+## A row press that shows another workspace moves no key while a page holds it (2026-11-12, SPACE SWITCH 4, for a590)
+
+While a Chromium page of the window holds the key (a browser tab, an agent chat), a press on a workspace row or a rail
+mark that shows ANOTHER workspace goes straight to the row (`KeyNeutralPressTarget.keepsKey(for:on:)`,
+`SidebarListView+WorkspacePress.swift`, `SidebarModel.clickShowsAnotherWorkspace`): the shell window is not made key
+first and the list does not become the first responder. The switch gives the keyboard to the new workspace's content in
+the same turn, as the key path does. Chrome's tab strip and page share one window that stays key through a tab click.
+Measured before (hold l1, aws-m4pro-8, 120 Hz, gated): the click's frame was 18.2 ms (round 0) and 14.8 ms (round 1) behind the key's at p50.
+
+Not changed (each keeps the window-key-first path and the list as first responder): a press with the shell window
+key; the shown row; a control-press (menu); a double-click (rename); a Command or Shift press (selection); a row of a
+multi-selection; a row's buttons; group headers; item rows; pinned tiles; the profile bar; `sidebar.sideBySide`
+(the release switches). One consequence: after such a press the arrow keys go to the new workspace's content, not
+to the list (they did so before only until the switch's focus change, which came in the same turn).
+Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `SidebarSwitchPressFocusTests`.
 
 ## Reviewed behavior-only commits
 

@@ -6,10 +6,10 @@ import UIKit
 @testable import CmuxMobileTerminal
 
 /// User report 2026-11-12 (iPhone): the terminal's "Message" composer ran a
-/// multi-line draft below its rounded field and had no autocorrection
-/// ("hm no autocorrect i guess thats maybe ok"). The composer grows upward to
-/// `ComposerFieldHeight.defaultMaxLines`, then scrolls inside, and takes
-/// autocorrection and spell checking; the terminal's own key input does not.
+/// multi-line draft below its rounded field ("whoa it go down"). The composer
+/// grows upward to `ComposerFieldHeight.defaultMaxLines`, then scrolls inside.
+/// Its text traits stay terminal-safe (SPEC M2): a draft is pasted into the
+/// program, so no autocorrection, capitals or smart punctuation.
 @MainActor
 @Suite struct TerminalComposerFieldTests {
     static func field(_ lines: Int) -> ComposerUITextView {
@@ -38,16 +38,6 @@ import UIKit
         let visible = CGRect(origin: tall.contentOffset, size: tall.bounds.size)
         // The caret overhangs its line by about a point on each side.
         #expect(caret.minY >= visible.minY - 2 && caret.maxY <= visible.maxY + 2, "caret \(caret) in \(visible)")
-    }
-
-    @Test func messageComposerAutocorrectsButKeepsShellQuotesStraight() {
-        let traits = ComposerTextTraits(of: ComposerUITextView())
-        #expect(traits == .terminalMessage)
-        #expect(traits.autocorrection == .yes)
-        #expect(traits.spellChecking == .yes)
-        #expect(traits.autocapitalization == .sentences)
-        #expect(traits.smartQuotes == .no)
-        #expect(traits.smartDashes == .no)
     }
 
     @Test func terminalKeyInputStaysRaw() {

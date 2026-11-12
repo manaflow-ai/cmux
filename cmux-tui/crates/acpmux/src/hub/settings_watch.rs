@@ -11,7 +11,10 @@
 //! `user_settings::read` looks at, and its symlink target's folder (or the
 //! nearest existing ancestor of one not created yet, so it is picked up
 //! when it is), as `harness_watch.rs` does for profiles: no
-//! timers and no polling. The event thread gathers a burst and only signals;
+//! timers and no polling. On macOS it is kqueue on the files and those
+//! folders' entries (`named_files_watch`): while `~/.config/cmux` does not
+//! exist, that folder is `$HOME`, and an FSEvents stream over it woke the
+//! daemon for every write below the home (each agent's logs in `~/.codex`). The event thread gathers a burst and only signals;
 //! one task on the runtime reads the setting and tells the watchers when it
 //! differs from the last value it saw. A write that leaves the setting as it
 //! was (another key, the same value) tells nobody.
@@ -22,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Instant;
 
+#[cfg(not(target_os = "macos"))]
 use notify::Watcher as _;
 
 use super::harness_watch::{MAX_BURST, QUIET};
@@ -44,8 +48,12 @@ impl Drop for SettingsWatchState {
 
 /// Keeps the watcher alive; dropping it stops the events and its thread.
 pub(crate) struct SettingsWatcher {
+    #[cfg(not(target_os = "macos"))]
     watcher: StdMutex<notify::RecommendedWatcher>,
+    #[cfg(not(target_os = "macos"))]
     watched: StdMutex<Vec<PathBuf>>,
+    #[cfg(target_os = "macos")]
+    _watch: crate::named_files_watch::NamedFilesWatch,
 }
 
 impl Hub {
@@ -58,19 +66,39 @@ impl Hub {
         };
         let files = crate::user_settings::paths();
         let (tx, rx) = std::sync::mpsc::channel();
-        let watcher = match notify::recommended_watcher(move |event| {
-            let _ = tx.send(event);
-        }) {
-            Ok(watcher) => watcher,
-            Err(e) => {
-                tracing::warn!("settings watch cannot start: {e}");
+        #[cfg(target_os = "macos")]
+        let watch = {
+            let named = crate::named_files_watch::NamedFilesWatch::start(files.clone(), {
+                move |changed| {
+                    changed.iter().any(|path| {
+                        let event =
+                            notify::Event::new(notify::EventKind::Any).add_path(path.clone());
+                        tx.send(Ok(event)).is_err()
+                    })
+                }
+            });
+            let Some(named) = named else {
+                tracing::warn!("settings watch cannot start: no settings folder can be watched");
                 return;
-            }
+            };
+            Arc::new(SettingsWatcher { _watch: named })
         };
-        let watch = Arc::new(SettingsWatcher {
-            watcher: StdMutex::new(watcher),
-            watched: StdMutex::new(Vec::new()),
-        });
+        #[cfg(not(target_os = "macos"))]
+        let watch = {
+            let watcher = match notify::recommended_watcher(move |event| {
+                let _ = tx.send(event);
+            }) {
+                Ok(watcher) => watcher,
+                Err(e) => {
+                    tracing::warn!("settings watch cannot start: {e}");
+                    return;
+                }
+            };
+            Arc::new(SettingsWatcher {
+                watcher: StdMutex::new(watcher),
+                watched: StdMutex::new(Vec::new()),
+            })
+        };
         watch.refresh(&files);
         *self.settings_watch.watcher.lock().unwrap_or_else(|p| p.into_inner()) =
             Some(watch.clone());
@@ -85,9 +113,11 @@ impl Hub {
             while wake.recv().await.is_some() {
                 while wake.try_recv().is_ok() {}
                 // `agents.subsessions.maxRunning` may have changed: sub-sessions waiting for a run
-                // slot look again (`subsession_runs.rs`).
+                // slot look again (`subsession_runs.rs`). What waits on a setting with no timer
+                // reads it again (the desktop bridge while off, `desktop_bridge.rs`).
                 if let Some(hub) = hub.upgrade() {
                     hub.subsession_runs.wake();
+                    hub.settings_changes.send_modify(|seq| *seq = seq.wrapping_add(1));
                 }
                 let Ok((now, router)) = tokio::task::spawn_blocking(|| {
                     (
@@ -136,6 +166,12 @@ impl SettingsWatcher {
     /// (a dotfiles link's target folder), each once; for a folder that does
     /// not exist yet, its nearest existing ancestor, so its creation is seen
     /// and the next refresh watches it.
+    #[cfg(target_os = "macos")]
+    fn refresh(&self, _files: &[PathBuf]) {
+        // The kqueue watch arms itself again when a folder or file comes or goes.
+    }
+
+    #[cfg(not(target_os = "macos"))]
     fn refresh(&self, files: &[PathBuf]) {
         let mut wanted: Vec<PathBuf> = Vec::new();
         let folders = files.iter().flat_map(|f| {

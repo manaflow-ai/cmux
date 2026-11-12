@@ -127,14 +127,5 @@ import UIKit
         view.layoutIfNeeded()
         #expect(view.contentOffset.y == -view.adjustedContentInset.top)
     }
-
-    @Test func takesNaturalLanguageInput() {
-        let traits = ComposerTextTraits(of: ChatComposerTextView())
-        #expect(traits == .prose)
-        #expect(traits.autocorrection == .yes)
-        #expect(traits.spellChecking == .yes)
-        #expect(traits.autocapitalization == .sentences)
-        #expect(traits.smartQuotes == .yes)
-    }
 }
 #endif

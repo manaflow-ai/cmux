@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import fnmatch
 import os
 import re
 import shutil
@@ -290,7 +291,12 @@ def touched_roots(repo: Path, roots: list[str], base: str) -> set[str] | None:
     cargo_files = [path for path in out.split("\0") if PurePosixPath(path).name in ("Cargo.toml", "Cargo.lock")]
     if not cargo_files:
         return set()
-    import tomllib  # Python 3.11; only CI passes --base
+    try:
+        import tomllib  # Python 3.11; only CI passes --base (the pre-push hook's python3 can be macOS's 3.9)
+    except ImportError:
+        print(f"cargo-locks: --base needs Python 3.11+ (tomllib), not {sys.version.split()[0]}; every workspace "
+              "counts as touched", file=sys.stderr)
+        return None
 
     listed = subprocess.run(["git", "-C", str(repo), "ls-files", "-z", "--", "*Cargo.toml"], capture_output=True,
                             check=True).stdout.decode("utf-8", "surrogateescape")
@@ -359,6 +365,15 @@ def touched_roots(repo: Path, roots: list[str], base: str) -> set[str] | None:
         seen = {root or "."}
         read = {root or "."}
         queue = [directory for directory in manifests if owns(root or ".", directory)]
+        # Members outside the root's tree ("../cmux-rd-ffi" in cmux-app-ffi's workspace) share its lock too.
+        table = manifests.get(root or ".", {}).get("workspace")
+        for member in table.get("members", []) if isinstance(table, dict) else []:
+            pattern = os.path.normpath(str(PurePosixPath(root or ".") / str(member)))
+            for directory in manifests:
+                if fnmatch.fnmatch(directory, pattern) and not under(directory, root or "."):
+                    seen.add(directory)
+                    read.add(directory)
+                    queue += [other for other in manifests if owns(directory, other)]
         while queue:
             directory = queue.pop()
             for target in targets(directory):

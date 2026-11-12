@@ -36,7 +36,7 @@ public nonisolated struct AgentPageOps {
     /// Op suffix to the old bridge method that ``AgentPaneRequest`` parses.
     static let methods: [String: String] = {
         var methods = Dictionary(uniqueKeysWithValues: [
-            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
+            "pane.checkpointAvailability", "pane.commandAvailability", "pane.framePacing", "pane.painted", "pane.clientReady", "pane.renderRate", "pane.saveLog", "pane.saveFile", "pane.finishSound", "pane.showContextUsage", "pane.showDictation", "pane.setScrollToBottomOnSend", "pane.setDisplay", "pane.setAttachmentView", "pane.setComposerRing", "pane.setDictationSource", "pane.setRemoteControl", "pane.noticeAction", "tips.state",
             "pane.edit", "pane.setQuickActions", "tab.open", "run.attach", "tab.typeAhead", "tab.jump", "cloud.preview.open",
             "newTab.remember", "newTab.setTemplate", "nowPlaying.command", "readAloud.speak", "readAloud.stop", "chat.attention.open", "newTab.inputReady", "newTab.touched", "newTab.context", "newTab.warm", "shortcut.edit", "action.run", "file.open", "browser.open",
             "project.list", "project.icon", "agent.avatar", "agent.avatar.set", "agent.avatar.remove", "agent.mini", "agent.mini.show", "chief.face", "harness.symbol", "project.browse", "workspace.chooseFolder", "workspace.useFolder", "chat.folder.choose", "machine.share.self", "share.op", "chat.attach.choose", "chat.attach.dropped", "chat.attach.source", "attachment.sourceIcon", "app.action", "chats.open", "chats.resume", "chats.openInTerminal", "chats.watch", "chats.page",
@@ -54,6 +54,8 @@ public nonisolated struct AgentPageOps {
             // The page's flicker detector (``AgentPageFlickerLog``): answered by ``onFlicker`` before
             // the model, never logged. Without it the page host's pages wrote no line of their own.
             AgentPageFlickerLog.method,
+            // A chat's unsent prompts (``AgentPaneUnsentPrompts``): answered before the model, never logged.
+            "chat.unsentPrompt.put", "chat.unsentPrompt.remove", "chat.unsentPrompts.get",
         ].map { ($0, $0) })
         for action in AgentPaneIMessageAction.allCases { methods["imessage.\(action.rawValue)"] = "imessage.\(action.rawValue)" }
         for method in AgentPaneReplyRequest.methods.union(AgentPaneEnvironmentRequest.methods).union(AgentPaneCloudMachineRequest.methods).union(AgentPaneCloudRepositoryRequest.methods)
@@ -410,6 +412,12 @@ public final class AgentPageProvider: PageProvider {
             return .object(["ok": .bool(true)])
         }
         if method.hasPrefix("chat.draftAttachments") { return try await Self.draftAttachments(method, params: params, op: op) }
+        if AgentPaneUnsentPrompts.handles(method: method) {
+            switch await AgentPaneUnsentPrompts.reply(to: method, params: params) {
+            case .success(let value): return value
+            case .failure(let error): throw PageError(code: error.code, message: error.message)
+            }
+        }
         let request = AgentPaneRequest(body: ["method": method, "params": params.foundationObject])
         if case .unsupported = request { throw PageError.invalidParams(op) }
         guard let model = prepare(request) else { throw PageError.closed }

@@ -5,11 +5,9 @@ import UIKit
 
 /// The composer's text field: a UITextView, so the screen controls what a
 /// SwiftUI TextField does not expose: the dark keyboard (iOS 27 no longer
-/// derives it from the field's trait), its text traits
-/// (`ComposerTextTraits.terminalMessage`: autocorrection and spell checking
-/// on, smart quotes and dashes off), and growth upward from 1 to `maxLines`
-/// lines before it scrolls inside (`ComposerFieldHeight`, shared with the
-/// agent chat composer).
+/// derives it from the field's trait), terminal-safe text traits, and growth
+/// upward from 1 to `maxLines` lines before it scrolls inside
+/// (`ComposerFieldHeight`, shared with the agent chat composer).
 ///
 /// Return starts a new line from either keyboard and only the send button
 /// sends (classic cmux iOS, `ComposerReturnStyle.message`); the key row's ⏎
@@ -54,9 +52,15 @@ struct ComposerTextView: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.keyboardAppearance = .dark
-        // No AutoFill callout, no Writing Tools, no shortcut bar buttons; the
-        // keyboard's own suggestions show for autocorrection
-        // (`ComposerTextTraits.terminalMessage`, set by the view).
+        view.autocorrectionType = .no
+        view.autocapitalizationType = .none
+        view.spellCheckingType = .no
+        view.smartQuotesType = .no
+        view.smartDashesType = .no
+        view.smartInsertDeleteType = .no
+        view.inlinePredictionType = .no
+        // A shell line is not prose (SPEC M2): no QuickType bar, no AutoFill
+        // callout, no Writing Tools.
         view.textContentType = nil
         view.writingToolsBehavior = .none
         view.inputAssistantItem.leadingBarButtonGroups = []
@@ -152,7 +156,6 @@ final class ComposerUITextView: ComposerReturnTextView {
 
     init() {
         super.init(policy: ComposerReturnPolicy(style: .message, maxLines: ComposerTextView.maxLines))
-        ComposerTextTraits.terminalMessage.apply(to: self)
     }
 
     @available(*, unavailable)
