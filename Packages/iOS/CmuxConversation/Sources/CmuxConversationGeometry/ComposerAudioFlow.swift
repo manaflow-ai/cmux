@@ -22,6 +22,9 @@ public struct ComposerAudioFlow: Equatable, Sendable {
         case resumeFailed
         case cancel
         case send
+        /// A kept recording (a rebuilt screen, the app back from the
+        /// background or relaunched) opens straight in its review.
+        case restore
     }
 
     public enum Effect: Equatable, Sendable {
@@ -82,6 +85,11 @@ public struct ComposerAudioFlow: Equatable, Sendable {
             return reset([.discard])
         case (.send, .review?):
             return reset([.sendRecording])
+        case (.restore, nil):
+            stage = .review
+            holding = false
+            recorderRunning = true
+            return []
         default:
             return []
         }

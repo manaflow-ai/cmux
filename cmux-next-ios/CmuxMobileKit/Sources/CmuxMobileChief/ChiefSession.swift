@@ -207,7 +207,14 @@ public final class ChiefSession {
     public func discardTranscripts() {
         store.discardKeptTranscript()
         transcripts?.removeAll()
+        Self.audioDrafts?.removeAll()
     }
+
+    /// Unsent recordings of every Chief conversation, kept on this phone (cleared at sign-out).
+    public static let audioDrafts = ConversationAudioDraftStore.inApplicationSupport("cmux-mobile-chief-voice-drafts")
+
+    /// The key this Chief's unsent recording is kept under: its kept transcript's.
+    var audioDraftKey: String? { transcriptKey }
 
     /// Swaps the backend (offline to `ChiefDaemonBackend` once a Mac link is
     /// up, or to ``ChiefCloudBackend`` with the Cloud Chief's `identity`).
@@ -358,21 +365,23 @@ public final class ChiefSession {
         /// The field had the keyboard: a screen rebuilt in place (a new
         /// store after a reconnect) keeps it, as if nothing was rebuilt.
         public var focused: Bool
+        /// A recording in the composer (stopped into its review), nil when none.
+        public var audio: ConversationAudioDraft? = nil
     }
 
     private var carriedComposer: CarriedComposer?
 
     /// The leaving screen's unsent text (empty clears it) and whether its field was focused.
-    public func carryComposerText(_ text: String, focused: Bool = false) {
+    public func carryComposerText(_ text: String, focused: Bool = false, audio: ConversationAudioDraft? = nil) {
         let kept = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
-        carriedComposer = kept == nil && !focused ? nil : CarriedComposer(text: kept, focused: focused)
+        carriedComposer = kept == nil && !focused && audio == nil ? nil : CarriedComposer(text: kept, focused: focused, audio: audio)
     }
 
     /// Keeps the carried text but not its focus (the Chief route left).
     public func dropCarriedComposerFocus() {
         guard var carried = carriedComposer, carried.focused else { return }
         carried.focused = false
-        carriedComposer = carried.text == nil ? nil : carried
+        carriedComposer = carried.text == nil && carried.audio == nil ? nil : carried
     }
 
     /// The carried composer, once.
