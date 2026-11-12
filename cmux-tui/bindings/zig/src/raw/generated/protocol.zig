@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb";
+pub const ir_sha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -4151,6 +4151,27 @@ pub fn browserWheelGuarded(client: anytype, request: BrowserWheelGuardedRequest)
     );
 }
 
+pub const CancelCreatingInputRequest = struct {
+    terminal_id: []const u8,
+};
+
+pub const CancelCreatingInputResult = struct {
+    cancelled: bool,
+};
+
+pub fn cancelCreatingInput(client: anytype, request: CancelCreatingInputRequest) !wire.Decoded(CancelCreatingInputResult) {
+    return client.callTyped(
+        CancelCreatingInputResult,
+        .{
+            .name = "cancel-creating-input",
+            .authority = "control",
+            .since = 12,
+            .capability = "creating-input-cancel-v1",
+        },
+        request,
+    );
+}
+
 pub const ChiefInspectRequest = struct {
     path: []const u8,
     query: ?wire.Map([]const u8) = null,
@@ -6003,6 +6024,8 @@ pub const CreateTerminalRequest = struct {
     argv: wire.Field([]const []const u8) = .absent,
     cols: wire.Field(u16) = .absent,
     command: wire.Field([]const u8) = .absent,
+    /// Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace.
+    create_workspace: ?bool = null,
     cwd: wire.Field([]const u8) = .absent,
     detached: ?bool = null,
     env: wire.Field(wire.Map([]const u8)) = .absent,
@@ -6017,8 +6040,11 @@ pub const CreateTerminalRequest = struct {
     shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     workspace: wire.Field(Id) = .absent,
+    /// The name of the workspace create_workspace makes.
+    workspace_name: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "create_workspace",
         "detached",
         "keep",
     };
@@ -6035,11 +6061,13 @@ pub fn createTerminal(client: anytype, request: CreateTerminalRequest) !wire.Dec
             .since = 7,
             .capability = "workspace-registry-v1",
             .fields = &.{
+                .{ .name = "create_workspace", .since = 12, .capability = "create-terminal-workspace-v1" },
                 .{ .name = "detached", .since = 12, .capability = "detached-terminals-v1" },
                 .{ .name = "env", .since = 12, .capability = "terminal-env-v1" },
                 .{ .name = "keep", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "shell_args", .since = 12, .capability = "terminal-shell-args-v1" },
                 .{ .name = "terminal_id", .since = 9, .capability = null },
+                .{ .name = "workspace_name", .since = 12, .capability = "create-terminal-workspace-v1" },
             },
         },
         request,
@@ -12404,7 +12432,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 300;
+pub const command_count: usize = 301;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12426,6 +12454,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-reload", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
+    .{ .name = "cancel-creating-input", .authority = "control", .since = 12, .capability = "creating-input-cancel-v1", .stream = null },
     .{ .name = "chief-inspect", .authority = "local-admin", .since = 12, .capability = "chief-inspect-v1", .stream = null },
     .{ .name = "chief-work", .authority = "frontend", .since = 12, .capability = "chief-work-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },

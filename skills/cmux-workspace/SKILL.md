@@ -70,7 +70,7 @@ cmux pane list --json                             # or inspect every pane
 
 Repeated "open it" requests add tabs to the existing helper pane, not more splits.
 
-An agent in a chat tab of the cmux app: the same rule holds. Find the column right of the chat with `cmux pane <chat pane> neighbor right` and add tabs to it; `cmux open URL` opens a page there and makes the column when needed. With no column yet, make it once with `cmux pane <chat pane> split --right --viewport-width 0.5` (a chat dock takes no plain split). `cmux app identify` and `cmux --json identify` answer only when the app is reachable (`cmux app ping`); never depend on them for layout.
+An agent in a chat tab of the cmux app: the same rule holds. Find the column right of the chat with `cmux pane <chat pane> neighbor right` and add tabs to it; `cmux open URL` opens a page there and makes the column when needed. With no column yet, make it once with `cmux pane <chat pane> split --right --fit` (a chat dock takes no plain split). `cmux app identify` and `cmux --json identify` answer only when the app is reachable (`cmux app ping`); never depend on them for layout.
 
 ## Larger layouts beside a chat
 

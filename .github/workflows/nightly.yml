@@ -1027,17 +1027,6 @@ jobs:
               echo "::error title=Signing runner::This owned Mac did not give the job the whole mini, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."
               exit 1
             fi
-            hooks=$(curl -fsS --proto '=https' --retry 3 --max-time 20 \
-              "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/ci/glaeda-signing-hooks.txt") || hooks=""
-            hook="${GLAEDA_HOOK_SHA256:-}"
-            listed=""
-            if [[ "$hook" =~ ^[0-9a-f]{64}$ ]]; then
-              while read -r sha _; do if [ "$sha" = "$hook" ]; then listed=1; fi; done <<< "$hooks"
-            fi
-            if [ -z "$listed" ]; then
-              echo "::error title=Signing runner::glaeda hook ${hook:-unnamed} is not one scripts/ci/glaeda-signing-hooks.txt lists, so this job fails; nightly signing runs only on a trusted signing runner, never on Blacksmith."
-              exit 1
-            fi
             echo "claim=owned" >> "$GITHUB_OUTPUT"
           fi
       - &clean-owned-workdir
@@ -1063,7 +1052,6 @@ jobs:
             scripts/ci/promote-nightly-next.mjs
             scripts/ci/nightly_next_train.py
             scripts/ci/signing-runner-claim.sh
-            scripts/ci/glaeda-signing-hooks.txt
             .github/release-surface.txt
             scripts/ci/nightly_next_fix_forward.py
           sparse-checkout-cone-mode: false
@@ -1634,7 +1622,8 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client, resolve-nightly-ghostty-cli-helper, pick-nightly-build-runner]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
+    # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
+    if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-ghostty-cli-helper.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'"
     # The helper builds with the Zig the Ghostty submodule pins (0.16.0) and
     # links against the macOS 26 SDK: the universal build and its lipo check
     # pass on an owned macOS 26 mini (Xcode 26.6, SDK 26.5). The old Zig 0.15.2
@@ -2083,7 +2072,13 @@ jobs:
       light_attempt: ${{ steps.place-light.outcome == 'success' && github.run_attempt || '' }}
       # The cx-f58x scan of the archived app passed here; prepare skips its own.
       browser_data_proven: ${{ steps.browser-data-proof.outcome == 'success' && 'true' || '' }}
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
+    # pick-nightly-build-runner is continue-on-error, and its pre-job hook can wait out its 13-minute
+    # timeout while a signing job holds the mini it landed on. A timed-out job ends `cancelled`, and an `if`
+    # with no status function (an implicit success() over every ancestor) then skipped this job and lost the
+    # started build (runs 43129045111, 43138638076 on 2026-11-12). So this job and the jobs below it start
+    # with !cancelled() and their own needs' success, and the pick's empty outputs fall back to the plain pool
+    # (tests/test_nightly_delivery_concurrency.py::test_a_tolerated_need_never_skips_its_dependents).
+    if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'"
     # nightly-next: pick-nightly-build-runner's dedicated builder, else an idle owned
     # label, else the moving Blacksmith label; never one label with no fallback. Main's
     # ci-cache-writer environment never follows NEXT onto that worker.
@@ -2112,14 +2107,32 @@ jobs:
           ref: ${{ github.sha }}
           submodules: false
 
+      # The routing App's own budget, github.token as the fallback: every workflow's github.token shares
+      # one hourly limit, and its 403s failed this restore in sign runs 43129190893 and 43139032769.
+      - name: Mint the glaeda read token for the unsigned restore
+        id: resume-read-token
+        if: inputs.nightly_next_unsigned_run != '' && github.repository == 'manaflow-ai/cmux' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
       - name: Restore the original unsigned nightly inputs
         if: inputs.nightly_next_unsigned_run != ''
         id: resume
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.resume-read-token.outputs.token || github.token }}
           SOURCE_RUN: ${{ inputs.nightly_next_unsigned_run }}
           SOURCE_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
           NIGHTLY_NEXT_SIGN_STAGE: ${{ inputs.nightly_next_sign_stage }}
+          # This restore is the only way a finished build reaches the feed: a refused artifact call waits
+          # up to 30 minutes for the token's quota to come back instead of failing in seconds. Runs
+          # 43129190893 and 43139032769 (2026-11-12) threw away finished builds on one 403 each.
+          CMUX_ARTIFACT_RETRY_BUDGET_SECONDS: "1800"
         run: python3 scripts/ci/resume-unsigned-nightly.py restore --run-id "$SOURCE_RUN" --attempt "$SOURCE_ATTEMPT"
 
       - name: Retain resumed cmux-nightly-unsigned-app
@@ -3003,7 +3016,8 @@ jobs:
     # else the owned nightly-only Mac pool (the all-nightly reservation on NEXT's first attempt; run
     # 41683652930 took blacksmith-32vcpu-ubuntu-2404), else the nightly-only pool: never Blacksmith. Resume already retained these exact assets in build-nightly-app.
     needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.build_only != 'true'
+    # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
+    if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.build_only != 'true'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
@@ -3067,7 +3081,8 @@ jobs:
     # A pipelined push run (decide's pipeline) ends at dispatch-nightly-next-sign, so the sign run attests its
     # daemon assets instead: there build-nightly-app retains them under the same name, from the push run.
     needs: [decide, build-nightly-app, build-nightly-remote-daemon]
-    if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.pipeline != 'true' || inputs.nightly_next_sign_stage != ''
+    # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && (inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.pipeline != 'true' || inputs.nightly_next_sign_stage != '')"
     # The owned nightly-only Mac pool first (the all-nightly reservation, as route-visual-gate-nightly),
     # then the nightly-only pool variable or label, never Blacksmith (nightlies never use Blacksmith). Its OIDC token only
     # writes provenance for these assets; the pool already builds the nightly app those assets ship in.
@@ -3309,7 +3324,8 @@ jobs:
     # in verify-signed-nightly. build-sign-notarize-nightly signs exactly the
     # app it uploads and runs no bundle code itself (#21024).
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.pipeline != 'true'
+    # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
+    if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.pipeline != 'true'"
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
       contents: read
@@ -5554,7 +5570,8 @@ jobs:
 
   await-nightly-tree-marker:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
-    if: (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' || inputs.nightly_next_unsigned_run != '') && needs.build-nightly-app.result == 'success' && needs.decide.outputs.pipeline != 'true'
+    # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
+    if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.build-nightly-app.result == 'success' && (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' || inputs.nightly_next_unsigned_run != '') && needs.build-nightly-app.result == 'success' && needs.decide.outputs.pipeline != 'true'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && contains(needs.build-nightly-app.outputs.light_mini_jobs, ' await-nightly-tree-marker ') && needs.build-nightly-app.outputs.light_mini_runner || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     permissions:
       contents: read
@@ -6662,7 +6679,6 @@ jobs:
             scripts/ci/r2_cas.py
             scripts/ci/upload-r2-object.py
             scripts/ci/signing-runner-claim.sh
-            scripts/ci/glaeda-signing-hooks.txt
           sparse-checkout-cone-mode: false
 
       # The build ref may predate the hook list.
@@ -6795,7 +6811,6 @@ jobs:
             scripts/ci/nightly-steps/republish-deltas-upload-appcasts.sh
             scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
             scripts/ci/signing-runner-claim.sh
-            scripts/ci/glaeda-signing-hooks.txt
           sparse-checkout-cone-mode: false
 
       # Before any release App secret: the claim again, and a keychain a killed job left is removed.

@@ -886,6 +886,7 @@
         "appearance.metrics.dividerThickness",
         "appearance.metrics.dividerHitWidth",
         "appearance.metrics.titlebarHeight",
+        "appearance.metrics.sidebarRowHeight",
         "browser.toolbar.back",
         "browser.toolbar.forward",
         "browser.toolbar.reload",
@@ -1357,6 +1358,13 @@
       "why": "Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.",
       "keys": [
         "diagnostics.hangReports"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
+      "keys": [
+        "diagnostics.usagePatterns"
       ]
     },
     {
