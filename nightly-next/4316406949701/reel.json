@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4316406949701",
+  "notes": "notes/4316406949701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41713,
+      "title": "git fixture EXIT guard keyed on $BASHPID; a restored saved trap and a subshell source keep cleanup; fixture reads drop redirects",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41715,
+      "title": "base fetch: once per hook run and per process, never a credential prompt (#41310, #41662 review)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41716,
+      "title": "tests: wait out a git lock, read every skip reason, a NODE that is not node (#41434, #41666 review)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41719,
+      "title": "cmux-tui: every provider mutation goes through send_mutation, and a request never sent holds no slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41722,
+      "title": "nightly guards: no new publish-path step reads GitHub on the shared github.token alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41752,
+      "title": "ci: a check's own timeout is never a red the change did not cause (generated files, car guards, submodule guard)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41662,
+      "title": "stale base: every tool that measures a branch's own change fetches origin/feat-cmux-next first",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
