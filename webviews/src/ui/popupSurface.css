@@ -155,7 +155,7 @@
    .ui-glass-floats, so in a see-through Chromium page the theme surface lies under its tint and the
    page's text fades instead of reading through it (glass.css, "CHROMIUM OVER THE WINDOW GLASS"). This
    one rule gives it the sheet role's veil, corner radius and depth (the surface-roles block in
-   glass.css), as the native dialog card has (pages/overlay/dialog). A dialog's own class sets only its
+   glass.css), as the native dialog card has (CmuxDialogCardSurface). A dialog's own class sets only its
    size and layout; its controls are the shared Button, Input and Select (ui/controls.css). Reduce
    Transparency: the opaque popup surface (glass.css applies --glass-opaque). */
 .ui-dialog.ui-glass {
@@ -306,6 +306,17 @@
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+/* The drawn checkmark (MenuCheckGlyph): AppKit's menu check, a 12 box on the 14 icon grid, its
+   stroke at the menu text's weight. */
+:where(.ui-menu-check-glyph) {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 :where(.ui-submenu-chevron) {
   margin-inline-start: auto;

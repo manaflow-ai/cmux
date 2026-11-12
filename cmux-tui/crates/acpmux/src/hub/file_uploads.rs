@@ -82,8 +82,9 @@ pub(crate) fn remove_session(id: &str) {
     let Some(dir) = session_dir(id) else { return };
     // Read before they go, so only those stored bytes are checked after.
     let hashes = store::hashes_under(&dir);
-    // Never follows a symlink: `remove_dir_all` removes the link, not what it names.
-    match std::fs::remove_dir_all(&dir) {
+    // Never follows a symlink: `remove_dir_all` removes the link, not what it names. Through
+    // the held home (`home_fs`): a home replaced meanwhile keeps its chat's uploads.
+    match crate::home_fs::remove_dir_all(&dir) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => tracing::warn!(session = id, "uploads not deleted: {e}"),
@@ -167,12 +168,12 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
             let _upload = upload.file_name().to_str().map(hold);
             let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff)
                 && used_at(&upload.path()) < cutoff;
-            if old && std::fs::remove_dir_all(upload.path()).is_ok() {
+            if old && crate::home_fs::remove_dir_all(upload.path()).is_ok() {
                 removed += 1;
             }
         }
         // Only an empty folder goes (`remove_dir` refuses any other).
-        let _ = std::fs::remove_dir(session.path());
+        let _ = crate::home_fs::remove_dir(session.path());
     }
     store::collect(root);
     removed
@@ -331,7 +332,7 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
     if let Some(free) = free_bytes(parent)
         && free < size
     {
-        let _ = std::fs::remove_dir(parent);
+        let _ = crate::home_fs::remove_dir(parent);
         return Err(disk_full(parent, Some(size), Some(free), None));
     }
     crate::agent_tools::write_private(&path, &[])
@@ -638,7 +639,7 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         // Renamed by a finish that stopped before removing `.meta` (a crash): finished.
         Err(_) if done() => {
             let answer = again()?;
-            let _ = std::fs::remove_file(&meta);
+            let _ = crate::home_fs::remove_file(&meta);
             return Ok(answer);
         }
         Err(_) => return Err(unknown(upload)),
@@ -654,8 +655,8 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         let got = sha256_of(&part).map_err(|e| failed("cannot read upload", &part, &e, None))?;
         if got != want {
             // The bytes are not the sender's: it begins again.
-            let _ = std::fs::remove_file(&part);
-            let _ = std::fs::remove_file(&meta);
+            let _ = crate::home_fs::remove_file(&part);
+            let _ = crate::home_fs::remove_file(&meta);
             return Err(RpcError::invalid_params("the upload's sha256 does not match")
                 .with_data(json!({"reason": "upload.corrupt", "sha256": got})));
         }
@@ -665,8 +666,13 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         .and_then(|m| m.get("source").and_then(Value::as_str).map(str::to_owned));
-    std::fs::rename(&part, &path).map_err(|e| failed("cannot finish upload", &path, &e, None))?;
-    let _ = std::fs::remove_file(meta);
+    // Through the held home (`home_fs`): a home replaced after this check never gets the
+    // finished file, nor loses an upload of its own (#41372 review F3).
+    crate::config::refuse_lost_home(&path)
+        .map_err(|e| failed_anyhow("cannot finish upload", &path, &e, None))?;
+    crate::home_fs::rename(&part, &path)
+        .map_err(|e| failed("cannot finish upload", &path, &e, None))?;
+    let _ = crate::home_fs::remove_file(&meta);
     // Stored once by its bytes (`store`). The upload is finished either way: one that cannot be
     // stored (a full disk while writing its record) keeps its own copy and path.
     let now = crate::store::now_ms();
@@ -855,7 +861,7 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
     };
     if goes {
         let hashes = store::hashes_under(&dir);
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = crate::home_fs::remove_dir_all(&dir);
         store::release(&root(), &hashes);
     }
     Ok(json!({}))
@@ -871,7 +877,7 @@ pub(crate) fn remove_uploads(dirs: &[PathBuf]) {
     for dir in dirs {
         let _held = dir.file_name().and_then(|n| n.to_str()).map(hold);
         hashes.extend(store::hashes_under(dir));
-        let _ = std::fs::remove_dir_all(dir);
+        let _ = crate::home_fs::remove_dir_all(dir);
     }
     store::release(&root(), &hashes);
 }
@@ -1181,5 +1187,68 @@ mod tests {
         // tungstenite's default frame limit, which an older peer's listener keeps.
         let frame = 16 << 20;
         assert!(LEGACY_MAX_BYTES.div_ceil(3) * 4 + 4096 < frame);
+    }
+
+    /// Forced lost-home races for an upload's finish (#41372 review F3): the home is replaced by
+    /// a copy of itself (as restored from the old one) once the writer passed its home check.
+    /// The finished file and its stored bytes land in the held home; the new one is never changed.
+    #[cfg(unix)]
+    mod lost_home {
+        use super::*;
+        use crate::lost_home_race_tests::{copy_tree, forced, isolated};
+
+        /// An upload begun and written whole in this daemon's home: its id.
+        fn written(bytes: &[u8]) -> String {
+            let began =
+                begin("chat-a", &json!({"fileName": "f.bin", "size": bytes.len()})).unwrap();
+            let id = began["uploadId"].as_str().unwrap().to_owned();
+            append("chat-a", &id, 0, bytes).unwrap();
+            id
+        }
+
+        fn seed(home: &Path) {
+            copy_tree(&home.with_extension("old"), home);
+        }
+
+        /// The finish's rename of `.part` to the file's name and its removal of `.meta`.
+        #[test]
+        fn an_upload_finish_held_past_its_check() {
+            isolated(
+                module_path!(),
+                "an_upload_finish_held_past_its_check",
+                |home| {
+                    let id = written(b"hello");
+                    let target = finished_path("chat-a", &id, "f.bin").unwrap();
+                    let kept = format!("uploads/chat-a/{id}/f.bin");
+                    forced(home, target, seed, Some(&kept), move || {
+                        let params = json!({"uploadId": id, "fileName": "f.bin", "size": 5});
+                        let _ = finish("chat-a", &params);
+                    });
+                },
+                |_, _| {},
+            );
+        }
+
+        /// The store's link of a finished upload's bytes (`store::adopt`): its mode narrowed and
+        /// a hard link made in the store, held at the check of the store's shard folder.
+        #[test]
+        fn an_upload_store_link_held_past_its_check() {
+            isolated(
+                module_path!(),
+                "an_upload_store_link_held_past_its_check",
+                |home| {
+                    let id = written(b"hello");
+                    let hash = crate::sha256::sha256_hex(b"hello");
+                    let stored = store::stored_path(&root(), &hash).unwrap();
+                    let target = stored.parent().unwrap().to_path_buf();
+                    let kept = stored.strip_prefix(home).unwrap().to_string_lossy().into_owned();
+                    forced(home, target, seed, Some(&kept), move || {
+                        let params = json!({"uploadId": id, "fileName": "f.bin", "size": 5});
+                        let _ = finish("chat-a", &params);
+                    });
+                },
+                |_, _| {},
+            );
+        }
     }
 }
