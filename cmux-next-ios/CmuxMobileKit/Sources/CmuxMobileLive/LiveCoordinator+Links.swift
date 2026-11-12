@@ -34,12 +34,19 @@ extension LiveCoordinator {
         // Right after each dial, off the main actor: open `auth` then `daemon`
         // (in that order: a Mac that pairs serves channels opened behind
         // `auth`) and send the workspace setup batch.
-        let pairing = pairing
+        // A Cloud machine's carrier serves `daemon` only and has no pairing: `auth` is never opened.
+        let pairing = session.isCloud ? nil : pairing
         let deviceID = identity.link
         let deviceName = deviceName
         let macID = session.macID
         session.link.prepare = { link, _ in
             await Self.prepareLink(link, pairing: pairing, macID: macID, deviceID: deviceID, deviceName: deviceName)
+        }
+        if session.isCloud {
+            session.link.onPermanentRefusal = { [weak self, weak session] error in
+                guard let self, let session, self.sessions[session.macID] === session else { return }
+                self.cloudRefused(session.macID, error)
+            }
         }
         session.feed.place = { [weak session] sessionID in session?.place(sessionID: sessionID) }
         session.terminalFeed.request = { [weak session] command, params, connection in
@@ -205,7 +212,7 @@ extension LiveCoordinator {
         // ones opened behind it until it passes. Workspaces, the chats and the Feed open
         // right behind it, without waiting for each other (an open costs no round trip).
         ConnectTimeline.shared.mark("link_served")
-        let auth = await openPairing(link, macID: session.macID)
+        let auth = session.isCloud ? nil : await openPairing(link, macID: session.macID)
         guard let passed = startServing(session, link, auth: auth, daemon: nil) else { return }
         await finishServing(session, link, passed: passed)
     }
@@ -222,8 +229,9 @@ extension LiveCoordinator {
         session.servedLink = link
         session.acpmux.macLink = link
         bindWorkspaces(session, link, prepared: daemon)
-        Task { [weak self] in await self?.checkVersion(session, link) }
-        let passed = startPairing(session, link, auth: auth)
+        // A Cloud machine has no `version` service and no pairing (its carrier is the admission).
+        if !session.isCloud { Task { [weak self] in await self?.checkVersion(session, link) } }
+        let passed = startPairing(session, link, auth: session.isCloud ? nil : auth)
         session.pairingGate = (link, passed)
         return passed
     }
@@ -241,9 +249,10 @@ extension LiveCoordinator {
             return
         }
         guard session.currentLink === link, sessions[macID] === session else { return }
-        for relay in session.cloudChats.values { relay.bind(link) }
+        if !session.isCloud { for relay in session.cloudChats.values { relay.bind(link) } }
         #if DEBUG
-        UploadProbe.start(on: link, macName: session.name)  // the pair-e2e rig's upload leg; inert without its launch argument
+        // The pair-e2e rig's upload leg; inert without its launch argument.
+        if !session.isCloud { UploadProbe.start(on: link, macName: session.name) }
         #endif
         // The workspaces deadline waited while the Mac asked its person: start it again.
         if store.macData[macID]?.source != .live { armWorkspacesDeadline(session, link) }
@@ -259,6 +268,13 @@ extension LiveCoordinator {
                   DaemonTerminalSession.shouldReattach(surface: terminalSession.surface, terminalID: terminalSession.terminalID, tree: tree)
             else { continue }
             terminalSession.reconnect()
+        }
+        // A Cloud machine serves its workspaces and terminals only: no Mac Feed, acpmux chats or
+        // Chief ride its carrier (each would be refused `unknown_service`).
+        if session.isCloud {
+            session.chatsError = nil
+            phaseChanged(session)
+            return
         }
         // Streamed browser tabs that dropped open again on the focused Mac's link.
         StreamedBrowserDirectory.shared.linkChanged(macID: session.macID)
@@ -512,7 +528,7 @@ extension LiveCoordinator {
         guard let pairing, !removalRunning else { return }
         removalRunning = true
         defer { removalRunning = false }
-        for session in sessions.values {
+        for session in sessions.values where !session.isCloud {
             guard let link = session.currentLink else { continue }
             await pairing.unpair(link: link, macID: session.macID)
         }

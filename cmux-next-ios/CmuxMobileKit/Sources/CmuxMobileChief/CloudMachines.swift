@@ -432,6 +432,12 @@ public final class CloudMachinesModel {
 
 #if DEBUG
 extension CloudMachinesModel {
+    /// Tests: the page's model over `session` (a scripted URL protocol) at `base`.
+    public static func scripted(base: URL, session: URLSession) -> CloudMachinesModel {
+        let http = ChiefCloudHTTP(base: base, accessToken: { _ in "token" }, session: session)
+        return CloudMachinesModel { AccountCloud(http: http) }
+    }
+
     /// The page with fixed machines, plan and snapshots, for screenshots
     /// (`-cmux-mobile-recovery-gallery cloudmachines`). Its actions go nowhere.
     public static func gallery(now: Date = .now) -> CloudMachinesModel {

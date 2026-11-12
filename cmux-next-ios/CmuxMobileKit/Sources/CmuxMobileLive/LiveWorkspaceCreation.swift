@@ -18,6 +18,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// Starts the agent session behind a new agent tab (nil: no agent tabs).
     weak var acpmux: AcpmuxHub?
 
+    /// A Cloud machine's backend: its carrier serves the daemon only, so no browser tabs (the
+    /// `browser` service) and no agent chats (acpmux) are offered; they are hidden, not refused.
+    var isCloud = false
+
     /// The capabilities each Mac's `version` service reported (nil: not known yet).
     public var capabilities: @MainActor (String) -> Set<String>? = { _ in nil }
     /// Reads the person made, sent until the Mac answers (LiveWorkspaceArrangement.swift).
@@ -52,7 +56,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public func options(on macID: String) -> WorkspaceCreationOptions {
         // A plain tap opens at the Mac's default folder, as its New Workspace does. The
         // agent entry ("", the Mac's default agent) is New Agent Chat in a folder.
-        WorkspaceCreationOptions(directories: true, agents: acpmux?.isReady == true ? [""] : [], browser: true,
+        WorkspaceCreationOptions(directories: true, agents: !isCloud && acpmux?.isReady == true ? [""] : [], browser: !isCloud,
                                  cloneFromGit: false, tapUsesLastDirectory: false)
     }
 
@@ -202,6 +206,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// its catalog (`agentCatalog`).
     public func tabKinds(on macID: String) -> [NewTabKind] {
         guard canManage(on: macID) else { return [] }
+        if isCloud { return [.terminal] }
         let agents: [NewTabKind] = acpmux?.isReady == true ? [.agentChat] : []
         return agents + [.terminal] + (Self.streamsBrowser(capabilities(macID)) ? [.browser] : [])
     }
@@ -209,7 +214,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// What the phone shows but can't open yet, with why: an older Mac that does not
     /// stream browser tabs, or agents whose acpmux link is not up yet.
     public func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)] {
-        guard canManage(on: macID) else { return [] }
+        guard canManage(on: macID), !isCloud else { return [] }
         var out: [(kind: NewTabKind, reason: String)] = []
         if acpmux?.isReady != true {
             out.append((.agentChat, "Agents on this Mac aren't connected. Try again in a moment."))
@@ -219,6 +224,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         return out
     }
+
+    /// A page asked to open from a Cloud machine's workspace.
+    public static let cloudBrowserRefusal = "Browser tabs on Cloud machines aren't available from your iPhone yet."
 
     /// An older Mac (its hostd does not say `browser-stream-v1`).
     public static let browserUpdateReason = "Update cmux on your Mac to open browser tabs from your phone."
@@ -594,6 +602,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// `new-browser-tab {url, pane}` in `tab`'s pane, returned once the Mac lists the new tab.
     /// Callers check the scheme first.
     private func newBrowserTab(_ url: URL, besides tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        // A Cloud machine's carrier streams no browser tabs to a phone: none is made there.
+        guard !isCloud else { throw WorkspaceCreationError(Self.cloudBrowserRefusal, isForPerson: true) }
         let (client, _) = try target(tab, in: workspace)
         guard let place = sync.tree?.tabPlaces[tab.id] else {
             throw WorkspaceCreationError("The Mac doesn't list this tab")

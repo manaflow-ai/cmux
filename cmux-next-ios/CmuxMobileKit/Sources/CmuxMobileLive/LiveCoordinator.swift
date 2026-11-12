@@ -72,6 +72,18 @@ public final class LiveCoordinator {
     @ObservationIgnored private var relayOnly: Bool
     @ObservationIgnored private var blockUDP: Bool
     @ObservationIgnored private let dialer: any MacLinkDialer
+    /// Dials the account's Cloud machines (`CloudCarrierDialer`); nil: this build or test has
+    /// no Cloud, and Cloud machines are never dialed.
+    @ObservationIgnored let cloudDialer: (any MacLinkDialer)?
+    /// Cloud machines whose carrier refused this phone in a way no redial fixes (the daemon
+    /// is not the pinned one, the machine is paused or gone, the account may not use it):
+    /// not dialed again until Retry or the machine list says something changed. By machine id.
+    @ObservationIgnored var cloudRefusals: [String: CloudRefusal] = [:]
+    /// The Cloud machines as the account's list last said (before refusals are shown on them).
+    @ObservationIgnored var listedCloudMachines: [MacDevice] = []
+    /// A Cloud machine's carrier refused this phone (machine id, refusal code): the Cloud
+    /// list reads again (a paused or deleted machine shows as it is).
+    @ObservationIgnored public var onCloudRefusal: ((String, String) -> Void)?
     @ObservationIgnored let feedStore: FeedStore
 
     /// The focused Mac's session, else the idle stand-in.
@@ -185,6 +197,7 @@ public final class LiveCoordinator {
         relayOnly: Bool = false,
         blockUDP: Bool = false,
         dialer: any MacLinkDialer,
+        cloudDialer: (any MacLinkDialer)? = nil,
         feedStore: FeedStore = .shared,
         keys: PhoneKeys? = nil,
         snapshots: LiveSnapshotStore = .standard,
@@ -210,6 +223,7 @@ public final class LiveCoordinator {
         self.relayOnly = relayOnly
         self.blockUDP = blockUDP
         self.dialer = dialer
+        self.cloudDialer = cloudDialer
         self.feedStore = feedStore
         let apiForLink = api
         idleSession = MacSession(
@@ -628,7 +642,7 @@ public final class LiveCoordinator {
         let own = team.macs.filter { !othersMacs.contains($0.id) }
         let listed = Set(MacRoster(own).visible.map(\.id))
         let invited = pairing?.invites.pending()?.mac
-        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited }
+        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited } + dialableCloudMachines
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -652,7 +666,7 @@ public final class LiveCoordinator {
         // nil (Workspaces, the Feed): every listed Mac. Another build of a listed Mac is
         // never "shown" by that: it keeps its link only for the idle window after
         // something named it (`touch`), then closes.
-        let showing = showingMacs ?? Set(listedMacs(team).map(\.id))
+        let showing = showingMacs ?? Set(listedMacs(team).map(\.id)).union(dialableCloudMachines.map(\.id))
         for id in showing { lastShown[id] = now }
         // A live link that presence briefly calls offline (a signaling reset) ranks as online:
         // the cap never closes it for that.
@@ -697,14 +711,17 @@ public final class LiveCoordinator {
         applyLinks()
     }
 
-    /// The session for `mac`, made on first use with its own link.
+    /// The session for `mac`, made on first use with its own link. A Cloud machine's link is
+    /// its carrier (`cloudDialer`), never the Settings transport.
     private func session(for mac: MacDevice) -> MacSession {
         if let session = sessions[mac.id] { return session }
         let apiForLink = api
-        let controller = LinkController(transport: transport, relayOnly: relayOnly, blockUDP: blockUDP, dialer: dialer, clock: clock,
+        let cloud = mac.isCloud && cloudDialer != nil
+        let controller = LinkController(transport: cloud ? .cloudCarrier : transport, relayOnly: cloud ? false : relayOnly,
+                                        blockUDP: cloud ? false : blockUDP, dialer: cloud ? cloudDialer ?? dialer : dialer, clock: clock,
                                         accessToken: { try await apiForLink.accessToken($0) })
         if isBackgrounded { controller.send(.background) }
-        let session = MacSession(macID: mac.id, name: mac.name, link: controller, deviceID: identity.link,
+        let session = MacSession(macID: mac.id, name: mac.name, kind: cloud ? .cloud : .mac, link: controller, deviceID: identity.link,
                                  deviceName: deviceName, feedStore: feedStore)
         session.acpmux.transcriptCache = transcriptCache
         wire(session)
@@ -713,7 +730,7 @@ public final class LiveCoordinator {
     }
 
     /// Closes a Mac's link and forgets its session.
-    private func closeSession(_ id: String) {
+    func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
         session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
@@ -752,6 +769,9 @@ public final class LiveCoordinator {
     /// launch focuses it first). Its link opens if it was not up; the other
     /// Macs keep theirs. Nothing changes for a Mac this phone may not dial.
     public func select(macID: String) {
+        // A Cloud machine is never the focused one (the banner and Chief speak for a Mac):
+        // choosing it opens its link and keeps it while recent.
+        if isCloud(macID: macID) { return touch(macID) }
         guard let team = store.activeTeam, canLink(macID: macID) else { return }
         UserDefaults.standard.set(macID, forKey: "cmuxMobile.live.mac.\(team.id)")
         retarget()
@@ -940,19 +960,19 @@ public final class LiveCoordinator {
 
     public func setTransport(_ transport: CmuxMobileTransport.TransportKind) {
         self.transport = transport
-        for session in sessions.values { session.link.send(.transport(transport)) }
+        for session in sessions.values where !session.isCloud { session.link.send(.transport(transport)) }
     }
 
     /// Debug relay-only mode (Settings → Developer); a change redials.
     public func setRelayOnly(_ relayOnly: Bool) {
         self.relayOnly = relayOnly
-        for session in sessions.values { session.link.send(.relayOnly(relayOnly)) }
+        for session in sessions.values where !session.isCloud { session.link.send(.relayOnly(relayOnly)) }
     }
 
     /// Debug UDP-blocked mode (Settings → Developer); a change redials.
     public func setBlockUDP(_ blockUDP: Bool) {
         self.blockUDP = blockUDP
-        for session in sessions.values { session.link.send(.blockUDP(blockUDP)) }
+        for session in sessions.values where !session.isCloud { session.link.send(.blockUDP(blockUDP)) }
     }
 
     /// Keep background work usable, but do not trust these links after suspension.

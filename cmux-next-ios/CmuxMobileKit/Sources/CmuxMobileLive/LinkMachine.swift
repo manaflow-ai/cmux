@@ -337,6 +337,7 @@ extension LinkPathKind {
         case .turn: "relay (TURN)"
         case .turnTLS: "relay (TURN over TLS)"
         case .noPath: "no path"
+        case .carrier: "Cloud relay"
         }
     }
 }

@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileModel
 import CmuxSpinner
 import SwiftUI
 
@@ -14,10 +15,13 @@ public struct CloudMachinesScreen: View {
     @State private var creating = false
     /// Opens the Cloud chats through a paired Mac (the shell's Cloud Chats sheet); nil hides it.
     private let openChats: (() -> Void)?
+    /// Each machine's workspaces on its page (live: the Workspaces list's own); nil hides them.
+    private let workspaces: CloudMachineWorkspaces?
 
-    public init(model: CloudMachinesModel = .live(), openChats: (() -> Void)? = nil) {
+    public init(model: CloudMachinesModel = .live(), openChats: (() -> Void)? = nil, workspaces: CloudMachineWorkspaces? = nil) {
         _model = State(initialValue: model)
         self.openChats = openChats
+        self.workspaces = workspaces
     }
 
     public var body: some View {
@@ -76,7 +80,7 @@ public struct CloudMachinesScreen: View {
                 Section("Machines") {
                     ForEach(model.sorted) { machine in
                         NavigationLink {
-                            CloudMachineDetail(model: model, id: machine.id, openChats: openChats)
+                            CloudMachineDetail(model: model, id: machine.id, openChats: openChats, workspaces: workspaces)
                         } label: {
                             CloudMachineRow(machine: machine, busy: model.busyID == machine.id)
                         }
@@ -289,6 +293,9 @@ struct CloudMachineDetail: View {
     let model: CloudMachinesModel
     let id: String
     var openChats: (() -> Void)?
+    var workspaces: CloudMachineWorkspaces?
+    /// A workspace New Workspace made on this machine, pushed at once.
+    @State private var openedWorkspace: Workspace?
     @State private var renaming = false
     @State private var newName = ""
     @State private var snapshotting = false
@@ -323,6 +330,9 @@ struct CloudMachineDetail: View {
                         .accessibilityIdentifier("cloudMachines.rename")
                     }
                     .disabled(!model.canAct)
+                    if let workspaces {
+                        CloudMachineWorkspacesSection(machine: machine, workspaces: workspaces) { openedWorkspace = $0 }
+                    }
                     if let openChats, machine.status == .running {
                         Section {
                             Button("Agent Chats", systemImage: "bubble.left.and.bubble.right") { openChats() }
@@ -379,6 +389,9 @@ struct CloudMachineDetail: View {
                 }
                 .listStyle(.insetGrouped)
                 .navigationTitle(machine.title)
+                .navigationDestination(item: $openedWorkspace) { workspace in
+                    if let workspaces { workspaces.page(workspace) }
+                }
                 .alert("Rename Machine", isPresented: $renaming) {
                     TextField("Name", text: $newName)
                     Button("Rename") { Task { await model.rename(machine, to: newName) } }
@@ -441,6 +454,111 @@ struct CloudMachineDetail: View {
     private func growChoices(_ machine: CloudMachine) -> [Int] {
         let current = machine.size.memoryMB ?? 0
         return (model.plan?.memoryChoicesMB ?? []).filter { $0 > current }
+    }
+}
+
+/// A Cloud machine's workspaces where its page lists them: what each workspace row opens, and
+/// New Workspace on it (instant: the new workspace opens at once). The shell gives the live
+/// list's own (the same workspaces the Workspaces list shows for the machine).
+public struct CloudMachineWorkspaces {
+    public enum State: Equatable, Sendable {
+        /// The machine's daemon has not listed its workspaces yet.
+        case loading
+        case loaded([Workspace])
+        /// It could not be reached (why).
+        case failed(String)
+    }
+
+    public var state: @MainActor (_ machineID: String) -> State
+    public var canCreate: @MainActor (_ machineID: String) -> Bool
+    public var create: @MainActor (_ machineID: String) -> Workspace?
+    public var page: @MainActor (Workspace) -> AnyView
+    /// The page is on screen: its machine's link opens (and stays while recent).
+    public var shown: @MainActor (_ machineID: String) -> Void
+
+    public init(state: @escaping @MainActor (String) -> State, canCreate: @escaping @MainActor (String) -> Bool,
+                create: @escaping @MainActor (String) -> Workspace?, page: @escaping @MainActor (Workspace) -> AnyView,
+                shown: @escaping @MainActor (String) -> Void = { _ in }) {
+        self.state = state
+        self.canCreate = canCreate
+        self.create = create
+        self.page = page
+        self.shown = shown
+    }
+}
+
+/// Workspaces on a machine's page: each pushes its workspace; New Workspace makes one and opens it.
+struct CloudMachineWorkspacesSection: View {
+    /// Why the section lists nothing while the machine is not running.
+    static func notRunning(_ machine: CloudMachine) -> String {
+        switch machine.status {
+        case .paused: String(localized: "Start \(machine.title) to open its workspaces.")
+        case .starting, .provisioning: String(localized: "Waking up… Its workspaces open once it runs.")
+        case .pausing: String(localized: "Pausing.")
+        case .failed: String(localized: "\(machine.title) didn't start. Start it again to open its workspaces.")
+        case .deleting: String(localized: "Being deleted.")
+        case .running: ""
+        }
+    }
+
+    let machine: CloudMachine
+    let workspaces: CloudMachineWorkspaces
+    /// Pushes a workspace made here (the page's own destination).
+    let open: (Workspace) -> Void
+
+    var body: some View {
+        Section {
+            if machine.status != .running {
+                Text(Self.notRunning(machine))
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+                    .accessibilityIdentifier("cloudMachines.workspaces.stopped")
+            } else {
+                switch workspaces.state(machine.id) {
+                case .loading:
+                    HStack(spacing: 10) {
+                        CmuxSpinner().controlSize(.mini)
+                        Text("Loading workspaces…").font(theme.type.rowSubtitle).foregroundStyle(theme.colors.label2)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("cloudMachines.workspaces.loading")
+                case .failed(let reason):
+                    Text(reason)
+                        .font(theme.type.rowSubtitle)
+                        .foregroundStyle(theme.colors.label2)
+                        .accessibilityIdentifier("cloudMachines.workspaces.failed")
+                case .loaded(let list):
+                    if list.isEmpty {
+                        Text("No workspaces yet.")
+                            .font(theme.type.rowSubtitle)
+                            .foregroundStyle(theme.colors.label2)
+                            .accessibilityIdentifier("cloudMachines.workspaces.empty")
+                    }
+                    ForEach(list) { workspace in
+                        NavigationLink {
+                            workspaces.page(workspace)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(workspace.title).font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                                if let place = workspace.branch ?? (workspace.directory.isEmpty ? nil : workspace.directory) {
+                                    Text(place).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                                }
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                        .accessibilityIdentifier("cloudMachines.workspace.\(workspace.id)")
+                    }
+                }
+                Button("New Workspace", systemImage: "plus.rectangle.on.rectangle") {
+                    if let created = workspaces.create(machine.id) { open(created) }
+                }
+                .disabled(!workspaces.canCreate(machine.id))
+                .accessibilityIdentifier("cloudMachines.workspaces.new")
+            }
+        } header: {
+            Text("Workspaces")
+        }
+        .onAppear { workspaces.shown(machine.id) }
     }
 }
 #endif

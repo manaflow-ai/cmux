@@ -42,6 +42,8 @@ public struct AccountSignOut {
     /// The lists and chats kept so they show at once (each Mac's Home rows, its Agent Chats
     /// list, every agent chat's newest messages): none of them stays for the next account.
     public var discardKeptChats: @MainActor () -> Void
+    /// Where the account's Cloud carrier key is kept.
+    public var secrets: any DeviceSecretStore = KeychainSecretStore()
 
     public init(snapshots: LiveSnapshotStore = .standard, feedStore: FeedStore = .shared,
                 feedArchive: @escaping (String) -> FeedArchive = FeedArchive.forAccount,
@@ -91,6 +93,8 @@ public struct AccountSignOut {
         session?.stop()
         feedStore.clearForSignOut()
         if let userID {
+            // The Cloud carrier's Noise key: the next sign-in makes a new one (and a new grant).
+            CloudCarrierKey.forget(userID: userID, store: secrets)
             feedArchive(userID).remove()
             preferences.stash(userID: userID)
             if session?.accountDeleted == true {

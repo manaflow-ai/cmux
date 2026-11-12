@@ -11,7 +11,15 @@ import Foundation
 /// (PROTOCOL.md "One link per Mac"). Nothing here reaches another Mac's link.
 @MainActor
 final class MacSession {
+    /// A Mac (its host serves every link service) or a Cloud machine (its carrier serves
+    /// `daemon` only: no pairing, `version`, acpmux, Feed, push or Chief on it).
+    enum Kind: Equatable, Sendable {
+        case mac, cloud
+    }
+
     let macID: String
+    let kind: Kind
+    var isCloud: Bool { kind == .cloud }
     var name: String
     let link: LinkController
     let workspaces: WorkspaceSync
@@ -61,8 +69,10 @@ final class MacSession {
         weak var session: DaemonTerminalSession?
     }
 
-    init(macID: String, name: String, link: LinkController, deviceID: String, deviceName: String, feedStore: FeedStore) {
+    init(macID: String, name: String, kind: Kind = .mac, link: LinkController, deviceID: String, deviceName: String,
+         feedStore: FeedStore) {
         self.macID = macID
+        self.kind = kind
         self.name = name
         self.link = link
         workspaces = WorkspaceSync(deviceID: deviceID, deviceName: deviceName)
@@ -74,6 +84,7 @@ final class MacSession {
         feed.hub = acpmux
         feed.terminal = terminalFeed
         creation.attach(acpmux: acpmux)
+        creation.isCloud = kind == .cloud
     }
 
     /// Where an acpmux session of this Mac lives (workspace and tab).

@@ -56,6 +56,10 @@ public final class LinkController {
     nonisolated static let probeGrace: Duration = .milliseconds(500)
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
+    /// A dial refused in a way no redial fixes (`CloudCarrierDialer.permanentCodes`: a Cloud
+    /// machine paused or gone, its daemon not the pinned one). The owner stops targeting it;
+    /// until then the usual backoff applies.
+    @ObservationIgnored public var onPermanentRefusal: (@MainActor (LinkError) -> Void)?
     /// Runs right after a dial, in the same detached step (no main actor):
     /// the coordinator opens the channels it needs first (`auth`, `daemon`)
     /// and sends its setup batch, so the live list needs no main-actor turn
@@ -261,7 +265,11 @@ public final class LinkController {
                         return
                     }
                     if Self.authRefused(error) { self?.refreshTokenNextDial = true }
+                    let current = !Task.isCancelled && generation == self?.machine.generation
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
+                    if current, CloudCarrierDialer.isPermanent(error), let refusal = error as? LinkError {
+                        self?.onPermanentRefusal?(refusal)
+                    }
                 }
             }
         case .scheduleRetry(let generation, let delay):
