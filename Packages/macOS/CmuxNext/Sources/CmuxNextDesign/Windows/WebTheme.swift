@@ -146,6 +146,16 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),
             "--cmux-separator": Borders.drawsLines ? Self.css(tokens.separator) : "transparent",
+            // The window sidebar's edge line at rest (DividerHandleView: the split divider's color
+            // override, else the separator), so a page's hairlines can match it (Settings, Lucas 2026-11-11).
+            "--cmux-sidebar-line": Borders.drawsLines
+                ? Self.css(backgrounds.fill(for: .splitDivider, tokens: tokens) ?? tokens.separator) : "transparent",
+            // The window sidebar's own fill over the window's color, so a page's sidebar can match it
+            // (Settings, Lucas 2026-11-12: Lawrence did not like a lighter one): the user's sidebar
+            // color (`appearance.surfaces.sidebar`), else the separate chrome shade
+            // (`appearance.sidebarSurface` separate), else none: by default the sidebar is the
+            // window's own color, parted only by its line (`SidebarSurface.same`).
+            "--cmux-sidebar-surface": Self.sidebarSurface(tokens, backgrounds: backgrounds, windowTint: windowTint),
             "--cmux-hover": Self.css(tokens.hoverFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
             // Selected text and the caret in the Ghostty config's colors (`selection-background`,
@@ -165,6 +175,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
             // The sidebar cards' sizes at `sidebar.density` (the Updated card's page, 2026-11-01).
             .merging(SidebarRowTokens.current.card.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
+            // The sidebar's workspace row (height, corner, inset): Settings rows match it.
+            .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
@@ -397,6 +409,22 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     static func hex(_ color: ThemeRGB) -> String {
         func channel(_ value: Double) -> Int { min(max(Int((value * 255).rounded()), 0), 255) }
         return String(format: "#%02x%02x%02x", channel(color.red), channel(color.green), channel(color.blue))
+    }
+
+    /// `--cmux-sidebar-surface`: the window sidebar's own fill over the window's color, as CSS.
+    @MainActor
+    static func sidebarSurface(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds, windowTint: Double) -> String {
+        if let fill = backgrounds.fill(for: .sidebar, tokens: tokens, windowTint: windowTint) { return css(fill) }
+        let shade = Metrics.mainPaneChromeShade(isDark: tokens.isDark)
+        return shade > 0 ? css(ThemeRGB(red: 0, green: 0, blue: 0, alpha: Double(shade))) : "transparent"
+    }
+
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders` and the separate
+    /// chrome shade (`--cmux-sidebar-surface`, ``sidebarSurface(_:backgrounds:windowTint:)``). The app
+    /// repaints every page when one changes (`AppServices.observeBorders`).
+    @MainActor
+    public static var pushInputs: [String] {
+        [Borders.current.mode.rawValue, "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 
     /// `rgba(r, g, b, a)` with 0-255 channels.

@@ -65,10 +65,52 @@
 }
 
 :root[data-settings-look="refined"] .settings > .sidebar {
-  padding: var(--ds-space-4) var(--ds-space-3);
+  padding: var(--ds-space-4) var(--ds-space-3) 0;
   border-right: 0;
   background: transparent;
   gap: var(--ds-space-3);
+  overflow: hidden;
+}
+
+/* The categories' scroll area (ui/ScrollArea, SettingsApp) takes the room under the search field and
+   reaches the sidebar's right and bottom edges, so its thin thumb runs at the edge as the New Tab
+   folder menu's does; the viewport gives the rows back the sidebar's padding. */
+:root[data-settings-look="refined"] .settings .sidebar-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-right: calc(var(--ds-space-3) * -1);
+}
+
+:root[data-settings-look="refined"] .settings .sidebar-scroll-viewport {
+  padding: 0 var(--ds-space-3) var(--ds-space-4) 0;
+}
+
+/* Its thumb as wide as macOS's overlay scroller (7 px inside a 1 px inset; Lucas 2026-11-11: "still
+   too skinny"); ScrollArea's own 6 px bar drew a 4 px thumb. */
+:root[data-settings-look="refined"] .settings .sidebar-scroll > .cmux-scrollbar[data-orientation="vertical"] {
+  width: 9px;
+}
+
+/* It comes in at once when the list scrolls and fades off slowly after it stops (Lucas 2026-11-11:
+   "add a fade off"), as macOS's overlay scroller does: Base UI holds `data-scrolling` 500 ms past the
+   last scroll, then the bar fades over the large motion token instead of the shared bar's micro one. */
+:root[data-settings-look="refined"] .settings .sidebar-scroll > .cmux-scrollbar:not([data-scrolling]) {
+  transition-duration: var(--cmux-motion-large);
+  transition-timing-function: var(--cmux-ease-out);
+}
+
+/* The bar shows only while the list scrolls, as the shared scroller spec asks (SCROLLBARS-THIN;
+   Lucas 2026-11-11: "only show scrollbar if user scrolls"): a pointer resting on the list does not
+   bring it up. A pointer on the bar itself keeps it, so a drag that started while it showed works. */
+:root[data-settings-look="refined"] .settings .sidebar-scroll > .cmux-scrollbar[data-hovering]:not([data-scrolling], :hover, :active) {
+  opacity: 0;
+}
+
+/* A greyer thumb that sits back on the sidebar (Lucas 2026-11-11: "a little more grey so it blends
+   in"); still darker on hover. ScrollArea's own is 32 % and 48 % of the text color. */
+:root[data-settings-look="refined"] .settings .sidebar-scroll {
+  --ui-scroll-thumb: color-mix(in srgb, currentColor 22%, transparent);
+  --ui-scroll-thumb-hover: color-mix(in srgb, currentColor 36%, transparent);
 }
 
 /* One background for the whole page (user, 2026-10-30: "everything cohesive with same bg color"):
@@ -117,13 +159,25 @@
 :root[data-settings-look="refined"] .settings .sidebar-section-title { color: var(--polish-muted); }
 :root[data-settings-look="refined"] .settings .section-link[aria-current] .section-icon { color: var(--polish-ink); }
 :root[data-settings-look="refined"] .settings .section-icon svg { width: var(--ds-icon-16); height: var(--ds-icon-16); }
+/* A category's SF Symbol from the host (SectionList CategoryIcon): its template PNG masks a box in
+   the row's ink, centered in the same 16 px slot as the drawn icons. */
+:root[data-settings-look="refined"] .settings .section-symbol {
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  background: currentColor;
+  mask-position: center;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+}
 
 /* The content pane is a fill, not an outlined card: its scroll fade (styles.css .content) masks
    everything but the scrollbar's 14 px strip on the right, so an outline here showed only as a
    stray rounded fragment at the pane's right edge (live QA 7b). */
 :root[data-settings-look="refined"] .settings > .content {
+  --content-pad-start: var(--ds-space-6);
+  --content-pad-inline: round(nearest, clamp(var(--ds-space-5), 4vw, calc(var(--ds-space-6) * 2)), var(--ds-space-1));
   --content-pad-end: calc(var(--ds-space-6) * 2);
-  padding: var(--ds-space-6) round(nearest, clamp(var(--ds-space-5), 4vw, calc(var(--ds-space-6) * 2)), var(--ds-space-1)) var(--content-pad-end);
+  padding: var(--content-pad-start) var(--content-pad-inline) var(--content-pad-end);
   margin: 0;
   background: transparent;
 }
@@ -220,10 +274,15 @@
 :root[data-settings-look="refined"] .settings .search-input:not(.ui-input) { min-height: var(--ds-control-primary); border-radius: var(--ds-radius-lg); }
 /* Pills: popups and buttons sit on a soft fill with no outline, the chevron at the end. */
 :root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn) {
-  border-color: transparent;
-  background: var(--polish-hover);
+  /* These carry the page's 1 px field border: it is the control's one hairline. An inset edge inside
+     a transparent border drew two (the fill showed through the border as a ring outside it). */
+  border-color: var(--look-control-line, transparent);
+  background: var(--look-control-fill, var(--polish-hover));
+  box-shadow: none;
 }
-:root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn):hover:not(:disabled) { background: var(--polish-pressed); }
+:root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn):is(:hover, [data-popup-open]):not(:disabled) {
+  background: var(--look-control-fill-hover, var(--polish-pressed));
+}
 :root[data-settings-look="refined"] .settings .segmented { padding: var(--ds-space-1); border-radius: var(--ds-radius-lg); background: var(--polish-hover); }
 :root[data-settings-look="refined"] .settings .segment { padding: 0 var(--ds-space-3); border-radius: var(--ds-radius-sm); }
 
@@ -248,6 +307,10 @@
     border-bottom: 1px solid var(--polish-edge);
   }
 
+  /* The strip scrolls sideways itself (layout.css .section-list); the scroll area only holds it. */
+  :root[data-settings-look="refined"] .settings .sidebar-scroll { flex: none; margin-right: 0; }
+  :root[data-settings-look="refined"] .settings .sidebar-scroll-viewport { padding: 0; }
+
   :root[data-settings-look="refined"] .settings .section-link {
     min-height: 0;
     padding: var(--ds-space-1) var(--ds-space-2);
@@ -262,7 +325,7 @@
 
 @media (max-width: 640px) {
   :root[data-settings-look="refined"]:has(.settings) { --sidebar-width: 156px; }
-  :root[data-settings-look="refined"] .settings > .content { --content-pad-end: var(--ds-space-6); padding: var(--ds-space-5) var(--ds-space-3) var(--content-pad-end); }
+  :root[data-settings-look="refined"] .settings > .content { --content-pad-start: var(--ds-space-5); --content-pad-inline: var(--ds-space-3); --content-pad-end: var(--ds-space-6); padding: var(--content-pad-start) var(--content-pad-inline) var(--content-pad-end); }
   :root[data-settings-look="refined"] .settings { --settings-row-inset: var(--ds-space-3); }
   :root[data-settings-look="refined"] .settings .row { padding: var(--ds-space-3); }
   :root[data-settings-look="refined"] .settings { --row-main-gap: var(--ds-space-2); }
@@ -281,4 +344,56 @@
 
 :root[data-settings-look="refined"] .settings :is(.icon-button, .button):not(.ui-btn):active:not(:disabled) {
   background: var(--polish-pressed);
+}
+
+/* Sliders keep the system slider's sizes, as on feat-cmux-next (Lucas 2026-11-11 preferred its big
+   knob to a small drawn one): a 16 px white knob over an 8 px track. Only the colors are ours, which
+   Chromium's own slider does not allow: the track is a faint tint of the text with no outline, filled
+   in the accent up to the knob (`--range-p`, format.ts rangeFill). */
+:root[data-settings-look="refined"] .settings input[type="range"] {
+  --range-thumb: 16px;
+  --range-track: 8px;
+  --range-off: color-mix(in srgb, var(--polish-ink) 12%, transparent);
+  --range-on: var(--accent);
+  -webkit-appearance: none;
+  appearance: none;
+  height: var(--ds-control-compact);
+  margin: 0;
+  background: transparent;
+}
+
+:root[data-settings-look="refined"] .settings input[type="range"]::-webkit-slider-runnable-track {
+  height: var(--range-track);
+  border-radius: var(--range-track);
+  background: linear-gradient(
+    to right,
+    var(--range-on) calc(var(--range-thumb) / 2 + (100% - var(--range-thumb)) * var(--range-p, 0)),
+    var(--range-off) 0
+  );
+}
+
+:root[data-settings-look="refined"] .settings input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: var(--range-thumb);
+  height: var(--range-thumb);
+  margin-top: calc((var(--range-track) - var(--range-thumb)) / 2);
+  border: 0;
+  border-radius: 50%;
+  background: white;
+  box-shadow: var(--elevation-1); /* the switch thumb's shadow (ui/controls.css) */
+}
+
+:root[data-settings-look="refined"] .settings input[type="range"]:focus-visible {
+  outline: none;
+}
+
+:root[data-settings-look="refined"] .settings input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    var(--elevation-1),
+    0 0 0 3px var(--polish-focus);
+}
+
+:root[data-settings-look="refined"] .settings input[type="range"]:disabled {
+  opacity: 0.45;
 }

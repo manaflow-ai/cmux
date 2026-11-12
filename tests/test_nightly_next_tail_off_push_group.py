@@ -22,6 +22,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 SCRIPT = ROOT / "scripts" / "ci" / "nightly_published_build.py"
@@ -161,7 +164,7 @@ else:
     for _, run in ask:
         if "nightly.yml" not in run or re.findall(r"-f (\w+)=", run) != ["nightly_next_post_publish"]:
             failures.append("dispatch-published-in must dispatch nightly.yml with only -f nightly_next_post_publish=")
-    runs_on = str(dispatch.get("runs-on", ""))
+    runs_on = workflow_jobs.single_runs_on(dispatch)
     if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
         failures.append("dispatch-published-in runs on the nightly mini, as published-build")
 if TEXT.count("-f nightly_next_post_publish=") > 1:

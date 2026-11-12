@@ -135,10 +135,13 @@ nonisolated struct OmnibarStep {
 
     mutating func pageURLChanged(_ url: URL?) {
         guard url != state.pageURL else { return }
+        let first = state.pageURL == nil
         state.pageURL = url
         switch state.phase {
         case .idle:
-            // A navigation supersedes text left behind by an earlier blur.
+            // A navigation supersedes text left behind by an earlier blur. A tab's first address is not one: the
+            // person typed before the page reported it, and the focus that left while the tab was made comes back.
+            guard !first else { break }
             state.retainedText = nil
             state.savedSelection = nil
         case .focused:

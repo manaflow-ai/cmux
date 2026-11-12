@@ -47,6 +47,9 @@ pub struct SubOpts {
     /// A peer's chat, attached through this daemon (`peer_forward.rs`): this daemon's presence
     /// for the same raw id is never its (`hub/presence.rs`).
     pub remote: bool,
+    /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
+    /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
+    pub rows: Option<Arc<crate::rows::Following>>,
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -187,6 +190,8 @@ pub struct Conn {
     outbound_gap_pending: Arc<AtomicBool>,
     /// Responses waiting for a queue slot; notifications cannot consume these slots.
     outbound_pending_controls: Arc<AtomicUsize>,
+    /// The bytes its queue holds, for `daemon status` (`queue_gauge.rs`).
+    queued: queue_gauge::Queued,
     subs: StdMutex<HashMap<String, SubOpts>>,
     /// The chats a `session/load` replayed here: their message notices go once.
     message_notices: StdMutex<MessageNoticeBook>,
@@ -577,6 +582,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
     }
 
@@ -619,6 +625,7 @@ impl Conn {
                     &self.outbound_gap_pending,
                     &self.outbound_lock,
                     &self.outbound_pending_controls,
+                    &self.queued,
                 );
             }
             Err(bytes) => self.left_out_too_large(msg.method(), bytes),
@@ -642,6 +649,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
@@ -702,18 +710,34 @@ impl Conn {
             let name = if name.is_empty() { "(unnamed)" } else { name.as_str() };
             crate::list_bytes::global().observe(&format!("{name} ({:?})", self.origin), bytes);
         }
+        let line_bytes = line.len();
         match self.out.try_send(line) {
-            Ok(()) if stale => self.enqueue_control_locked(lag()),
-            Ok(()) => {}
+            Ok(()) => {
+                self.queued.queued(line_bytes, &self.out);
+                if stale {
+                    self.enqueue_control_locked(lag());
+                }
+            }
             Err(mpsc::error::TrySendError::Closed(_)) => return Some(false),
             // No room: it waits for some, and a notice may go first; then the lag follows it.
             Err(mpsc::error::TrySendError::Full(line)) => {
                 let (out, notices) = (self.out.clone(), self.notices.clone());
                 let pending = self.outbound_pending_controls.clone();
                 pending.fetch_add(1, Ordering::AcqRel);
+                // Counted in `daemon status` while it waits (`queue_gauge.rs`), then as queued.
+                let waiting = self.queued.waiting(line_bytes);
+                let queued = self.queued.clone();
                 self.scope.spawn_named("conn-reply-waits-for-room", async move {
-                    if out.send(line).await.is_ok() && notices.load(Ordering::SeqCst) != seen {
-                        let _ = out.send(lag()).await;
+                    if out.send(line).await.is_ok() {
+                        queued.queued(line_bytes, &out);
+                        drop(waiting);
+                        if notices.load(Ordering::SeqCst) != seen {
+                            let lag = lag();
+                            let lag_bytes = lag.len();
+                            if out.send(lag).await.is_ok() {
+                                queued.queued(lag_bytes, &out);
+                            }
+                        }
                     }
                     pending.fetch_sub(1, Ordering::AcqRel);
                 });
@@ -741,6 +765,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
         if !queued {
             return Err(RpcError::new(-32000, "the link to that client is backed up; try again")
@@ -758,6 +783,7 @@ impl Conn {
             &self.outbound_gap_pending,
             &self.outbound_lock,
             &self.outbound_pending_controls,
+            &self.queued,
         );
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
@@ -1677,6 +1703,7 @@ async fn serve_connection_from(
         outbound_dropped: Arc::new(AtomicU64::new(0)),
         outbound_gap_pending: Arc::new(AtomicBool::new(false)),
         outbound_pending_controls: Arc::new(AtomicUsize::new(0)),
+        queued: Default::default(),
         subs: StdMutex::new(HashMap::new()),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
@@ -1716,6 +1743,7 @@ async fn serve_connection_from(
         wire,
         dual_principal,
     });
+    queue_gauge::register(&conn);
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
@@ -2076,8 +2104,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         return;
     }
-    // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`. Not a
-    // logged record, so nothing but this notice goes out for it.
+    // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`; or
+    // another unlogged row change (`row_notice`). Not a logged record, so nothing but this
+    // notice goes out for it.
     if ev.record.dir == crate::hub::COLD_CHANGED {
         let attached = conn.sub_opts(&ev.session_id).is_some();
         if (attached || conn.watch_all.load(Ordering::SeqCst))
@@ -2090,7 +2119,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             };
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": session, "kind": crate::hub::COLD_CHANGED, "recordKind": crate::hub::COLD_CHANGED, "seq": s.meta().last_seq}),
+                json!({"sessionId": ev.session_id, "session": session, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq}),
             ));
         }
         return;
@@ -2191,6 +2220,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 method::MUX_PERMISSION_PENDING,
                 routed(permission_pending(&ev.session_id, rec, "attach")),
             ));
+        }
+        if let Some(following) = &sub.rows
+            && ev.remote.is_none()
+            && let Some((notice, params)) = crate::rows::live(hub, &ev.session_id, rec, following)
+        {
+            conn.send(&Message::notification(notice, params));
         }
     }
     if watching {
@@ -2335,6 +2370,7 @@ mod outbound;
 mod plan_build;
 mod project_new;
 mod prompt_coach;
+pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 use outbound::{

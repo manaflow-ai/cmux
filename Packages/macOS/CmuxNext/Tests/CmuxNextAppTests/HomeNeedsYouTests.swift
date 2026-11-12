@@ -161,8 +161,12 @@ import Testing
         defer { scene.stop() }
         try await scene.posted()
         #expect(scene.waiting == 1, "Needs you drew the prompt")
+        // Review F2 of #41480: assert only once the bridge handled the notice, so a second post fails.
+        let handled = scene.pendingNoticesHandled
         scene.capture.notifyPending()
-        #expect(scene.feed.ops.filter { $0 == "feed.post" }.count == 1, "the live notice posts no second item: \(scene.feed.ops)")
+        try await scene.until("the bridge never handled the live notice") { scene.pendingNoticesHandled > handled }
+        #expect(scene.bridgePosts == 1, "the live notice posts no second item: \(scene.feed.ops)")
+        #expect(scene.feed.ops.filter { $0 == "feed.post" }.count <= 1, "the live notice posts no second item: \(scene.feed.ops)")
     }
 
     /// `permission-feed-peer-resolved`: answered on the peer, the bridge withdraws the item and
@@ -305,6 +309,10 @@ import Testing
 
     /// The prompts Needs you draws.
     var waiting: Int { (host.pinnedSection as? FeedNeedsYouSection)?.waiting ?? 0 }
+    /// The `_acpmux/permission_pending` notices the bridge finished handling.
+    var pendingNoticesHandled: Int { bridge?.pendingNoticesHandled ?? 0 }
+    /// The feed items the bridge holds as posted (set before it counts a notice handled).
+    var bridgePosts: Int { bridge?.posted.count ?? 0 }
 
     /// Waits (5 s at most) for the bridge's `feed.post`, then shows the item in the Needs you view.
     func posted() async throws {
@@ -332,7 +340,7 @@ import Testing
 
     struct NotReached: Error, CustomStringConvertible { let description: String }
 
-    private func until(_ why: @autoclosure () -> String, _ condition: () -> Bool) async throws {
+    func until(_ why: @autoclosure () -> String, _ condition: () -> Bool) async throws {
         var tries = 0
         while !condition(), tries < 1_000 {
             tries += 1
