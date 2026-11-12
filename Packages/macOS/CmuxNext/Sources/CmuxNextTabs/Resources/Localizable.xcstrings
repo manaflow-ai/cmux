@@ -14605,7 +14605,7 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "علامة التبويب %lld"}},
         "bs": {"stringUnit": {"state": "needs_review", "value": "Kartica %lld"}},
         "da": {"stringUnit": {"state": "needs_review", "value": "Fane %lld"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Tab %lld"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Registerkarte %lld"}},
         "es": {"stringUnit": {"state": "needs_review", "value": "Pestaña %lld"}},
         "fr": {"stringUnit": {"state": "needs_review", "value": "Onglet %lld"}},
         "it": {"stringUnit": {"state": "needs_review", "value": "Scheda %lld"}},
