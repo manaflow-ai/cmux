@@ -10,15 +10,17 @@ The files are what install-git-hooks.sh installs: scripts/cmux-next's tracked .p
 the COPY_CHECKERS set) and every scripts/**/*.py the installer names. UnderPython39 checks, with a real 3.9:
 - each file parses under it (a `match` statement, a PEP 701 f-string, `except*`);
 - each stdlib module the files import and each stdlib name they read (a load; `mod.name = x` reads nothing) is one
-  3.9 has, or the read is guarded (below). Ported from cmuxterm-hq's tests/test_py39_names.py (the same scan for
-  hq's and leo-workspace's tools), with its guards;
+  3.9 has, or the read is guarded (below). Attribute presence is probed separately from a same-named submodule's
+  importability, and a shadowed module alias is unknown. Ported from cmuxterm-hq's tests/test_py39_names.py (the same
+  scan for hq's and leo-workspace's tools), with its guards;
 - no `X | Y` annotation runs when a def or a module/class body runs, in a file without
   `from __future__ import annotations` (TypeError on 3.9), and no `zip(..., strict=...)` (TypeError on 3.9);
 - check-test-redefinitions.py's suite passes under the 3.9.
 A guard keeps 3.9 off the code it protects, and only that code:
-- an `if`/`while`/conditional whose test 3.9 can be read for: `hasattr(M, "N")` or `getattr(M, "N", ...)` (False
-  there), or `sys.version_info` compared with a literal (evaluated as 3.9.0), joined by `not`/`and`/`or`. A False test
-  protects the body, a True one the `else`;
+- an `if`/`while`/conditional whose test 3.9 can be read for: `hasattr(M, "N")` of a stdlib module (whether the
+  3.9 probe found M.N), `getattr(M, "N", default)` of a name 3.9 lacks (the literal default), or `sys.version_info`
+  compared with a literal (evaluated as 3.9.0), joined by `not`/`and`/`or`. A False test protects the body, a True
+  one the `else`; any other test is unknown and protects nothing;
 - in an `and`, an earlier operand that is False on 3.9; in an `or`, an earlier one that is True. A later operand
   protects nothing;
 - a `try` body whose handler catches AttributeError or ImportError (its `else` and `finally` are not protected);
@@ -109,13 +111,72 @@ _CMP = {ast.Lt: lambda a, b: a < b, ast.LtE: lambda a, b: a <= b, ast.Gt: lambda
         ast.GtE: lambda a, b: a >= b, ast.Eq: lambda a, b: a == b, ast.NotEq: lambda a, b: a != b}
 
 
+# What _on39 knows of the file and the 3.9 it reads a hasattr/getattr for: the file's stdlib aliases (set by
+# sites() and runtime_sites() per file), and the (module, name) pairs unguarded() probed in the 3.9 with the ones it
+# lacks. Attribute presence and submodule importability are separate probes; a pair it did not probe is unknown.
+_SCOPE = {"alias": {}, "probed": set(), "attr_lacks": set(), "import_lacks": set()}
+
+
+def _aliases(tree):
+    """{local name: stdlib module} for each `import M` / `import M as A` in TREE."""
+    std = set(getattr(sys, "stdlib_module_names", ()))
+    alias = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Import):
+            for a in n.names:
+                top = a.name.split(".")[0]
+                if top in std:
+                    alias[a.asname or top] = a.name if a.asname else top
+    shadowed = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
+            shadowed.add(n.id)
+        elif isinstance(n, ast.arg):
+            shadowed.add(n.arg)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            shadowed.add(n.name)
+    for name in shadowed:
+        alias.pop(name, None)
+    return alias
+
+
+def _guard_pair(expr):
+    """(module, name) when EXPR is hasattr(M, "N") or getattr(M, "N", ...) of a stdlib module alias, else None."""
+    if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id in GUARD_CALLS
+            and len(expr.args) >= 2 and isinstance(expr.args[0], ast.Name) and expr.args[0].id in _SCOPE["alias"]
+            and isinstance(expr.args[1], ast.Constant) and isinstance(expr.args[1].value, str)):
+        return _SCOPE["alias"][expr.args[0].id], expr.args[1].value
+    return None
+
+
+def _attr_on39(expr):
+    """What hasattr/getattr EXPR is on 3.9, from the probe: hasattr is whether 3.9 has the name; getattr of a name
+    3.9 lacks is its literal default. Anything else (an object not a stdlib module, a name not probed, one only
+    some platforms have, getattr of a name 3.9 has) is None: the scan cannot say."""
+    pair = _guard_pair(expr)
+    if pair is None or pair not in _SCOPE["probed"] or pair in PLATFORM_ONLY or any(
+            pair[0] == pm and pair[1].startswith(pre) for pm, pre in PLATFORM_PREFIX):
+        return None
+    missing = pair in _SCOPE["attr_lacks"]
+    if expr.func.id == "hasattr":
+        return not missing
+    if not missing or len(expr.args) < 3:
+        return None
+    try:
+        return bool(ast.literal_eval(expr.args[2]))
+    except (ValueError, TypeError, SyntaxError, RecursionError):
+        return None
+
+
 def _on39(expr):
     """What a guard test EXPR is on 3.9: True, False, or None when it is not a guard this scan can read.
 
-    `hasattr(M, "N")` and `getattr(M, "N", ...)` are False there (the name is the one 3.9 lacks); a comparison of
-    sys.version_info with a literal is evaluated against 3.9.0; `not`, `and` and `or` combine those."""
+    `hasattr(M, "N")` is whether 3.9 has M.N, and `getattr(M, "N", default)` of a name 3.9 lacks is the default
+    (_attr_on39; cmux#41827 review: every hasattr/getattr was False, so `if hasattr(sys, "version_info"):` hid what
+    it protects); a comparison of sys.version_info with a literal is evaluated against 3.9.0; `not`, `and` and `or`
+    combine those."""
     if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id in GUARD_CALLS:
-        return False
+        return _attr_on39(expr)
     if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
         inner = _on39(expr.operand)
         return None if inner is None else not inner
@@ -230,13 +291,7 @@ def sites(path):
     except (SyntaxError, ValueError):
         return []  # a file 3.9 cannot parse is py39_check's to report
     std = set(getattr(sys, "stdlib_module_names", ()))
-    alias = {}
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Import):
-            for a in n.names:
-                top = a.name.split(".")[0]
-                if top in std:
-                    alias[a.asname or top] = a.name if a.asname else top
+    alias = _SCOPE["alias"] = _aliases(tree)
     parent = _parents(tree)
 
     def guarded(node):
@@ -247,15 +302,25 @@ def sites(path):
         if isinstance(n, ast.Import):
             for a in n.names:
                 if a.name.split(".")[0] in std:
-                    out.append((a.name, None, n.lineno, guarded(n)))
+                    out.append((a.name, None, n.lineno, guarded(n), "import"))
         elif isinstance(n, ast.ImportFrom) and n.module and not n.level and n.module.split(".")[0] in std:
-            out.append((n.module, None, n.lineno, guarded(n)))
+            out.append((n.module, None, n.lineno, guarded(n), "import"))
             for a in n.names:
-                out.append((n.module, a.name, n.lineno, guarded(n)))
+                out.append((n.module, a.name, n.lineno, guarded(n), "import"))
         elif (isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load) and isinstance(n.value, ast.Name)
               and n.value.id in alias):
-            out.append((alias[n.value.id], n.attr, n.lineno, guarded(n)))
+            out.append((alias[n.value.id], n.attr, n.lineno, guarded(n), "attr"))
     return out
+
+
+def guard_pairs(path):
+    """{(module, name)} for each hasattr/getattr of a stdlib module's name in PATH: what the probe must ask 3.9."""
+    try:
+        tree = ast.parse(path.read_bytes(), str(path))
+    except (SyntaxError, ValueError):
+        return set()
+    _SCOPE["alias"] = _aliases(tree)
+    return {pair for n in ast.walk(tree) for pair in [_guard_pair(n)] if pair is not None}
 
 
 def runtime_sites(path):
@@ -266,6 +331,7 @@ def runtime_sites(path):
     except (SyntaxError, ValueError):
         return []
     rel = path.relative_to(ROOT).as_posix()
+    _SCOPE["alias"] = _aliases(tree)
     parent = _parents(tree)
     out = []
     future = any(isinstance(n, ast.ImportFrom) and n.module == "__future__" and
@@ -314,21 +380,26 @@ def unparsed(python, files=None):
 
 LACKS = r"""
 import importlib, json, sys
-lacks = []
+missing = []
 for module, name in json.load(sys.stdin):
     try:
         mod = importlib.import_module(module)
     except Exception:
         if name is None:
-            lacks.append([module, name])  # a module 3.9 lacks; its names are this module's one site
+            missing.append([module, name, True, True])
         continue
-    if name is None or hasattr(mod, name):
+    if name is None:
         continue
-    try:
-        importlib.import_module(module + "." + name)
-    except Exception:
-        lacks.append([module, name])
-print(json.dumps(lacks))
+    attr_missing = not hasattr(mod, name)
+    import_missing = False
+    if attr_missing:
+        try:
+            importlib.import_module(module + "." + name)
+        except Exception:
+            import_missing = True
+    if attr_missing or import_missing:
+        missing.append([module, name, attr_missing, import_missing])
+print(json.dumps(missing))
 """
 
 
@@ -380,15 +451,25 @@ def python39():
 
 def unguarded(python, files=None):
     """["path:line: module.name"] for each unguarded read of a stdlib name PYTHON lacks and this Python has."""
-    found = [(p, s) for p in (files if files is not None else _files()) for s in sites(p)]
-    names = sorted({(m, a) for _, (m, a, _, _) in found}, key=lambda x: (x[0], x[1] or ""))
+    files = list(files if files is not None else _files())
+    # The probe first: what a hasattr/getattr guard is on 3.9 depends on whether 3.9 has the name it tests.
+    _SCOPE["probed"], _SCOPE["attr_lacks"], _SCOPE["import_lacks"] = set(), set(), set()
+    names = {(m, a) for p in files for (m, a, _, _, _) in sites(p)} | {pair for p in files for pair in guard_pairs(p)}
+    names = sorted(names, key=lambda x: (x[0], x[1] or ""))
     out = subprocess.run([python, "-I", "-c", LACKS], input=json.dumps(names), capture_output=True, text=True,
                          timeout=300)
     if out.returncode != 0:
         raise AssertionError("the 3.9 probe failed: " + out.stderr[-2000:])
-    lacks = {tuple(x) for x in json.loads(out.stdout)} | BACKPORTED
+    missing = json.loads(out.stdout)
+    _SCOPE["probed"] = set(names)
+    _SCOPE["attr_lacks"] = {tuple(x[:2]) for x in missing if x[2]} | BACKPORTED
+    _SCOPE["import_lacks"] = {tuple(x[:2]) for x in missing if x[3]} | BACKPORTED
+    found = [(p, s) for p in files for s in sites(p)]
     bad = []
-    for p, (m, a, line, ok) in found:
+    for p, (m, a, line, ok, kind) in found:
+        # A direct `module.name` read is also satisfied by an importable submodule (`http.client`); only guard
+        # evaluation above needs the attribute-presence probe to distinguish that case.
+        lacks = _SCOPE["import_lacks"]
         if ok or (m, a) not in lacks or (m, a) in PLATFORM_ONLY or (a is not None and any(
                 m == pm and a.startswith(pre) for pm, pre in PLATFORM_PREFIX)):
             continue
@@ -532,6 +613,35 @@ class UnderPython39(unittest.TestCase):
                   "@unittest." "skipIf(sys.version_info < (3, 10), 'match')\ndef o():\n    return ast.MatchAs\n"
                   "@unittest." "skipUnless(sys.version_info < (3, 10), 'old')\ndef p():\n    return ast.MatchAs  # bare: ast.MatchAs\n"
                   "@unittest." "skipUnless(hasattr(ast, 'MatchAs'), 'match')\ndef q():\n    return ast.MatchAs\n")
+
+    def test_a_hasattr_of_a_name_3_9_has_guards_nothing(self):
+        """cmux#41827 review (F1): _on39 read every hasattr/getattr as False on 3.9, so a test of a name 3.9 has
+        (True there) hid the 3.10 read under it. A guard is False only for a name 3.9 lacks."""
+        self.scan("import ast, sys\n"
+                  "if hasattr(sys, 'version_info'):\n    a = ast.match_case  # bare: ast.match_case\n"
+                  "if hasattr(ast, 'match_case'):\n    b = ast.match_case\n"
+                  "if getattr(sys, 'version_info', None):\n    c = ast.match_case  # bare: ast.match_case\n"
+                  "if getattr(ast, 'match_case', None):\n    d = ast.match_case\n"
+                  "if hasattr(thing, 'x'):\n    e = ast.match_case  # bare: ast.match_case\n")
+
+    def test_attribute_presence_is_separate_from_submodule_importability(self):
+        """cmux#41945 F1: importing importlib.resources succeeds even when the fresh importlib module has no
+        `resources` attribute; the 3.9 probe must preserve that distinction for hasattr guards."""
+        self.scan("import ast, importlib\n"
+                  "if hasattr(importlib, 'resources'):\n"
+                  "    pass\n"
+                  "else:\n"
+                  "    value = ast.match_case  # bare: ast.match_case\n")
+
+    def test_a_shadowed_module_alias_is_unknown(self):
+        """cmux#41945 F2: a function parameter shadows an imported module alias, so its guard cannot hide the
+        incompatible read in the branch the scanner evaluates for Python 3.9."""
+        self.scan("import ast, sys\n"
+                  "def check(sys):\n"
+                  "    if hasattr(sys, 'version_info'):\n"
+                  "        pass\n"
+                  "    else:\n"
+                  "        value = ast.match_case  # bare: ast.match_case\n")
 
     def test_an_exit_gate_protects_what_follows_it(self):
         """devbuild's `if sys.version_info < (3, 11): ... raise SystemExit(...)`, codex-review-box's sys.exit, a return."""

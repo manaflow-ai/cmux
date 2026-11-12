@@ -1678,6 +1678,101 @@
             "gaps",
             "blocks"
           ]
+        },
+        {
+          "key": "appearance.titleAreaTone",
+          "note": "One colour (the default: no shade; the sidebar's edge line, the split panes' lines, the tab row's divider and the selected tab's pill separate) or a subtle tone (half the flush corner's frame shade, scaled by appearance.titleAreaContrast; the selected tab is a folder tab in the content's glass). Only the default flush-corner frame follows it; a picked chrome style keeps its own shade. Leo 2026-11-12: the default is mono-ish as Lawrence wants, with the divider kept across most panes; a refined subtle tone is the option.",
+          "title": {
+            "key": "settings.appearance.titleAreaTone",
+            "text": "Title Area"
+          },
+          "help": {
+            "key": "settings.appearance.titleAreaTone.help",
+            "text": "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
+          },
+          "summary": {
+            "key": "settings.appearance.titleAreaTone.summary",
+            "text": "One color or a subtle tone for the title area"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "oneColor",
+              "title": {
+                "key": "settings.choice.titleAreaTone.oneColor",
+                "text": "One Color"
+              }
+            },
+            {
+              "value": "subtleTone",
+              "title": {
+                "key": "settings.choice.titleAreaTone.subtleTone",
+                "text": "Subtle Tone"
+              }
+            }
+          ],
+          "default": "oneColor",
+          "keywords": [
+            "tone",
+            "subtle tone",
+            "two tone",
+            "one color",
+            "single color",
+            "monochrome",
+            "title",
+            "titlebar",
+            "tab bar",
+            "tabs",
+            "chrome",
+            "divider",
+            "contrast",
+            "background"
+          ],
+          "swift_enum": {
+            "name": "TitleAreaTone",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "TitleAreaToneSetting"
+        },
+        {
+          "key": "appearance.titleAreaContrast",
+          "note": "Scales the chrome's shade around the content card (Metrics.titleAreaShadeScale): Subtle Tone's share of the flush corner's frame, or a picked chrome style's own shade; 2 under Subtle Tone is the older two-tone shade. Leo 2026-11-11: the title area's contrast may be too intense for some people, so it needs to be adjustable.",
+          "title": {
+            "key": "settings.appearance.titleAreaContrast",
+            "text": "Title Area Contrast"
+          },
+          "help": {
+            "key": "settings.appearance.titleAreaContrast.help",
+            "text": "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
+          },
+          "summary": {
+            "key": "settings.appearance.titleAreaContrast.summary",
+            "text": "How much the title and tab bar stand apart"
+          },
+          "kind": "number",
+          "swift_owner": "TitleAreaContrastSetting",
+          "range": {
+            "min": 0,
+            "max": 2,
+            "step": 0.05,
+            "unit": "fraction",
+            "placeholder": 1
+          },
+          "default": 1,
+          "keywords": [
+            "contrast",
+            "title",
+            "titlebar",
+            "tab bar",
+            "tabs",
+            "chrome",
+            "shade",
+            "intensity",
+            "darker",
+            "softer",
+            "frame"
+          ]
         }
       ]
     },

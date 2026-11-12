@@ -25,12 +25,28 @@
 //                                  below half the previous frame's (target 0; asserted);
 //   screensAboveAtFirstPaint/At2s  (scrollTop - scroll origin) / clientHeight: how much a reader can
 //                                  scroll up at the breakpoint and 2 s later (target >= 3 eventually);
+//   screensMountedAboveAtFirstPaint/At2s
+//                                  the height of rows actually mounted in the DOM above the viewport's
+//                                  top / clientHeight: history drawn and ready to scroll into, not
+//                                  the virtual list's estimated spacer (Leo, 2026-11-12: "if you try
+//                                  to scroll up, you can't really scroll much of anything up at all");
+//   loadedRowsAboveAtFirstPaint/At2s
+//                                  rows in the transcript's model above the first visible row
+//                                  (aria-posinset), mounted or not: what the open page held above;
+//   msToThreeScreensMounted        ms from the first painted frame to the first frame with three screens
+//                                  of rows mounted above the view (target: within the first older page's
+//                                  round trip; the open page of the fixtures holds its last two turns,
+//                                  half a screen, so the first frame cannot hold three);
+//   leastScreensMountedAboveAfter  from then on, the fewest screens mounted above in any frame (target
+//                                  >= 3; asserted, with screensMountedAboveAt2s >= 3);
 //   reconnectRowsSubSecond         after settle the stand-in drops the socket and accepts the pane's
 //                                  reconnect at once: frames showing [data-host-recovering] (target 0;
 //                                  asserted).
 //
-// Only `clears` and `reconnectRowsSubSecond` are held hard; the rest are the deliverable, printed and
-// checked to be finite.
+// Held hard: `clears`, `reconnectRowsSubSecond`, `rowsMovedAfterFirstPaint`, every row the open page
+// held above the view mounted at the first painted frame (up to three screens), and three screens
+// mounted above by 2 s and in every frame after they first were. The rest are the deliverable, printed
+// and checked to be finite.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -245,6 +261,12 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
     firstClear: unknown;
     screensAboveAtFirstPaint: number | null;
     screensAboveAt2s: number | null;
+    screensMountedAboveAtFirstPaint: number | null;
+    screensMountedAboveAt2s: number | null;
+    loadedRowsAboveAtFirstPaint: number | null;
+    loadedRowsAboveAt2s: number | null;
+    msToThreeScreensMounted: number | null;
+    leastScreensMountedAboveAfter: number | null;
   };
 
   /// Runs in the page from its first script (closes over nothing): reads every painted frame until the
@@ -271,6 +293,12 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
       firstClear: null,
       screensAboveAtFirstPaint: null,
       screensAboveAt2s: null,
+      screensMountedAboveAtFirstPaint: null,
+      screensMountedAboveAt2s: null,
+      loadedRowsAboveAtFirstPaint: null,
+      loadedRowsAboveAt2s: null,
+      msToThreeScreensMounted: null,
+      leastScreensMountedAboveAfter: null,
     };
     /// Rows mounted at or before the first painted frame (the breakpoint's rows).
     const early = new Set<string>();
@@ -334,6 +362,25 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
       const origin = Number.parseFloat(scroller.style.getPropertyValue("--acpmux-scroll-origin")) || 0;
       return scroller.clientHeight > 0 ? (scroller.scrollTop - origin) / scroller.clientHeight : null;
     };
+    type Placed = { row: HTMLElement; rect: DOMRect };
+    /// Mounted rows' height above the view's top, in viewports: what a reader can scroll up into with
+    /// every pixel already drawn (a row straddling the top counts its part above).
+    const mountedAbove = (scroller: HTMLElement, view: DOMRect, placed: Placed[]) => {
+      if (scroller.clientHeight === 0) return null;
+      let above = 0;
+      for (const { rect } of placed)
+        if (rect.width > 0) above += Math.max(0, Math.min(rect.bottom, view.top) - rect.top);
+      return above / scroller.clientHeight;
+    };
+    /// Rows in the transcript above the first visible row (its aria-posinset), mounted or not.
+    const loadedAbove = (visible: Placed[]) => {
+      const first = visible.reduce<Placed | null>(
+        (top, each) => (!top || each.rect.top < top.rect.top ? each : top),
+        null,
+      );
+      const at = Number(first?.row.getAttribute("aria-posinset"));
+      return Number.isFinite(at) && at > 0 ? at - 1 : null;
+    };
     const done = new Promise<Opened>((resolve) => {
       window.cmuxAfterPaint(() => {
         const at = performance.now();
@@ -368,6 +415,8 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
               state.mountedAtFirstPaint = mounted.length;
               state.atLatestAtFirstPaint = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 2;
               state.screensAboveAtFirstPaint = screensAbove(scroller);
+              state.screensMountedAboveAtFirstPaint = mountedAbove(scroller, view, placed);
+              state.loadedRowsAboveAtFirstPaint = loadedAbove(visible);
               for (const { row, rect } of visible) firstTops.set(row.dataset.rowId ?? "", rect.top);
             }
           } else {
@@ -385,8 +434,19 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
               if (state.movedRows.length < 8) state.movedRows.push(`${id}:${Math.round(rect.top - was)}`);
             }
             state.rowsMovedAfterFirstPaint = moved.size;
-            if (state.screensAboveAt2s === null && at >= state.firstPaintMs! + laterMs)
+            const above = mountedAbove(scroller, view, placed);
+            if (above !== null) {
+              if (state.msToThreeScreensMounted === null && above >= 3)
+                state.msToThreeScreensMounted = at - state.firstPaintMs!;
+              // Once three screens were up, the least any later frame kept (scrolling up never hits a wall).
+              if (state.msToThreeScreensMounted !== null)
+                state.leastScreensMountedAboveAfter = Math.min(state.leastScreensMountedAboveAfter ?? above, above);
+            }
+            if (state.screensAboveAt2s === null && at >= state.firstPaintMs! + laterMs) {
               state.screensAboveAt2s = screensAbove(scroller);
+              state.screensMountedAboveAt2s = mountedAbove(scroller, view, placed);
+              state.loadedRowsAboveAt2s = loadedAbove(visible);
+            }
           }
           previousMounted = mounted.length;
           // Animations on the breakpoint's rows (every row before the first painted frame).
@@ -503,6 +563,12 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
         firstClear: opened.firstClear,
         screensAboveAtFirstPaint: round(opened.screensAboveAtFirstPaint, 2),
         screensAboveAt2s: round(opened.screensAboveAt2s, 2),
+        screensMountedAboveAtFirstPaint: round(opened.screensMountedAboveAtFirstPaint, 2),
+        screensMountedAboveAt2s: round(opened.screensMountedAboveAt2s, 2),
+        loadedRowsAboveAtFirstPaint: opened.loadedRowsAboveAtFirstPaint,
+        loadedRowsAboveAt2s: opened.loadedRowsAboveAt2s,
+        msToThreeScreensMounted: round(opened.msToThreeScreensMounted),
+        leastScreensMountedAboveAfter: round(opened.leastScreensMountedAboveAfter, 2),
         visibleAtFirstPaint: opened.visibleAtFirstPaint,
         mountedAtFirstPaint: opened.mountedAtFirstPaint,
         atLatestAtFirstPaint: opened.atLatestAtFirstPaint,
@@ -537,5 +603,15 @@ await requireBrowserLane("chat-open-breakpoint-harness.test.ts", async () => {
       // transcript, and a drop the stand-in takes back at once never shows "Reconnecting…".
       expect(result.clears).toBe(0);
       expect(result.reconnectRowsSubSecond).toBe(0);
+      // Leo, 2026-11-12: "Like it doesn't load enough." History to scroll up into is drawn: what the
+      // open page holds above the view is mounted in the first painted frame (the fixtures' pages hold
+      // none: their last two turns fit the view), three screens are mounted above once the first older
+      // page is in, and no later frame drops below that. Nothing visible moved to get there.
+      expect(result.rowsMovedAfterFirstPaint).toBe(0);
+      if ((result.loadedRowsAboveAtFirstPaint ?? 0) > 0)
+        expect(result.screensMountedAboveAtFirstPaint!).toBeGreaterThan(0);
+      expect(result.screensMountedAboveAt2s!).toBeGreaterThanOrEqual(3);
+      expect(result.msToThreeScreensMounted).not.toBeNull();
+      expect(result.leastScreensMountedAboveAfter!).toBeGreaterThanOrEqual(3);
     });
 });
