@@ -23,7 +23,9 @@ use std::time::{Duration, Instant};
 use super::journal_retention_bound::{Agent, RECORDS, head, session, step, write_through};
 use super::*;
 use crate::journal_reducers::AgentRoster;
-use crate::mux::journal_segment_retention::AFTER_RETENTION_HOLD_FOR_TEST;
+use crate::mux::journal_segment_retention::{
+    AFTER_RETENTION_HOLD_FOR_TEST, BEFORE_NEXT_RETENTION_HOLD_FOR_TEST,
+};
 use crate::workspace_registry::JournalSubject;
 
 /// The most records one hold of the pass deletes the rows of.
@@ -318,6 +320,181 @@ fn the_retention_pass_gives_the_registry_lock_back_while_it_deletes_one_segment(
         last => problems.push(format!("the setup: the pass did not delete the segment: {last:?}")),
     }
     drop(points);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+    assert!(problems.is_empty(), "{problems:#?}");
+}
+
+/// A second thread that has the registry lock and keeps it.
+struct Holder {
+    release: std::sync::mpsc::Sender<()>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+/// Starts a second thread that takes the registry lock and keeps it until
+/// [`Holder::let_go`]. `None` when it did not get the lock in [`LOCK_WAIT`].
+fn hold_the_registry_lock(mux: &Arc<Mux>) -> Option<Holder> {
+    let (has_it, held) = std::sync::mpsc::channel::<()>();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let mux = Arc::clone(mux);
+    let thread = std::thread::spawn(move || {
+        let deadline = Instant::now() + LOCK_WAIT;
+        let registry = loop {
+            match mux.workspace_registry.try_lock() {
+                Ok(registry) => break registry,
+                Err(_) if Instant::now() < deadline => std::thread::yield_now(),
+                // `has_it` drops: the caller reads that as "no lock".
+                Err(_) => return,
+            }
+        };
+        let _ = has_it.send(());
+        let _ = released.recv();
+        drop(registry);
+    });
+    match held.recv() {
+        Ok(()) => Some(Holder { release, thread }),
+        Err(_) => {
+            thread.join().expect("the holder ran");
+            None
+        }
+    }
+}
+
+impl Holder {
+    fn let_go(self) {
+        let _ = self.release.send(());
+        self.thread.join().expect("the holder ran");
+    }
+}
+
+/// What a second thread got at the end of one hold of the pass.
+enum AfterHold {
+    /// The registry lock, which it keeps.
+    Held(Holder),
+    /// No lock in [`LOCK_WAIT`].
+    NoLock,
+}
+
+/// What the pass had done with the commits of one hold at the point where
+/// it was free to begin the next hold.
+#[derive(Debug)]
+struct Handoff {
+    /// A second thread had the registry lock from the end of the hold to
+    /// this point.
+    lock_was_free: bool,
+    /// Commits that no flush was asked for.
+    unrequested: u64,
+    /// Commits that the WAL syncer had not begun to look at.
+    unhandled: u64,
+}
+
+/// The pass writes megabytes with no request between its commits, so no
+/// request's answer asks the WAL syncer to checkpoint them. It asked one
+/// time, at the end of a tick: the WAL file took each byte of the tick (284
+/// MB for one tick of 8 segments on a generated registry of a long-lived
+/// session, 2026-11-12), on a registry whose WAL the syncer keeps near 4 MiB
+/// for requests.
+///
+/// After each hold the pass hands its commits to the syncer and waits for
+/// the syncer's look at them before it writes more. It waits with the
+/// registry lock free: at each hold's end this test gives the lock to a
+/// second thread, which keeps it until the pass is free to begin its next
+/// hold. A pass that held the lock there, or took it in between, would not
+/// get to that point. It times nothing.
+#[test]
+fn the_retention_pass_hands_each_hold_to_the_wal_syncer_with_the_registry_lock_free() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-journal-retention-handoff-{}",
+        crate::workspace_registry::new_uuid_v4()
+    ));
+    let mut next_step = 0;
+    let (mux, agents, big) = session_with_a_big_segment(&root, &mut next_step);
+
+    // The second thread of the hold that just ended. `None`: no hold ended
+    // since the last hand-off.
+    let holder: Rc<RefCell<Option<AfterHold>>> = Rc::default();
+    let handoffs: Rc<RefCell<Vec<Handoff>>> = Rc::default();
+    {
+        let (mux, holder) = (Arc::clone(&mux), Rc::clone(&holder));
+        AFTER_RETENTION_HOLD_FOR_TEST.with(|slot| {
+            *slot.borrow_mut() = Some(Box::new(move || {
+                let started =
+                    hold_the_registry_lock(&mux).map_or(AfterHold::NoLock, AfterHold::Held);
+                if let Some(AfterHold::Held(earlier)) = holder.borrow_mut().replace(started) {
+                    earlier.let_go();
+                }
+            }));
+        });
+    }
+    {
+        let (mux, holder, handoffs) = (Arc::clone(&mux), Rc::clone(&holder), Rc::clone(&handoffs));
+        BEFORE_NEXT_RETENTION_HOLD_FOR_TEST.with(|slot| {
+            *slot.borrow_mut() = Some(Box::new(move || {
+                let Some(held) = holder.borrow_mut().take() else { return };
+                // Read while the second thread still has the lock.
+                let unrequested = mux.registry_connection.unrequested_commits_for_test();
+                let unhandled = mux.registry_connection.unhandled_commits_for_test();
+                let lock_was_free = matches!(held, AfterHold::Held(_));
+                if let AfterHold::Held(held) = held {
+                    held.let_go();
+                }
+                handoffs.borrow_mut().push(Handoff { lock_was_free, unrequested, unhandled });
+            }));
+        });
+    }
+    write_through(&mux, &agents, &mut next_step, head(&mux) + RECORDS);
+    for _ in 0..32 {
+        mux.run_journal_maintenance_for_test();
+    }
+    // The seams hold the mux: they go before the shutdown.
+    AFTER_RETENTION_HOLD_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    BEFORE_NEXT_RETENTION_HOLD_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(AfterHold::Held(left)) = holder.borrow_mut().take() {
+        left.let_go();
+    }
+
+    let deleted = mux.journal_pruned_through().unwrap() >= big.end;
+    let handoffs = handoffs.borrow();
+    let mut problems = Vec::new();
+    if !deleted || handoffs.is_empty() {
+        problems.push(format!(
+            "the setup: the pass did not delete the segment that ends at {} ({} hand-offs)",
+            big.end,
+            handoffs.len()
+        ));
+    }
+    let count = |is: fn(&Handoff) -> bool| handoffs.iter().filter(|handoff| is(handoff)).count();
+    let held = count(|handoff| !handoff.lock_was_free);
+    if held > 0 {
+        problems.push(format!(
+            "at {held} of {} points a second thread did not get the registry lock after a hold              of the pass",
+            handoffs.len()
+        ));
+    }
+    let unrequested = count(|handoff| handoff.unrequested > 0);
+    if unrequested > 0 {
+        let most = handoffs.iter().map(|handoff| handoff.unrequested).max().unwrap_or(0);
+        problems.push(format!(
+            "at {unrequested} of {} points the pass was free to begin its next hold with commits              that no flush was asked for (up to {most}): the WAL takes each byte of a tick",
+            handoffs.len()
+        ));
+    }
+    let unhandled = count(|handoff| handoff.unhandled > 0);
+    if unhandled > 0 {
+        let most = handoffs.iter().map(|handoff| handoff.unhandled).max().unwrap_or(0);
+        problems.push(format!(
+            "at {unhandled} of {} points the pass was free to begin its next hold before the WAL              syncer took its commits (up to {most}): the pass did not wait for it",
+            handoffs.len()
+        ));
+    }
+    println!(
+        "journal_retention_holds: {} hand-offs after a hold; segment [{}..={}] deleted: {deleted}",
+        handoffs.len(),
+        big.start,
+        big.end
+    );
+    drop(handoffs);
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();

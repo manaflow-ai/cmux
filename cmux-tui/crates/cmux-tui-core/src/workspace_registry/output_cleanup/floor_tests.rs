@@ -926,5 +926,169 @@ fn retention_deletes_in_place_when_no_rebuild_can_run() {
     );
 }
 
+/// The sealed segments at or below the retention floor that the pass may
+/// delete (never the newest segment), oldest first: (end, records).
+fn segments_below_the_floor(mux: &crate::Mux) -> Vec<(u64, u64)> {
+    let floor = retention_floor(mux);
+    let segments = mux.journal_segments().unwrap();
+    let newest = segments.iter().map(|segment| segment.end_sequence).max().unwrap_or(0);
+    let mut below = segments
+        .iter()
+        .filter(|segment| segment.end_sequence <= floor && segment.end_sequence < newest)
+        .map(|segment| (segment.end_sequence, segment.record_count))
+        .collect::<Vec<_>>();
+    below.sort_unstable();
+    below
+}
+
+/// The records of the first `count` segments, and of the segments after them.
+fn head_and_tail(below: &[(u64, u64)], count: usize) -> (u64, u64) {
+    let records = |part: &[(u64, u64)]| part.iter().map(|(_, records)| records).sum::<u64>();
+    (records(&below[..count]), records(&below[count..]))
+}
+
+/// The bound of the delete in place. A run that is worth a rebuild is the
+/// rebuild's work. When no rebuild can run in this start (here: an earlier
+/// attempt of this build failed) the pass is the only way down, and a delete
+/// in place writes each page of each row two times (the WAL, then the
+/// checkpoint): 30 MB of WAL frames for one segment on a large generated
+/// registry, so 2,730 such segments are 82 GB of frames. One start
+/// therefore deletes in place at most the records that are worth a rebuild,
+/// in whole segments, and then stops: the next start tries the rebuild
+/// again, and deletes as much again when that cannot run either.
+///
+/// What stays after that part goes in the same start only when it is NOT
+/// worth a rebuild any more: it is then a small run, which the pass always
+/// deletes in place. So the largest total of one start is below two times
+/// the records that are worth a rebuild.
+#[test]
+fn one_start_deletes_in_place_at_most_a_rebuilds_worth_of_a_run_no_rebuild_can_take() {
+    let root = Root::new("join-bound");
+    let mux = open(&root.0);
+    let db_path = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
+    mux.shutdown();
+    drop(mux);
+    write_failure_marker(&db_path, "a test: no rebuild in this start");
+    let mux = open(&root.0);
+    assert!(!mux.journal_rebuild_possible(), "the fixture is wrong: a rebuild worker runs");
+    let old_run = old_run_below_the_retention_floor(&mux);
+    // Room for one record: no segment fits. The ticks that move the floor
+    // past the old run delete nothing in place.
+    mux.set_rebuild_records_limit_for_test(1);
+    for _ in 0..16 {
+        if retention_floor(&mux) >= old_run {
+            break;
+        }
+        mux.run_journal_maintenance_for_test();
+    }
+    for _ in 0..4 {
+        mux.run_journal_maintenance_for_test();
+    }
+    let floor = retention_floor(&mux);
+    let below = segments_below_the_floor(&mux);
+    let pruned_through = mux.journal_pruned_through().unwrap();
+    assert_eq!(
+        pruned_through, 0,
+        "with a run that is worth a rebuild, no rebuild in this start and room for 1 record, \
+         retention deleted in place through {pruned_through}; the old run ends at {old_run}, \
+         the floor is {floor}, at or below it now: {below:?}"
+    );
+    assert!(floor >= old_run, "the fixture is wrong: floor {floor}, old run ends at {old_run}");
+
+    // Room for the first `stop` segments, with at least as many records in
+    // the segments after them (two or more): what stays is still worth a
+    // rebuild, so the start deletes that part and no more.
+    let stop = (1..below.len().saturating_sub(1))
+        .rev()
+        .find(|count| {
+            let (head, tail) = head_and_tail(&below, *count);
+            head <= tail
+        })
+        .unwrap_or_else(|| {
+            panic!("the fixture is wrong: no part with as much after it: {below:?}")
+        });
+    let (limit, rest) = head_and_tail(&below, stop);
+    mux.set_rebuild_records_limit_for_test(limit);
+    for _ in 0..24 {
+        mux.run_journal_maintenance_for_test();
+    }
+    let left = segments_below_the_floor(&mux);
+    let pruned_through = mux.journal_pruned_through().unwrap();
+    println!(
+        "floor_tests bound: at or below the floor {below:?}; room for {limit} records: \
+         deleted through {pruned_through}, left {left:?}"
+    );
+    assert_eq!(
+        pruned_through,
+        below[stop - 1].0,
+        "a start with room for {limit} records deletes in place the first {stop} segments \
+         ({limit} records) and stops: the {rest} records after them are still worth a rebuild. \
+         At or below the floor before: {below:?}, after: {left:?}"
+    );
+    assert_eq!(left.first(), Some(&below[stop]), "the segment after the bounded part stays");
+    // What stays is the next start's work, not the next tick's: the worker
+    // settles (it then sleeps until the journal changes) and does not tick
+    // each 30 s for a run that it will not delete.
+    let settled = (0..16).any(|_| mux.run_journal_maintenance_for_test());
+    assert!(
+        settled,
+        "16 more ticks all left work for the next tick while {left:?} wait for the next start"
+    );
+    assert_eq!(mux.journal_pruned_through().unwrap(), pruned_through, "those ticks deleted more");
+    mux.shutdown();
+    drop(mux);
+
+    // The next start, again with no rebuild: it has its own room. Now the
+    // room is for each segment but the last one, and the last one alone is
+    // below a rebuild's worth, so it goes in place too: the largest total
+    // of one start is the bounded part and a run that is not worth a
+    // rebuild.
+    let mux = open(&root.0);
+    mux.stop_journal_maintenance();
+    assert!(!mux.journal_rebuild_possible(), "the fixture is wrong: a rebuild worker runs");
+    // With room for one record these ticks delete nothing; they take in
+    // what the start itself wrote.
+    mux.set_rebuild_records_limit_for_test(1);
+    for _ in 0..4 {
+        mux.run_journal_maintenance_for_test();
+    }
+    let below = segments_below_the_floor(&mux);
+    assert!(
+        below.len() >= 2 && below.first().map(|(end, _)| *end) > Some(pruned_through),
+        "the fixture is wrong: the next start has {below:?} at or below the floor after a \
+         delete through {pruned_through}"
+    );
+    let (bounded, last) = head_and_tail(&below, below.len() - 1);
+    let limit = bounded.max(last + 1);
+    assert!(
+        limit < bounded + last,
+        "the fixture is wrong: no room that takes {bounded} records and not {last} more"
+    );
+    mux.set_rebuild_records_limit_for_test(limit);
+    for _ in 0..24 {
+        mux.run_journal_maintenance_for_test();
+    }
+    let left = segments_below_the_floor(&mux);
+    let pruned_through = mux.journal_pruned_through().unwrap();
+    mux.shutdown();
+    drop(mux);
+    println!(
+        "floor_tests bound, next start: at or below the floor {below:?}; room for {limit} \
+         records: deleted through {pruned_through}, left {left:?}"
+    );
+    assert!(
+        left.is_empty(),
+        "the next start has room for {limit} records: it deletes the {bounded} records of each \
+         segment but the last, and the last {last} records are not worth a rebuild, so they go \
+         in place too ({} records in one start, below 2 x {limit}). At or below the floor \
+         before: {below:?}, after: {left:?}",
+        bounded + last
+    );
+    assert!(
+        below.last().is_some_and(|(end, _)| pruned_through >= *end),
+        "retention deleted through {pruned_through}; before: {below:?}"
+    );
+}
+
 #[path = "sparse_tests.rs"]
 mod sparse;

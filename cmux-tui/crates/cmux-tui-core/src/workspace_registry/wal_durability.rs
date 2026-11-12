@@ -255,6 +255,14 @@ impl WalDurability {
         state.committed.saturating_sub(state.requested)
     }
 
+    /// Commits the syncer has not begun to look at: a caller that asked for
+    /// a flush and went on has no word that the syncer took it.
+    #[cfg(test)]
+    pub(crate) fn unhandled_commits(&self) -> u64 {
+        let state = self.shared.state.lock().recover_poison();
+        state.committed.saturating_sub(state.handled)
+    }
+
     /// Flush every commit made so far, soon, on the syncer thread. Callers
     /// ask once their request is answered (the server's reply funnel) or
     /// once a background batch committed (the journal writer).

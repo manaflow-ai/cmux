@@ -399,6 +399,12 @@ impl RegistryConnection {
             .map_or(0, super::wal_durability::WalDurability::unrequested_commits)
     }
 
+    /// Commits the syncer has not begun to look at (`WalDurability::unhandled_commits`).
+    #[cfg(test)]
+    pub(crate) fn unhandled_commits_for_test(&self) -> u64 {
+        self.durability.as_ref().map_or(0, super::wal_durability::WalDurability::unhandled_commits)
+    }
+
     /// (committed, synced) registry commits for `server-stats` `write_path`.
     ///
     /// The committed count is also a CORRECTNESS key, not only a diagnostic: the session snapshot cache

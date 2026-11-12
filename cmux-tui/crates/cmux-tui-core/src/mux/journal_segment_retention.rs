@@ -59,6 +59,25 @@ fn after_retention_hold_for_test() {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs on this thread after
+    /// [`AFTER_RETENTION_HOLD_FOR_TEST`], at the point where the pass is
+    /// free to begin its next hold or to end the tick: what it does between
+    /// a hold and the next one is done.
+    pub(crate) static BEFORE_NEXT_RETENTION_HOLD_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnMut()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn before_next_retention_hold_for_test() {
+    let hook = BEFORE_NEXT_RETENTION_HOLD_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(mut hook) = hook {
+        hook();
+        BEFORE_NEXT_RETENTION_HOLD_FOR_TEST.with(|slot| *slot.borrow_mut() = Some(hook));
+    }
+}
+
 impl Mux {
     /// One retention pass. True while work remains for the next tick.
     pub(super) fn retain_journal(&self) -> anyhow::Result<bool> {
@@ -106,6 +125,8 @@ impl Mux {
                 .prune_oldest_journal_segment(floor)?;
             #[cfg(test)]
             after_retention_hold_for_test();
+            #[cfg(test)]
+            before_next_retention_hold_for_test();
             if !deleted {
                 break;
             }
