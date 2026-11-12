@@ -1142,14 +1142,16 @@ const isWork = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   (row.items ?? []).some((item) => item.tool && !isEditTool(item.tool) && !renderCall(item.tool));
 
-/// Where a finished turn's answer is in `rows`: its last nonempty reply, wherever the turn's work
-/// ends. -1: none, so all of it folds. Earlier replies are intermediate dialogue once the turn ends;
-/// they remain readable when its disclosure opens. A short reply the agent followed with a call (it
-/// answered, then sent a message) was once taken for narration and folded, so the person saw only
-/// "Worked for 27s · 1 tool call" under their prompt (Leo, 2026-11-12: "in this case you didnt
-/// respond to me at all..."): the turn's last words to the person always draw under its fold.
+/// Where a finished turn's answer is in `rows`: its last takeaway, or its last nonempty reply
+/// after the final tool call. -1: none, so all of it folds. Earlier takeaways are intermediate
+/// dialogue once the turn ends; they remain readable when its disclosure opens.
 function answerAt(rows: readonly AcpmuxRow[]): number {
-  for (let at = rows.length - 1; at >= 0; at -= 1) if (isReply(rows[at]!)) return at;
+  let stepped = false;
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (isReply(row) && (isTakeaway(row) || !stepped)) return at;
+    if (isWork(row)) stepped = true;
+  }
   return -1;
 }
 
@@ -1570,6 +1572,15 @@ function shapeTurn(
         (steerDialogue.has(row.id) ||
           keptOut.has(row.id) ||
           (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)))));
+    // Opened, the person's steer after the answer draws in the fold, in its place: the answer draws
+    // in its own place too, above the steer it came before, never moved under it (Leo, 2026-11-12:
+    // "in this case you didnt respond to me at all..."). A card or strip under it keeps it last.
+    const inPlace =
+      open &&
+      said !== undefined &&
+      !(nextStep && !cutOff && said === answer) &&
+      !(walked && said === answer && !walkedDrawn) &&
+      after.some((row) => row.kind === "user" && steerDialogue.has(row.id));
     const work = [...before, ...after].filter((row) => !out(row));
     // A row drawn beside the closed fold is not in the card too: the card takes its first row's id.
     // A file change that never got its input changed nothing (toolGroups.ts `isDraftCall`).
@@ -1655,13 +1666,13 @@ function shapeTurn(
       if (open)
         shaped.push(
           // The answer between `before` and `after` is a seam: the runs on either side of it stay apart.
-          ...[...merge(before), ...merge(after)].flatMap(withoutDrafts).map((row) => ({
+          ...[...merge(before), ...(inPlace ? [said] : []), ...merge(after)].flatMap(withoutDrafts).map((row) => ({
             ...endedPlan(row),
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,
             // A finished turn's earlier replies fold here too; each keeps its action row, while a
             // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
-            ...(replies.has(row.id) && { foldedReply: true }),
+            ...(replies.has(row.id) && row !== said && { foldedReply: true }),
             // A folded run draws otherwise, so its version moves (memos compare versions).
             ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
             // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,
@@ -1715,7 +1726,7 @@ function shapeTurn(
       if (stripUnder) shaped.push(strip(said!.at));
       shaped.push(card(said!.at));
       cardDrawn = true;
-    } else if (said) {
+    } else if (said && !inPlace) {
       shaped.push(said);
       if (stripUnder) shaped.push(strip(said.at));
     }
