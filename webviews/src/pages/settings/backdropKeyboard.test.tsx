@@ -18,7 +18,7 @@ const wait = (ms: number) => void jest.advanceTimersByTime(ms);
 const drain = () => act(async () => {});
 
 test("tabbing across the tiles previews only the tile you rest on", async () => {
-  const page = await renderPage({ path: "/settings/appearance" });
+  const page = await renderPage({ path: "/settings/personalization" });
   const tiles = [
     ...page.container.querySelectorAll<HTMLButtonElement>(
       '[data-card="backdrop"] .backdrop-tile[aria-pressed]:not(.backdrop-pending)',

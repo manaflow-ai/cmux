@@ -152,6 +152,8 @@ public final class LiveCoordinator {
     @ObservationIgnored private let snapshots: LiveSnapshotStore
     @ObservationIgnored private var snapshot: LiveSnapshot?
     @ObservationIgnored private var snapshotSavePending = false
+    /// Reads the cached rows past each Mac's first screen, after launch (`restoreRest`).
+    @ObservationIgnored private var restTask: Task<Void, Never>?
     /// The spaces on screen are the launch snapshot's one space, not the account's list yet
     /// (Stack's team list has not answered): a pairing code is not judged against them.
     @ObservationIgnored private(set) var spacesFromSnapshot = false
@@ -350,21 +352,36 @@ public final class LiveCoordinator {
     /// Mac this phone last reached, all before Stack's team list or the
     /// service's Mac list answers. Registration, Macs and presence start at
     /// once in the background and correct anything that changed.
+    ///
+    /// Only each Mac's first screen of rows is read here, on the way to the first frame: a Mac
+    /// with 5,000 cached workspaces paints as fast as one with 20 (`workspaces_cold_paint_from_cache`
+    /// in cmux-next-ios/design/instant-perf.md). The rest is read off the main thread and joins
+    /// below them (`restoreRest`).
     private func restoreSnapshot() {
-        guard let snapshot = snapshots.load(accountID: userID) else { return }
+        guard let snapshot = snapshots.loadFirstScreen(accountID: userID) else { return }
         self.snapshot = snapshot
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
         spacesFromSnapshot = true
         var workspaces: [Workspace] = []
+        var total = 0
         for mac in snapshot.macs {
             guard let saved = snapshot.workspaces[mac.id] else { continue }
             workspaces += saved.workspaces
-            store.handleMacData(.restored(count: saved.workspaces.count, savedAt: saved.savedAt), macID: mac.id)
+            total += saved.total
+            store.handleMacData(.restored(count: saved.total, savedAt: saved.savedAt), macID: mac.id)
         }
         store.workspaces = workspaces
         store.teamDataState = .loaded
-        ConnectTimeline.shared.mark("snapshot_restored", detail: "\(workspaces.count) workspaces")
+        ConnectTimeline.shared.mark("snapshot_restored", detail: "\(workspaces.count) of \(total) workspaces")
+        if snapshot.workspaces.values.contains(where: { !$0.isComplete }) {
+            let snapshots = snapshots
+            let userID = userID
+            restTask = Task { [weak self] in
+                let rest = await snapshots.loadRest(snapshot, accountID: userID)
+                self?.restoreRest(rest)
+            }
+        }
         // The link device was registered in this space when the snapshot was
         // saved (registration is an upsert and survives), so the socket and
         // the dial need not wait for it.
@@ -374,6 +391,26 @@ public final class LiveCoordinator {
         startedTeamID = snapshot.teamID
         feedTeamID = snapshot.teamID
         teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
+    }
+
+    /// The rest of the cached rows, read after the first screen: each Mac still showing exactly
+    /// the rows restored at launch gets its whole cached list. The new rows sort below the
+    /// first screen's (the head holds the list's first rows), so nothing on screen moves. A Mac
+    /// that answered since (or went live and dropped again) keeps what it has.
+    func restoreRest(_ rest: [String: LiveSnapshot.MacWorkspaces]) {
+        restTask = nil
+        guard !stopped else { return }
+        var added = 0
+        for (macID, list) in rest {
+            guard let current = snapshot?.workspaces[macID], !current.isComplete, current.tailToken == list.tailToken,
+                  current.savedAt == list.savedAt else { continue }
+            snapshot?.workspaces[macID] = list
+            guard store.macData[macID]?.source == .cache(savedAt: list.savedAt) else { continue }
+            store.replaceWorkspaces(macID: macID, with: list.workspaces)
+            if list.total != current.total { store.handleMacData(.restored(count: list.total, savedAt: list.savedAt), macID: macID) }
+            added += list.workspaces.count - current.workspaces.count
+        }
+        ConnectTimeline.shared.mark("snapshot_rest_restored", detail: "\(added) workspaces")
     }
 
     /// Saves what the phone sees now (coalesced to one write per main-queue turn).
@@ -895,6 +932,8 @@ public final class LiveCoordinator {
     /// Sign-out: stops discovery, presence and the link.
     public func stop() {
         stopped = true
+        restTask?.cancel()
+        restTask = nil
         transcriptCache = nil
         keptSessionIDs = [:]
         ChiefSources.shared.stop()

@@ -371,7 +371,11 @@ test("a chat start that fails says why over the kept draft, and Return tries aga
     await page.pressReturn();
     expect(page.asks).toHaveLength(1);
     expect(page.status()).toBeUndefined();
-    expect(page.alert()).toContain("no harness session within 90s");
+    // Plain words over the box; the raw words wait under Details (newtab/StartFailure.tsx).
+    expect(page.alert()).toBeTruthy();
+    expect(host.querySelector(".nt-composer [data-error-detail]")?.textContent).toContain(
+      "no harness session within 90s",
+    );
     expect(page.field.value).toBe("fix the flaky upload test");
     fail = false;
     await page.pressReturn();

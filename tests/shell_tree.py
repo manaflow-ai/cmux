@@ -4,9 +4,11 @@ text sits near it.
 parse(text) returns a Script: its Commands, each with argv Words and Redirects (a here-document's body included).
 A Word is a list of parts: Lit (literal text, quoted or not), Param ($x, ${x...}), Arith ($(( ))) and Sub (a
 command substitution, $( ) or backticks, or a process substitution <( ) or >( )), whose script is parsed the same
-way, to any depth, inside ${ } too. Every node keeps its start and end offset in the text parse() was given,
-backticks inside backticks included. An array's words, a case subject and its patterns, [[ ]] and (( )) are data,
-never argv, though each substitution in them is a script. Text this parser cannot read through (an unclosed quote
+way, to any depth, inside ${ } too. The literal text an eval, a trap's action or a shell's -c runs is parsed onto its
+command's scripts, and the compound command after `function NAME` or `coproc NAME` is a command of its own. Every
+node keeps its start and end offset in the text parse() was given, backticks inside backticks included. An array's
+words, a case subject and its patterns, [[ ]] and (( )) are data, never argv, though each substitution in them is a
+script. Text this parser cannot read through (an unclosed quote
 or substitution, an unbalanced parenthesis, nesting deeper than MAX_DEPTH) raises Unparsed. A mktemp counts only in
 command position.
 
@@ -44,7 +46,9 @@ SPECIAL_PARAMS = "$?#@*!-0123456789"
 ASSIGNMENT = re.compile(r"[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=")
 MAX_DEPTH = 32  # substitutions and expansions inside one another; deeper text is Unparsed, never a RecursionError
 # Reserved words after which a command starts again: a ( there is a subshell, a (( arithmetic, a case or [[ itself.
-START_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time"}
+START_WORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "time", "coproc"}
+# What may follow `function NAME` or `coproc NAME`: a compound command, which starts a command of its own.
+COMPOUND_WORDS = ("{", "if", "while", "until", "for", "select", "case", "[[")
 # Words before a command's name that are not its name.
 # Command wrappers: each runs the command after its options, so unwrap() reads through them. Per wrapper, its options
 # that take no argument, those that take one (-n 5, -n5, --adjustment=5), and how many operands come before the
@@ -63,7 +67,7 @@ WRAPPERS = {
     "stdbuf": (set(), {"-i", "-o", "-e", "--input", "--output", "--error"}, 0),
     "setsid": ({"-c", "-f", "-w", "--ctty", "--fork", "--wait"}, set(), 0),
 }
-KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until"}  # time is in WRAPPERS
+KEYWORDS = {"!", "{", "}", "if", "then", "else", "elif", "do", "while", "until", "coproc"}  # time is in WRAPPERS
 
 
 class Unparsed(Exception):
@@ -119,6 +123,9 @@ class Command:
     # Words that are no argv: an array's elements, a case's subject and patterns, an arithmetic command (( )). Their
     # substitutions run, so they are walked; none is ever a command's name or argument.
     data: list = field(default_factory=list)
+    # The text the command has bash run as shell, parsed: an eval's arguments, a trap's action, a shell's -c string
+    # (after unwrap()), when that text is all literal. Its nodes keep the offsets of the text parse() was given.
+    scripts: list = field(default_factory=list)
 
 
 @dataclass
@@ -145,14 +152,17 @@ class _Parser:
         """Commands from i up to CLOSE (")"; "case": a case item's ;; ;& ;;&, consumed, or its esac, not; None: the
         end); the index after it."""
         s, n = self.s, self.n
-        commands, cmd, depth, pending, texts, last_end = [], Command(), 0, [], [], -1
+        commands, cmd, depth, pending, texts, last_end, spans = [], Command(), 0, [], [], -1, []
 
         def end():
             nonlocal cmd
+            if cmd.words:
+                self.strings(cmd, spans)
             if cmd.words or cmd.redirects or cmd.data:
                 commands.append(cmd)
             cmd = Command()
             texts.clear()
+            spans.clear()
 
         while True:
             while i < n and (s[i] in " \t" or s.startswith("\\\n", i)):
@@ -170,6 +180,14 @@ class _Parser:
                 end()
                 return Script(commands), i + 1
             start = not cmd.redirects and all(t in START_WORDS for t in texts)
+            # `function NAME` and `coproc NAME` before a compound command: the compound command is a command of its own
+            # (function f { ...; }, coproc N { ...; }, coproc N (...)).
+            if not start and len(texts) >= 2 and texts[-2] in ("function", "coproc") and not cmd.redirects and all(
+                    t in START_WORDS for t in texts[:-2]) and (
+                    any(self.keyword(i, k) for k in COMPOUND_WORDS) or s.startswith("((", i)
+                    or c == "(" and texts[-2] == "coproc"):
+                end()
+                start = True
             if close == "case" and depth == 0:
                 op = next((t for t in (";;&", ";;", ";&") if s.startswith(t, i)), None)
                 if op or (start and self.keyword(i, "esac")):
@@ -220,7 +238,8 @@ class _Parser:
                 if texts and last_end == i and texts[-1].endswith("="):
                     i = self.array(i + 1, cmd.data)  # NAME=( ... ): an array's elements, never a command
                     continue
-                if texts == ["for"] and s.startswith("((", i):  # for (( ; ; )): arithmetic, no argv
+                if texts and texts[-1] == "for" and all(t in START_WORDS for t in texts[:-1]) and s.startswith(
+                        "((", i):  # for (( ; ; )): arithmetic, no argv, also after a reserved word
                     got, i = self.nested(self.arith, i, 2)
                     cmd.data.append(Word(got.start, got.end, [got]))
                     continue
@@ -249,7 +268,62 @@ class _Parser:
                 continue
             texts.append(s[i:j])
             cmd.words.append(w)
+            spans.append((i, j))
             i = last_end = j
+
+    def strings(self, cmd: Command, spans: list) -> None:
+        """Parse onto CMD.scripts the text CMD has bash run as shell (Command.scripts); SPANS: each word's (start,
+        end) in this parser's text. Text that is not all literal, or that does not parse, adds nothing."""
+        s, argv, values = self.s, [], []
+        for w, (a, b) in zip(cmd.words, spans):
+            got = _unquote(s[a:b]) if all(isinstance(p, Lit) for p in w.parts) else None
+            values.append(got)  # whether the word decodes, apart from the X= unwrap() reads an assignment as
+            argv.append("X=" if ASSIGNMENT.match(s, a) else "\0" if got is None else got[0])
+        run = unwrap(argv)
+        if not run or argv[len(argv) - len(run):] != run:
+            return
+        k, prog = len(argv) - len(run), run[0].rsplit("/", 1)[-1]
+        picks: list[int] = []
+        if prog == "eval":
+            picks = list(range(k + 1 + (argv[k + 1:k + 2] == ["--"]), len(argv)))
+        elif prog == "trap":
+            j = k + 1 + (argv[k + 1:k + 2] == ["--"])
+            if j < len(argv) and not argv[j].startswith("-"):  # trap -p, trap -l and trap - SIG run nothing
+                picks = [j]
+        elif prog in SHELLS:
+            j, string = k + 1, False
+            while j < len(argv):
+                a = argv[j]
+                if a == "--" or not a.startswith(("-", "+")) or a in ("-", "+"):
+                    j += a == "--"
+                    break
+                if a.startswith("--"):  # --rcfile FILE and --init-file FILE take the next word
+                    j += 2 if a in ("--rcfile", "--init-file") else 1
+                    continue
+                string = string or "c" in a[1:]
+                j += 1 + a[1:].count("o") + a[1:].count("O")  # each o or O in a group (-co NAME) takes a word
+            if string and j < len(argv):
+                picks = [j]
+        if not picks or any(values[j] is None for j in picks):
+            return
+        body, origin, prev = "", [], 0
+        for j in picks:
+            a, b = spans[j]
+            text, at = _unquote(s[a:b])
+            if body:  # the space between two arguments: at the end of the one before it
+                body += " "
+                origin.append(self.o[prev])
+            prev = b
+            body += text
+            origin += [self.o[a + x] for x in at]
+        origin.append(self.o[spans[picks[-1]][1]])
+        level = self.level[0]
+        try:  # comments in the string are not the text's: code() must never cut them out of it
+            script, _ = self.nested(_Parser(body, origin, [], self.level).script, 0, None)
+        except Unparsed:
+            self.level[0] = level
+            return
+        cmd.scripts.append(script)
 
     def comment(self, i: int) -> int:
         """Record the comment at s[i] (a #); the index of its line's end."""
@@ -515,6 +589,90 @@ class _Parser:
         return Sub(self.o[i], self.o[j + 1], "`", script), j + 1
 
 
+# $'...' escapes (bash's ANSI-C quoting) that stand for one fixed character.
+ANSI_C = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v",
+          "\\": "\\", "'": "'", '"': '"', "?": "?"}
+
+
+def _ansi_c(raw: str, i: int, out: list, at: list) -> int:
+    """Decode the $'...' string whose $ is at RAW[i] as bash does onto OUT, each character's offset in RAW (an
+    escape's: its backslash) onto AT; the index after its closing quote. \\nnn, \\xHH, \\uHHHH, \\UHHHHHHHH and \\cX
+    are read; another backslash stays as it is."""
+    i, n = i + 2, len(raw)
+    while i < n and raw[i] != "'":
+        c, start = raw[i], i
+        if c != "\\" or i + 1 >= n:
+            out.append(c)
+            at.append(i)
+            i += 1
+            continue
+        e = raw[i + 1]
+        i += 2
+        if e in ANSI_C:
+            ch = ANSI_C[e]
+        elif e in "01234567":
+            j = i
+            while j < n and j < i + 2 and raw[j] in "01234567":
+                j += 1
+            ch, i = chr(int(raw[i - 1:j], 8) & 0xFF), j
+        elif e in "xuU" and i < n and raw[i] in "0123456789abcdefABCDEF":
+            j = i
+            while j < n and j < i + {"x": 2, "u": 4, "U": 8}[e] and raw[j] in "0123456789abcdefABCDEF":
+                j += 1
+            ch, i = chr(min(int(raw[i:j], 16), 0x10FFFF)), j
+        elif e == "c" and i < n:
+            ch, i = chr(ord(raw[i].upper()) ^ 0x40) if raw[i] != "?" else "\x7f", i + 1
+        else:
+            out += "\\" + e
+            at += [start, start + 1]
+            continue
+        out.append(ch)
+        at.append(start)
+    return i + 1
+
+
+def _unquote(raw: str) -> tuple[str, list[int]]:
+    """The value of RAW, an all-literal word as bash reads it (quotes and escapes removed, a $'...' string decoded,
+    a $"..." string read as "..." is in the C locale), with the offset in RAW of each of its characters."""
+    out, at, i, n = [], [], 0, len(raw)
+    while i < n:
+        c = raw[i]
+        if c == "$" and raw.startswith("$'", i):
+            i = _ansi_c(raw, i, out, at)
+            continue
+        if c == "$" and raw.startswith('$"', i):
+            i += 1  # $"...": bash translates it by the locale's catalog; with none it is "..."
+            continue
+        if c == "'":
+            j = raw.find("'", i + 1)
+            out += raw[i + 1:j]
+            at += range(i + 1, j)
+            i = j + 1
+        elif c == '"':
+            i += 1
+            while i < n and raw[i] != '"':
+                if raw[i] == "\\" and i + 1 < n and raw[i + 1] in '$`"\\\n':
+                    if raw[i + 1] != "\n":
+                        out.append(raw[i + 1])
+                        at.append(i + 1)
+                    i += 2
+                    continue
+                out.append(raw[i])
+                at.append(i)
+                i += 1
+            i += 1
+        elif c == "\\":
+            if i + 1 < n and raw[i + 1] != "\n":
+                out.append(raw[i + 1])
+                at.append(i + 1)
+            i += 2
+        else:
+            out.append(c)
+            at.append(i)
+            i += 1
+    return "".join(out), at
+
+
 def parse(text: str, comments: list | None = None) -> Script:
     """TEXT as a tree of commands; Unparsed when it is not shell this parser reads through. Each comment's (start,
     end) goes on COMMENTS."""
@@ -548,9 +706,11 @@ def subs(parts: list):
 
 
 def commands(script: Script):
-    """Every command in SCRIPT and in every substitution and here-document inside it, at any depth."""
+    """Every command in SCRIPT and in every substitution, here-document and Command.scripts inside it, at any depth."""
     for cmd in script.commands:
         yield cmd
+        for nested in cmd.scripts:
+            yield from commands(nested)
         words = cmd.words + cmd.data + [r.target for r in cmd.redirects] + [r.body for r in cmd.redirects if r.body]
         for w in words:
             for sub in subs(w.parts):

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "../context";
 import type { WorkspaceBackground } from "../ops";
 import { t } from "../strings";
+import { rangeFill } from "../format";
 
 /** The tile that clears a workspace's own background, so it follows All Workspaces again. */
 export const FOLLOW_ID = "follow";
@@ -134,6 +135,7 @@ export function WorkspaceOpacity({
                 max={MAX_OPACITY}
                 step={0.05}
                 value={drag ?? stored ?? FOLLOW_OPACITY}
+                style={rangeFill(drag ?? stored ?? FOLLOW_OPACITY, 0, MAX_OPACITY)}
                 aria-labelledby="workspace-opacity-label"
                 onChange={(event) => {
                   const next = Number(event.currentTarget.value);

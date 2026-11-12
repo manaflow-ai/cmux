@@ -281,10 +281,9 @@ test("a search lists a signed-out harness's models after the ready ones, and a p
     setValue.call(input, "gpt");
     input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
-  // A searched row's title is its name, its harness, then its provider ("GPT 5.3 Codex" is a model).
-  const codexRows = modelRows().filter((row) => row.title.split(" · ")[1] === "Codex");
+  // A signed-out row says so in its description (its tooltip is the name alone); only Codex is signed out here.
+  const codexRows = modelRows().filter((row) => row.getAttribute("aria-description") === "Signed out");
   expect(codexRows.length).toBeGreaterThan(0);
-  expect(codexRows.every((row) => row.title.includes("Signed out"))).toBe(true);
   const headings = [...dom.window.document.querySelectorAll(".acpmux-cols .acpmux-cols-group")].map(
     (heading) => heading.textContent,
   );
