@@ -73,17 +73,23 @@ pub enum SessionStatus {
     Closed,
 }
 
-impl std::fmt::Display for SessionStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+impl SessionStatus {
+    /// The status as a session list's `status` says it (its `Display`).
+    pub fn as_str(self) -> &'static str {
+        match self {
             Self::Idle => "idle",
             Self::Ready => "ready",
             Self::Running => "running",
             Self::Waiting => "waiting",
             Self::Disconnected => "disconnected",
             Self::Closed => "closed",
-        };
-        f.write_str(s)
+        }
+    }
+}
+
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
