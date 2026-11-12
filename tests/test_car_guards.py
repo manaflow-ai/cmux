@@ -55,7 +55,7 @@ def repo(tmp: str, files: dict[str, str]) -> Path:
     root.mkdir()
     # The helpers the map imports, from this checkout.
     for helper in ("select_package_tests.py", "focused_tests.py", "car_guards.py", "cmux_next_route.py",
-                   "nightly-next-car-guard.sh", "car-guard-python.sh"):
+                   "ci_process_tree.py", "nightly-next-car-guard.sh", "car-guard-python.sh"):
         write(root, {f"scripts/ci/{helper}": (ROOT / "scripts/ci" / helper).read_text(encoding="utf-8")})
     write(root, files)
     git(root, "init", "-q")
@@ -633,6 +633,25 @@ class EntryTimeouts(unittest.TestCase):
     def test_a_focused_test_the_car_selected_still_fails_after_timing_out_twice(self):
         verdict = self.judge({}, {"tests/test_slow.py": self.SLOW}, {"python"}, python=["tests/test_slow.py"])
         self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("fail", "timeout"))
+
+    def test_a_timed_out_entry_leaves_no_process_behind(self):
+        """A guard's own children stop with it (cmux#41752 review F1's class): the retry and the next entries never
+        race what the timed-out run started."""
+        pid_file = Path(self.tmp.name) / "child.pid"
+        entry = {"name": "guard:sleeper", "kind": "guard",
+                 "cmd": ["sh", "-c", f"sleep 30 & echo $! > {pid_file}; wait"]}
+        result = car_guards.run_one(Path(self.tmp.name), entry)
+        self.assertEqual(result["status"], "retry")
+        pid = int(pid_file.read_text())
+        try:
+            os.kill(pid, 0)
+            state = Path(f"/proc/{pid}/stat").read_text().split()[2] if Path(f"/proc/{pid}/stat").exists() else "?"
+            alive = state != "Z"
+        except ProcessLookupError:
+            alive = False
+        if alive:
+            os.kill(pid, 9)  # the sleeper this test started
+        self.assertFalse(alive, "the timed-out guard's child is still running")
 
     def test_a_real_failure_of_an_untouched_guard_still_fails(self):
         verdict = self.judge({self.PREPUSH: "import sys\nsys.exit(1)\n"}, {"README.md": "car\n"}, {"guard"})

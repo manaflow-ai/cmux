@@ -45,10 +45,6 @@ INVOKED_PATH = re.compile(r"(?:\./)?(tests(?:_v2)?/[A-Za-z0-9_.-]+\.(?:py|sh))")
 # an allowlist that can be appended to without argument is the failure mode
 # this test exists to prevent.
 UNWIRED: set[str] = {
-    # lane = "manual" (no new CI tests, CLAUDE.md). It reads the workflows only as data: that each job portable
-    # placement may put on a mini installs PyYAML before it runs Python tests. Run it by hand after adding
-    # such a job. Exit: as below.
-    "tests/test_portable_jobs_bring_their_python.py",
     # lane = "manual" (no new CI tests, CLAUDE.md). It runs scripts/cmux-next/cargo-locks.py in a throwaway
     # repository and reads rust-workspaces.yml only as data (that the workflow calls the script). Run it by hand
     # when the script or that workflow changes. Exit: as below.

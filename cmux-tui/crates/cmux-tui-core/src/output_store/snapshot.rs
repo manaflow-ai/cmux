@@ -18,7 +18,7 @@
 //! once per [`super::TAIL_COMPACT_SPACING`] while it stays under
 //! [`super::TAIL_FLOOD_MAX_BYTES`]). At quit the tail takes the last bytes
 //! (synced), and a snapshot is written only where the tail cannot carry
-//! them (`quit_pass_tests.rs`).
+//! them, a terminal on the alternate screen included (`quit_pass_tests.rs`).
 //! The snapshot records the stream offset its screen ends at, read under
 //! the parser lock with no parsed chunk in flight, so the tail continues it
 //! byte for byte; then the tail file goes.
@@ -170,7 +170,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                 };
                 let upload = terminal.kitty_upload_in_progress();
                 let seen = Seen { digest, settled, end, size: Some(size), upload };
-                if !plan.wants_snapshot(digest, size, size_settled, full, tail, quitting) {
+                let alternate = terminal.active_screen() != ghostty_vt::Screen::Primary;
+                let screen = ScreenNow { digest, size, alternate };
+                if !plan.wants_snapshot(screen, size_settled, full, tail, quitting) {
                     return Some((seen, size, Capture::None));
                 }
                 if !settled {
@@ -359,13 +361,13 @@ impl Plan {
     /// `size_settled`: the terminal's size has held for `RESIZE_SETTLE`.
     fn wants_snapshot(
         &self,
-        digest: u64,
-        size: (u16, u16),
+        screen: ScreenNow,
         size_settled: bool,
         full: bool,
         tail: bool,
         quitting: bool,
     ) -> bool {
+        let ScreenNow { digest, size, alternate } = screen;
         let changed = self.snapshot_digest != Some(digest);
         if !tail {
             // Full mode: at most once per interval, at once at quit.
@@ -388,9 +390,14 @@ impl Plan {
             // daemon reads a snapshot and its tail alike. A snapshot is only
             // for what the tail cannot carry (no snapshot of this generation
             // from this daemon, a new size, a cap); compaction waits for the
-            // next daemon (quit_pass_tests.rs).
+            // next daemon (quit_pass_tests.rs). Nor a terminal on the
+            // alternate screen: a build before ed6ab5728d8c (2026-11-10), an
+            // update rolled back, rebuilds a snapshot plus a tail that ends
+            // there without the primary screen and its scrollback; this
+            // build's snapshot keeps both, and that build replays it as is.
             let carries = self.tail_continues
                 && !new_generation
+                && !alternate
                 && self.snapshot_size == Some(size)
                 && self.tail_bytes < super::TAIL_HARD_MAX_BYTES
                 && self.pending <= super::TAIL_MAX_UNWRITTEN_BYTES;
@@ -412,6 +419,17 @@ impl Plan {
             || self.tail_bytes >= super::TAIL_FLOOD_MAX_BYTES
             || self.pending >= super::TAIL_IDLE_BYTES
     }
+}
+
+/// What a pass read of a terminal's screen under its parser lock.
+#[derive(Clone, Copy)]
+struct ScreenNow {
+    /// [`content_digest`] of the screen.
+    digest: u64,
+    /// Columns and rows.
+    size: (u16, u16),
+    /// The alternate screen is active (a full-screen program).
+    alternate: bool,
 }
 
 /// The result of one log's capture under its parser lock.

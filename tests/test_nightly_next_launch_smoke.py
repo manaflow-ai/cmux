@@ -121,6 +121,35 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(smoke.verdict([(1, {"verdict": "fail"}), (1, {"verdict": "fail"})]), smoke.CANNOT_RUN)
         self.assertEqual(smoke.verdict([(0, {})]), smoke.CANNOT_RUN)
 
+    def test_an_attempt_that_the_gate_cut_is_read_by_its_report(self) -> None:
+        # launch-smoke-gate.sh writes status 124 for an attempt that its watchdog stopped. The harness writes its
+        # verdict before it keeps the evidence, so a report that says the app ended is a crash at the cut too:
+        # read as cannot-run, a build that crashed in both attempts was published (cannot-run never holds).
+        self.assertEqual(smoke.CUT, 124)
+        self.assertIn(f"status={smoke.CUT}\n", GATE.read_text())
+        self.assertEqual(smoke.attempt_result(124, RAN), smoke.CRASH)
+        seeded = {"verdict": "fail", "pid": 4243, "exit": -11, "arm": "seeded", "crash_reports": [],
+                  "failures": ["seeded home: the app exited (signal 11) 2.6s after launch"]}
+        self.assertEqual(smoke.attempt_result(124, seeded), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(124, RAN), (124, seeded)]), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, RAN), (124, RAN)]), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(124, RAN), (1, RAN)]), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(124, RAN)]), smoke.CANNOT_RUN)  # one crash is never a hold
+        self.assertEqual(smoke.verdict([(124, RAN), (0, PASSED)]), smoke.PASS)
+
+    def test_a_cut_attempt_with_no_evidence_of_the_apps_end_is_cannot_run(self) -> None:
+        # The cut alone says nothing of the app: no report, a report with no verdict yet (the cut came while the
+        # app was watched), a live app with no Home, and a pass that the cut did not let end.
+        for report in ({}, {"pid": 4242}, {"verdict": "fail", "pid": 4242}, NO_HOME, NO_LAUNCH, PASSED,
+                       {"verdict": "fail", "exit": -11}, {"verdict": "pass", "pid": 4242, "exit": -11},
+                       {"verdict": "fail", "pid": 4242, "exit": 0}):
+            self.assertEqual(smoke.attempt_result(124, report), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.verdict([(124, report), (124, report)]), smoke.CANNOT_RUN, report)
+        self.assertEqual(smoke.verdict([(124, RAN), (124, NO_HOME)]), smoke.CANNOT_RUN)
+        # Only the gate's own cut: a harness that a signal ended with no watchdog (143, 137) is as before.
+        for status in (143, 137, 2, 3, -1):
+            self.assertEqual(smoke.attempt_result(status, RAN), smoke.CANNOT_RUN, status)
+
     def test_attempts_are_read_from_the_runs_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -509,7 +538,8 @@ class PrePublishGateTests(unittest.TestCase):
 class GateScriptTests(unittest.TestCase):
     """launch-smoke-gate.sh against a stub harness: only a crash with launch evidence fails."""
 
-    def run_gate(self, plan: list[str], attempt_seconds: str = "60") -> tuple[int, str, Path]:
+    def run_gate(self, plan: list[str], attempt_seconds: str = "60", stale: dict | None = None,
+                 stale_folder: bool = False) -> tuple[int, str, Path]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ci = root / "scripts" / "ci"
@@ -538,6 +568,18 @@ class GateScriptTests(unittest.TestCase):
                 "        sys.exit(1)\n"
                 "    signal.signal(signal.SIGTERM, stop)\n    time.sleep(30)\n"
                 "if kind == 'stubborn':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    time.sleep(30)\n"
+                # What the real harness does when it is cut after its verdict (in the system log read or the wait
+                # for a late report): it stops, writes the report it has and exits 128 + SIGTERM.
+                "if kind in ('cut-crash', 'cut-no-home'):\n"
+                "    def cut(*_):\n"
+                "        said = {'verdict': 'fail', 'pid': 2, 'exit': -11, 'arm': 'seeded',\n"
+                "                'failures': ['seeded home: the app exited (signal 11) 2.6s after launch'],\n"
+                "                'arms': {'empty': {'verdict': 'pass', 'exit': None}, 'seeded': {'verdict': 'fail', 'exit': -11}}}\n"
+                "        if kind == 'cut-no-home':\n"
+                "            said = {'verdict': 'fail', 'pid': 1, 'exit': None, 'failures': ['Home did not render within 90s']}\n"
+                "        open(os.path.join(out, 'report.json'), 'w').write(json.dumps(said))\n"
+                "        sys.exit(143)\n"
+                "    signal.signal(signal.SIGTERM, cut)\n    time.sleep(30)\n"
                 "empty = {'verdict': 'pass', 'exit': None}\n"
                 "report = {'pass': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
@@ -558,6 +600,12 @@ class GateScriptTests(unittest.TestCase):
             dmg = root / "app.dmg"
             dmg.write_bytes(b"dmg")
             (root / "runner").mkdir()
+            if stale is not None:  # a report that an earlier run of the gate left in this RUNNER_TEMP
+                for n in (1, 2):
+                    (root / "runner" / "launch-smoke" / f"attempt-{n}").mkdir(parents=True)
+                    (root / "runner" / "launch-smoke" / f"attempt-{n}" / "report.json").write_text(json.dumps(stale))
+            if stale_folder:
+                (root / "runner" / "launch-smoke" / "attempt-1" / "report.json" / "kept").mkdir(parents=True)
             env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(root / "runner"), "STUB_PLAN": ",".join(plan),
                    "LAUNCH_SMOKE_ATTEMPT_SECONDS": attempt_seconds, "LAUNCH_SMOKE_KILL_GRACE": "1",
                    "GITHUB_STEP_SUMMARY": str(root / "summary.md")}
@@ -622,6 +670,54 @@ class GateScriptTests(unittest.TestCase):
         self.assertTrue(cleaned, "the harness got SIGTERM and ran its cleanup")
         self.assertIn("still running after 2s", output)
         self.assertIn("::warning", output)
+
+    def test_a_crash_that_both_cut_attempts_saw_holds_the_build(self) -> None:
+        # The hole: an attempt that is cut after the harness saw the app end was cannot-run, so the gate made no
+        # second attempt and the build was published. Now it is a crash of that attempt, as its report says.
+        status, output, _ = self.run_gate(["cut-crash", "cut-crash"], attempt_seconds="2")
+        self.assertEqual(status, 1, output)
+        self.assertIn("launch smoke attempt 1: still running after 2s, stopped", output)
+        self.assertIn("launch smoke attempt 2: exit 124", output)
+        self.assertIn("from a seeded home (imported-cookie sync on) on both attempts", output)
+        self.assertIn("not published", output)
+        self.assertIn("### Launch smoke: crash", self.summary)
+        for plan in (["cut-crash", "seeded-crash"], ["crash", "cut-crash"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="2")
+            self.assertEqual(status, 1, (plan, output))
+
+    def test_one_cut_crash_or_a_cut_with_no_crash_never_holds_the_build(self) -> None:
+        for plan in (["cut-crash", "pass"], ["cut-crash", "cannot-run"], ["cut-crash", "hang"],
+                     ["cut-crash", "cut-no-home"], ["seeded-crash", "hang"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="2")
+            self.assertEqual(status, 0, (plan, output))
+            self.assertIn("launch smoke attempt 2: exit", output, plan)
+        # A cut with no crash in its report ends the check, as before: no second attempt.
+        for plan in (["cut-no-home", "crash"], ["hang", "crash"], ["stubborn", "crash"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="2")
+            self.assertEqual(status, 0, (plan, output))
+            self.assertNotIn("launch smoke attempt 2", output, plan)
+            self.assertIn("::warning", output, plan)
+
+    def test_a_report_that_an_earlier_run_left_is_never_this_attempts_report(self) -> None:
+        # A cut attempt is read by its report, so the report must be THIS attempt's. A harness that is killed
+        # writes none: an old report in the attempt's folder (a crash of another run) must not hold this build.
+        old = {"verdict": "fail", "pid": 9, "exit": -11, "failures": ["the app exited (signal 11) 2.6s after launch"]}
+        for plan in (["stubborn", "stubborn"], ["stubborn"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="1", stale=old)
+            self.assertEqual(status, 0, (plan, output))
+            self.assertIn("launch smoke attempt 1: exit 124", output)
+            self.assertNotIn("launch smoke attempt 2", output)
+            self.assertNotIn("not published", output)
+            self.assertIn("### Launch smoke: cannot-run", self.summary)
+        # An old report that cannot be removed (here: a folder with that name) ends the check with no launch.
+        status, output, root = self.run_gate(["crash", "crash"], stale_folder=True)
+        self.assertEqual(status, 0, output)
+        self.assertIn("cannot be removed", output)
+        self.assertNotIn("launch smoke attempt 1: exit", output)
+        self.assertIn("### Launch smoke: cannot-run", self.summary)
+        # A report that this attempt wrote is still read, in a folder that had an old one.
+        status, output, _ = self.run_gate(["cut-crash", "cut-crash"], attempt_seconds="2", stale={"verdict": "pass", "pid": 9})
+        self.assertEqual(status, 1, output)
 
     def test_a_harness_that_ignores_sigterm_is_killed_and_never_holds_the_build(self) -> None:
         status, output, _ = self.run_gate(["stubborn"], attempt_seconds="1")
