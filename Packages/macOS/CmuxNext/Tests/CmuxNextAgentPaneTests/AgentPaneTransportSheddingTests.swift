@@ -53,18 +53,29 @@ struct AgentPaneTransportSheddingTests {
         frames.filter { $0.contains(#""method":"_acpmux/lagged""#) }
     }
 
+    /// The `dropped` counts the markers name, summed.
+    private static func dropped(_ frames: [String]) -> Int {
+        lagMarkers(frames).reduce(0) { total, marker in
+            guard let object = try? JSONSerialization.jsonObject(with: Data(marker.utf8)) as? [String: Any],
+                  let params = object["params"] as? [String: Any], let count = params["dropped"] as? Int else { return total }
+            return total + count
+        }
+    }
+
     @Test func aFullQueueShedsNotificationsAndKeepsTheConnection() throws {
         let socket = try Self.socket(Self.small())
         for seq in 1...40 { socket.receiveLocalReply(Self.chunk(seq)) }
         let batch = Self.drain(socket)
         #expect(!socket.isClosed)
         #expect(batch.closed == nil)
-        // The page got what fit, then one marker that names how many it missed.
+        // The page got what fit, then one marker that names how many it missed: every frame sent
+        // is either delivered or counted. (The bound is soft: frames an inbound pass is checking are
+        // in neither queue, so how many fit depends on timing.)
         let markers = Self.lagMarkers(batch.frames)
         #expect(markers.count == 1)
         let kept = batch.frames.count - markers.count
-        #expect(kept >= 1 && kept <= 8)
-        #expect(markers.first?.contains(#""dropped":\#(40 - kept)"#) == true)
+        #expect(kept >= 1 && kept < 40)
+        #expect(kept + Self.dropped(batch.frames) == 40)
         #expect(markers.first?.contains(#""watch":true"#) == true)
         // Caught up: notifications flow again, with no further marker.
         socket.receiveLocalReply(Self.chunk(41))
@@ -106,7 +117,11 @@ struct AgentPaneTransportSheddingTests {
         let batch = Self.drain(socket)
         #expect(!socket.isClosed)
         #expect(batch.closed == nil)
-        #expect(Self.lagMarkers(batch.frames).count == 1)
+        // The reply arrived whole, and every chunk was delivered or counted in at most one marker.
+        #expect(batch.frames.contains(reply))
+        let markers = Self.lagMarkers(batch.frames)
+        #expect(markers.count <= 1)
+        #expect(batch.frames.count - markers.count + Self.dropped(batch.frames) == 201)
     }
 
     /// The reconnect loop's shape, many times over: the page falls behind, catches up, and falls
@@ -121,7 +136,9 @@ struct AgentPaneTransportSheddingTests {
             }
             let batch = Self.drain(socket)
             #expect(batch.closed == nil)
-            #expect(Self.lagMarkers(batch.frames).count == 1)
+            let markers = Self.lagMarkers(batch.frames)
+            #expect(markers.count == 1)
+            #expect(batch.frames.count - markers.count + Self.dropped(batch.frames) == 30)
         }
         #expect(!socket.isClosed)
     }
