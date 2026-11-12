@@ -27,15 +27,16 @@ extension PageWebView {
     }
 
     /// ``waitUntilLoaded()`` for at most `deadline` (a one-shot DemandTimer): false when the deadline
-    /// or a cancel came first, so a page that never loads cannot hold its caller.
-    public func waitUntilLoaded(within deadline: Duration) async -> Bool {
-        await waitForLoad(deadline: deadline)
+    /// or a cancel came first, so a page that never loads cannot hold its caller. `clock` times the
+    /// deadline (a test's manual clock).
+    public func waitUntilLoaded(within deadline: Duration, clock: any Clock<Duration> = ContinuousClock()) async -> Bool {
+        await waitForLoad(deadline: deadline, clock: clock)
     }
 
-    private func waitForLoad(deadline: Duration?) async -> Bool {
+    private func waitForLoad(deadline: Duration?, clock: any Clock<Duration> = ContinuousClock()) async -> Bool {
         guard !loaded || claimState.pending else { return true }
         let id = UUID()
-        let timer = DemandTimer(owner: "page.load.deadline")
+        let timer = DemandTimer(owner: "page.load.deadline", clock: clock)
         defer { timer.cancel() }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in

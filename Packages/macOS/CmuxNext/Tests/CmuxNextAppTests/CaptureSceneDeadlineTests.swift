@@ -1,6 +1,7 @@
 #if DEBUG
 import CmuxNextControl
 @testable import CmuxNextPages
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -41,23 +42,27 @@ import WebKit
     }
 
     /// The permission-feed-peer row: the pinned Needs you page never loads. The scene's load wait
-    /// (``PageWebView/waitUntilLoaded(within:)``, bounded by the row's deadline) answers by that
-    /// deadline that the page did not load.
+    /// (``PageWebView/waitUntilLoaded(within:clock:)``, bounded by the row's deadline) is still waiting
+    /// just before its deadline and answers "not loaded" once the deadline comes, on a manual clock.
     @Test func aPageThatNeverLoadsAnswersByTheDeadline() async throws {
         let (page, root) = try Self.neverLoadingPage("test.capture-never-loads")
         defer { page.close(); try? FileManager.default.removeItem(at: root) }
+        let clock = ManualClock()
+        let deadline = Duration.seconds(6)
         let outcome = Outcome()
-        let started = ContinuousClock.now
         let wait = Task { @MainActor in
-            outcome.loaded = await page.waitUntilLoaded(within: .milliseconds(100))
+            outcome.loaded = await page.waitUntilLoaded(within: deadline, clock: clock)
             outcome.returned = true
         }
+        defer { wait.cancel() }
+        try await clock.waitForSleeper()
+        clock.advance(by: deadline - .milliseconds(1))
+        await Task.yield()
+        #expect(!outcome.returned, "the wait answered before its deadline")
+        clock.advance(by: .milliseconds(1))
         await until { outcome.returned }
-        let took = ContinuousClock.now - started
-        wait.cancel()
-        #expect(outcome.returned, "the load wait hung past its 100 ms deadline")
-        #expect(outcome.loaded == false, "the page did not load within the deadline")
-        #expect(took < .milliseconds(1_100), "it answered by the deadline plus a margin")
+        #expect(outcome.returned, "the load wait hung past its deadline")
+        #expect(outcome.loaded == false, "the deadline's answer: the page did not load")
     }
 
     /// A cancelled load wait returns at once: the deadline that won leaves no waiter parked on the page.
