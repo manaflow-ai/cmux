@@ -31,9 +31,8 @@ enum WorkspaceCreation {
         repair: EmptyWorkspaceRepair, terminalFirst: Bool = true, // false: `terminal` needs the workspace before its terminal
         terminal: (WorkspaceKey) async throws -> T
     ) async throws -> T {
-        // A workspace with a terminal is a new terminal (Cmd-N, R3): its create waits through late replies under its
-        // mutation id, so only the daemon's answer or the connection's end can take it back, never a clock. The first
-        // terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
+        // A workspace with a terminal is a new terminal (Cmd-N, R3): its create waits through late replies under its mutation id, so only the daemon's answer or the
+        // connection's end can take it back, never a clock. The first terminal is the caller's (`createTerminalWaitingForStart`); a later step of `terminal` is the caller's own work.
         let one = terminalFirst ? await connection.makesWorkspace(with: NewTerminalWorkspace(key: key, name: name)) : false // one request
         return try await repair.populating(key) {
             try await repair.withTerminal(
