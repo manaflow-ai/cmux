@@ -2115,8 +2115,13 @@ function TranscriptView({
       // borked and unintegrated"). The lines at the end that open nothing of the turn's work (a
       // received message's line, the live line) still enter, on the same fade as any live row; the
       // regrouped work stays the turn end's fold's (turnEndFold.ts). O(arrived).
+      // A turn's end brings its folds and its footer as new rows: they are the fold's, drawn at full
+      // ink where they land (Leo, 2026-11-11: "It should not look like a PowerPoint transition slide
+      // fade-in"); only the lines that open none of its work enter.
+      const turnEnd = endsTurn(previous, rows);
       const entering = enteringRows.current;
-      for (const row of arrived) if (live || row.below || isLineRow(row)) entering.add(rowFrameKey(row));
+      for (const row of arrived)
+        if (row.below || isLineRow(row) || (live && !turnEnd)) entering.add(rowFrameKey(row));
     }
   }
   knownFor.current = rows;

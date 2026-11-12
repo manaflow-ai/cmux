@@ -13,9 +13,9 @@ import { minutesAgo } from "../../../gallery/clock";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxRow } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
-import { backgroundRunRowId } from "./backgroundRuns";
 import { BACKGROUND_TURN, backgroundTurnRowId } from "./backgroundTurns";
 import { backgroundTurnLook, drawsBackgroundTurnLines } from "./backgroundTurnLook.experiment";
+import { openTailFolds } from "./endedStretchPlay";
 
 /// The turn every variant starts with: a prompt, the reply and its footer row.
 const opening = [
@@ -52,14 +52,21 @@ const subagent: Subagent = {
   prompt: "Find the migration runner",
 };
 
-/// The line each variant measures (`data-row-id`), by variant.
+/// The tail fold the agent's own work after the turn folds into, in place (turns.ts `foldTail`): one
+/// "Worked for" keyed by the prompt and the stretch's first row.
+const tailFold = (first: string) => `worked-lone-prompt~tail-${first}`;
+
+/// The line each variant measures (`data-row-id`), by variant. After the turn ended, the agent's own
+/// work (a background turn, a task's or a subagent's end, a run of them) folds in place under the
+/// tail's "Worked for" (Leo, 2026-11-11: "Do those not count as the works for?"), so that line is the
+/// lone line under the footer. Another agent's message stays in sight on its own line.
 export const LONE_LINE: Record<string, string> = {
-  "background-update": backgroundTurnRowId("lone-bg"),
-  "background-update-running": backgroundTurnRowId("lone-bg-running"),
-  "scheduled-check-running": backgroundTurnRowId("lone-check-running"),
-  "background-task": "lone-task",
-  "background-tasks-run": backgroundRunRowId(backgroundTurnRowId("lone-run-a")),
-  "subagent-finished": "subagentDone:lone-agent",
+  "background-update": tailFold(backgroundTurnRowId("lone-bg")),
+  "background-update-running": tailFold(backgroundTurnRowId("lone-bg-running")),
+  "scheduled-check-running": tailFold(backgroundTurnRowId("lone-check-running")),
+  "background-task": tailFold("lone-task"),
+  "background-tasks-run": tailFold(backgroundTurnRowId("lone-run-a")),
+  "subagent-finished": tailFold("subagentDone:lone-agent"),
   "received-message": "lone-received",
 };
 
@@ -135,9 +142,12 @@ export default agentPaneEntry({
     "background-update-hover": {
       note: '"Background update" under the pointer: its words light all the way through, as a tool row\'s do; its clock stays (Leo, 2026-11-09).',
       snapshot: chat([...opening, ...quiet("lone-bg", 8), next]),
+      checks: { layoutShiftMax: { value: 0.5, reason: "Opening the ended turn tail Worked for first (turns.ts foldTail) intentionally reveals its rows below it." } },
       play: async (ctx) => {
         // The line look's line (backgroundTurnLook.experiment.ts); the inline look draws none.
         if (!drawsBackgroundTurnLines()) return;
+        // After the turn ended, the line folds in place in its tail: open it first.
+        await openTailFolds(ctx);
         await ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" });
       },
     },
@@ -150,9 +160,12 @@ export default agentPaneEntry({
         ...quiet("lone-run-c", 7, "task_notification"),
         next,
       ]),
+      checks: { layoutShiftMax: { value: 0.5, reason: "Opening the ended turn tail Worked for first (turns.ts foldTail) intentionally reveals its rows below it." } },
       play: async (ctx) => {
         // The line look's line (backgroundTurnLook.experiment.ts); the inline look draws none.
         if (!drawsBackgroundTurnLines()) return;
+        // After the turn ended, the line folds in place in its tail: open it first.
+        await openTailFolds(ctx);
         await ctx.hover({ selector: "button.cv-background-turn .cv-agent-activity__sentence" });
       },
     },

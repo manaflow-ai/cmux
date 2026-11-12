@@ -10,7 +10,7 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
-import { openEndedStretch } from "./endedStretchPlay";
+import { openEndedStretch, openTailFolds } from "./endedStretchPlay";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -3854,6 +3854,8 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         if (!drawsBackgroundTurnLines()) return;
+        // Both turns fold in place in the ended turn's tail (turns.ts foldTail): open it first.
+        await openTailFolds(ctx);
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-quiet")}"] .cv-background-turn` };
         await ctx.click(line);
         await ctx.waitFor(() => ctx.find(line).getAttribute("aria-expanded") === "true");
@@ -3866,6 +3868,10 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
           throw new Error("an ended background turn with nothing to open drew a line");
         if (!drawsBackgroundTurnLines()) return;
+        // The running one folds in place in the ended turn's tail (turns.ts foldTail): open it first.
+        await openTailFolds(ctx);
+        if (ctx.document.querySelector(`[data-row-id="${backgroundTurnRowId("gallery-bg-empty")}"]`))
+          throw new Error("an ended background turn with nothing to open drew a line in the opened tail");
         const line = { selector: `[data-row-id="${backgroundTurnRowId("gallery-bg-waiting")}"] .cv-background-turn` };
         if (ctx.find(line).tagName === "BUTTON") throw new Error("a background line with nothing to open is a button");
         if (ctx.find(line).querySelector(".cv-agent-activity__chevron"))

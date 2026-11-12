@@ -3,10 +3,12 @@
 // lone "Background update" a block gap under the footer and a turn gap over the next prompt: "this bare
 // background update tool call floating in teh air is so weird loking proportionally".
 //
-// Gallery entry agent-pane.lone-system-rows draws each kind of line (a quiet and a running background
-// turn, a background task's end, a folded run of them, a subagent's end) under a turn's footer row, then
-// the next prompt; and another agent's line, which keeps the block gap. The test measures, in Chromium,
-// the footer's glyph centre to the line's centre and the line's centre to the next bubble's top edge.
+// Gallery entry agent-pane.lone-system-rows draws each kind of the agent's own work after a turn ended (a
+// quiet and a running background turn, a background task's end, a run of them, a subagent's end) under
+// a turn's footer row, then the next prompt; and another agent's line, which keeps the block gap. The
+// work folds in place under the tail's "Worked for" (turns.ts `foldTail`), so that line is the lone
+// line measured (LONE_LINE). The test measures, in Chromium, the footer's glyph centre to the line's
+// centre and the line's centre to the next bubble's top edge.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";

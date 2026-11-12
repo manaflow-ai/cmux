@@ -792,7 +792,9 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
   if (!waiting.length) return NO_ASKS;
   // The newest card counts only once a turn came after it: before that it is the chat's last row.
   const newest = nextSteps.at(-1)!;
-  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some((row) => row.kind === "user")) waiting.shift();
+  // A turn another agent's message started draws its prompt folded into its "Worked for" (`foldedPrompt`).
+  const startsTurn = (row: AcpmuxRow) => row.kind === "user" || (row.kind === WORKED && row.foldedPrompt !== undefined);
+  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some(startsTurn)) waiting.shift();
   return waiting.length ? waiting.reverse() : NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
@@ -1351,7 +1353,16 @@ function shapeTurn(
     steerDialogue.has(row.id) ||
     replies.has(row.id) ||
     (taskLook === "card" && startsTask(row)) ||
-    (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)));
+    waitsOnPermission(row);
+  // A row of the turn's work as an open fold draws it: a run folds into its summary line, an edit's
+  // copy takes its own id so the edits card keeps the step's (TurnRows.tsx `runStretches`).
+  const foldedRun = (row: AcpmuxRow): AcpmuxRow => ({
+    ...endedPlan(row),
+    id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
+    settled: true,
+    // A folded run draws otherwise, so its version moves (memos compare versions).
+    ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
+  });
   // The turn's todo list closes the turn, under the answer, where it stood pinned while the turn ran
   // (shapeLiveTurn): it neither splits a stretch nor draws in one.
   const drawn = body.filter((row) => row.kind !== "typing" && !isPlan(row));
@@ -1432,7 +1443,14 @@ function shapeTurn(
     if (part.sight) {
       const row = part.sight;
       if (row !== answer) {
-        shaped.push(endedPlan(row));
+        // A step with a call waiting for its permission draws as an open fold draws it, open or
+        // closed: the call keeps its own row between the summary lines of the step's other calls, and
+        // its edits are on the turn's edits card too.
+        if (waitsOnPermission(row)) {
+          const kept = withoutDrafts(row);
+          edits.push(...kept.filter(isEdit));
+          shaped.push(...kept.map(foldedRun));
+        } else shaped.push(endedPlan(row));
         continue;
       }
       const underAnswer = Boolean(nextStep && !cutOff);
@@ -1468,18 +1486,7 @@ function shapeTurn(
     // Open, each run of its work folds into its summary line between the commentary, as in a running
     // turn (codexRuns). A run that edited folds too: its edits stay in sight between the summary lines
     // of the work around them (TurnRows.tsx `runStretches`).
-    if (open)
-      shaped.push(
-        ...mergeShortNotes(work, steerDialogue, style.runs)
-          .flatMap(withoutDrafts)
-          .map((row) => ({
-            ...endedPlan(row),
-            id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
-            settled: true,
-            // A folded run draws otherwise, so its version moves (memos compare versions).
-            ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
-          })),
-      );
+    if (open) shaped.push(...mergeShortNotes(work, steerDialogue, style.runs).flatMap(withoutDrafts).map(foldedRun));
     // A render card keeps its place: right after the work that drew it.
     shaped.push(...renderRows(work, version));
   }
@@ -1636,6 +1643,10 @@ type Stretch = { sight?: AcpmuxRow; work?: AcpmuxRow[]; began: number };
 
 /// `rows` in order, split at each row `inSight` keeps: the rows between two of them are one stretch of
 /// work. Nothing moves: concatenated, the stretches are `rows`.
+/// Whether a step of an ended turn has a call still waiting for the person's permission.
+const waitsOnPermission = (row: AcpmuxRow) =>
+  row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool));
+
 function workStretches(rows: readonly AcpmuxRow[], inSight: (row: AcpmuxRow) => boolean, began: number): Stretch[] {
   const out: Stretch[] = [];
   let work: AcpmuxRow[] | undefined;
