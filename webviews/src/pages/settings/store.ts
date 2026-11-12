@@ -114,6 +114,8 @@ export type SettingsState = {
   domains: Domains;
   /** Spaces, machines and browser profiles; null until read, or when the host has none. */
   host: HostLists | null;
+  /** The host lists' first read finished, with data or with an error (then `host` stays null). */
+  hostSettled: boolean;
   /** The Accounts part; null until read, or when the host has none. */
   accounts: AccountsState | null;
   /** The Harnesses part (Settings > Agents); null until read, or when the host has none. */
@@ -133,6 +135,8 @@ export type CacheView = {
   /** The scope's first read finished (data or error). */
   scopeSettled: boolean;
   host: HostData | undefined;
+  /** The host lists' first read finished (data or error). */
+  hostSettled?: boolean;
   accounts: AccountsData | undefined;
   harnesses?: HarnessesData | undefined;
   devices?: DevicesData | undefined;
@@ -176,6 +180,7 @@ export function composeState(ui: UiState, cache: CacheView): SettingsState {
     errors: ui.errors,
     domains: scope?.domains ?? emptyDomains,
     host: cache.host ?? null,
+    hostSettled: cache.host !== undefined || (cache.hostSettled ?? false),
     accounts: cache.accounts ?? null,
     harnesses: cache.harnesses ?? null,
     devices: cache.devices ?? null,
@@ -825,10 +830,12 @@ export class SettingsStore {
   /** The cache as the page composes it, read outside React (keyboard commands, tests). */
   cacheView(): CacheView {
     const scopeState = this.queryClient.getQueryState(settingsKeys.scope("user"));
+    const hostState = this.queryClient.getQueryState(settingsKeys.host);
     return {
       scope: this.queryClient.getQueryData<ScopeData>(settingsKeys.scope("user")),
       scopeSettled: scopeState !== undefined && scopeState.status !== "pending",
       host: this.queryClient.getQueryData<HostData>(settingsKeys.host),
+      hostSettled: hostState !== undefined && hostState.status !== "pending",
       accounts: this.queryClient.getQueryData<AccountsData>(settingsKeys.accounts),
       harnesses: this.queryClient.getQueryData<HarnessesData>(settingsKeys.harnesses),
       devices: this.queryClient.getQueryData<DevicesData>(settingsKeys.devices),
@@ -847,6 +854,7 @@ export class SettingsStore {
       last.cache.scope === cache.scope &&
       last.cache.scopeSettled === cache.scopeSettled &&
       last.cache.host === cache.host &&
+      last.cache.hostSettled === cache.hostSettled &&
       last.cache.accounts === cache.accounts &&
       last.cache.harnesses === cache.harnesses &&
       last.cache.devices === cache.devices &&

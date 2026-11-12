@@ -10,13 +10,14 @@
 //!   prompt is section 9's subagent prompt, VIEW_DOC and the user's
 //!   instructions (the subagent preset's system prompt on a Claude harness,
 //!   else the subagent directory's CLAUDE.md or AGENTS.md). It answers the
-//!   ids at once. A subagent the Chief shows (`spawn(sidebar)` under the
-//!   user's rules, sidebar_choice.rs, a1018) also gets a cmux workspace whose
-//!   tab is its chat (workspaces.rs), so the user can watch and join it, when
-//!   this host has somewhere to make one; a hidden one (#26386) is reached
-//!   from its link and `control show` opens its workspace later. The answer says, per subagent, which workspace it got
-//!   and where, that it is hidden, or that it got none and why: the Chief
-//!   repeats it to the user, so it must never claim more than happened.
+//!   ids at once. Every subagent also gets a cmux workspace whose tab is its
+//!   chat (workspaces.rs), so the user can always find, watch and join it,
+//!   when this host has somewhere to make one: a `user` workspace in the
+//!   sidebar or a `chief` one in the collapsed "Chief's workspaces" group
+//!   (`spawn(sidebar)` under the user's rules, action_lifetime.rs; no subagent
+//!   is hidden). The answer says, per subagent, which workspace it got and
+//!   where, or that it got none and why: the Chief repeats it to the user, so
+//!   it must never claim more than happened.
 //! - `spawn` takes an optional working directory (`~` is this host's home).
 //!   A directory that does not exist here is reported and the default
 //!   subagent directory is used.
@@ -1003,7 +1004,7 @@ impl Spawner {
 
     /// Starts subagent `id`'s session (in `s.cwd`) and first prompt, then its
     /// workspace; answers what the user can see of it: its workspace and
-    /// where it lives, that it runs hidden, or that it has none and why.
+    /// where it lives, or that it has none and why.
     #[allow(clippy::too_many_arguments)]
     fn start_one(
         &self,
@@ -1148,18 +1149,17 @@ impl Spawner {
         // The terminal beside the chat runs on this Mac: a peer session's
         // folder is on the VM (/home/agent/work), and a PTY spawned in a
         // folder missing here fails, so the subagent got no workspace (a511).
-        // Its lifetime (action_lifetime.rs): a background Task has no workspace, a tucked
-        // Workspace joins the collapsed Chief group and closes when its work ends.
-        // One that runs with policy ask always shows: only its tab can allow its prompts, so it
-        // is never tucked or reaped.
+        // Its kind (action_lifetime.rs): a `user` workspace in the sidebar, or a `chief` one in
+        // the collapsed "Chief's workspaces" group; nothing closes either on its own.
+        // One that runs with policy ask is always `user`: only its tab can allow its prompts.
         let mut route = self.lifetime(task);
         if spec.policy == crate::approval::ASK {
             route = route.shown("it asks before it acts");
         }
         let made = crate::action_lifetime::Made::of(&route);
         let slot_place = (
-            if made.tucked() {
-                crate::action_lifetime::TUCK_GROUP.to_owned()
+            if made.in_chief_group() {
+                crate::action_lifetime::CHIEF_GROUP.to_owned()
             } else {
                 crate::workspaces::spawn_group(task).to_owned()
             },
@@ -1190,8 +1190,9 @@ impl Spawner {
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
         // goal.rs: a Claude subagent here gets its task, then `/goal`, the
-        // prompt the Chief follows (its end is the report). acpmux runs a
-        // session's prompts in order, so the goal turn starts after the task.
+        // prompt the Chief follows (its end is the report). `/goal` goes out
+        // only when the task turn ended: sent back to back, acpmux ran the
+        // short `/goal` before the long task (a1141, 2026-11-12).
         let goal = self.goal_for(admitted.family, peer.is_some());
         self.trace.emit(
             "subagent.start",
@@ -1201,15 +1202,16 @@ impl Spawner {
         if let Some(hold_id) = &hold_id {
             let mut blocks = crate::prompt::subagent_blocks(view, task);
             blocks.push(crate::goal::hold_block());
-            let (hold_tx, _hold_rx) = channel();
+            let (hold_tx, hold_rx) = channel();
             self.agents
                 .start_prompt(&session, blocks, hold_id, hold_tx)?;
-            self.agents.start_prompt(
-                &session,
-                vec![json!({"type": "text", "text": crate::goal::command()})],
-                &prompt_id,
+            send_goal_after_task(
+                self.agents.clone(),
+                session.clone(),
+                prompt_id.clone(),
+                hold_rx,
                 tx,
-            )?;
+            );
         } else {
             self.agents.start_prompt(
                 &session,
@@ -1231,21 +1233,10 @@ impl Spawner {
         };
         let (group, term_cwd) = slot_place;
         let key = key.unwrap_or_else(crate::workspaces::new_key);
-        // Its lifetime under the person's words and rules (action_lifetime.rs, sidebar_choice.rs):
-        // a background Task is reached from its link in the Chief's reply and its row in the
-        // composer hat, and `control show` adds its workspace. One that runs with policy ask
-        // (the spawn floor, or MUX_POLICY) always shows: only its tab can allow its prompts.
+        // Every subagent gets its workspace (Aziz, 2026-11-11: "no hidden workspaces at all").
+        // One that runs with policy ask (the spawn floor, or MUX_POLICY) is always `user`: only
+        // its tab can allow its prompts.
         let ask = spec.policy == crate::approval::ASK;
-        if !ask && route.lifetime != crate::action_lifetime::Lifetime::Workspace {
-            self.trace.emit(
-                "subagent.hidden",
-                json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "why": route.why, "lifetime": route.lifetime.as_str()}),
-            );
-            return Ok(format!(
-                "hidden: a background task with no sidebar workspace ({}); its link opens its chat, its row shows over the composer until it ends, and control(action: \"show\", id: \"{id}\") adds its workspace when the user asks",
-                route.why
-            ));
-        }
         match workspaces.open(&key, &session, &name, &group, &term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
@@ -1266,14 +1257,14 @@ impl Spawner {
                         r.move_to_top()
                     ));
                 }
-                note.push_str(&match (ask, made.tucked()) {
-                    (true, _) => "; shown because it asks before it acts".to_owned(),
+                note.push_str(&match (ask, made.in_chief_group()) {
+                    (true, _) => "; in the sidebar because it asks before it acts".to_owned(),
                     (false, true) => format!(
-                        "; tucked in the collapsed \"{}\" group because {}; it closes when its work ends",
-                        crate::action_lifetime::TUCK_GROUP,
+                        "; in the collapsed \"{}\" sidebar group because {}; the user finds it there or by search, and control(action: \"show\", id: \"{id}\") moves it to the top of the sidebar",
+                        crate::action_lifetime::CHIEF_GROUP,
                         route.why
                     ),
-                    (false, false) => format!("; shown because {}", route.why),
+                    (false, false) => format!("; in the sidebar because {}", route.why),
                 });
                 let _ = self.to_brain(Input::SubagentWorkspace {
                     id: id.to_owned(),
@@ -1376,9 +1367,9 @@ impl Spawner {
     /// The person's settings document (cmux-next.json), read now.
     fn user_document(&self) -> Option<serde_json::Value> {
         match &self.user_settings {
-            Some(path) => std::fs::read_to_string(path).ok().and_then(|t| {
-                serde_json::from_str(&crate::agent_memory::settings::strip_jsonc(&t)).ok()
-            }),
+            Some(path) => std::fs::read_to_string(path)
+                .ok()
+                .and_then(|t| crate::agent_memory::settings::parse(&t).ok()),
             None => std::env::var_os("HOME").and_then(|home| {
                 crate::agent_memory::settings::document(std::path::Path::new(&home))
             }),
@@ -2474,6 +2465,42 @@ pub fn recover_launch(
         }
     }
     None
+}
+
+/// Sends `/goal` (prompt `prompt_id`, its signals to `tx`) once the task
+/// turn whose signals come on `task` ended. A task turn that was cancelled,
+/// failed or lost its connection gets no `/goal`: its end goes to `tx`, so
+/// the subagent ends as that turn did.
+fn send_goal_after_task(
+    agents: Arc<dyn AgentPort>,
+    session: String,
+    prompt_id: String,
+    task: std::sync::mpsc::Receiver<TurnSignal>,
+    tx: Sender<TurnSignal>,
+) {
+    std::thread::spawn(move || {
+        let end = loop {
+            match task.recv() {
+                Ok(TurnSignal::Done(end)) => break Some(end),
+                Ok(TurnSignal::Lost) | Err(_) => break None,
+                Ok(_) => {}
+            }
+        };
+        let signal = match end {
+            Some(Ok(answer))
+                if answer.get("stopReason").and_then(Value::as_str) != Some("cancelled") =>
+            {
+                let goal = vec![json!({"type": "text", "text": crate::goal::command()})];
+                match agents.start_prompt(&session, goal, &prompt_id, tx.clone()) {
+                    Ok(()) => return,
+                    Err(e) => TurnSignal::Done(Err(e)),
+                }
+            }
+            Some(end) => TurnSignal::Done(end),
+            None => TurnSignal::Lost,
+        };
+        let _ = tx.send(signal);
+    });
 }
 
 /// Reads `session`'s new events into `folder` and says whether its first

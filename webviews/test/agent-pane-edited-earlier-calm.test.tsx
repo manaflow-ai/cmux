@@ -5,6 +5,7 @@
 // card's buttons show on its hover or keyboard focus, as an earlier reply's footer does; Second
 // opinion shows on hover on every card; an Undo under way keeps an earlier card's buttons shown.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import fs from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
@@ -70,7 +71,8 @@ afterEach(() => {
   root = undefined;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];

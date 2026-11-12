@@ -11,6 +11,13 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.dirname(
+        _git_fixture_path.abspath(__file__))), "tests", "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError

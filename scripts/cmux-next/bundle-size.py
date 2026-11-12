@@ -3,6 +3,8 @@
 
     bundle-size.py report APP [--dmg DMG] [--compressed] [--json OUT]
     bundle-size.py check  APP --budget BUDGET.json --variant arm64 [--dmg DMG]
+    bundle-size.py summary APP --budget BUDGET.json --variant arm64 --dmg DMG
+                           [--previous-dmg-bytes N] [--json OUT]
 
 `report` prints the bundle by component: bytes on disk (file sizes, symlinks
 not followed, so the CEF framework's top-level links count once) and, with
@@ -13,6 +15,11 @@ not followed, so the CEF framework's top-level links count once) and, with
     feature never reads, e.g. the x86_64 V8 snapshot in an arm64 app);
   - a component over its `components` cap;
   - the whole app over `app_max_bytes`, or the DMG over `dmg_max_bytes`.
+
+`summary` prints the headline a nightly run shows: the DMG and app sizes, how
+far each is over or under its cap, and the DMG's change since the previous
+nightly (--previous-dmg-bytes, the published DMG's size). It always exits 0,
+so it reports without gating.
 
 The budget is a ratchet: when a cut lands, lower its caps to the new size
 plus a little headroom, so the size never grows back unnoticed. See
@@ -169,6 +176,58 @@ def print_report(r: dict) -> None:
         print(f"  {row['bytes'] / MIB:8.1f} MiB{xz}  {row['component']}")
 
 
+def mib(n: int) -> str:
+    return f"{n / MIB:.1f} MiB"
+
+
+def versus_cap(size: int, cap: int | None) -> str:
+    if cap is None:
+        return "no cap"
+    if size > cap:
+        return f"{mib(size - cap)} over its {mib(cap)} cap"
+    return f"{mib(cap - size)} under its {mib(cap)} cap"
+
+
+def summary(app: Path, budget: dict, variant: str, dmg: Path, previous_dmg_bytes: int | None) -> dict:
+    """The sizes, caps and change a nightly run shows, and the rules it breaks."""
+    rules = budget.get("variants", {}).get(variant, {})
+    m = measure(app)
+    dmg_bytes = dmg.stat().st_size
+    out = {
+        "variant": variant,
+        "dmg": dmg.name,
+        "dmg_bytes": dmg_bytes,
+        "dmg_max_bytes": rules.get("dmg_max_bytes"),
+        "app": app.name,
+        "app_bytes": m["app_bytes"],
+        "app_max_bytes": rules.get("app_max_bytes"),
+        "previous_dmg_bytes": previous_dmg_bytes,
+        "dmg_delta_bytes": None if previous_dmg_bytes is None else dmg_bytes - previous_dmg_bytes,
+        "problems": check(app, budget, variant, dmg),
+    }
+    out["over_budget"] = bool(out["problems"])
+    return out
+
+
+def summary_lines(s: dict) -> list[str]:
+    """Markdown for the run summary; the first line is the headline."""
+    if s["dmg_delta_bytes"] is None:
+        since = "no previous nightly to compare"
+    else:
+        d = s["dmg_delta_bytes"]
+        sign = "+" if d >= 0 else "-"
+        since = f"{sign}{mib(abs(d))} since the previous nightly ({mib(s['previous_dmg_bytes'])})"
+    lines = [
+        f"**DMG {mib(s['dmg_bytes'])}**: {versus_cap(s['dmg_bytes'], s['dmg_max_bytes'])} ({s['variant']}); {since}.",
+        f"App {mib(s['app_bytes'])} on disk: {versus_cap(s['app_bytes'], s['app_max_bytes'])}.",
+    ]
+    if s["problems"]:
+        lines.append("")
+        lines.append("Over budget (cut the size, or raise the cap with a reason in the commit):")
+        lines += [f"- {p}" for p in s["problems"]]
+    return lines
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -182,6 +241,13 @@ def main(argv: list[str]) -> int:
     c.add_argument("--budget", type=Path, required=True)
     c.add_argument("--variant", required=True)
     c.add_argument("--dmg", type=Path)
+    s = sub.add_parser("summary")
+    s.add_argument("app", type=Path)
+    s.add_argument("--budget", type=Path, required=True)
+    s.add_argument("--variant", required=True)
+    s.add_argument("--dmg", type=Path, required=True)
+    s.add_argument("--previous-dmg-bytes", type=int)
+    s.add_argument("--json", type=Path)
     a = ap.parse_args(argv)
     if a.cmd == "report":
         out = report(a.app, a.dmg, a.compressed)
@@ -190,6 +256,12 @@ def main(argv: list[str]) -> int:
             a.json.write_text(json.dumps(out, indent=2) + "\n")
         return 0
     budget = json.loads(a.budget.read_text())
+    if a.cmd == "summary":
+        out = summary(a.app, budget, a.variant, a.dmg, a.previous_dmg_bytes)
+        print("\n".join(summary_lines(out)))
+        if a.json:
+            a.json.write_text(json.dumps(out, indent=2) + "\n")
+        return 0
     problems = check(a.app, budget, a.variant, a.dmg)
     for p in problems:
         print(f"bundle-size: {p}", file=sys.stderr)

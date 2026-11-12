@@ -184,6 +184,10 @@ extension LayoutMetricSetting {
     public nonisolated static let titlebarHeightPath = ["appearance", "metrics", "titlebarHeight"]
     public nonisolated static let titlebarHeightRange: ClosedRange<Double> = 24...56
     public nonisolated static let titlebarHeightPlaceholder: Double = 32
+    /// `appearance.metrics.sidebarRowHeight`.
+    public nonisolated static let sidebarRowHeightPath = ["appearance", "metrics", "sidebarRowHeight"]
+    public nonisolated static let sidebarRowHeightRange: ClosedRange<Double> = 20...48
+    public nonisolated static let sidebarRowHeightPlaceholder: Double = 24
 }
 
 extension BordersSetting {

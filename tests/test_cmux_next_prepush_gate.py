@@ -2526,6 +2526,31 @@ mod tests {
         self.assertIn(f"{self.HIGHLIGHTS}/own-photo.md: entries[0]", output)
         self.assertNotIn("base-photo.md", output, "only the branch's own highlight is named")
 
+    def test_a_refused_push_retried_after_the_base_moved_fetches_the_base_again(self):
+        # cmux#41310 review: the fetch stamp outlived its hook run, keyed only by the pushed rows, so the same push
+        # tried again after feat-cmux-next moved skipped the fetch and measured from the stale copy.
+        self.base_gains_a_refused_highlight_this_clone_never_fetched()
+        self.write(f"{self.HIGHLIGHTS}/own-photo.md", self.HIGHLIGHT_BARE)
+        self.commit("the branch's own highlight with no link and no picture")
+        self.git("merge", "--quiet", "--no-edit", "--no-ff", "feat-cmux-next")
+        refused = self.push_ref("topic")
+        self.assertNotEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+        self.assertEqual(self.git("rev-parse", "origin/feat-cmux-next").stdout.strip(), self.remote_head())
+
+        old = self.git("rev-parse", "origin/feat-cmux-next").stdout.strip()
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        self.write("later.md", "the base moves again\n")
+        self.commit("the base moves again")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        self.git("checkout", "--quiet", "topic")
+
+        retried = self.push_ref("topic")
+
+        self.assertNotEqual(retried.returncode, 0, retried.stdout + retried.stderr)
+        self.assertEqual(self.git("rev-parse", "origin/feat-cmux-next").stdout.strip(), self.remote_head(),
+                         "the retry is its own hook run, so it fetched the shared base again")
+
     def test_the_hook_runs_origin_s_highlight_validator_not_the_pushed_one(self):
         # A push that also weakens the validator cannot pass its own highlight: the hook reads
         # origin/feat-cmux-next's validator, as it runs the installed checks and never the branch's.
@@ -3003,6 +3028,58 @@ class RustfmtLayerTests(unittest.TestCase):
             os.environ["PATH"] = saved
         self.assertEqual(out, "")
 
+
+    def fake_rustfmt(self, stderr=None, code=1):
+        """judge() with only a stand-in `rustfmt` on PATH that prints STDERR and exits CODE; with STDERR None, a
+        `rustfmt` file that is there but cannot be run."""
+        folder = Path(self.tmp.name) / "bin"
+        folder.mkdir(exist_ok=True)
+        fake = folder / "rustfmt"
+        if stderr is None:
+            fake.write_text("not a program\n")
+            fake.chmod(0o644)
+        else:
+            (folder / "stderr.txt").write_text(stderr + "\n")
+            # PATH is only this folder, so the stand-in names cat by its path.
+            fake.write_text(f"#!/bin/sh\n/bin/cat '{folder / 'stderr.txt'}' >&2\nexit {code}\n")
+            fake.chmod(0o755)
+        saved = os.environ.get("PATH", "")
+        os.environ["PATH"] = str(folder)
+        try:
+            return self.judge({"cmux-tui/crates/x/src/hint.rs": RUST_UNFORMATTED})
+        finally:
+            os.environ["PATH"] = saved
+
+    def test_a_rustfmt_that_cannot_be_started_is_no_verdict(self):
+        # #41888 review (F2): every OSError launching rustfmt warned and passed. Only "no rustfmt at all"
+        # (FileNotFoundError) is "not available here"; a rustfmt that is there and will not start is no verdict.
+        out = self.fake_rustfmt(None)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: "), out)
+        self.assertIn("PermissionError", out)
+
+    def test_a_rustfmt_diagnostic_that_names_toolchain_is_a_finding_not_a_missing_component(self):
+        # #41888 review (F3): any stderr holding "toolchain" or "not installed" read as rustup's missing component and
+        # passed; real rustfmt diagnostics quote the source, which can hold either.
+        for line in ("error: expected item, found `toolchain`", "error: expected one of `!` or `::`, found `not`\n"
+                     " --> <stdin>:1:9\n  |\n1 | fn f() { not installed }\n"):
+            with self.subTest(line=line):
+                out = self.fake_rustfmt(line)
+                self.assertIn("cmux-tui/crates/x/src/hint.rs: rustfmt cannot parse it: ", out)
+
+    def test_rustups_own_missing_toolchain_or_component_still_warns(self):
+        for line in ("error: 'rustfmt' is not installed for the toolchain '1.90.0-x86_64-unknown-linux-gnu'.\n"
+                     "help: run `rustup component add rustfmt` to install it",
+                     "error: 'rustfmt' is not installed for the toolchain '1.80.0-aarch64-apple-darwin'\n"
+                     "To install, run `rustup component add rustfmt --toolchain 1.80.0-aarch64-apple-darwin`",
+                     "error: toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed\n"
+                     "help: run `rustup toolchain install 1.90.0-x86_64-unknown-linux-gnu` to install it",
+                     "error: override toolchain '1.90.0-x86_64-unknown-linux-gnu' is not installed"):
+            with self.subTest(line=line):
+                self.assertEqual(self.fake_rustfmt(line), "")
+
+    def test_a_rustfmt_that_fails_with_no_diagnostic_is_no_verdict(self):
+        out = self.fake_rustfmt("thread 'main' panicked at src/lib.rs:1:1", code=101)
+        self.assertTrue(out.startswith("rustfmt gave no verdict: exit 101"), out)
 
 class StopCleanlyTests(unittest.TestCase):
     """The gate stops what it started with SIGTERM first, so a `git` under it clears `.git/index.lock`.

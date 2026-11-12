@@ -2,12 +2,14 @@
 //! notification is when its reader falls behind, and a gap marker tells the reader to read again
 //! (moved out of `server/mod.rs`, which is over its size budget).
 
+use super::queue_gauge::Queued;
 use super::*;
 
 /// Keep two queue slots available for replies and one for the gap marker that
 /// tells a reader to replay from its last cursor.
 pub(super) const OUTBOUND_CONTROL_RESERVE: usize = 3;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn enqueue_outbound(
     out: &mpsc::Sender<String>,
     line: String,
@@ -16,6 +18,7 @@ pub(super) fn enqueue_outbound(
     gap_pending: &Arc<AtomicBool>,
     outbound_lock: &Arc<StdMutex<()>>,
     pending_controls: &Arc<AtomicUsize>,
+    queued: &Queued,
 ) {
     let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
     enqueue_outbound_locked(
@@ -26,6 +29,7 @@ pub(super) fn enqueue_outbound(
         gap_pending,
         outbound_lock,
         pending_controls,
+        queued,
     );
 }
 
@@ -40,16 +44,27 @@ pub(super) fn enqueue_after_controls(
     gap_pending: &Arc<AtomicBool>,
     outbound_lock: &Arc<StdMutex<()>>,
     pending_controls: &Arc<AtomicUsize>,
+    queued: &Queued,
 ) -> bool {
     let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
     if out.is_closed() || pending_controls.load(Ordering::Acquire) != 0 {
         return false;
     }
-    enqueue_outbound_locked(out, line, true, dropped, gap_pending, outbound_lock, pending_controls);
+    enqueue_outbound_locked(
+        out,
+        line,
+        true,
+        dropped,
+        gap_pending,
+        outbound_lock,
+        pending_controls,
+        queued,
+    );
     true
 }
 
 /// [`enqueue_outbound`] with `outbound_lock` held.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn enqueue_outbound_locked(
     out: &mpsc::Sender<String>,
     line: String,
@@ -58,6 +73,7 @@ pub(super) fn enqueue_outbound_locked(
     gap_pending: &Arc<AtomicBool>,
     outbound_lock: &Arc<StdMutex<()>>,
     pending_controls: &Arc<AtomicUsize>,
+    queued: &Queued,
 ) {
     // Notifications are lossy by design when the reader is too slow, but the
     // The final three permits are reserved for two response/control messages
@@ -67,8 +83,10 @@ pub(super) fn enqueue_outbound_locked(
         report_outbound_loss_locked(out, dropped, gap_pending, outbound_lock);
         return;
     }
+    let bytes = line.len();
     match out.try_send(line) {
         Ok(()) => {
+            queued.queued(bytes, out);
             // Let a later queue-pressure episode produce a fresh marker once
             // the previous marker and backlog have drained.
             if gap_pending.load(Ordering::Acquire)
@@ -82,8 +100,14 @@ pub(super) fn enqueue_outbound_locked(
             let out = out.clone();
             pending_controls.fetch_add(1, Ordering::AcqRel);
             let pending_controls = Arc::clone(pending_controls);
+            // Counted in `daemon status` while it waits (`queue_gauge.rs`), then as queued.
+            let waiting = queued.waiting(bytes);
+            let queued = queued.clone();
             tokio::spawn(async move {
-                let _ = out.send(line).await;
+                if out.send(line).await.is_ok() {
+                    queued.queued(bytes, &out);
+                }
+                drop(waiting);
                 pending_controls.fetch_sub(1, Ordering::AcqRel);
             });
         }

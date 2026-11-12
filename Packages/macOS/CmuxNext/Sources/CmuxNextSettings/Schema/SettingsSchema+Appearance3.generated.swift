@@ -125,6 +125,16 @@ extension AppearanceSettingsSchema {
                 keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]
             ).consumed(by: [.cmuxBrowser, .cmuxNext]),
             SettingDescriptor(
+                LayoutMetricSetting.sidebarRowHeightPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.appearance.sidebarRowHeight", "Workspace Row Height"),
+                kind: .number(SettingNumber(LayoutMetricSetting.sidebarRowHeightRange, step: 1, unit: .points, placeholder: LayoutMetricSetting.sidebarRowHeightPlaceholder)),
+                default: nil,
+                defaultLabel: SettingsText.keyed("settings.default.density", "Density default"),
+                keywords: ["sidebar", "workspace", "row", "height", "thinner", "sidebarRowHeight"]
+            ),
+            SettingDescriptor(
                 BordersSetting.configPath,
                 section: .appearance,
                 group: group,
