@@ -378,6 +378,39 @@ public final class DisconnectedAgentSource: AgentSessionSource {
     }
 }
 
+/// The chat of a workspace this phone is still creating (New Task, New Agent Chat): the Mac is
+/// starting its session, so the chat says "Starting <agent>…" (``isStarting``) and holds its
+/// composer's sends with why, until the workspace is listed and its real source replaces this.
+@MainActor
+public final class StartingAgentSource: AgentSessionSource {
+    public let summary: AgentSessionSummary
+    private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
+
+    public init(summary: AgentSessionSummary) {
+        self.summary = summary
+    }
+
+    public var loadsHistory: Bool { true }
+    public var isStarting: Bool { true }
+
+    public func events() -> AsyncStream<AgentSessionEvent> {
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
+        continuations.append(continuation)
+        return stream
+    }
+
+    public func send(_ intent: AgentClientIntent) {
+        let reason = "\(summary.agentName) is still starting. Send again in a moment."
+        let event: AgentSessionEvent
+        if case .prompt(let text, let attachments, _, let promptID, _) = intent {
+            event = .promptNotSent(text: text, attachments: attachments, promptID: promptID, reason: reason)
+        } else {
+            event = .clientError(reason)
+        }
+        for continuation in continuations { continuation.yield(event) }
+    }
+}
+
 /// An agent's ask to run one command as root (acpmux `elevation_request`): the exact argv sudo
 /// runs, the agent's reason, the machine, the time limit, and the nonce and daemon run the phone
 /// signs its Approve over (acpmux `Hub::card_answer_signed`).

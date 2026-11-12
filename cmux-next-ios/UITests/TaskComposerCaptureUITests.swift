@@ -128,9 +128,15 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ C.any(app, "taskComposer.prompt").waitForExistence(timeout: 15) ? nil : "composer did not open" },
                          { app.swipeUp(); C.pause(0.6); return nil }])
             },
-            Scene(group: g, id: "started-one-opens", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
+            // The Mac still making it: the chat says Starting <agent>….
+            Scene(group: g, id: "started-one-starting", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }])
+            },
+            // Made: a new chat whose first message is the task, the agent answering.
+            Scene(group: g, id: "started-one-opens", args: Self.list + ["-cmux-mobile-mock-create-delay", "1"]) { app in
+                C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
+                         { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(5); return nil }])
             },
             Scene(group: g, id: "started-two-rows", args: Self.list + ["-cmux-mobile-mock-create-delay", "60"]) { app in
                 C.steps([{ Self.composeTwoAgents(app) }, { C.tap(C.any(app, "taskComposer.start"), "Start 2") }])

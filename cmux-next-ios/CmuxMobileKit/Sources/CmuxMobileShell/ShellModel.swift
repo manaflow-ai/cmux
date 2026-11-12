@@ -154,6 +154,22 @@ final class ShellModel {
         let delay = UserDefaults.standard.double(forKey: "cmux-mobile-mock-create-delay")
         let mock = delay > 0 ? MockWorkspaceCreationBackend(latency: .seconds(delay)) : MockWorkspaceCreationBackend()
         mockCreation = mock
+        // Mock mode, as the live coordinator does: a chat of a workspace still being created is
+        // starting; once made, it is rebuilt as a new session, which then gets the task.
+        if mockMode {
+            let base = AgentSessionDirectory.shared.makeSource
+            AgentSessionDirectory.shared.makeSource = { [weak store] summary in
+                if let store, store.pendingWorkspaceIDs.contains(where: { store.workspace(id: $0)?.tabs.contains { $0.id == summary.id } == true }) {
+                    return StartingAgentSource(summary: summary)
+                }
+                return base(summary)
+            }
+            mock.onCreated = { workspace in
+                for tab in workspace.tabs where tab.isAgent {
+                    AgentSessionDirectory.shared.invalidate(id: tab.id, macID: workspace.macID)
+                }
+            }
+        }
         // Mock mode: a New Task's task goes to its workspace's mock chat, as the Mac's agent gets it.
         mock.onTaskSent = { [weak store] task, workspace in
             guard let store, let ws = store.workspace(id: workspace.id) ?? Optional(workspace),
