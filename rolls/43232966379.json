@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43232966379",
+  "recorded_at": "2026-11-12T14:09:05Z",
+  "reason": "cmux-tui fc6b15a24f81 changes the image's cmux-tui (pinned 62fef3883660)",
+  "dry_run": false,
+  "cmux_tui": "fc6b15a24f81b6cc763d055400154080d8ac3543",
+  "fixes": [
+    {
+      "sha": "fc6b15a24f81b6cc763d055400154080d8ac3543",
+      "mergedAt": "2026-11-12T07:46:23-06:00",
+      "subject": "fix(cmux-tui): the PTY reader stack test reads mincore's page bits with no cast on either target"
+    },
+    {
+      "sha": "7f842d2fb90a962c223de2e8adbb430a9d5002c3",
+      "mergedAt": "2026-11-12T05:37:35-08:00",
+      "subject": "acpmux: the chats page's text follows a transcript from its last read, so a 1 GB chat costs what a small one does (#41870)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T14:09:05Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
