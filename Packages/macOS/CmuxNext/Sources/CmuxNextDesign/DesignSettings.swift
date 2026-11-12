@@ -289,10 +289,10 @@ public final class DesignSettings {
     public var titleAreaContrast: CGFloat = 1 {
         didSet { if titleAreaContrast != oldValue { ThemeScope.app.store.repaintAll() } }
     }
-    /// `appearance.titleAreaTone`: two tones (the chrome shaded apart from the content, the default) or one
-    /// colour (``TitleAreaTone``). One colour overrides ``titleAreaContrast`` to no shade; a change repaints, as
+    /// `appearance.titleAreaTone`: one colour (the default) or two tones (the chrome shaded apart from the
+    /// content) (``TitleAreaTone``). One colour overrides ``titleAreaContrast`` to no shade; a change repaints, as
     /// the contrast does.
-    public var titleAreaTone: TitleAreaTone = .twoTone {
+    public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// `appearance.focusIndicator`: what marks the focused pane.

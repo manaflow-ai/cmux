@@ -2,7 +2,8 @@
  "title": "Title area: the selected tab's glass and the title area contrast (appearance.titleAreaContrast), over a picture and plain",
  "settings": {
   "appearance": {
-   "background": "hokusai-great-wave"
+   "background": "hokusai-great-wave",
+   "titleAreaTone": "twoTone"
   }
  },
  "steps": [

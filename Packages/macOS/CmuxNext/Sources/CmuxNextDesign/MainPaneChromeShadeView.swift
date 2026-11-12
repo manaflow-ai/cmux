@@ -20,7 +20,7 @@ public final class MainPaneChromeShadeView: NSView {
     private var folders: [CGPath] = []
     /// The tab row's divider (``update(card:radius:alpha:squareTopLeading:folders:divider:)``): a line of no height.
     private var divider: CGRect = .null
-    /// The divider's hairline, in `Palette.separator` at ``Metrics/tabRowDividerStrength``, less the folders.
+    /// The divider's line, in `Palette.chromeDivider` at ``Metrics/tabRowDividerStrength``, less the folders.
     private let dividerLayer = CAShapeLayer()
     private var cardsObservation: AnyObject?
     /// The shown workspace's pane cards; a sync of theirs reshapes the shade.
@@ -83,8 +83,8 @@ public final class MainPaneChromeShadeView: NSView {
         rebuild()
     }
 
-    /// The divider's hairline: one device pixel above `divider` (maxY is the top, so it sits in the tab row), less
-    /// the folder tabs; nil when there is no divider or the title area contrast leaves it no strength.
+    /// The divider's line: `Metrics.dividerThickness` above `divider` (maxY is the top, so it sits in the tab row),
+    /// less the folder tabs; nil when there is no divider or the title area contrast leaves it no strength.
     private func rebuildDivider() {
         dividerLayer.frame = bounds
         let strength = Metrics.tabRowDividerStrength
@@ -92,12 +92,13 @@ public final class MainPaneChromeShadeView: NSView {
             dividerLayer.path = nil
             return
         }
-        let hairline = 1 / max(window?.backingScaleFactor ?? 2, 1)
-        var line: CGPath = CGPath(rect: CGRect(x: divider.minX, y: divider.minY, width: divider.width, height: hairline), transform: nil)
+        // The split panes' and the sidebar's line weight (`Metrics.dividerThickness`), so the three dividers match.
+        let weight = Metrics.lineWidth(Metrics.dividerThickness)
+        var line: CGPath = CGPath(rect: CGRect(x: divider.minX, y: divider.minY, width: divider.width, height: weight), transform: nil)
         for folder in folders { line = line.subtracting(folder) }
         dividerLayer.path = line
-        let separator = Palette.separator
-        dividerLayer.fillColor = separator.withAlphaComponent(separator.alphaComponent * strength).cgColor
+        let ink = Palette.chromeDivider
+        dividerLayer.fillColor = ink.withAlphaComponent(ink.alphaComponent * strength).cgColor
     }
 
     private func rebuild() {

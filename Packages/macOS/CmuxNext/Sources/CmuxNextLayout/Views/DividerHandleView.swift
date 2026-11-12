@@ -314,13 +314,13 @@ final class DividerHandleView: NSView, KeyNeutralPressTarget {
                     color = Palette.separator.withAlphaComponent(0.32)
                 } else if showsIdleLine {
                     // A column edge between two columns: the split's line at rest.
-                    color = Palette.surfaceOverride(.splitDivider) ?? Palette.separator
+                    color = Palette.surfaceOverride(.splitDivider) ?? Palette.chromeDivider
                 } else {
                     color = .clear
                 }
             } else {
                 let idle = !isLineHidden && (showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil)
-                color = active ? Palette.focusRing.withAlphaComponent(0.6) : (idle ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
+                color = active ? Palette.focusRing.withAlphaComponent(0.6) : (idle ? (Palette.surfaceOverride(.splitDivider) ?? Palette.chromeDivider) : .clear)
             }
             Motion.feedback.transaction(.hover) {
                 line.backgroundColor = color.cgColor

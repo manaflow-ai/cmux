@@ -38,8 +38,8 @@ extension SettingsApplier {
     }
 }
 
-/// `appearance.titleAreaTone` in cmux-next.json (Settings > Appearance > Panes, Title Area): "twoTone" (the
-/// default) or "oneColor" (`TitleAreaTone`). A missing key is the default; a bad value is the default plus a
+/// `appearance.titleAreaTone` in cmux-next.json (Settings > Appearance > Panes, Title Area): "oneColor" (the
+/// default) or "twoTone" (`TitleAreaTone`). A missing key is the default; a bad value is the default plus a
 /// diagnostic. Its path, default and choices are generated from schemas/settings/source/appearance.json.
 public nonisolated struct TitleAreaToneSetting: Sendable {
     public init() {}

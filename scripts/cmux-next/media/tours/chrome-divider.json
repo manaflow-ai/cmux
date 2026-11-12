@@ -1,0 +1,630 @@
+{
+ "title": "Chrome dividers under One Color (the default): the sidebar's edge line, the split panes' lines and the tab row's divider, in four weights and contrasts (chrome.dividerStrength, appearance.metrics.dividerThickness), then Two Tones and a configured sidebar.border off",
+ "settings": {
+  "appearance": {
+   "background": "hokusai-great-wave"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch over art",
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Workspace Glass",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Glass"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show it",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Quiet prompt",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "export PS1='$ ' PROMPT='$ '; printf '\\033[2J\\033[3J\\033[H'\n"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Name the first tab",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "rename",
+    "shell"
+   ],
+   "shot": false,
+   "optional": "a name only for the focus step"
+  },
+  {
+   "title": "Browser tab Docs",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.com",
+    "--name",
+    "Docs",
+    "--workspace",
+    "name:Glass"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Browser tab Notes",
+   "cmux": [
+    "tab",
+    "create",
+    "browser",
+    "--url",
+    "https://example.net",
+    "--name",
+    "Notes",
+    "--workspace",
+    "name:Glass"
+   ],
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Select the middle tab",
+   "cmux": [
+    "workspace",
+    "name:Glass",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "name:Docs",
+    "focus"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Split right",
+   "cmux": [
+    "action",
+    "run",
+    "splitRight"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Split down",
+   "cmux": [
+    "action",
+    "run",
+    "splitDown"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain window",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.background"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Divider strength 1",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.dividerStrength",
+     "value": 1
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Divider thickness 1",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.metrics.dividerThickness",
+    "1"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (two tones)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (one colour)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain, One Color (default), V1: 1 pt at the separator (a list's hairline)",
+   "wait": 1
+  },
+  {
+   "title": "Divider strength 1.75",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.dividerStrength",
+     "value": 1.75
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Divider thickness 1",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.metrics.dividerThickness",
+    "1"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (two tones)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (one colour)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain, One Color (default), V2: 1 pt at 1.75x the separator",
+   "wait": 1
+  },
+  {
+   "title": "Divider strength 2.5",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.dividerStrength",
+     "value": 2.5
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Divider thickness 0.5",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.metrics.dividerThickness",
+    "0.5"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (two tones)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (one colour)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain, One Color (default), V3: a device hairline at 2.5x the separator",
+   "wait": 1
+  },
+  {
+   "title": "Divider strength 1.75",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.dividerStrength",
+     "value": 1.75
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Divider thickness 1.5",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.metrics.dividerThickness",
+    "1.5"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (two tones)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (one colour)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain, One Color (default), V4: 1.5 pt at 1.75x the separator",
+   "wait": 1
+  },
+  {
+   "title": "Over art",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.background",
+    "hokusai-great-wave"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Divider strength 1",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.dividerStrength",
+     "value": 1
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Divider thickness 1",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.metrics.dividerThickness",
+    "1"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (two tones)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (one colour)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, One Color (default), V1: 1 pt at the separator (a list's hairline)",
+   "wait": 1
+  },
+  {
+   "title": "Divider strength 1.75",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.dividerStrength",
+     "value": 1.75
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Divider thickness 1",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.metrics.dividerThickness",
+    "1"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (two tones)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (one colour)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, One Color (default), V2: 1 pt at 1.75x the separator",
+   "wait": 1
+  },
+  {
+   "title": "Divider strength 2.5",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.dividerStrength",
+     "value": 2.5
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Divider thickness 0.5",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.metrics.dividerThickness",
+    "0.5"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (two tones)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (one colour)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, One Color (default), V3: a device hairline at 2.5x the separator",
+   "wait": 1
+  },
+  {
+   "title": "Divider strength 1.75",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.dividerStrength",
+     "value": 1.75
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Divider thickness 1.5",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.metrics.dividerThickness",
+    "1.5"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (two tones)",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Repaint (one colour)",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, One Color (default), V4: 1.5 pt at 1.75x the separator",
+   "wait": 1
+  },
+  {
+   "title": "Divider strength 1.75",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "chrome.dividerStrength",
+     "value": 1.75
+    }
+   },
+   "shot": false,
+   "optional": "debug.tunables is DEBUG only"
+  },
+  {
+   "title": "Thickness default",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.metrics.dividerThickness"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Over art, Two Tones (opt-in), V2 dividers",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "twoTone"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Plain window again",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.background"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain, Two Tones (opt-in), V2 dividers",
+   "wait": 1
+  },
+  {
+   "title": "Back to the default",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain, One Color, sidebar.border off (configuration)",
+   "cmux": [
+    "settings",
+    "set",
+    "sidebar.border",
+    "false"
+   ],
+   "wait": 2
+  },
+  {
+   "title": "Restore sidebar.border",
+   "cmux": [
+    "settings",
+    "unset",
+    "sidebar.border"
+   ],
+   "wait": 1,
+   "shot": false
+  }
+ ]
+}

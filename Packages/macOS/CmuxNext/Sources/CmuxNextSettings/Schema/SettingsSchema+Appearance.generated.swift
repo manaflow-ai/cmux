@@ -218,9 +218,9 @@ extension ChromeStyleSetting {
 }
 
 extension TitleAreaToneSetting {
-    /// `appearance.titleAreaTone`: Two tones (the chrome shaded apart from the content by appearance.titleAreaContrast) or one colour (no shade; the tab row's divider and the selected tab's pill separate). Leo 2026-11-12: Lawrence doesn't want two tones as a default, so it must toggle back and forth really well.
+    /// `appearance.titleAreaTone`: One colour (the default: no shade; the sidebar's edge line, the split panes' lines, the tab row's divider and the selected tab's pill separate) or two tones (the chrome shaded apart from the content by appearance.titleAreaContrast). Leo 2026-11-12: Lawrence wants the default without the two tones, with the divider kept across most panes; two tones stays an option that toggles back and forth.
     public nonisolated static let configPath = ["appearance", "titleAreaTone"]
-    public nonisolated static let fallback: TitleAreaTone = .twoTone
+    public nonisolated static let fallback: TitleAreaTone = .oneColor
 }
 
 extension TitleAreaContrastSetting {

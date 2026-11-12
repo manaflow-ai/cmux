@@ -18,10 +18,12 @@ import Testing
                                  validMetrics: SettingsApplier.validMetrics)
     }
 
+    /// `contrast` under two tones, the only tone the contrast shades (one colour, the default, has no shade).
     func withContrast<T>(_ contrast: CGFloat, _ body: () throws -> T) rethrows -> T {
-        let saved = DesignSettings.shared.titleAreaContrast
+        let saved = (DesignSettings.shared.titleAreaContrast, DesignSettings.shared.titleAreaTone)
         DesignSettings.shared.titleAreaContrast = contrast
-        defer { DesignSettings.shared.titleAreaContrast = saved }
+        DesignSettings.shared.titleAreaTone = .twoTone
+        defer { (DesignSettings.shared.titleAreaContrast, DesignSettings.shared.titleAreaTone) = saved }
         return try body()
     }
 
@@ -130,21 +132,22 @@ import Testing
         }
     }
 
-    /// `appearance.titleAreaTone` (Leo, 2026-11-12: "toggle that back and forth really well"): a missing key is
-    /// two tones, the shipped look; a bad value is two tones plus a diagnostic; the setting reaches the design.
+    /// `appearance.titleAreaTone` (Leo, 2026-11-12: "he said he wanted to keep the default without the two tone"):
+    /// a missing key is one colour; a bad value is one colour plus a diagnostic; the setting reaches the design.
     @Test func theToneParsesAndReachesTheDesignSettings() {
-        #expect(TitleAreaToneSetting.fallback == .twoTone)
-        #expect(TitleAreaToneSetting.effective(in: snapshot([:])) == .twoTone)
-        #expect(TitleAreaToneSetting.effective(in: snapshot(["titleAreaTone": .string("oneColor")])) == .oneColor)
+        #expect(TitleAreaToneSetting.fallback == .oneColor)
+        #expect(DesignSettings().titleAreaTone == .oneColor)
+        #expect(TitleAreaToneSetting.effective(in: snapshot([:])) == .oneColor)
+        #expect(TitleAreaToneSetting.effective(in: snapshot(["titleAreaTone": .string("twoTone")])) == .twoTone)
         let bad = snapshot(["titleAreaTone": .string("mono")])
-        #expect(TitleAreaToneSetting.effective(in: bad) == .twoTone)
+        #expect(TitleAreaToneSetting.effective(in: bad) == .oneColor)
         #expect(bad.diagnostics.contains { $0.path == "appearance.titleAreaTone" && $0.kind == .invalidValue })
         let saved = DesignSettings.shared.titleAreaTone
         defer { DesignSettings.shared.titleAreaTone = saved }
-        SettingsApplier.applyPlacement(snapshot(["titleAreaTone": .string("oneColor")]), to: DesignSettings.shared)
-        #expect(DesignSettings.shared.titleAreaTone == .oneColor)
-        SettingsApplier.applyPlacement(snapshot([:]), to: DesignSettings.shared)
+        SettingsApplier.applyPlacement(snapshot(["titleAreaTone": .string("twoTone")]), to: DesignSettings.shared)
         #expect(DesignSettings.shared.titleAreaTone == .twoTone)
+        SettingsApplier.applyPlacement(snapshot([:]), to: DesignSettings.shared)
+        #expect(DesignSettings.shared.titleAreaTone == .oneColor)
     }
 
     /// One Color moves every piece the contrast moves, together: no shade, the divider at full strength, and the
@@ -163,6 +166,23 @@ import Testing
             #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base * 0.5) < 1e-9)
             #expect(abs(Metrics.tabRowDividerStrength - 0.5) < 1e-9)
         }
+    }
+
+    /// One colour, the default, leaves the dividers to part the sidebar, the panes and the tab row from the content
+    /// (Leo, 2026-11-12: "how about the divider tho? we still want to keep that... across most panes by default"):
+    /// the theme's separator a step stronger, its hue kept, clear wherever the separator is (`appearance.borders`
+    /// none), and the tab row's divider at full strength.
+    @Test func oneColorKeepsAClearDividerFromTheSeparatorToken() {
+        let separator = Palette.separator, divider = Palette.chromeDivider
+        let strength = CGFloat(ChromeTunables.dividerStrength.value)
+        #expect(abs(divider.alphaComponent - min(1, separator.alphaComponent * strength)) < 1e-6)
+        #expect(ChromeTunables.dividerStrength.defaultValue > 1, "the chrome's dividers are no stronger than a list's hairline")
+        if separator.alphaComponent > 0 { #expect(divider.alphaComponent > separator.alphaComponent) }
+        let saved = DesignSettings.shared.titleAreaTone
+        defer { DesignSettings.shared.titleAreaTone = saved }
+        DesignSettings.shared.titleAreaTone = .oneColor
+        #expect(Metrics.tabRowDividerStrength == 1)
+        #expect(Metrics.mainPaneChromeShade(isDark: true) == 0 && Metrics.mainPaneChromeShade(isDark: false) == 0)
     }
 
     /// #40282 made the flush corner the default, which made `Metrics.mainPaneCurved` true under the stock chrome,

@@ -2,7 +2,8 @@
  "title": "Tab bar tone: the title area contrast (appearance.titleAreaContrast) from the shipped two tones to one colour, with the divider taking over as the tone drops",
  "settings": {
   "appearance": {
-   "background": "hokusai-great-wave"
+   "background": "hokusai-great-wave",
+   "titleAreaTone": "twoTone"
   }
  },
  "steps": [
