@@ -103,7 +103,7 @@ const MAX_MUTATION_RUNS: usize = 2;
 const QUEUED_PER_CLIENT: usize = 512;
 
 /// Equal reads that share one run. One more waits as a request of its own.
-const SHARED_READS: usize = 64;
+const SHARED_READS: usize = 65;
 
 /// The longest the copies of one shared reply wait, all together, for room
 /// in their connection's reply queue. The wait holds no place of the lane
