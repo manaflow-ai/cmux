@@ -46,6 +46,25 @@ upstream removal of a debt line never pays for a line the branch adds (as a coun
 remote head would let it), and an upstream addition is never the push's. What the branch pushed before is in both
 and cancels; the merge's resolution and every new commit count.
 
+A push (pushed_ranges, the hook's path) first fetches the shared base (refresh_upstream): origin/feat-cmux-next is
+only as new as this clone's last fetch of it, and a branch that merges a base newer than that (its stacked parent
+fetched alone, `git fetch origin lane/parent`, after the parent merged feat-cmux-next) brought in feat-cmux-next
+commits the walk then counted as its own. On 2026-11-11 a plain base merge on lane/workflow-jobs-parser (#40784) was
+refused for release-notes/next/highlights/ios-screen-sharing-paste-image.md, a highlight feat-cmux-next had
+(e877ee43879), not the branch. One fetch per push (every check of the hook calls this; the first fetches); a clone
+without the ref is left to the fallbacks below, and a fetch that fails or runs past its limit is said in the report
+and the stale copy bounds the walk as before.
+
+Every other tool that measures "this branch's own change" from where HEAD meets a remote-tracking base has the same
+bug, so it fetches the same way first: a run outside a push (the gate, the arch ratchet and the web lint run by
+hand) takes manual_range, and a tool that takes a merge base itself calls refresh_base(repo, ref) before it
+(affected tests and its replay, the Rust panic ratchet, gate-plan, build_class, the test-determinism scan,
+codebase-health). 2026-11-12: these were the readers left after the pre-push fix; tests/test_stale_base_readers.py
+pins each. One fetch per run, on the same 30 s limit; a ref that is not a remote-tracking ref of a configured remote
+(a sha, a CI checkout's origin with no such refspec) is left alone, and nothing is fetched on GitHub Actions (each
+workflow fetches the base it diffs against). Each tool loads this file by path, from its own tree, and calls
+refresh_base.
+
 Fallbacks:
 - none of those refs is in the clone (a first push from a single-branch clone, a remote named otherwise), or the
   walk reaches a shallow root or a root commit before any of them: the walk is bounded again by every ref of the
@@ -62,10 +81,14 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import fcntl
 import hashlib
+import io
 import os
 import re
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 UPSTREAM = "origin/feat-cmux-next"
@@ -405,6 +428,260 @@ def given_range(repo: Path, base: str, head: str) -> OwnRange:
     return OwnRange(tip, start, (), int(out) if code == 0 and out.isdigit() else 0, "the base given")
 
 
+UPSTREAM_FETCH_SECONDS = 30
+UPSTREAM_REFRESH_FILE = "upstream-refresh"
+# Never a credential prompt of any kind (cmux#41310 review: GIT_TERMINAL_PROMPT=0 alone left GIT_ASKPASS, core.askPass
+# and SSH_ASKPASS free to open a window or wait out the limit): an empty GIT_ASKPASS stops git before core.askPass and
+# SSH_ASKPASS (git takes the first one set, and runs none when it is empty), an empty SSH_ASKPASS with
+# SSH_ASKPASS_REQUIRE=never stops ssh's own, BatchMode=yes makes ssh fail instead of asking, GCM_INTERACTIVE=never
+# stops Git Credential Manager's window, and credential.interactive=false any other helper's. A stored credential
+# still answers; a fetch that would ask fails, and the note says so. The fetch also runs in a session of its own with
+# stdin from /dev/null (cmux#41715 review), so no program it starts (a GIT_SSH wrapper, plink, a credential helper)
+# has a terminal to open and ask on, whatever options it takes; a keeper there ends it with its caller
+# (_FETCH_WATCHDOG).
+_NO_PROMPT_CONFIG = ("-c", "credential.interactive=false")
+_NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": "", "SSH_ASKPASS_REQUIRE": "never",
+                  "GCM_INTERACTIVE": "never"}
+
+
+def _no_prompt_env(repo: Path) -> dict[str, str]:
+    """os.environ for a fetch that never prompts (_NO_PROMPT_ENV) and never takes a hook's index; ssh runs as the user
+    set it up (GIT_SSH_COMMAND, else core.sshCommand, else GIT_SSH, else ssh: git's order) with BatchMode=yes, put
+    first for OpenSSH (matched by file name), which keeps an option's first value (cmux#41750 review). A GIT_SSH that
+    is OpenSSH itself (`ssh`, `/usr/bin/ssh`) becomes the same command line with BatchMode=yes: GIT_SSH takes no
+    options, so it could still ask on the terminal (cmux#41715 review). Any other GIT_SSH program (a wrapper, plink)
+    is left as it is; the askpass settings above and the fetch's own session with no terminal (_fetch_upstream) hold
+    for it."""
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
+    env.update(_NO_PROMPT_ENV)
+    ssh = env.get("GIT_SSH_COMMAND", "")
+    if not ssh:
+        code, configured = _git(repo, "config", "--get", "core.sshCommand")
+        ssh = configured.strip() if code == 0 else ""
+    if not ssh and env.get("GIT_SSH"):
+        program = env["GIT_SSH"]
+        if _is_openssh(program):
+            env["GIT_SSH_COMMAND"] = f"{shlex.quote(program)} {_BATCH}"
+        return env
+    ssh = ssh or "ssh"
+    program, rest = _first_word(ssh)
+    if _is_openssh(program):
+        # OpenSSH keeps the FIRST value of an option, so BatchMode=yes goes straight after the program: appended, it
+        # lost to a `-o BatchMode=no` the user's command already had (cmux#41750 review).
+        env["GIT_SSH_COMMAND"] = f"{shlex.quote(program)} {_BATCH}{rest}"
+    elif "plink" not in os.path.basename(program).lower():
+        env["GIT_SSH_COMMAND"] = f"{ssh} {_BATCH}"
+    return env
+
+
+_BATCH = "-o BatchMode=yes"
+
+
+def _is_openssh(program: str) -> bool:
+    """OpenSSH's client, by its file name, so `/usr/bin/ssh` counts as much as `ssh`."""
+    return os.path.basename(program).lower() in ("ssh", "ssh.exe")
+
+
+def _first_word(command: str) -> tuple[str, str]:
+    """A shell command's program word (unquoted) and the text after it, untouched; ("", command) when the first word
+    does not parse."""
+    lexer = shlex.shlex(io.StringIO(command), posix=True)
+    lexer.whitespace_split = True
+    try:
+        word = lexer.get_token() or ""
+    except ValueError:
+        return "", command
+    if not word:
+        return "", command
+    rest = command[lexer.instream.tell():]
+    return word, f" {rest}" if rest.strip() else ""
+
+
+def refresh_upstream(repo: Path, remote: str | None, upstream_ref: str = UPSTREAM, key: str = "",
+                     whose: str = "the push's own", then: str = "push again") -> str:
+    """Fetch UPSTREAM_REF (`origin/feat-cmux-next`) from REMOTE into this clone, once per KEY (the pushed-refs lines)
+    and hook run (CMUX_PREPUSH_RUN, which the pre-push hook sets once per run: every check of one push calls this, and
+    only the first fetches). The stamp holds for that run alone: a stamp keyed only by the rows outlived its run, so
+    the same push tried again after the base moved skipped the fetch (cmux#41310 review); with no run named (a hook
+    installed before the run id) every call fetches. A failed fetch is stamped too, with why it failed: each checker
+    of the run is its own process, and before that every one of them tried the same fetch again, up to 30 s each
+    (cmux#41715 review); the later ones give the first one's note. One checker fetches at a time (a lock beside the
+    stamp), so checkers that start together wait for the first one's stamp instead of fetching beside it. Returns ""
+    when it is fresh, or was left alone (a push to a URL, a remote whose refspecs do not map the branch there, a clone
+    without the ref: the fallbacks), else the report's note on why the stale copy bounds the walk (see the module
+    docstring)."""
+    name = remote_name(repo, remote)
+    if not name or not upstream_ref.startswith(f"{name}/"):
+        return ""
+    branch = upstream_ref[len(name) + 1:]
+    tracked = _full_ref(upstream_ref)
+    if tracking_ref(repo, name, f"refs/heads/{branch}") != tracked or commit_of(repo, tracked) is None:
+        return ""
+    code, common = _git(repo, "rev-parse", "--git-common-dir")
+    stamp = None
+    if code == 0 and common:
+        stamp = (Path(common) if os.path.isabs(common) else Path(repo) / common) / "cmux-guardrails" / UPSTREAM_REFRESH_FILE
+    run = os.environ.get("CMUX_PREPUSH_RUN", "")
+    if not (key and run):
+        stamp = None
+    token = hashlib.sha256(f"{name}\n{upstream_ref}\n{run}\n{key}".encode()).hexdigest()
+
+    def stale(why: str) -> str:
+        return (f"; {upstream_ref} could not be fetched ({why[:200]}), so what a base merge brought in past this "
+                f"clone's copy counts as {whose}: run `git fetch {name} {branch}` and {then}")
+
+    def stamped() -> str | None:
+        """The run's stamped result (why the fetch failed, "" for a fetch that worked), or None for none yet."""
+        try:
+            first, _, why = stamp.read_text().partition("\n")
+        except OSError:
+            return None
+        return why.strip() if first.strip() == token else None
+
+    def write_stamp(why: str) -> None:
+        try:
+            tmp = stamp.with_name(f"{stamp.name}.{os.getpid()}.tmp")
+            tmp.write_text(f"{token}\n{why}\n")
+            os.replace(tmp, stamp)
+        except OSError:
+            pass
+
+    if stamp is None:
+        return stale(why) if (why := _fetch_upstream(repo, name, branch, tracked)) else ""
+    try:
+        stamp.parent.mkdir(parents=True, exist_ok=True)
+        lock = os.open(stamp.with_name(f"{stamp.name}.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    except OSError:
+        lock = None
+    try:
+        if lock is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        if (why := stamped()) is None:
+            # Stamped before it starts too (cmux#41750 review): a checker killed mid-fetch (the fast tier's 4 s
+            # SIGKILL) runs no code after, and its run's next checker would fetch again.
+            write_stamp("an earlier check of this push was stopped mid-fetch")
+            why = _fetch_upstream(repo, name, branch, tracked)
+            write_stamp(why)
+    finally:
+        if lock is not None:
+            os.close(lock)  # drops the flock
+    return stale(why) if why else ""
+
+
+def _fetch_upstream(repo: Path, name: str, branch: str, tracked: str) -> str:
+    """Fetch BRANCH of remote NAME into TRACKED without ever asking for a credential: "" when it worked, else why it
+    did not (one line). The fetch runs in a new session with stdin from /dev/null, so nothing it starts has a terminal
+    to prompt on (see _NO_PROMPT_ENV), under _FETCH_WATCHDOG, so it ends with this process however this process ends
+    (see there)."""
+    args = ["git", "-C", str(repo), *_NO_PROMPT_CONFIG, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head",
+            name, f"+refs/heads/{branch}:{tracked}"]
+    alive_read, alive_write = os.pipe()  # this process holds the write end until the fetch is over
+    fired_read, fired_write = os.pipe()  # the guard writes one byte here before it ends the fetch at the limit
+    os.set_blocking(fired_read, False)
+    try:
+        result = subprocess.run([sys.executable, "-I", "-c", _FETCH_WATCHDOG, str(UPSTREAM_FETCH_SECONDS),
+                                 str(fired_write), *args],
+                                capture_output=True, text=True, env=_no_prompt_env(repo), pass_fds=(fired_write,),
+                                timeout=UPSTREAM_FETCH_SECONDS + 10, stdin=alive_read, start_new_session=True)
+        if _guard_fired(fired_read):
+            why = f"no answer in {UPSTREAM_FETCH_SECONDS}s"
+        else:
+            why = "" if result.returncode == 0 else (result.stderr.strip().splitlines()
+                                                     or [f"exit {result.returncode}"])[-1]
+    except subprocess.TimeoutExpired:
+        why = f"no answer in {UPSTREAM_FETCH_SECONDS}s"
+    except OSError as error:
+        why = str(error)
+    finally:
+        for fd in (alive_read, alive_write, fired_read, fired_write):
+            os.close(fd)
+    return " ".join(why.split())
+
+
+def _guard_fired(fired_read: int) -> bool:
+    """Whether the fetch's guard ended it at the time limit: its byte is in the pipe before it kills the fetch, so
+    it is there by the time the keeper has seen the fetch end. Only that is a timeout; an exit code is never read as
+    one (cmux#41765 review: a git that exited 124 at once was reported as "no answer in 30s")."""
+    try:
+        return bool(os.read(fired_read, 1))
+    except BlockingIOError:
+        return False
+
+
+# The fetch's keeper, the first process of the fetch's own session (cmux#41750 review). The session keeps the fetch
+# off the caller's terminal, but it also took it out of the caller's process group: prepush_fast_tier.py SIGKILLs its
+# worker's group after 4 s, and the fetch ran on (ssh with no limit, no stamp) while the next checker started another;
+# a Ctrl-C reaches only the terminal's foreground group, and subprocess.run answers it by killing its own child alone.
+# The guard says it ended the fetch at the limit by writing a byte to the fd named in argv[2] first (_guard_fired);
+# the keeper's exit is the fetch's own code, or 128 + the signal that ended it.
+# A SIGKILL runs no handler, so the keeper's guard watches a pipe instead, whose write end only the caller holds:
+# when the caller is gone or done (it closes the pipe on every way out of _fetch_upstream, an interrupt included),
+# the pipe reads EOF and the guard kills the fetch's process group (git and the ssh or helper it started). The guard
+# is a fork of its own, out of that group and with no hold on the caller's output pipes, so it outlives a keeper the
+# caller killed. It enforces the fetch's time limit the same way.
+_FETCH_WATCHDOG = r"""
+import os, select, signal, subprocess, sys, time
+deadline = time.monotonic() + float(sys.argv[1])
+fired = int(sys.argv[2])
+fetch = subprocess.Popen(sys.argv[3:], stdin=subprocess.DEVNULL, preexec_fn=os.setpgrp)
+if os.fork() == 0:
+    null = os.open(os.devnull, os.O_RDWR)
+    os.dup2(null, 1)
+    os.dup2(null, 2)
+    while time.monotonic() < deadline:
+        if select.select([0], [], [], min(deadline - time.monotonic(), 0.2))[0] and not os.read(0, 1):
+            break
+        try:
+            os.killpg(fetch.pid, 0)
+        except ProcessLookupError:
+            os._exit(0)
+        except PermissionError:
+            pass
+    else:
+        os.write(fired, b"T")
+    try:
+        os.killpg(fetch.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    os._exit(0)
+os.close(fired)
+code = fetch.wait()
+sys.exit(code if code >= 0 else 128 - code)
+"""
+
+
+def refresh_base(repo: Path | str, ref: str, remote: str | None = DEFAULT_REMOTE) -> str:
+    """Fetch REF (`origin/feat-cmux-next`, `refs/remotes/origin/main`) from REMOTE before a tool measures a branch's
+    own change from where HEAD meets it (see the module docstring); refresh_upstream once per process (a failure too),
+    with no per-push stamp.
+    Returns "" when it is fresh or left alone (a sha, another remote, a remote that does not map it), else the note
+    on why the stale copy is used. Never on GitHub Actions: a CI checkout fetches the base it diffs against itself,
+    and a fetch there would deepen a shallow clone."""
+    if os.environ.get("GITHUB_ACTIONS"):
+        return ""
+    if ref.startswith("refs/remotes/"):
+        ref = ref[len("refs/remotes/"):]
+    done = (os.path.realpath(repo), remote, ref)
+    if done not in _REFRESHED:
+        _REFRESHED[done] = refresh_upstream(Path(repo), remote, ref, whose="this branch's own", then="run this again")
+    return _REFRESHED[done]
+
+
+# refresh_base's result per (clone, remote, ref) for this process, a failed fetch's note included (cmux#41662 review):
+# the Rust panic ratchet asked once per failing crate/lint group, so three groups fetched three times and a stalled
+# remote cost 30 s each. Every reader loads this file under one module name, so they share it.
+_REFRESHED: dict[tuple[str, str | None, str], str] = {}
+
+
+def manual_range(repo: Path, head: str = "HEAD", upstream_ref: str = UPSTREAM,
+                 remote: str | None = DEFAULT_REMOTE) -> OwnRange:
+    """own_range for a run outside a push (no pre-push stdin): the shared base is fetched first (refresh_base), as
+    pushed_ranges does for a push, and a fetch that fails is said in the note."""
+    stale = refresh_base(repo, upstream_ref, remote)
+    own = own_range(repo, head, [], upstream_ref, remote)
+    return dataclasses.replace(own, note=own.note + stale) if stale else own
+
+
 def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REMOTE,
                   upstream_ref: str = UPSTREAM) -> tuple[list[OwnRange], list[str]]:
     """Pre-push stdin rows (`<local ref> <local sha> <remote ref> <remote sha>`) as (own ranges, errors).
@@ -413,8 +690,16 @@ def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REM
     tree or blob pushes no commit and is left out. A remote head this clone does not have (someone pushed since
     the last fetch) bounds nothing itself (the tracking ref still does); the note says so. A row whose own range
     cannot be told (own_range's ValueError) is an error line naming the ref: the caller refuses the push with it.
+    The shared base is fetched first (refresh_upstream), unless every pushed row lands on that branch itself (its
+    remote head bounds the walk) or deletes.
     """
     ranges, errors = [], []
+    branch = upstream_ref.split("/", 1)[-1]
+    rows = [line.split() for line in lines]
+    pushing = [parts for parts in rows if len(parts) == 4 and parts[1] != ZERO_SHA]
+    stale = ""
+    if any(parts[2] != f"refs/heads/{branch}" for parts in pushing):
+        stale = refresh_upstream(repo, remote, upstream_ref, key="\n".join(" ".join(parts) for parts in pushing))
     for line in lines:
         parts = line.split()
         if len(parts) != 4 or parts[1] == ZERO_SHA:
@@ -431,6 +716,8 @@ def pushed_ranges(repo: Path, lines: list[str], remote: str | None = DEFAULT_REM
         if remote_sha != ZERO_SHA and not known:
             own = dataclasses.replace(own, note=own.note + f"; the remote head {remote_sha[:11]} is not in this "
                                                           "clone (git fetch), so it bounds nothing itself")
+        if stale:
+            own = dataclasses.replace(own, note=own.note + stale)
         ranges.append(own)
     return ranges, errors
 

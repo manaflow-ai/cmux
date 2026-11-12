@@ -376,6 +376,7 @@
       "add-tabs-to-tab-group",
       "apply-layout",
       "bind-conversation-tab-session",
+      "cancel-creating-input",
       "clear-history",
       "clear-window-title",
       "client-focus",

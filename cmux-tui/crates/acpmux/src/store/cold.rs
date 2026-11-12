@@ -117,7 +117,7 @@ pub struct StagedCold {
 
 impl Drop for StagedCold {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.tmp);
+        let _ = crate::home_fs::remove_file(&self.tmp);
     }
 }
 
@@ -216,8 +216,10 @@ fn log_holds(archive: &Path, events: &Path) -> Result<bool> {
     Ok(true)
 }
 
+/// Removes the tree at `path` when there is one, through the held home (`home_fs`): a home
+/// replaced meanwhile never loses a tree of the new daemon's (#41372 review F2).
 fn remove_dir_if_there(path: &Path) -> Result<()> {
-    match std::fs::remove_dir_all(path) {
+    match crate::home_fs::remove_dir_all(path) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
         _ => Ok(()),
     }
@@ -293,12 +295,14 @@ impl LocalStore {
     /// chat removed the first one's archive as covered, and the first then removed the log).
     fn settle_cold_locked(&self, id: &str, _cold: &std::sync::MutexGuard<'_, ()>) -> Result<()> {
         let dir = self.dir(id);
+        // Every removal and rename below goes through the held home (`home_fs`).
+        crate::config::refuse_lost_home(&dir)?;
         if let Ok(rd) = std::fs::read_dir(&dir) {
             let mine = format!("{COLD_FILE}.tmp-{}-", std::process::id());
             for entry in rd.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
                 if name.starts_with(&format!("{COLD_FILE}.tmp-")) && !name.starts_with(&mine) {
-                    let _ = std::fs::remove_file(entry.path());
+                    let _ = crate::home_fs::remove_file(entry.path());
                 }
             }
         }
@@ -311,11 +315,11 @@ impl LocalStore {
         let events = dir.join("events");
         let covered = log_holds(&archive, &events).unwrap_or(false);
         if covered {
-            std::fs::remove_file(&archive)?;
+            crate::home_fs::remove_file(&archive)?;
         } else {
             let kept = dir.join(format!("{COLD_FILE}.orphan-{}", now_ms()));
             tracing::warn!(session = %id, "a cold archive beside a log that does not hold it is kept as {}", kept.display());
-            std::fs::rename(&archive, kept)?;
+            crate::home_fs::rename(&archive, &kept)?;
         }
         sync_directory(&dir)
     }
@@ -328,7 +332,7 @@ impl LocalStore {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let tmp = self.dir(id).join(format!("{COLD_FILE}.tmp-{}-{n}", std::process::id()));
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
         // Every file is opened, and its length taken, before a byte is written: a line appended
         // since is not in the archive, and the commit refuses the log.
         let mut opened = Vec::with_capacity(files.len());
@@ -397,18 +401,20 @@ impl LocalStore {
             if let Some(w) = writers.open.remove(id) {
                 w.close(id, &self.sync_failed);
             }
-            std::fs::rename(&staged.tmp, self.cold_path(id))?;
+            // The renames go through the held home (`home_fs`).
+            crate::config::refuse_lost_home(&dir)?;
+            crate::home_fs::rename(&staged.tmp, self.cold_path(id))?;
             sync_directory(&dir)?;
             #[cfg(test)]
             super::log_sync::hold(&HOLD_AFTER_COLD_PUBLISH);
             let aside = dir.join(DROP_DIR);
             remove_dir_if_there(&aside)?;
-            std::fs::rename(dir.join("events"), &aside)?;
+            crate::home_fs::rename(dir.join("events"), &aside)?;
             sync_directory(&dir)?;
         }
-        let _ = std::fs::remove_dir_all(dir.join(DROP_DIR));
-        let _ = std::fs::remove_dir_all(dir.join(super::kind_index::DIR));
-        let _ = std::fs::remove_dir_all(dir.join(super::text_index::DIR));
+        let _ = crate::home_fs::remove_dir_all(dir.join(DROP_DIR));
+        let _ = crate::home_fs::remove_dir_all(dir.join(super::kind_index::DIR));
+        let _ = crate::home_fs::remove_dir_all(dir.join(super::text_index::DIR));
         Ok(true)
     }
 
@@ -446,16 +452,18 @@ impl LocalStore {
         sync_directory(&thaw)?;
         let events = dir.join("events");
         let aside = dir.join(DROP_DIR);
-        if std::fs::symlink_metadata(&events).is_ok() {
+        // Read and changed in the held home (`home_fs`): a home replaced since the decode's
+        // checks keeps its `events/` and its archive (#41372 review F2).
+        if crate::home_fs::exists_nofollow(&events) {
             // No segment in it (checked above): an empty folder an append made, or a lone record.
             remove_dir_if_there(&aside)?;
-            std::fs::rename(&events, &aside)?;
+            crate::home_fs::rename(&events, &aside)?;
         }
-        std::fs::rename(&thaw, &events)?;
+        crate::home_fs::rename(&thaw, &events)?;
         sync_directory(&dir)?;
-        std::fs::remove_file(&archive)?;
+        crate::home_fs::remove_file(&archive)?;
         sync_directory(&dir)?;
-        let _ = std::fs::remove_dir_all(&aside);
+        let _ = crate::home_fs::remove_dir_all(&aside);
         if let Some(hook) = self.rehydrate_hook.get() {
             hook(id);
         }

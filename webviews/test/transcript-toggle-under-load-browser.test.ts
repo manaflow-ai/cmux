@@ -15,11 +15,16 @@
 // - The clicked line opens and stays open through every streamed update.
 // - It stays on the pixel it was clicked at, and the run's header with it: the view stops following.
 //
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: the run it clicks is a
+// finished run of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
+//
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -154,6 +159,9 @@ await requireBrowserLane("transcript-toggle-under-load-browser.test.ts", async (
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser.newPage({ viewport: { width: 900, height: 760 } });
     await installPaintedFrames(page);
+    await pinLiveTurnRuns(page);
+    // This suite measures transcript growth; a boxed run keeps its output in a separate scroller.
+    await pinArms(page, { "run-scroll": "inline" });
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showLiveRows" in window);
@@ -280,15 +288,10 @@ await requireBrowserLane("transcript-toggle-under-load-browser.test.ts", async (
       test(`${name}: a ${pick} line clicked during a slow render while the turn streams opens in place`, async () => {
         const page = await open(browsers[name]!);
         const failures: string[] = [];
-        // The run is open while it runs: its line closes on the first click, so open the command
-        // under it, and for the run's own line close it first, then open it slowly.
-        if (pick === "run") {
-          const shut = await page.evaluate(() => {
-            const line = document.querySelector<HTMLElement>('[data-row-id="run-b"] [aria-expanded]')!;
-            if (line.getAttribute("aria-expanded") === "true") line.click();
-            return true;
-          });
-          if (shut) await settle(page);
+        // Runs start closed. The command case opens its run first, then presses a closed call.
+        if (pick === "command") {
+          await page.locator('[data-row-id="run-b"] button[data-tool-group]').first().click();
+          await settle(page);
           await toLatest(page);
         }
         if (!(await atLatest(page))) failures.push("the view does not start at the latest row");

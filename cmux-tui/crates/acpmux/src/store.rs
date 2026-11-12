@@ -1755,7 +1755,7 @@ impl HistoryWriter for SegmentZero {
         let Some(file) = self.file.take() else { anyhow::bail!("history segment committed") };
         let file = file.into_inner().map_err(|e| anyhow::anyhow!("{e}"))?;
         file.sync_all()?;
-        std::fs::rename(&self.tmp, &self.path)?;
+        crate::home_fs::rename(&self.tmp, &self.path)?;
         sync_directory(&self.dir)?;
         // `events/`, and the chat's folder, may be new (a fork with no record of its own yet): the
         // folders that name them are synced too, or a power loss could keep the meta that drops the
@@ -1770,7 +1770,7 @@ impl HistoryWriter for SegmentZero {
 impl Drop for SegmentZero {
     /// One never committed leaves nothing; a committed one was renamed away.
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.tmp);
+        let _ = crate::home_fs::remove_file(&self.tmp);
     }
 }
 
@@ -1904,7 +1904,7 @@ impl Store for LocalStore {
         crate::config::private_state_dir(&dir)?;
         let path = dir.join("000000.ndjson");
         let tmp = dir.join("000000.ndjson.history");
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
         let file = std::io::BufWriter::with_capacity(256 * 1024, open_private_append(&tmp)?);
         Ok(Some(Box::new(SegmentZero { file: Some(file), tmp, path, dir })))
     }
@@ -2125,7 +2125,7 @@ impl Store for LocalStore {
             if !dir.exists() {
                 return Ok(());
             }
-            match std::fs::remove_dir_all(&dir) {
+            match crate::home_fs::remove_dir_all(&dir) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     last = Some(e);
@@ -2163,12 +2163,12 @@ impl Store for LocalStore {
 /// Sync a directory entry after a file or subdirectory was created or replaced.
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     #[cfg(test)]
     if log_sync::fail_dir_sync(path) {
         return Err(SyncFailed(std::io::Error::other("a failed folder sync (a test)")).into());
     }
-    let dir = OpenOptions::new()
+    // The folder the held home has at `path` (`home_fs`), the one a rename through it changed.
+    let dir = crate::home_fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
