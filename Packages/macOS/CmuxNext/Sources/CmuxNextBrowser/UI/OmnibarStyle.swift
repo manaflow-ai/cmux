@@ -89,11 +89,11 @@ enum OmnibarStyle {
 
     // MARK: Omnibox
 
-    /// Bar corner radius.
-    /// The default bar radius: the one corner radius itself, whose default is the omnibar's 8 pt
-    /// (Lawrence 2026-11-05: "default roundness should be omnibar roundness");
-    /// `browser.omnibar.cornerRadius` overrides it.
-    static var barCornerRadius: CGFloat { Metrics.cornerRadius }
+    /// The default bar radius: the bar is a tab pill's height, so it takes the tab's Chrome radius
+    /// (`Metrics.tabCornerRadius`; Lawrence 2026-11-11: "same roundness as chrome"). With a radius the
+    /// person set (`Metrics.cornerRadiusIsSet`) it is that radius itself (Lawrence 2026-11-05: "default
+    /// roundness should be omnibar roundness"). `browser.omnibar.cornerRadius` overrides both.
+    static var barCornerRadius: CGFloat { Metrics.cornerRadiusIsSet ? Metrics.cornerRadius : Metrics.tabCornerRadius }
     /// Page-info chip.
     static var chipSize: CGFloat { barHeight - 4 }
     static var chipCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: cardCornerRadius, inset: chipLeading) }

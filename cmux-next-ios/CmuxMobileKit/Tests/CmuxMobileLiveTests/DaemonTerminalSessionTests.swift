@@ -559,17 +559,23 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(session.isAlternateScreen)
     }
 
-    @Test func attachFailureIsShownInTheTerminal() async throws {
+    /// The failure is kept for the log and said through the state (a quiet
+    /// line by the composer), never written into the terminal: transport
+    /// bytes on the stream read as live output and wiped the cached frame
+    /// (Leo, 2026-11-12: "wack reconnection state / just show the cache").
+    @Test func attachFailureIsSaidByTheStateNotTheTerminal() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let session = DaemonTerminalSession(surface: 9) {
             DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         }
+        session.reattachBackoff = []
         var events: [TerminalSessionEvent] = []
         session.start { events.append($0) }
         try await waitUntil { session.lastError != nil }
         #expect(session.lastError?.contains("unknown surface") == true)
-        #expect(events.contains { if case .output = $0 { true } else { false } })
+        try await waitUntil { if case .failed = session.connectionState { true } else { false } }
+        #expect(!events.contains { if case .output = $0 { true } else { false } })
     }
 
     /// The link dropped (background, transport switch, Mac restart): the

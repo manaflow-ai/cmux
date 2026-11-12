@@ -95,6 +95,15 @@ import tempfile
 import threading
 import time
 from typing import Any
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 MAX_SECONDS = 300
 
@@ -1310,14 +1319,14 @@ def stop_apps(bundles: list[Path], session: Session) -> bool:
     clean = True
     for bundle in bundles:
         if not (bundle / "Contents/Info.plist").is_file():
-            print(f"{bundle}: no app here; nothing to stop", flush=True)
+            safe_print(f"{bundle}: no app here; nothing to stop", flush=True)
             continue
         workdir = Path(tempfile.mkdtemp(prefix="cmux-tour-stop.", dir="/tmp"))
         try:
             App(bundle, session, workdir).stop_daemon()
         except (OSError, ValueError, KeyError) as error:
             # A half-built bundle (no CLI, a bad Info.plist) still gets its processes ended.
-            print(f"{bundle.name}: could not stop its daemon ({error})", flush=True)
+            safe_print(f"{bundle.name}: could not stop its daemon ({error})", flush=True)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
         pattern = "^" + re.escape(f"{bundle}/Contents/")
@@ -1331,7 +1340,7 @@ def stop_apps(bundles: list[Path], session: Session) -> bool:
             session.run(["pkill", "-9", "-f", pattern])
             time.sleep(1)
             left = running_from(session, bundle)
-        print(f"{bundle.name}: " + (f"still running {left}" if left else "nothing left running"), flush=True)
+        safe_print(f"{bundle.name}: " + (f"still running {left}" if left else "nothing left running"), flush=True)
         clean = clean and not left
     return clean
 

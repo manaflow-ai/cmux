@@ -246,6 +246,11 @@ path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_guard_logs_survive_closed_pipe.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that a shell guard's message before its kill never skips the kill when nobody reads its output (SIGPIPE), and scans scripts/ for a message before a kill not in the safe form; run python3 -I tests/test_guard_logs_survive_closed_pipe.py yourself after adding or changing a shell guard that logs before it kills (about 30 s; bash, curl and procps)."
+
+[[test]]
 path = "tests/test_guards_new_reds.py"
 lane = "linux-guard"
 
@@ -538,6 +543,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_published_in_comments.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_python_guard_logs_survive_closed_pipe.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Checks that a Python script's line right before it stops a process never skips the kill on a closed stdout (BrokenPipeError): behaviour rows on three cmux-next cleanups and an AST scan of scripts/; run python3 -I tests/test_python_guard_logs_survive_closed_pipe.py yourself after adding or changing a script that prints right before it stops a process (about 20 s; python3 and ps)."
 
 [[test]]
 path = "tests/test_r2_cache_prune.py"

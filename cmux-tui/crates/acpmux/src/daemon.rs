@@ -1152,6 +1152,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             let _ = crate::home_fs::remove_file(file);
         }
     }
+    // Usage counts are written some time after they are made, so an idle
+    // daemon never wakes for them; the last ones are written here.
+    let _ = tokio::task::spawn_blocking(cmux_usage_patterns::flush).await;
     tracing::info!("stopped");
     Ok(())
 }

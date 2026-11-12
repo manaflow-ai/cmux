@@ -144,6 +144,8 @@ pub mod mesh_control;
 pub mod mesh_http;
 pub mod model_copies;
 pub mod name_match;
+#[cfg(target_os = "macos")]
+mod named_files_watch;
 pub mod native;
 pub mod no_panic;
 pub mod offer_mcp;

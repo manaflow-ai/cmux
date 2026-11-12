@@ -1689,6 +1689,7 @@ dependencies = [
 name = "cmux-palette-eval"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
  "cmux-palette-ranker",
  "serde",
  "serde_json",
