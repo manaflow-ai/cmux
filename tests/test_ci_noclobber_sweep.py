@@ -128,8 +128,8 @@ def code(line: str) -> str:
     return shell_tree.code(line)
 
 
-# A mktemp template word is found in the line's parse tree (shell_tree.py beside this file, the same bytes in
-# manaflow-ai/cmux, manaflow-ai/cmux-platform, manaflow-ai/cmuxterm-hq and teamleaderleo/leo-workspace). Shell read by
+# A mktemp template word is found in the line's parse tree (shell_tree.py beside this file, vendored byte for byte
+# from a pinned upstream blob: SHELL_TREE_SHA256 below). Shell read by
 # regex, then by token masking, let a guessable name through three times, and a comment cut at any # once more
 # (shell_tree.MISSES): a line with XXXXXX was exempt whole; a redirection's target was taken for mktemp's argument;
 # overlapping template spans shifted each other, and a template word exempted the substitutions inside it. Now only the
@@ -139,7 +139,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "b7c1cf41d30eae39a099f54bafd92449e0d948f50d5e7f1388efe24cab227aeb"
+SHELL_TREE_SHA256 = "29e5c3198d0845d8679c16cc2e18eb307c015b9324098435026b695f855d7105"
 
 
 def without_templates(line: str) -> str:
@@ -186,7 +186,8 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str, str]]:
             out.append((path, 1, first, first))
         # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
         # a quote across lines keeps its context; the hit keeps the line's own text.
-        for n, (line, scan) in enumerate(zip(text.split("\n"), shell_tree.scan_file(path, text)), 1):
+        scans = shell_tree.scan_file(path, text, root=str(root))  # a source in the repository is followed
+        for n, (line, scan) in enumerate(zip(text.split("\n"), scans), 1):
             for m in [*NOCLOBBER.finditer(scan), *SHARED_TMP.finditer(scan)]:
                 out.append((path, n, code(line).strip() or line.strip(), m.group(0)))
     return out
@@ -324,36 +325,36 @@ class NoclobberSweep(unittest.TestCase):
 
     def test_a_bash_timeout_is_a_named_unavailable_answer(self):
         """manaflow-ai/cmux#41336 review at 911fed64, F1: a bash past its timeout raised TimeoutExpired and stopped
-        the sweep. It is the row's own answer, oracle unavailable, and the row's processes are stopped."""
+        the sweep. It is the row's own answer, a named OracleUnavailable (falsy, never agreement), and the row's
+        processes are stopped."""
+        spin = "while :; do :; done"
         started = time.monotonic()
-        verdict = shell_tree.bash_writes("while :; do :; done", timeout=1)
+        [late] = shell_tree.bash_verdicts([spin], timeout=1)
         self.assertLess(time.monotonic() - started, 8)
-        self.assertIsInstance(verdict, shell_tree.OracleUnavailable)
-        self.assertIn("past 1 s", verdict.reason)
-        self.assertEqual(shell_tree.oracle_failures(["while :; do :; done"], [verdict]),
-                         ["oracle unavailable for 'while :; do :; done': bash ran past 1 s"])
-        with self.assertRaises(TypeError):  # an unavailable answer read as a verdict is an error, never a pass
-            bool(verdict)
+        self.assertIsInstance(late, shell_tree.BashTimeout)
+        self.assertFalse(late, "no answer is never read as an answer")
+        [message] = shell_tree.no_oracle([spin], [late])
+        self.assertIn("no answer from bash", message)
+        self.assertIn(spin, message)
 
     def test_every_oracle_row_is_within_its_budget(self):
         """F1 of the same review: _deep(200) ran bash out of processes. A depth fixture meant for the parser is tree-
-        only, with its reason, and has a bash-sized twin; every other row is within the oracle's substitution budget,
-        and one over it is unavailable, never run."""
+        only, with its reason, and has a bash-sized twin bash answers; a row over MAX_BASH_PROCESSES is unavailable,
+        never run."""
         corpus = dict(shell_tree.corpus())
         self.assertIn(shell_tree._deep(200), shell_tree.TREE_ONLY)
         for line, why in shell_tree.TREE_ONLY.items():
             with self.subTest(line=line[:60]):
                 self.assertIn(line, corpus)
                 self.assertGreater(len(why.strip()), 20)
-        depth = shell_tree.ORACLE_DEPTH
-        self.assertIn(shell_tree._deep(depth), corpus)
-        self.assertTrue(corpus[shell_tree._deep(depth, "; echo > /tmp/out.$$")])
+        [wide] = shell_tree.bash_verdicts([shell_tree._deep(200)])
+        self.assertIsInstance(wide, shell_tree.OracleUnavailable)
+        self.assertIn("MAX_BASH_PROCESSES", wide.reason)
+        depth = shell_tree.BASH_TWIN_DEPTH
         self.assertGreaterEqual(depth, 16)
-        over = [line[:60] for line in corpus if line not in shell_tree.TREE_ONLY
-                and shell_tree.substitutions(line) > shell_tree.ORACLE_SUBS]
-        self.assertEqual(over, [], "rows over the oracle's budget: give each a bash-sized twin and list it in TREE_ONLY")
-        self.assertIsInstance(shell_tree.bash_writes("echo " + "$(echo " * 40 + ")" * 40),
-                              shell_tree.OracleUnavailable)
+        twins = [shell_tree._deep(depth), shell_tree._deep(depth, "; echo > /tmp/out.$$")]
+        self.assertEqual([corpus.get(t) for t in twins], [False, True])
+        self.assertEqual(shell_tree.bash_verdicts(twins), [False, True])
 
     def test_bash_agrees_with_the_tree(self):
         """The differential detector (teamleaderleo/leo-workspace#4368 review at 3aa1ae3e: the parser kept quoting or
@@ -366,13 +367,13 @@ class NoclobberSweep(unittest.TestCase):
         shell = [f for f in shell_tree.FILES if not f[0].endswith(".yml")]
         file_verdicts = shell_tree.bash_verdicts([text for _, text, _ in shell])
         # A row bash gave no answer for (past its time, unable to fork) fails here, with why: UNKNOWN is not a pass.
-        self.assertEqual(shell_tree.oracle_failures([line for line, _ in corpus], verdicts)
-                         + shell_tree.oracle_failures([text for _, text, _ in shell], file_verdicts), [],
+        self.assertEqual(shell_tree.no_oracle([line for line, _ in corpus], verdicts)
+                         + shell_tree.no_oracle([text for _, text, _ in shell], file_verdicts), [],
                          "rows the bash oracle could not answer")
-        lines = [c for c, wrote in zip(corpus, verdicts) if wrote]
+        lines = [c for c, wrote in zip(corpus, verdicts) if wrote is True]
         self.assertEqual([line for line, unsafe in lines if not (unsafe and flagged(code(line)))], [],
                          "lines bash writes a guessable name with, which the tree passes or the corpus calls safe")
-        files = [f for f, wrote in zip(shell, file_verdicts) if wrote]
+        files = [f for f, wrote in zip(shell, file_verdicts) if wrote is True]
         found = scratch_hits(files)
         self.assertEqual([p for p, _, unsafe in files if not (unsafe and p in found)], [],
                          "files bash writes a guessable name with, which hits() passes or FILES calls safe")
@@ -415,10 +416,11 @@ class NoclobberSweep(unittest.TestCase):
         self.assertIsNone(approves(("scripts/a.sh", '"/tmp/x-$tag"', 4), found))
 
     def test_shell_tree_is_the_shared_copy(self):
-        """shell_tree.py is one file in four repos (its docstring); a change to it lands in all four, with this pin."""
+        """shell_tree.py is vendored byte for byte from a pinned upstream blob (its docstring); this pin is its
+        SHA-256."""
         digest = hashlib.sha256(Path(shell_tree.__file__).read_bytes()).hexdigest()
-        self.assertEqual(digest, SHELL_TREE_SHA256, "shell_tree.py is not the shared copy: change it in manaflow-ai/"
-                         "cmux, cmux-platform, cmuxterm-hq and teamleaderleo/leo-workspace together, and each pin")
+        self.assertEqual(digest, SHELL_TREE_SHA256, "shell_tree.py was edited here: change it upstream, then copy "
+                         "the blob byte for byte and update this pin")
 
     def test_an_app_name_excuses_only_app_names(self):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))
