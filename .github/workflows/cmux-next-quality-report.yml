@@ -12,7 +12,12 @@ name: cmux-next quality report
 #   - CI health (Leo, 2026-11-10: "WE DO NOT STAND FOR BAD CI AND LOW QUALITY STUFF EVER"): over the last 50
 #     commits of feat-cmux-next and of main, the share of checks whose newest finished run is green, and the flake
 #     rate (a check that failed and then passed on the same commit), with the checks red now. One GraphQL read
-#     per 5 commits on the route App's checks-read token.
+#     per 5 commits on the route App's checks-read token;
+#   - the first-user journey (Leo, 2026-11-12: "We need to, like, actually properly, like, click through and utilize
+#     every single thing"): the newest results of the web click-through (first-user-journey-web.yml) and the iOS
+#     simulator walk (first-user-journey-ios.yml) here, and the fresh-user Mac walk (cmuxterm-hq
+#     first-user-journey-mac.yml), as cells by harness and sign-in state with their reds by rule. HQ
+#     docs/qa/first-user-journey.md.
 # The JSON, without signature names, is this run's artifact `cmux-next-quality-metrics` (kept 3 days). The full
 # report goes to the one cmuxterm-hq issue "cmux NEXT nightly quality report", with one row per night: that issue
 # is where the numbers are kept over time. This public repository's step summary gets the numbers only. Nothing here
@@ -107,6 +112,22 @@ jobs:
           GH_TOKEN: ${{ steps.hq-read.outputs.token }}
         run: python3 -I scripts/cmux-next/perf-cron.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/perf-state"
 
+      # Each surface's newest results artifact, on the read token (actions read here and on cmuxterm-hq). A surface
+      # that cannot be read is n/a in the report with the reason; one older than 48 h is stale.
+      - name: Fetch the first-user journey results
+        if: steps.done.outputs.cache-hit != 'true' && steps.hq-read.outputs.token != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+        run: |
+          for row in "web $GITHUB_REPOSITORY first-user-journey-web.yml" \
+                     "ios $GITHUB_REPOSITORY first-user-journey-ios.yml" \
+                     "mac manaflow-ai/cmuxterm-hq first-user-journey-mac.yml"; do
+            set -- $row
+            python3 -I scripts/cmux-next/quality-report.py fetch-journey --repo "$2" --workflow "$3" \
+              --artifact "first-user-journey-$1" --dir "$RUNNER_TEMP/journey/$1" || true
+          done
+
       - name: Build the report
         if: steps.done.outputs.cache-hit != 'true'
         env:
@@ -117,9 +138,13 @@ jobs:
           set -euo pipefail
           out="$RUNNER_TEMP/quality"
           mkdir -p "$out"
+          journey=()
+          for surface in web ios mac; do
+            journey+=(--first-user-journey "$RUNNER_TEMP/journey/$surface/results.json")
+          done
           python3 -I scripts/cmux-next/quality-report.py report --hours 24 \
             --perf-state "$RUNNER_TEMP/perf-state/state.json" \
-            --ci-branches feat-cmux-next,main --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" \
+            --ci-branches feat-cmux-next,main --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" "${journey[@]}" \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
             --md "$out/quality-report.md" --public-md "$out/quality-summary.md"
           cat "$out/quality-summary.md" >> "$GITHUB_STEP_SUMMARY"
