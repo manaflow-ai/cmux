@@ -16,6 +16,14 @@ import Testing
         return .object(body)
     }
 
+    /// A clock the test moves by hand.
+    private nonisolated final class Clock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var instant = Date(timeIntervalSince1970: 1_000_000)
+        var now: Date { lock.withLock { instant } }
+        func advance(_ by: TimeInterval) { lock.withLock { instant = instant.addingTimeInterval(by) } }
+    }
+
     private func ids(_ prompts: [JSONValue]) -> [String] {
         prompts.compactMap { if case .object(let body) = $0, case .string(let id)? = body["promptId"] { id } else { nil } }
     }
@@ -53,12 +61,11 @@ import Testing
     @Test func anOldPromptStaysWhenItsChatIsWrittenAgain() async throws {
         let dir = directory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        final class Clock: @unchecked Sendable { var now = Date(timeIntervalSince1970: 1_000_000) }
         let clock = Clock()
         let store = AgentPaneUnsentPrompts(directory: dir, now: { clock.now })
         await store.put(record("old", "from long ago", refused: true), for: "chat")
         await store.settle()
-        clock.now = clock.now.addingTimeInterval(365 * 24 * 60 * 60)
+        clock.advance(365 * 24 * 60 * 60)
         await store.put(record("new", "today", refused: false), for: "chat")
         #expect(ids(await AgentPaneUnsentPrompts(directory: dir).prompts(for: "chat")) == ["old", "new"])
     }
