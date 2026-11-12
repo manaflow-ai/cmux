@@ -153,7 +153,8 @@ NESTABLE = (
     "$'c1\\0x'",
     "$'c1'",
     "env $'c1\\0x' a",
-    # No NUL: these decode to text that runs, and must keep parsing.
+    # No NUL: each decodes to a command name, which the tree read from the undecoded text before (a name in an eval
+    # string came from parse()'s text, so $'\x63' there stayed x63); then rows that must keep parsing as they did.
     "eval $'\\x631'",
     "eval $'c\\061'",
     "eval $'c\\u0031'",
