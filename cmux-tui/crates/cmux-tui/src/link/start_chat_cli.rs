@@ -462,9 +462,9 @@ fn plan_with_calls(
                 Ok(body) => {
                     let line = ensure_answer(Ok(body));
                     let Some(id) = line.get("machine").and_then(Value::as_str) else { return line };
-                    // Pinned before the App opens anything there, as a machine the App made.
+                    let made = line.get("created") == Some(&json!(true)); // pinned before the App opens anything there
                     if let Err(error) = Ledger::update(ledger, |pins| {
-                        pins.record_made(id, &send, line["created"] == true);
+                        pins.record_made(id, &send, made);
                         if let Some(workspace) = workspace {
                             pick::claim(pins, workspace, &request.account, id);
                         }
