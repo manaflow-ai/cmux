@@ -110,6 +110,8 @@ impl Hub {
     /// The harness is gone and its background subagents with it.
     pub(super) fn end_background_subagents(&self, session: &Session) {
         session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
+        // Each one it took down can be resumed from its transcript (`subagent_resume.rs`).
+        self.subagents_lost(session);
         self.refresh_work_below(session);
         // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
         self.subagent_notices_sweep(session);

@@ -114,7 +114,11 @@ impl Hub {
         by: RetryBy,
     ) -> Result<Value, RpcError> {
         match subagent {
-            Some(subagent) => self.retry_subagent(session, subagent, by).await,
+            // A stopped one starts again from its transcript and brief (`subagent_resume.rs`).
+            Some(subagent) => match self.resumable_subagent(session, subagent).await {
+                Some((id, brief)) => self.resume_subagent(session, id, brief, by).await,
+                None => self.retry_subagent(session, subagent, by).await,
+            },
             None => self.retry_turn(session, by).await,
         }
     }

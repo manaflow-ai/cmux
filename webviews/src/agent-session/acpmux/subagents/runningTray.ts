@@ -21,6 +21,7 @@ import { nestAgents } from "./agentsPillModel";
 import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import { retrying, retryKey, sessionRetry, type RetryState } from "./retryState";
+import { resumedRun } from "./resumeState";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
 import { PrefixFlatCache } from "../conversation/prefixFlatMap";
 
@@ -86,7 +87,10 @@ export function trayItems(
   working: boolean,
 ): TrayItem[] {
   const retries = childRetries(sessions);
+  // A run a Resume started shows as the row it continues (resumeState.ts), once.
+  const known = new Map(agents.map((agent) => [agent.id, agent]));
   const live = agents
+    .filter((agent) => !resumedRun(agent, known))
     // One acpmux retries is about to run again: it shows with the running ones, turn or not. A
     // sub-session's retry is on its own session row: its line carries it, to read "Retrying (2/4)".
     .flatMap((agent) => {
@@ -141,7 +145,10 @@ const liveSession = (session: StartedSession) =>
 /// (their end is not known here), those with no creation time last.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
   const retries = childRetries(sessions);
-  const ended = agents.filter((agent) => agent.state !== "running" && !awaitsOwnWork(agent) && !retries(agent));
+  const known = new Map(agents.map((agent) => [agent.id, agent]));
+  const ended = agents.filter(
+    (agent) => agent.state !== "running" && !awaitsOwnWork(agent) && !retries(agent) && !resumedRun(agent, known),
+  );
   // Each subtree's latest end, in one pass over a parent-to-children map (a loop is cut where it
   // meets an agent already on the path).
   const ids = new Set(ended.map((agent) => agent.id));

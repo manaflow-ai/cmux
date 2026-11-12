@@ -270,6 +270,8 @@ impl Hub {
         if closing(session) {
             return;
         }
+        // A stopped one's Resume (`subagent_resume.rs`).
+        self.observe_resumable(session, events);
         self.observe_entries(session, events);
     }
 
@@ -283,8 +285,9 @@ impl Hub {
             let subs = all.subs.entry(session.id.clone()).or_default();
             let gone = all.gone.entry(session.id.clone()).or_default();
             for e in events.iter().filter(|e| e.get("parent").is_some_and(Value::is_null)) {
-                // acpmux's own retry updates (`log_step`) change nothing.
-                if e.get("retryable").is_some() {
+                // acpmux's own retry and resume updates (`log_step`, `subagent_resume.rs`)
+                // change nothing.
+                if e.get("retryable").is_some() || e.get("resumable").is_some() {
                     continue;
                 }
                 let text = |k: &str| e.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
@@ -485,6 +488,8 @@ impl Hub {
             self.skip_wait(session, &id, failure, why, "failed", !closed);
         }
         if closed {
+            // Nothing of a closed chat resumes (`subagent_resume.rs`).
+            self.forget_resumable(session);
             // Every entry it logged is settled now.
             self.set_retry_open(session, false);
         } else {

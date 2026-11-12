@@ -297,6 +297,7 @@ import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTa
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit } from "./subagents/trayMotionModel";
 import { runRetry, type RetryTarget } from "./subagents/retryState";
+import { runResume } from "./subagents/resumeState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
@@ -4086,6 +4087,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
           const send = (text: string) => callNative("chat.send", { text });
           return runRetry(agent, owner, { request, send, capabilities: client.capabilities, reaches }, translate);
+        })(restartChat),
+        // Resume asks acpmux to start a stopped subagent again from its transcript (resumeState.ts).
+        resumeAgent: ((owner: string) => (agent: Subagent) => {
+          const client = directClient.current;
+          const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
+          if (!client) return Promise.resolve("retry.failed" as const);
+          const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
+          return runResume(agent, owner, { request, capabilities: client.capabilities, reaches });
         })(restartChat),
       }),
       ...(connected &&
