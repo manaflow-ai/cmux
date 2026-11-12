@@ -23,10 +23,10 @@ afterAll(() => {
     else delete scope[key];
 });
 
+// Bounded by turns of the event loop, not wall time: a loaded runner is slower, never red.
 const settle = async (done: () => boolean) => {
-  const deadline = performance.now() + 3_000;
-  while (!done()) {
-    if (performance.now() > deadline) throw new Error(`timed out waiting for ${done.toString()}`);
+  for (let turns = 0; !done(); turns += 1) {
+    if (turns > 20_000) throw new Error(`never settled: ${done.toString()}`);
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 };
