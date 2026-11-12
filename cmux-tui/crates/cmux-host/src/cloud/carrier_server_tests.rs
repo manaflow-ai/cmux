@@ -981,6 +981,8 @@ mod model {
         /// Resumes picked with a bind or another resume landing before
         /// they were acted on.
         overtaken_resumes: u64,
+        /// Initial-bind ticket requests, before any resume invalidates the seed.
+        initial_prefetches: u64,
         trace: Vec<String>,
     }
 
@@ -1003,6 +1005,7 @@ mod model {
                 waited_resumes: 0,
                 picked: None,
                 overtaken_resumes: 0,
+                initial_prefetches: 0,
                 trace: Vec::new(),
             }
         }
@@ -1087,6 +1090,9 @@ mod model {
                 && self.in_flight.iter().any(|r| r.generation == self.core.generation)
             {
                 self.fail(seed, "two requests of one generation on their way");
+            }
+            if task.mint && task.ticket.is_some() && generation == self.core.bound_at {
+                self.initial_prefetches += 1;
             }
             self.in_flight.push(Request { generation, binding, task });
         }
@@ -1210,6 +1216,7 @@ mod model {
     fn random_interleavings_keep_one_request_per_want_and_no_older_ticket() {
         let (mut handed, mut refused, mut wanted, mut stale, mut waited) = (0, 0, 0, 0, 0);
         let mut overtaken = 0;
+        let mut initial_prefetches = 0;
         for seed in 0..SEEDS {
             let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
             let mut model = Model::new();
@@ -1253,9 +1260,11 @@ mod model {
             stale += model.stale_replies;
             waited += model.waited_resumes;
             overtaken += model.overtaken_resumes;
+            initial_prefetches += model.initial_prefetches;
         }
         // Every path the invariants guard was driven, many times over.
         let reached = [
+            ("initial-bind prefetches", initial_prefetches),
             ("tickets handed out", handed),
             ("replies refused at the hand-out as stale", refused),
             ("ticket requests for asks", wanted),
