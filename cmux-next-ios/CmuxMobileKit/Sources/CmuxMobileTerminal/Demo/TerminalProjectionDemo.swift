@@ -162,7 +162,7 @@ final class TerminalProjectionView: UIView, UIScrollViewDelegate {
         // The surface is made once it is in a window; its cells are measured then.
         let measured = surface.cellSize
         guard measured.width > 0, measured.height > 0 else {
-            DispatchQueue.main.async { [weak self] in self?.setNeedsLayout() }
+            Task { @MainActor [weak self] in self?.setNeedsLayout() }
             return
         }
         cell = measured
@@ -231,7 +231,7 @@ final class TerminalProjectionView: UIView, UIScrollViewDelegate {
     }
 
     private func caption(_ text: String) {
-        DispatchQueue.main.async { [onCaption] in onCaption(text) }
+        Task { @MainActor [weak self] in self?.onCaption(text) }
     }
 
     // MARK: Indicator
