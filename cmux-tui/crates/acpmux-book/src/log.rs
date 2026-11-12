@@ -27,9 +27,10 @@
 //!
 //! **Durability.** A record is in the kernel when `append_settled` returns, so a kill of every
 //! process keeps it. [`Log::sync`] (for an `act` acknowledgement) and [`Log::write_checkpoint`]
-//! put it on the disk. A kill mid-write leaves a torn record at the end of the last segment;
-//! [`Log::open`] finds it by its crc and cuts it off (`set_len`). Only the last segment can be
-//! torn, because a segment is synced before the next one is made.
+//! put it on the disk. A kill mid-write leaves an incomplete record at the end of the last
+//! segment; [`Log::open`] cuts it off (`set_len`). A complete record with a bad check is damage
+//! and requires a rebuild. Only the last segment can be torn, because a segment is synced
+//! before the next one is made.
 //!
 //! **The indexes are derived.** With a checkpoint, `open` re-applies the records after it (the
 //! index writes before it were synced first). With none, it rebuilds both indexes from the

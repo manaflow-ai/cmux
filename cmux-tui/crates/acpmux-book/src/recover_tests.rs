@@ -131,9 +131,8 @@ fn killed_across_the_largest_record() {
 }
 
 #[test]
-fn bytes_after_the_last_record_that_are_not_a_record_are_cut_off() {
-    for junk in [vec![0u8; 1], vec![0u8; 4096], vec![0xffu8; 300], b"not a record at all".to_vec()]
-    {
+fn incomplete_headers_after_the_last_record_are_cut_off() {
+    for junk in [vec![0u8; 1], b"not a record at all".to_vec()] {
         let home = tempfile::tempdir().unwrap();
         {
             let (mut log, _) = open(home.path());
@@ -149,6 +148,26 @@ fn bytes_after_the_last_record_that_are_not_a_record_are_cut_off() {
         assert_rows(&mut log, 320);
         settle(&mut log, 321, 330);
         assert_rows(&mut log, 330);
+    }
+}
+
+#[test]
+fn complete_invalid_headers_are_damage_and_preserved() {
+    for junk in [vec![0u8; 4096], vec![0xffu8; 300]] {
+        let home = tempfile::tempdir().unwrap();
+        {
+            let (mut log, _) = open(home.path());
+            settle(&mut log, 1, 300);
+            log.write_checkpoint(&[], &[]).unwrap();
+            settle(&mut log, 301, 320);
+        }
+        let path = segment(home.path());
+        let mut file = OpenOptions::new().append(true).open(&path).unwrap();
+        file.write_all(&junk).unwrap();
+        let len = file.metadata().unwrap().len();
+        drop(file);
+        assert!(matches!(Log::open(home.path(), Options::default()), Err(Error::Corrupt(_))));
+        assert_eq!(fs::metadata(path).unwrap().len(), len);
     }
 }
 
