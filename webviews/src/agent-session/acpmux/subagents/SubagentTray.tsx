@@ -265,6 +265,8 @@ export const SubagentTray = memo(function SubagentTray({
   const [oneName, setOneName] = useState(false);
   // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
   const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
+  // The list height the person dragged the rim to (trayResize.ts), shared by every hat.
+  const hatHeight = useHatHeight();
   // The lines open in place (TrayLineDetail.tsx): a click on a line expands it, never navigates.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const toggleLine = useCallback(
@@ -608,7 +610,6 @@ export const SubagentTray = memo(function SubagentTray({
   };
   // The top rim drags the list taller or shorter (trayResize.ts): up from folded opens it, down past
   // its last line folds it, a double-click goes back to the default five lines.
-  const hatHeight = useHatHeight();
   const resizes = !(headed && opensPanel === "header");
   const onRimDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
